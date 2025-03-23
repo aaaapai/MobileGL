@@ -115,9 +115,9 @@ void Log##name(const char* format, ...) { \
     void LogInit() {
         if (!MG_Global::Common::LOG_FILE_PATH)
             return;
-        
-        logFile = fopen(MG_Global::Common::LOG_FILE_PATH, "a");
+
         LogClear();
+        logFile = fopen(MG_Global::Common::LOG_FILE_PATH, "a");
     }
 
     void LogWrite(const char* format, ...) {

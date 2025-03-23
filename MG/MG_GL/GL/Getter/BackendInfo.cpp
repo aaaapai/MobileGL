@@ -80,7 +80,7 @@ namespace MG_GL::Getter {
         backendVersion = "<Unknown Backend>";
 #endif
 
-        MG_Util::Debug::LogI("MobileGL Renderer Info:\n");
+        MG_Util::Debug::LogI("MobileGL Renderer Info:");
         MG_Util::Debug::LogI("----%s:", MGName.c_str());
         MG_Util::Debug::LogI("--------MobileGL Version: %s", MGVersion.c_str());
         MG_Util::Debug::LogI("--------Implemented OpenGL Version: %s", GLVersion.c_str());
