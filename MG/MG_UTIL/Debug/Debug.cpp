@@ -77,7 +77,7 @@ namespace MG_Util::Debug {
         vprintf(full_format.c_str(), args);
         va_list args_copy;
         va_copy(args_copy, args);
-        LogWrite(full_format.c_str(), args_copy);
+        LogWrite(full_format.c_str(), args);
         va_end(args_copy);
     }
     
@@ -128,7 +128,6 @@ void Log##name(const char* format, ...) { \
         va_start(args, format);
         vfprintf(logFile, format, args);
         va_end(args);
-        fprintf(logFile, "\n");
         fflush(logFile);
 #if FORCE_SYNC_WITH_LOG_FILE == 1
         int fd = fileno(logFile);
@@ -270,7 +269,7 @@ void Log##name(const char* format, ...) { \
                 CASE(GL_LIST_INDEX)
                 CASE(GL_LIST_MODE)
 
-/* Depth buffer */
+/* Common buffer */
                 CASE(GL_NEVER)
                 CASE(GL_LESS)
                 CASE(GL_EQUAL)

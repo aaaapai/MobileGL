@@ -163,8 +163,16 @@ namespace MG_GL::GL {
             case GL_MINOR_VERSION:
                 (*params) = MG_Global::GL::GLVersionMinor;
                 break;
+            case GL_MAX_TEXTURE_SIZE:
+                // TODO: Get real GL_MAX_TEXTURE_SIZE.
+                (*params) = 32768;
+                break;
             default:
                 break;
         }
+    }
+
+    void GetTexLevelParameteriv(GLenum target, GLint level, GLenum pname, GLint *params) {
+        // TODO
     }
 }

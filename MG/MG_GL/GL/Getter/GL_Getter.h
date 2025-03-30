@@ -12,6 +12,7 @@ namespace MG_GL::GL {
     const ::GLubyte* GetStringi(GLenum name, GLuint index);
     ::GLenum GetError();
     void GetIntegerv(GLenum pname, GLint *params);
+    void GetTexLevelParameteriv(GLenum target, GLint level, GLenum pname, GLint *params);
 }
 
 #endif //MOBILEGL_GL_GETTER_H

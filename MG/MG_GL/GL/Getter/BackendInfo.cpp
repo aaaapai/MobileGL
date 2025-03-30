@@ -19,11 +19,11 @@ namespace MG_GL::Getter {
 
     const std::string GetMGName() {
 #if BACKEND_TYPE == BACKEND_VULKAN
-        return "MobileGLUVK";
+        return "MobileGluvk";
 #elif BACKEND_TYPE == BACKEND_METAL
-        return "MobileGLUMTL";
+        return "MobileGlumtl";
 #elif BACKEND_TYPE == BACKEND_GLES
-        return "MobileGLUES";
+        return "MobileGlues";
 #else
         return "<Unknown MobileGL Version>";
 #endif

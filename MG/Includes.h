@@ -21,8 +21,14 @@
 #ifndef MOBILEGL_DEBUG_H
 #include "MG_UTIL/Debug/Debug.h"
 #endif
-#ifndef MOBILEGL_MESAEMU_H
-#include "MG_GL/TEMP_MESA/MesaEmu.h"
+//#ifndef MOBILEGL_MESAEMU_H
+//#include "MG_GL/TEMP_MESA/MesaEmu.h"
+//#endif
+#ifndef MOBILEGL_GL_DEPTH_H
+#include "MG_GL/GL/Depth/GL_Depth.h"
+#endif
+#ifndef MOBILEGL_EGL_EMU_H
+#include "MG_GL/EGL/EGL_EMU.h"
 #endif
 
 #include <cstring>
@@ -37,11 +43,25 @@
 #include <map>
 #include <vector>
 #include <stdexcept>
+#include <atomic>
+#include <regex>
+#include <strstream>
+#include <algorithm>
+#include <array>
+#include <random>
+#include <unordered_map>
 #include <vulkan/vulkan.h>
+#include <glslang/Public/ShaderLang.h>
+#include <glslang/Include/Types.h>
+#include <glslang/Public/ShaderLang.h>
+#include <spirv_cross/spirv_cross_c.h>
+#include <glslang/SPIRV/GlslangToSpv.h>
 
 #ifdef __ANDROID__
 #include <android/log.h>
 #include <pthread.h>
+#include <vulkan/vulkan_android.h>
+#include <android/native_window.h>
 #elif _WIN32
 #include <windows.h>
 #include <processthreadsapi.h>
@@ -49,5 +69,6 @@
 #include <pthread.h>
 #endif
 
+#include <EGL/egl.h>
 #include <GL/gl.h>
 #include <GL/glext.h>

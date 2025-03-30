@@ -30,6 +30,8 @@ add_library(${CMAKE_PROJECT_NAME} SHARED
         MG/MG_GL/GL/Getter/BackendInfo.cpp
         
         MG/MG_GL/GL/Framebuffer/GL_Framebuffer.cpp
+
+        MG/MG_GL/GL/Common/GL_Common.cpp
         
         # MG_GL/GLX
         MG/MG_GL/GLX/LookUp/LookUp.cpp
@@ -40,8 +42,11 @@ add_library(${CMAKE_PROJECT_NAME} SHARED
         # MG_UTIL/Debug
         MG/MG_UTIL/Debug/Debug.cpp
         
-        # MG_GL/TEMP_MESA
-        MG/MG_GL/TEMP_MESA/MesaEmu.cpp
+        # MG_GL/TEMP_MESA 
+        #MG/MG_GL/TEMP_MESA/MesaEmu.cpp
+        
+        # MG_GL/EGL_EMU
+        MG/MG_GL/EGL/EGL_EMU.cpp
 )
 
 target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE ./includes)

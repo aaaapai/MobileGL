@@ -255,7 +255,7 @@ typedef double		GLclampd;	/* double precision float in [0,1] */
 #define GL_LIST_INDEX				0x0B33
 #define GL_LIST_MODE				0x0B30
 
-/* Depth buffer */
+/* Common buffer */
 #define GL_NEVER				0x0200
 #define GL_LESS					0x0201
 #define GL_EQUAL				0x0202
@@ -833,7 +833,7 @@ GLAPI void GLAPIENTRY glHint( GLenum target, GLenum mode );
 
 
 /*
- * Depth Buffer
+ * Common Buffer
  */
 
 GLAPI void GLAPIENTRY glClearDepth( GLclampd depth );

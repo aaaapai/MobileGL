@@ -591,7 +591,7 @@ const char* ImageChannelOrderString(int format)
     case 10: return "Rx";
     case 11: return "RGx";
     case 12: return "RGBx";
-    case 13: return "Depth";
+    case 13: return "Common";
     case 14: return "DepthStencil";
     case 15: return "sRGB";
     case 16: return "sRGBx";
@@ -1885,7 +1885,7 @@ void Parameterize()
 
         InstructionDesc[OpTypeImage].operands.push(OperandId, "'Sampled Type'");
         InstructionDesc[OpTypeImage].operands.push(OperandDimensionality, "");
-        InstructionDesc[OpTypeImage].operands.push(OperandLiteralNumber, "'Depth'");
+        InstructionDesc[OpTypeImage].operands.push(OperandLiteralNumber, "'Common'");
         InstructionDesc[OpTypeImage].operands.push(OperandLiteralNumber, "'Arrayed'");
         InstructionDesc[OpTypeImage].operands.push(OperandLiteralNumber, "'MS'");
         InstructionDesc[OpTypeImage].operands.push(OperandLiteralNumber, "'Sampled'");
