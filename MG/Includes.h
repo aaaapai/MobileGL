@@ -14,6 +14,24 @@
 #ifndef MOBILEGL_BACKENDINFO_H
 #include "MG_GL/GL/Getter/BackendInfo.h"
 #endif
+#ifndef MOBILEGL_GL_BUFFER_H
+#include "MG_GL/GL/Buffer/GL_Buffer.h"
+#endif
+#ifndef MOBILEGL_GL_COMMAND_H
+#include "MG_GL/GL/Command/GL_Command.h"
+#endif
+#ifndef MOBILEGL_GL_PROGRAM_H
+#include "MG_GL/GL/Program/GL_Program.h"
+#endif
+#ifndef MOBILEGL_GL_SHADER_H
+#include "MG_GL/GL/Shader/GL_Shader.h"
+#endif
+#ifndef MOBILEGL_GL_TEXTURE_H
+#include "MG_GL/GL/Texture/GL_Texture.h"
+#endif
+#ifndef MOBILEGL_GL_VERTEXARRAY_H
+#include "MG_GL/GL/VertexArray/GL_VertexArray.h"
+#endif
 #ifndef MOBILEGL_LOOKUP_H
 #include "MG_GL/GLX/LookUp/LookUp.h"
 #endif
