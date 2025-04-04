@@ -110,8 +110,9 @@ namespace MG_GL::GL {
     }
 
     GLenum GetError() {
-        MG_Util::Debug::LogD("glGetError");
-        return GL_NO_ERROR;
+        GLenum error = MG_State::GetError();
+        MG_Util::Debug::LogD("glGetError -> %s", MG_Util::Debug::GLEnumToString(error));
+        return error;
     }
 
     void GetIntegerv(GLenum pname, GLint *params) {
@@ -152,9 +153,5 @@ namespace MG_GL::GL {
             default:
                 break;
         }
-    }
-
-    void GetTexLevelParameteriv(GLenum target, GLint level, GLenum pname, GLint *params) {
-        // TODO
     }
 }

@@ -32,6 +32,12 @@
 #ifndef MOBILEGL_GL_VERTEXARRAY_H
 #include "MG_GL/GL/VertexArray/GL_VertexArray.h"
 #endif
+#ifndef MOBILEGL_GLSTATE_H
+#include "MG_GL/State/Core/GLState.h"
+#endif
+#ifndef MOBILEGL_TEXTURESTATE_H
+#include "MG_GL/State/Texture/TextureState.h"
+#endif
 #ifndef MOBILEGL_LOOKUP_H
 #include "MG_GL/GLX/LookUp/LookUp.h"
 #endif
@@ -64,6 +70,7 @@
 #include <array>
 #include <random>
 #include <unordered_map>
+#include <queue>
 #include <vulkan/vulkan.h>
 #include <glslang/Public/ShaderLang.h>
 #include <glslang/Include/Types.h>
