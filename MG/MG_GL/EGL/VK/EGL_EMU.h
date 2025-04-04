@@ -2,10 +2,12 @@
 // Created by BZLZHH on 2025/3/30.
 //
 
-#ifndef MOBILEGL_EGL_EMU_H
-#define MOBILEGL_EGL_EMU_H
+#ifndef MOBILEGL_EGL_VK_EMU_H
+#define MOBILEGL_EGL_VK_EMU_H
 
-#include "../../Includes.h"
+#include "../../../Includes.h"
+
+#if BACKEND_TYPE == BACKEND_VULKAN
 
 struct EGLInternalConfig {
     VkFormat format;
@@ -96,4 +98,6 @@ extern "C" MG_EXPORT EGLBoolean eglSwapInterval(EGLDisplay dpy, EGLint interval)
 extern "C" MG_EXPORT EGLBoolean eglSwapBuffers(EGLDisplay dpy, EGLSurface draw);
 extern "C" MG_EXPORT EGLSurface eglCreatePbufferSurface(EGLDisplay dpy, EGLConfig config, const EGLint *attrib_list);
 
-#endif //MOBILEGL_EGL_EMU_H
+#endif
+
+#endif //MOBILEGL_EGL_VK_EMU_H

@@ -42,11 +42,8 @@ add_library(${CMAKE_PROJECT_NAME} SHARED
         # MG_UTIL/Debug
         MG/MG_UTIL/Debug/Debug.cpp
         
-        # MG_GL/TEMP_MESA 
-        #MG/MG_GL/TEMP_MESA/MesaEmu.cpp
-        
-        # MG_GL/EGL_EMU
-        MG/MG_GL/EGL/EGL_EMU.cpp
+        # MG_GL/EGL
+        MG/MG_GL/EGL/VK/EGL_EMU.cpp
 )
 
 target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE ./includes)

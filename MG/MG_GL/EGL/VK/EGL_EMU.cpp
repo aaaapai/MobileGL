@@ -4,6 +4,8 @@
 
 #include "EGL_EMU.h"
 
+#if BACKEND_TYPE == BACKEND_VULKAN
+
 std::atomic<uintptr_t> g_nextContextId{1};
 std::atomic<uintptr_t> g_nextSurfaceId{1};
 EGLenum g_currentAPI = EGL_OPENGL_ES_API;
@@ -545,3 +547,5 @@ EGLBoolean eglQuerySurface(EGLDisplay display, EGLSurface surface, EGLint attrib
     }
     return EGL_TRUE;
 }
+
+#endif
