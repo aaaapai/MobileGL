@@ -3,9 +3,8 @@
 //
 
 #include "Constants.h"
-#ifndef MOBILEGL_GLOBAL_H
+#define BACKEND_TYPE BACKEND_VULKAN
 #include "Global.h"
-#endif
 #ifndef MOBILEGL_GL_FRAMEBUFFER_H
 #include "MG_GL/GL/Framebuffer/GL_Framebuffer.h"
 #endif
@@ -21,14 +20,11 @@
 #ifndef MOBILEGL_DEBUG_H
 #include "MG_UTIL/Debug/Debug.h"
 #endif
-//#ifndef MOBILEGL_MESAEMU_H
-//#include "MG_GL/TEMP_MESA/MesaEmu.h"
-//#endif
 #ifndef MOBILEGL_GL_DEPTH_H
-#include "MG_GL/GL/Depth/GL_Depth.h"
+#include "MG_GL/GL/Common/GL_Common.h"
 #endif
-#ifndef MOBILEGL_EGL_EMU_H
-#include "MG_GL/EGL/EGL_EMU.h"
+#ifndef MOBILEGL_EGL_VK_EMU_H
+#include "MG_GL/EGL/VK/EGL_EMU.h"
 #endif
 
 #include <cstring>

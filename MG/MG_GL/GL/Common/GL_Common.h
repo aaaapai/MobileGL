@@ -2,8 +2,8 @@
 // Created by BZLZHH on 2025/3/15.
 //
 
-#ifndef MOBILEGL_GL_DEPTH_H
-#define MOBILEGL_GL_DEPTH_H
+#ifndef MOBILEGL_GL_COMMON_H
+#define MOBILEGL_GL_COMMON_H
 
 #include "../../../Includes.h"
 
@@ -13,4 +13,4 @@ namespace MG_GL::GL {
     void Clear(GLbitfield mask);
 }
 
-#endif //MOBILEGL_GL_DEPTH_H
+#endif //MOBILEGL_GL_COMMON_H

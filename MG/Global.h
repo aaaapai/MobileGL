@@ -17,7 +17,7 @@ namespace MG_Global {
     }
     
     namespace Backend {
-#define BACKEND_TYPE BACKEND_VULKAN
+// BACKEND_TYPE is defined in Includes.h
     }
     
     namespace GL {
