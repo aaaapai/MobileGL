@@ -20,7 +20,7 @@ namespace MG_Util {
         void LogF (const char* format, ...);
         void LogClear();
         void LogInit();
-        void LogWrite(const char* format, ...);
+        void LogWrite(const char* format, va_list args);
         
         const char* GLEnumToString(::GLenum value);
     }

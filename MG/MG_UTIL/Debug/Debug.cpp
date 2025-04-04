@@ -73,11 +73,11 @@ namespace MG_Util::Debug {
 #ifdef __ANDROID__
         __android_log_vprint(androidLevel, MG_Constants::RenderName, full_format.c_str(), args);
 #endif
-        
+
         vprintf(full_format.c_str(), args);
         va_list args_copy;
         va_copy(args_copy, args);
-        LogWrite(full_format.c_str(), args);
+        LogWrite(full_format.c_str(), args_copy);
         va_end(args_copy);
     }
     
@@ -120,12 +120,10 @@ void Log##name(const char* format, ...) { \
         logFile = fopen(MG_Global::Common::LOG_FILE_PATH, "a");
     }
 
-    void LogWrite(const char* format, ...) {
+    void LogWrite(const char* format, va_list args) {
         if (!MG_Global::Common::LOG_FILE_PATH || logFile == nullptr)
             return;
         
-        va_list args;
-        va_start(args, format);
         vfprintf(logFile, format, args);
         va_end(args);
         fflush(logFile);
