@@ -64,6 +64,8 @@ namespace MG_GL::GL {
 
     const GLubyte* GetStringi(GLenum name, GLuint index) {
         MG_Util::Debug::LogD("glGetStringi, name: %s, index: %d", MG_Util::Debug::GLEnumToString(name), index);
+        if (name != GL_EXTENSIONS)
+            return (const GLubyte*)"";
         typedef struct {
             GLenum name;
             const char** parts;
@@ -81,28 +83,8 @@ namespace MG_GL::GL {
                 GLenum target = cache.name;
                 const GLubyte* str = nullptr;
                 const char* delimiter = " ";
-
-                switch (target) {
-                    case GL_VENDOR:
-                        str = (const GLubyte*)"MobileGL-Dev";
-                        delimiter = ", ";
-                        break;
-                    case GL_VERSION:
-                        str = (const GLubyte*)"3.0.0 MobileGL";
-                        delimiter = " .";
-                        break;
-                    case GL_SHADING_LANGUAGE_VERSION:
-                        str = (const GLubyte*)"4.50 MobileGL glslang";
-                        break;
-                    case GL_EXTENSIONS:
-                        str = GetString(GL_EXTENSIONS);
-                        break;
-                    default:
-                        return (const GLubyte *) "Unknown enum";
-                }
-
-                if (!str) continue;
-
+                str = GetString(GL_EXTENSIONS);
+                
                 char* copy = strdup((const char*)str);
                 char* token = strtok(copy, delimiter);
                 while (token) {
