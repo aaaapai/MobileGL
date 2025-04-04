@@ -10,10 +10,12 @@
 
 ## Progress
 
-| Component                        | Development Progress |
-|----------------------------------|----------------------|
-| OpenGL 3.2 Core Profile Frontend | < 1%                 |
-| Vulkan Backend                   | < 1%                 |
-| Abstraction Layer                | < 1%                 |
+**Target**: **OpenGL 3.2 Core Profile**
+
+| Component                  | Development Progress |
+|----------------------------|----------------------|
+| OpenGL State Manager       | < 1%                 |
+| Abstraction Layer (MG_RHI) | < 1%                 |
+| Vulkan Backend             | < 1% (of MG_RHI)     |
 
 *Note: All components are currently in preliminary architectural design phase, with core development not yet commenced.*
