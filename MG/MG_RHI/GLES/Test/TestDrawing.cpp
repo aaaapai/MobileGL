@@ -41,7 +41,7 @@ namespace MG_RHI::GLES::Test {
             out vec2 vUV;
             uniform mat4 uMVP;
             void main() {
-                ::GLES::gl_Position = uMVP * vec4(aPos, 0.0, 1.0);
+                gl_Position = uMVP * vec4(aPos, 0.0, 1.0);
                 vUV = aTexUV;
             })";
 
