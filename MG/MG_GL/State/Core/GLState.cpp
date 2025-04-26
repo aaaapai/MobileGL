@@ -8,15 +8,12 @@ TextureState* MG_State_T::textureState;
 std::queue<GLenum> MG_State_T::glErrorQueue;
 
 namespace MG_State {
-    MG_State_T* MG_State_O;
-    
     void Init() {
-        MG_State_O = new MG_State_T();
         MG_State_T::textureState = new TextureState();
     }
     
     void Destroy() {
-        delete MG_State_O;
+        delete MG_State_T::textureState;
     }
     
     void SetError(GLenum error) {
