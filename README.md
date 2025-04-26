@@ -16,7 +16,8 @@
 |--------------------------------|----------------------|
 | **OpenGL State Manager**       | **5% ~ 7.5%**        |
 | **Abstraction Layer (MG_RHI)** | **0%**               |
-| **Vulkan Backend**             | **N/A** (of MG_RHI)  |
+| **OpenGL ES Backend**          | **N/A** (of MG_RHI)  |
+| **Vulkan Backend**             | **planned**          |
 
 ---
 
@@ -26,6 +27,7 @@
 |--------------------------------|------------------------|
 | **OpenGL State Manager**       | **12 / 65**            |
 | **Abstraction Layer (MG_RHI)** | **0 / 65**             |
-| **Vulkan Backend**             | **N/A** (of MG_RHI)    |
+| **OpenGL ES Backend**          | **N/A** (of MG_RHI)    |
+| **Vulkan Backend**             | **planned**            |
 
 \* *The number of functions that have been implemented*
