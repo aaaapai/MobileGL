@@ -109,6 +109,8 @@ GLenum TextureState::CreateN(GLsizei n, GLuint* textures) {
         obj.generated = true;
         this->textures[id] = obj;
         textures[i] = id;
+        static uint64_t counter = 0;
+        obj.createTimestamp = ++counter;
     }
     return GL_NO_ERROR;
 }

@@ -8,7 +8,7 @@
 #include "../../../Includes.h"
 
 namespace MG_GL::GL {
-    
+    void GetProgramiv(GLuint program, GLenum pname, GLint *params);
 }
 
 #endif //MOBILEGL_GL_PROGRAM_H

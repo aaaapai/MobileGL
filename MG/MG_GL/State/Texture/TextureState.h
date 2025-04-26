@@ -40,6 +40,7 @@ public:
     TextureParams params;
     const void* data = nullptr;
     bool IsImmutable() const;
+    uint64_t createTimestamp;
 };
 
 class TextureUnitState {
@@ -60,7 +61,6 @@ private:
     GLuint lastUsedID = 0;
     std::set<GLuint> freeIDs;
 
-    std::unordered_map<GLuint, TextureObject> textures;
     std::unordered_map<GLenum, TextureObject> proxyTextures;
 public:
     TextureState();
@@ -68,6 +68,7 @@ public:
     static TextureState& GetInstance();
     bool IsTextureGenerated(GLuint texture);
     bool IsTexture(GLuint texture);
+    std::unordered_map<GLuint, TextureObject> textures;
 
     // Return: the validity of the operation, according to OpenGL 3 standard
     GLenum BindUnit(GLenum textureUnit);

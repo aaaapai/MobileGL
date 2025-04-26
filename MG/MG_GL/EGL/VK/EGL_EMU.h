@@ -78,25 +78,25 @@ extern thread_local EGLContext tls_currentContext;
 extern thread_local EGLSurface tls_drawSurface;
 extern thread_local EGLSurface tls_readSurface;
 
-extern "C" MG_EXPORT EGLSurface eglCreateWindowSurface(EGLDisplay dpy, EGLConfig config, NativeWindowType window, const EGLint* attrib_list);
-extern "C" MG_EXPORT EGLBoolean eglChooseConfig(EGLDisplay dpy, const EGLint* attrib_list, EGLConfig* configs, EGLint config_size, EGLint* num_config);
-extern "C" MG_EXPORT EGLContext eglCreateContext(EGLDisplay dpy, EGLConfig config, EGLContext shareCtx, const EGLint* attrib_list);
-extern "C" MG_EXPORT EGLBoolean eglInitialize(EGLDisplay dpy, EGLint* major, EGLint* minor);
-extern "C" MG_EXPORT EGLDisplay eglGetDisplay(NativeDisplayType display);
-extern "C" MG_EXPORT EGLint eglGetError();
-extern "C" MG_EXPORT EGLBoolean eglMakeCurrent(EGLDisplay dpy, EGLSurface draw, EGLSurface read, EGLContext ctx);
-extern "C" MG_EXPORT EGLBoolean eglDestroyContext(EGLDisplay dpy, EGLContext ctx);
-extern "C" MG_EXPORT EGLBoolean eglDestroySurface(EGLDisplay dpy, EGLSurface surface);
-extern "C" MG_EXPORT EGLBoolean eglTerminate(EGLDisplay dpy);
-extern "C" MG_EXPORT EGLBoolean eglReleaseThread(void);
-extern "C" MG_EXPORT EGLContext eglGetCurrentContext(void);
-extern "C" MG_EXPORT EGLBoolean eglGetConfigAttrib(EGLDisplay dpy, EGLConfig config, EGLint attribute, EGLint *value);
-extern "C" MG_EXPORT EGLBoolean eglBindAPI(EGLenum api);
-extern "C" MG_EXPORT EGLSurface eglGetCurrentSurface(EGLint readdraw);
-extern "C" MG_EXPORT EGLBoolean eglQuerySurface(EGLDisplay display, EGLSurface surface, EGLint attribute, EGLint *value);
-extern "C" MG_EXPORT EGLBoolean eglSwapInterval(EGLDisplay dpy, EGLint interval);
-extern "C" MG_EXPORT EGLBoolean eglSwapBuffers(EGLDisplay dpy, EGLSurface draw);
-extern "C" MG_EXPORT EGLSurface eglCreatePbufferSurface(EGLDisplay dpy, EGLConfig config, const EGLint *attrib_list);
+MG_EXPORT EGLSurface eglCreateWindowSurface(EGLDisplay dpy, EGLConfig config, NativeWindowType window, const EGLint* attrib_list);
+MG_EXPORT EGLBoolean eglChooseConfig(EGLDisplay dpy, const EGLint* attrib_list, EGLConfig* configs, EGLint config_size, EGLint* num_config);
+MG_EXPORT EGLContext eglCreateContext(EGLDisplay dpy, EGLConfig config, EGLContext shareCtx, const EGLint* attrib_list);
+MG_EXPORT EGLBoolean eglInitialize(EGLDisplay dpy, EGLint* major, EGLint* minor);
+MG_EXPORT EGLDisplay eglGetDisplay(NativeDisplayType display);
+MG_EXPORT EGLint eglGetError();
+MG_EXPORT EGLBoolean eglMakeCurrent(EGLDisplay dpy, EGLSurface draw, EGLSurface read, EGLContext ctx);
+MG_EXPORT EGLBoolean eglDestroyContext(EGLDisplay dpy, EGLContext ctx);
+MG_EXPORT EGLBoolean eglDestroySurface(EGLDisplay dpy, EGLSurface surface);
+MG_EXPORT EGLBoolean eglTerminate(EGLDisplay dpy);
+MG_EXPORT EGLBoolean eglReleaseThread(void);
+MG_EXPORT EGLContext eglGetCurrentContext(void);
+MG_EXPORT EGLBoolean eglGetConfigAttrib(EGLDisplay dpy, EGLConfig config, EGLint attribute, EGLint *value);
+MG_EXPORT EGLBoolean eglBindAPI(EGLenum api);
+MG_EXPORT EGLSurface eglGetCurrentSurface(EGLint readdraw);
+MG_EXPORT EGLBoolean eglQuerySurface(EGLDisplay display, EGLSurface surface, EGLint attribute, EGLint *value);
+MG_EXPORT EGLBoolean eglSwapInterval(EGLDisplay dpy, EGLint interval);
+MG_EXPORT EGLBoolean eglSwapBuffers(EGLDisplay dpy, EGLSurface draw);
+MG_EXPORT EGLSurface eglCreatePbufferSurface(EGLDisplay dpy, EGLConfig config, const EGLint *attrib_list);
 
 #endif
 

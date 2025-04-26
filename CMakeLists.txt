@@ -35,7 +35,7 @@ add_library(${CMAKE_PROJECT_NAME} SHARED
 
         MG/MG_GL/GL/Buffer/GL_Buffer.cpp
 
-        MG/MG_GL/GL/Command/GL_Command.cpp
+        MG/MG_GL/GL/Drawing/GL_Drawing.cpp
 
         MG/MG_GL/GL/Program/GL_Program.cpp
 
@@ -61,6 +61,14 @@ add_library(${CMAKE_PROJECT_NAME} SHARED
         
         # MG_GL/EGL
         MG/MG_GL/EGL/VK/EGL_EMU.cpp
+        
+        MG/MG_GL/EGL/GLES/EGL_WRAP.cpp
+
+        # MG_GL/BackendLoader
+        MG/MG_GL/BackendLoader/GLES/Loader.cpp
+
+        # MG_RHI/GLES
+        MG/MG_RHI/GLES/Test/TestDrawing.cpp
 )
 
 target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE ./includes)

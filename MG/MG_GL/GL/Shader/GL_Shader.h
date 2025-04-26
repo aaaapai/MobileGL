@@ -8,7 +8,7 @@
 #include "../../../Includes.h"
 
 namespace MG_GL::GL {
-    
+    void GetShaderiv(GLuint shader, GLenum pname, GLint *params);
 }
 
 #endif //MOBILEGL_GL_SHADER_H

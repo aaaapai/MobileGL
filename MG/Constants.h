@@ -8,7 +8,7 @@
 #ifdef __ANDROID__
 #define __ANDROID_API__ 26
 #endif
-#define MG_EXPORT __attribute__((visibility("default")))
+#define MG_EXPORT extern "C" __attribute__((visibility("default")))
 
 #include <array>
 #include <unordered_set>
