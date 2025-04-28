@@ -54,13 +54,13 @@ namespace MG_RHI::GLES::Test {
                 FragColor = texture(uTex, vUV);
             })";
 
-            GLuint vs = glCreateShader(GL_VERTEX_SHADER);
-            GLuint fs = glCreateShader(GL_FRAGMENT_SHADER);
+            GLuint vs = ::GLES::glCreateShader(GL_VERTEX_SHADER);
+            GLuint fs = ::GLES::glCreateShader(GL_FRAGMENT_SHADER);
             ::GLES::glShaderSource(vs, 1, &vsSrc, NULL);
             ::GLES::glShaderSource(fs, 1, &fsSrc, NULL);
             ::GLES::glCompileShader(vs);
             ::GLES::glCompileShader(fs);
-            sRes.program = glCreateProgram();
+            sRes.program = ::GLES::glCreateProgram();
             ::GLES::glAttachShader(sRes.program, vs);
             ::GLES::glAttachShader(sRes.program, fs);
             ::GLES::glLinkProgram(sRes.program);
@@ -154,7 +154,7 @@ namespace MG_RHI::GLES::Test {
             }
         }
 
-        GLboolean origDepthTest = glIsEnabled(GL_DEPTH_TEST);
+        GLboolean origDepthTest = ::GLES::glIsEnabled(GL_DEPTH_TEST);
         GLint origProgram;
         GLint origViewport[4];
         ::GLES::glGetIntegerv(GL_VIEWPORT, origViewport);
@@ -168,7 +168,7 @@ namespace MG_RHI::GLES::Test {
         ::GLES::glBindVertexArray(sRes.quadVAO);
 
         glm::mat4 proj = glm::ortho(-1.0f, 1.0f, -1.0f, 1.0f);
-        GLint uMVPLoc = glGetUniformLocation(sRes.program, "uMVP");
+        GLint uMVPLoc = ::GLES::glGetUniformLocation(sRes.program, "uMVP");
         glm::mat4 identity(1.0f);
         ::GLES::glUniformMatrix4fv(uMVPLoc, 1, GL_FALSE, &identity[0][0]);
 
