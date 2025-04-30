@@ -4,16 +4,19 @@
 
 #include "GLState.h"
 
-TextureState* MG_State_T::textureState;
 std::queue<GLenum> MG_State_T::glErrorQueue;
+TextureState* MG_State_T::textureState = nullptr;
+CommonState* MG_State_T::commonState = nullptr;
 
 namespace MG_State {
     void Init() {
         MG_State_T::textureState = new TextureState();
+        MG_State_T::commonState = new CommonState();
     }
     
     void Destroy() {
         delete MG_State_T::textureState;
+        delete MG_State_T::commonState;
     }
     
     void SetError(GLenum error) {
@@ -80,4 +83,13 @@ namespace MG_State {
     GLenum GetTextureLevelPropertyIntVector(GLenum target, GLint level, GLenum pname, GLint* params) {
         return MG_State_T::textureState->GetLevelPropertyIntVector(target, level, pname, params);
     }
+
+    GLenum MG_State::SetPixelStoreInt(GLenum pname, GLint param) {
+        return MG_State_T::commonState->SetPixelStoreInt(pname, param);
+    }
+
+    GLint MG_State::GetPixelStoreInt(GLenum pname) {
+        return MG_State_T::commonState->GetPixelStoreInt(pname);
+    }
+
 }

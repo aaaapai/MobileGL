@@ -10,6 +10,7 @@
 struct MG_State_T {
     static std::queue<GLenum> glErrorQueue;
     static TextureState* textureState;
+    static CommonState* commonState;
 };
  
 namespace MG_State {
@@ -36,6 +37,9 @@ namespace MG_State {
     GLenum DeleteTexture(GLuint texture);
     GLenum DeleteTextures(GLsizei n, const GLuint* textures);
     GLenum GetTextureLevelPropertyIntVector(GLenum target, GLint level, GLenum pname, GLint* params);
+    GLenum SetPixelStoreInt(GLenum pname, GLint param);
+
+    GLint GetPixelStoreInt(GLenum pname);
 }
 
 

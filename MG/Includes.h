@@ -38,6 +38,9 @@
 #ifndef MOBILEGL_GLSTATE_H
 #include "MG_GL/State/Core/GLState.h"
 #endif
+#ifndef MOBILEGL_COMMONSTATE_H
+#include "MG_GL/State/Common/CommonState.h"
+#endif
 #ifndef MOBILEGL_TEXTURESTATE_H
 #include "MG_GL/State/Texture/TextureState.h"
 #endif

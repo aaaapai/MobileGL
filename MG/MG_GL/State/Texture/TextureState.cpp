@@ -4,6 +4,10 @@
 
 #include "TextureState.h"
 
+// Re-Include Includes.h, cuz of the absence of GLState.h
+#undef MOBILEGL_GLSTATE_H
+#include "../../../Includes.h"
+
 // TextureObject
 
 bool TextureObject::IsImmutable() const {
@@ -33,10 +37,10 @@ TextureState::TextureState() {
     MG_Util::Debug::LogD("MG_State: Texture: TextureState constructor, textureUnits=%zu", textureUnits.size());
 }
 
-TextureState &TextureState::GetInstance() {
-    static TextureState instance;
-    MG_Util::Debug::LogD("MG_State: Texture: GetInstance called");
-    return instance;
+GLint TextureState::GetUnpackParam(GLenum pname) {
+    GLint result = MG_State::GetPixelStoreInt(pname);
+    MG_Util::Debug::LogD("MG_State: Texture: GetUnpackParam pname=0x%x, returns %d", pname, result);
+    return result;
 }
 
 bool TextureState::IsTextureGenerated(GLuint texture) {
@@ -172,6 +176,12 @@ GLenum TextureState::Bind(GLenum target, GLuint texture) {
 
 size_t TextureState::CalculatePixelDataSize(GLenum format, GLenum type, GLsizei width, GLsizei height) {
     MG_Util::Debug::LogD("MG_State: Texture: CalculatePixelDataSize called format=0x%x, type=0x%x, width=%d, height=%d", format, type, width, height);
+    
+    // Unpack Param
+    GLint rowLength = TextureState::GetUnpackParam(GL_UNPACK_ROW_LENGTH);
+    GLint alignment = TextureState::GetUnpackParam(GL_UNPACK_ALIGNMENT);
+    GLsizei actualRowLength = (rowLength > 0) ? rowLength : width;
+    
     size_t bytesPerPixel = 0;
     switch (type) {
         case GL_UNSIGNED_BYTE_3_3_2:
@@ -219,7 +229,11 @@ size_t TextureState::CalculatePixelDataSize(GLenum format, GLenum type, GLsizei 
             break;
         }
     }
-    size_t totalSize = static_cast<size_t>(width) * static_cast<size_t>(height) * bytesPerPixel;
+    
+    size_t rowSize = actualRowLength * bytesPerPixel;
+    size_t alignedRowSize = (rowSize + (alignment - 1)) & ~(alignment - 1);
+
+    size_t totalSize = alignedRowSize * height;
     MG_Util::Debug::LogD("MG_State: Texture: CalculatePixelDataSize returns %zu", totalSize);
     return totalSize;
 }
@@ -227,13 +241,15 @@ size_t TextureState::CalculatePixelDataSize(GLenum format, GLenum type, GLsizei 
 GLenum TextureState::Upload2D(GLenum target, GLint level, GLint internalFormat,
                               GLsizei width, GLsizei height, GLint border, GLenum format,
                               GLenum type, const void* data) {
-    MG_Util::Debug::LogD("MG_State: Texture: Upload2D called target=0x%x, level=%d, width=%d, height=%d", target, level, width, height);
-    GLenum validity = CheckUploadingTexture2DValidity(target, level, internalFormat, width, height, border, format, type, data);
+    MG_Util::Debug::LogD("MG_State: Texture: Upload2D called target=0x%x, level=%d, width=%d, height=%d",
+                         target, level, width, height);
+    GLenum validity = CheckUploadingTexture2DValidity(target, level, internalFormat,
+                                                      width, height, border, format, type, data);
     if (validity != GL_NO_ERROR) {
-        MG_Util::Debug::LogE("MG_State: Texture: Upload2D CheckUploadingTexture2DValidity failed with error 0x%x", validity);
+        MG_Util::Debug::LogE("MG_State: Texture: Upload2D validation failed with error 0x%x", validity);
         return validity;
     }
-    
+
     bool isProxyTexture = (target == GL_PROXY_TEXTURE_1D || target == GL_PROXY_TEXTURE_2D ||
                            target == GL_PROXY_TEXTURE_3D || target == GL_PROXY_TEXTURE_CUBE_MAP ||
                            target == GL_PROXY_TEXTURE_1D_ARRAY || target == GL_PROXY_TEXTURE_2D_ARRAY ||
@@ -253,7 +269,7 @@ GLenum TextureState::Upload2D(GLenum target, GLint level, GLint internalFormat,
         proxyTex.params.mipmapData[level] = mip;
         return GL_NO_ERROR;
     }
-    
+
     GLuint boundTex = textureUnits[activeTextureUnit].GetBoundTexture(target);
     TextureObject& tex = textures[boundTex];
     TextureParams::MipmapLevel mip{};
@@ -263,19 +279,56 @@ GLenum TextureState::Upload2D(GLenum target, GLint level, GLint internalFormat,
     mip.format = format;
     mip.type = type;
     if (data != nullptr) {
-        size_t dataSize = CalculatePixelDataSize(format, type, width, height);
-        mip.pixelData.resize(dataSize);
-        memcpy(mip.pixelData.data(), data, dataSize);
+        GLint unpackSwapBytes = GetUnpackParam(GL_UNPACK_SWAP_BYTES);
+        GLint unpackLSBFirst = GetUnpackParam(GL_UNPACK_LSB_FIRST);
+        GLint unpackSkipPixels = GetUnpackParam(GL_UNPACK_SKIP_PIXELS);
+        GLint unpackSkipRows = GetUnpackParam(GL_UNPACK_SKIP_ROWS);
+        GLint unpackRowLength = GetUnpackParam(GL_UNPACK_ROW_LENGTH);
+        GLint unpackAlignment = GetUnpackParam(GL_UNPACK_ALIGNMENT);
+        GLint unpackImageHeight = GetUnpackParam(GL_UNPACK_IMAGE_HEIGHT);
+        GLint unpackSkipImages = GetUnpackParam(GL_UNPACK_SKIP_IMAGES);
+
+        GLsizei rowLength = (unpackRowLength > 0) ? unpackRowLength : width;
+        size_t bytesPerPixel = CalculateBytesPerPixel(format, type);
+        size_t componentSize = GetComponentSize(type);
+
+        size_t srcRowSize = rowLength * bytesPerPixel;
+        size_t srcRowStride = (srcRowSize + unpackAlignment - 1) & ~(unpackAlignment - 1);
+        size_t srcImageStride = (unpackImageHeight > 0) ?
+                                srcRowStride * unpackImageHeight :
+                                srcRowStride * height;
+
+        const GLubyte* srcData = static_cast<const GLubyte*>(data);
+        srcData += unpackSkipImages * srcImageStride;
+        srcData += unpackSkipRows * srcRowStride;
+        srcData += unpackSkipPixels * bytesPerPixel;
+
+        size_t dstRowStride = width * bytesPerPixel;
+        size_t dstSize = dstRowStride * height;
+        mip.pixelData.resize(dstSize);
+        GLubyte* dstData = mip.pixelData.data();
+
+        for (GLsizei y = 0; y < height; ++y) {
+            const GLubyte* srcRow = srcData + y * srcRowStride;
+            GLubyte* dstRow = dstData + y * dstRowStride;
+
+            if (unpackSwapBytes) {
+                SwapBytesForTexture(format, type, srcRow, dstRow, width);
+            }
+            else if (unpackLSBFirst && componentSize == 1) {
+                ReverseBitOrder(srcRow, dstRow, width * bytesPerPixel);
+            }
+            else {
+                memcpy(dstRow, srcRow, width * bytesPerPixel);
+            }
+        }
         mip.hasData = true;
-        MG_Util::Debug::LogD("MG_State: Texture: Upload2D uploaded data size=%zu", dataSize);
+        MG_Util::Debug::LogD("MG_State: Texture: Upload2D uploaded %zu bytes with unpack params", dstSize);
     } else {
         mip.hasData = false;
         MG_Util::Debug::LogD("MG_State: Texture: Upload2D data pointer is null");
     }
-    tex.data = data;
     tex.params.mipmapData[level] = mip;
-    MG_Util::Debug::LogD("MG_State: Texture: Upload2D succeeded for level=%d", level);
-
     return GL_NO_ERROR;
 }
 
@@ -285,113 +338,90 @@ GLenum TextureState::UpdateRegion2D(GLenum target, GLint level, GLint xoffset,
     MG_Util::Debug::LogD("MG_State: Texture: UpdateRegion2D called target=0x%x, level=%d, x=%d, y=%d, w=%d, h=%d",
                          target, level, xoffset, yoffset, width, height);
 
-    if (MG_Constants::Texture::VALID_TARGETS.find(target) == MG_Constants::Texture::VALID_TARGETS.end()) {
-        MG_Util::Debug::LogE("MG_State: Texture: UpdateRegion2D invalid target=0x%x", target);
-        return GL_INVALID_ENUM;
+    GLenum validity = CheckUpdatingTextureRegion2DValidity(target, level, xoffset, yoffset, width, height, format, type, data);
+    if (validity != GL_NO_ERROR) {
+        MG_Util::Debug::LogE("MG_State: Texture: UpdateRegion2D validation failed with error 0x%x", validity);
+        return validity;
     }
 
-    if (level < 0) {
-        MG_Util::Debug::LogE("MG_State: Texture: UpdateRegion2D invalid level=%d", level);
-        return GL_INVALID_VALUE;
-    }
-
-    if (xoffset < 0 || yoffset < 0) {
-        MG_Util::Debug::LogE("MG_State: Texture: UpdateRegion2D negative offset x=%d, y=%d", xoffset, yoffset);
-        return GL_INVALID_VALUE;
-    }
-
-    if (width < 0 || height < 0) {
-        MG_Util::Debug::LogE("MG_State: Texture: UpdateRegion2D negative dimensions w=%d, h=%d", width, height);
-        return GL_INVALID_VALUE;
-    }
-
-    if (!data) {
-        // TODO: need to impl PBO and then impl here
-        MG_Util::Debug::LogE("MG_State: Texture: UpdateRegion2D data pointer is null");
-        return GL_INVALID_OPERATION ;
-    }
-    
     GLuint boundTex = textureUnits[activeTextureUnit].GetBoundTexture(target);
-    if (boundTex == 0) {
-        MG_Util::Debug::LogE("MG_State: Texture: UpdateRegion2D no texture bound for target=0x%x", target);
-        return GL_INVALID_OPERATION;
-    }
-
-    if (!IsTextureGenerated(boundTex)) {
-        MG_Util::Debug::LogE("MG_State: Texture: UpdateRegion2D texture %u not generated", boundTex);
-        return GL_INVALID_OPERATION;
-    }
-
-    auto tex = textures[boundTex];
-
-    if (tex.IsImmutable()) {
-        MG_Util::Debug::LogE("MG_State: Texture: UpdateRegion2D texture is immutable");
-        return GL_INVALID_OPERATION;
-    }
-
+    auto& tex = textures[boundTex];
     auto mipIt = tex.params.mipmapData.find(level);
     if (mipIt == tex.params.mipmapData.end()) {
-        MG_Util::Debug::LogE("MG_State: Texture: UpdateRegion2D no mipmap level %d", level);
+        MG_Util::Debug::LogE("MG_State: Texture: UpdateRegion2D mipmap level %d not found", level);
         return GL_INVALID_OPERATION;
     }
-
     TextureParams::MipmapLevel& mip = mipIt->second;
 
-    if (MG_Constants::Texture::VALID_FORMATS.find(format) == MG_Constants::Texture::VALID_FORMATS.end()) {
-        MG_Util::Debug::LogE("MG_State: Texture: UpdateRegion2D invalid format=0x%x", format);
+    GLint unpackSwapBytes = GetUnpackParam(GL_UNPACK_SWAP_BYTES);
+    GLint unpackLSBFirst = GetUnpackParam(GL_UNPACK_LSB_FIRST);
+    GLint unpackRowLength = GetUnpackParam(GL_UNPACK_ROW_LENGTH);
+    GLint unpackAlignment = GetUnpackParam(GL_UNPACK_ALIGNMENT);
+    GLint unpackSkipPixels = GetUnpackParam(GL_UNPACK_SKIP_PIXELS);
+    GLint unpackSkipRows = GetUnpackParam(GL_UNPACK_SKIP_ROWS);
+    GLint unpackImageHeight = GetUnpackParam(GL_UNPACK_IMAGE_HEIGHT);
+    GLint unpackSkipImages = GetUnpackParam(GL_UNPACK_SKIP_IMAGES);
+
+    const size_t bytesPerPixel = CalculateBytesPerPixel(format, type);
+    const size_t srcSize = CalculatePixelDataSize(format, type, width, height);
+    
+    if (bytesPerPixel == 0) {
+        MG_Util::Debug::LogE("MG_State: Texture: Invalid format/type combination");
         return GL_INVALID_ENUM;
-    }
-
-    if (MG_Constants::Texture::VALID_TYPES.find(type) == MG_Constants::Texture::VALID_TYPES.end()) {
-        MG_Util::Debug::LogE("MG_State: Texture: UpdateRegion2D invalid type=0x%x", type);
-        return GL_INVALID_ENUM;
-    }
-
-    bool typeNeedsRGB = (type == GL_UNSIGNED_BYTE_3_3_2 || type == GL_UNSIGNED_BYTE_2_3_3_REV ||
-                         type == GL_UNSIGNED_SHORT_5_6_5 || type == GL_UNSIGNED_SHORT_5_6_5_REV);
-    if (typeNeedsRGB && format != GL_RGB) {
-        MG_Util::Debug::LogE("MG_State: Texture: UpdateRegion2D type requires RGB format");
-        return GL_INVALID_OPERATION;
-    }
-
-    bool typeNeedsRGBA = (type == GL_UNSIGNED_SHORT_4_4_4_4 || type == GL_UNSIGNED_SHORT_4_4_4_4_REV ||
-                          type == GL_UNSIGNED_SHORT_5_5_5_1 || type == GL_UNSIGNED_SHORT_1_5_5_5_REV ||
-                          type == GL_UNSIGNED_INT_8_8_8_8 || type == GL_UNSIGNED_INT_8_8_8_8_REV ||
-                          type == GL_UNSIGNED_INT_10_10_10_2 || type == GL_UNSIGNED_INT_2_10_10_10_REV);
-    if (typeNeedsRGBA && format != GL_RGBA && format != GL_BGRA) {
-        MG_Util::Debug::LogE("MG_State: Texture: UpdateRegion2D type requires RGBA/BGRA format");
-        return GL_INVALID_OPERATION;
     }
 
     if (xoffset + width > mip.width || yoffset + height > mip.height) {
-        MG_Util::Debug::LogE("MG_State: Texture: UpdateRegion2D region out of bounds: "
-                             "x=%d+%d > %d or y=%d+%d > %d",
-                             xoffset, width, mip.width, yoffset, height, mip.height);
+        MG_Util::Debug::LogE("MG_State: Texture: Update region out of bounds");
         return GL_INVALID_VALUE;
     }
 
-    bool isDepthInternal = (mip.internalFormat == GL_DEPTH_COMPONENT ||
-                            mip.internalFormat == GL_DEPTH_COMPONENT16 ||
-                            mip.internalFormat == GL_DEPTH_COMPONENT24 ||
-                            mip.internalFormat == GL_DEPTH_COMPONENT32F ||
-                            mip.internalFormat == GL_DEPTH_STENCIL ||
-                            mip.internalFormat == GL_DEPTH24_STENCIL8 ||
-                            mip.internalFormat == GL_DEPTH32F_STENCIL8);
+    const GLsizei srcRowLength = (unpackRowLength > 0) ? unpackRowLength : width;
+    const size_t srcRowSize = srcRowLength * bytesPerPixel;
+    const size_t srcRowStride = (srcRowSize + unpackAlignment - 1) & ~(unpackAlignment - 1);
+    const size_t srcImageStride = (unpackImageHeight > 0)
+                                  ? srcRowStride * unpackImageHeight
+                                  : srcRowStride * height;
 
-    bool isDepthFormat = (format == GL_DEPTH_COMPONENT || format == GL_DEPTH_STENCIL);
-    if (isDepthInternal != isDepthFormat) {
-        MG_Util::Debug::LogE("MG_State: Texture: UpdateRegion2D format mismatch with internal format");
-        return GL_INVALID_OPERATION;
+    const GLubyte* srcData = static_cast<const GLubyte*>(data);
+    srcData += unpackSkipImages * srcImageStride;
+    srcData += unpackSkipRows * srcRowStride;
+    srcData += unpackSkipPixels * bytesPerPixel;
+
+    const size_t requiredSrcSize = (height - 1) * srcRowStride + width * bytesPerPixel;
+    // TODO: Check the buffer data size.
+
+    const size_t dstRowStride = mip.width * bytesPerPixel;
+    if (mip.pixelData.empty())
+        mip.pixelData.resize(srcSize);
+    GLubyte* dstData = mip.pixelData.data() + yoffset * dstRowStride + xoffset * bytesPerPixel;
+
+    MG_Util::Debug::LogD("MG_State: Texture: UpdateRegion2D srcRowStride=%zu, dstRowStride=%zu", srcRowStride, dstRowStride);
+    MG_Util::Debug::LogD("MG_State: Texture: UpdateRegion2D srcData=%p, dstData=%p", srcData, dstData);
+    MG_Util::Debug::LogD("MG_State: Texture: UpdateRegion2D bytesPerPixel=%zu", bytesPerPixel);
+
+    for (GLsizei y = 0; y < height; ++y) {
+        const GLubyte* srcRow = srcData + y * srcRowStride;
+        GLubyte* dstRow = dstData + y * dstRowStride;
+
+        if (unpackSwapBytes) {
+            for (GLsizei x = 0; x < width; ++x) {
+                const GLubyte* srcPixel = srcRow + x * bytesPerPixel;
+                GLubyte* dstPixel = dstRow + x * bytesPerPixel;
+                SwapPixelBytes(format, type, srcPixel, dstPixel);
+            }
+        } else if (unpackLSBFirst && GetComponentSize(type) == 1) {
+            for (size_t i = 0; i < width * bytesPerPixel; ++i) {
+                dstRow[i] = ReverseBits(srcRow[i]);
+            }
+        } else {
+            memmove(dstRow, srcRow, width * bytesPerPixel);
+        }
     }
 
     mip.hasData = true;
-    MG_Util::Debug::LogD("MG_State: Texture: UpdateRegion2D validated subimage update");
-
-    tex.data = data;
-
+    MG_Util::Debug::LogD("MG_State: Texture: UpdateRegion2D succeeded");
     return GL_NO_ERROR;
 }
-
 
 GLenum TextureState::SetTexturePropertyFloat(GLenum target, GLenum pname, GLfloat param) {
     MG_Util::Debug::LogD("MG_State: Texture: SetTexturePropertyFloat called target=0x%x, pname=0x%x, param=%f", target, pname, param);
@@ -818,6 +848,113 @@ GLenum TextureState::CheckUploadingTexture2DValidity(GLenum target, GLint level,
     return GL_NO_ERROR;
 }
 
+GLenum TextureState::CheckUpdatingTextureRegion2DValidity(GLenum target, GLint level, GLint xoffset,
+                                          GLint yoffset, GLsizei width, GLsizei height, GLenum format,
+                                          GLenum type, const GLvoid* data) {
+    MG_Util::Debug::LogD("MG_State: Texture: CheckUpdatingTextureRegion2DValidity called target=0x%x, level=%d, x=%d, y=%d, w=%d, h=%d",
+                         target, level, xoffset, yoffset, width, height);
+
+    if (MG_Constants::Texture::VALID_TARGETS.find(target) == MG_Constants::Texture::VALID_TARGETS.end()) {
+        MG_Util::Debug::LogE("MG_State: Texture: CheckUpdatingTextureRegion2DValidity invalid target=0x%x", target);
+        return GL_INVALID_ENUM;
+    }
+
+    if (level < 0) {
+        MG_Util::Debug::LogE("MG_State: Texture: CheckUpdatingTextureRegion2DValidity invalid level=%d", level);
+        return GL_INVALID_VALUE;
+    }
+
+    if (xoffset < 0 || yoffset < 0) {
+        MG_Util::Debug::LogE("MG_State: Texture: CheckUpdatingTextureRegion2DValidity negative offset x=%d, y=%d", xoffset, yoffset);
+        return GL_INVALID_VALUE;
+    }
+
+    if (width < 0 || height < 0) {
+        MG_Util::Debug::LogE("MG_State: Texture: CheckUpdatingTextureRegion2DValidity negative dimensions w=%d, h=%d", width, height);
+        return GL_INVALID_VALUE;
+    }
+
+    if (!data) {
+        // TODO: need to impl PBO and then impl here
+        MG_Util::Debug::LogE("MG_State: Texture: CheckUpdatingTextureRegion2DValidity data pointer is null");
+        return GL_INVALID_OPERATION ;
+    }
+
+    GLuint boundTex = textureUnits[activeTextureUnit].GetBoundTexture(target);
+    if (boundTex == 0) {
+        MG_Util::Debug::LogE("MG_State: Texture: CheckUpdatingTextureRegion2DValidity no texture bound for target=0x%x", target);
+        return GL_INVALID_OPERATION;
+    }
+
+    if (!IsTextureGenerated(boundTex)) {
+        MG_Util::Debug::LogE("MG_State: Texture: CheckUpdatingTextureRegion2DValidity texture %u not generated", boundTex);
+        return GL_INVALID_OPERATION;
+    }
+
+    auto tex = textures[boundTex];
+
+    if (tex.IsImmutable()) {
+        MG_Util::Debug::LogE("MG_State: Texture: CheckUpdatingTextureRegion2DValidity texture is immutable");
+        return GL_INVALID_OPERATION;
+    }
+
+    auto mipIt = tex.params.mipmapData.find(level);
+    if (mipIt == tex.params.mipmapData.end()) {
+        MG_Util::Debug::LogE("MG_State: Texture: CheckUpdatingTextureRegion2DValidity no mipmap level %d", level);
+        return GL_INVALID_OPERATION;
+    }
+
+    if (MG_Constants::Texture::VALID_FORMATS.find(format) == MG_Constants::Texture::VALID_FORMATS.end()) {
+        MG_Util::Debug::LogE("MG_State: Texture: CheckUpdatingTextureRegion2DValidity invalid format=0x%x", format);
+        return GL_INVALID_ENUM;
+    }
+
+    if (MG_Constants::Texture::VALID_TYPES.find(type) == MG_Constants::Texture::VALID_TYPES.end()) {
+        MG_Util::Debug::LogE("MG_State: Texture: CheckUpdatingTextureRegion2DValidity invalid type=0x%x", type);
+        return GL_INVALID_ENUM;
+    }
+
+    bool typeNeedsRGB = (type == GL_UNSIGNED_BYTE_3_3_2 || type == GL_UNSIGNED_BYTE_2_3_3_REV ||
+                         type == GL_UNSIGNED_SHORT_5_6_5 || type == GL_UNSIGNED_SHORT_5_6_5_REV);
+    if (typeNeedsRGB && format != GL_RGB) {
+        MG_Util::Debug::LogE("MG_State: Texture: CheckUpdatingTextureRegion2DValidity type requires RGB format");
+        return GL_INVALID_OPERATION;
+    }
+
+    bool typeNeedsRGBA = (type == GL_UNSIGNED_SHORT_4_4_4_4 || type == GL_UNSIGNED_SHORT_4_4_4_4_REV ||
+                          type == GL_UNSIGNED_SHORT_5_5_5_1 || type == GL_UNSIGNED_SHORT_1_5_5_5_REV ||
+                          type == GL_UNSIGNED_INT_8_8_8_8 || type == GL_UNSIGNED_INT_8_8_8_8_REV ||
+                          type == GL_UNSIGNED_INT_10_10_10_2 || type == GL_UNSIGNED_INT_2_10_10_10_REV);
+    if (typeNeedsRGBA && format != GL_RGBA && format != GL_BGRA) {
+        MG_Util::Debug::LogE("MG_State: Texture: CheckUpdatingTextureRegion2DValidity type requires RGBA/BGRA format");
+        return GL_INVALID_OPERATION;
+    }
+
+    TextureParams::MipmapLevel& mip = mipIt->second;
+    if (xoffset + width > mip.width || yoffset + height > mip.height) {
+        MG_Util::Debug::LogE("MG_State: Texture: CheckUpdatingTextureRegion2DValidity region out of bounds: "
+                             "x=%d+%d > %d or y=%d+%d > %d",
+                             xoffset, width, mip.width, yoffset, height, mip.height);
+        return GL_INVALID_VALUE;
+    }
+
+    bool isDepthInternal = (mip.internalFormat == GL_DEPTH_COMPONENT ||
+                            mip.internalFormat == GL_DEPTH_COMPONENT16 ||
+                            mip.internalFormat == GL_DEPTH_COMPONENT24 ||
+                            mip.internalFormat == GL_DEPTH_COMPONENT32F ||
+                            mip.internalFormat == GL_DEPTH_STENCIL ||
+                            mip.internalFormat == GL_DEPTH24_STENCIL8 ||
+                            mip.internalFormat == GL_DEPTH32F_STENCIL8);
+
+    bool isDepthFormat = (format == GL_DEPTH_COMPONENT || format == GL_DEPTH_STENCIL);
+    if (isDepthInternal != isDepthFormat) {
+        MG_Util::Debug::LogE("MG_State: Texture: CheckUpdatingTextureRegion2DValidity format mismatch with internal format");
+        return GL_INVALID_OPERATION;
+    }
+    MG_Util::Debug::LogD("MG_State: Texture: CheckUpdatingTextureRegion2DValidity validated subimage update");
+    return GL_NO_ERROR;
+}
+
 ComponentSizes TextureState::GetComponentSizes(GLenum internalFormat) {
     MG_Util::Debug::LogD("MG_State: Texture: GetComponentSizes called for internalFormat=0x%x", internalFormat);
     ComponentSizes sizes = {0};
@@ -934,4 +1071,119 @@ ComponentSizes TextureState::GetComponentSizes(GLenum internalFormat) {
     MG_Util::Debug::LogD("MG_State: Texture: GetComponentSizes returns (red=%d, green=%d, blue=%d, alpha=%d, depth=%d, stencil=%d, isCompressed=%d)",
                          sizes.red, sizes.green, sizes.blue, sizes.alpha, sizes.depth, sizes.stencil, sizes.isCompressed);
     return sizes;
+}
+
+size_t TextureState::CalculateBytesPerPixel(GLenum format, GLenum type) {
+    switch (type) {
+        case GL_UNSIGNED_BYTE_3_3_2:
+        case GL_UNSIGNED_BYTE_2_3_3_REV:
+            return 1;
+        case GL_UNSIGNED_SHORT_5_6_5:
+        case GL_UNSIGNED_SHORT_5_6_5_REV:
+        case GL_UNSIGNED_SHORT_4_4_4_4:
+        case GL_UNSIGNED_SHORT_4_4_4_4_REV:
+        case GL_UNSIGNED_SHORT_5_5_5_1:
+        case GL_UNSIGNED_SHORT_1_5_5_5_REV:
+            return 2;
+        case GL_UNSIGNED_INT_8_8_8_8:
+        case GL_UNSIGNED_INT_8_8_8_8_REV:
+        case GL_UNSIGNED_INT_10_10_10_2:
+        case GL_UNSIGNED_INT_2_10_10_10_REV:
+            return 4;
+        default:
+            break;
+    }
+
+    int components = 0;
+    switch (format) {
+        case GL_RED:
+        case GL_DEPTH_COMPONENT:
+            components = 1;
+            break;
+        case GL_RG:
+        case GL_DEPTH_STENCIL:
+            components = 2;
+            break;
+        case GL_RGB:
+        case GL_BGR:
+            components = 3;
+            break;
+        case GL_RGBA:
+        case GL_BGRA:
+            components = 4;
+            break;
+        default:
+            components = 0;
+            break;
+    }
+
+    size_t componentSize = GetComponentSize(type);
+    return components * componentSize;
+}
+
+size_t TextureState::GetComponentSize(GLenum type) {
+    switch (type) {
+        case GL_BYTE:
+        case GL_UNSIGNED_BYTE:
+            return 1;
+        case GL_SHORT:
+        case GL_UNSIGNED_SHORT:
+        case GL_HALF_FLOAT:
+            return 2;
+        case GL_INT:
+        case GL_UNSIGNED_INT:
+        case GL_FLOAT:
+            return 4;
+        case GL_UNSIGNED_BYTE_3_3_2:
+        case GL_UNSIGNED_BYTE_2_3_3_REV:
+            return 1;
+        case GL_UNSIGNED_SHORT_5_6_5:
+        case GL_UNSIGNED_SHORT_5_6_5_REV:
+        case GL_UNSIGNED_SHORT_4_4_4_4:
+        case GL_UNSIGNED_SHORT_4_4_4_4_REV:
+        case GL_UNSIGNED_SHORT_5_5_5_1:
+        case GL_UNSIGNED_SHORT_1_5_5_5_REV:
+            return 2;
+        case GL_UNSIGNED_INT_8_8_8_8:
+        case GL_UNSIGNED_INT_8_8_8_8_REV:
+        case GL_UNSIGNED_INT_10_10_10_2:
+        case GL_UNSIGNED_INT_2_10_10_10_REV:
+            return 4;
+        default:
+            return 0;
+    }
+}
+
+void TextureState::SwapBytesForTexture(GLenum format, GLenum type, const GLubyte* src, GLubyte* dst, GLsizei width) {
+    size_t componentSize = GetComponentSize(type);
+    if (componentSize <= 1) {
+        memcpy(dst, src, width * componentSize);
+        return;
+    }
+
+    for (GLsizei i = 0; i < width; ++i) {
+        for (size_t j = 0; j < componentSize; ++j) {
+            dst[i * componentSize + j] = src[i * componentSize + (componentSize - 1 - j)];
+        }
+    }
+}
+
+GLubyte TextureState::ReverseBits(GLubyte b) {
+    b = (b & 0xF0) >> 4 | (b & 0x0F) << 4;
+    b = (b & 0xCC) >> 2 | (b & 0x33) << 2;
+    b = (b & 0xAA) >> 1 | (b & 0x55) << 1;
+    return b;
+}
+
+void TextureState::ReverseBitOrder(const GLubyte* src, GLubyte* dst, size_t byteCount) {
+    for (size_t i = 0; i < byteCount; ++i) {
+        dst[i] = ReverseBits(src[i]);
+    }
+}
+
+void TextureState::SwapPixelBytes(GLenum format, GLenum type, const GLubyte* src, GLubyte* dst) {
+    const size_t size = GetComponentSize(type);
+    for (size_t i = 0; i < size; ++i) {
+        dst[i] = src[size - 1 - i];
+    }
 }

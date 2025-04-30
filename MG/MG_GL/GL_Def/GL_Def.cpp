@@ -122,7 +122,7 @@ DECLARE_GL_FUNCTION_STUB_HEAD(GLboolean, IsShader, GLuint shader) DECLARE_GL_FUN
 DECLARE_GL_FUNCTION_STUB_HEAD(GLboolean, IsTexture, GLuint texture) DECLARE_GL_FUNCTION_STUB_END(GLboolean, IsTexture, texture)
 DECLARE_GL_FUNCTION_STUB_HEAD(void, LineWidth, GLfloat width) DECLARE_GL_FUNCTION_STUB_END_NO_RETURN(void, LineWidth, width)
 DECLARE_GL_FUNCTION_STUB_HEAD(void, LinkProgram, GLuint program) DECLARE_GL_FUNCTION_STUB_END_NO_RETURN(void, LinkProgram, program)
-DECLARE_GL_FUNCTION_STUB_HEAD(void, PixelStorei, GLenum pname, GLint param) DECLARE_GL_FUNCTION_STUB_END_NO_RETURN(void, PixelStorei, pname,param)
+DECLARE_GL_FUNCTION_HEAD(void, PixelStorei, GLenum pname, GLint param) DECLARE_GL_FUNCTION_END_NO_RETURN(void, PixelStorei, pname,param)
 DECLARE_GL_FUNCTION_STUB_HEAD(void, PolygonOffset, GLfloat factor, GLfloat units) DECLARE_GL_FUNCTION_STUB_END_NO_RETURN(void, PolygonOffset, factor,units)
 DECLARE_GL_FUNCTION_STUB_HEAD(void, ReadPixels, GLint x, GLint y, GLsizei width, GLsizei height, GLenum format, GLenum type, void *pixels) DECLARE_GL_FUNCTION_STUB_END_NO_RETURN(void, ReadPixels, x,y,width,height,format,type,pixels)
 DECLARE_GL_FUNCTION_STUB_HEAD(void, ReleaseShaderCompiler) DECLARE_GL_FUNCTION_STUB_END_NO_RETURN(void, ReleaseShaderCompiler)

@@ -22,6 +22,36 @@ namespace MG_Constants {
         inline const int LOG_LEVEL_INFO = 0x0013;
         inline const int LOG_LEVEL_FATAL = 0x0014;
     }
+
+    namespace PixelStore {
+        static const std::unordered_map<GLenum, GLint> DEFAULT_VALUES_MAP = {
+                {GL_PACK_SWAP_BYTES,   GL_FALSE},
+                {GL_PACK_LSB_FIRST,    GL_FALSE},
+                {GL_PACK_ROW_LENGTH,   0},
+                {GL_PACK_IMAGE_HEIGHT, 0},
+                {GL_PACK_SKIP_ROWS,    0},
+                {GL_PACK_SKIP_PIXELS,  0},
+                {GL_PACK_SKIP_IMAGES,  0},
+                {GL_PACK_ALIGNMENT,    4},
+                {GL_UNPACK_SWAP_BYTES, GL_FALSE},
+                {GL_UNPACK_LSB_FIRST,  GL_FALSE},
+                {GL_UNPACK_ROW_LENGTH, 0},
+                {GL_UNPACK_IMAGE_HEIGHT, 0},
+                {GL_UNPACK_SKIP_ROWS,  0},
+                {GL_UNPACK_SKIP_PIXELS,0},
+                {GL_UNPACK_SKIP_IMAGES,0},
+                {GL_UNPACK_ALIGNMENT,  4}
+        }; // OpenGL 3
+        
+        static const std::unordered_set<GLenum> VALID_PARAM_NAMES = {
+                GL_PACK_SWAP_BYTES, GL_PACK_LSB_FIRST, GL_PACK_ROW_LENGTH, GL_PACK_IMAGE_HEIGHT,
+                GL_PACK_SKIP_ROWS, GL_PACK_SKIP_PIXELS, GL_PACK_SKIP_IMAGES, GL_PACK_ALIGNMENT,
+                GL_UNPACK_SWAP_BYTES, GL_UNPACK_LSB_FIRST, GL_UNPACK_ROW_LENGTH,
+                GL_UNPACK_IMAGE_HEIGHT,
+                GL_UNPACK_SKIP_ROWS, GL_UNPACK_SKIP_PIXELS, GL_UNPACK_SKIP_IMAGES,
+                GL_UNPACK_ALIGNMENT
+        }; // OpenGL 3
+    }
     
     namespace Texture {
         inline const GLuint MAX_TEXTURE_UNITS = 80;

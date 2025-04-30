@@ -48,6 +48,8 @@ add_library(${CMAKE_PROJECT_NAME} SHARED
         # MG_GL/State
         MG/MG_GL/State/Core/GLState.cpp
         
+        MG/MG_GL/State/Common/CommonState.cpp
+        
         MG/MG_GL/State/Texture/TextureState.cpp
 
         # MG_GL/GLX

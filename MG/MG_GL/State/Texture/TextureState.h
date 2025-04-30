@@ -40,7 +40,7 @@ public:
     TextureParams params;
     const void* data = nullptr;
     bool IsImmutable() const;
-    uint64_t createTimestamp;
+    uint64_t createTimestamp{};
 };
 
 class TextureUnitState {
@@ -62,10 +62,11 @@ private:
     std::set<GLuint> freeIDs;
 
     std::unordered_map<GLenum, TextureObject> proxyTextures;
+    
+    static GLint GetUnpackParam(GLenum pname);
 public:
     TextureState();
     
-    static TextureState& GetInstance();
     bool IsTextureGenerated(GLuint texture);
     bool IsTexture(GLuint texture);
     std::unordered_map<GLuint, TextureObject> textures;
@@ -88,12 +89,22 @@ public:
     GLenum GetLevelPropertyIntVector(GLenum target, GLint level, GLenum pname, GLint* params);
 
 private:
-    static static size_t CalculatePixelDataSize(GLenum format, GLenum type, GLsizei width, GLsizei height);
+    size_t CalculatePixelDataSize(GLenum format, GLenum type, GLsizei width, GLsizei height);
     void InvalidateTextureInAllUnits(GLuint texture);
     static ComponentSizes GetComponentSizes(GLenum internalFormat);
+    size_t CalculateBytesPerPixel(GLenum format, GLenum type);
+    static size_t GetComponentSize(GLenum type);
+    void SwapBytesForTexture(GLenum format, GLenum type, const GLubyte* src, GLubyte* dst, GLsizei width);
+    static void ReverseBitOrder(const GLubyte* src, GLubyte* dst, size_t size);
+    static GLubyte ReverseBits(GLubyte b);
+    void SwapPixelBytes(GLenum format, GLenum type, const GLubyte* src, GLubyte* dst);
+    
     GLenum CheckUploadingTexture2DValidity(GLenum target, GLint level, GLint internalFormat,
                                            GLsizei width, GLsizei height, GLint border, GLenum format,
                                            GLenum type, const void* data);
+    GLenum CheckUpdatingTextureRegion2DValidity(GLenum target, GLint level, GLint xoffset,
+                                              GLint yoffset, GLsizei width, GLsizei height, GLenum format,
+                                              GLenum type, const GLvoid* data);
 };
 
 #endif //MOBILEGL_TEXTURESTATE_H
