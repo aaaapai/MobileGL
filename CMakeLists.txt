@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.22.1)
 
-project("mobilegluvk")
+project("MobileGL")
 
 enable_language(CXX)
 
@@ -95,7 +95,7 @@ target_link_libraries(${CMAKE_PROJECT_NAME}
         vulkan
 )
 
-target_include_directories(mobilegluvk PUBLIC
+target_include_directories(MobileGL PUBLIC
         ${CMAKE_SOURCE_DIR}/include
         )
 
@@ -104,6 +104,6 @@ if (PROFILING)
         find_package(Threads)
         include_directories(${CMAKE_SOURCE_DIR}/3rdparty/perfetto/sdk)
         add_library(perfetto STATIC ${CMAKE_SOURCE_DIR}/3rdparty/perfetto/sdk/perfetto.cc)
-        target_link_libraries(mobilegluvk perfetto ${CMAKE_THREAD_LIBS_INIT})
-        target_compile_definitions(mobilegluvk PUBLIC PROFILING=1)
+        target_link_libraries(MobileGL perfetto ${CMAKE_THREAD_LIBS_INIT})
+        target_compile_definitions(MobileGL PUBLIC PROFILING=1)
 endif()
