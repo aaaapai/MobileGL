@@ -5,17 +5,50 @@
 #include "TestDrawing.h"
 
 namespace MG_RHI::GLES::Test {
+    constexpr int DISPLAY_COLUMNS = 8;
+    constexpr int DISPLAY_ROWS    = 10;
+    constexpr int MAX_DISPLAY_TEXTURES = DISPLAY_COLUMNS * DISPLAY_ROWS;
+
     bool IsTextureComplete(const TextureObject& tex) {
-        if (tex.params.mipmapData.empty()) return false;
+        return !tex.params.mipmapData.empty();
+    }
+
+    bool CheckShaderCompileStatus(GLuint shader, const char* type) {
+        GLint success;
+        ::GLES::glGetShaderiv(shader, GL_COMPILE_STATUS, &success);
+        if (!success) {
+            GLchar infoLog[512];
+            ::GLES::glGetShaderInfoLog(shader, 512, NULL, infoLog);
+            MG_Util::Debug::LogE("Shader compilation error (%s): %s", type, infoLog);
+            return false;
+        }
+        return true;
+    }
+
+    bool CheckProgramLinkStatus(GLuint program) {
+        GLint success;
+        ::GLES::glGetProgramiv(program, GL_LINK_STATUS, &success);
+        if (!success) {
+            GLchar infoLog[512];
+            ::GLES::glGetProgramInfoLog(program, 512, NULL, infoLog);
+            MG_Util::Debug::LogE("Program link error: %s", infoLog);
+            return false;
+        }
         return true;
     }
 
     void DrawAllTextures() {
+        ::GLES::glClearColor(1,1,1,1);
+        ::GLES::glClear(GL_COLOR_BUFFER_BIT);
+        
         struct ScreenResources {
             GLuint program = 0;
             GLuint quadVAO = 0;
             GLuint quadVBO = 0;
-            std::unordered_map<GLuint, GLuint> textureCache;  // [state_texID] => GL_texID
+            GLint uTexLoc = -1;
+            GLint uMVPLoc = -1;
+            std::unordered_map<GLuint, GLuint> textureCache;
+            std::unordered_map<GLuint, bool> textureDirty;
         };
 
         static ScreenResources sRes;
@@ -23,7 +56,8 @@ namespace MG_RHI::GLES::Test {
 
         GLint viewport[4];
         ::GLES::glGetIntegerv(GL_VIEWPORT, viewport);
-        glm::ivec2 screenSize(viewport[2], viewport[3]);
+
+        const glm::ivec2 screenSize(viewport[2], viewport[3]);
 
         if (screenSize != lastScreenSize) {
             if (sRes.quadVAO) {
@@ -55,37 +89,48 @@ namespace MG_RHI::GLES::Test {
             })";
 
             GLuint vs = ::GLES::glCreateShader(GL_VERTEX_SHADER);
-            GLuint fs = ::GLES::glCreateShader(GL_FRAGMENT_SHADER);
             ::GLES::glShaderSource(vs, 1, &vsSrc, NULL);
-            ::GLES::glShaderSource(fs, 1, &fsSrc, NULL);
             ::GLES::glCompileShader(vs);
+            if (!CheckShaderCompileStatus(vs, "vertex")) return;
+
+            GLuint fs = ::GLES::glCreateShader(GL_FRAGMENT_SHADER);
+            ::GLES::glShaderSource(fs, 1, &fsSrc, NULL);
             ::GLES::glCompileShader(fs);
+            if (!CheckShaderCompileStatus(fs, "fragment")) return;
+
             sRes.program = ::GLES::glCreateProgram();
             ::GLES::glAttachShader(sRes.program, vs);
             ::GLES::glAttachShader(sRes.program, fs);
             ::GLES::glLinkProgram(sRes.program);
+            if (!CheckProgramLinkStatus(sRes.program)) return;
+
+            sRes.uTexLoc = ::GLES::glGetUniformLocation(sRes.program, "uTex");
+            sRes.uMVPLoc = ::GLES::glGetUniformLocation(sRes.program, "uMVP");
+
             ::GLES::glDeleteShader(vs);
             ::GLES::glDeleteShader(fs);
         }
 
         if (!sRes.quadVAO) {
-            const float margin = 0.02f;
-            const float gridSize = (1.0f - 2*margin) / 6.0f;
+            const float margin = 0.01f;
+            const float gridWidth = (2.0f - 2*margin) / DISPLAY_COLUMNS;
+            const float gridHeight = (2.0f - 2*margin) / DISPLAY_ROWS;
 
             std::vector<float> vertices;
+            vertices.reserve(MAX_DISPLAY_TEXTURES * 16);
 
-            for (int col = 0; col < 6; ++col) {
-                for (int row = 0; row < 5; ++row) {
-                    float xStart = -1.0f + margin + col * gridSize;
-                    float yStart = -1.0f + margin + row * gridSize;
-                    float xEnd = xStart + gridSize - margin;
-                    float yEnd = yStart + gridSize - margin;
+            for (int col = 0; col < DISPLAY_COLUMNS; ++col) {
+                for (int row = 0; row < DISPLAY_ROWS; ++row) {
+                    const float xStart = -1.0f + margin + col * gridWidth;
+                    const float yStart = -1.0f + margin + row * gridHeight;
+                    const float xEnd = xStart + gridWidth - margin;
+                    const float yEnd = yStart + gridHeight - margin;
 
                     vertices.insert(vertices.end(), {
-                            xStart, yStart,    0.0f, 0.0f,
-                            xEnd,   yStart,    1.0f, 0.0f,
-                            xEnd,   yEnd,      1.0f, 1.0f,
-                            xStart, yEnd,      0.0f, 1.0f
+                            xStart, yStart, 0.0f, 0.0f,
+                            xEnd,   yStart, 1.0f, 0.0f,
+                            xEnd,   yEnd,   1.0f, 1.0f,
+                            xStart, yEnd,   0.0f, 1.0f
                     });
                 }
             }
@@ -94,94 +139,95 @@ namespace MG_RHI::GLES::Test {
             ::GLES::glGenBuffers(1, &sRes.quadVBO);
             ::GLES::glBindVertexArray(sRes.quadVAO);
             ::GLES::glBindBuffer(GL_ARRAY_BUFFER, sRes.quadVBO);
-            ::GLES::glBufferData(GL_ARRAY_BUFFER, vertices.size() * sizeof(float), vertices.data(), GL_STATIC_DRAW);
+            ::GLES::glBufferData(GL_ARRAY_BUFFER,
+                                 vertices.size() * sizeof(float),
+                                 vertices.data(),
+                                 GL_STATIC_DRAW
+            );
 
             ::GLES::glEnableVertexAttribArray(0);
-            ::GLES::glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void*)0);
-
+            ::GLES::glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE,
+                                          4 * sizeof(float), (void*)0
+            );
             ::GLES::glEnableVertexAttribArray(1);
-            ::GLES::glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE,4 * sizeof(float), (void*)(2 * sizeof(float)));
-
+            ::GLES::glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE,
+                                          4 * sizeof(float), (void*)(2 * sizeof(float))
+            );
             ::GLES::glBindVertexArray(0);
         }
 
-        auto& texState = TextureState::GetInstance();
         std::vector<std::pair<GLuint, TextureObject*>> sortedTextures;
-
-        for (auto&& [stateID, texObj] : texState.textures) {
+        for (auto&& [stateID, texObj] : MG_State_T::textureState->textures) {
             if (!texObj.generated || texObj.target != GL_TEXTURE_2D) continue;
             if (texObj.params.mipmapData.empty()) continue;
             sortedTextures.emplace_back(stateID, &texObj);
         }
-        std::sort(sortedTextures.begin(), sortedTextures.end(), [](auto& a, auto& b) {
-            return a.second->createTimestamp > b.second->createTimestamp;
-        });
-
-        sortedTextures.resize(std::min<size_t>(sortedTextures.size(), 30));
+        std::sort(sortedTextures.begin(), sortedTextures.end(),
+                  [](auto& a, auto& b) {
+                      return a.second->createTimestamp > b.second->createTimestamp;
+                  }
+        );
+        sortedTextures.resize(std::min<size_t>(sortedTextures.size(), MAX_DISPLAY_TEXTURES));
 
         for (auto&& [stateID, texObj] : sortedTextures) {
-            bool needCreate = sRes.textureCache.find(stateID) == sRes.textureCache.end();
-            bool needUpdate = true;
+            auto& dirtyFlag = sRes.textureDirty[stateID];
+            bool needCreate = !sRes.textureCache.count(stateID);
 
-            GLuint glTexID = 0;
             if (needCreate) {
+                GLuint glTexID;
                 ::GLES::glGenTextures(1, &glTexID);
                 sRes.textureCache[stateID] = glTexID;
-                needUpdate = true;
-            } else {
-                glTexID = sRes.textureCache[stateID];
+                dirtyFlag = true;
             }
 
-            const auto& mip0 = texObj->params.mipmapData.begin()->second;
-            if (mip0.hasData) {
-                ::GLES::glActiveTexture(GL_TEXTURE0);
-                ::GLES::glBindTexture(GL_TEXTURE_2D, glTexID);
-
-                if (needUpdate || needCreate) {
+            if (dirtyFlag || needCreate) {
+                const auto& mip0 = texObj->params.mipmapData.begin()->second;
+                if (mip0.hasData) {
+                    GLuint glTexID = sRes.textureCache[stateID];
+                    ::GLES::glBindTexture(GL_TEXTURE_2D, glTexID);
                     ::GLES::glTexImage2D(GL_TEXTURE_2D, 0, mip0.internalFormat,
-                                 mip0.width, mip0.height, 0,
-                                 mip0.format, mip0.type, mip0.pixelData.data());
-
-                    ::GLES::glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-                    ::GLES::glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-                    ::GLES::glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-                    ::GLES::glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-
+                                         mip0.width, mip0.height, 0,
+                                         mip0.format, mip0.type, mip0.pixelData.data()
+                    );
+                    ::GLES::glTexParameteri(GL_TEXTURE_2D,
+                                            GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+                    ::GLES::glTexParameteri(GL_TEXTURE_2D,
+                                            GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+                    ::GLES::glTexParameteri(GL_TEXTURE_2D,
+                                            GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+                    ::GLES::glTexParameteri(GL_TEXTURE_2D,
+                                            GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
                     if (texObj->params.mipmapData.size() > 1) {
                         ::GLES::glGenerateMipmap(GL_TEXTURE_2D);
                     }
+                    dirtyFlag = false;
                 }
             }
         }
 
         GLboolean origDepthTest = ::GLES::glIsEnabled(GL_DEPTH_TEST);
-        GLint origProgram;
-        GLint origViewport[4];
+        GLint origProgram, origViewport[4];
         ::GLES::glGetIntegerv(GL_VIEWPORT, origViewport);
         ::GLES::glGetIntegerv(GL_CURRENT_PROGRAM, &origProgram);
 
         ::GLES::glDisable(GL_DEPTH_TEST);
         ::GLES::glUseProgram(sRes.program);
-        GLint uTexLoc = ::GLES::glGetUniformLocation(sRes.program, "uTex");
-        ::GLES::glUniform1i(uTexLoc, 0);
-        
+        ::GLES::glUniformMatrix4fv(sRes.uMVPLoc, 1, GL_FALSE,
+                                   &glm::mat4(1.0f)[0][0]
+        );
+        ::GLES::glUniform1i(sRes.uTexLoc, 0);
         ::GLES::glBindVertexArray(sRes.quadVAO);
 
-        glm::mat4 proj = glm::ortho(-1.0f, 1.0f, -1.0f, 1.0f);
-        GLint uMVPLoc = ::GLES::glGetUniformLocation(sRes.program, "uMVP");
-        glm::mat4 identity(1.0f);
-        ::GLES::glUniformMatrix4fv(uMVPLoc, 1, GL_FALSE, &identity[0][0]);
-
         for (size_t i = 0; i < sortedTextures.size(); ++i) {
-            GLuint glTexID = sRes.textureCache[sortedTextures[i].first];
-
+            const GLuint glTexID = sRes.textureCache[sortedTextures[i].first];
             ::GLES::glActiveTexture(GL_TEXTURE0);
             ::GLES::glBindTexture(GL_TEXTURE_2D, glTexID);
-
-            GLint uTexLoc = ::GLES::glGetUniformLocation(sRes.program, "uTex");
-            ::GLES::glUniform1i(uTexLoc, 0);
-
             ::GLES::glDrawArrays(GL_TRIANGLE_FAN, static_cast<GLint>(i*4), 4);
         }
+
+        if (origDepthTest) ::GLES::glEnable(GL_DEPTH_TEST);
+        ::GLES::glUseProgram(origProgram);
+        ::GLES::glViewport(origViewport[0], origViewport[1],
+                           origViewport[2], origViewport[3]);
     }
 }
