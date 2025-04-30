@@ -417,9 +417,8 @@ GLenum TextureState::UpdateRegion2D(GLenum target, GLint level, GLint xoffset,
                 dstRow[i] = ReverseBits(srcRow[i]);
             }
         } else {
-            MG_Util::Debug::LogD("MG_State: Texture: UpdateRegion2D memmove(dst=%p, src=%p, size=%zu) called.", dstRow, srcRow, width * bytesPerPixel);
-            
-            memmove(dstRow, srcRow, width * bytesPerPixel);
+            MG_Util::Debug::LogD("MG_State: Texture: UpdateRegion2D memcpy(dst=%p, src=%p, size=%zu) called.", dstRow, srcRow, width * bytesPerPixel);
+            memcpy(dstRow, srcRow, width * bytesPerPixel);
         }
     }
 
