@@ -30,8 +30,7 @@ namespace MG_GL::Getter {
     }
 
     void LogMGInfo() {
-        std::string MGName = MG_GL::Getter::GetMGName()+
-                             ", MobileGL (" + MG_GL::Getter::GetBackendName() + ")";
+        std::string MGName = MG_GL::Getter::GetMGName() + " (MobileGL Core)";
 
         std::string MGVersion = std::to_string(MG_Global::MG::VersionMajor) + "."
                                 +  std::to_string(MG_Global::MG::VersionMinor) + "."
@@ -44,6 +43,8 @@ namespace MG_GL::Getter {
                                 +  std::to_string(MG_Global::GL::GLVersionMinor) + "."
                                 +  std::to_string(MG_Global::GL::GLVersionRevision);
 
+        std::string backendName = MG_GL::Getter::GetBackendName();
+        
         std::string backendVersion;
 #if BACKEND_TYPE == BACKEND_VULKAN
         VkApplicationInfo appInfo = {};
@@ -76,6 +77,8 @@ namespace MG_GL::Getter {
         
         backendVersion = "Vulkan " + std::to_string(major) + "." + 
                 std::to_string(minor)+"." + std::to_string(patch);
+#elif BACKEND_TYPE == BACKEND_GLES
+        backendVersion = std::string((const char*)::GLES::glGetString(GL_VERSION));
 #else
         backendVersion = "<Unknown Backend>";
 #endif
@@ -83,7 +86,8 @@ namespace MG_GL::Getter {
         MG_Util::Debug::LogI("MobileGL Renderer Info:");
         MG_Util::Debug::LogI("----%s:", MGName.c_str());
         MG_Util::Debug::LogI("--------MobileGL Version: %s", MGVersion.c_str());
-        MG_Util::Debug::LogI("--------Implemented OpenGL Version: %s", GLVersion.c_str());
+        MG_Util::Debug::LogI("--------Target OpenGL Implementation Version: %s", GLVersion.c_str());
+        MG_Util::Debug::LogI("--------Backend: %s", backendName.c_str());
         MG_Util::Debug::LogI("--------Backend Version: %s", backendVersion.c_str());
     }
 }

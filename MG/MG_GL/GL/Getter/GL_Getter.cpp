@@ -22,8 +22,8 @@ namespace MG_GL::GL {
                     versionStr == std::to_string(MG_Global::GL::GLVersionMajor) + "."
                                     +  std::to_string(MG_Global::GL::GLVersionMinor) + "."
                                     +  std::to_string(MG_Global::GL::GLVersionRevision) 
-                                    + " "+ MG_GL::Getter::GetMGName()+
-                                    ", MobileGL (" + MG_GL::Getter::GetBackendName() + ") ";
+                                    + " "+ MG_GL::Getter::GetMGName() +
+                                    ", MobileGL Core, " + MG_GL::Getter::GetBackendName() + " Backend";
                     versionStr += std::to_string(MG_Global::MG::VersionMajor) + "."
                                     +  std::to_string(MG_Global::MG::VersionMinor) + "."
                                     +  std::to_string(MG_Global::MG::VersionRevision);
@@ -44,7 +44,7 @@ namespace MG_GL::GL {
                 }
                 return (const GLubyte *)rendererString.c_str();
                  */
-                return (const GLubyte *) "MobileGL";
+                return (const GLubyte *)(MG_GL::Getter::GetMGName() + "(MobileGL Core) Renderer").c_str();
             }
             case GL_SHADING_LANGUAGE_VERSION:
                 return (const GLubyte *) "4.50 MobileGL with glslang";
