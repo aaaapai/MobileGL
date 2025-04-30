@@ -74,7 +74,7 @@
 - [ ] glDepthMask
 - [ ] glDisable
 - [ ] glEnable
-- [ ] glPixelStorei
+- [x] glPixelStorei
 - [ ] glViewport
 
 ---
