@@ -391,8 +391,11 @@ GLenum TextureState::UpdateRegion2D(GLenum target, GLint level, GLint xoffset,
     // TODO: Check the buffer data size.
 
     const size_t dstRowStride = mip.width * bytesPerPixel;
-    if (mip.pixelData.empty())
-        mip.pixelData.resize(srcSize);
+    size_t dstTotalSize = mip.width * mip.height * bytesPerPixel;
+    if (mip.pixelData.size() < dstTotalSize) {
+        mip.pixelData.resize(dstTotalSize);
+        MG_Util::Debug::LogD("MG_State: Texture: Resized pixelData to %zu bytes for mip level %d", dstTotalSize, level);
+    }
     GLubyte* dstData = mip.pixelData.data() + yoffset * dstRowStride + xoffset * bytesPerPixel;
 
     MG_Util::Debug::LogD("MG_State: Texture: UpdateRegion2D srcRowStride=%zu, dstRowStride=%zu", srcRowStride, dstRowStride);
@@ -414,6 +417,8 @@ GLenum TextureState::UpdateRegion2D(GLenum target, GLint level, GLint xoffset,
                 dstRow[i] = ReverseBits(srcRow[i]);
             }
         } else {
+            MG_Util::Debug::LogD("MG_State: Texture: UpdateRegion2D memmove(dst=%p, src=%p, size=%zu) called.", dstRow, srcRow, width * bytesPerPixel);
+            
             memmove(dstRow, srcRow, width * bytesPerPixel);
         }
     }
