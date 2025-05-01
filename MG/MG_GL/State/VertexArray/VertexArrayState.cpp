@@ -2,7 +2,7 @@
 // Created by BZLZHH on 2025/5/1.
 //
 
-// TODO: Add more gl error check for buffer state manager.
+// TODO: Add more gl error check for vertex array state manager.
 
 #include "VertexArrayState.h"
 
