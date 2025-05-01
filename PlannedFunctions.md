@@ -2,7 +2,7 @@
 
 ### **1. Initialization & Query Functions**
 - [ ] glGetAttribLocation
-- [ ] glGetBufferParameteriv
+- [x] glGetBufferParameteriv
 - [x] glGetError
 - [ ] glGetIntegerv
 - [ ] glGetProgramiv
@@ -50,16 +50,16 @@
 ---
 
 ### **5. Buffer & Vertex Array Operations**
-- [ ] glBindBuffer
-- [ ] glBindVertexArray
-- [ ] glBufferData
-- [ ] glEnableVertexAttribArray
-- [ ] glGenBuffers
-- [ ] glGenVertexArrays
-- [ ] glMapBuffer
-- [ ] glUnmapBuffer
-- [ ] glVertexAttribIPointer
-- [ ] glVertexAttribPointer
+- [x] glBindBuffer
+- [x] glBindVertexArray
+- [x] glBufferData
+- [x] glEnableVertexAttribArray
+- [x] glGenBuffers
+- [x] glGenVertexArrays
+- [x] glMapBuffer
+- [x] glUnmapBuffer
+- [x] glVertexAttribIPointer
+- [x] glVertexAttribPointer
 
 ---
 
