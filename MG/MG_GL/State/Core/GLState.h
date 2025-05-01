@@ -14,8 +14,6 @@ struct MG_State_T {
 };
 
 namespace MG_State {
-    extern MG_State_T* MG_State_O;
-    
     void Init();
     void Destroy();
     void SetError(GLenum error);
