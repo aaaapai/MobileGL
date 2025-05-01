@@ -8,9 +8,9 @@
 #include "../../../../Includes.h"
 
 namespace MG_GL::GL {
-    const ::GLubyte* GetString(GLenum name);
-    const ::GLubyte* GetStringi(GLenum name, GLuint index);
-    ::GLenum GetError();
+    const GLubyte* GetString(GLenum name);
+    const GLubyte* GetStringi(GLenum name, GLuint index);
+    GLenum GetError();
     void GetIntegerv(GLenum pname, GLint *params);
 }
 

@@ -73,9 +73,6 @@ namespace MG_GL::GL {
         } StringCache;
         static StringCache caches[] = {
                 {GL_EXTENSIONS, nullptr, 0},
-                {GL_VENDOR, nullptr, 0},
-                {GL_VERSION, nullptr, 0},
-                {GL_SHADING_LANGUAGE_VERSION, nullptr, 0}
         };
         static int initialized = 0;
         if (!initialized) {
@@ -124,19 +121,15 @@ namespace MG_GL::GL {
             case GL_NUM_EXTENSIONS:
                 static GLint num_extensions = -1;
                 if (num_extensions == -1) {
-                    const GLubyte* ext_str = glGetString(GL_EXTENSIONS);
-                    if (ext_str) {
-                        char* copy = strdup((const char*)ext_str);
-                        char* token = strtok(copy, " ");
-                        num_extensions = 0;
-                        while (token) {
-                            num_extensions++;
-                            token = strtok(nullptr, " ");
-                        }
-                        free(copy);
-                    } else {
-                        num_extensions = 0;
+                    const GLubyte* ext_str = MG_GL::GL::GetString(GL_EXTENSIONS);
+                    char *copy = strdup((const char *) ext_str);
+                    char *token = strtok(copy, " ");
+                    num_extensions = 0;
+                    while (token) {
+                        num_extensions++;
+                        token = strtok(nullptr, " ");
                     }
+                    free(copy);
                 }
                 (*params) = num_extensions;
                 break;
