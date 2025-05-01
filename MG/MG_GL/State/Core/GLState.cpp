@@ -7,16 +7,22 @@
 std::queue<GLenum> MG_State_T::glErrorQueue;
 TextureState* MG_State_T::textureState = nullptr;
 CommonState* MG_State_T::commonState = nullptr;
+BufferState* MG_State_T::bufferState = nullptr;
+VertexArrayState* MG_State_T::vertexArrayState = nullptr;
 
 namespace MG_State {
     void Init() {
         MG_State_T::textureState = new TextureState();
         MG_State_T::commonState = new CommonState();
+        MG_State_T::bufferState = new BufferState();
+        MG_State_T::vertexArrayState = new VertexArrayState();
     }
     
     void Destroy() {
         delete MG_State_T::textureState;
         delete MG_State_T::commonState;
+        delete MG_State_T::bufferState;
+        delete MG_State_T::vertexArrayState;
     }
     
     void SetError(GLenum error) {
@@ -34,7 +40,9 @@ namespace MG_State {
         MG_State_T::glErrorQueue.pop();
         return error;
     }
-    
+
+// TODO: Take these functions apart into multiple files.
+
     // Texture
     GLenum BindTextureUnit(GLenum textureUnit) {
         return MG_State_T::textureState->BindUnit(textureUnit);
@@ -83,7 +91,8 @@ namespace MG_State {
     GLenum GetTextureLevelPropertyIntVector(GLenum target, GLint level, GLenum pname, GLint* params) {
         return MG_State_T::textureState->GetLevelPropertyIntVector(target, level, pname, params);
     }
-
+    
+    // Common
     GLenum MG_State::SetPixelStoreInt(GLenum pname, GLint param) {
         return MG_State_T::commonState->SetPixelStoreInt(pname, param);
     }
@@ -91,5 +100,84 @@ namespace MG_State {
     GLint MG_State::GetPixelStoreInt(GLenum pname) {
         return MG_State_T::commonState->GetPixelStoreInt(pname);
     }
+    
+    // Buffer
+    GLenum AcquireBufferMemory(GLenum target, GLenum access, void** mappedPtr) {
+        return MG_State_T::bufferState->AcquireBufferMemory(target, access, mappedPtr);
+    }
 
+    GLenum ReleaseBufferMemory(GLenum target) {
+        return MG_State_T::bufferState->ReleaseBufferMemory(target);
+    }
+
+    GLenum CreateBuffer(GLuint* buffer) {
+        return MG_State_T::bufferState->Create(buffer);
+    }
+
+    GLenum CreateBuffers(GLsizei n, GLuint* buffers) {
+        return MG_State_T::bufferState->CreateN(n, buffers);
+    }
+
+    GLenum BindBuffer(GLenum target, GLuint buffer) {
+        if (target == GL_ELEMENT_ARRAY_BUFFER) {
+            auto* vao = MG_State_T::vertexArrayState->GetCurrentVAO();
+            if (!vao) return GL_INVALID_OPERATION;
+            vao->elementBuffer = (GLuint)buffer;
+        }
+        return MG_State_T::bufferState->Bind(target, buffer);
+    }
+
+    GLenum CommitBufferStorage(GLenum target, GLsizeiptr size, const void* data, GLenum usage) {
+        return MG_State_T::bufferState->CommitStorage(target, size, data, usage);
+    }
+
+    bool ValidateBufferHandle(GLuint buffer) {
+        return MG_State_T::bufferState->ValidateHandle(buffer);
+    }
+
+    void DeleteBuffer(GLuint buffer) {
+        return MG_State_T::bufferState->Delete(buffer);
+    }
+
+    GLenum QueryBufferPropertyIntVector(GLenum target, GLenum pname, GLint* params) {
+        return MG_State_T::bufferState->QueryPropertyIntVector(target, pname, params);
+    }
+    
+    // VertexArray
+    GLenum BindVertexArray(GLuint array) {
+        return MG_State_T::vertexArrayState->Bind(array);
+    }
+
+    GLenum CreateVertexArray(GLuint* array) {
+        return MG_State_T::vertexArrayState->Create(array);
+    }
+
+    GLenum CreateVertexArrays(GLsizei n, GLuint* arrays) {
+        return MG_State_T::vertexArrayState->CreateN(n, arrays);
+    }
+
+    GLenum EnableVertexAttribArray(GLuint index) {
+        return MG_State_T::vertexArrayState->EnableAttrib(index);
+    }
+
+    GLenum DisableVertexAttribArray(GLuint index) {
+        return MG_State_T::vertexArrayState->DisableAttrib(index);
+    }
+
+    GLenum SetVertexAttributeLayout(GLuint index, GLint size, GLenum type,
+                               GLboolean normalized, GLsizei stride,
+                               const void* pointer) {
+        GLuint currentBuffer = MG_State_T::bufferState->GetCurrentBinding(GL_ARRAY_BUFFER);
+        return MG_State_T::vertexArrayState->SetAttribPointer(
+                index, size, type, normalized, stride, pointer, false, currentBuffer
+        );
+    }
+
+    GLenum SetVertexAttributeLayoutInt(GLuint index, GLint size, GLenum type,
+                                GLsizei stride, const void* pointer) {
+        GLuint currentBuffer = MG_State_T::bufferState->GetCurrentBinding(GL_ARRAY_BUFFER);
+        return MG_State_T::vertexArrayState->SetAttribPointer(
+                index, size, type, GL_FALSE, stride, pointer, true, currentBuffer
+        );
+    }
 }

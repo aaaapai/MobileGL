@@ -13,7 +13,9 @@ private:
     std::unordered_map<GLenum, GLint> pixelStoreParams;
     
 public:
+    // Return: the validity of the operation, according to OpenGL 3 standard
     GLenum SetPixelStoreInt(GLenum pname, GLint param);
+    
     GLint GetPixelStoreInt(GLenum pname);
 };
 

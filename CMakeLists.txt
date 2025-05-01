@@ -59,8 +59,12 @@ add_library(${CMAKE_PROJECT_NAME} SHARED
         MG/MG_GL/State/Core/GLState.cpp
         
         MG/MG_GL/State/Common/CommonState.cpp
-        
+
         MG/MG_GL/State/Texture/TextureState.cpp
+        
+        MG/MG_GL/State/VertexArray/VertexArrayState.cpp
+        
+        MG/MG_GL/State/Buffer/BufferState.cpp
 
         # MG_GL/BackendLoader
         MG/MG_GL/BackendLoader/GLES/Loader.cpp

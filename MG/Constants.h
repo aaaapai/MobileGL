@@ -22,6 +22,22 @@ namespace MG_Constants {
         inline const int LOG_LEVEL_INFO = 0x0013;
         inline const int LOG_LEVEL_FATAL = 0x0014;
     }
+    
+    namespace Buffer {
+        static const std::unordered_set<GLenum> VALID_PARAM_NAMES = {
+                GL_BUFFER_ACCESS, GL_BUFFER_MAPPED, GL_BUFFER_SIZE, GL_BUFFER_USAGE
+        }; // OpenGL 3
+        
+        static const std::unordered_set<GLenum> VALID_TARGETS = { 
+                GL_ARRAY_BUFFER, GL_COPY_READ_BUFFER, GL_COPY_WRITE_BUFFER, GL_ELEMENT_ARRAY_BUFFER,
+                GL_PIXEL_PACK_BUFFER, GL_PIXEL_UNPACK_BUFFER, GL_TEXTURE_BUFFER,
+                GL_TRANSFORM_FEEDBACK_BUFFER,  GL_UNIFORM_BUFFER
+        }; // OpenGL 3
+        
+        static const std::unordered_set<GLenum> VALID_ACCESS = {
+                GL_READ_ONLY, GL_WRITE_ONLY, GL_READ_WRITE
+        }; // OpenGL 3
+    }
 
     namespace PixelStore {
         static const std::unordered_map<GLenum, GLint> DEFAULT_VALUES_MAP = {

@@ -44,6 +44,12 @@
 #ifndef MOBILEGL_TEXTURESTATE_H
 #include "MG_GL/State/Texture/TextureState.h"
 #endif
+#ifndef MOBILEGL_VERTEXARRAYSTATE_H
+#include "MG_GL/State/VertexArray/VertexArrayState.h"
+#endif
+#ifndef MOBILEGL_BUFFERSTATE_H
+#include "MG_GL/State/Buffer/BufferState.h"
+#endif
 #ifndef MOBILEGL_LOOKUP_H
 #include "MG_GL/Implementations/GLX/LookUp/LookUp.h"
 #endif

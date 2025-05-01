@@ -98,10 +98,9 @@ private:
     static void ReverseBitOrder_(const GLubyte* src, GLubyte* dst, size_t size);
     static GLubyte ReverseBits_(GLubyte b);
     void SwapPixelBytes_(GLenum format, GLenum type, const GLubyte* src, GLubyte* dst);
-    
     GLenum CheckUploadingTexture2DValidity_(GLenum target, GLint level, GLint internalFormat,
-                                           GLsizei width, GLsizei height, GLint border, GLenum format,
-                                           GLenum type, const void* data);
+                                            GLsizei width, GLsizei height, GLint border, GLenum format,
+                                            GLenum type, const void* data);
     GLenum CheckUpdatingTextureRegion2DValidity_(GLenum target, GLint level, GLint xoffset,
                                                  GLint yoffset, GLsizei width, GLsizei height, GLenum format,
                                                  GLenum type, const GLvoid* data);
