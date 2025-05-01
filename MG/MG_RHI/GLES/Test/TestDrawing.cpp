@@ -37,6 +37,7 @@ namespace MG_RHI::GLES::Test {
         return true;
     }
 
+    // TODO: Use the textures state from MG_RHI(another state?) rather than directly from MG_State
     void DrawAllTextures() {
         ::GLES::glClearColor(1,1,1,1);
         ::GLES::glClear(GL_COLOR_BUFFER_BIT);

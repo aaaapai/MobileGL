@@ -12,7 +12,7 @@ struct MG_State_T {
     static TextureState* textureState;
     static CommonState* commonState;
 };
- 
+
 namespace MG_State {
     extern MG_State_T* MG_State_O;
     

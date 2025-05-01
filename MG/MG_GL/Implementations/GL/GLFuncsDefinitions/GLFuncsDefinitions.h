@@ -1,0 +1,10 @@
+//
+// Created by BZLZHH on 2025/3/15.
+//
+
+#ifndef MOBILEGL_GL_FUNCS_DEFINITIONS_H
+#define MOBILEGL_GL_FUNCS_DEFINITIONS_H
+
+#include "../../../../Includes.h"
+
+#endif //MOBILEGL_GL_FUNCS_DEFINITIONS_H

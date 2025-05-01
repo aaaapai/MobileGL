@@ -25,25 +25,35 @@ find_library(GLSLANG_LIB glslang PATHS ${CMAKE_SOURCE_DIR}/libraries/arm64-v8a/)
 add_library(${CMAKE_PROJECT_NAME} SHARED 
         MG/Init.cpp
 
-        # MG_GL/GL
-        MG/MG_GL/GL/Getter/GL_Getter.cpp
-        MG/MG_GL/GL/Getter/BackendInfo.cpp
+        # MG_GL/Implementations/GL
+        MG/MG_GL/Implementations/GL/GLFuncsDefinitions/GLFuncsDefinitions.cpp
         
-        MG/MG_GL/GL/Framebuffer/GL_Framebuffer.cpp
+        MG/MG_GL/Implementations/GL/Getter/GL_Getter.cpp
+        MG/MG_GL/Implementations/GL/Getter/BackendInfo.cpp
 
-        MG/MG_GL/GL/Common/GL_Common.cpp
+        MG/MG_GL/Implementations/GL/Framebuffer/GL_Framebuffer.cpp
 
-        MG/MG_GL/GL/Buffer/GL_Buffer.cpp
+        MG/MG_GL/Implementations/GL/Common/GL_Common.cpp
 
-        MG/MG_GL/GL/Drawing/GL_Drawing.cpp
+        MG/MG_GL/Implementations/GL/Buffer/GL_Buffer.cpp
 
-        MG/MG_GL/GL/Program/GL_Program.cpp
+        MG/MG_GL/Implementations/GL/Drawing/GL_Drawing.cpp
 
-        MG/MG_GL/GL/Shader/GL_Shader.cpp
+        MG/MG_GL/Implementations/GL/Program/GL_Program.cpp
 
-        MG/MG_GL/GL/Texture/GL_Texture.cpp
+        MG/MG_GL/Implementations/GL/Shader/GL_Shader.cpp
 
-        MG/MG_GL/GL/VertexArray/GL_VertexArray.cpp
+        MG/MG_GL/Implementations/GL/Texture/GL_Texture.cpp
+
+        MG/MG_GL/Implementations/GL/VertexArray/GL_VertexArray.cpp
+
+        # MG_GL/Implementations/GLX
+        MG/MG_GL/Implementations/GLX/LookUp/LookUp.cpp
+        
+        # MG_GL/Implementations/EGL
+        MG/MG_GL/Implementations/EGL/VK/EGL_EMU.cpp
+
+        MG/MG_GL/Implementations/EGL/GLES/EGL_WRAP.cpp
         
         # MG_GL/State
         MG/MG_GL/State/Core/GLState.cpp
@@ -52,23 +62,12 @@ add_library(${CMAKE_PROJECT_NAME} SHARED
         
         MG/MG_GL/State/Texture/TextureState.cpp
 
-        # MG_GL/GLX
-        MG/MG_GL/GLX/LookUp/LookUp.cpp
-        
-        # MG_GL/GL_Def
-        MG/MG_GL/GL_Def/GL_Def.cpp
+        # MG_GL/BackendLoader
+        MG/MG_GL/BackendLoader/GLES/Loader.cpp
         
         # MG_UTIL/Debug
         MG/MG_UTIL/Debug/Debug.cpp
         
-        # MG_GL/EGL
-        MG/MG_GL/EGL/VK/EGL_EMU.cpp
-        
-        MG/MG_GL/EGL/GLES/EGL_WRAP.cpp
-
-        # MG_GL/BackendLoader
-        MG/MG_GL/BackendLoader/GLES/Loader.cpp
-
         # MG_RHI/GLES
         MG/MG_RHI/GLES/Test/TestDrawing.cpp
 )

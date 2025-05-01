@@ -6,6 +6,7 @@
 
 #if BACKEND_TYPE == BACKEND_GLES
 
+// TODO: Take this code file apart into multiple files.
 
 #define GL_FUNC_DECL(name) \
 name##_PTR name;

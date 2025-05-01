@@ -4,9 +4,7 @@
 
 #include "LookUp.h"
 
-#include "../../../Includes.h"
-
-#define DEBUG 0
+#include "../../../../Includes.h"
 
 namespace MG_GL::GLX {
     void* GetProcAddress(const char *name) {
