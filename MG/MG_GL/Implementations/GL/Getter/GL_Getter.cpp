@@ -19,14 +19,14 @@ namespace MG_GL::GL {
             case GL_VERSION: {
                 static std::string versionStr;
                 if (versionStr.empty()) {
-                    versionStr == std::to_string(MG_Global::GL::GLVersionMajor) + "."
-                                    +  std::to_string(MG_Global::GL::GLVersionMinor) + "."
-                                    +  std::to_string(MG_Global::GL::GLVersionRevision) 
-                                    + " "+ MG_GL::Getter::GetMGName() +
-                                    ", MobileGL Core, " + MG_GL::Getter::GetBackendName() + " Backend";
-                    versionStr += std::to_string(MG_Global::MG::VersionMajor) + "."
-                                    +  std::to_string(MG_Global::MG::VersionMinor) + "."
-                                    +  std::to_string(MG_Global::MG::VersionRevision);
+                    versionStr = std::to_string(MG_Global::GL::GLVersionMajor) + "."
+                            +  std::to_string(MG_Global::GL::GLVersionMinor) + "."
+                            +  std::to_string(MG_Global::GL::GLVersionRevision) 
+                            + " "+ MG_GL::Getter::GetMGName() +
+                            ", MobileGL Core, " + MG_GL::Getter::GetBackendName() + " Backend, Version "
+                            + std::to_string(MG_Global::MG::VersionMajor) + "."
+                            + std::to_string(MG_Global::MG::VersionMinor) + "."
+                            + std::to_string(MG_Global::MG::VersionRevision);
                     if (MG_Global::MG::VersionPatch != 0)
                         versionStr += "." + std::to_string(MG_Global::MG::VersionPatch);
                     versionStr += MG_Global::MG::VersionSuffix;
