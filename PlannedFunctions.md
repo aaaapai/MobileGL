@@ -1,16 +1,16 @@
 ## OpenGL State Manager
 
 ### **1. Initialization & Query Functions**
-- [ ] glGetAttribLocation
+- [x] glGetAttribLocation
 - [x] glGetBufferParameteriv
 - [x] glGetError
 - [ ] glGetIntegerv
-- [ ] glGetProgramiv
-- [ ] glGetShaderiv
+- [x] glGetProgramiv
+- [x] glGetShaderiv
 - [x] glGetString
 - [x] glGetStringi
 - [x] glGetTexLevelParameteriv
-- [ ] glGetUniformLocation
+- [x] glGetUniformLocation
 
 ---
 
@@ -36,16 +36,16 @@
 ---
 
 ### **4. Shader & Program Management**
-- [ ] glAttachShader
-- [ ] glBindAttribLocation
-- [ ] glCompileShader
-- [ ] glCreateProgram
-- [ ] glCreateShader
-- [ ] glDeleteProgram
-- [ ] glDeleteShader
-- [ ] glLinkProgram
-- [ ] glShaderSource
-- [ ] glUseProgram
+- [x] glAttachShader
+- [x] glBindAttribLocation
+- [x] glCompileShader
+- [x] glCreateProgram
+- [x] glCreateShader
+- [x] glDeleteProgram
+- [x] glDeleteShader
+- [x] glLinkProgram
+- [x] glShaderSource
+- [x] glUseProgram
 
 ---
 
@@ -94,16 +94,21 @@
 ## Abstraction Layer (MG_RHI)
 
 ### **1. Initialization & Query Functions**
-- [ ] glGetAttribLocation
-- [ ] glGetBufferParameteriv
-- [ ] glGetError
+
+    ~~glGetAttribLocation~~
+
+    ~~glGetBufferParameteriv~~
+
+    ~~glGetError~~
 - [ ] glGetIntegerv
 - [ ] glGetProgramiv
 - [ ] glGetShaderiv
 - [ ] glGetString
 - [ ] glGetStringi
-- [ ] glGetTexLevelParameteriv
-- [ ] glGetUniformLocation
+
+    ~~glGetTexLevelParameteriv~~
+
+    ~~glGetUniformLocation~~
 
 ---
 
