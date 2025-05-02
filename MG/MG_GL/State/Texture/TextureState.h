@@ -86,7 +86,7 @@ public:
     GLenum SetTexturePropertyFloat(GLenum target, GLenum pname, GLfloat param);
     GLenum Delete(GLuint texture);
     GLenum DeleteN(GLsizei n, const GLuint* textures);
-    GLenum GetLevelPropertyIntVector(GLenum target, GLint level, GLenum pname, GLint* params);
+    GLenum QueryLevelPropertyIntVector(GLenum target, GLint level, GLenum pname, GLint* params);
 
 private:
     size_t CalculatePixelDataSize_(GLenum format, GLenum type, GLsizei width, GLsizei height);

@@ -16,7 +16,7 @@ public:
     // Return: the validity of the operation, according to OpenGL 3 standard
     GLenum SetPixelStoreInt(GLenum pname, GLint param);
     
-    GLint GetPixelStoreInt(GLenum pname);
+    GLint QueryPixelStoreInt(GLenum pname);
 };
 
 #endif //MOBILEGL_COMMONSTATE_H

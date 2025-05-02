@@ -13,6 +13,7 @@ struct MG_State_T {
     static CommonState* commonState;
     static BufferState* bufferState;
     static VertexArrayState* vertexArrayState;
+    static ProgramState* programState;
 };
 
 namespace MG_State {
@@ -36,11 +37,11 @@ namespace MG_State {
     GLenum SetTexturePropertyFloat(GLenum target, GLenum pname, GLfloat param);
     GLenum DeleteTexture(GLuint texture);
     GLenum DeleteTextures(GLsizei n, const GLuint* textures);
-    GLenum GetTextureLevelPropertyIntVector(GLenum target, GLint level, GLenum pname, GLint* params);
+    GLenum QueryTextureLevelPropertyIntVector(GLenum target, GLint level, GLenum pname, GLint* params);
     
     // Common
     GLenum SetPixelStoreInt(GLenum pname, GLint param);
-    GLint GetPixelStoreInt(GLenum pname);
+    GLint QueryPixelStoreInt(GLenum pname);
     
     // Buffer
     GLenum AcquireBufferMemory(GLenum target, GLenum access, void** mappedPtr);
@@ -54,7 +55,6 @@ namespace MG_State {
     GLenum QueryBufferPropertyIntVector(GLenum target, GLenum pname, GLint* params);
     
     // VertexArray
-
     GLenum CreateVertexArray(GLuint* array);
     GLenum CreateVertexArrays(GLsizei n, GLuint* arrays);
     GLenum BindVertexArray(GLuint array);
@@ -65,6 +65,26 @@ namespace MG_State {
                                     const void* pointer);
     GLenum SetVertexAttributeLayoutInt(GLuint index, GLint size, GLenum type,
                                        GLsizei stride, const void* pointer);
+    
+    // Program
+    GLenum CreateShader(GLenum type, GLuint* shader);
+    GLenum CreateProgram(GLuint* program);
+    GLenum DeleteShader(GLuint shader);
+    GLenum DeleteProgram(GLuint program);
+    GLenum LinkShaderToProgram(GLuint program, GLuint shader);
+    GLenum UploadShaderSource(GLuint shader, GLsizei count, const GLchar** string, const GLint* length);
+    GLenum BuildShaderStage(GLuint shader);
+    GLenum FinalizeProgramPipeline(GLuint program);
+    GLenum ActivateRenderProgram(GLuint program);
+    GLenum DefineProgramAttributeBinding(GLuint program, GLuint index, const GLchar* name);
+    GLint QueryProgramAttributeBinding(GLuint program, const GLchar* name);
+    GLint QueryProgramUniformLocation(GLuint program, const GLchar* name);
+    GLenum QueryProgramStateIntVector(GLuint program, GLenum pname, GLint* params);
+    GLenum QueryShaderStateIntVector(GLuint shader, GLenum pname, GLint* params);
+    
+    GLuint GetCurrentProgram();
+    bool SetProgramStatus(GLuint program, GLboolean status);
+    bool SetShaderStatus(GLuint shader, GLboolean status);
 }
 
 

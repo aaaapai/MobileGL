@@ -84,7 +84,7 @@ namespace MG_GL::GL {
     void GetTexLevelParameteriv(GLenum target, GLint level, GLenum pname, GLint* params) {
         MG_Util::Debug::LogD("glGetTexLevelParameteriv, target: %d, level: %d, pname: %d, params: %p",
                              target, level, pname, params);
-        GLenum result = MG_State::GetTextureLevelPropertyIntVector(target, level, pname, params);
+        GLenum result = MG_State::QueryTextureLevelPropertyIntVector(target, level, pname, params);
         if (result == GL_NO_ERROR)
             return;
         MG_State::SetError(result);

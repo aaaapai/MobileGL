@@ -45,7 +45,7 @@ GLenum CommonState::SetPixelStoreInt(GLenum pname, GLint param) {
     return GL_NO_ERROR;
 }
 
-GLint CommonState::GetPixelStoreInt(GLenum pname) {
+GLint CommonState::QueryPixelStoreInt(GLenum pname) {
     auto it = pixelStoreParams.find(pname);
     if (it != pixelStoreParams.end()) {
         return it->second;

@@ -38,7 +38,7 @@ TextureState::TextureState() {
 }
 
 GLint TextureState::GetUnpackParam_(GLenum pname) {
-    GLint result = MG_State::GetPixelStoreInt(pname);
+    GLint result = MG_State::QueryPixelStoreInt(pname);
     MG_Util::Debug::LogD("MG_State: Texture: GetUnpackParam_ pname=0x%x, returns %d", pname, result);
     return result;
 }
@@ -574,31 +574,31 @@ GLenum TextureState::DeleteN(GLsizei n, const GLuint* textures) {
 }
 
 
-GLenum TextureState::GetLevelPropertyIntVector(GLenum target, GLint level, GLenum pname, GLint* params) {
-    MG_Util::Debug::LogD("MG_State: Texture: GetLevelPropertyIntVector called target=0x%x, level=%d, pname=0x%x", target, level, pname);
+GLenum TextureState::QueryLevelPropertyIntVector(GLenum target, GLint level, GLenum pname, GLint* params) {
+    MG_Util::Debug::LogD("MG_State: Texture: QueryLevelPropertyIntVector called target=0x%x, level=%d, pname=0x%x", target, level, pname);
     if (MG_Constants::Texture::VALID_TARGETS.find(target) == MG_Constants::Texture::VALID_TARGETS.end()) {
-        MG_Util::Debug::LogE("MG_State: Texture: GetLevelPropertyIntVector invalid target=0x%x", target);
+        MG_Util::Debug::LogE("MG_State: Texture: QueryLevelPropertyIntVector invalid target=0x%x", target);
         return GL_INVALID_ENUM;
     }
 
     if (level < 0) {
-        MG_Util::Debug::LogE("MG_State: Texture: GetLevelPropertyIntVector invalid level=%d", level);
+        MG_Util::Debug::LogE("MG_State: Texture: QueryLevelPropertyIntVector invalid level=%d", level);
         return GL_INVALID_VALUE;
     }
 
     if (MG_Constants::Texture::VALID_QUERY_LEVEL_PROPERTY_PARAM_NAMES.find(pname) == MG_Constants::Texture::VALID_QUERY_LEVEL_PROPERTY_PARAM_NAMES.end()) {
-        MG_Util::Debug::LogE("MG_State: Texture: GetLevelPropertyIntVector invalid pname=0x%x", pname);
+        MG_Util::Debug::LogE("MG_State: Texture: QueryLevelPropertyIntVector invalid pname=0x%x", pname);
         return GL_INVALID_ENUM;
     }
 
     if ((target == GL_TEXTURE_RECTANGLE || target == GL_PROXY_TEXTURE_RECTANGLE) && level != 0) {
-        MG_Util::Debug::LogE("MG_State: Texture: GetLevelPropertyIntVector invalid level for rectangle texture");
+        MG_Util::Debug::LogE("MG_State: Texture: QueryLevelPropertyIntVector invalid level for rectangle texture");
         return GL_INVALID_VALUE;
     }
 
     GLuint activeUnit = activeTextureUnit_;
     if (activeUnit >= textureUnits_.size()) {
-        MG_Util::Debug::LogE("MG_State: Texture: GetLevelPropertyIntVector active texture unit out of range");
+        MG_Util::Debug::LogE("MG_State: Texture: QueryLevelPropertyIntVector active texture unit out of range");
         return GL_INVALID_OPERATION;
     }
     
@@ -614,7 +614,7 @@ GLenum TextureState::GetLevelPropertyIntVector(GLenum target, GLint level, GLenu
     if (!isProxyTexture && boundTexture == 0) {
         switch (pname) {
             case GL_TEXTURE_COMPRESSED_IMAGE_SIZE:
-                MG_Util::Debug::LogE("MG_State: Texture: GetLevelPropertyIntVector no texture bound for compressed image size");
+                MG_Util::Debug::LogE("MG_State: Texture: QueryLevelPropertyIntVector no texture bound for compressed image size");
                 return GL_INVALID_OPERATION;
             case GL_TEXTURE_INTERNAL_FORMAT:
                 *params = GL_NONE;
@@ -626,7 +626,7 @@ GLenum TextureState::GetLevelPropertyIntVector(GLenum target, GLint level, GLenu
                 *params = 0;
                 break;
         }
-        MG_Util::Debug::LogD("MG_State: Texture: GetLevelPropertyIntVector returns default value for unbound texture");
+        MG_Util::Debug::LogD("MG_State: Texture: QueryLevelPropertyIntVector returns default value for unbound texture");
         return GL_NO_ERROR;
     }
 
@@ -637,7 +637,7 @@ GLenum TextureState::GetLevelPropertyIntVector(GLenum target, GLint level, GLenu
         if (texIt == textures.end()) {
             *params = 0;
             MG_Util::Debug::LogW(
-                    "MG_State: Texture: GetLevelPropertyIntVector texture %u not found",
+                    "MG_State: Texture: QueryLevelPropertyIntVector texture %u not found",
                     boundTexture);
             return GL_NO_ERROR;
         }
@@ -646,7 +646,7 @@ GLenum TextureState::GetLevelPropertyIntVector(GLenum target, GLint level, GLenu
     TextureObject& tex = isProxyTexture ? proxyTextures_[target] : texIt->second;
     
     if (!isProxyTexture && tex.target != target && tex.target != GL_NONE) {
-        MG_Util::Debug::LogE("MG_State: Texture: GetLevelPropertyIntVector texture target mismatch: texture target=0x%x, expected=0x%x", tex.target, target);
+        MG_Util::Debug::LogE("MG_State: Texture: QueryLevelPropertyIntVector texture target mismatch: texture target=0x%x, expected=0x%x", tex.target, target);
         return GL_INVALID_OPERATION;
     }
     
@@ -654,7 +654,7 @@ GLenum TextureState::GetLevelPropertyIntVector(GLenum target, GLint level, GLenu
     if (mipIt == tex.params.mipmapData.end()) {
         switch (pname) {
             case GL_TEXTURE_COMPRESSED_IMAGE_SIZE:
-                MG_Util::Debug::LogE("MG_State: Texture: GetLevelPropertyIntVector no mipmap level %d for compressed image size", level);
+                MG_Util::Debug::LogE("MG_State: Texture: QueryLevelPropertyIntVector no mipmap level %d for compressed image size", level);
                 return GL_INVALID_OPERATION;
             case GL_TEXTURE_INTERNAL_FORMAT:
                 *params = GL_NONE;
@@ -666,7 +666,7 @@ GLenum TextureState::GetLevelPropertyIntVector(GLenum target, GLint level, GLenu
                 *params = 0;
                 break;
         }
-        MG_Util::Debug::LogD("MG_State: Texture: GetLevelPropertyIntVector returns default value for missing mipmap level");
+        MG_Util::Debug::LogD("MG_State: Texture: QueryLevelPropertyIntVector returns default value for missing mipmap level");
         return GL_NO_ERROR;
     }
 
@@ -707,16 +707,16 @@ GLenum TextureState::GetLevelPropertyIntVector(GLenum target, GLint level, GLenu
             break;
         case GL_TEXTURE_COMPRESSED_IMAGE_SIZE:
             if (!sizes.isCompressed) {
-                MG_Util::Debug::LogE("MG_State: Texture: GetLevelPropertyIntVector texture is not compressed");
+                MG_Util::Debug::LogE("MG_State: Texture: QueryLevelPropertyIntVector texture is not compressed");
                 return GL_INVALID_OPERATION;
             }
             *params = static_cast<GLint>(mip.pixelData.size());
             break;
         default:
-            MG_Util::Debug::LogE("MG_State: Texture: GetLevelPropertyIntVector invalid pname=0x%x", pname);
+            MG_Util::Debug::LogE("MG_State: Texture: QueryLevelPropertyIntVector invalid pname=0x%x", pname);
             return GL_INVALID_ENUM;
     }
-    MG_Util::Debug::LogD("MG_State: Texture: GetLevelPropertyIntVector returns %d for pname=0x%x", *params, pname);
+    MG_Util::Debug::LogD("MG_State: Texture: QueryLevelPropertyIntVector returns %d for pname=0x%x", *params, pname);
     return GL_NO_ERROR;
 }
 

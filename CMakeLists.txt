@@ -41,8 +41,6 @@ add_library(${CMAKE_PROJECT_NAME} SHARED
 
         MG/MG_GL/Implementations/GL/Program/GL_Program.cpp
 
-        MG/MG_GL/Implementations/GL/Shader/GL_Shader.cpp
-
         MG/MG_GL/Implementations/GL/Texture/GL_Texture.cpp
 
         MG/MG_GL/Implementations/GL/VertexArray/GL_VertexArray.cpp
@@ -65,6 +63,8 @@ add_library(${CMAKE_PROJECT_NAME} SHARED
         MG/MG_GL/State/VertexArray/VertexArrayState.cpp
         
         MG/MG_GL/State/Buffer/BufferState.cpp
+        
+        MG/MG_GL/State/Program/ProgramState.cpp
 
         # MG_GL/BackendLoader
         MG/MG_GL/BackendLoader/GLES/Loader.cpp

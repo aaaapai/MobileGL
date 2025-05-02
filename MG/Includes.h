@@ -26,9 +26,6 @@
 #ifndef MOBILEGL_GL_PROGRAM_H
 #include "MG_GL/Implementations/GL/Program/GL_Program.h"
 #endif
-#ifndef MOBILEGL_GL_SHADER_H
-#include "MG_GL/Implementations/GL/Shader/GL_Shader.h"
-#endif
 #ifndef MOBILEGL_GL_TEXTURE_H
 #include "MG_GL/Implementations/GL/Texture/GL_Texture.h"
 #endif
@@ -49,6 +46,9 @@
 #endif
 #ifndef MOBILEGL_BUFFERSTATE_H
 #include "MG_GL/State/Buffer/BufferState.h"
+#endif
+#ifndef MOBILEGL_PROGRAMSTATE_H
+#include "MG_GL/State/Program/ProgramState.h"
 #endif
 #ifndef MOBILEGL_LOOKUP_H
 #include "MG_GL/Implementations/GLX/LookUp/LookUp.h"
@@ -98,6 +98,8 @@
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/glm.hpp>
 #include "GLES/gl32.h"
+
+#include "MG_Include/UncertainBool.hpp"
 
 #ifdef __ANDROID__
 #include <android/log.h>
