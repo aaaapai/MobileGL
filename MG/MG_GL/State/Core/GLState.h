@@ -14,6 +14,7 @@ struct MG_State_T {
     static BufferState* bufferState;
     static VertexArrayState* vertexArrayState;
     static ProgramState* programState;
+    static FramebufferState* framebufferState;
 };
 
 namespace MG_State {
@@ -117,6 +118,15 @@ namespace MG_State {
     GLuint GetCurrentProgram();
     bool SetProgramStatus(GLuint program, GLboolean status);
     bool SetShaderStatus(GLuint shader, GLboolean status);
+    
+    // Framebuffer
+    GLenum CreateFramebuffer(GLuint* framebuffer);
+    GLenum CreateFramebuffers(GLsizei n, GLuint* framebuffers);
+    GLenum DeleteFramebuffer(GLuint framebuffer);
+    GLenum BindFramebuffer(GLenum target, GLuint framebuffer);
+    GLenum AttachTexture2DToFramebuffer(GLenum target, GLenum attachment, GLenum textarget,
+                                        GLuint texture, GLint level);
+    GLenum ValidateFramebufferCompleteness(GLenum target);
 }
 
 

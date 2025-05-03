@@ -23,6 +23,21 @@ namespace MG_Constants {
         inline const int LOG_LEVEL_FATAL = 0x0014;
     }
     
+    namespace Framebuffer {
+        static const std::unordered_set<GLenum> VALID_ATTACHMENTS = {
+                GL_COLOR_ATTACHMENT0, GL_DEPTH_ATTACHMENT,
+                GL_STENCIL_ATTACHMENT, GL_DEPTH_STENCIL_ATTACHMENT
+        }; // OpenGL 3
+        
+        static const std::unordered_set<GLenum> VALID_TARGETS = {
+                GL_FRAMEBUFFER, GL_DRAW_FRAMEBUFFER, GL_READ_FRAMEBUFFER
+        }; // OpenGL 3
+        
+        static const std::unordered_set<GLenum> VALID_ACCESS = {
+                GL_READ_ONLY, GL_WRITE_ONLY, GL_READ_WRITE
+        }; // OpenGL 3
+    }
+    
     namespace Buffer {
         static const std::unordered_set<GLenum> VALID_PARAM_NAMES = {
                 GL_BUFFER_ACCESS, GL_BUFFER_MAPPED, GL_BUFFER_SIZE, GL_BUFFER_USAGE

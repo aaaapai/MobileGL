@@ -8,6 +8,10 @@
 #include "../../../../Includes.h"
 
 namespace MG_GL::GL {
+    void GenFramebuffers(GLsizei n, GLuint* framebuffers);
+    void DeleteFramebuffers(GLsizei n, const GLuint* framebuffers);
+    void BindFramebuffer(GLenum target, GLuint framebuffer);
+    void FramebufferTexture2D(GLenum target, GLenum attachment, GLenum textarget, GLuint texture, GLint level);
     GLenum CheckFramebufferStatus(GLenum target);
 }
 

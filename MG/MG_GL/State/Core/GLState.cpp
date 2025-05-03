@@ -10,6 +10,7 @@ CommonState* MG_State_T::commonState = nullptr;
 BufferState* MG_State_T::bufferState = nullptr;
 VertexArrayState* MG_State_T::vertexArrayState = nullptr;
 ProgramState* MG_State_T::programState = nullptr;
+FramebufferState* MG_State_T::framebufferState = nullptr;
 
 namespace MG_State {
     void Init() {
@@ -18,6 +19,7 @@ namespace MG_State {
         MG_State_T::bufferState = new BufferState();
         MG_State_T::vertexArrayState = new VertexArrayState();
         MG_State_T::programState = new ProgramState();
+        MG_State_T::framebufferState = new FramebufferState();
     }
     
     void Destroy() {
@@ -26,6 +28,7 @@ namespace MG_State {
         delete MG_State_T::bufferState;
         delete MG_State_T::vertexArrayState;
         delete MG_State_T::programState;
+        delete MG_State_T::framebufferState;
     }
     
     void SetError(GLenum error) {
@@ -299,5 +302,32 @@ void UpdateProgramUniformMatrix##suffix##Vector(GLint location, GLsizei count, G
     
     bool SetShaderStatus(GLuint shader, GLboolean status) {
         return MG_State_T::programState->SetShaderStatus(shader, status);
+    }
+    
+    // Framebuffer
+    GLenum MG_State::CreateFramebuffer(GLuint* framebuffer) {
+        return MG_State_T::framebufferState->Create(framebuffer);
+    }
+    
+    GLenum MG_State::CreateFramebuffers(GLsizei n, GLuint* framebuffers) {
+        return MG_State_T::framebufferState->CreateN(n, framebuffers);
+    }
+    
+    GLenum MG_State::DeleteFramebuffer(GLuint framebuffer) {
+        return MG_State_T::framebufferState->Delete(framebuffer);
+    }
+    
+    GLenum MG_State::BindFramebuffer(GLenum target, GLuint framebuffer) {
+        return MG_State_T::framebufferState->Bind(target, framebuffer);
+    }
+    
+    GLenum MG_State::AttachTexture2DToFramebuffer(GLenum target, GLenum attachment, GLenum textarget,
+                                                  GLuint texture, GLint level) {
+        return MG_State_T::framebufferState->glAttachTexture2D(target, attachment, textarget,
+                                                               texture, level);
+    }
+    
+    GLenum MG_State::ValidateFramebufferCompleteness(GLenum target) {
+        return MG_State_T::framebufferState->glValidateCompleteness(target);
     }
 }

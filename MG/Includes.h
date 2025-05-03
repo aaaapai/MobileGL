@@ -53,6 +53,9 @@
 #ifndef MOBILEGL_PROGRAMSTATE_H
 #include "MG_GL/State/Program/ProgramState.h"
 #endif
+#ifndef MOBILEGL_FRAMEBUFFERSTATE_H
+#include "MG_GL/State/Framebuffer/FramebufferState.h"
+#endif
 #ifndef MOBILEGL_LOOKUP_H
 #include "MG_GL/Implementations/GLX/LookUp/LookUp.h"
 #endif

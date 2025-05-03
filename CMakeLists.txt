@@ -66,6 +66,8 @@ add_library(${CMAKE_PROJECT_NAME} SHARED
 
         MG/MG_GL/State/Program/ShaderObject.cpp
         MG/MG_GL/State/Program/ProgramState.cpp
+        
+        MG/MG_GL/State/Framebuffer/FramebufferState.cpp
 
         # MG_GL/BackendLoader
         MG/MG_GL/BackendLoader/GLES/Loader.cpp
