@@ -99,14 +99,58 @@ namespace MG_State {
     }
     
     // Common
-    GLenum MG_State::SetPixelStoreInt(GLenum pname, GLint param) {
+    GLenum SetPixelStoreInt(GLenum pname, GLint param) {
         return MG_State_T::commonState->SetPixelStoreInt(pname, param);
     }
 
-    GLint MG_State::QueryPixelStoreInt(GLenum pname) {
+    GLint QueryPixelStoreInt(GLenum pname) {
         return MG_State_T::commonState->QueryPixelStoreInt(pname);
     }
     
+    GLenum glEnable(GLenum cap) {
+        return MG_State_T::commonState->Enable(cap);
+    }
+
+    GLenum glDisable(GLenum cap) {
+        return MG_State_T::commonState->Disable(cap);
+    }
+
+    GLenum glBlendFunc(GLenum sfactor, GLenum dfactor) {
+        return MG_State_T::commonState->BlendFunc(sfactor, dfactor);
+    }
+
+    GLenum glBlendFuncSeparate(GLenum srcRGB, GLenum dstRGB, GLenum srcAlpha, GLenum dstAlpha) {
+        return MG_State_T::commonState->BlendFuncSeparate(srcRGB, dstRGB, srcAlpha, dstAlpha);
+    }
+
+    GLenum glClear(GLbitfield mask) {
+        return MG_State_T::commonState->Clear(mask);
+    }
+
+    GLenum glClearColor(GLfloat red, GLfloat green, GLfloat blue, GLfloat alpha) {
+        return MG_State_T::commonState->ClearColor(red, green, blue, alpha);
+    }
+
+    GLenum glClearDepth(GLdouble depth) {
+        return MG_State_T::commonState->ClearDepth(static_cast<GLfloat>(depth));
+    }
+
+    GLenum glColorMask(GLboolean red, GLboolean green, GLboolean blue, GLboolean alpha) {
+        return MG_State_T::commonState->ColorMask(red, green, blue, alpha);
+    }
+
+    GLenum glDepthFunc(GLenum func) {
+        return MG_State_T::commonState->DepthFunc(func);
+    }
+
+    GLenum glDepthMask(GLboolean flag) {
+        return MG_State_T::commonState->DepthMask(flag);
+    }
+
+    GLenum glViewport(GLint x, GLint y, GLsizei width, GLsizei height) {
+        return MG_State_T::commonState->Viewport(x, y, width, height);
+    }
+
     // Buffer
     GLenum AcquireBufferMemory(GLenum target, GLenum access, void** mappedPtr) {
         return MG_State_T::bufferState->AcquireBufferMemory(target, access, mappedPtr);

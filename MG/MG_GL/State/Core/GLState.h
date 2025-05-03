@@ -43,6 +43,17 @@ namespace MG_State {
     // Common
     GLenum SetPixelStoreInt(GLenum pname, GLint param);
     GLint QueryPixelStoreInt(GLenum pname);
+    GLenum glEnable(GLenum cap);
+    GLenum glDisable(GLenum cap);
+    GLenum glBlendFunc(GLenum sfactor, GLenum dfactor);
+    GLenum glBlendFuncSeparate(GLenum srcRGB, GLenum dstRGB, GLenum srcAlpha, GLenum dstAlpha);
+    GLenum glClear(GLbitfield mask);
+    GLenum glClearColor(GLfloat red, GLfloat green, GLfloat blue, GLfloat alpha);
+    GLenum glClearDepth(GLdouble depth);
+    GLenum glColorMask(GLboolean red, GLboolean green, GLboolean blue, GLboolean alpha);
+    GLenum glDepthFunc(GLenum func);
+    GLenum glDepthMask(GLboolean flag);
+    GLenum glViewport(GLint x, GLint y, GLsizei width, GLsizei height);
     
     // Buffer
     GLenum AcquireBufferMemory(GLenum target, GLenum access, void** mappedPtr);

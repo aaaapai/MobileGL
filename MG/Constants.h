@@ -23,6 +23,28 @@ namespace MG_Constants {
         inline const int LOG_LEVEL_FATAL = 0x0014;
     }
     
+    namespace Blend {
+        static const std::unordered_set<GLenum> VALID_FACTORS = {
+                GL_ZERO, GL_ONE, GL_SRC_COLOR, GL_ONE_MINUS_SRC_COLOR,
+                GL_DST_COLOR, GL_ONE_MINUS_DST_COLOR, GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA,
+                GL_DST_ALPHA, GL_ONE_MINUS_DST_ALPHA, GL_CONSTANT_COLOR, GL_ONE_MINUS_CONSTANT_COLOR,
+                GL_CONSTANT_ALPHA, GL_ONE_MINUS_CONSTANT_ALPHA, GL_SRC_ALPHA_SATURATE
+        }; // OpenGL 3
+    }
+    
+    namespace Depth {
+        static const std::unordered_set<GLenum> VALID_FUNCS = {
+                GL_NEVER, GL_LESS, GL_EQUAL, GL_LEQUAL, GL_GREATER, GL_NOTEQUAL, GL_GEQUAL, GL_ALWAYS
+        }; // OpenGL 3
+    }
+    
+    namespace CommonState {
+        static const std::unordered_set<GLenum> VALID_CAPS = {
+                GL_BLEND, GL_DEPTH_TEST, GL_STENCIL_TEST, GL_SCISSOR_TEST, GL_CULL_FACE,
+                GL_POLYGON_OFFSET_FILL, GL_SAMPLE_ALPHA_TO_COVERAGE, GL_SAMPLE_COVERAGE
+        }; // OpenGL 3
+    }
+    
     namespace Framebuffer {
         static const std::unordered_set<GLenum> VALID_ATTACHMENTS = {
                 GL_COLOR_ATTACHMENT0, GL_DEPTH_ATTACHMENT,
