@@ -63,7 +63,8 @@ add_library(${CMAKE_PROJECT_NAME} SHARED
         MG/MG_GL/State/VertexArray/VertexArrayState.cpp
         
         MG/MG_GL/State/Buffer/BufferState.cpp
-        
+
+        MG/MG_GL/State/Program/ShaderObject.cpp
         MG/MG_GL/State/Program/ProgramState.cpp
 
         # MG_GL/BackendLoader
@@ -71,6 +72,10 @@ add_library(${CMAKE_PROJECT_NAME} SHARED
         
         # MG_UTIL/Debug
         MG/MG_UTIL/Debug/Debug.cpp
+        
+        # MG_UTIL/Program
+        MG/MG_UTIL/Program/DebugTool.cpp
+        MG/MG_UTIL/Program/GLSLTool.cpp
         
         # MG_RHI/GLES
         MG/MG_RHI/GLES/Test/TestDrawing.cpp
@@ -80,7 +85,7 @@ target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE ./includes)
 
 target_link_libraries(${CMAKE_PROJECT_NAME}
         ${CMAKE_SOURCE_DIR}/library/arm64-v8a/libglslang.a
-        #${CMAKE_SOURCE_DIR}/library/arm64-v8a/libspirv-cross-c-shared.so
+        ${CMAKE_SOURCE_DIR}/library/arm64-v8a/libspirv-cross-c-shared.so
         #${CMAKE_SOURCE_DIR}/library/arm64-v8a/libshaderconv.so
         ${CMAKE_SOURCE_DIR}/library/arm64-v8a/libGenericCodeGen.a
         ${CMAKE_SOURCE_DIR}/library/arm64-v8a/libglslang-default-resource-limits.a

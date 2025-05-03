@@ -240,6 +240,54 @@ namespace MG_State {
     GLenum QueryShaderStateIntVector(GLuint shader, GLenum pname, GLint* params) {
         return MG_State_T::programState->QueryShaderStateIntVector(shader, pname, params);
     }
+
+#define IMPLEMENT_UNIFORM_FUNCTIONS(type, suffix, vecType)                               \
+void UpdateProgramUniform##suffix##1(GLint location, type v0) {                   \
+    MG_State_T::programState->UpdateUniform##suffix##1(location, v0); \
+}                                                                                        \
+void UpdateProgramUniform##suffix##2(GLint location, type v0, type v1) {          \
+    MG_State_T::programState->UpdateUniform##suffix##2(location, v0, v1); \
+}                                                                                        \
+void UpdateProgramUniform##suffix##3(GLint location, type v0, type v1, type v2) { \
+    MG_State_T::programState->UpdateUniform##suffix##3(location, v0, v1, v2); \
+}                                                                                        \
+void UpdateProgramUniform##suffix##4(GLint location, type v0, type v1, type v2, type v3) { \
+    MG_State_T::programState->UpdateUniform##suffix##4(location, v0, v1, v2, v3); \
+    } \
+void UpdateProgramUniform##suffix##Vector1(GLint location, GLsizei count, const type* value) { \
+    MG_State_T::programState->UpdateUniform##suffix##Vector1(location, count,value); \
+    } \
+void UpdateProgramUniform##suffix##Vector2(GLint location, GLsizei count, const type* value) { \
+    MG_State_T::programState->UpdateUniform##suffix##Vector2(location, count, value); \
+    } \
+void UpdateProgramUniform##suffix##Vector3(GLint location, GLsizei count, const type* value) { \
+    MG_State_T::programState->UpdateUniform##suffix##Vector3(location, count, value); \
+    } \
+void UpdateProgramUniform##suffix##Vector4(GLint location, GLsizei count, const type* value) { \
+    MG_State_T::programState->UpdateUniform##suffix##Vector4(location, count, value); \
+    }
+
+    IMPLEMENT_UNIFORM_FUNCTIONS(GLfloat, Float, GL_FLOAT_VEC4)
+    IMPLEMENT_UNIFORM_FUNCTIONS(GLint, Int, GL_INT_VEC4)
+    IMPLEMENT_UNIFORM_FUNCTIONS(GLuint, UInt, GL_UNSIGNED_INT_VEC4)
+    IMPLEMENT_UNIFORM_FUNCTIONS(GLboolean, Bool, GL_BOOL_VEC4)
+#undef IMPLEMENT_UNIFORM_FUNCTIONS
+
+#define IMPLEMENT_MATRIX_FUNCTIONS(suffix, matrixType) \
+void UpdateProgramUniformMatrix##suffix##Vector(GLint location, GLsizei count, GLboolean transpose, const GLfloat* value) { \
+    MG_State_T::programState->UpdateUniformMatrix##suffix##Vector(location, count, transpose, value); \
+}
+
+    IMPLEMENT_MATRIX_FUNCTIONS(2x2, GL_FLOAT_MAT2)
+    IMPLEMENT_MATRIX_FUNCTIONS(3x3, GL_FLOAT_MAT3)
+    IMPLEMENT_MATRIX_FUNCTIONS(4x4, GL_FLOAT_MAT4)
+    IMPLEMENT_MATRIX_FUNCTIONS(2x3, GL_FLOAT_MAT2x3)
+    IMPLEMENT_MATRIX_FUNCTIONS(2x4, GL_FLOAT_MAT2x4)
+    IMPLEMENT_MATRIX_FUNCTIONS(3x2, GL_FLOAT_MAT3x2)
+    IMPLEMENT_MATRIX_FUNCTIONS(3x4, GL_FLOAT_MAT3x4)
+    IMPLEMENT_MATRIX_FUNCTIONS(4x2, GL_FLOAT_MAT4x2)
+    IMPLEMENT_MATRIX_FUNCTIONS(4x3, GL_FLOAT_MAT4x3)
+#undef IMPLEMENT_MATRIX_FUNCTIONS
     
     GLuint GetCurrentProgram() {
         return MG_State_T::programState->GetCurrentProgram();

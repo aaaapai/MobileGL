@@ -47,6 +47,9 @@
 #ifndef MOBILEGL_BUFFERSTATE_H
 #include "MG_GL/State/Buffer/BufferState.h"
 #endif
+#ifndef MOBILEGL_SHADEROBJECT_H
+#include "MG_GL/State/Program/ShaderObject.h"
+#endif
 #ifndef MOBILEGL_PROGRAMSTATE_H
 #include "MG_GL/State/Program/ProgramState.h"
 #endif
@@ -55,6 +58,12 @@
 #endif
 #ifndef MOBILEGL_DEBUG_H
 #include "MG_UTIL/Debug/Debug.h"
+#endif
+#ifndef MOBILEGL_GLSLTOOL_H
+#include "MG_UTIL/Program/GLSLTool.h"
+#endif
+#ifndef MOBILEGL_PROGRAM_DEBUGTOOL_H
+#include "MG_UTIL/Program/DebugTool.h"
 #endif
 #ifndef MOBILEGL_GL_COMMON_H
 #include "MG_GL/Implementations/GL/Common/GL_Common.h"
@@ -87,6 +96,7 @@
 #include <algorithm>
 #include <array>
 #include <random>
+#include <optional>
 #include <unordered_map>
 #include <queue>
 #include <vulkan/vulkan.h>

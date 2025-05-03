@@ -139,7 +139,7 @@ GLenum TextureState::Bind(GLenum target, GLuint texture) {
     }
     
     auto texObjIt = textures.find(texture);
-    if(texObjIt != textures.end()){
+    if (texObjIt != textures.end()){
         if (texObjIt->second.target != target && texObjIt->second.target != GL_NONE) {
             MG_Util::Debug::LogE("MG_State: Texture: Bind texture %u bound to different target 0x%x", texture, texObjIt->second.target);
             return GL_INVALID_OPERATION;
@@ -443,19 +443,19 @@ GLenum TextureState::SetTexturePropertyFloat(GLenum target, GLenum pname, GLfloa
         case GL_TEXTURE_BORDER_COLOR:
             break;
         case GL_TEXTURE_MIN_LOD:
-            if(param < -1000.0f){
+            if (param < -1000.0f){
                 MG_Util::Debug::LogE("MG_State: Texture: SetTexturePropertyFloat param for GL_TEXTURE_MIN_LOD too low: %f", param);
                 return GL_INVALID_VALUE;
             }
             break;
         case GL_TEXTURE_MAX_LOD:
-            if(param > 1000.0f){
+            if (param > 1000.0f){
                 MG_Util::Debug::LogE("MG_State: Texture: SetTexturePropertyFloat param for GL_TEXTURE_MAX_LOD too high: %f", param);
                 return GL_INVALID_VALUE;
             }
             break;
         case GL_TEXTURE_LOD_BIAS:
-            if(param < -1000.0f || param > 1000.0f) {
+            if (param < -1000.0f || param > 1000.0f) {
                 MG_Util::Debug::LogE("MG_State: Texture: SetTexturePropertyFloat param for GL_TEXTURE_LOD_BIAS out of range: %f", param);
                 return GL_INVALID_VALUE;
             }
@@ -514,7 +514,7 @@ GLenum TextureState::SetTexturePropertyInt(GLenum target, GLenum pname, GLint pa
         case GL_TEXTURE_SWIZZLE_G:
         case GL_TEXTURE_SWIZZLE_B:
         case GL_TEXTURE_SWIZZLE_A:
-            if(param != GL_ZERO && param != GL_ONE && param != GL_RED && param != GL_GREEN && param != GL_BLUE && param != GL_ALPHA){
+            if (param != GL_ZERO && param != GL_ONE && param != GL_RED && param != GL_GREEN && param != GL_BLUE && param != GL_ALPHA){
                 MG_Util::Debug::LogE("MG_State: Texture: SetTexturePropertyInt invalid swizzle param=%d", param);
                 return GL_INVALID_ENUM;
             }
