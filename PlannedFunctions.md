@@ -27,11 +27,11 @@
 ---
 
 ### **3. Framebuffer Operations**
-- [ ] glBindFramebuffer
-- [ ] glCheckFramebufferStatus
-- [ ] glDeleteFramebuffers
-- [ ] glFramebufferTexture2D
-- [ ] glGenFramebuffers
+- [x] glBindFramebuffer
+- [x] glCheckFramebufferStatus
+- [x] glDeleteFramebuffers
+- [x] glFramebufferTexture2D
+- [x] glGenFramebuffers
 
 ---
 
@@ -91,6 +91,7 @@
 
 ### **8. Drawing Commands**
 - [ ] glDrawElements
+- [ ] glDrawArrays
 
 ## Abstraction Layer (MG_RHI)
 
@@ -191,3 +192,4 @@ glGetUniformLocation~~
 
 ### **8. Drawing Commands**
 - [ ] glDrawElements
+- [ ] glDrawArrays
