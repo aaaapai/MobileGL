@@ -80,11 +80,12 @@
 ---
 
 ### **7. Uniforms & Attributes**
-- [ ] glUniform1fv
-- [ ] glUniform1i
-- [ ] glUniform1iv
-- [ ] glUniform4fv
-- [ ] glUniformMatrix4fv
+- [x] glUniform1fv
+- [x] glUniform1i
+- [x] glUniform1iv
+- [x] glUniform4fv
+- [x] glUniformMatrix4fv
+- [x] All glUniform\* in OpenGL 3.3
 
 ---
 
@@ -95,20 +96,21 @@
 
 ### **1. Initialization & Query Functions**
 
-    ~~glGetAttribLocation~~
+glGetAttribLocation~~
 
-    ~~glGetBufferParameteriv~~
+glGetBufferParameteriv~~
 
-    ~~glGetError~~
+glGetError~~
+	
 - [ ] glGetIntegerv
 - [ ] glGetProgramiv
 - [ ] glGetShaderiv
 - [ ] glGetString
 - [ ] glGetStringi
 
-    ~~glGetTexLevelParameteriv~~
+glGetTexLevelParameteriv~~
 
-    ~~glGetUniformLocation~~
+glGetUniformLocation~~
 
 ---
 
@@ -183,6 +185,7 @@
 - [ ] glUniform1iv
 - [ ] glUniform4fv
 - [ ] glUniformMatrix4fv
+- [ ] All glUniform\* in OpenGL 3.3
 
 ---
 
