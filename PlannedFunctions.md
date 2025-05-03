@@ -64,18 +64,18 @@
 ---
 
 ### **6. State Management**
-- [ ] glBlendFunc
-- [ ] glBlendFuncSeparate
-- [ ] glClear
-- [ ] glClearColor
-- [ ] glClearDepth
-- [ ] glColorMask
-- [ ] glDepthFunc
-- [ ] glDepthMask
-- [ ] glDisable
-- [ ] glEnable
+- [x] glBlendFunc
+- [x] glBlendFuncSeparate
+- [x] glClear
+- [x] glClearColor
+- [x] glClearDepth
+- [x] glColorMask
+- [x] glDepthFunc
+- [x] glDepthMask
+- [x] glDisable
+- [x] glEnable
 - [x] glPixelStorei
-- [ ] glViewport
+- [x] glViewport
 
 ---
 

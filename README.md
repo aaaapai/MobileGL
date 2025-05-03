@@ -14,7 +14,7 @@
 
 | Component                      | Development Progress |
 |--------------------------------|----------------------|
-| **OpenGL State Manager**       | **57 ~ 65%**         |
+| **OpenGL State Manager**       | **60 ~ 70%**         |
 | **Abstraction Layer (MG_RHI)** | **0%**               |
 | **OpenGL ES Backend**          | **N/A** (of MG_RHI)  |
 | **Vulkan Backend**             | **planned**          |
@@ -25,8 +25,8 @@
 
 | Component                      | Development Progress\* |
 |--------------------------------|------------------------|
-| **OpenGL State Manager**       | **43 / 65**            |
-| **Abstraction Layer (MG_RHI)** | **0 / 60**             |
+| **OpenGL State Manager**       | **59 / 62**            |
+| **Abstraction Layer (MG_RHI)** | **0 / 57**             |
 | **OpenGL ES Backend**          | **N/A** (of MG_RHI)    |
 | **Vulkan Backend**             | **planned**            |
 
