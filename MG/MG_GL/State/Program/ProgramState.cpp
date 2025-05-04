@@ -464,7 +464,7 @@ void ProgramState::CleanupShaders_() {
 template<typename T>
 void UniformValue::setData(GLenum uniformType, GLsizei numElements, const T* values) {
     MG_Util::Debug::LogD("MG_State: Program: UniformValue::setData called, type=0x%X, count=%d", uniformType, numElements);
-    type = uniformType;
+    //type = uniformType;
     count = numElements;
 
     floatData.clear();
