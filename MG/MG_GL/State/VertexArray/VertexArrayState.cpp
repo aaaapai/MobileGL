@@ -49,14 +49,16 @@ GLenum VertexArrayState::Bind(GLuint array) {
 GLenum VertexArrayState::EnableAttrib(GLuint index) {
     if (currentVao_ == 0) return GL_INVALID_OPERATION;
     if (index >= GL_MAX_VERTEX_ATTRIBS) return GL_INVALID_VALUE;
-    vaos_[currentVao_].attribs[index].enabled = true;
+    GetCurrentVAO()->attribs[index].enabled = true;
+    MG_Util::Debug::LogD("Attrib vaos_[%u].attribs[%u].enabled = %d", currentVao_, index, vaos_[currentVao_].attribs[index].enabled);
     return GL_NO_ERROR;
 }
 
 GLenum VertexArrayState::DisableAttrib(GLuint index) {
     if (currentVao_ == 0) return GL_INVALID_OPERATION;
     if (index >= GL_MAX_VERTEX_ATTRIBS) return GL_INVALID_VALUE;
-    vaos_[currentVao_].attribs[index].enabled = false;
+    GetCurrentVAO()->attribs[index].enabled = false;
+    MG_Util::Debug::LogD("Attrib vaos_[%u].attribs[%u].enabled = %d", currentVao_, index, vaos_[currentVao_].attribs[index].enabled);
     return GL_NO_ERROR;
 }
 
@@ -75,6 +77,8 @@ GLenum VertexArrayState::SetAttribPointer(GLuint index, GLint size, GLenum type,
     state.pointer = pointer;
     state.buffer = currentArrayBuffer;
     state.isInteger = isInteger;
+    if (vaos_[currentVao_].attribs.count(index) && vaos_[currentVao_].attribs[index].enabled)
+        state.enabled = true;
 
     vaos_[currentVao_].attribs[index] = state;
     return GL_NO_ERROR;
