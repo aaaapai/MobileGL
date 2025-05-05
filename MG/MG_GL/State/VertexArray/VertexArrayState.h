@@ -9,7 +9,7 @@
 #include "../../../Includes.h"
 
 struct VertexAttribState {
-    bool enabled = false;
+    bool enabled;
     GLint size = 4;
     GLenum type = GL_FLOAT;
     GLboolean normalized = GL_FALSE;
@@ -43,11 +43,11 @@ public:
     GLuint GetBoundElementBuffer();
     VertexArrayObject* GetCurrentVAO();
 
-private:
+    GLuint currentVao_ = 0;
     std::unordered_map<GLuint, VertexArrayObject> vaos_;
+private:
     std::set<GLuint> freeIds_;
     GLuint lastId_ = 0;
-    GLuint currentVao_ = 0;
 };
 
 #endif //MOBILEGL_VERTEXARRAYSTATE_H

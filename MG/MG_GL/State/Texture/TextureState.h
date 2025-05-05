@@ -55,7 +55,6 @@ public:
 
 class TextureState {
 private:
-    std::vector<TextureUnitState> textureUnits_;
     GLuint activeTextureUnit_ = 0;
 
     GLuint lastUsedID_ = 0;
@@ -88,6 +87,7 @@ public:
     GLenum DeleteN(GLsizei n, const GLuint* textures);
     GLenum QueryLevelPropertyIntVector(GLenum target, GLint level, GLenum pname, GLint* params);
 
+    std::vector<TextureUnitState> textureUnits_;
 private:
     size_t CalculatePixelDataSize_(GLenum format, GLenum type, GLsizei width, GLsizei height);
     void InvalidateTextureInAllUnits_(GLuint texture);

@@ -32,11 +32,11 @@ public:
     void Delete(GLuint buffer);
     GLuint GetCurrentBinding(GLenum target) const;
 
-private:
+    std::unordered_map<GLenum, GLuint> currentBindings_;
     std::unordered_map<GLuint, BufferObject> buffers_;
+private:
     std::set<GLuint> freeIds_;
     GLuint lastId_ = 0;
-    std::unordered_map<GLenum, GLuint> currentBindings_;
 
     static bool IsValidTarget_(GLenum target);
 };

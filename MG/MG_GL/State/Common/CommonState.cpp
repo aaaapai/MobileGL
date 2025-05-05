@@ -107,6 +107,7 @@ GLenum CommonState::Clear(GLbitfield mask) {
     if ((mask & ~validBits) != 0) {
         return GL_INVALID_VALUE;
     }
+    clearMask = mask;
     return GL_NO_ERROR;
 }
 

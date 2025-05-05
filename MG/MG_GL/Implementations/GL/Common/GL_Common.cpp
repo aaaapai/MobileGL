@@ -43,14 +43,6 @@ namespace MG_GL::GL {
         MG_Util::Debug::LogE("Error setting separate blend func: %s", MG_Util::Debug::GLEnumToString(result));
     }
 
-    void Clear(GLbitfield mask) {
-        MG_Util::Debug::LogD("glClear, mask: 0x%X", mask);
-        GLenum result = MG_State::glClear(mask);
-        if (result == GL_NO_ERROR) return;
-        MG_State::SetError(result);
-        MG_Util::Debug::LogE("Error clearing buffers: %s", MG_Util::Debug::GLEnumToString(result));
-    }
-
     void ClearColor(GLfloat red, GLfloat green, GLfloat blue, GLfloat alpha) {
         MG_Util::Debug::LogD("glClearColor, rgba: [%.2f, %.2f, %.2f, %.2f]", red, green, blue, alpha);
         GLenum result = MG_State::glClearColor(red, green, blue, alpha);
