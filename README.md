@@ -21,7 +21,7 @@
 
 ---
 
-**Target**: **OpenGL implementation compatible with Minecraft 1.17 to 1.12.4**
+**Target**: **OpenGL implementation compatible with Minecraft 1.17 to 1.21.1**
 
 | Component                      | Development Progress\* |
 |--------------------------------|------------------------|
