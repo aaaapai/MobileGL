@@ -19,7 +19,7 @@ GLenum VertexArrayState::Create(GLuint* array) {
     }
 
     *array = id;
-    vaos_[id].generated = true;
+//    vaos_[id].generated = true;
     return GL_NO_ERROR;
 }
 
@@ -41,8 +41,9 @@ GLenum VertexArrayState::CreateN(GLsizei n, GLuint* arrays) {
 }
 
 GLenum VertexArrayState::Bind(GLuint array) {
-    if (array != 0 && !vaos_.count(array)) return GL_INVALID_OPERATION;
+    if (array != 0 && vaos_.find(array) == vaos_.end()) return GL_INVALID_OPERATION;
     currentVao_ = array;
+    GetCurrentVAO()->generated = true;
     return GL_NO_ERROR;
 }
 

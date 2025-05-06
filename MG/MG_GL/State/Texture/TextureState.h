@@ -54,7 +54,7 @@ public:
 };
 
 class TextureState {
-private:
+public: // TODO
     std::vector<TextureUnitState> textureUnits_;
     GLuint activeTextureUnit_ = 0;
 

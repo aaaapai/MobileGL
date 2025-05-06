@@ -81,6 +81,7 @@ add_library(${CMAKE_PROJECT_NAME} SHARED
         
         # MG_RHI/GLES
         MG/MG_RHI/GLES/Test/TestDrawing.cpp
+        MG/MG_RHI/GLES/RHI.cpp
 )
 
 target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE ./includes)
