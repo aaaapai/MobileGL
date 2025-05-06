@@ -111,6 +111,12 @@
 
 #include "MG_Include/UncertainBool.hpp"
 
+#ifndef _WIN32
+#include <dlfcn.h>
+#include <unistd.h>
+#include <vulkan/vulkan.h>
+#endif
+
 #ifdef __ANDROID__
 #include <android/log.h>
 #include <pthread.h>
@@ -121,12 +127,6 @@
 #include <processthreadsapi.h>
 #else
 #include <pthread.h>
-#endif
-
-#ifndef _WIN32
-#include <dlfcn.h>
-#include <unistd.h>
-#include <vulkan/vulkan.h>
 #endif
 
 #include <EGL/egl.h>
