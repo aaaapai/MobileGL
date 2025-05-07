@@ -102,6 +102,7 @@
 #include <optional>
 #include <unordered_map>
 #include <queue>
+#include <format>
 #include <vulkan/vulkan.h>
 #include <glslang/Public/ShaderLang.h>
 #include <glslang/Include/Types.h>

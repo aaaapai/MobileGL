@@ -42,7 +42,7 @@ namespace MG_GL::GL {
         if (buffer != 0 &&
             MG_State::ValidateGeneratedName(buffer) &&
             !MG_State::ValidateAllocatedBufferHandle(buffer)) {
-            MG_Util::Debug::LogE("Actually creating buffer: %u", buffer);
+            MG_Util::Debug::LogD("Actually creating buffer: %u", buffer);
             GLenum result = MG_State::CreateBuffer(buffer);
         }
 

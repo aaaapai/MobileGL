@@ -702,31 +702,43 @@ namespace MG_GL::GL {
         // Buffer
         SyncAllBuffersToGLES(bufferState);
 
+
+        GLuint vbo = MG_State_T::bufferState->GetCurrentBinding(GL_ARRAY_BUFFER);
+        CallAndCheck(::GLES::glBindBuffer(GL_ARRAY_BUFFER, s_bufferMap[vbo]);)
+
         // VAO
-        GLuint mgVAO = vaState->currentVao_;
-        VertexArrayObject* vao = &vaState->vaos_[vaState->currentVao_];
-        for (auto& [mgVAOId, mgVAO] : vaState->vaos_) {
-            if (!mgVAO.generated) continue;
+//        GLuint mgVAOId = vaState->currentVao_;
+//        VertexArrayObject* vao = &vaState->vaos_[mgVAOId];
+        for (auto& [mgid, vao] : vaState->vaos_) {
+            if (!vao.generated)
+                continue;
+
+            MG_Util::Debug::LogD("Creating MG VAO: %d", mgid);
 
             // TODO: Check is the VAO changes rather than always update it.
             //if (!s_vaoMap.count(mgVAOId)) {
-                GLuint glVAO;
-            if (!s_vaoMap.count(mgVAOId)) {
+            GLuint glVAO;
+            if (s_vaoMap.find(mgid) == s_vaoMap.end()) {
                 CallAndCheck(::GLES::glGenVertexArrays(1, &glVAO);)
-                s_vaoMap[mgVAOId] = glVAO;
-
+                s_vaoMap[mgid] = glVAO;
             } else {
-                glVAO = s_vaoMap[mgVAOId];
+                glVAO = s_vaoMap[mgid];
             }
             CallAndCheck(::GLES::glBindVertexArray(glVAO);)
-            
-            if (mgVAO.elementBuffer != 0 && s_bufferMap.count(mgVAO.elementBuffer)) {
-                CallAndCheck(::GLES::glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, s_bufferMap[mgVAO.elementBuffer]);)
-            }
+            MG_Util::Debug::LogD("Bind VAO (MG -> ES): %d -> %d", mgid, glVAO);
 
-            for (auto& [index, attrib] : mgVAO.attribs) {
-                if (attrib.buffer != 0 && s_bufferMap.count(attrib.buffer)) {
-                    CallAndCheck(::GLES::glBindBuffer(GL_ARRAY_BUFFER, s_bufferMap[attrib.buffer]);)
+            std::string name = std::format("MG VAO {}", mgid);
+            ::GLES::glObjectLabel(GL_VERTEX_ARRAY, mgid, name.length(), name.c_str());
+
+            if (vao.elementBuffer != 0 && s_bufferMap.find(vao.elementBuffer) != s_bufferMap.end()) {
+                CallAndCheck(::GLES::glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, s_bufferMap[vao.elementBuffer]);)
+            }
+            MG_Util::Debug::LogD("VAO has %d attributes:", vao.attribs.size());
+            for (auto& [index, attrib] : vao.attribs) {
+//                if (attrib.buffer != 0 && s_bufferMap.find(attrib.buffer) != s_bufferMap.end()) {
+                    MG_Util::Debug::LogD("attrib #%d: size=%d, type=%s, stride=%d, pointer=%d, %s, isInt=%s",
+                                         index, attrib.size, MG_Util::Debug::GLEnumToString(attrib.type), attrib.stride, attrib.pointer,
+                                         (attrib.enabled ? "enabled" : "disabled"), (attrib.isInteger ? "true" : "false"));
 
                     if (attrib.isInteger) {
                         CallAndCheck(::GLES::glVertexAttribIPointer(
@@ -746,31 +758,34 @@ namespace MG_GL::GL {
                     } else {
                         CallAndCheck(::GLES::glDisableVertexAttribArray(index);)
                     }
-                }
+//                }
             }
             CallAndCheck(::GLES::glBindVertexArray(0);)
             //}
         }
         GLuint currentMgVAO = vaState->currentVao_;
-        if (s_vaoMap.count(currentMgVAO)) {
+        MG_Util::Debug::LogD("Now binding to VAO %d...", currentMgVAO);
+        if (s_vaoMap.find(currentMgVAO) != s_vaoMap.end()) {
             CallAndCheck(::GLES::glBindVertexArray(s_vaoMap[currentMgVAO]);)
 
-            VertexArrayObject& currentVAO = vaState->vaos_[currentMgVAO];
-            for (auto& [index, attrib] : currentVAO.attribs) {
-                if (attrib.enabled) {
-                    CallAndCheck(::GLES::glEnableVertexAttribArray(index);)
-                } else {
-                    CallAndCheck(::GLES::glDisableVertexAttribArray(index);)
-                }
-            }
+//            VertexArrayObject& currentVAO = vaState->vaos_[currentMgVAO];
+//            for (auto& [index, attrib] : currentVAO.attribs) {
+//                if (attrib.enabled) {
+//                    CallAndCheck(::GLES::glEnableVertexAttribArray(index);)
+//                } else {
+//                    CallAndCheck(::GLES::glDisableVertexAttribArray(index);)
+//                }
+//            }
         } else {
             CallAndCheck(::GLES::glBindVertexArray(0);)
         }
 
         // EBO
-        if (vao->elementBuffer != 0) {
-            if (s_bufferMap.count(vao->elementBuffer)) {
-                CallAndCheck(::GLES::glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, s_bufferMap[vao->elementBuffer]);)
+        GLuint curVaoId = vaState->currentVao_;
+        VertexArrayObject* curvao = &vaState->vaos_[curVaoId];
+        if (curvao->elementBuffer != 0) {
+            if (s_bufferMap.find(curvao->elementBuffer) != s_bufferMap.end()) {
+                CallAndCheck(::GLES::glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, s_bufferMap[curvao->elementBuffer]);)
             }
         } else if (indices != nullptr) {
             static GLuint dynamicIBO = 0;
@@ -796,11 +811,22 @@ namespace MG_GL::GL {
             if (s_programMap.find(currentProgram) == s_programMap.end()) {
                 GLuint glProgram = ::GLES::glCreateProgram();
                 ProgramObject& mgProgram = programState->programs_[currentProgram];
-                
+
+                std::string name = std::format("MG Program {}", currentProgram);
+                ::GLES::glObjectLabel(GL_PROGRAM, glProgram, name.length(), name.c_str());
+
+                // Attribute Names
+                // before vertex shader attach
+                for (auto& [name, idx]: mgProgram.attribLocations) {
+                    MG_Util::Debug::LogD("%s: location = %d", name.c_str(), idx);
+                    CallAndCheck(::GLES::glBindAttribLocation(glProgram, idx, name.c_str());)
+                }
+
                 // Shader
                 for (GLuint shaderId : mgProgram.attachedShaders) {
                     ShaderObject& mgShader = programState->shaders_[shaderId];
                     GLuint glShader = ::GLES::glCreateShader(mgShader.type);
+
                     std::string source = MG_Util::Program::CompileSPIRVToGLSL(mgShader.compiledSpirv, 320, true);
                     // Post-processing ESSL
                     source = removeLayoutBinding(source);
@@ -1066,7 +1092,7 @@ namespace MG_GL::GL {
 
 
 
-        if (vao->elementBuffer != 0 || indices != nullptr) {
+        if (curvao->elementBuffer != 0 || indices != nullptr) {
             CallAndCheck(::GLES::glDrawElements(
                     mode,
                     count,
