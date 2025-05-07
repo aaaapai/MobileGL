@@ -108,6 +108,7 @@
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/glm.hpp>
 #include "GLES3/gl32.h"
+#include <ankerl/unordered_dense.h>
 
 #include "MG_Include/UncertainBool.hpp"
 

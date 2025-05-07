@@ -8,6 +8,9 @@
 #include "../../Includes.h"
 
 namespace MG_RHI::GLES {
+    template <typename K, typename V>
+    using unordered_map = ankerl::unordered_dense::map<K, V>;
+
     enum class State {
         None,
         DrawArrays,
@@ -30,14 +33,14 @@ namespace MG_RHI::GLES {
     private:
 
         State currentState_ = State::None;
-        std::unordered_map<GLuint, GLuint> textureMap_;
-        std::unordered_map<GLuint, std::unordered_map<GLint, bool>> textureLevelUploaded_;
-        std::unordered_map<GLuint, GLuint> bufferMap_;
-        std::array<GLuint, 32> lastBoundTextures { 0 };
-        std::unordered_map<GLuint, GLuint> vaoMap_;
+        unordered_map<GLuint, GLuint> textureMap_;
+        unordered_map<GLuint, GLuint> bufferMap_;
+        unordered_map<GLuint, GLuint> vaoMap_;
+        unordered_map<GLuint, GLuint> programMap_;
+        unordered_map<GLuint, GLuint> framebufferMap_;
 
-        std::unordered_map<GLuint, GLuint> programMap_;
-        std::unordered_map<GLuint, GLuint> framebufferMap_;
+        unordered_map<GLuint, unordered_map<GLint, bool>> textureLevelUploaded_;
+        std::array<GLuint, 32> lastBoundTextures { 0 };
 
         GLuint lastBoundVAO = 0;
         GLuint lastBoundProgram = 0;
