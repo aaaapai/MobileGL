@@ -8,6 +8,296 @@
 #include "../../../../Includes.h"
 
 namespace MG_GL::GL {
+    void NormalizePixelFormat(GLenum internalFormat, GLenum type, GLenum format, GLenum* outInternalFormat, GLenum* outType, GLenum* outFormat) {
+//        if (format && *format == GL_BGRA)
+//            *format = GL_RGBA;
+        switch (internalFormat) {
+            case GL_DEPTH_COMPONENT16:
+                if (outInternalFormat)
+                    *outInternalFormat = internalFormat;
+                if (outType)
+                    *outType = GL_UNSIGNED_SHORT;
+                if (outFormat)
+                    *outFormat = format;
+                break;
+
+            case GL_DEPTH_COMPONENT24:
+                if (outInternalFormat)
+                    *outInternalFormat = internalFormat;
+                if (outType)
+                    *outType = GL_UNSIGNED_INT;
+                if (outFormat)
+                    *outFormat = format;
+                break;
+
+            case GL_DEPTH_COMPONENT32:
+                if (outInternalFormat)
+                    *outInternalFormat = GL_DEPTH_COMPONENT32F;
+                if (outType)
+                    *outType = GL_UNSIGNED_INT;
+                if (outFormat)
+                    *outFormat = format;
+                break;
+
+            case GL_DEPTH_COMPONENT32F:
+                if (outInternalFormat)
+                    *outInternalFormat = internalFormat;
+                if (outType)
+                    *outType = GL_FLOAT;
+                if (outFormat)
+                    *outFormat = format;
+                break;
+
+            case GL_DEPTH_COMPONENT:
+                // TODO: Add enableCompatibleMode option
+                MG_Util::Debug::LogD("Find GL_DEPTH_COMPONENT: internalFormat: %s, format: %s, type: %s",
+                      MG_Util::Debug::GLEnumToString(internalFormat), MG_Util::Debug::GLEnumToString(format), MG_Util::Debug::GLEnumToString(type));
+
+                if (outInternalFormat)
+                    *outInternalFormat = internalFormat;
+                if (outType)
+                    *outType = GL_UNSIGNED_INT;
+                if (outFormat)
+                    *outFormat = format;
+                break;
+
+            case GL_DEPTH_STENCIL:
+                if (outInternalFormat)
+                    *outInternalFormat = GL_DEPTH32F_STENCIL8;
+                if (outType)
+                    *outType = GL_FLOAT_32_UNSIGNED_INT_24_8_REV;
+                if (outFormat)
+                    *outFormat = format;
+                break;
+
+            case GL_RGB10_A2:
+                if (outInternalFormat)
+                    *outInternalFormat = internalFormat;
+                if (outType)
+                    *outType = GL_UNSIGNED_INT_2_10_10_10_REV;
+                if (outFormat)
+                    *outFormat = format;
+                break;
+
+            case GL_RGB5_A1:
+                if (outInternalFormat)
+                    *outInternalFormat = internalFormat;
+                if (outType)
+                    *outType = GL_UNSIGNED_SHORT_5_5_5_1;
+                if (outFormat)
+                    *outFormat = format;
+                break;
+
+            case GL_COMPRESSED_RED_RGTC1:
+            case GL_COMPRESSED_RG_RGTC2:
+                MG_Util::Debug::LogD("GL_COMPRESSED_RED_RGTC1 or GL_COMPRESSED_RG_RGTC2 is not supported!");
+                break;
+
+            case GL_SRGB8:
+                if (outInternalFormat)
+                    *outInternalFormat = internalFormat;
+                if (outType)
+                    *outType = GL_UNSIGNED_BYTE;
+                if (outFormat)
+                    *outFormat = format;
+                break;
+
+            case GL_RGBA32F:
+            case GL_RGB32F:
+            case GL_RG32F:
+            case GL_R32F:
+                if (outInternalFormat)
+                    *outInternalFormat = internalFormat;
+                if (outType)
+                    *outType = GL_FLOAT;
+                if (outFormat)
+                    *outFormat = format;
+                break;
+
+            case GL_RGB9_E5:
+                if (outInternalFormat)
+                    *outInternalFormat = internalFormat;
+                if (outType)
+                    *outType = GL_UNSIGNED_INT_5_9_9_9_REV;
+                if (outFormat)
+                    *outFormat = format;
+                break;
+
+            case GL_R11F_G11F_B10F:
+                if (outInternalFormat)
+                    *outInternalFormat = internalFormat;
+                if (outType)
+                    *outType = GL_UNSIGNED_INT_10F_11F_11F_REV;
+                if (outFormat)
+                    *outFormat = GL_RGB;
+                break;
+
+            case GL_RGBA32UI:
+            case GL_RGB32UI:
+            case GL_RG32UI:
+            case GL_R32UI:
+                if (outInternalFormat)
+                    *outInternalFormat = internalFormat;
+                if (outType)
+                    *outType = GL_UNSIGNED_INT;
+                if (outFormat)
+                    *outFormat = format;
+                break;
+
+            case GL_RGBA32I:
+            case GL_RGB32I:
+            case GL_RG32I:
+            case GL_R32I:
+                if (outInternalFormat)
+                    *outInternalFormat = internalFormat;
+                if (outType)
+                    *outType = GL_INT;
+                if (outFormat)
+                    *outFormat = format;
+                break;
+
+            case GL_RGBA16: {
+//                if (!checked_rgba16) {
+//                    support_rgba16 = check_rgba16();
+//                    checked_rgba16 = true;
+//                }
+//                if (support_rgba16) {
+//                    if(type)
+//                        *type = GL_UNSIGNED_SHORT;
+//                } else {
+//                    *internal_format = GL_RGBA16F;
+//                    if(type)
+//                        *type = GL_FLOAT;
+//                }
+                if (outInternalFormat)
+                    *outInternalFormat = internalFormat;
+                if (outType)
+                    *outType = GL_FLOAT;
+                if (outFormat)
+                    *outFormat = format;
+                break;
+            }
+            case GL_RGBA8:
+                if (outInternalFormat)
+                    *outInternalFormat = internalFormat;
+                if (outType)
+                    *outType = GL_UNSIGNED_BYTE;
+                if (outFormat)
+                    *outFormat = GL_RGBA;
+                break;
+
+            case GL_RGBA:
+                if (outInternalFormat)
+                    *outInternalFormat = internalFormat;
+                if (outType)
+                    *outType = GL_UNSIGNED_BYTE;
+                if (outFormat)
+                    *outFormat = GL_RGBA;
+                break;
+
+            case GL_RGBA16F:
+            case GL_R16F:
+                if (outInternalFormat)
+                    *outInternalFormat = internalFormat;
+                if (outType)
+                    *outType = GL_HALF_FLOAT;
+                if (outFormat)
+                    *outFormat = format;
+                break;
+
+            case GL_R16:
+                if (outInternalFormat)
+                    *outInternalFormat = GL_R16F;
+                if (outType)
+                    *outType = GL_FLOAT;
+                if (outFormat)
+                    *outFormat = format;
+                break;
+
+            case GL_RGB16:
+                if (outInternalFormat)
+                    *outInternalFormat = GL_RGB16F;
+                if (outType)
+                    *outType = GL_HALF_FLOAT;
+                if (outFormat)
+                    *outFormat = GL_RGB;
+                break;
+
+            case GL_RGB16F:
+                if (outInternalFormat)
+                    *outInternalFormat = internalFormat;
+                if (outType)
+                    *outType = GL_HALF_FLOAT;
+                if (outFormat)
+                    *outFormat = GL_RGB;
+                break;
+
+            case GL_RG16:
+            case GL_RG16F:
+                if (outInternalFormat)
+                    *outInternalFormat = GL_RG16F;
+                if (outType)
+                    *outType = GL_HALF_FLOAT;
+                if (outFormat)
+                    *outFormat = GL_RG;
+                break;
+
+            case GL_R8:
+                if (outInternalFormat)
+                    *outInternalFormat = internalFormat;
+                if (outType)
+                    *outType = GL_UNSIGNED_BYTE;
+                if (outFormat)
+                    *outFormat = GL_RED;
+                break;
+            case GL_R8UI:
+                if (outInternalFormat)
+                    *outInternalFormat = internalFormat;
+                if (outType)
+                    *outType = GL_UNSIGNED_BYTE;
+                if (outFormat)
+                    *outFormat = GL_RED_INTEGER;
+                break;
+
+            case GL_RGB8_SNORM:
+            case GL_RGBA8_SNORM:
+                if (outInternalFormat)
+                    *outInternalFormat = internalFormat;
+                if (outType)
+                    *outType = GL_BYTE;
+                if (outFormat)
+                    *outFormat = format;
+                break;
+            case GL_RGB8:
+                if (outInternalFormat)
+                    *outInternalFormat = internalFormat;
+                if (outType && type != GL_UNSIGNED_BYTE)
+                    *outType = GL_UNSIGNED_BYTE;
+                if (outFormat)
+                    *outFormat = GL_RGB;
+                break;
+            case GL_RGBA16_SNORM:
+                if (outInternalFormat)
+                    *outInternalFormat = internalFormat;
+                if (outType)
+                    *outType = GL_SHORT;
+                if (outFormat)
+                    *outFormat = format;
+                break;
+            default:
+                MG_Util::Debug::LogD("NormalizePixelFormat: no conversion");
+
+                if (outInternalFormat)
+                    *outInternalFormat = internalFormat;
+                if (outType)
+                    *outType = type;
+                if (outFormat)
+                    *outFormat = format;
+                break;
+        }
+    }
+
+
     std::string processOutColorLocations(const std::string& glslCode) {
         const static std::regex pattern(R"(\n(out highp vec4 outColor)(\d+);)");
         const std::string replacement = "\nlayout(location=$2) $1$2;";
@@ -124,15 +414,18 @@ namespace MG_GL::GL {
                     const void* data = !mip.pixelData.empty() ? mip.pixelData.data() : nullptr;
                     switch (target) {
                         case GL_TEXTURE_2D: {
-                            GLenum type = mip.type;
-                            // Mali cannot use GL_FLOAT as depth format
-                            if (mip.internalFormat == GL_DEPTH_COMPONENT) {
-                                type = GL_UNSIGNED_INT;
-                            }
+                            GLenum internalFormat = 0, type = 0, format = 0;
+                            NormalizePixelFormat(mip.internalFormat, mip.type, mip.format, &internalFormat, &type, &format);
+//
+//                            GLenum type = mip.type;
+//                            // Mali cannot use GL_FLOAT as depth format
+//                            if (mip.internalFormat == GL_DEPTH_COMPONENT) {
+//                                type = GL_UNSIGNED_INT;
+//                            }
                             CallAndCheck(::GLES::glTexImage2D(
-                                    target, level, mip.internalFormat,
+                                    target, level, internalFormat,
                                     mip.width, mip.height, 0,
-                                    mip.format, type, data
+                                    format, type, data
                             );)
                             s_textureLevelUploaded[mgTexId][level] = true;
                             MG_Util::Debug::LogD("Initial upload texture %u level %d (size=%zu)",
