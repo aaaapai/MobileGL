@@ -1206,6 +1206,12 @@ void Log##name(const char* format, ...) { \
                 CASE(GL_DOT3_RGBA)
 /* texture_border_clamp */
                 CASE(GL_CLAMP_TO_BORDER)
+/* framebuffer_status */
+                CASE(GL_FRAMEBUFFER_COMPLETE)
+                CASE(GL_FRAMEBUFFER_INCOMPLETE_ATTACHMENT)
+                CASE(GL_FRAMEBUFFER_INCOMPLETE_MISSING_ATTACHMENT)
+                CASE(GL_FRAMEBUFFER_INCOMPLETE_DIMENSIONS)
+                CASE(GL_FRAMEBUFFER_UNSUPPORTED)
 /*
  * Miscellaneous
  */
