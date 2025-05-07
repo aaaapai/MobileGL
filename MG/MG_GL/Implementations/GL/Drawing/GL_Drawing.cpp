@@ -215,7 +215,7 @@ namespace MG_GL::GL {
 
     static GLuint lastBoundVAO = 0;
     static GLuint lastBoundProgram = 0;
-    static GLuint lastBoundFBO = 0;
+    static GLuint lastBoundFBO[2] = {0};
     static std::array<GLuint, 32> lastBoundTextures;
     void DrawElementsSHITTILY(GLenum mode, GLsizei count, GLenum type, const GLvoid* indices) {
         CommonState* commonState = MG_State_T::commonState;
@@ -579,7 +579,7 @@ namespace MG_GL::GL {
         
         // Framebuffer
         GLuint currentFBO = fbState->currentBindings_[GL_DRAW_FRAMEBUFFER];
-        if (currentFBO != lastBoundFBO) {
+        if (currentFBO != lastBoundFBO[0]) {
             GLuint glFBO = 0;
 
             if (currentFBO == 0) {
@@ -665,7 +665,7 @@ namespace MG_GL::GL {
                 }
             }
 
-            lastBoundFBO = currentFBO;
+            lastBoundFBO[0] = currentFBO;
         }
 
 
@@ -679,12 +679,130 @@ namespace MG_GL::GL {
         }
     }
 
+    void RealizeFBOState(GLenum fbtype) {
+        FramebufferState* fbState = MG_State_T::framebufferState;
+
+        GLuint fb = fbState->currentBindings_[fbtype];
+        if (fb != lastBoundFBO[(fbtype == GL_DRAW_FRAMEBUFFER) ? 0 : 1]) {
+            GLuint glFBO = 0;
+
+            if (fb == 0) {
+                CallAndCheck(::GLES::glBindFramebuffer(fbtype, 0);)
+                glFBO = 0;
+            } else {
+                bool isNewGlesFBO = false;
+
+                if (s_framebufferMap.find(fb) == s_framebufferMap.end()) {
+                    CallAndCheck(::GLES::glGenFramebuffers(1, &glFBO);)
+                    s_framebufferMap[fb] = glFBO;
+                    CallAndCheck(::GLES::glBindFramebuffer(fbtype, glFBO);)
+                    MG_Util::Debug::LogD("Generated and bound new GLES FBO %u for MobileGL FBO %u", glFBO, fb);
+                    isNewGlesFBO = true;
+                } else {
+                    glFBO = s_framebufferMap[fb];
+                    CallAndCheck(::GLES::glBindFramebuffer(fbtype, glFBO);)
+                    MG_Util::Debug::LogD("Bound existing GLES FBO %u for MobileGL FBO %u", glFBO, fb);
+                }
+
+                if (glFBO != 0) {
+                    FramebufferObject* mgFBO = fbState->GetCurrentFBO(fbtype);
+                    if (mgFBO) {
+                        MG_Util::Debug::LogD("Checking/Syncing attachments for GLES FBO %u (MobileGL FBO %u)", glFBO, fb);
+
+                        for (auto const& [mgAttachmentPoint, mgAtt] : mgFBO->attachments) {
+
+                            if (mgAtt.type != GL_TEXTURE_2D) {
+                                MG_Util::Debug::LogW("Skipping non-TEXTURE_2D attachment 0x%X for FBO %u", mgAttachmentPoint, fb);
+                                continue;
+                            }
+
+                            GLuint expectedGLTexId = 0;
+                            if (mgAtt.handle != 0) {
+                                if (s_textureMap.count(mgAtt.handle)) {
+                                    expectedGLTexId = s_textureMap[mgAtt.handle];
+                                } else {
+                                    MG_Util::Debug::LogE("MobileGL Texture %u for FBO %u attachment 0x%X not found in s_textureMap during FBO sync!", mgAtt.handle, fb, mgAttachmentPoint);
+                                    for (auto const& [key, val] : s_textureMap)
+                                        MG_Util::Debug::LogW("  key: %d, val: %d", key, val);
+                                    continue;
+                                }
+                            }
+
+                            GLint glesAttachedType = 0;
+                            GLint glesAttachedName = 0;
+
+                            CallAndCheck(::GLES::glGetFramebufferAttachmentParameteriv(fbtype, mgAttachmentPoint, GL_FRAMEBUFFER_ATTACHMENT_OBJECT_TYPE, &glesAttachedType);)
+
+                            if (glesAttachedType == GL_TEXTURE) {
+                                CallAndCheck(::GLES::glGetFramebufferAttachmentParameteriv(fbtype, mgAttachmentPoint, GL_FRAMEBUFFER_ATTACHMENT_OBJECT_NAME, &glesAttachedName);)
+                            } else if (glesAttachedType != GL_NONE) {
+                                MG_Util::Debug::LogW("GLES FBO %u attachment 0x%X has non-texture type 0x%X (expected GL_TEXTURE or GL_NONE)", glFBO, mgAttachmentPoint, glesAttachedType);
+                            }
+
+                            if ((GLuint)glesAttachedName != expectedGLTexId) {
+                                MG_Util::Debug::LogD("Syncing FBO %u attachment 0x%X: Expected GLES TexID %u, Found GLES ObjName %d. Attaching/Detaching...",
+                                                     fb, mgAttachmentPoint, expectedGLTexId, glesAttachedName);
+
+                                CallAndCheck(::GLES::glFramebufferTexture2D(
+                                        fbtype,
+                                        mgAttachmentPoint,
+                                        GL_TEXTURE_2D,
+                                        expectedGLTexId,
+                                        mgAtt.mipLevel
+                                );)
+                            }
+                        }
+
+                        GLenum status = ::GLES::glCheckFramebufferStatus(fbtype);
+                        if (status != GL_FRAMEBUFFER_COMPLETE) {
+                            MG_Util::Debug::LogE("Framebuffer %u (GLES FBO %u) is not complete after sync! Status: 0x%X (%s)",
+                                                 fb, glFBO, status, MG_Util::Debug::GLEnumToString(status));
+                        }
+
+                    } else {
+                        MG_Util::Debug::LogW("Could not get MobileGL FBO object for ID %u during attachment sync.", fb);
+                    }
+                }
+            }
+
+            lastBoundFBO[(fbtype == GL_DRAW_FRAMEBUFFER) ? 0 : 1] = fb;
+        }
+    }
+
+    void BlitFramebuffer(GLint srcX0,
+                         GLint srcY0,
+                         GLint srcX1,
+                         GLint srcY1,
+                         GLint dstX0,
+                         GLint dstY0,
+                         GLint dstX1,
+                         GLint dstY1,
+                         GLbitfield mask,
+                         GLenum filter) {
+        MG_Util::Debug::LogD("BlitFramebuffer, srcX0=%d, srcY0=%d, srcX1=%d, srcY1=%d, dstX0=%d, dstY0=%d, dstX1=%d, dstY1=%d, mask=0x%x, filter=%s",
+                             srcX0, srcY0, srcX1, srcY1, dstX0, dstY0, dstX1, dstY1, mask, MG_Util::Debug::GLEnumToString(filter));
+
+        // Realize FBO states
+        RealizeFBOState(GL_DRAW_FRAMEBUFFER);
+        RealizeFBOState(GL_READ_FRAMEBUFFER);
+        ::GLES::glBlitFramebuffer(srcX0,
+                                  srcY0,
+                                  srcX1,
+                                  srcY1,
+                                  dstX0,
+                                  dstY0,
+                                  dstX1,
+                                  dstY1,
+                                  mask,
+                                  filter);
+    }
+
     void ClearSHITTILY(GLbitfield mask) {
         CommonState* commonState = MG_State_T::commonState;
         FramebufferState* fbState = MG_State_T::framebufferState;
 
         GLuint currentFBO = fbState->currentBindings_[GL_DRAW_FRAMEBUFFER];
-        if (currentFBO != lastBoundFBO) {
+        if (currentFBO != lastBoundFBO[0]) {
             GLuint glFBO = 0;
 
             if (currentFBO == 0) {
@@ -766,7 +884,7 @@ namespace MG_GL::GL {
                 }
             }
 
-            lastBoundFBO = currentFBO;
+            lastBoundFBO[0] = currentFBO;
         }
 
 
