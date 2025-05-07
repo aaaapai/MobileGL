@@ -123,15 +123,22 @@ namespace MG_GL::GL {
                 for (auto& [level, mip] : texObj.params.mipmapData) {
                     const void* data = !mip.pixelData.empty() ? mip.pixelData.data() : nullptr;
                     switch (target) {
-                        case GL_TEXTURE_2D:
-                        CallAndCheck(::GLES::glTexImage2D(
-                                target, level, mip.internalFormat,
-                                mip.width, mip.height, 0,
-                                mip.format, mip.type, data
-                        );)
+                        case GL_TEXTURE_2D: {
+                            GLenum type = mip.type;
+                            // Mali cannot use GL_FLOAT as depth format
+                            if (mip.internalFormat == GL_DEPTH_COMPONENT) {
+                                type = GL_UNSIGNED_INT;
+                            }
+                            CallAndCheck(::GLES::glTexImage2D(
+                                    target, level, mip.internalFormat,
+                                    mip.width, mip.height, 0,
+                                    mip.format, type, data
+                            );)
                             s_textureLevelUploaded[mgTexId][level] = true;
-                            MG_Util::Debug::LogD("Initial upload texture %u level %d (size=%zu)", mgTexId, level, mip.pixelData.size());
+                            MG_Util::Debug::LogD("Initial upload texture %u level %d (size=%zu)",
+                                                 mgTexId, level, mip.pixelData.size());
                             break;
+                        }
                         default:
                             MG_Util::Debug::LogE("Unsupported target: %s", MG_Util::Debug::GLEnumToString(target));
                     }
@@ -256,10 +263,10 @@ namespace MG_GL::GL {
 
                             GLuint expectedGLTexId = 0;
                             if (mgAtt.handle != 0) {
-                                if (s_textureMap.count(mgAtt.handle)) {
+                                if (s_textureMap.find(mgAtt.handle) != s_textureMap.end()) {
                                     expectedGLTexId = s_textureMap[mgAtt.handle];
                                 } else {
-                                    MG_Util::Debug::LogE("MobileGL Texture %u for FBO %u attachment 0x%X not found in s_textureMap during FBO sync!", mgAtt.handle, fb, mgAttachmentPoint);
+                                    MG_Util::Debug::LogE("MobileGL Texture %u for FBO %u attachment %s not found in s_textureMap during FBO sync!", mgAtt.handle, fb, MG_Util::Debug::GLEnumToString(mgAttachmentPoint));
                                     for (auto const& [key, val] : s_textureMap)
                                         MG_Util::Debug::LogW("  key: %d, val: %d", key, val);
                                     continue;
@@ -788,6 +795,10 @@ namespace MG_GL::GL {
                          GLenum filter) {
         MG_Util::Debug::LogD("BlitFramebuffer, srcX0=%d, srcY0=%d, srcX1=%d, srcY1=%d, dstX0=%d, dstY0=%d, dstX1=%d, dstY1=%d, mask=0x%x, filter=%s",
                              srcX0, srcY0, srcX1, srcY1, dstX0, dstY0, dstX1, dstY1, mask, MG_Util::Debug::GLEnumToString(filter));
+        TextureState* textureState = MG_State_T::textureState;
+
+        // Texture
+        SyncAllTexturesToGLES(textureState);
 
         // Realize FBO states
         RealizeFBOState(GL_DRAW_FRAMEBUFFER);
@@ -893,6 +904,11 @@ namespace MG_GL::GL {
 //
 //            lastBoundFBO[0] = currentFBO;
 //        }
+
+        TextureState* textureState = MG_State_T::textureState;
+
+        // Texture
+        SyncAllTexturesToGLES(textureState);
 
         RealizeFBOState(GL_DRAW_FRAMEBUFFER);
 

@@ -45,6 +45,7 @@ namespace MG_GL::GL {
         GLenum result = MG_State::AttachTexture2DToFramebuffer(
                 target, attachment, textarget, texture, level
         );
+
         if (result == GL_NO_ERROR) return;
         MG_State::SetError(result);
         MG_Util::Debug::LogE("Texture attachment failed: %s", MG_Util::Debug::GLEnumToString(result));
