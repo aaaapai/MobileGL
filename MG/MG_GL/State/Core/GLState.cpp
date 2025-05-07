@@ -160,12 +160,16 @@ namespace MG_State {
         return MG_State_T::bufferState->ReleaseBufferMemory(target);
     }
 
-    GLenum CreateBuffer(GLuint* buffer) {
+    GLenum CreateBuffer(GLuint buffer) {
         return MG_State_T::bufferState->Create(buffer);
     }
 
-    GLenum CreateBuffers(GLsizei n, GLuint* buffers) {
-        return MG_State_T::bufferState->CreateN(n, buffers);
+//    GLenum CreateBuffers(GLsizei n, GLuint* buffers) {
+//        return MG_State_T::bufferState->CreateN(n, buffers);
+//    }
+
+    GLenum GenBufferNames(GLsizei n, GLuint* buffers) {
+        return MG_State_T::bufferState->GenNameN(n, buffers);
     }
 
     GLenum BindBuffer(GLenum target, GLuint buffer) {
@@ -181,8 +185,12 @@ namespace MG_State {
         return MG_State_T::bufferState->CommitStorage(target, size, data, usage);
     }
 
-    bool ValidateBufferHandle(GLuint buffer) {
-        return MG_State_T::bufferState->ValidateHandle(buffer);
+    bool ValidateAllocatedBufferHandle(GLuint buffer) {
+        return MG_State_T::bufferState->ValidateAllocatedHandle(buffer);
+    }
+
+    bool ValidateGeneratedName(GLuint buffer) {
+        return MG_State_T::bufferState->ValidateGeneratedName(buffer);
     }
 
     void DeleteBuffer(GLuint buffer) {

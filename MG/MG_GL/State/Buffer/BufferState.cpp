@@ -6,56 +6,79 @@
 
 #include "BufferState.h"
 
-GLenum BufferState::Create(GLuint* buffer) {
-    MG_Util::Debug::LogD("MG_State: Buffer: Create called");
-    if (!buffer) return GL_INVALID_VALUE;
+GLenum BufferState::GenName(GLuint *buffer) {
+    MG_Util::Debug::LogD("MG_State: Buffer: GenName");
+    if (!buffer)
+        return GL_INVALID_VALUE;
 
     GLuint id = 0;
-    if (!freeIds_.empty()) {
-        id = *freeIds_.begin();
-        freeIds_.erase(freeIds_.begin());
+    if (freeId_.empty()) {
+        id = lastId_++;
     } else {
-        id = ++lastId_;
+        id = freeId_.back();
+        freeId_.pop_back();
     }
+
     *buffer = id;
-    BufferObject& obj = buffers_[id];
-    MG_Util::Debug::LogD("MG_State: Buffer: Create created buffer %d", id);
+    MG_Util::Debug::LogD("MG_State: Buffer: Gen new name %d", id);
+
+    return GL_NO_ERROR;
+}
+
+GLenum BufferState::GenNameN(GLsizei n, GLuint* buffers) {
+    MG_Util::Debug::LogD("MG_State: Buffer: GenNameN called with n=%d", n);
+    if (n < 0) return GL_INVALID_VALUE;
+
+    for (GLsizei i = 0; i < n; ++i) {
+        GLenum result = GenName(&buffers[i]);
+        if (result != GL_NO_ERROR) {
+            MG_Util::Debug::LogE("MG_State: Buffer: GenNameN failed with error 0x%x", result);
+            return result;
+        }
+    }
+    MG_Util::Debug::LogD("MG_State: Buffer: GenNameN created buffers successfully");
+    return GL_NO_ERROR;
+}
+
+GLenum BufferState::Create(GLuint buffer) {
+    MG_Util::Debug::LogD("MG_State: Buffer: Create called");
+    if (!buffer)
+        return GL_INVALID_VALUE;
+
+    if (ValidateAllocatedHandle(buffer))
+        return GL_INVALID_VALUE;
+
+    BufferObject& obj = buffers_[buffer];
+    MG_Util::Debug::LogD("MG_State: Buffer: Create created buffer %d", buffer);
     obj.generated = true;
 
     return GL_NO_ERROR;
 }
 
-GLenum BufferState::CreateN(GLsizei n, GLuint* buffers) {
-    MG_Util::Debug::LogD("MG_State: Buffer: CreateN called with n=%d", n);
-    if (n < 0) return GL_INVALID_VALUE;
-
-    for (GLsizei i = 0; i < n; ++i) {
-        GLenum result = Create(&buffers[i]);
-        if (result != GL_NO_ERROR) {
-            MG_Util::Debug::LogE("MG_State: Buffer: CreateN create buffer failed with error 0x%x", result);
-            return result;
-        }
-    }
-    MG_Util::Debug::LogD("MG_State: Buffer: CreateN created buffers successfully");
-    return GL_NO_ERROR;
-}
+//GLenum BufferState::CreateN(GLsizei n, GLuint* buffers) {
+//    MG_Util::Debug::LogD("MG_State: Buffer: CreateN called with n=%d", n);
+//    if (n < 0) return GL_INVALID_VALUE;
+//
+//    for (GLsizei i = 0; i < n; ++i) {
+//        GLenum result = Create(&buffers[i]);
+//        if (result != GL_NO_ERROR) {
+//            MG_Util::Debug::LogE("MG_State: Buffer: CreateN create buffer failed with error 0x%x", result);
+//            return result;
+//        }
+//    }
+//    MG_Util::Debug::LogD("MG_State: Buffer: CreateN created buffers successfully");
+//    return GL_NO_ERROR;
+//}
 
 GLenum BufferState::Bind(GLenum target, GLuint buffer) {
-    if (!IsValidTarget_(target)) return GL_INVALID_ENUM;
-    MG_Util::Debug::LogD("MG_State: Buffer: Bind called with target=0x%x, buffer=%u", target, buffer);
+    // We don't handle unallocated buffer names here, just plain bind
 
-    if (buffer != 0) {
-        auto it = buffers_.find(buffer);
-        if (it == buffers_.end()) {
-            buffers_[buffer];
-        } else {
-            BufferObject& obj = it->second;
-            if (obj.target != 0 && obj.target != target) {
-                MG_Util::Debug::LogE("MG_State: Buffer: Bind can not bind a buffer to different target 0x%x, current bind target is 0x%x", target, obj.target);
-                return GL_INVALID_OPERATION;
-            }
-        }
-        buffers_[buffer].target = target;
+    if (!IsValidTarget_(target)) return GL_INVALID_ENUM;
+    MG_Util::Debug::LogD("MG_State: Buffer: Bind called with target=%s, buffer=%u", MG_Util::Debug::GLEnumToString(target), buffer);
+
+    if (buffer != 0 && !ValidateAllocatedHandle(buffer)) {
+        MG_Util::Debug::LogE("MG_State: Buffer: Binding invalid buffer %d to %s", buffer, MG_Util::Debug::GLEnumToString(target));
+        return GL_INVALID_OPERATION;
     }
 
     currentBindings_[target] = buffer;
@@ -119,18 +142,25 @@ GLenum BufferState::ReleaseBufferMemory(GLenum target) {
     return GL_NO_ERROR;
 }
 
-bool BufferState::ValidateHandle(GLuint buffer) {
-    bool isvalid = buffers_.count(buffer) > 0;
-    MG_Util::Debug::LogD("MG_State: Buffer: ValidateHandle called on buffer %u returns %d", buffer, isvalid);
-    return isvalid;
+bool BufferState::ValidateAllocatedHandle(GLuint buffer) {
+    bool isValid = buffers_.find(buffer) != buffers_.end();
+    MG_Util::Debug::LogD("MG_State: Buffer: ValidateAllocatedHandle called on buffer %u returns %d", buffer, isValid);
+    return isValid;
+}
+
+bool BufferState::ValidateGeneratedName(GLuint buffer) {
+    bool inFreeList = std::find(freeId_.begin(), freeId_.end(), buffer) != freeId_.end();
+    bool lessThanLast = buffer < lastId_; // lastId_ is not generated yet
+    MG_Util::Debug::LogD("MG_State: Buffer: ValidateAllocatedHandle called on buffer %u returns %d", buffer, lessThanLast && !inFreeList);
+    return lessThanLast && !inFreeList;
 }
 
 void BufferState::Delete(GLuint buffer) {
-    if (buffers_.erase(buffer)) {
-        freeIds_.insert(buffer);
-        for (auto& [target, id] : currentBindings_) {
-            if (id == buffer) id = 0;
-        }
+    buffers_.erase(buffer);
+    if (ValidateGeneratedName(buffer))
+        freeId_.emplace_back(buffer);
+    for (auto& [target, id] : currentBindings_) {
+        if (id == buffer) id = 0;
     }
     MG_Util::Debug::LogD("MG_State: Buffer: Delete buffer %u", buffer);
 }
@@ -179,7 +209,7 @@ GLenum BufferState::QueryPropertyIntVector(GLenum target, GLenum pname, GLint* p
         case GL_BUFFER_USAGE:
             *params = static_cast<GLint>(buffer.usage);
             break;
-        MG_Util::Debug::LogD("MG_State: Buffer: QueryPropertyIntVector Query info about buffer %u succeed",buffer.target);
+        MG_Util::Debug::LogD("MG_State: Buffer: QueryPropertyIntVector Query info about buffer %u succeed", target);
         default:
             return GL_INVALID_ENUM;
     }

@@ -39,7 +39,14 @@ namespace MG_GL::GL {
 
     void BindBuffer(GLenum target, GLuint buffer) {
         MG_Util::Debug::LogD("glBindBuffer, target: %d, buffer: %d", target, buffer);
-        if (buffer != 0 && !MG_State::ValidateBufferHandle(buffer)) {
+        if (buffer != 0 &&
+            MG_State::ValidateGeneratedName(buffer) &&
+            !MG_State::ValidateAllocatedBufferHandle(buffer)) {
+            MG_Util::Debug::LogE("Actually creating buffer: %u", buffer);
+            GLenum result = MG_State::CreateBuffer(buffer);
+        }
+
+        if (buffer != 0 && !MG_State::ValidateAllocatedBufferHandle(buffer)) {
             MG_State::SetError(GL_INVALID_VALUE);
             MG_Util::Debug::LogE("Invalid buffer handle: %u", buffer);
             return;
@@ -80,9 +87,9 @@ namespace MG_GL::GL {
             return;
         }
 
-        GLenum result = MG_State::CreateBuffers(n, buffers);
+        GLenum result = MG_State::GenBufferNames(n, buffers);
         if (result == GL_NO_ERROR) {
-            MG_Util::Debug::LogD("Generated buffers:");
+            MG_Util::Debug::LogD("Generated buffer names:");
             for (GLsizei i = 0; i < n; ++i) {
                 MG_Util::Debug::LogD("  Buffer[%d] = %u", i, buffers[i]);
             }
@@ -100,7 +107,7 @@ namespace MG_GL::GL {
             return GL_FALSE;
         }
 
-        bool isValid = MG_State::ValidateBufferHandle(buffer);
+        bool isValid = MG_State::ValidateAllocatedBufferHandle(buffer);
         // Should we report gl error here or in MG_State? 
         MG_Util::Debug::LogD("Buffer %u is %s", buffer, isValid ? "valid" : "invalid");
         return isValid ? GL_TRUE : GL_FALSE;

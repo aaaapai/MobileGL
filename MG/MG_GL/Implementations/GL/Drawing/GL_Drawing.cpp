@@ -180,43 +180,138 @@ namespace MG_GL::GL {
     }
 
 
-    static std::unordered_map<GLuint, void*> s_bufferDirtyFlags_bufferObj;
+//    static std::unordered_map<GLuint, void*> s_bufferDirtyFlags_bufferObj;
     void SyncAllBuffersToGLES(BufferState* bufferState) {
-        GLint currentVBO = 0, currentEBO = 0;
-        CallAndCheck(::GLES::glGetIntegerv(GL_ARRAY_BUFFER_BINDING, &currentVBO);)
-        CallAndCheck(::GLES::glGetIntegerv(GL_ELEMENT_ARRAY_BUFFER_BINDING, &currentEBO);)
-        for (auto& [mgBufferId, bufferObj] : bufferState->buffers_) {
-            if (!bufferObj.generated) continue;
-            
-            // TODO: Check if the buffer changes rather than always update it.
-            if (s_bufferMap.find(mgBufferId) == s_bufferMap.end() || true) {
-                if (s_bufferMap.find(mgBufferId) == s_bufferMap.end()) {
-                    GLuint glBuffer;
-                    CallAndCheck(::GLES::glGenBuffers(1, &glBuffer);)
-                    s_bufferMap[mgBufferId] = glBuffer;
-                }
-                CallAndCheck(::GLES::glBindBuffer(bufferObj.target, s_bufferMap[mgBufferId]);)
-                CallAndCheck(::GLES::glBufferData(
-                        bufferObj.target,
-                        bufferObj.data.size(),
-                        bufferObj.data.data(),
-                        bufferObj.usage
-                );)
-                s_bufferDirtyFlags_bufferObj[mgBufferId] = bufferObj.data.data();
+        GLint prev_vbo = 0;
+        CallAndCheck(::GLES::glGetIntegerv(GL_ARRAY_BUFFER_BINDING, &prev_vbo);)
+
+        for (auto& [mgname, obj] : bufferState->buffers_) {
+            if (!obj.generated)
+                continue;
+
+            // Gen real buffers at ES
+            if (s_bufferMap.find(mgname) == s_bufferMap.end()) {
+                GLuint glname;
+                CallAndCheck(::GLES::glGenBuffers(1, &glname);)
+                s_bufferMap[mgname] = glname;
             }
+
+            GLuint glname = s_bufferMap[mgname];
+
+            // Populate data to ES
+            CallAndCheck(::GLES::glBindBuffer(GL_ARRAY_BUFFER, glname);)
+            CallAndCheck(::GLES::glBufferData(
+                        GL_ARRAY_BUFFER,
+                        obj.data.size(),
+                        obj.data.data(),
+                        obj.usage);)
+
+//            s_bufferDirtyFlags_bufferObj[mgname] = obj.data.data();
         }
-        CallAndCheck(::GLES::glBindBuffer(GL_ARRAY_BUFFER, currentVBO);)
-        CallAndCheck(::GLES::glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, currentEBO);)
+        CallAndCheck(::GLES::glBindBuffer(GL_ARRAY_BUFFER, prev_vbo);)
     }
 
-    void DrawArraysSHITTILY(GLenum mode, GLint first, GLsizei count) {
-        
-    }
 
     static GLuint lastBoundVAO = 0;
     static GLuint lastBoundProgram = 0;
     static GLuint lastBoundFBO[2] = {0};
     static std::array<GLuint, 32> lastBoundTextures;
+
+    void RealizeFBOState(GLenum fbtype) {
+        FramebufferState* fbState = MG_State_T::framebufferState;
+
+        GLuint fb = fbState->currentBindings_[fbtype];
+        if (fb != lastBoundFBO[(fbtype == GL_DRAW_FRAMEBUFFER) ? 0 : 1]) {
+            GLuint glFBO = 0;
+
+            if (fb == 0) {
+                CallAndCheck(::GLES::glBindFramebuffer(fbtype, 0);)
+                glFBO = 0;
+            } else {
+                bool isNewGlesFBO = false;
+
+                if (s_framebufferMap.find(fb) == s_framebufferMap.end()) {
+                    CallAndCheck(::GLES::glGenFramebuffers(1, &glFBO);)
+                    s_framebufferMap[fb] = glFBO;
+                    CallAndCheck(::GLES::glBindFramebuffer(fbtype, glFBO);)
+                    MG_Util::Debug::LogD("Generated and bound new GLES FBO %u for MobileGL FBO %u", glFBO, fb);
+                    isNewGlesFBO = true;
+                } else {
+                    glFBO = s_framebufferMap[fb];
+                    CallAndCheck(::GLES::glBindFramebuffer(fbtype, glFBO);)
+                    MG_Util::Debug::LogD("Bound existing GLES FBO %u for MobileGL FBO %u", glFBO, fb);
+                }
+
+                if (glFBO != 0) {
+                    FramebufferObject* mgFBO = fbState->GetCurrentFBO(fbtype);
+                    if (mgFBO) {
+                        MG_Util::Debug::LogD("Checking/Syncing attachments for GLES FBO %u (MobileGL FBO %u)", glFBO, fb);
+
+                        for (auto const& [mgAttachmentPoint, mgAtt] : mgFBO->attachments) {
+
+                            if (mgAtt.type != GL_TEXTURE_2D) {
+                                MG_Util::Debug::LogW("Skipping non-TEXTURE_2D attachment 0x%X for FBO %u", mgAttachmentPoint, fb);
+                                continue;
+                            }
+
+                            GLuint expectedGLTexId = 0;
+                            if (mgAtt.handle != 0) {
+                                if (s_textureMap.count(mgAtt.handle)) {
+                                    expectedGLTexId = s_textureMap[mgAtt.handle];
+                                } else {
+                                    MG_Util::Debug::LogE("MobileGL Texture %u for FBO %u attachment 0x%X not found in s_textureMap during FBO sync!", mgAtt.handle, fb, mgAttachmentPoint);
+                                    for (auto const& [key, val] : s_textureMap)
+                                        MG_Util::Debug::LogW("  key: %d, val: %d", key, val);
+                                    continue;
+                                }
+                            }
+
+                            GLint glesAttachedType = 0;
+                            GLint glesAttachedName = 0;
+
+                            CallAndCheck(::GLES::glGetFramebufferAttachmentParameteriv(fbtype, mgAttachmentPoint, GL_FRAMEBUFFER_ATTACHMENT_OBJECT_TYPE, &glesAttachedType);)
+
+                            if (glesAttachedType == GL_TEXTURE) {
+                                CallAndCheck(::GLES::glGetFramebufferAttachmentParameteriv(fbtype, mgAttachmentPoint, GL_FRAMEBUFFER_ATTACHMENT_OBJECT_NAME, &glesAttachedName);)
+                            } else if (glesAttachedType != GL_NONE) {
+                                MG_Util::Debug::LogW("GLES FBO %u attachment 0x%X has non-texture type 0x%X (expected GL_TEXTURE or GL_NONE)", glFBO, mgAttachmentPoint, glesAttachedType);
+                            }
+
+                            if ((GLuint)glesAttachedName != expectedGLTexId) {
+                                MG_Util::Debug::LogD("Syncing FBO %u attachment 0x%X: Expected GLES TexID %u, Found GLES ObjName %d. Attaching/Detaching...",
+                                                     fb, mgAttachmentPoint, expectedGLTexId, glesAttachedName);
+
+                                CallAndCheck(::GLES::glFramebufferTexture2D(
+                                        fbtype,
+                                        mgAttachmentPoint,
+                                        GL_TEXTURE_2D,
+                                        expectedGLTexId,
+                                        mgAtt.mipLevel
+                                );)
+                            }
+                        }
+
+                        GLenum status = ::GLES::glCheckFramebufferStatus(fbtype);
+                        if (status != GL_FRAMEBUFFER_COMPLETE) {
+                            MG_Util::Debug::LogE("Framebuffer %u (GLES FBO %u) is not complete after sync! Status: 0x%X (%s)",
+                                                 fb, glFBO, status, MG_Util::Debug::GLEnumToString(status));
+                        }
+
+                    } else {
+                        MG_Util::Debug::LogW("Could not get MobileGL FBO object for ID %u during attachment sync.", fb);
+                    }
+                }
+            }
+
+            lastBoundFBO[(fbtype == GL_DRAW_FRAMEBUFFER) ? 0 : 1] = fb;
+        }
+    }
+
+
+    void DrawArraysSHITTILY(GLenum mode, GLint first, GLsizei count) {
+        
+    }
+
     void DrawElementsSHITTILY(GLenum mode, GLsizei count, GLenum type, const GLvoid* indices) {
         CommonState* commonState = MG_State_T::commonState;
         TextureState* textureState = MG_State_T::textureState;
@@ -578,95 +673,97 @@ namespace MG_GL::GL {
         }
         
         // Framebuffer
-        GLuint currentFBO = fbState->currentBindings_[GL_DRAW_FRAMEBUFFER];
-        if (currentFBO != lastBoundFBO[0]) {
-            GLuint glFBO = 0;
+        RealizeFBOState(GL_DRAW_FRAMEBUFFER);
+//        GLuint currentFBO = fbState->currentBindings_[GL_DRAW_FRAMEBUFFER];
+//        if (currentFBO != lastBoundFBO[0]) {
+//            GLuint glFBO = 0;
+//
+//            if (currentFBO == 0) {
+//                CallAndCheck(::GLES::glBindFramebuffer(GL_FRAMEBUFFER, 0);)
+//                glFBO = 0;
+//            } else {
+//                bool isNewGlesFBO = false;
+//
+//                if (s_framebufferMap.find(currentFBO) == s_framebufferMap.end()) {
+//                    CallAndCheck(::GLES::glGenFramebuffers(1, &glFBO);)
+//                    s_framebufferMap[currentFBO] = glFBO;
+//                    CallAndCheck(::GLES::glBindFramebuffer(GL_FRAMEBUFFER, glFBO);)
+//                    MG_Util::Debug::LogD("Generated and bound new GLES FBO %u for MobileGL FBO %u", glFBO, currentFBO);
+//                    GLenum status = ::GLES::glCheckFramebufferStatus(GL_FRAMEBUFFER);
+//                    if (status != GL_FRAMEBUFFER_COMPLETE) {
+//                        MG_Util::Debug::LogE("Framebuffer %u (GLES FBO %u) is not complete after creation! Status: 0x%X (%s)",
+//                                             currentFBO, glFBO, status, MG_Util::Debug::GLEnumToString(status));
+//                    }
+//                    isNewGlesFBO = true;
+//                } else {
+//                    glFBO = s_framebufferMap[currentFBO];
+//                    CallAndCheck(::GLES::glBindFramebuffer(GL_FRAMEBUFFER, glFBO);)
+//                    MG_Util::Debug::LogD("Bound existing GLES FBO %u for MobileGL FBO %u", glFBO, currentFBO);
+//                }
+//
+//                if (glFBO != 0) {
+//                    FramebufferObject* mgFBO = fbState->GetCurrentFBO(GL_DRAW_FRAMEBUFFER);
+//                    if (mgFBO) {
+//                        MG_Util::Debug::LogD("Checking/Syncing attachments for GLES FBO %u (MobileGL FBO %u)", glFBO, currentFBO);
+//
+//                        for (auto const& [mgAttachmentPoint, mgAtt] : mgFBO->attachments) {
+//
+//                            if (mgAtt.type != GL_TEXTURE_2D) {
+//                                MG_Util::Debug::LogW("Skipping non-TEXTURE_2D attachment 0x%X for FBO %u", mgAttachmentPoint, currentFBO);
+//                                continue;
+//                            }
+//
+//                            GLuint expectedGLTexId = 0;
+//                            if (mgAtt.handle != 0) {
+//                                if (s_textureMap.count(mgAtt.handle)) {
+//                                    expectedGLTexId = s_textureMap[mgAtt.handle];
+//                                } else {
+//                                    MG_Util::Debug::LogE("MobileGL Texture %u for FBO %u attachment 0x%X not found in s_textureMap during FBO sync!", mgAtt.handle, currentFBO, mgAttachmentPoint);
+//                                    for (auto const& [key, val] : s_textureMap)
+//                                        MG_Util::Debug::LogW("  key: %d, val: %d", key, val);
+//                                    continue;
+//                                }
+//                            }
+//
+//                            GLint glesAttachedType = 0;
+//                            GLint glesAttachedName = 0;
+//
+//                            CallAndCheck(::GLES::glGetFramebufferAttachmentParameteriv(GL_FRAMEBUFFER, mgAttachmentPoint, GL_FRAMEBUFFER_ATTACHMENT_OBJECT_TYPE, &glesAttachedType);)
+//
+//                            if (glesAttachedType == GL_TEXTURE) {
+//                                CallAndCheck(::GLES::glGetFramebufferAttachmentParameteriv(GL_FRAMEBUFFER, mgAttachmentPoint, GL_FRAMEBUFFER_ATTACHMENT_OBJECT_NAME, &glesAttachedName);)
+//                            } else if (glesAttachedType != GL_NONE) {
+//                                MG_Util::Debug::LogW("GLES FBO %u attachment 0x%X has non-texture type 0x%X (expected GL_TEXTURE or GL_NONE)", glFBO, mgAttachmentPoint, glesAttachedType);
+//                            }
+//
+//                            if ((GLuint)glesAttachedName != expectedGLTexId) {
+//                                MG_Util::Debug::LogD("Syncing FBO %u attachment 0x%X: Expected GLES TexID %u, Found GLES ObjName %d. Attaching/Detaching...",
+//                                                     currentFBO, mgAttachmentPoint, expectedGLTexId, glesAttachedName);
+//
+//                                CallAndCheck(::GLES::glFramebufferTexture2D(
+//                                        GL_FRAMEBUFFER,
+//                                        mgAttachmentPoint,
+//                                        GL_TEXTURE_2D,
+//                                        expectedGLTexId,
+//                                        mgAtt.mipLevel
+//                                );)
+//                            }
+//                        }
+//                        GLenum status = ::GLES::glCheckFramebufferStatus(GL_FRAMEBUFFER);
+//                        if (status != GL_FRAMEBUFFER_COMPLETE) {
+//                            MG_Util::Debug::LogE("Framebuffer %u (GLES FBO %u) is not complete after sync! Status: 0x%X (%s)",
+//                                                 currentFBO, glFBO, status, MG_Util::Debug::GLEnumToString(status));
+//                        }
+//
+//                    } else {
+//                        MG_Util::Debug::LogW("Could not get MobileGL FBO object for ID %u during attachment sync.", currentFBO);
+//                    }
+//                }
+//            }
+//
+//            lastBoundFBO[0] = currentFBO;
+//        }
 
-            if (currentFBO == 0) {
-                CallAndCheck(::GLES::glBindFramebuffer(GL_FRAMEBUFFER, 0);)
-                glFBO = 0;
-            } else {
-                bool isNewGlesFBO = false;
-
-                if (s_framebufferMap.find(currentFBO) == s_framebufferMap.end()) {
-                    CallAndCheck(::GLES::glGenFramebuffers(1, &glFBO);)
-                    s_framebufferMap[currentFBO] = glFBO;
-                    CallAndCheck(::GLES::glBindFramebuffer(GL_FRAMEBUFFER, glFBO);)
-                    MG_Util::Debug::LogD("Generated and bound new GLES FBO %u for MobileGL FBO %u", glFBO, currentFBO);
-                    GLenum status = ::GLES::glCheckFramebufferStatus(GL_FRAMEBUFFER);
-                    if (status != GL_FRAMEBUFFER_COMPLETE) {
-                        MG_Util::Debug::LogE("Framebuffer %u (GLES FBO %u) is not complete after creation! Status: 0x%X (%s)",
-                                             currentFBO, glFBO, status, MG_Util::Debug::GLEnumToString(status));
-                    }
-                    isNewGlesFBO = true; 
-                } else {
-                    glFBO = s_framebufferMap[currentFBO]; 
-                    CallAndCheck(::GLES::glBindFramebuffer(GL_FRAMEBUFFER, glFBO);)
-                    MG_Util::Debug::LogD("Bound existing GLES FBO %u for MobileGL FBO %u", glFBO, currentFBO);
-                }
-
-                if (glFBO != 0) {
-                    FramebufferObject* mgFBO = fbState->GetCurrentFBO(GL_DRAW_FRAMEBUFFER);
-                    if (mgFBO) {
-                        MG_Util::Debug::LogD("Checking/Syncing attachments for GLES FBO %u (MobileGL FBO %u)", glFBO, currentFBO);
-
-                        for (auto const& [mgAttachmentPoint, mgAtt] : mgFBO->attachments) {
-
-                            if (mgAtt.type != GL_TEXTURE_2D) {
-                                MG_Util::Debug::LogW("Skipping non-TEXTURE_2D attachment 0x%X for FBO %u", mgAttachmentPoint, currentFBO);
-                                continue;
-                            }
-
-                            GLuint expectedGLTexId = 0; 
-                            if (mgAtt.handle != 0) {
-                                if (s_textureMap.count(mgAtt.handle)) {
-                                    expectedGLTexId = s_textureMap[mgAtt.handle];
-                                } else {
-                                    MG_Util::Debug::LogE("MobileGL Texture %u for FBO %u attachment 0x%X not found in s_textureMap during FBO sync!", mgAtt.handle, currentFBO, mgAttachmentPoint);
-                                    for (auto const& [key, val] : s_textureMap)
-                                        MG_Util::Debug::LogW("  key: %d, val: %d", key, val);
-                                    continue;
-                                }
-                            }
-
-                            GLint glesAttachedType = 0;
-                            GLint glesAttachedName = 0;
-                            
-                            CallAndCheck(::GLES::glGetFramebufferAttachmentParameteriv(GL_FRAMEBUFFER, mgAttachmentPoint, GL_FRAMEBUFFER_ATTACHMENT_OBJECT_TYPE, &glesAttachedType);)
-
-                            if (glesAttachedType == GL_TEXTURE) {
-                                CallAndCheck(::GLES::glGetFramebufferAttachmentParameteriv(GL_FRAMEBUFFER, mgAttachmentPoint, GL_FRAMEBUFFER_ATTACHMENT_OBJECT_NAME, &glesAttachedName);)
-                            } else if (glesAttachedType != GL_NONE) {
-                                MG_Util::Debug::LogW("GLES FBO %u attachment 0x%X has non-texture type 0x%X (expected GL_TEXTURE or GL_NONE)", glFBO, mgAttachmentPoint, glesAttachedType);
-                            }
-                            
-                            if ((GLuint)glesAttachedName != expectedGLTexId) {
-                                MG_Util::Debug::LogD("Syncing FBO %u attachment 0x%X: Expected GLES TexID %u, Found GLES ObjName %d. Attaching/Detaching...",
-                                                     currentFBO, mgAttachmentPoint, expectedGLTexId, glesAttachedName);
-
-                                CallAndCheck(::GLES::glFramebufferTexture2D(
-                                        GL_FRAMEBUFFER,
-                                        mgAttachmentPoint,
-                                        GL_TEXTURE_2D,
-                                        expectedGLTexId,
-                                        mgAtt.mipLevel 
-                                );)
-                            }
-                        }
-                        GLenum status = ::GLES::glCheckFramebufferStatus(GL_FRAMEBUFFER);
-                        if (status != GL_FRAMEBUFFER_COMPLETE) {
-                            MG_Util::Debug::LogE("Framebuffer %u (GLES FBO %u) is not complete after sync! Status: 0x%X (%s)",
-                                                 currentFBO, glFBO, status, MG_Util::Debug::GLEnumToString(status));
-                        }
-
-                    } else {
-                        MG_Util::Debug::LogW("Could not get MobileGL FBO object for ID %u during attachment sync.", currentFBO);
-                    }
-                }
-            }
-
-            lastBoundFBO[0] = currentFBO;
-        }
 
 
         if (vao->elementBuffer != 0 || indices != nullptr) {
@@ -676,96 +773,6 @@ namespace MG_GL::GL {
                     type,
                     indices
             );)
-        }
-    }
-
-    void RealizeFBOState(GLenum fbtype) {
-        FramebufferState* fbState = MG_State_T::framebufferState;
-
-        GLuint fb = fbState->currentBindings_[fbtype];
-        if (fb != lastBoundFBO[(fbtype == GL_DRAW_FRAMEBUFFER) ? 0 : 1]) {
-            GLuint glFBO = 0;
-
-            if (fb == 0) {
-                CallAndCheck(::GLES::glBindFramebuffer(fbtype, 0);)
-                glFBO = 0;
-            } else {
-                bool isNewGlesFBO = false;
-
-                if (s_framebufferMap.find(fb) == s_framebufferMap.end()) {
-                    CallAndCheck(::GLES::glGenFramebuffers(1, &glFBO);)
-                    s_framebufferMap[fb] = glFBO;
-                    CallAndCheck(::GLES::glBindFramebuffer(fbtype, glFBO);)
-                    MG_Util::Debug::LogD("Generated and bound new GLES FBO %u for MobileGL FBO %u", glFBO, fb);
-                    isNewGlesFBO = true;
-                } else {
-                    glFBO = s_framebufferMap[fb];
-                    CallAndCheck(::GLES::glBindFramebuffer(fbtype, glFBO);)
-                    MG_Util::Debug::LogD("Bound existing GLES FBO %u for MobileGL FBO %u", glFBO, fb);
-                }
-
-                if (glFBO != 0) {
-                    FramebufferObject* mgFBO = fbState->GetCurrentFBO(fbtype);
-                    if (mgFBO) {
-                        MG_Util::Debug::LogD("Checking/Syncing attachments for GLES FBO %u (MobileGL FBO %u)", glFBO, fb);
-
-                        for (auto const& [mgAttachmentPoint, mgAtt] : mgFBO->attachments) {
-
-                            if (mgAtt.type != GL_TEXTURE_2D) {
-                                MG_Util::Debug::LogW("Skipping non-TEXTURE_2D attachment 0x%X for FBO %u", mgAttachmentPoint, fb);
-                                continue;
-                            }
-
-                            GLuint expectedGLTexId = 0;
-                            if (mgAtt.handle != 0) {
-                                if (s_textureMap.count(mgAtt.handle)) {
-                                    expectedGLTexId = s_textureMap[mgAtt.handle];
-                                } else {
-                                    MG_Util::Debug::LogE("MobileGL Texture %u for FBO %u attachment 0x%X not found in s_textureMap during FBO sync!", mgAtt.handle, fb, mgAttachmentPoint);
-                                    for (auto const& [key, val] : s_textureMap)
-                                        MG_Util::Debug::LogW("  key: %d, val: %d", key, val);
-                                    continue;
-                                }
-                            }
-
-                            GLint glesAttachedType = 0;
-                            GLint glesAttachedName = 0;
-
-                            CallAndCheck(::GLES::glGetFramebufferAttachmentParameteriv(fbtype, mgAttachmentPoint, GL_FRAMEBUFFER_ATTACHMENT_OBJECT_TYPE, &glesAttachedType);)
-
-                            if (glesAttachedType == GL_TEXTURE) {
-                                CallAndCheck(::GLES::glGetFramebufferAttachmentParameteriv(fbtype, mgAttachmentPoint, GL_FRAMEBUFFER_ATTACHMENT_OBJECT_NAME, &glesAttachedName);)
-                            } else if (glesAttachedType != GL_NONE) {
-                                MG_Util::Debug::LogW("GLES FBO %u attachment 0x%X has non-texture type 0x%X (expected GL_TEXTURE or GL_NONE)", glFBO, mgAttachmentPoint, glesAttachedType);
-                            }
-
-                            if ((GLuint)glesAttachedName != expectedGLTexId) {
-                                MG_Util::Debug::LogD("Syncing FBO %u attachment 0x%X: Expected GLES TexID %u, Found GLES ObjName %d. Attaching/Detaching...",
-                                                     fb, mgAttachmentPoint, expectedGLTexId, glesAttachedName);
-
-                                CallAndCheck(::GLES::glFramebufferTexture2D(
-                                        fbtype,
-                                        mgAttachmentPoint,
-                                        GL_TEXTURE_2D,
-                                        expectedGLTexId,
-                                        mgAtt.mipLevel
-                                );)
-                            }
-                        }
-
-                        GLenum status = ::GLES::glCheckFramebufferStatus(fbtype);
-                        if (status != GL_FRAMEBUFFER_COMPLETE) {
-                            MG_Util::Debug::LogE("Framebuffer %u (GLES FBO %u) is not complete after sync! Status: 0x%X (%s)",
-                                                 fb, glFBO, status, MG_Util::Debug::GLEnumToString(status));
-                        }
-
-                    } else {
-                        MG_Util::Debug::LogW("Could not get MobileGL FBO object for ID %u during attachment sync.", fb);
-                    }
-                }
-            }
-
-            lastBoundFBO[(fbtype == GL_DRAW_FRAMEBUFFER) ? 0 : 1] = fb;
         }
     }
 
@@ -801,92 +808,93 @@ namespace MG_GL::GL {
         CommonState* commonState = MG_State_T::commonState;
         FramebufferState* fbState = MG_State_T::framebufferState;
 
-        GLuint currentFBO = fbState->currentBindings_[GL_DRAW_FRAMEBUFFER];
-        if (currentFBO != lastBoundFBO[0]) {
-            GLuint glFBO = 0;
+//        GLuint currentFBO = fbState->currentBindings_[GL_DRAW_FRAMEBUFFER];
+//        if (currentFBO != lastBoundFBO[0]) {
+//            GLuint glFBO = 0;
+//
+//            if (currentFBO == 0) {
+//                CallAndCheck(::GLES::glBindFramebuffer(GL_FRAMEBUFFER, 0);)
+//                glFBO = 0;
+//            } else {
+//                bool isNewGlesFBO = false;
+//
+//                if (s_framebufferMap.find(currentFBO) == s_framebufferMap.end()) {
+//                    CallAndCheck(::GLES::glGenFramebuffers(1, &glFBO);)
+//                    s_framebufferMap[currentFBO] = glFBO;
+//                    CallAndCheck(::GLES::glBindFramebuffer(GL_FRAMEBUFFER, glFBO);)
+//                    MG_Util::Debug::LogD("Generated and bound new GLES FBO %u for MobileGL FBO %u", glFBO, currentFBO);
+//                    isNewGlesFBO = true;
+//                } else {
+//                    glFBO = s_framebufferMap[currentFBO];
+//                    CallAndCheck(::GLES::glBindFramebuffer(GL_FRAMEBUFFER, glFBO);)
+//                    MG_Util::Debug::LogD("Bound existing GLES FBO %u for MobileGL FBO %u", glFBO, currentFBO);
+//                }
+//
+//                if (glFBO != 0) {
+//                    FramebufferObject* mgFBO = fbState->GetCurrentFBO(GL_DRAW_FRAMEBUFFER);
+//                    if (mgFBO) {
+//                        MG_Util::Debug::LogD("Checking/Syncing attachments for GLES FBO %u (MobileGL FBO %u)", glFBO, currentFBO);
+//
+//                        for (auto const& [mgAttachmentPoint, mgAtt] : mgFBO->attachments) {
+//
+//                            if (mgAtt.type != GL_TEXTURE_2D) {
+//                                MG_Util::Debug::LogW("Skipping non-TEXTURE_2D attachment 0x%X for FBO %u", mgAttachmentPoint, currentFBO);
+//                                continue;
+//                            }
+//
+//                            GLuint expectedGLTexId = 0;
+//                            if (mgAtt.handle != 0) {
+//                                if (s_textureMap.count(mgAtt.handle)) {
+//                                    expectedGLTexId = s_textureMap[mgAtt.handle];
+//                                } else {
+//                                    MG_Util::Debug::LogE("MobileGL Texture %u for FBO %u attachment 0x%X not found in s_textureMap during FBO sync!", mgAtt.handle, currentFBO, mgAttachmentPoint);
+//                                    for (auto const& [key, val] : s_textureMap)
+//                                        MG_Util::Debug::LogW("  key: %d, val: %d", key, val);
+//                                    continue;
+//                                }
+//                            }
+//
+//                            GLint glesAttachedType = 0;
+//                            GLint glesAttachedName = 0;
+//
+//                            CallAndCheck(::GLES::glGetFramebufferAttachmentParameteriv(GL_FRAMEBUFFER, mgAttachmentPoint, GL_FRAMEBUFFER_ATTACHMENT_OBJECT_TYPE, &glesAttachedType);)
+//
+//                            if (glesAttachedType == GL_TEXTURE) {
+//                                CallAndCheck(::GLES::glGetFramebufferAttachmentParameteriv(GL_FRAMEBUFFER, mgAttachmentPoint, GL_FRAMEBUFFER_ATTACHMENT_OBJECT_NAME, &glesAttachedName);)
+//                            } else if (glesAttachedType != GL_NONE) {
+//                                MG_Util::Debug::LogW("GLES FBO %u attachment 0x%X has non-texture type 0x%X (expected GL_TEXTURE or GL_NONE)", glFBO, mgAttachmentPoint, glesAttachedType);
+//                            }
+//
+//                            if ((GLuint)glesAttachedName != expectedGLTexId) {
+//                                MG_Util::Debug::LogD("Syncing FBO %u attachment 0x%X: Expected GLES TexID %u, Found GLES ObjName %d. Attaching/Detaching...",
+//                                                     currentFBO, mgAttachmentPoint, expectedGLTexId, glesAttachedName);
+//
+//                                CallAndCheck(::GLES::glFramebufferTexture2D(
+//                                        GL_FRAMEBUFFER,
+//                                        mgAttachmentPoint,
+//                                        GL_TEXTURE_2D,
+//                                        expectedGLTexId,
+//                                        mgAtt.mipLevel
+//                                );)
+//                            }
+//                        }
+//
+//                        GLenum status = ::GLES::glCheckFramebufferStatus(GL_FRAMEBUFFER);
+//                        if (status != GL_FRAMEBUFFER_COMPLETE) {
+//                            MG_Util::Debug::LogE("Framebuffer %u (GLES FBO %u) is not complete after sync! Status: 0x%X (%s)",
+//                                                 currentFBO, glFBO, status, MG_Util::Debug::GLEnumToString(status));
+//                        }
+//
+//                    } else {
+//                        MG_Util::Debug::LogW("Could not get MobileGL FBO object for ID %u during attachment sync.", currentFBO);
+//                    }
+//                }
+//            }
+//
+//            lastBoundFBO[0] = currentFBO;
+//        }
 
-            if (currentFBO == 0) {
-                CallAndCheck(::GLES::glBindFramebuffer(GL_FRAMEBUFFER, 0);)
-                glFBO = 0;
-            } else {
-                bool isNewGlesFBO = false;
-
-                if (s_framebufferMap.find(currentFBO) == s_framebufferMap.end()) {
-                    CallAndCheck(::GLES::glGenFramebuffers(1, &glFBO);)
-                    s_framebufferMap[currentFBO] = glFBO;
-                    CallAndCheck(::GLES::glBindFramebuffer(GL_FRAMEBUFFER, glFBO);)
-                    MG_Util::Debug::LogD("Generated and bound new GLES FBO %u for MobileGL FBO %u", glFBO, currentFBO);
-                    isNewGlesFBO = true;
-                } else {
-                    glFBO = s_framebufferMap[currentFBO];
-                    CallAndCheck(::GLES::glBindFramebuffer(GL_FRAMEBUFFER, glFBO);)
-                    MG_Util::Debug::LogD("Bound existing GLES FBO %u for MobileGL FBO %u", glFBO, currentFBO);
-                }
-
-                if (glFBO != 0) {
-                    FramebufferObject* mgFBO = fbState->GetCurrentFBO(GL_DRAW_FRAMEBUFFER);
-                    if (mgFBO) {
-                        MG_Util::Debug::LogD("Checking/Syncing attachments for GLES FBO %u (MobileGL FBO %u)", glFBO, currentFBO);
-
-                        for (auto const& [mgAttachmentPoint, mgAtt] : mgFBO->attachments) {
-
-                            if (mgAtt.type != GL_TEXTURE_2D) {
-                                MG_Util::Debug::LogW("Skipping non-TEXTURE_2D attachment 0x%X for FBO %u", mgAttachmentPoint, currentFBO);
-                                continue;
-                            }
-
-                            GLuint expectedGLTexId = 0;
-                            if (mgAtt.handle != 0) {
-                                if (s_textureMap.count(mgAtt.handle)) {
-                                    expectedGLTexId = s_textureMap[mgAtt.handle];
-                                } else {
-                                    MG_Util::Debug::LogE("MobileGL Texture %u for FBO %u attachment 0x%X not found in s_textureMap during FBO sync!", mgAtt.handle, currentFBO, mgAttachmentPoint);
-                                    for (auto const& [key, val] : s_textureMap)
-                                        MG_Util::Debug::LogW("  key: %d, val: %d", key, val);
-                                    continue;
-                                }
-                            }
-
-                            GLint glesAttachedType = 0;
-                            GLint glesAttachedName = 0;
-                            
-                            CallAndCheck(::GLES::glGetFramebufferAttachmentParameteriv(GL_FRAMEBUFFER, mgAttachmentPoint, GL_FRAMEBUFFER_ATTACHMENT_OBJECT_TYPE, &glesAttachedType);)
-
-                            if (glesAttachedType == GL_TEXTURE) {
-                                CallAndCheck(::GLES::glGetFramebufferAttachmentParameteriv(GL_FRAMEBUFFER, mgAttachmentPoint, GL_FRAMEBUFFER_ATTACHMENT_OBJECT_NAME, &glesAttachedName);)
-                            } else if (glesAttachedType != GL_NONE) {
-                                MG_Util::Debug::LogW("GLES FBO %u attachment 0x%X has non-texture type 0x%X (expected GL_TEXTURE or GL_NONE)", glFBO, mgAttachmentPoint, glesAttachedType);
-                            }
-                            
-                            if ((GLuint)glesAttachedName != expectedGLTexId) {
-                                MG_Util::Debug::LogD("Syncing FBO %u attachment 0x%X: Expected GLES TexID %u, Found GLES ObjName %d. Attaching/Detaching...",
-                                                     currentFBO, mgAttachmentPoint, expectedGLTexId, glesAttachedName);
-
-                                CallAndCheck(::GLES::glFramebufferTexture2D(
-                                        GL_FRAMEBUFFER,
-                                        mgAttachmentPoint,
-                                        GL_TEXTURE_2D,
-                                        expectedGLTexId,
-                                        mgAtt.mipLevel
-                                );)
-                            }
-                        } 
-                        
-                        GLenum status = ::GLES::glCheckFramebufferStatus(GL_FRAMEBUFFER);
-                        if (status != GL_FRAMEBUFFER_COMPLETE) {
-                            MG_Util::Debug::LogE("Framebuffer %u (GLES FBO %u) is not complete after sync! Status: 0x%X (%s)",
-                                                 currentFBO, glFBO, status, MG_Util::Debug::GLEnumToString(status));
-                        }
-
-                    } else {
-                        MG_Util::Debug::LogW("Could not get MobileGL FBO object for ID %u during attachment sync.", currentFBO);
-                    }
-                }
-            }
-
-            lastBoundFBO[0] = currentFBO;
-        }
-
+        RealizeFBOState(GL_DRAW_FRAMEBUFFER);
 
         static GLfloat lastClearColor[4] = {-1.0f, -1.0f, -1.0f, -1.0f};
         if (memcmp(lastClearColor, commonState->clearColor, sizeof(lastClearColor)) != 0) {
