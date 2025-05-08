@@ -8,6 +8,9 @@
 #include "../../../../Includes.h"
 
 namespace MG_GL::GL {
+    template <typename K, typename V>
+    using unordered_map = ankerl::unordered_dense::map<K, V>;
+
     void NormalizePixelFormat(GLenum internalFormat, GLenum type, GLenum format, GLenum* outInternalFormat, GLenum* outType, GLenum* outFormat) {
 //        if (format && *format == GL_BGRA)
 //            *format = GL_RGBA;
@@ -369,11 +372,11 @@ namespace MG_GL::GL {
         return result;
     }
     
-    static std::unordered_map<GLuint, GLuint> s_textureMap;
-    static std::unordered_map<GLuint, GLuint> s_vaoMap;
-    static std::unordered_map<GLuint, GLuint> s_bufferMap;
-    static std::unordered_map<GLuint, GLuint> s_programMap;
-    static std::unordered_map<GLuint, GLuint> s_framebufferMap;
+    static unordered_map<GLuint, GLuint> s_textureMap;
+    static unordered_map<GLuint, GLuint> s_vaoMap;
+    static unordered_map<GLuint, GLuint> s_bufferMap;
+    static unordered_map<GLuint, GLuint> s_programMap;
+    static unordered_map<GLuint, GLuint> s_framebufferMap;
     struct MipLevelInfo {
         GLenum internalFormat;
         GLsizei width;
@@ -389,7 +392,7 @@ namespace MG_GL::GL {
     }
 
 #define CallAndCheck(operation) MG_Util::Debug::LogD("GLES call: %s", #operation); operation CheckGLESError();
-    static std::unordered_map<GLuint, std::unordered_map<GLint, bool>> s_textureLevelUploaded;
+//    static std::unordered_map<GLuint, std::unordered_map<GLint, bool>> s_textureLevelUploaded;
 
     void SyncAllTexturesToGLES(TextureState* textureState) {
         MG_Util::Debug::LogD("Syncing all textures to GLES...");
@@ -430,7 +433,7 @@ namespace MG_GL::GL {
                                 mip.width, mip.height, 0,
                                 format, type, data
                         );)
-                        s_textureLevelUploaded[mgTexId][level] = true;
+//                        s_textureLevelUploaded[mgTexId][level] = true;
                         MG_Util::Debug::LogD("Initial upload texture %u level %d (size=%zu)",
                                              mgTexId, level, mip.pixelData.size());
                         break;
@@ -452,6 +455,11 @@ namespace MG_GL::GL {
             if (!obj.generated)
                 continue;
 
+            if (!obj.dirty)
+                continue;
+
+            obj.dirty = false;
+
             // Gen real buffers at ES
             if (s_bufferMap.find(mgname) == s_bufferMap.end()) {
                 GLuint glname;
@@ -466,7 +474,7 @@ namespace MG_GL::GL {
             CallAndCheck(::GLES::glBufferData(
                         GL_ARRAY_BUFFER,
                         obj.data.size(),
-                        obj.data.data(),
+                        obj.dataValid ? obj.data.data() : nullptr,
                         obj.usage);)
 
 //            s_bufferDirtyFlags_bufferObj[mgname] = obj.data.data();
@@ -690,8 +698,8 @@ namespace MG_GL::GL {
             CallAndCheck(::GLES::glBindVertexArray(glVAO);)
             MG_Util::Debug::LogD("Bind VAO (MG -> ES): %d -> %d", mgid, glVAO);
 
-            std::string name = std::format("MG VAO {}", mgid);
-            ::GLES::glObjectLabel(GL_VERTEX_ARRAY, mgid, name.length(), name.c_str());
+//            std::string name = std::format("MG VAO {}", mgid);
+//            ::GLES::glObjectLabel(GL_VERTEX_ARRAY, mgid, name.length(), name.c_str());
 
             if (vao.elementBuffer != 0 && s_bufferMap.find(vao.elementBuffer) != s_bufferMap.end()) {
                 CallAndCheck(::GLES::glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, s_bufferMap[vao.elementBuffer]);)
@@ -775,8 +783,8 @@ namespace MG_GL::GL {
                 GLuint glProgram = ::GLES::glCreateProgram();
                 ProgramObject& mgProgram = programState->programs_[currentProgram];
 
-                std::string name = std::format("MG Program {}", currentProgram);
-                ::GLES::glObjectLabel(GL_PROGRAM, glProgram, name.length(), name.c_str());
+//                std::string name = std::format("MG Program {}", currentProgram);
+//                ::GLES::glObjectLabel(GL_PROGRAM, glProgram, name.length(), name.c_str());
 
                 // Attribute Names
                 // before vertex shader attach

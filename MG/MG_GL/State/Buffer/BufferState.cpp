@@ -96,7 +96,11 @@ GLenum BufferState::CommitStorage(GLenum target, GLsizeiptr size, const void* da
     MG_Util::Debug::LogD("MG_State: Buffer: CommitStorage get buffer object %u at target 0x%x",it->second,target);
     obj.usage = usage;
     obj.data.resize(size);
-    if (data) memcpy(obj.data.data(), data, size);
+    if (data) {
+        memcpy(obj.data.data(), data, size);
+        obj.dataValid = true;
+    }
+    obj.dirty = true;
     MG_Util::Debug::LogD("MG_State: Buffer: CommitStorage buffer at target 0x%x committed storage, size = %zu, usage=0x%x", target, size, usage);
 
     return GL_NO_ERROR;
@@ -118,8 +122,8 @@ GLenum BufferState::AcquireBufferMemory(GLenum target, GLenum access, void** map
 
     obj.isMapped = true;
     *mappedPointer = obj.data.data();
-    obj.isMapped = true;
     obj.accessMode = access;
+    obj.dirty = true;
 
     return GL_NO_ERROR;
 }
@@ -138,6 +142,7 @@ GLenum BufferState::ReleaseBufferMemory(GLenum target) {
 
     obj.isMapped = false;
     obj.accessMode = GL_READ_WRITE;
+    obj.dirty = true;
     MG_Util::Debug::LogD("MG_State: Buffer: ReleaseBufferMemory buffer at target 0x%x released mapped memory", target);
     return GL_NO_ERROR;
 }
