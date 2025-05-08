@@ -43,10 +43,11 @@ public:
     GLuint GetBoundElementBuffer();
     VertexArrayObject* GetCurrentVAO();
 
-private:
+public: // TODO
     std::unordered_map<GLuint, VertexArrayObject> vaos_;
-    std::set<GLuint> freeIds_;
-    GLuint lastId_ = 0;
+//    std::set<GLuint> freeIds_;
+    std::vector<GLuint> freeId_;
+    GLuint lastId_ = 1; // reserve 0 for default vao
     GLuint currentVao_ = 0;
 };
 

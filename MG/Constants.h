@@ -8,9 +8,15 @@
 #ifdef __ANDROID__
 #define __ANDROID_API__ 26
 #endif
+
+#ifdef _WIN32
+#define MG_EXPORT extern "C" __declspec(dllexport)
+#else
 #define MG_EXPORT extern "C" __attribute__((visibility("default")))
+#endif
 
 #include <array>
+#include <unordered_map>
 #include <unordered_set>
 #include <GL/gl.h>
 

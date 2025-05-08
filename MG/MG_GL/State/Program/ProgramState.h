@@ -47,7 +47,7 @@ struct ProgramObject {
 };
 
 class ProgramState {
-private:
+public: // TODO
     std::unordered_map<GLuint, ShaderObject> shaders_;
     std::unordered_map<GLuint, ProgramObject> programs_;
     std::set<GLuint> freeShaderIds_;

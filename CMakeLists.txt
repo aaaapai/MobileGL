@@ -18,7 +18,7 @@ set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -fuse-ld=lld -flto=thin -W
 
 set(CMAKE_ANDROID_STL_TYPE system)
 
-set(CMAKE_BUILD_TYPE Release)
+#set(CMAKE_BUILD_TYPE Release)
 
 set(PROFILING OFF)
 
@@ -83,6 +83,7 @@ add_library(${CMAKE_PROJECT_NAME} SHARED
         
         # MG_RHI/GLES
         MG/MG_RHI/GLES/Test/TestDrawing.cpp
+        MG/MG_RHI/GLES/RHI.cpp
 )
 
 target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE ./includes)

@@ -13,23 +13,19 @@ VertexArrayState::VertexArrayState() {
 GLenum VertexArrayState::Create(GLuint* array) {
     if (array == nullptr) return GL_INVALID_VALUE;
 
-    GLuint id = freeIds_.empty() ? ++lastId_ : *freeIds_.begin();
-    if (!freeIds_.empty()) {
-        freeIds_.erase(freeIds_.begin());
+    GLuint id = freeId_.empty() ? lastId_++ : freeId_.back();
+    if (!freeId_.empty()) {
+        freeId_.pop_back();
     }
 
     *array = id;
-    vaos_[id].generated = true;
+    vaos_[id] = { .generated = false };
     return GL_NO_ERROR;
 }
 
 GLenum VertexArrayState::CreateN(GLsizei n, GLuint* arrays) {
-    if (n < 0) {
+    if (n <= 0 || arrays == nullptr) {
         return GL_INVALID_VALUE; 
-    }
-
-    if (n > 0 && arrays == nullptr) {
-        return GL_INVALID_VALUE;
     }
 
     for (GLsizei i = 0; i < n; ++i) {
@@ -41,8 +37,11 @@ GLenum VertexArrayState::CreateN(GLsizei n, GLuint* arrays) {
 }
 
 GLenum VertexArrayState::Bind(GLuint array) {
-    if (array != 0 && !vaos_.count(array)) return GL_INVALID_OPERATION;
+    if (array != 0 && vaos_.find(array) == vaos_.end())
+        return GL_INVALID_OPERATION;
+
     currentVao_ = array;
+    GetCurrentVAO()->generated = true;
     return GL_NO_ERROR;
 }
 
@@ -91,5 +90,10 @@ GLuint VertexArrayState::GetBoundElementBuffer() {
 
 VertexArrayObject* VertexArrayState::GetCurrentVAO() {
     auto it = vaos_.find(currentVao_);
-    return (it != vaos_.end()) ? &it->second : &vaos_.at(0);
+    if (it != vaos_.end())
+        return &it->second;
+    else {
+        MG_Util::Debug::LogD("%s: VAO not found, currentVao_ = %u !", __func__, currentVao_);
+        return nullptr;
+    }
 }

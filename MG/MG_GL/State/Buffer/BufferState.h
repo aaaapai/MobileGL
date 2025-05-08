@@ -32,7 +32,7 @@ public:
     void Delete(GLuint buffer);
     GLuint GetCurrentBinding(GLenum target) const;
 
-private:
+public: // TODO
     std::unordered_map<GLuint, BufferObject> buffers_;
     std::set<GLuint> freeIds_;
     GLuint lastId_ = 0;
