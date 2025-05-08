@@ -31,6 +31,7 @@ struct TextureParams {
         GLenum type = GL_UNSIGNED_BYTE;
         std::vector<GLubyte> pixelData;
         bool hasData = false;
+        bool dirty = false; // TODO: encapsulate this with an public API to RHI
     };
     unordered_map<GLint, MipmapLevel> mipmapData;
 };

@@ -258,7 +258,7 @@ GLenum TextureState::Upload2D(GLenum target, GLint level, GLint internalFormat,
     if (isProxyTexture) {
         MG_Util::Debug::LogD("MG_State: Texture: Upload2D proxy texture detected");
         TextureObject& proxyTex = proxyTextures_[target];
-        TextureParams::MipmapLevel mip{};
+        auto& mip = proxyTex.params.mipmapData[level];
         mip.width = width;
         mip.height = height;
         mip.internalFormat = internalFormat;
@@ -266,7 +266,6 @@ GLenum TextureState::Upload2D(GLenum target, GLint level, GLint internalFormat,
         mip.type = type;
         proxyTex.generated = true;
         proxyTex.target = target;
-        proxyTex.params.mipmapData[level] = mip;
         return GL_NO_ERROR;
     }
 
@@ -280,6 +279,7 @@ GLenum TextureState::Upload2D(GLenum target, GLint level, GLint internalFormat,
     mip.internalFormat = internalFormat;
     mip.format = format;
     mip.type = type;
+    mip.dirty = true;
 
     if (data == nullptr) {
         mip.hasData = false;
@@ -491,6 +491,7 @@ GLenum TextureState::UpdateRegion2D(GLenum target, GLint level, GLint xoffset,
 //    }
 
     mip.hasData = true;
+    mip.dirty = true;
     MG_Util::Debug::LogD("MG_State: Texture: UpdateRegion2D succeeded");
     return GL_NO_ERROR;
 }

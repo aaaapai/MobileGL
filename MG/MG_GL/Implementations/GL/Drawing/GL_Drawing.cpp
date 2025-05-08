@@ -416,6 +416,9 @@ namespace MG_GL::GL {
             }
 
             for (auto& [level, mip] : texObj.params.mipmapData) {
+                if (!mip.dirty)
+                    continue;
+                mip.dirty = false;
                 const void* data = !mip.pixelData.empty() ? mip.pixelData.data() : nullptr;
                 switch (target) {
                     case GL_TEXTURE_2D: {
