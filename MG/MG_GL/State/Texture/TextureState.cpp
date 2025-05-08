@@ -963,7 +963,7 @@ GLenum TextureState::CheckUpdatingTextureRegion2DValidity_(GLenum target, GLint 
         return GL_INVALID_OPERATION;
     }
 
-    auto tex = textures[boundTex];
+    const auto& tex = textures[boundTex];
 
     if (tex.IsImmutable()) {
         MG_Util::Debug::LogE("MG_State: Texture: CheckUpdatingTextureRegion2DValidity_ texture is immutable");
@@ -1002,7 +1002,7 @@ GLenum TextureState::CheckUpdatingTextureRegion2DValidity_(GLenum target, GLint 
         return GL_INVALID_OPERATION;
     }
 
-    TextureParams::MipmapLevel& mip = mipIt->second;
+    const auto& mip = mipIt->second;
     if (xoffset + width > mip.width || yoffset + height > mip.height) {
         MG_Util::Debug::LogE("MG_State: Texture: CheckUpdatingTextureRegion2DValidity_ region out of bounds: "
                              "x=%d+%d > %d or y=%d+%d > %d",
