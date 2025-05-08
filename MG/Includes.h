@@ -111,6 +111,7 @@
 #include <glslang/SPIRV/GlslangToSpv.h>
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/glm.hpp>
+#include <ankerl/unordered_dense.h>
 #include "GLES/gl32.h"
 
 #include "MG_Include/UncertainBool.hpp"
