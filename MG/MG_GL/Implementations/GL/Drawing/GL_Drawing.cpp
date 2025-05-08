@@ -394,88 +394,51 @@ namespace MG_GL::GL {
     void SyncAllTexturesToGLES(TextureState* textureState) {
         MG_Util::Debug::LogD("Syncing all textures to GLES...");
         for (auto& [mgTexId, texObj] : textureState->textures) {
-            if (!texObj.generated) continue;
+            if (!texObj.generated)
+                continue;
 
+            GLuint glTexId = 0;
             if (s_textureMap.find(mgTexId) == s_textureMap.end()) {
-                GLuint glTexId;
                 CallAndCheck(::GLES::glGenTextures(1, &glTexId);)
                 s_textureMap[mgTexId] = glTexId;
-                GLenum target = texObj.target;
-                CallAndCheck(::GLES::glBindTexture(target, glTexId);)
-
-                for (auto& [pname, param] : texObj.params.texPropertiesInt) {
-                    CallAndCheck(::GLES::glTexParameteri(target, pname, param);)
-                }
-                for (auto& [pname, param] : texObj.params.texPropertiesFloat) {
-                    CallAndCheck(::GLES::glTexParameterf(target, pname, param);)
-                }
-
-                for (auto& [level, mip] : texObj.params.mipmapData) {
-                    const void* data = !mip.pixelData.empty() ? mip.pixelData.data() : nullptr;
-                    switch (target) {
-                        case GL_TEXTURE_2D: {
-                            GLenum internalFormat = 0, type = 0, format = 0;
-                            NormalizePixelFormat(mip.internalFormat, mip.type, mip.format, &internalFormat, &type, &format);
-
-                            CallAndCheck(::GLES::glTexImage2D(
-                                    target, level, internalFormat,
-                                    mip.width, mip.height, 0,
-                                    format, type, data
-                            );)
-                            s_textureLevelUploaded[mgTexId][level] = true;
-                            MG_Util::Debug::LogD("Initial upload texture %u level %d (size=%zu)",
-                                                 mgTexId, level, mip.pixelData.size());
-                            break;
-                        }
-                        default:
-                            MG_Util::Debug::LogE("Unsupported target: %s", MG_Util::Debug::GLEnumToString(target));
-                    }
-                }
-                MG_Util::Debug::LogD("Created and synced new GLES texture %u (MobileGL ID)", mgTexId);
+                MG_Util::Debug::LogD("Created new GLES texture %u (MobileGL ID)", mgTexId);
             } else {
-                GLuint glTexId = s_textureMap[mgTexId];
-                GLenum target = texObj.target;
-                CallAndCheck(::GLES::glBindTexture(target, glTexId);)
+                glTexId = s_textureMap[mgTexId];
+            }
+            GLenum target = texObj.target;
+            CallAndCheck(::GLES::glBindTexture(target, glTexId);)
 
-                for (auto& [level, mip] : texObj.params.mipmapData) {
-                    if (!s_textureLevelUploaded[mgTexId][level]) {
-                        bool levelInitialized = s_textureLevelUploaded[mgTexId].count(level);
-                        const void* data = !mip.pixelData.empty() ? mip.pixelData.data() : nullptr;
+            for (auto& [pname, param] : texObj.params.texPropertiesInt) {
+                CallAndCheck(::GLES::glTexParameteri(target, pname, param);)
+            }
+            for (auto& [pname, param] : texObj.params.texPropertiesFloat) {
+                CallAndCheck(::GLES::glTexParameterf(target, pname, param);)
+            }
+
+            for (auto& [level, mip] : texObj.params.mipmapData) {
+                const void* data = !mip.pixelData.empty() ? mip.pixelData.data() : nullptr;
+                switch (target) {
+                    case GL_TEXTURE_2D: {
                         GLenum internalFormat = 0, type = 0, format = 0;
                         NormalizePixelFormat(mip.internalFormat, mip.type, mip.format, &internalFormat, &type, &format);
 
-                        switch (target) {
-                            case GL_TEXTURE_2D:
-                                if (levelInitialized) {
-                                    CallAndCheck(::GLES::glTexSubImage2D(
-                                            target, level,
-                                            0, 0,
-                                            mip.width, mip.height,
-                                            format, type, data
-                                    );)
-                                    s_textureLevelUploaded[mgTexId][level] = true;
-                                    MG_Util::Debug::LogD("Updated texture %u level %d with glTexSubImage2D", mgTexId, level);
-                                } else {
-                                    CallAndCheck(::GLES::glTexImage2D(
-                                            target, level, internalFormat,
-                                            mip.width, mip.height, 0,
-                                            format, type, data
-                                    );)
-                                    s_textureLevelUploaded[mgTexId][level] = true;
-                                    MG_Util::Debug::LogD("Initialized texture %u level %d with glTexImage2D", mgTexId, level);
-                                }
-                                break;
-                            default:
-                                MG_Util::Debug::LogE("Unsupported target: %s", MG_Util::Debug::GLEnumToString(target));
-                        }
+                        CallAndCheck(::GLES::glTexImage2D(
+                                target, level, internalFormat,
+                                mip.width, mip.height, 0,
+                                format, type, data
+                        );)
+                        s_textureLevelUploaded[mgTexId][level] = true;
+                        MG_Util::Debug::LogD("Initial upload texture %u level %d (size=%zu)",
+                                             mgTexId, level, mip.pixelData.size());
+                        break;
                     }
+                    default:
+                        MG_Util::Debug::LogE("Unsupported target: %s", MG_Util::Debug::GLEnumToString(target));
                 }
-                MG_Util::Debug::LogD("Updated existing GLES texture %u (MobileGL ID)", mgTexId);
             }
+            MG_Util::Debug::LogD("Updated GLES texture %u (MobileGL ID)", mgTexId);
         }
-        CallAndCheck(::GLES::glBindTexture(GL_TEXTURE_2D, 0);)
     }
-
 
 //    static std::unordered_map<GLuint, void*> s_bufferDirtyFlags_bufferObj;
     void SyncAllBuffersToGLES(BufferState* bufferState) {
