@@ -19,8 +19,10 @@ struct ComponentSizes {
 };
 
 struct TextureParams {
-    std::unordered_map<GLenum, GLfloat> texPropertiesFloat;
-    std::unordered_map<GLenum, GLint> texPropertiesInt;
+    template <typename K, typename V>
+    using unordered_map = ankerl::unordered_dense::map<K, V>;
+    unordered_map<GLenum, GLfloat> texPropertiesFloat;
+    unordered_map<GLenum, GLint> texPropertiesInt;
     struct MipmapLevel {
         GLsizei width = 0;
         GLsizei height = 0;
@@ -30,7 +32,7 @@ struct TextureParams {
         std::vector<GLubyte> pixelData;
         bool hasData = false;
     };
-    std::unordered_map<GLint, MipmapLevel> mipmapData;
+    unordered_map<GLint, MipmapLevel> mipmapData;
 };
 
 class TextureObject {
@@ -44,11 +46,13 @@ public:
 };
 
 class TextureUnitState {
+    template <typename K, typename V>
+    using unordered_map = ankerl::unordered_dense::map<K, V>;
 private:
     GLenum activeTarget = GL_TEXTURE_2D;
     
 public:
-    std::unordered_map<GLenum, GLuint> boundTextures;
+    unordered_map<GLenum, GLuint> boundTextures;
     void Bind(GLenum target, GLuint texture);
     GLuint GetBoundTexture(GLenum target);
 };
@@ -59,8 +63,9 @@ class TextureState {
 private:
     GLuint activeTextureUnit_ = 0;
 
-    GLuint lastUsedID_ = 0;
-    std::unordered_set<GLuint> freeIDs_;
+    GLuint lastUsedID_ = 1;
+//    std::unordered_set<GLuint> freeIDs_;
+    std::vector<GLuint> freeID_;
 
     unordered_map<GLenum, TextureObject> proxyTextures_;
     

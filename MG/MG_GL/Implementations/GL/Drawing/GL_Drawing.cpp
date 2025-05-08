@@ -416,12 +416,7 @@ namespace MG_GL::GL {
                         case GL_TEXTURE_2D: {
                             GLenum internalFormat = 0, type = 0, format = 0;
                             NormalizePixelFormat(mip.internalFormat, mip.type, mip.format, &internalFormat, &type, &format);
-//
-//                            GLenum type = mip.type;
-//                            // Mali cannot use GL_FLOAT as depth format
-//                            if (mip.internalFormat == GL_DEPTH_COMPONENT) {
-//                                type = GL_UNSIGNED_INT;
-//                            }
+
                             CallAndCheck(::GLES::glTexImage2D(
                                     target, level, internalFormat,
                                     mip.width, mip.height, 0,
@@ -446,6 +441,8 @@ namespace MG_GL::GL {
                     if (!s_textureLevelUploaded[mgTexId][level]) {
                         bool levelInitialized = s_textureLevelUploaded[mgTexId].count(level);
                         const void* data = !mip.pixelData.empty() ? mip.pixelData.data() : nullptr;
+                        GLenum internalFormat = 0, type = 0, format = 0;
+                        NormalizePixelFormat(mip.internalFormat, mip.type, mip.format, &internalFormat, &type, &format);
 
                         switch (target) {
                             case GL_TEXTURE_2D:
@@ -454,15 +451,15 @@ namespace MG_GL::GL {
                                             target, level,
                                             0, 0,
                                             mip.width, mip.height,
-                                            mip.format, mip.type, data
+                                            format, type, data
                                     );)
                                     s_textureLevelUploaded[mgTexId][level] = true;
                                     MG_Util::Debug::LogD("Updated texture %u level %d with glTexSubImage2D", mgTexId, level);
                                 } else {
                                     CallAndCheck(::GLES::glTexImage2D(
-                                            target, level, mip.internalFormat,
+                                            target, level, internalFormat,
                                             mip.width, mip.height, 0,
-                                            mip.format, mip.type, data
+                                            format, type, data
                                     );)
                                     s_textureLevelUploaded[mgTexId][level] = true;
                                     MG_Util::Debug::LogD("Initialized texture %u level %d with glTexImage2D", mgTexId, level);

@@ -11,7 +11,7 @@
 // TextureObject
 
 bool TextureObject::IsImmutable() const {
-    bool immutable = params.texPropertiesInt.count(GL_TEXTURE_IMMUTABLE_FORMAT);
+    bool immutable = params.texPropertiesInt.find(GL_TEXTURE_IMMUTABLE_FORMAT) != params.texPropertiesInt.end();
     MG_Util::Debug::LogD("MG_State: Texture: TextureObject::IsImmutable returns %d", immutable);
     return immutable;
 }
@@ -54,7 +54,7 @@ bool TextureState::IsTextureGenerated(GLuint texture) {
         if (!isValidTexture) {
             MG_Util::Debug::LogD("MG_State: Texture: IsTextureGenerated invalid texture %d", texture);
         } else {
-            generated = textures.at(texture).generated;
+            generated = textures[texture].generated;
             if (!generated) {
                 MG_Util::Debug::LogD("MG_State: Texture: IsTextureGenerated texture %d not generated", texture, generated);
             }
@@ -101,12 +101,12 @@ GLenum TextureState::CreateN(GLsizei n, GLuint* textures) {
 
     for (GLsizei i = 0; i < n; ++i) {
         GLuint id = 0;
-        if (!freeIDs_.empty()) {
-            id = *freeIDs_.begin();
-            freeIDs_.erase(freeIDs_.begin());
+        if (!freeID_.empty()) {
+            id = freeID_.back();
+            freeID_.pop_back();
             MG_Util::Debug::LogD("MG_State: Texture: CreateN reusing free id=%u", id);
         } else {
-            id = ++lastUsedID_;
+            id = lastUsedID_++;
             MG_Util::Debug::LogD("MG_State: Texture: CreateN new id=%u", id);
         }
         TextureObject obj;
@@ -272,13 +272,19 @@ GLenum TextureState::Upload2D(GLenum target, GLint level, GLint internalFormat,
 
     GLuint boundTex = textureUnits_[activeTextureUnit_].GetBoundTexture(target);
     TextureObject& tex = textures[boundTex];
-    TextureParams::MipmapLevel mip{};
+//    TextureParams::MipmapLevel mip{};
+
+    auto& mip = tex.params.mipmapData[level];
     mip.width = width;
     mip.height = height;
     mip.internalFormat = internalFormat;
     mip.format = format;
     mip.type = type;
-    if (data != nullptr) {
+
+    if (data == nullptr) {
+        mip.hasData = false;
+        MG_Util::Debug::LogD("MG_State: Texture: Upload2D data pointer is null");
+    } else {
         GLint unpackSwapBytes = GetUnpackParam_(GL_UNPACK_SWAP_BYTES);
         GLint unpackLSBFirst = GetUnpackParam_(GL_UNPACK_LSB_FIRST);
         GLint unpackSkipPixels = GetUnpackParam_(GL_UNPACK_SKIP_PIXELS);
@@ -288,47 +294,69 @@ GLenum TextureState::Upload2D(GLenum target, GLint level, GLint internalFormat,
         GLint unpackImageHeight = GetUnpackParam_(GL_UNPACK_IMAGE_HEIGHT);
         GLint unpackSkipImages = GetUnpackParam_(GL_UNPACK_SKIP_IMAGES);
 
-        GLsizei rowLength = (unpackRowLength > 0) ? unpackRowLength : width;
+        bool isDefaultUnpack = (unpackSwapBytes == 0) && (unpackLSBFirst == 0) &&
+                               (unpackSkipPixels == 0) && (unpackSkipRows == 0) &&
+                               (unpackRowLength == 0) && (unpackAlignment == 4) &&
+                               (unpackImageHeight == 0) && (unpackSkipImages == 0);
+
         size_t bytesPerPixel = CalculateBytesPerPixel_(format, type);
         size_t componentSize = GetComponentSize_(type);
-
-        size_t srcRowSize = rowLength * bytesPerPixel;
-        size_t srcRowStride = (srcRowSize + unpackAlignment - 1) & ~(unpackAlignment - 1);
-        size_t srcImageStride = (unpackImageHeight > 0) ?
-                                srcRowStride * unpackImageHeight :
-                                srcRowStride * height;
-
-        const GLubyte* srcData = static_cast<const GLubyte*>(data);
-        srcData += unpackSkipImages * srcImageStride;
-        srcData += unpackSkipRows * srcRowStride;
-        srcData += unpackSkipPixels * bytesPerPixel;
 
         size_t dstRowStride = width * bytesPerPixel;
         size_t dstSize = dstRowStride * height;
         mip.pixelData.resize(dstSize);
-        GLubyte* dstData = mip.pixelData.data();
+        GLubyte *dstData = mip.pixelData.data();
 
-        for (GLsizei y = 0; y < height; ++y) {
-            const GLubyte* srcRow = srcData + y * srcRowStride;
-            GLubyte* dstRow = dstData + y * dstRowStride;
+        if (isDefaultUnpack) {
+            const GLubyte *srcData = static_cast<const GLubyte *>(data);
+            size_t srcRowSize = width * bytesPerPixel;
+            size_t srcRowStride = (srcRowSize + unpackAlignment - 1) & ~(unpackAlignment - 1);
 
-            if (unpackSwapBytes) {
-                SwapBytesForTexture_(format, type, srcRow, dstRow, width);
+            if (srcRowStride == dstRowStride) {
+                memcpy(dstData, srcData, dstSize);
+                MG_Util::Debug::LogD(
+                        "MG_State: Texture: Upload2D uploaded %zu bytes with fast path - block memcpy", dstSize);
+            } else {
+                for (GLsizei y = 0; y < height; ++y) {
+                    const GLubyte *srcRow = srcData + y * srcRowStride;
+                    GLubyte *dstRow = dstData + y * dstRowStride;
+                    memcpy(dstRow, srcRow, srcRowSize);
+                }
+                MG_Util::Debug::LogD(
+                        "MG_State: Texture: Upload2D uploaded %zu bytes with fast path - row memcpy", dstSize);
             }
-            else if (unpackLSBFirst && componentSize == 1) {
-                ReverseBitOrder_(srcRow, dstRow, width * bytesPerPixel);
+        } else {
+            GLsizei rowLength = (unpackRowLength > 0) ? unpackRowLength : width;
+
+            size_t srcRowSize = rowLength * bytesPerPixel;
+            size_t srcRowStride = (srcRowSize + unpackAlignment - 1) & ~(unpackAlignment - 1);
+            size_t srcImageStride = (unpackImageHeight > 0) ?
+                                    srcRowStride * unpackImageHeight :
+                                    srcRowStride * height;
+
+            const GLubyte *srcData = static_cast<const GLubyte *>(data);
+            srcData += unpackSkipImages * srcImageStride;
+            srcData += unpackSkipRows * srcRowStride;
+            srcData += unpackSkipPixels * bytesPerPixel;
+
+            for (GLsizei y = 0; y < height; ++y) {
+                const GLubyte *srcRow = srcData + y * srcRowStride;
+                GLubyte *dstRow = dstData + y * dstRowStride;
+
+                if (unpackSwapBytes) {
+                    SwapBytesForTexture_(format, type, srcRow, dstRow, width);
+                } else if (unpackLSBFirst && componentSize == 1) {
+                    ReverseBitOrder_(srcRow, dstRow, width * bytesPerPixel);
+                } else {
+                    memcpy(dstRow, srcRow, width * bytesPerPixel);
+                }
             }
-            else {
-                memcpy(dstRow, srcRow, width * bytesPerPixel);
-            }
+            mip.hasData = true;
+            MG_Util::Debug::LogD(
+                    "MG_State: Texture: Upload2D uploaded %zu bytes with unpack params", dstSize);
         }
-        mip.hasData = true;
-        MG_Util::Debug::LogD("MG_State: Texture: Upload2D uploaded %zu bytes with unpack params", dstSize);
-    } else {
-        mip.hasData = false;
-        MG_Util::Debug::LogD("MG_State: Texture: Upload2D data pointer is null");
     }
-    tex.params.mipmapData[level] = mip;
+//    tex.params.mipmapData[level] = mip;
     return GL_NO_ERROR;
 }
 
@@ -364,7 +392,7 @@ GLenum TextureState::UpdateRegion2D(GLenum target, GLint level, GLint xoffset,
 
     const size_t bytesPerPixel = CalculateBytesPerPixel_(format, type);
     const size_t srcSize = CalculatePixelDataSize_(format, type, width, height);
-    
+
     if (bytesPerPixel == 0) {
         MG_Util::Debug::LogE("MG_State: Texture: Invalid format/type combination");
         return GL_INVALID_ENUM;
@@ -402,25 +430,65 @@ GLenum TextureState::UpdateRegion2D(GLenum target, GLint level, GLint xoffset,
     MG_Util::Debug::LogD("MG_State: Texture: UpdateRegion2D srcData=%p, dstData=%p", srcData, dstData);
     MG_Util::Debug::LogD("MG_State: Texture: UpdateRegion2D bytesPerPixel=%zu", bytesPerPixel);
 
-    for (GLsizei y = 0; y < height; ++y) {
-        const GLubyte* srcRow = srcData + y * srcRowStride;
-        GLubyte* dstRow = dstData + y * dstRowStride;
+    // Check if fast path is applicable
+    const bool isDefaultUnpack = (unpackSwapBytes == 0) && (unpackLSBFirst == 0) &&
+                                 (unpackRowLength == 0) && (unpackAlignment == 4) &&
+                                 (unpackSkipPixels == 0) && (unpackSkipRows == 0) &&
+                                 (unpackImageHeight == 0) && (unpackSkipImages == 0);
 
-        if (unpackSwapBytes) {
-            for (GLsizei x = 0; x < width; ++x) {
-                const GLubyte* srcPixel = srcRow + x * bytesPerPixel;
-                GLubyte* dstPixel = dstRow + x * bytesPerPixel;
-                SwapPixelBytes_(format, type, srcPixel, dstPixel);
-            }
-        } else if (unpackLSBFirst && GetComponentSize_(type) == 1) {
-            for (size_t i = 0; i < width * bytesPerPixel; ++i) {
-                dstRow[i] = ReverseBits_(srcRow[i]);
-            }
+    if (isDefaultUnpack) {
+        const size_t copySize = width * bytesPerPixel;
+
+        if (srcRowStride == dstRowStride) {
+            MG_Util::Debug::LogD("MG_State: Texture: UpdateRegion2D block memcpy(dst=%p, src=%p, size=%zu) called.", dstData, srcData, width * bytesPerPixel);
+            memcpy(dstData, srcData, copySize * height);
         } else {
-            MG_Util::Debug::LogD("MG_State: Texture: UpdateRegion2D memcpy(dst=%p, src=%p, size=%zu) called.", dstRow, srcRow, width * bytesPerPixel);
-            memcpy(dstRow, srcRow, width * bytesPerPixel);
+            for (GLsizei y = 0; y < height; ++y) {
+                const GLubyte* srcRow = srcData + y * srcRowStride;
+                GLubyte* dstRow = dstData + y * dstRowStride;
+                memcpy(dstRow, srcRow, copySize);
+                MG_Util::Debug::LogD("MG_State: Texture: UpdateRegion2D row memcpy(dst=%p, src=%p, size=%zu) called.", dstRow, srcRow, width * bytesPerPixel);
+            }
+        }
+    } else {
+        const size_t componentSize = GetComponentSize_(type);
+        for (GLsizei y = 0; y < height; ++y) {
+            const GLubyte* srcRow = srcData + y * srcRowStride;
+            GLubyte* dstRow = dstData + y * dstRowStride;
+
+            if (unpackSwapBytes) {
+                for (GLsizei x = 0; x < width; ++x) {
+                    SwapPixelBytes_(format, type, srcRow + x*bytesPerPixel, dstRow + x*bytesPerPixel);
+                }
+            } else if (unpackLSBFirst && componentSize == 1) {
+                for (size_t i = 0; i < width * bytesPerPixel; ++i) {
+                    dstRow[i] = ReverseBits_(srcRow[i]);
+                }
+            } else {
+                memcpy(dstRow, srcRow, width * bytesPerPixel);
+            }
         }
     }
+
+//    for (GLsizei y = 0; y < height; ++y) {
+//        const GLubyte* srcRow = srcData + y * srcRowStride;
+//        GLubyte* dstRow = dstData + y * dstRowStride;
+//
+//        if (unpackSwapBytes) {
+//            for (GLsizei x = 0; x < width; ++x) {
+//                const GLubyte* srcPixel = srcRow + x * bytesPerPixel;
+//                GLubyte* dstPixel = dstRow + x * bytesPerPixel;
+//                SwapPixelBytes_(format, type, srcPixel, dstPixel);
+//            }
+//        } else if (unpackLSBFirst && GetComponentSize_(type) == 1) {
+//            for (size_t i = 0; i < width * bytesPerPixel; ++i) {
+//                dstRow[i] = ReverseBits_(srcRow[i]);
+//            }
+//        } else {
+//            MG_Util::Debug::LogD("MG_State: Texture: UpdateRegion2D memcpy(dst=%p, src=%p, size=%zu) called.", dstRow, srcRow, width * bytesPerPixel);
+//            memcpy(dstRow, srcRow, width * bytesPerPixel);
+//        }
+//    }
 
     mip.hasData = true;
     MG_Util::Debug::LogD("MG_State: Texture: UpdateRegion2D succeeded");
@@ -541,7 +609,7 @@ GLenum TextureState::Delete(GLuint texture) {
     if (it != this->textures.end()) {
         InvalidateTextureInAllUnits_(texture);
         this->textures.erase(it);
-        freeIDs_.insert(texture);
+        freeID_.emplace_back(texture);
         MG_Util::Debug::LogD("MG_State: Texture: Delete succeeded for texture=%u", texture);
     } else {
         MG_Util::Debug::LogW("MG_State: Texture: Delete texture %u not found", texture);
@@ -563,7 +631,7 @@ GLenum TextureState::DeleteN(GLsizei n, const GLuint* textures) {
         if (it != this->textures.end()) {
             InvalidateTextureInAllUnits_(id);
             this->textures.erase(it);
-            freeIDs_.insert(id);
+            freeID_.emplace_back(id);
             MG_Util::Debug::LogD("MG_State: Texture: DeleteN deleted texture=%u", id);
         } else {
             MG_Util::Debug::LogW("MG_State: Texture: DeleteN texture %u not found", id);
