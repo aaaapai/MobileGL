@@ -630,7 +630,7 @@ GLenum TextureState::QueryLevelPropertyIntVector(GLenum target, GLint level, GLe
         return GL_NO_ERROR;
     }
 
-    std::unordered_map<GLuint, TextureObject>::iterator texIt;
+    unordered_map<GLuint, TextureObject>::iterator texIt;
     
     if (!isProxyTexture) {
         texIt = textures.find(boundTexture);

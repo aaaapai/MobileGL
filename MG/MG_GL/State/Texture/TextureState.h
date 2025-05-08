@@ -54,13 +54,15 @@ public:
 };
 
 class TextureState {
+    template <typename K, typename V>
+    using unordered_map = ankerl::unordered_dense::map<K, V>;
 private:
     GLuint activeTextureUnit_ = 0;
 
     GLuint lastUsedID_ = 0;
-    std::set<GLuint> freeIDs_;
+    std::unordered_set<GLuint> freeIDs_;
 
-    std::unordered_map<GLenum, TextureObject> proxyTextures_;
+    unordered_map<GLenum, TextureObject> proxyTextures_;
     
     static GLint GetUnpackParam_(GLenum pname);
 public:
@@ -68,7 +70,7 @@ public:
     
     bool IsTextureGenerated(GLuint texture);
     bool IsTexture(GLuint texture);
-    std::unordered_map<GLuint, TextureObject> textures;
+    unordered_map<GLuint, TextureObject> textures;
 
     // Return: the validity of the operation, according to OpenGL 3 standard
     GLenum BindUnit(GLenum textureUnit);
