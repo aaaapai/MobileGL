@@ -693,7 +693,10 @@ namespace MG_GL::GL {
                 CallAndCheck(::GLES::glGenVertexArrays(1, &glVAO);)
                 s_vaoMap[mgid] = glVAO;
             } else {
-                glVAO = s_vaoMap[mgid];
+                // VAO already generated, just skip generation
+                // TODO: VAO modified along the way?
+                continue;
+//                glVAO = s_vaoMap[mgid];
             }
             CallAndCheck(::GLES::glBindVertexArray(glVAO);)
             MG_Util::Debug::LogD("Bind VAO (MG -> ES): %d -> %d", mgid, glVAO);
