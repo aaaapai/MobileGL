@@ -71,6 +71,7 @@ namespace MG_State {
     // VertexArray
     GLenum CreateVertexArray(GLuint* array);
     GLenum CreateVertexArrays(GLsizei n, GLuint* arrays);
+    GLenum GenVertexArraysNames(GLsizei n, GLuint* arrays);
     GLenum BindVertexArray(GLuint array);
     GLenum EnableVertexAttribArray(GLuint index);
     GLenum DisableVertexAttribArray(GLuint index);

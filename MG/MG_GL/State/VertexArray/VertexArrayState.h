@@ -30,6 +30,8 @@ public:
     VertexArrayState();
     
     // Return: the validity of the operation, according to OpenGL 3 standard
+    GLenum GenName(GLuint* array);
+    GLenum GenNameN(GLsizei n, GLuint* arrays);
     GLenum Create(GLuint* array);
     GLenum CreateN(GLsizei n, GLuint* arrays);
     GLenum Bind(GLuint array);
@@ -42,6 +44,8 @@ public:
     
     GLuint GetBoundElementBuffer();
     VertexArrayObject* GetCurrentVAO();
+    bool ValidateGeneratedName(GLuint array);
+    bool ValidateAllocatedHandle(GLuint array);
 
     GLuint currentVao_ = 0;
     std::unordered_map<GLuint, VertexArrayObject> vaos_;

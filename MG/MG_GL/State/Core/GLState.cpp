@@ -214,6 +214,10 @@ namespace MG_State {
         return MG_State_T::vertexArrayState->CreateN(n, arrays);
     }
 
+    GLenum GenVertexArraysNames(GLsizei n, GLuint* arrays) {
+        return MG_State_T::vertexArrayState->GenNameN(n, arrays);
+    }
+
     GLenum EnableVertexAttribArray(GLuint index) {
         return MG_State_T::vertexArrayState->EnableAttrib(index);
     }
