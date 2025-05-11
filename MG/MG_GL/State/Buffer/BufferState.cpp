@@ -51,6 +51,7 @@ GLenum BufferState::Create(GLuint buffer) {
     BufferObject& obj = buffers_[buffer];
     MG_Util::Debug::LogD("MG_State: Buffer: Create created buffer %d", buffer);
     obj.generated = true;
+    obj.dirty = true;
 
     return GL_NO_ERROR;
 }
@@ -72,14 +73,13 @@ GLenum BufferState::Create(GLuint buffer) {
 
 GLenum BufferState::Bind(GLenum target, GLuint buffer) {
     // We don't handle unallocated buffer names here, just plain bind
-
     if (!IsValidTarget_(target)) return GL_INVALID_ENUM;
     MG_Util::Debug::LogD("MG_State: Buffer: Bind called with target=%s, buffer=%u", MG_Util::Debug::GLEnumToString(target), buffer);
 
-    if (buffer != 0 && !ValidateAllocatedHandle(buffer)) {
-        MG_Util::Debug::LogE("MG_State: Buffer: Binding invalid buffer %d to %s", buffer, MG_Util::Debug::GLEnumToString(target));
-        return GL_INVALID_OPERATION;
-    }
+//    if (buffer != 0 && !ValidateAllocatedHandle(buffer)) {
+//        MG_Util::Debug::LogE("MG_State: Buffer: Binding invalid buffer %d to %s", buffer, MG_Util::Debug::GLEnumToString(target));
+//        return GL_INVALID_OPERATION;
+//    }
 
     currentBindings_[target] = buffer;
     MG_Util::Debug::LogD("MG_State: Buffer: Bind succeed bind buffer %u to target 0x%x", buffer, target);
@@ -156,7 +156,7 @@ bool BufferState::ValidateAllocatedHandle(GLuint buffer) {
 bool BufferState::ValidateGeneratedName(GLuint buffer) {
     bool inFreeList = std::find(freeId_.begin(), freeId_.end(), buffer) != freeId_.end();
     bool lessThanLast = buffer < lastId_; // lastId_ is not generated yet
-    MG_Util::Debug::LogD("MG_State: Buffer: ValidateAllocatedHandle called on buffer %u returns %d", buffer, lessThanLast && !inFreeList);
+    MG_Util::Debug::LogD("MG_State: Buffer: ValidateGeneratedName called on buffer %u returns %d", buffer, lessThanLast && !inFreeList);
     return lessThanLast && !inFreeList;
 }
 

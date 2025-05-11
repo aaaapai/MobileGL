@@ -447,43 +447,196 @@ namespace MG_GL::GL {
 
 //    static std::unordered_map<GLuint, void*> s_bufferDirtyFlags_bufferObj;
     void SyncAllBuffersToGLES(BufferState* bufferState) {
-        GLint prev_vbo = 0;
-        CallAndCheck(::GLES::glGetIntegerv(GL_ARRAY_BUFFER_BINDING, &prev_vbo);)
+        GLint prev_buf = 0;
+        CallAndCheck(::GLES::glGetIntegerv(GL_COPY_WRITE_BUFFER_BINDING, &prev_buf);)
 
         for (auto& [mgname, obj] : bufferState->buffers_) {
             if (!obj.generated)
                 continue;
 
-            if (!obj.dirty && !obj.isMapped)
+            if (!obj.dirty)
                 continue;
 
-            obj.dirty = false;
+            // keep mapped buffer dirty,
+            // as it can change at any time
+            if (!obj.isMapped)
+                obj.dirty = false;
 
+            GLuint glname = 0;
             // Gen real buffers at ES
             if (s_bufferMap.find(mgname) == s_bufferMap.end()) {
-                GLuint glname;
                 CallAndCheck(::GLES::glGenBuffers(1, &glname);)
                 s_bufferMap[mgname] = glname;
+                if constexpr (MG_Global::Common::LogLevel <= MG_Constants::Common::LOG_LEVEL_DEBUG) {
+                    MG_Util::Debug::LogD("Creating buffer MG %d -> ES %d", mgname, glname);
+                    std::string name = std::format("MG Buffer {}", mgname);
+                    CallAndCheck(::GLES::glObjectLabel(GL_BUFFER, glname, name.length(), name.c_str());)
+                }
+            } else {
+                glname = s_bufferMap[mgname];
             }
 
-            GLuint glname = s_bufferMap[mgname];
-
             // Populate data to ES
-            CallAndCheck(::GLES::glBindBuffer(GL_ARRAY_BUFFER, glname);)
+            CallAndCheck(::GLES::glBindBuffer(GL_COPY_WRITE_BUFFER, glname);)
             // TODO: Check why obj.dataValid is broken for Minecraft 1.21.1-
+            MG_Util::Debug::LogD("bufferdata MG %d -> ES %d, size=%d, usage=%s", mgname, glname, obj.data.size(), MG_Util::Debug::GLEnumToString(obj.usage));
             CallAndCheck(::GLES::glBufferData(
-                        GL_ARRAY_BUFFER,
+                        GL_COPY_WRITE_BUFFER,
                         obj.data.size(),
                         obj.data.data(), //obj.dataValid || obj.isMapped ? obj.data.data() : nullptr,
                         obj.usage);)
 
 //            s_bufferDirtyFlags_bufferObj[mgname] = obj.data.data();
         }
-        CallAndCheck(::GLES::glBindBuffer(GL_ARRAY_BUFFER, prev_vbo);)
+        CallAndCheck(::GLES::glBindBuffer(GL_COPY_WRITE_BUFFER, prev_buf);)
     }
 
+    void GenCurrentVAONameToGLES(VertexArrayState* vaState) {
+        auto mgid = vaState->currentVao_;
+        auto& vao = vaState->vaos_[mgid];
 
-    static GLuint lastBoundVAO = 0;
+        if (!vao.generated)
+            return;
+
+        GLuint glvao = 0;
+
+//        if (vao.attribDirty || vao.eboDirty) {
+            if (s_vaoMap.find(mgid) == s_vaoMap.end()) {
+                CallAndCheck(::GLES::glGenVertexArrays(1, &glvao);)
+                s_vaoMap[mgid] = glvao;
+                MG_Util::Debug::LogD("Creating MG VAO: %d", mgid);
+            } else {
+                glvao = s_vaoMap[mgid];
+            }
+            MG_Util::Debug::LogD("Updating MG VAO: %d", mgid);
+            CallAndCheck(::GLES::glBindVertexArray(glvao);)
+//        }
+    }
+
+    void SyncCurrentVAOToGLES(VertexArrayState* vaState) {
+        auto mgid = vaState->currentVao_;
+        auto& vao = vaState->vaos_[mgid];
+        {
+            if (!vao.generated)
+                return;
+
+            GLuint glvao = 0;
+
+//            if (vao.attribDirty || vao.eboDirty) {
+//                if (s_vaoMap.find(mgid) == s_vaoMap.end()) {
+//                    CallAndCheck(::GLES::glGenVertexArrays(1, &glvao);)
+//                    s_vaoMap[mgid] = glvao;
+//                    MG_Util::Debug::LogD("Creating MG VAO: %d", mgid);
+//                } else {
+//                    glvao = s_vaoMap[mgid];
+//                }
+//                MG_Util::Debug::LogD("Updating MG VAO: %d", mgid);
+//                CallAndCheck(::GLES::glBindVertexArray(glvao);)
+//            } else return;
+
+            if (vao.attribDirty) {
+                MG_Util::Debug::LogD("Updating MG VAO %d, dirty attrib", mgid);
+                // Update attrib
+                vao.attribDirty = false;
+                for (auto& [index, attrib] : vao.attribs) {
+                    MG_Util::Debug::LogD("attrib #%d: size=%d, type=%s, stride=%d, pointer=%d, %s, isInt=%s",
+                                         index, attrib.size, MG_Util::Debug::GLEnumToString(attrib.type), attrib.stride, attrib.pointer,
+                                         (attrib.enabled ? "enabled" : "disabled"), (attrib.isInteger ? "true" : "false"));
+                    if (!attrib.isInteger) {
+                        CallAndCheck(::GLES::glVertexAttribPointer(
+                                index, attrib.size, attrib.type,
+                                attrib.normalized ? GL_TRUE : GL_FALSE,
+                                attrib.stride, attrib.pointer);)
+                    } else {
+                        CallAndCheck(::GLES::glVertexAttribIPointer(
+                                index, attrib.size, attrib.type,
+                                attrib.stride, attrib.pointer);)
+                    }
+
+                    if (attrib.enabled) {
+                        CallAndCheck(::GLES::glEnableVertexAttribArray(index);)
+                    } else {
+                        CallAndCheck(::GLES::glDisableVertexAttribArray(index);)
+                    }
+                }
+            }
+
+            if (vao.eboDirty) {
+                MG_Util::Debug::LogD("Updating MG VAO %d, dirty ebo", mgid);
+                // Update EBO
+                vao.eboDirty = false;
+                if (vao.elementBuffer != 0) {
+                    CallAndCheck(::GLES::glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, s_bufferMap[vao.elementBuffer]);)
+                } else {
+                    CallAndCheck(::GLES::glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);)
+                }
+            }
+
+//            CallAndCheck(::GLES::glBindVertexArray(0);)
+        }
+    }
+
+    void SyncAllVAOsToGLES(VertexArrayState* vaState) {
+        for (auto& [mgid, vao] : vaState->vaos_) {
+            if (!vao.generated)
+                continue;
+
+            GLuint glvao = 0;
+
+            if (vao.attribDirty || vao.eboDirty) {
+                if (s_vaoMap.find(mgid) == s_vaoMap.end()) {
+                    CallAndCheck(::GLES::glGenVertexArrays(1, &glvao);)
+                    s_vaoMap[mgid] = glvao;
+                    MG_Util::Debug::LogD("Creating MG VAO: %d", mgid);
+                } else {
+                    glvao = s_vaoMap[mgid];
+                }
+                MG_Util::Debug::LogD("Updating MG VAO: %d", mgid);
+                CallAndCheck(::GLES::glBindVertexArray(glvao);)
+            } else continue;
+
+            if (vao.attribDirty) {
+                MG_Util::Debug::LogD("Updating MG VAO %d, dirty attrib", mgid);
+                // Update attrib
+                vao.attribDirty = false;
+                for (auto& [index, attrib] : vao.attribs) {
+                    MG_Util::Debug::LogD("attrib #%d: size=%d, type=%s, stride=%d, pointer=%d, %s, isInt=%s",
+                                         index, attrib.size, MG_Util::Debug::GLEnumToString(attrib.type), attrib.stride, attrib.pointer,
+                                         (attrib.enabled ? "enabled" : "disabled"), (attrib.isInteger ? "true" : "false"));
+                    if (!attrib.isInteger) {
+                        CallAndCheck(::GLES::glVertexAttribPointer(
+                                index, attrib.size, attrib.type,
+                                attrib.normalized ? GL_TRUE : GL_FALSE,
+                                attrib.stride, attrib.pointer);)
+                    } else {
+                        CallAndCheck(::GLES::glVertexAttribIPointer(
+                                index, attrib.size, attrib.type,
+                                attrib.stride, attrib.pointer);)
+                    }
+
+                    if (attrib.enabled) {
+                        CallAndCheck(::GLES::glEnableVertexAttribArray(index);)
+                    } else {
+                        CallAndCheck(::GLES::glDisableVertexAttribArray(index);)
+                    }
+                }
+            }
+
+            if (vao.eboDirty) {
+                MG_Util::Debug::LogD("Updating MG VAO %d, dirty ebo", mgid);
+                // Update EBO
+                vao.eboDirty = false;
+                if (vao.elementBuffer != 0) {
+                    CallAndCheck(::GLES::glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, s_bufferMap[vao.elementBuffer]);)
+                } else {
+                    CallAndCheck(::GLES::glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);)
+                }
+            }
+
+            CallAndCheck(::GLES::glBindVertexArray(0);)
+        }
+    }
+
     static GLuint lastBoundProgram = 0;
     static GLuint lastBoundFBO[2] = {0};
     static std::array<GLuint, 32> lastBoundTextures;
@@ -673,111 +826,55 @@ namespace MG_GL::GL {
         // Buffer
         SyncAllBuffersToGLES(bufferState);
 
-
-        GLuint vbo = MG_State_T::bufferState->GetCurrentBinding(GL_ARRAY_BUFFER);
-        CallAndCheck(::GLES::glBindBuffer(GL_ARRAY_BUFFER, s_bufferMap[vbo]);)
-
         // VAO
-//        GLuint mgVAOId = vaState->currentVao_;
-//        VertexArrayObject* vao = &vaState->vaos_[mgVAOId];
-        for (auto& [mgid, vao] : vaState->vaos_) {
-            if (!vao.generated)
-                continue;
+        GenCurrentVAONameToGLES(vaState);
 
-            MG_Util::Debug::LogD("Creating MG VAO: %d", mgid);
-
-            // TODO: Check is the VAO changes rather than always update it.
-            //if (!s_vaoMap.count(mgVAOId)) {
-            GLuint glVAO;
-            if (s_vaoMap.find(mgid) == s_vaoMap.end()) {
-                CallAndCheck(::GLES::glGenVertexArrays(1, &glVAO);)
-                s_vaoMap[mgid] = glVAO;
-            } else {
-                // VAO already generated, just skip generation
-                // TODO: VAO modified along the way?
-                continue;
-//                glVAO = s_vaoMap[mgid];
-            }
-            CallAndCheck(::GLES::glBindVertexArray(glVAO);)
-            MG_Util::Debug::LogD("Bind VAO (MG -> ES): %d -> %d", mgid, glVAO);
-
-//            std::string name = std::format("MG VAO {}", mgid);
-//            ::GLES::glObjectLabel(GL_VERTEX_ARRAY, mgid, name.length(), name.c_str());
-
-            if (vao.elementBuffer != 0 && s_bufferMap.find(vao.elementBuffer) != s_bufferMap.end()) {
-                CallAndCheck(::GLES::glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, s_bufferMap[vao.elementBuffer]);)
-            }
-            MG_Util::Debug::LogD("VAO has %d attributes:", vao.attribs.size());
-            for (auto& [index, attrib] : vao.attribs) {
-//                if (attrib.buffer != 0 && s_bufferMap.find(attrib.buffer) != s_bufferMap.end()) {
-                    MG_Util::Debug::LogD("attrib #%d: size=%d, type=%s, stride=%d, pointer=%d, %s, isInt=%s",
-                                         index, attrib.size, MG_Util::Debug::GLEnumToString(attrib.type), attrib.stride, attrib.pointer,
-                                         (attrib.enabled ? "enabled" : "disabled"), (attrib.isInteger ? "true" : "false"));
-
-                    if (attrib.isInteger) {
-                        CallAndCheck(::GLES::glVertexAttribIPointer(
-                                index, attrib.size, attrib.type,
-                                attrib.stride, attrib.pointer
-                        );)
-                    } else {
-                        CallAndCheck(::GLES::glVertexAttribPointer(
-                                index, attrib.size, attrib.type,
-                                attrib.normalized ? GL_TRUE : GL_FALSE,
-                                attrib.stride, attrib.pointer
-                        );)
-                    }
-
-                    if (attrib.enabled) {
-                        CallAndCheck(::GLES::glEnableVertexAttribArray(index);)
-                    } else {
-                        CallAndCheck(::GLES::glDisableVertexAttribArray(index);)
-                    }
-//                }
-            }
-            CallAndCheck(::GLES::glBindVertexArray(0);)
-            //}
-        }
         GLuint currentMgVAO = vaState->currentVao_;
         MG_Util::Debug::LogD("Now binding to VAO %d...", currentMgVAO);
-        if (s_vaoMap.find(currentMgVAO) != s_vaoMap.end()) {
-            CallAndCheck(::GLES::glBindVertexArray(s_vaoMap[currentMgVAO]);)
+        CallAndCheck(::GLES::glBindVertexArray(s_vaoMap[currentMgVAO]);)
 
-//            VertexArrayObject& currentVAO = vaState->vaos_[currentMgVAO];
-//            for (auto& [index, attrib] : currentVAO.attribs) {
-//                if (attrib.enabled) {
-//                    CallAndCheck(::GLES::glEnableVertexAttribArray(index);)
-//                } else {
-//                    CallAndCheck(::GLES::glDisableVertexAttribArray(index);)
-//                }
-//            }
-        } else {
-            CallAndCheck(::GLES::glBindVertexArray(0);)
-        }
+        GLuint vbo = bufferState->GetCurrentBinding(GL_ARRAY_BUFFER);
+        CallAndCheck(::GLES::glBindBuffer(GL_ARRAY_BUFFER, s_bufferMap[vbo]);)
+        MG_Util::Debug::LogD("binding vbo MG %d -> ES %d", vbo, s_bufferMap[vbo]);
+
+//        SyncAllVAOsToGLES(vaState);
+        SyncCurrentVAOToGLES(vaState);
+
+
+//        if (s_vaoMap.find(currentMgVAO) != s_vaoMap.end()) {
+//            CallAndCheck(::GLES::glBindVertexArray(s_vaoMap[currentMgVAO]);)
+//        } else {
+//            MG_Util::Debug::LogD("ERROR: MG VAO %d not found! Check SyncAllVAOsToGLES!", currentMgVAO);
+//            CallAndCheck(::GLES::glBindVertexArray(0);)
+//        }
+
+//        CallAndCheck(::GLES::glBindBuffer(GL_ARRAY_BUFFER, s_bufferMap[vbo]);)
+//        MG_Util::Debug::LogD("binding vbo MG %d -> ES %d", vbo, s_bufferMap[vbo]);
 
         // EBO
         GLuint curVaoId = vaState->currentVao_;
         VertexArrayObject* curvao = &vaState->vaos_[curVaoId];
-        if (curvao->elementBuffer != 0) {
-            if (s_bufferMap.find(curvao->elementBuffer) != s_bufferMap.end()) {
-                CallAndCheck(::GLES::glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, s_bufferMap[curvao->elementBuffer]);)
-            }
-        } else if (indices != nullptr) {
-            static GLuint dynamicIBO = 0;
-            if (dynamicIBO == 0) {
-                CallAndCheck(::GLES::glGenBuffers(1, &dynamicIBO);)
-            }
-            
-            size_t typeSize = 0;
-            switch(type) {
-                case GL_UNSIGNED_BYTE:  typeSize = sizeof(GLubyte); break;
-                case GL_UNSIGNED_SHORT: typeSize = sizeof(GLushort); break;
-                case GL_UNSIGNED_INT:   typeSize = sizeof(GLuint); break;
-            }
-            size_t dataSize = count * typeSize;
-            
-            CallAndCheck(::GLES::glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, dynamicIBO);)
-            CallAndCheck(::GLES::glBufferData(GL_ELEMENT_ARRAY_BUFFER, dataSize, indices, GL_STREAM_DRAW);)
-        }
+//        if (curvao->elementBuffer != 0) {
+//            if (s_bufferMap.find(curvao->elementBuffer) != s_bufferMap.end()) {
+//                CallAndCheck(::GLES::glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, s_bufferMap[curvao->elementBuffer]);)
+//            }
+//        } else if (indices != nullptr) {
+//            static GLuint dynamicIBO = 0;
+//            if (dynamicIBO == 0) {
+//                CallAndCheck(::GLES::glGenBuffers(1, &dynamicIBO);)
+//            }
+//
+//            size_t typeSize = 0;
+//            switch(type) {
+//                case GL_UNSIGNED_BYTE:  typeSize = sizeof(GLubyte); break;
+//                case GL_UNSIGNED_SHORT: typeSize = sizeof(GLushort); break;
+//                case GL_UNSIGNED_INT:   typeSize = sizeof(GLuint); break;
+//            }
+//            size_t dataSize = count * typeSize;
+//
+//            CallAndCheck(::GLES::glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, dynamicIBO);)
+//            CallAndCheck(::GLES::glBufferData(GL_ELEMENT_ARRAY_BUFFER, dataSize, indices, GL_STREAM_DRAW);)
+//        }
         
         // Program
         GLuint currentProgram = programState->GetCurrentProgram();
@@ -974,97 +1071,6 @@ namespace MG_GL::GL {
         
         // Framebuffer
         RealizeFBOState(GL_DRAW_FRAMEBUFFER);
-//        GLuint currentFBO = fbState->currentBindings_[GL_DRAW_FRAMEBUFFER];
-//        if (currentFBO != lastBoundFBO[0]) {
-//            GLuint glFBO = 0;
-//
-//            if (currentFBO == 0) {
-//                CallAndCheck(::GLES::glBindFramebuffer(GL_FRAMEBUFFER, 0);)
-//                glFBO = 0;
-//            } else {
-//                bool isNewGlesFBO = false;
-//
-//                if (s_framebufferMap.find(currentFBO) == s_framebufferMap.end()) {
-//                    CallAndCheck(::GLES::glGenFramebuffers(1, &glFBO);)
-//                    s_framebufferMap[currentFBO] = glFBO;
-//                    CallAndCheck(::GLES::glBindFramebuffer(GL_FRAMEBUFFER, glFBO);)
-//                    MG_Util::Debug::LogD("Generated and bound new GLES FBO %u for MobileGL FBO %u", glFBO, currentFBO);
-//                    GLenum status = ::GLES::glCheckFramebufferStatus(GL_FRAMEBUFFER);
-//                    if (status != GL_FRAMEBUFFER_COMPLETE) {
-//                        MG_Util::Debug::LogE("Framebuffer %u (GLES FBO %u) is not complete after creation! Status: 0x%X (%s)",
-//                                             currentFBO, glFBO, status, MG_Util::Debug::GLEnumToString(status));
-//                    }
-//                    isNewGlesFBO = true;
-//                } else {
-//                    glFBO = s_framebufferMap[currentFBO];
-//                    CallAndCheck(::GLES::glBindFramebuffer(GL_FRAMEBUFFER, glFBO);)
-//                    MG_Util::Debug::LogD("Bound existing GLES FBO %u for MobileGL FBO %u", glFBO, currentFBO);
-//                }
-//
-//                if (glFBO != 0) {
-//                    FramebufferObject* mgFBO = fbState->GetCurrentFBO(GL_DRAW_FRAMEBUFFER);
-//                    if (mgFBO) {
-//                        MG_Util::Debug::LogD("Checking/Syncing attachments for GLES FBO %u (MobileGL FBO %u)", glFBO, currentFBO);
-//
-//                        for (auto const& [mgAttachmentPoint, mgAtt] : mgFBO->attachments) {
-//
-//                            if (mgAtt.type != GL_TEXTURE_2D) {
-//                                MG_Util::Debug::LogW("Skipping non-TEXTURE_2D attachment 0x%X for FBO %u", mgAttachmentPoint, currentFBO);
-//                                continue;
-//                            }
-//
-//                            GLuint expectedGLTexId = 0;
-//                            if (mgAtt.handle != 0) {
-//                                if (s_textureMap.count(mgAtt.handle)) {
-//                                    expectedGLTexId = s_textureMap[mgAtt.handle];
-//                                } else {
-//                                    MG_Util::Debug::LogE("MobileGL Texture %u for FBO %u attachment 0x%X not found in s_textureMap during FBO sync!", mgAtt.handle, currentFBO, mgAttachmentPoint);
-//                                    for (auto const& [key, val] : s_textureMap)
-//                                        MG_Util::Debug::LogW("  key: %d, val: %d", key, val);
-//                                    continue;
-//                                }
-//                            }
-//
-//                            GLint glesAttachedType = 0;
-//                            GLint glesAttachedName = 0;
-//
-//                            CallAndCheck(::GLES::glGetFramebufferAttachmentParameteriv(GL_FRAMEBUFFER, mgAttachmentPoint, GL_FRAMEBUFFER_ATTACHMENT_OBJECT_TYPE, &glesAttachedType);)
-//
-//                            if (glesAttachedType == GL_TEXTURE) {
-//                                CallAndCheck(::GLES::glGetFramebufferAttachmentParameteriv(GL_FRAMEBUFFER, mgAttachmentPoint, GL_FRAMEBUFFER_ATTACHMENT_OBJECT_NAME, &glesAttachedName);)
-//                            } else if (glesAttachedType != GL_NONE) {
-//                                MG_Util::Debug::LogW("GLES FBO %u attachment 0x%X has non-texture type 0x%X (expected GL_TEXTURE or GL_NONE)", glFBO, mgAttachmentPoint, glesAttachedType);
-//                            }
-//
-//                            if ((GLuint)glesAttachedName != expectedGLTexId) {
-//                                MG_Util::Debug::LogD("Syncing FBO %u attachment 0x%X: Expected GLES TexID %u, Found GLES ObjName %d. Attaching/Detaching...",
-//                                                     currentFBO, mgAttachmentPoint, expectedGLTexId, glesAttachedName);
-//
-//                                CallAndCheck(::GLES::glFramebufferTexture2D(
-//                                        GL_FRAMEBUFFER,
-//                                        mgAttachmentPoint,
-//                                        GL_TEXTURE_2D,
-//                                        expectedGLTexId,
-//                                        mgAtt.mipLevel
-//                                );)
-//                            }
-//                        }
-//                        GLenum status = ::GLES::glCheckFramebufferStatus(GL_FRAMEBUFFER);
-//                        if (status != GL_FRAMEBUFFER_COMPLETE) {
-//                            MG_Util::Debug::LogE("Framebuffer %u (GLES FBO %u) is not complete after sync! Status: 0x%X (%s)",
-//                                                 currentFBO, glFBO, status, MG_Util::Debug::GLEnumToString(status));
-//                        }
-//
-//                    } else {
-//                        MG_Util::Debug::LogW("Could not get MobileGL FBO object for ID %u during attachment sync.", currentFBO);
-//                    }
-//                }
-//            }
-//
-//            lastBoundFBO[0] = currentFBO;
-//        }
-
-
 
         if (curvao->elementBuffer != 0 || indices != nullptr) {
             CallAndCheck(::GLES::glDrawElements(
@@ -1111,92 +1117,6 @@ namespace MG_GL::GL {
     void ClearSHITTILY(GLbitfield mask) {
         CommonState* commonState = MG_State_T::commonState;
         FramebufferState* fbState = MG_State_T::framebufferState;
-
-//        GLuint currentFBO = fbState->currentBindings_[GL_DRAW_FRAMEBUFFER];
-//        if (currentFBO != lastBoundFBO[0]) {
-//            GLuint glFBO = 0;
-//
-//            if (currentFBO == 0) {
-//                CallAndCheck(::GLES::glBindFramebuffer(GL_FRAMEBUFFER, 0);)
-//                glFBO = 0;
-//            } else {
-//                bool isNewGlesFBO = false;
-//
-//                if (s_framebufferMap.find(currentFBO) == s_framebufferMap.end()) {
-//                    CallAndCheck(::GLES::glGenFramebuffers(1, &glFBO);)
-//                    s_framebufferMap[currentFBO] = glFBO;
-//                    CallAndCheck(::GLES::glBindFramebuffer(GL_FRAMEBUFFER, glFBO);)
-//                    MG_Util::Debug::LogD("Generated and bound new GLES FBO %u for MobileGL FBO %u", glFBO, currentFBO);
-//                    isNewGlesFBO = true;
-//                } else {
-//                    glFBO = s_framebufferMap[currentFBO];
-//                    CallAndCheck(::GLES::glBindFramebuffer(GL_FRAMEBUFFER, glFBO);)
-//                    MG_Util::Debug::LogD("Bound existing GLES FBO %u for MobileGL FBO %u", glFBO, currentFBO);
-//                }
-//
-//                if (glFBO != 0) {
-//                    FramebufferObject* mgFBO = fbState->GetCurrentFBO(GL_DRAW_FRAMEBUFFER);
-//                    if (mgFBO) {
-//                        MG_Util::Debug::LogD("Checking/Syncing attachments for GLES FBO %u (MobileGL FBO %u)", glFBO, currentFBO);
-//
-//                        for (auto const& [mgAttachmentPoint, mgAtt] : mgFBO->attachments) {
-//
-//                            if (mgAtt.type != GL_TEXTURE_2D) {
-//                                MG_Util::Debug::LogW("Skipping non-TEXTURE_2D attachment 0x%X for FBO %u", mgAttachmentPoint, currentFBO);
-//                                continue;
-//                            }
-//
-//                            GLuint expectedGLTexId = 0;
-//                            if (mgAtt.handle != 0) {
-//                                if (s_textureMap.count(mgAtt.handle)) {
-//                                    expectedGLTexId = s_textureMap[mgAtt.handle];
-//                                } else {
-//                                    MG_Util::Debug::LogE("MobileGL Texture %u for FBO %u attachment 0x%X not found in s_textureMap during FBO sync!", mgAtt.handle, currentFBO, mgAttachmentPoint);
-//                                    for (auto const& [key, val] : s_textureMap)
-//                                        MG_Util::Debug::LogW("  key: %d, val: %d", key, val);
-//                                    continue;
-//                                }
-//                            }
-//
-//                            GLint glesAttachedType = 0;
-//                            GLint glesAttachedName = 0;
-//
-//                            CallAndCheck(::GLES::glGetFramebufferAttachmentParameteriv(GL_FRAMEBUFFER, mgAttachmentPoint, GL_FRAMEBUFFER_ATTACHMENT_OBJECT_TYPE, &glesAttachedType);)
-//
-//                            if (glesAttachedType == GL_TEXTURE) {
-//                                CallAndCheck(::GLES::glGetFramebufferAttachmentParameteriv(GL_FRAMEBUFFER, mgAttachmentPoint, GL_FRAMEBUFFER_ATTACHMENT_OBJECT_NAME, &glesAttachedName);)
-//                            } else if (glesAttachedType != GL_NONE) {
-//                                MG_Util::Debug::LogW("GLES FBO %u attachment 0x%X has non-texture type 0x%X (expected GL_TEXTURE or GL_NONE)", glFBO, mgAttachmentPoint, glesAttachedType);
-//                            }
-//
-//                            if ((GLuint)glesAttachedName != expectedGLTexId) {
-//                                MG_Util::Debug::LogD("Syncing FBO %u attachment 0x%X: Expected GLES TexID %u, Found GLES ObjName %d. Attaching/Detaching...",
-//                                                     currentFBO, mgAttachmentPoint, expectedGLTexId, glesAttachedName);
-//
-//                                CallAndCheck(::GLES::glFramebufferTexture2D(
-//                                        GL_FRAMEBUFFER,
-//                                        mgAttachmentPoint,
-//                                        GL_TEXTURE_2D,
-//                                        expectedGLTexId,
-//                                        mgAtt.mipLevel
-//                                );)
-//                            }
-//                        }
-//
-//                        GLenum status = ::GLES::glCheckFramebufferStatus(GL_FRAMEBUFFER);
-//                        if (status != GL_FRAMEBUFFER_COMPLETE) {
-//                            MG_Util::Debug::LogE("Framebuffer %u (GLES FBO %u) is not complete after sync! Status: 0x%X (%s)",
-//                                                 currentFBO, glFBO, status, MG_Util::Debug::GLEnumToString(status));
-//                        }
-//
-//                    } else {
-//                        MG_Util::Debug::LogW("Could not get MobileGL FBO object for ID %u during attachment sync.", currentFBO);
-//                    }
-//                }
-//            }
-//
-//            lastBoundFBO[0] = currentFBO;
-//        }
 
         TextureState* textureState = MG_State_T::textureState;
 

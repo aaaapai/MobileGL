@@ -38,12 +38,17 @@ namespace MG_GL::GL {
     }
 
     void BindBuffer(GLenum target, GLuint buffer) {
-        MG_Util::Debug::LogD("glBindBuffer, target: %d, buffer: %d", target, buffer);
+        MG_Util::Debug::LogD("glBindBuffer, target: %s, buffer: %d", MG_Util::Debug::GLEnumToString(target), buffer);
         if (buffer != 0 &&
             MG_State::ValidateGeneratedName(buffer) &&
             !MG_State::ValidateAllocatedBufferHandle(buffer)) {
             MG_Util::Debug::LogD("Actually creating buffer: %u", buffer);
             GLenum result = MG_State::CreateBuffer(buffer);
+            if (result != GL_NO_ERROR) {
+                MG_State::SetError(result);
+                MG_Util::Debug::LogE("Error from MG State: %s", MG_Util::Debug::GLEnumToString(result));
+                return;
+            }
         }
 
         if (buffer != 0 && !MG_State::ValidateAllocatedBufferHandle(buffer)) {
@@ -59,8 +64,8 @@ namespace MG_GL::GL {
     }
 
     void BufferData(GLenum target, GLsizeiptr size, const void* data, GLenum usage) {
-        MG_Util::Debug::LogD("glBufferData, target: %d, size: %zd, data: %p, usage: %d",
-                             target, size, data, usage);
+        MG_Util::Debug::LogD("glBufferData, target: %s, size: %zd, data: %p, usage: %s",
+                             MG_Util::Debug::GLEnumToString(target), size, data, MG_Util::Debug::GLEnumToString(usage));
         GLenum result = MG_State::CommitBufferStorage(target, size, data, usage);
         if (result == GL_NO_ERROR)
             return;

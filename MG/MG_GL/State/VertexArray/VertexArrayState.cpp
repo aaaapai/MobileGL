@@ -110,6 +110,8 @@ GLenum VertexArrayState::EnableAttrib(GLuint index) {
     if (index >= GL_MAX_VERTEX_ATTRIBS) return GL_INVALID_VALUE;
     GetCurrentVAO()->attribs[index].enabled = true;
     MG_Util::Debug::LogD("Attrib vaos_[%u].attribs[%u].enabled = %d", currentVao_, index, vaos_[currentVao_].attribs[index].enabled);
+
+    GetCurrentVAO()->attribDirty = true;
     return GL_NO_ERROR;
 }
 
@@ -119,6 +121,8 @@ GLenum VertexArrayState::DisableAttrib(GLuint index) {
     if (index >= GL_MAX_VERTEX_ATTRIBS) return GL_INVALID_VALUE;
     GetCurrentVAO()->attribs[index].enabled = false;
     MG_Util::Debug::LogD("Attrib vaos_[%u].attribs[%u].enabled = %d", currentVao_, index, vaos_[currentVao_].attribs[index].enabled);
+
+    GetCurrentVAO()->attribDirty = true;
     return GL_NO_ERROR;
 }
 
@@ -142,6 +146,8 @@ GLenum VertexArrayState::SetAttribPointer(GLuint index, GLint size, GLenum type,
         state.enabled = true;
 
     vaos_[currentVao_].attribs[index] = state;
+
+    GetCurrentVAO()->attribDirty = true;
     return GL_NO_ERROR;
 }
 

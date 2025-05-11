@@ -21,6 +21,8 @@ struct VertexAttribState {
 
 struct VertexArrayObject {
     bool generated = false;
+    bool attribDirty = false;
+    bool eboDirty = false;
     GLuint elementBuffer = 0;
     std::unordered_map<GLuint, VertexAttribState> attribs;
 };

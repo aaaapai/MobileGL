@@ -177,6 +177,7 @@ namespace MG_State {
             auto* vao = MG_State_T::vertexArrayState->GetCurrentVAO();
             if (!vao) return GL_INVALID_OPERATION;
             vao->elementBuffer = (GLuint)buffer;
+            vao->eboDirty = true;
         }
         return MG_State_T::bufferState->Bind(target, buffer);
     }
