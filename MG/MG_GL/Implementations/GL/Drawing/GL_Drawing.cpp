@@ -52,7 +52,6 @@ namespace MG_GL::GL {
                 break;
 
             case GL_DEPTH_COMPONENT:
-                // TODO: Add enableCompatibleMode option
                 MG_Util::Debug::LogD("Find GL_DEPTH_COMPONENT: internalFormat: %s, format: %s, type: %s",
                       MG_Util::Debug::GLEnumToString(internalFormat), MG_Util::Debug::GLEnumToString(format), MG_Util::Debug::GLEnumToString(type));
 
@@ -455,7 +454,7 @@ namespace MG_GL::GL {
             if (!obj.generated)
                 continue;
 
-            if (!obj.dirty)
+            if (!obj.dirty && !obj.isMapped)
                 continue;
 
             obj.dirty = false;
@@ -471,10 +470,11 @@ namespace MG_GL::GL {
 
             // Populate data to ES
             CallAndCheck(::GLES::glBindBuffer(GL_ARRAY_BUFFER, glname);)
+            // TODO: Check why obj.dataValid is broken for Minecraft 1.21.1-
             CallAndCheck(::GLES::glBufferData(
                         GL_ARRAY_BUFFER,
                         obj.data.size(),
-                        obj.dataValid ? obj.data.data() : nullptr,
+                        obj.data.data(), //obj.dataValid || obj.isMapped ? obj.data.data() : nullptr,
                         obj.usage);)
 
 //            s_bufferDirtyFlags_bufferObj[mgname] = obj.data.data();
