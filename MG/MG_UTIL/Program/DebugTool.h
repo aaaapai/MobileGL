@@ -11,6 +11,7 @@ namespace MG_Util::Program {
     std::string FormatUniformValue(const UniformValue& value);
     void DumpUniforms(const ProgramState& state, GLuint program);
     void DumpCurrentUniforms(const ProgramState& state);
+    std::string CompileSPIRVToGLSL(std::vector<unsigned int> spirv, uint glslVersion, bool isES);
 }
 
 #endif //MOBILEGL_PROGRAM_DEBUGTOOL_H

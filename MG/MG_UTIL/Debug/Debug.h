@@ -7,7 +7,7 @@
 
 #include "../../Includes.h"
 
-#define FORCE_SYNC_WITH_LOG_FILE 0
+#define FORCE_SYNC_WITH_LOG_FILE 1
 
 namespace MG_Util {
     namespace Debug {

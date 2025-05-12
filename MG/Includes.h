@@ -84,8 +84,6 @@
 #include <cstring>
 #include <iostream>
 #include <cstdio>
-#include <dlfcn.h>
-#include <unistd.h>
 #include <ctime>
 #include <chrono>
 #include <thread>
@@ -115,6 +113,12 @@
 #include "GLES/gl32.h"
 
 #include "MG_Include/UncertainBool.hpp"
+
+#ifndef _WIN32
+#include <dlfcn.h>
+#include <unistd.h>
+#include <vulkan/vulkan.h>
+#endif
 
 #ifdef __ANDROID__
 #include <android/log.h>
