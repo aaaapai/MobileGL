@@ -1,0 +1,20 @@
+name: Build MobileGL
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+
+    steps:
+    - uses: actions/checkout@main
+
+    - name: Configure CMake and Build
+      run: bash android_ci_build.bash
+
+    - name: Upload build output
+      uses: actions/upload-artifact@main
+      with:
+        name: MG
+        path: build/*.so
