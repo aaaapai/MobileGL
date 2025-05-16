@@ -9,34 +9,42 @@
 #include "../../../Includes.h"
 
 class BufferState {
+    template <typename K, typename V>
+    using unordered_map = ankerl::unordered_dense::map<K, V>;
+
 public:
     struct BufferObject {
-        GLenum target = 0;
         GLenum usage = GL_STATIC_DRAW;
         std::vector<GLubyte> data;
+        bool dataValid = false;
+        bool dirty = false; // TODO: encapsulate this with an public API to RHI
         bool isMapped = false;
         bool generated = false;
         GLenum accessMode = GL_READ_WRITE;
     };
 
     // Return: the validity of the operation, according to OpenGL 3 standard
-    GLenum Create(GLuint* buffer);
-    GLenum CreateN(GLsizei n, GLuint* buffers);
+    GLenum GenName(GLuint* buffer);
+    GLenum GenNameN(GLsizei n, GLuint* buffers);
+    GLenum Create(GLuint buffer);
+//    GLenum CreateN(GLsizei n, GLuint* buffers);
     GLenum Bind(GLenum target, GLuint buffer);
     GLenum CommitStorage(GLenum target, GLsizeiptr size, const void* data, GLenum usage);
     GLenum AcquireBufferMemory(GLenum target, GLenum access, void** mappedPointer);
     GLenum ReleaseBufferMemory(GLenum target);
     GLenum QueryPropertyIntVector(GLenum target, GLenum pname, GLint* params) const;
     
-    bool ValidateHandle(GLuint buffer);
+    bool ValidateAllocatedHandle(GLuint buffer);
+    bool ValidateGeneratedName(GLuint buffer);
     void Delete(GLuint buffer);
+    GLenum DeleteN(GLsizei n, const GLuint* buffers);
     GLuint GetCurrentBinding(GLenum target) const;
 
-    std::unordered_map<GLenum, GLuint> currentBindings_;
-    std::unordered_map<GLuint, BufferObject> buffers_;
+    unordered_map<GLenum, GLuint> currentBindings_;
+    unordered_map<GLuint, BufferObject> buffers_;
 private:
-    std::set<GLuint> freeIds_;
-    GLuint lastId_ = 0;
+    std::vector<GLuint> freeId_;
+    GLuint lastId_ = 1;
 
     static bool IsValidTarget_(GLenum target);
 };

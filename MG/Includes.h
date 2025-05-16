@@ -102,6 +102,7 @@
 #include <optional>
 #include <unordered_map>
 #include <queue>
+#include <format>
 #include <vulkan/vulkan.h>
 #include <glslang/Public/ShaderLang.h>
 #include <glslang/Include/Types.h>
@@ -110,6 +111,7 @@
 #include <glslang/SPIRV/GlslangToSpv.h>
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/glm.hpp>
+#include <ankerl/unordered_dense.h>
 #include "GLES/gl32.h"
 
 #include "MG_Include/UncertainBool.hpp"

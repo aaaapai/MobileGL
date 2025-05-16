@@ -9,6 +9,8 @@
 #include "../../../Includes.h"
 
 class CommonState {
+    template <typename K, typename V>
+    using unordered_map = ankerl::unordered_dense::map<K, V>;
 public:
     // Viewport
     GLint viewport[4] = {0, 0, 0, 0};
@@ -17,7 +19,7 @@ public:
     GLboolean colorMask[4] = {GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE};
     
     // Pixel storage parameters
-    std::unordered_map<GLenum, GLint> pixelStoreParams;
+    unordered_map<GLenum, GLint> pixelStoreParams;
 
     // Blend state
     GLenum blendSrcRGB = GL_ONE;
@@ -35,7 +37,7 @@ public:
     GLboolean depthMask = GL_TRUE;
 
     // Capability enables
-    std::unordered_map<GLenum, bool> capabilities;
+    unordered_map<GLenum, bool> capabilities;
     
     CommonState();
     

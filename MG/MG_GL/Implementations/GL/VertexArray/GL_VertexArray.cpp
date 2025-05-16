@@ -7,7 +7,7 @@
 namespace MG_GL::GL {
     void GenVertexArrays(GLsizei n, GLuint* arrays) {
         MG_Util::Debug::LogD("glGenVertexArrays, n: %d, arrays: %p", n, arrays);
-        GLenum result = MG_State::CreateVertexArrays(n, arrays);
+        GLenum result = MG_State::GenVertexArraysNames(n, arrays);
         if (result == GL_NO_ERROR) return;
         MG_State::SetError(result);
         MG_Util::Debug::LogE("Error from MG State: %s", MG_Util::Debug::GLEnumToString(result));
