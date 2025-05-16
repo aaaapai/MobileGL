@@ -1110,7 +1110,9 @@ namespace MG_GL::GL {
         SyncAllTexturesToGLES(textureState);
 
         RealizeFBOState(GL_DRAW_FRAMEBUFFER);
-        RealizeFBOState(GL_READ_FRAMEBUFFER);
+        
+        // Why cannot we use RealizeFBOState(GL_READ_FRAMEBUFFER) here?
+        //RealizeFBOState(GL_READ_FRAMEBUFFER);
 
         static GLfloat lastClearColor[4] = {-1.0f, -1.0f, -1.0f, -1.0f};
         if (memcmp(lastClearColor, commonState->clearColor, sizeof(lastClearColor)) != 0) {
@@ -1231,43 +1233,6 @@ namespace MG_GL::GL {
     }
 
     void DrawBuffer(GLenum buf) {
-        SyncAllToGLES();
-        RealizeFBOState(GL_READ_FRAMEBUFFER);
-        RealizeFBOState(GL_READ_FRAMEBUFFER);
 
-        GLint currentFBO;
-        CallAndCheck(::GLES::glGetIntegerv(GL_FRAMEBUFFER_BINDING, &currentFBO);)
-
-        if (currentFBO == 0) {
-            GLenum buffers[1] = {GL_NONE};
-            switch (buf) {
-                case GL_FRONT:
-                case GL_BACK:
-                case GL_NONE:
-                    buffers[0] = buf;
-                    CallAndCheck(::GLES::glDrawBuffers(1, buffers);)
-                    break;
-                default:
-                    break;
-            }
-        } else {
-            GLint maxAttachments;
-            CallAndCheck(::GLES::glGetIntegerv(GL_MAX_COLOR_ATTACHMENTS, &maxAttachments);)
-
-            if (buf == GL_NONE) {
-                auto *buffers = (GLenum *)alloca(maxAttachments * sizeof(GLenum));
-                for (int i = 0; i < maxAttachments; i++) {
-                    buffers[i] = GL_NONE;
-                }
-                CallAndCheck(::GLES::glDrawBuffers(maxAttachments, buffers);)
-            } else if (buf >= GL_COLOR_ATTACHMENT0 &&
-                    buf < GL_COLOR_ATTACHMENT0 + maxAttachments) {
-                auto *buffers = (GLenum *)alloca(maxAttachments * sizeof(GLenum));
-                for (int i = 0; i < maxAttachments; i++) {
-                    buffers[i] = (i == (buf - GL_COLOR_ATTACHMENT0)) ? buf : GL_NONE;
-                }
-                CallAndCheck(::GLES::glDrawBuffers(maxAttachments, buffers);)
-            }
-        }
     }
 }
