@@ -44,7 +44,7 @@ namespace MG_GL::GL {
                 }
                 return (const GLubyte *)rendererString.c_str();
                  */
-                return (const GLubyte *)(MG_GL::Getter::GetMGName() + "(MobileGL Core) Renderer").c_str();
+                return (const GLubyte *)(MG_GL::Getter::GetMGName() + " (MobileGL Core) Renderer").c_str();
             }
             case GL_SHADING_LANGUAGE_VERSION:
                 return (const GLubyte *) "4.50 MobileGL with glslang";
