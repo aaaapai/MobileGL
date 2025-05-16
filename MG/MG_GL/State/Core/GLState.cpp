@@ -198,6 +198,10 @@ namespace MG_State {
         return MG_State_T::bufferState->Delete(buffer);
     }
 
+    GLenum DeleteBuffers(GLsizei n, const GLuint* buffers) {
+        return MG_State_T::bufferState->DeleteN(n, buffers);
+    }
+
     GLenum QueryBufferPropertyIntVector(GLenum target, GLenum pname, GLint* params) {
         return MG_State_T::bufferState->QueryPropertyIntVector(target, pname, params);
     }

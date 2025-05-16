@@ -448,6 +448,17 @@ namespace MG_GL::GL {
 //    static std::unordered_map<GLuint, void*> s_bufferDirtyFlags_bufferObj;
     void SyncAllBuffersToGLES(BufferState* bufferState) {
         GLint prev_buf = 0;
+        // Delete removed buffers in GLES
+        std::vector<GLuint> buffersToErase;
+        for (auto it = s_bufferMap.begin(); it != s_bufferMap.end(); ++it) {
+            if (bufferState->buffers_.find(it->first) == bufferState->buffers_.end()) {
+                CallAndCheck(::GLES::glDeleteBuffers(1, &it->second);)
+                buffersToErase.push_back(it->first);
+            }
+        }
+        for (GLuint mgname : buffersToErase) {
+            s_bufferMap.erase(mgname);
+        }
         CallAndCheck(::GLES::glGetIntegerv(GL_COPY_WRITE_BUFFER_BINDING, &prev_buf);)
 
         for (auto& [mgname, obj] : bufferState->buffers_) {

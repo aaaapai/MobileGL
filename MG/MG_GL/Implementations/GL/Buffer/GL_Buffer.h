@@ -14,6 +14,7 @@ namespace MG_GL::GL {
     void BufferData(GLenum target, GLsizeiptr size, const void* data, GLenum usage);
     void GetBufferParameteriv(GLenum target, GLenum pname, GLint* params);
     void GenBuffers(GLsizei n, GLuint* buffers);
+    void DeleteBuffers(GLsizei n, const GLuint *buffers);
     GLboolean IsBuffer(GLuint buffer);
 }
 

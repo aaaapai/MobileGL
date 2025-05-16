@@ -61,7 +61,7 @@ DECLARE_GL_FUNCTION_STUB_HEAD(void, CopyTexSubImage2D, GLenum target, GLint leve
 DECLARE_GL_FUNCTION_HEAD(GLuint, CreateProgram) DECLARE_GL_FUNCTION_END(GLuint, CreateProgram)
 DECLARE_GL_FUNCTION_HEAD(GLuint, CreateShader, GLenum type) DECLARE_GL_FUNCTION_END(GLuint, CreateShader, type)
 DECLARE_GL_FUNCTION_STUB_HEAD(void, CullFace, GLenum mode) DECLARE_GL_FUNCTION_STUB_END_NO_RETURN(void, CullFace, mode)
-DECLARE_GL_FUNCTION_STUB_HEAD(void, DeleteBuffers, GLsizei n, const GLuint *buffers) DECLARE_GL_FUNCTION_STUB_END_NO_RETURN(void, DeleteBuffers, n,buffers)
+DECLARE_GL_FUNCTION_HEAD(void, DeleteBuffers, GLsizei n, const GLuint *buffers) DECLARE_GL_FUNCTION_END_NO_RETURN(void, DeleteBuffers, n,buffers)
 DECLARE_GL_FUNCTION_HEAD(void, DeleteFramebuffers, GLsizei n, const GLuint *framebuffers) DECLARE_GL_FUNCTION_END_NO_RETURN(void, DeleteFramebuffers, n,framebuffers)
 DECLARE_GL_FUNCTION_HEAD(void, DeleteProgram, GLuint program) DECLARE_GL_FUNCTION_END_NO_RETURN(void, DeleteProgram, program)
 DECLARE_GL_FUNCTION_STUB_HEAD(void, DeleteRenderbuffers, GLsizei n, const GLuint *renderbuffers) DECLARE_GL_FUNCTION_STUB_END_NO_RETURN(void, DeleteRenderbuffers, n,renderbuffers)

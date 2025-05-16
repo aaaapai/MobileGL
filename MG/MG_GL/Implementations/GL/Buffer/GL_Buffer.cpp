@@ -117,4 +117,15 @@ namespace MG_GL::GL {
         MG_Util::Debug::LogD("Buffer %u is %s", buffer, isValid ? "valid" : "invalid");
         return isValid ? GL_TRUE : GL_FALSE;
     }
+
+    void DeleteBuffers(GLsizei n, const GLuint *buffers) {
+        MG_Util::Debug::LogD("glDeleteBuffers, n: %d, buffers: %p", n, buffers);
+
+        GLenum result = MG_State::DeleteBuffers(n, buffers);
+        if (result == GL_NO_ERROR)
+            return;
+
+        MG_State::SetError(result);
+        MG_Util::Debug::LogE("Error from MG State: %s", MG_Util::Debug::GLEnumToString(result));
+    }
 }

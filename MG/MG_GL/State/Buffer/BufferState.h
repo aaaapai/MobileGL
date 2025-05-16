@@ -37,6 +37,7 @@ public:
     bool ValidateAllocatedHandle(GLuint buffer);
     bool ValidateGeneratedName(GLuint buffer);
     void Delete(GLuint buffer);
+    GLenum DeleteN(GLsizei n, const GLuint* buffers);
     GLuint GetCurrentBinding(GLenum target) const;
 
     unordered_map<GLenum, GLuint> currentBindings_;

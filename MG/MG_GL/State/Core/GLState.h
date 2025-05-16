@@ -66,6 +66,7 @@ namespace MG_State {
     bool ValidateAllocatedBufferHandle(GLuint buffer);
     bool ValidateGeneratedName(GLuint buffer);
     void DeleteBuffer(GLuint buffer);
+    GLenum DeleteBuffers(GLsizei n, const GLuint* buffers);
     GLenum QueryBufferPropertyIntVector(GLenum target, GLenum pname, GLint* params);
     
     // VertexArray
