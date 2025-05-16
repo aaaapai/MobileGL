@@ -540,7 +540,13 @@ namespace MG_GL::GL {
                 MG_Util::Debug::LogD("Updating MG VAO %d, dirty attrib", mgid);
                 // Update attrib
                 vao.attribDirty = false;
+                GLint prevArrayBuffer;
+                CallAndCheck(::GLES::glGetIntegerv(GL_ARRAY_BUFFER_BINDING, &prevArrayBuffer);)
                 for (auto& [index, attrib] : vao.attribs) {
+                    GLuint buffer = attrib.buffer;
+                    GLuint glBuffer = (buffer != 0) ? s_bufferMap[buffer] : 0;
+                    CallAndCheck(::GLES::glBindBuffer(GL_ARRAY_BUFFER, glBuffer);)
+                    
                     MG_Util::Debug::LogD("attrib #%d: size=%d, type=%s, stride=%d, pointer=%d, %s, isInt=%s",
                                          index, attrib.size, MG_Util::Debug::GLEnumToString(attrib.type), attrib.stride, attrib.pointer,
                                          (attrib.enabled ? "enabled" : "disabled"), (attrib.isInteger ? "true" : "false"));
@@ -561,6 +567,7 @@ namespace MG_GL::GL {
                         CallAndCheck(::GLES::glDisableVertexAttribArray(index);)
                     }
                 }
+                CallAndCheck(::GLES::glBindBuffer(GL_ARRAY_BUFFER, prevArrayBuffer);)
             }
 
             if (vao.eboDirty) {
