@@ -141,7 +141,7 @@ namespace MG_GL::GL {
                 break;
             case GL_MAX_TEXTURE_SIZE:
                 // TODO: Get real GL_MAX_TEXTURE_SIZE.
-                (*params) = 32768;
+                (*params) = 65535;
                 break;
             default:
                 break;
