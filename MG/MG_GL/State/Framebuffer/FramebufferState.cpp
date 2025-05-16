@@ -32,7 +32,8 @@ GLenum FramebufferState::Delete(GLuint framebuffer) {
     if (framebuffer == 0) return GL_INVALID_VALUE;
     
     if (framebuffers_.erase(framebuffer)) {
-        freeIds_.insert(framebuffer);
+        // TODO: Prevent the object that uses a freeId from conflicting with legacy object in the backend.
+        //freeIds_.insert(framebuffer);
         for (auto& [target, id] : currentBindings_) {
             if (id == framebuffer) id = 0;
         }

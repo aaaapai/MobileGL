@@ -395,8 +395,6 @@ namespace MG_Util::Program {
                 prog.uniformLocations[name] = final_location;
                 UniformValue uniformValue;
                 uniformValue.type = gl_type;
-                uniformValue.count = spvc_type_get_array_dimension(type, 0) > 0 ?
-                                     spvc_type_get_array_dimension(type, 0) : 1;
                 prog.uniformValues[name] = uniformValue;
             }
         }

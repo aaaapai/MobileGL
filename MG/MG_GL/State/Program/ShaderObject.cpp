@@ -60,7 +60,8 @@ GLenum ProgramState::DeleteShader(GLuint shader) {
         MG_Util::Debug::LogD("MG_State: Program: DeleteShader info: shader %u marked for deferred deletion (in use)", shader);
     } else {
         shaders_.erase(shader);
-        freeShaderIds_.insert(shader);
+        // TODO: Prevent the object that uses a freeId from conflicting with legacy object in the backend.
+        //freeShaderIds_.insert(shader);
         MG_Util::Debug::LogD("MG_State: Program: DeleteShader success: shader %u deleted immediately", shader);
     }
     return GL_NO_ERROR;

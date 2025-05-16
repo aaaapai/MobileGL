@@ -27,16 +27,18 @@ struct UniformValue {
     std::vector<GLuint> uintData;
     std::vector<GLboolean> boolData;
     GLsizei count;
+    GLsizei numElements;
 
     UniformValue() : type(0), count(0) {}
 
     template<typename T>
-    void setData(GLenum uniformType, GLsizei numElements, const T* values);
+    void setData(GLenum uniformType, GLsizei count_, const T* values);
 };
 
 struct ProgramObject {
     std::vector<GLuint> attachedShaders;
     UncertainBool linked;
+    bool dirty;
     GLint linkStatus;
     std::string infoLog;
     std::unordered_map<std::string, GLint> attribBindings;

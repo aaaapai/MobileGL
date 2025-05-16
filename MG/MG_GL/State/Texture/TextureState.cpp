@@ -610,7 +610,7 @@ GLenum TextureState::Delete(GLuint texture) {
     if (it != this->textures.end()) {
         InvalidateTextureInAllUnits_(texture);
         this->textures.erase(it);
-        freeID_.emplace_back(texture);
+        //freeID_.emplace_back(texture);
         MG_Util::Debug::LogD("MG_State: Texture: Delete succeeded for texture=%u", texture);
     } else {
         MG_Util::Debug::LogW("MG_State: Texture: Delete texture %u not found", texture);
@@ -632,7 +632,8 @@ GLenum TextureState::DeleteN(GLsizei n, const GLuint* textures) {
         if (it != this->textures.end()) {
             InvalidateTextureInAllUnits_(id);
             this->textures.erase(it);
-            freeID_.emplace_back(id);
+            // TODO: Prevent the object that uses a freeId from conflicting with legacy object in the backend.
+            //freeID_.emplace_back(id);
             MG_Util::Debug::LogD("MG_State: Texture: DeleteN deleted texture=%u", id);
         } else {
             MG_Util::Debug::LogW("MG_State: Texture: DeleteN texture %u not found", id);

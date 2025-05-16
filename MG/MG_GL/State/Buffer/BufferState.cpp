@@ -219,7 +219,8 @@ bool BufferState::ValidateGeneratedName(GLuint buffer) {
 void BufferState::Delete(GLuint buffer) {
     buffers_.erase(buffer);
     if (ValidateGeneratedName(buffer))
-        freeId_.emplace_back(buffer);
+        // TODO: Prevent the object that uses a freeId from conflicting with legacy object in the backend.
+        //freeId_.emplace_back(buffer);
     for (auto& [target, id] : currentBindings_) {
         if (id == buffer) id = 0;
     }

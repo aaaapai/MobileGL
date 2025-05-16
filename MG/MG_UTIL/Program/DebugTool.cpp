@@ -54,7 +54,7 @@ namespace MG_Util::Program {
         std::ostringstream ss;
         ss << "[";
 
-        const size_t elemCount = std::min<size_t>(value.count, 16); // 限制最大显示元素
+        const size_t elemCount = std::min<size_t>(value.count, 16);
 
         switch(value.type) {
             case GL_FLOAT:
