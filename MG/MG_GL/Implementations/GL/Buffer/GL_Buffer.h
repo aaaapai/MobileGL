@@ -8,6 +8,9 @@
 #include "../../../../Includes.h"
 
 namespace MG_GL::GL {
+    void* MapBufferRange(GLenum target, GLintptr offset, GLsizeiptr length, GLbitfield access);
+    void FlushMappedBufferRange(GLenum target, GLintptr offset, GLsizeiptr length);
+    void CopyBufferSubData(GLenum readTarget, GLenum writeTarget, GLintptr readOffset, GLintptr writeOffset, GLsizeiptr size);
     void* MapBuffer(GLenum target, GLenum access);
     GLboolean UnmapBuffer(GLenum target);
     void BindBuffer(GLenum target, GLuint buffer);

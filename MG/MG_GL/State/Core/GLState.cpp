@@ -155,6 +155,19 @@ namespace MG_State {
     GLenum AcquireBufferMemory(GLenum target, GLenum access, void** mappedPtr) {
         return MG_State_T::bufferState->AcquireBufferMemory(target, access, mappedPtr);
     }
+    
+    GLenum AcquireBufferMemoryRange(GLenum target, GLintptr offset, GLsizeiptr length, GLbitfield access, void** mappedPointer) {
+        return MG_State_T::bufferState->AcquireBufferMemoryRange(target, offset, length, access, mappedPointer);
+    }
+
+    GLenum SyncBufferMemory(GLenum target, GLintptr offset, GLsizeiptr length) {
+        return MG_State_T::bufferState->SyncBufferMemory(target, offset, length);
+    }
+
+    GLenum CopyBufferRange(GLenum readTarget, GLenum writeTarget, GLintptr readOffset, GLintptr writeOffset, GLsizeiptr size) {
+        return MG_State_T::bufferState->CopyBufferRange(readTarget, writeTarget, readOffset,
+                                                        writeOffset, size);
+    }
 
     GLenum ReleaseBufferMemory(GLenum target) {
         return MG_State_T::bufferState->ReleaseBufferMemory(target);
@@ -163,10 +176,6 @@ namespace MG_State {
     GLenum CreateBuffer(GLuint buffer) {
         return MG_State_T::bufferState->Create(buffer);
     }
-
-//    GLenum CreateBuffers(GLsizei n, GLuint* buffers) {
-//        return MG_State_T::bufferState->CreateN(n, buffers);
-//    }
 
     GLenum GenBufferNames(GLsizei n, GLuint* buffers) {
         return MG_State_T::bufferState->GenNameN(n, buffers);

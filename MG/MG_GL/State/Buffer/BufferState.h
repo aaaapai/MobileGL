@@ -21,23 +21,28 @@ public:
         bool isMapped = false;
         bool generated = false;
         GLenum accessMode = GL_READ_WRITE;
+        GLintptr mapOffset = 0;
+        GLsizeiptr mapLength = 0;
+        GLbitfield mapAccessFlags = 0;
     };
 
     // Return: the validity of the operation, according to OpenGL 3 standard
     GLenum GenName(GLuint* buffer);
     GLenum GenNameN(GLsizei n, GLuint* buffers);
     GLenum Create(GLuint buffer);
-//    GLenum CreateN(GLsizei n, GLuint* buffers);
     GLenum Bind(GLenum target, GLuint buffer);
     GLenum CommitStorage(GLenum target, GLsizeiptr size, const void* data, GLenum usage);
+    GLenum AcquireBufferMemoryRange(GLenum target, GLintptr offset, GLsizeiptr length, GLbitfield access, void** mappedPointer);
+    GLenum SyncBufferMemory(GLenum target, GLintptr offset, GLsizeiptr length);
+    GLenum CopyBufferRange(GLenum readTarget, GLenum writeTarget, GLintptr readOffset, GLintptr writeOffset, GLsizeiptr size);
     GLenum AcquireBufferMemory(GLenum target, GLenum access, void** mappedPointer);
     GLenum ReleaseBufferMemory(GLenum target);
     GLenum QueryPropertyIntVector(GLenum target, GLenum pname, GLint* params) const;
+    GLenum DeleteN(GLsizei n, const GLuint* buffers);
     
     bool ValidateAllocatedHandle(GLuint buffer);
     bool ValidateGeneratedName(GLuint buffer);
     void Delete(GLuint buffer);
-    GLenum DeleteN(GLsizei n, const GLuint* buffers);
     GLuint GetCurrentBinding(GLenum target) const;
 
     unordered_map<GLenum, GLuint> currentBindings_;

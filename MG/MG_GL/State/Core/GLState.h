@@ -57,9 +57,11 @@ namespace MG_State {
     
     // Buffer
     GLenum AcquireBufferMemory(GLenum target, GLenum access, void** mappedPtr);
+    GLenum AcquireBufferMemoryRange(GLenum target, GLintptr offset, GLsizeiptr length, GLbitfield access, void** mappedPointer);
+    GLenum SyncBufferMemory(GLenum target, GLintptr offset, GLsizeiptr length);
+    GLenum CopyBufferRange(GLenum readTarget, GLenum writeTarget, GLintptr readOffset, GLintptr writeOffset, GLsizeiptr size);
     GLenum ReleaseBufferMemory(GLenum target);
     GLenum CreateBuffer(GLuint buffer);
-//    GLenum CreateBuffers(GLsizei n, GLuint* buffers);
     GLenum GenBufferNames(GLsizei n, GLuint* buffers);
     GLenum BindBuffer(GLenum target, GLuint buffer);
     GLenum CommitBufferStorage(GLenum target, GLsizeiptr size, const void* data, GLenum usage);
