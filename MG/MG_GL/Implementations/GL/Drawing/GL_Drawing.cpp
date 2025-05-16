@@ -23,7 +23,7 @@ namespace MG_GL::GL {
                 if (outFormat)
                     *outFormat = format;
                 break;
-
+    
             case GL_DEPTH_COMPONENT24:
                 if (outInternalFormat)
                     *outInternalFormat = internalFormat;
@@ -646,7 +646,7 @@ namespace MG_GL::GL {
     }
 
     static GLuint lastBoundProgram = 0;
-    static GLuint lastBoundFBO[2] = {0};
+    static GLuint lastBoundFBO[2] = {0}; // 0: DRAW FBO, 1: READ FBO
     static std::array<GLuint, 32> lastBoundTextures;
 
     void RealizeFBOState(GLenum fbtype) {
@@ -1026,6 +1026,7 @@ namespace MG_GL::GL {
 
         // Framebuffer
         RealizeFBOState(GL_DRAW_FRAMEBUFFER);
+        RealizeFBOState(GL_READ_FRAMEBUFFER);
     }
 
     void DrawArraysSHITTILY(GLenum mode, GLint first, GLsizei count) {
@@ -1109,6 +1110,7 @@ namespace MG_GL::GL {
         SyncAllTexturesToGLES(textureState);
 
         RealizeFBOState(GL_DRAW_FRAMEBUFFER);
+        RealizeFBOState(GL_READ_FRAMEBUFFER);
 
         static GLfloat lastClearColor[4] = {-1.0f, -1.0f, -1.0f, -1.0f};
         if (memcmp(lastClearColor, commonState->clearColor, sizeof(lastClearColor)) != 0) {
@@ -1224,6 +1226,47 @@ namespace MG_GL::GL {
         if (curvao->elementBuffer != 0 || indices != nullptr) {
             for (GLsizei i = 0; i < drawcount; ++i) {
                 CallAndCheck(::GLES::glDrawElementsBaseVertex(mode, count[i], type, indices[i], basevertex[i]);)
+            }
+        }
+    }
+
+    void DrawBuffer(GLenum buf) {
+        SyncAllToGLES();
+        RealizeFBOState(GL_READ_FRAMEBUFFER);
+        RealizeFBOState(GL_READ_FRAMEBUFFER);
+
+        GLint currentFBO;
+        CallAndCheck(::GLES::glGetIntegerv(GL_FRAMEBUFFER_BINDING, &currentFBO);)
+
+        if (currentFBO == 0) {
+            GLenum buffers[1] = {GL_NONE};
+            switch (buf) {
+                case GL_FRONT:
+                case GL_BACK:
+                case GL_NONE:
+                    buffers[0] = buf;
+                    CallAndCheck(::GLES::glDrawBuffers(1, buffers);)
+                    break;
+                default:
+                    break;
+            }
+        } else {
+            GLint maxAttachments;
+            CallAndCheck(::GLES::glGetIntegerv(GL_MAX_COLOR_ATTACHMENTS, &maxAttachments);)
+
+            if (buf == GL_NONE) {
+                auto *buffers = (GLenum *)alloca(maxAttachments * sizeof(GLenum));
+                for (int i = 0; i < maxAttachments; i++) {
+                    buffers[i] = GL_NONE;
+                }
+                CallAndCheck(::GLES::glDrawBuffers(maxAttachments, buffers);)
+            } else if (buf >= GL_COLOR_ATTACHMENT0 &&
+                    buf < GL_COLOR_ATTACHMENT0 + maxAttachments) {
+                auto *buffers = (GLenum *)alloca(maxAttachments * sizeof(GLenum));
+                for (int i = 0; i < maxAttachments; i++) {
+                    buffers[i] = (i == (buf - GL_COLOR_ATTACHMENT0)) ? buf : GL_NONE;
+                }
+                CallAndCheck(::GLES::glDrawBuffers(maxAttachments, buffers);)
             }
         }
     }
