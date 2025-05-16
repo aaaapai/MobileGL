@@ -873,10 +873,10 @@ GLenum TextureState::CheckUploadingTexture2DValidity_(GLenum target, GLint level
         return GL_INVALID_OPERATION;
     }
 
-    bool isDepthInternal = (internalFormat == GL_DEPTH_COMPONENT32F || internalFormat == GL_DEPTH_COMPONENT24
-                            || internalFormat == GL_DEPTH_COMPONENT16 || internalFormat == GL_DEPTH32F_STENCIL8
-                            || internalFormat == GL_DEPTH24_STENCIL8 || internalFormat == GL_DEPTH_COMPONENT
-                            || internalFormat == GL_DEPTH_STENCIL);
+    bool isDepthInternal = (internalFormat == GL_DEPTH_COMPONENT32 || internalFormat == GL_DEPTH_COMPONENT32F ||
+            internalFormat == GL_DEPTH_COMPONENT24 || internalFormat == GL_DEPTH_COMPONENT16 || 
+            internalFormat == GL_DEPTH32F_STENCIL8 || internalFormat == GL_DEPTH24_STENCIL8 || 
+            internalFormat == GL_DEPTH_COMPONENT || internalFormat == GL_DEPTH_STENCIL);
     bool isDepthFormat = (format == GL_DEPTH_COMPONENT || format == GL_DEPTH_STENCIL);
     if (isDepthInternal != isDepthFormat) {
         MG_Util::Debug::LogE("MG_State: Texture: CheckUploadingTexture2DValidity_ depth internal/format mismatch");

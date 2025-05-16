@@ -37,7 +37,7 @@ namespace MG_GL::GL {
                 if (outInternalFormat)
                     *outInternalFormat = GL_DEPTH_COMPONENT32F;
                 if (outType)
-                    *outType = GL_UNSIGNED_INT;
+                    *outType = GL_FLOAT;
                 if (outFormat)
                     *outFormat = format;
                 break;
