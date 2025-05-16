@@ -397,11 +397,11 @@ void UpdateProgramUniformMatrix##suffix##Vector(GLint location, GLsizei count, G
     
     GLenum MG_State::AttachTexture2DToFramebuffer(GLenum target, GLenum attachment, GLenum textarget,
                                                   GLuint texture, GLint level) {
-        return MG_State_T::framebufferState->glAttachTexture2D(target, attachment, textarget,
-                                                               texture, level);
+        return MG_State_T::framebufferState->AttachTexture2D(target, attachment, textarget,
+                                                             texture, level);
     }
     
     GLenum MG_State::ValidateFramebufferCompleteness(GLenum target) {
-        return MG_State_T::framebufferState->glValidateCompleteness(target);
+        return MG_State_T::framebufferState->ValidateCompleteness(target);
     }
 }

@@ -30,9 +30,9 @@ public:
     GLenum CreateN(GLsizei n, GLuint* framebuffers);
     GLenum Delete(GLuint framebuffer);
     GLenum Bind(GLenum target, GLuint framebuffer);
-    GLenum glAttachTexture2D(GLenum target, GLenum attachment,
-                             GLenum textarget, GLuint texture, GLint level);
-    GLenum glValidateCompleteness(GLenum target);
+    GLenum AttachTexture2D(GLenum target, GLenum attachment,
+                           GLenum textarget, GLuint texture, GLint level);
+    GLenum ValidateCompleteness(GLenum target);
     FramebufferObject* GetCurrentFBO(GLenum target);
     
     std::unordered_map<GLenum, GLuint> currentBindings_; // READ/DRAW/FRAMEBUFFER

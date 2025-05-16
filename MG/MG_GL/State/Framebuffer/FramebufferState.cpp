@@ -55,8 +55,8 @@ GLenum FramebufferState::Bind(GLenum target, GLuint framebuffer) {
     return GL_NO_ERROR;
 }
 
-GLenum FramebufferState::glAttachTexture2D(GLenum target, GLenum attachment,
-                                           GLenum textarget, GLuint texture, GLint level) {
+GLenum FramebufferState::AttachTexture2D(GLenum target, GLenum attachment,
+                                         GLenum textarget, GLuint texture, GLint level) {
     if (MG_Constants::Framebuffer::VALID_ATTACHMENTS.find(attachment) == MG_Constants::Framebuffer::VALID_ATTACHMENTS.end() ||
         MG_Constants::Texture::VALID_TARGETS.find(textarget) == MG_Constants::Texture::VALID_TARGETS.end())
         return GL_INVALID_ENUM;
@@ -84,7 +84,7 @@ GLenum FramebufferState::glAttachTexture2D(GLenum target, GLenum attachment,
     return GL_NO_ERROR;
 }
 
-GLenum FramebufferState::glValidateCompleteness(GLenum target) {
+GLenum FramebufferState::ValidateCompleteness(GLenum target) {
     if (target == GL_FRAMEBUFFER) target = GL_DRAW_FRAMEBUFFER;
     FramebufferObject* fbo = GetCurrentFBO(target);
     if (!fbo) return GL_INVALID_OPERATION;
