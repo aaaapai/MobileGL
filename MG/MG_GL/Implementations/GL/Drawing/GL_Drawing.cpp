@@ -583,8 +583,7 @@ namespace MG_GL::GL {
 
         }
     }
-
-
+    
     void SyncAllVAOsToGLES(VertexArrayState* vaState) {
         for (auto& [mgid, vao] : vaState->vaos_) {
             if (!vao.generated)
@@ -740,25 +739,20 @@ namespace MG_GL::GL {
         }
     }
 
-
-    void DrawArraysSHITTILY(GLenum mode, GLint first, GLsizei count) {
-        
-    }
-
-    void DrawElementsSHITTILY(GLenum mode, GLsizei count, GLenum type, const GLvoid* indices) {
+    void SyncAllToGLES() {
         CommonState* commonState = MG_State_T::commonState;
         TextureState* textureState = MG_State_T::textureState;
         BufferState* bufferState = MG_State_T::bufferState;
         VertexArrayState* vaState = MG_State_T::vertexArrayState;
         ProgramState* programState = MG_State_T::programState;
         FramebufferState* fbState = MG_State_T::framebufferState;
-        
+
         // Common
         const GLint* viewport = commonState->viewport;
-        if (viewport[2] > 0 && viewport[3] > 0) { 
+        if (viewport[2] > 0 && viewport[3] > 0) {
             CallAndCheck(::GLES::glViewport(viewport[0], viewport[1], viewport[2], viewport[3]);)
         }
-        
+
         if (commonState->capabilities[GL_BLEND]) {
             CallAndCheck(::GLES::glEnable(GL_BLEND);)
             CallAndCheck(::GLES::glBlendFuncSeparate(
@@ -768,7 +762,7 @@ namespace MG_GL::GL {
         } else {
             CallAndCheck(::GLES::glDisable(GL_BLEND);)
         }
-        
+
         if (commonState->capabilities[GL_DEPTH_TEST]) {
             CallAndCheck(::GLES::glEnable(GL_DEPTH_TEST);)
             CallAndCheck(::GLES::glDepthMask(commonState->depthMask);)
@@ -776,24 +770,24 @@ namespace MG_GL::GL {
         } else {
             CallAndCheck(::GLES::glDisable(GL_DEPTH_TEST);)
         }
-        
+
         if (commonState->capabilities[GL_CULL_FACE]) {
             CallAndCheck(::GLES::glEnable(GL_CULL_FACE);)
         } else {
             CallAndCheck(::GLES::glDisable(GL_CULL_FACE);)
         }
-        
+
         CallAndCheck(::GLES::glColorMask(
                 commonState->colorMask[0], commonState->colorMask[1],
                 commonState->colorMask[2], commonState->colorMask[3]
         );)
-        
+
         // Texture
         SyncAllTexturesToGLES(textureState);
         for (size_t unitIdx = 0; unitIdx < textureState->textureUnits_.size(); ++unitIdx) {
             TextureUnitState& mgUnit = textureState->textureUnits_[unitIdx];
             GLenum glUnit = GL_TEXTURE0 + unitIdx;
-            
+
             if (lastBoundTextures[unitIdx] != mgUnit.boundTextures[GL_TEXTURE_2D]) {
                 CallAndCheck(::GLES::glActiveTexture(glUnit);)
                 for (auto& [target, texId] : mgUnit.boundTextures) {
@@ -802,12 +796,12 @@ namespace MG_GL::GL {
                         lastBoundTextures[unitIdx] = 0;
                         continue;
                     }
-                    
+
                     if (s_textureMap.find(texId) == s_textureMap.end()) {
                         GLuint glTexId;
                         CallAndCheck(::GLES::glGenTextures(1, &glTexId);)
                         s_textureMap[texId] = glTexId;
-                        
+
                         CallAndCheck(::GLES::glBindTexture(target, glTexId);)
                         TextureObject& mgTex = textureState->textures[texId];
                         TexParamCache& entry = cache[&mgTex];
@@ -818,7 +812,7 @@ namespace MG_GL::GL {
                                 entry.lastInt[pname] = param;
                             }
                         }
-                        
+
                         for (auto& [pname, param] : mgTex.params.texPropertiesFloat) {
                             auto it = entry.lastFloat.find(pname);
                             if (it == entry.lastFloat.end() || it->second != param) {
@@ -826,13 +820,13 @@ namespace MG_GL::GL {
                                 entry.lastFloat[pname] = param;
                             }
                         }
-                        
+
                         for (auto& [level, mip] : mgTex.params.mipmapData) {
                             CallAndCheck(::GLES::glTexImage2D(
                                     target, level, mip.internalFormat,
                                     mip.width, mip.height, 0,
                                     mip.format, mip.type, mip.pixelData.data()
-                                    );)
+                            );)
                         }
                     }
                     CallAndCheck(::GLES::glBindTexture(target, s_textureMap[texId]);)
@@ -856,11 +850,11 @@ namespace MG_GL::GL {
         MG_Util::Debug::LogD("binding vbo MG %d -> ES %d", vbo, s_bufferMap[vbo]);
 
         SyncCurrentVAOToGLES(vaState);
-        
+
         // EBO
         GLuint curVaoId = vaState->currentVao_;
         VertexArrayObject* curvao = &vaState->vaos_[curVaoId];
-        
+
         // Program
         GLuint currentProgram = programState->GetCurrentProgram();
         if (currentProgram != lastBoundProgram) {
@@ -893,7 +887,7 @@ namespace MG_GL::GL {
                     const char* s[] = { source.c_str() };
                     CallAndCheck(::GLES::glShaderSource(glShader, 1, s, nullptr);)
                     CallAndCheck(::GLES::glCompileShader(glShader);)
-                    
+
                     GLint success;
                     CallAndCheck(::GLES::glGetShaderiv(glShader, GL_COMPILE_STATUS, &success);)
                     if (!success) {
@@ -903,7 +897,7 @@ namespace MG_GL::GL {
                     }
                     CallAndCheck(::GLES::glAttachShader(glProgram, glShader);)
                 }
-                
+
                 CallAndCheck(::GLES::glLinkProgram(glProgram);)
                 GLint linkStatus;
                 CallAndCheck(::GLES::glGetProgramiv(glProgram, GL_LINK_STATUS, &linkStatus);)
@@ -916,12 +910,12 @@ namespace MG_GL::GL {
             }
             CallAndCheck(::GLES::glUseProgram(s_programMap[currentProgram]);)
             lastBoundProgram = currentProgram;
-            
+
             // Uniform
             ProgramObject& mgProgram = programState->programs_[currentProgram];
             for (auto& [name, uniform] : mgProgram.uniformValues) {
                 GLint location = ::GLES::glGetUniformLocation(s_programMap[currentProgram], name.c_str());
-                if (location == -1) { 
+                if (location == -1) {
                     MG_Util::Debug::LogE("Uniform location not found: %s", name.c_str());
                     continue;
                 }
@@ -929,23 +923,19 @@ namespace MG_GL::GL {
 
                 switch (uniform.type) {
                     case GL_FLOAT: {
-                        GLsizei num = static_cast<GLsizei>(uniform.count / 1);
-                        CallAndCheck(::GLES::glUniform1fv(location, num, uniform.floatData.data());)
+                        CallAndCheck(::GLES::glUniform1fv(location, uniform.count, uniform.floatData.data());)
                         break;
                     }
                     case GL_FLOAT_VEC2: {
-                        GLsizei num = static_cast<GLsizei>(uniform.count / 2);
-                        CallAndCheck(::GLES::glUniform2fv(location, num, uniform.floatData.data());)
+                        CallAndCheck(::GLES::glUniform2fv(location, uniform.count, uniform.floatData.data());)
                         break;
                     }
                     case GL_FLOAT_VEC3: {
-                        GLsizei num = static_cast<GLsizei>(uniform.count / 3);
-                        CallAndCheck(::GLES::glUniform3fv(location, num, uniform.floatData.data());)
+                        CallAndCheck(::GLES::glUniform3fv(location, uniform.count, uniform.floatData.data());)
                         break;
                     }
                     case GL_FLOAT_VEC4: {
-                        GLsizei num = static_cast<GLsizei>(uniform.count / 4);
-                        CallAndCheck(::GLES::glUniform4fv(location, num, uniform.floatData.data());)
+                        CallAndCheck(::GLES::glUniform4fv(location, uniform.count, uniform.floatData.data());)
                         break;
                     }
 
@@ -957,103 +947,98 @@ namespace MG_GL::GL {
                     case GL_SAMPLER_CUBE:
                     case GL_SAMPLER_1D_SHADOW:
                     case GL_SAMPLER_2D_SHADOW: {
-                        GLsizei num = static_cast<GLsizei>(uniform.count / 1);
-                        CallAndCheck(::GLES::glUniform1iv(location, num, uniform.intData.data());)
+                        CallAndCheck(::GLES::glUniform1iv(location, uniform.count, uniform.intData.data());)
                         break;
                     }
                     case GL_INT_VEC2:
                     case GL_BOOL_VEC2: {
-                        GLsizei num = static_cast<GLsizei>(uniform.count / 2);
-                        CallAndCheck(::GLES::glUniform2iv(location, num, uniform.intData.data());)
+                        CallAndCheck(::GLES::glUniform2iv(location, uniform.count, uniform.intData.data());)
                         break;
                     }
                     case GL_INT_VEC3:
                     case GL_BOOL_VEC3: {
-                        GLsizei num = static_cast<GLsizei>(uniform.count / 3);
-                        CallAndCheck(::GLES::glUniform3iv(location, num, uniform.intData.data());)
+                        CallAndCheck(::GLES::glUniform3iv(location, uniform.count, uniform.intData.data());)
                         break;
                     }
                     case GL_INT_VEC4:
                     case GL_BOOL_VEC4: {
-                        GLsizei num = static_cast<GLsizei>(uniform.count / 4);
-                        CallAndCheck(::GLES::glUniform4iv(location, num, uniform.intData.data());)
+                        CallAndCheck(::GLES::glUniform4iv(location, uniform.count, uniform.intData.data());)
                         break;
                     }
 
                     case GL_UNSIGNED_INT: {
-                        GLsizei num = static_cast<GLsizei>(uniform.count / 1);
-                        CallAndCheck(::GLES::glUniform1uiv(location, num, uniform.uintData.data());)
+                        CallAndCheck(::GLES::glUniform1uiv(location, uniform.count, uniform.uintData.data());)
                         break;
                     }
                     case GL_UNSIGNED_INT_VEC2: {
-                        GLsizei num = static_cast<GLsizei>(uniform.count / 2);
-                        CallAndCheck(::GLES::glUniform2uiv(location, num, uniform.uintData.data());)
+                        CallAndCheck(::GLES::glUniform2uiv(location, uniform.count, uniform.uintData.data());)
                         break;
                     }
                     case GL_UNSIGNED_INT_VEC3: {
-                        GLsizei num = static_cast<GLsizei>(uniform.count / 3);
-                        CallAndCheck(::GLES::glUniform3uiv(location, num, uniform.uintData.data());)
+                        CallAndCheck(::GLES::glUniform3uiv(location, uniform.count, uniform.uintData.data());)
                         break;
                     }
                     case GL_UNSIGNED_INT_VEC4: {
-                        GLsizei num = static_cast<GLsizei>(uniform.count / 4);
-                        CallAndCheck(::GLES::glUniform4uiv(location, num, uniform.uintData.data());)
+                        CallAndCheck(::GLES::glUniform4uiv(location, uniform.count, uniform.uintData.data());)
                         break;
                     }
 
                     case GL_FLOAT_MAT2: {
-                        GLsizei num = static_cast<GLsizei>(uniform.count / 4);
-                        CallAndCheck(::GLES::glUniformMatrix2fv(location, num, GL_FALSE, uniform.floatData.data());)
+                        CallAndCheck(::GLES::glUniformMatrix2fv(location, uniform.count, GL_FALSE, uniform.floatData.data());)
                         break;
                     }
                     case GL_FLOAT_MAT3: {
-                        GLsizei num = static_cast<GLsizei>(uniform.count / 9);
-                        CallAndCheck(::GLES::glUniformMatrix3fv(location, num, GL_FALSE, uniform.floatData.data());)
+                        CallAndCheck(::GLES::glUniformMatrix3fv(location, uniform.count, GL_FALSE, uniform.floatData.data());)
                         break;
                     }
                     case GL_FLOAT_MAT4: {
-                        GLsizei num = static_cast<GLsizei>(uniform.count / 16);
-                        CallAndCheck(::GLES::glUniformMatrix4fv(location, num, GL_FALSE, uniform.floatData.data());)
+                        CallAndCheck(::GLES::glUniformMatrix4fv(location, uniform.count, GL_FALSE, uniform.floatData.data());)
                         break;
                     }
                     case GL_FLOAT_MAT2x3: {
-                        GLsizei num = static_cast<GLsizei>(uniform.count / 6);
-                        CallAndCheck(::GLES::glUniformMatrix2x3fv(location, num, GL_FALSE, uniform.floatData.data());)
+                        CallAndCheck(::GLES::glUniformMatrix2x3fv(location, uniform.count, GL_FALSE, uniform.floatData.data());)
                         break;
                     }
                     case GL_FLOAT_MAT2x4: {
-                        GLsizei num = static_cast<GLsizei>(uniform.count / 8);
-                        CallAndCheck(::GLES::glUniformMatrix2x4fv(location, num, GL_FALSE, uniform.floatData.data());)
+                        CallAndCheck(::GLES::glUniformMatrix2x4fv(location, uniform.count, GL_FALSE, uniform.floatData.data());)
                         break;
                     }
                     case GL_FLOAT_MAT3x2: {
-                        GLsizei num = static_cast<GLsizei>(uniform.count / 6);
-                        CallAndCheck(::GLES::glUniformMatrix3x2fv(location, num, GL_FALSE, uniform.floatData.data());)
+                        CallAndCheck(::GLES::glUniformMatrix3x2fv(location, uniform.count, GL_FALSE, uniform.floatData.data());)
                         break;
                     }
                     case GL_FLOAT_MAT3x4: {
-                        GLsizei num = static_cast<GLsizei>(uniform.count / 12);
-                        CallAndCheck(::GLES::glUniformMatrix3x4fv(location, num, GL_FALSE, uniform.floatData.data());)
+                        CallAndCheck(::GLES::glUniformMatrix3x4fv(location, uniform.count, GL_FALSE, uniform.floatData.data());)
                         break;
                     }
                     case GL_FLOAT_MAT4x2: {
-                        GLsizei num = static_cast<GLsizei>(uniform.count / 8);
-                        CallAndCheck(::GLES::glUniformMatrix4x2fv(location, num, GL_FALSE, uniform.floatData.data());)
+                        CallAndCheck(::GLES::glUniformMatrix4x2fv(location, uniform.count, GL_FALSE, uniform.floatData.data());)
                         break;
                     }
                     case GL_FLOAT_MAT4x3: {
-                        GLsizei num = static_cast<GLsizei>(uniform.count / 12);
-                        CallAndCheck(::GLES::glUniformMatrix4x3fv(location, num, GL_FALSE, uniform.floatData.data());)
+                        CallAndCheck(::GLES::glUniformMatrix4x3fv(location, uniform.count, GL_FALSE, uniform.floatData.data());)
                         break;
                     }
                 }
 
             }
         }
-        
+
         // Framebuffer
         RealizeFBOState(GL_DRAW_FRAMEBUFFER);
+    }
 
+    void DrawArraysSHITTILY(GLenum mode, GLint first, GLsizei count) {
+        
+    }
+    
+    void DrawElementsSHITTILY(GLenum mode, GLsizei count, GLenum type, const GLvoid* indices) {
+        SyncAllToGLES();
+        
+        VertexArrayState* vaState = MG_State_T::vertexArrayState;
+        GLuint curVaoId = vaState->currentVao_;
+        VertexArrayObject* curvao = &vaState->vaos_[curVaoId];
+        
         if (curvao->elementBuffer != 0 || indices != nullptr) {
             CallAndCheck(::GLES::glDrawElements(
                     mode,
@@ -1064,6 +1049,24 @@ namespace MG_GL::GL {
         }
     }
 
+    void DrawElementsBaseVertexSHITTILY(GLenum mode, GLsizei count, GLenum type, const GLvoid* indices, GLint basevertex) {
+        SyncAllToGLES();
+
+        VertexArrayState* vaState = MG_State_T::vertexArrayState;
+        GLuint curVaoId = vaState->currentVao_;
+        VertexArrayObject* curvao = &vaState->vaos_[curVaoId];
+
+        if (curvao->elementBuffer != 0 || indices != nullptr) {
+            CallAndCheck(::GLES::glDrawElementsBaseVertex(
+                    mode,
+                    count,
+                    type,
+                    indices,
+                    basevertex
+            );)
+        }
+    }
+    
     void BlitFramebuffer(GLint srcX0,
                          GLint srcY0,
                          GLint srcX1,
@@ -1186,5 +1189,42 @@ namespace MG_GL::GL {
     
     void DrawArrays(GLenum mode, GLint first, GLsizei count) {
         DrawArraysSHITTILY(mode, first, count);
+    }
+    
+    void DrawElementsBaseVertex(GLenum mode, GLsizei count, GLenum type, const GLvoid *indices, GLint basevertex) {
+        DrawElementsBaseVertexSHITTILY(mode, count, type, indices, basevertex);
+    }
+
+    void MultiDrawElements(GLenum mode, const GLsizei *count, GLenum type, const GLvoid *const *indices, GLsizei drawcount) {
+        SyncAllToGLES();
+
+        VertexArrayState* vaState = MG_State_T::vertexArrayState;
+        GLuint curVaoId = vaState->currentVao_;
+        VertexArrayObject* curvao = &vaState->vaos_[curVaoId];
+
+        if (curvao->elementBuffer != 0 || indices != nullptr) {
+            for (GLsizei i = 0; i < drawcount; ++i) {
+                CallAndCheck(::GLES::glDrawElements(
+                        mode,
+                        count[i],
+                        type,
+                        indices[i]
+                );)
+            }
+        }
+    }
+    
+    void MultiDrawElementsBaseVertex(GLenum mode, const GLsizei *count, GLenum type, const GLvoid *const *indices, GLsizei drawcount, const GLint *basevertex) {
+        SyncAllToGLES();
+        
+        VertexArrayState* vaState = MG_State_T::vertexArrayState;
+        GLuint curVaoId = vaState->currentVao_;
+        VertexArrayObject* curvao = &vaState->vaos_[curVaoId];
+
+        if (curvao->elementBuffer != 0 || indices != nullptr) {
+            for (GLsizei i = 0; i < drawcount; ++i) {
+                CallAndCheck(::GLES::glDrawElementsBaseVertex(mode, count[i], type, indices[i], basevertex[i]);)
+            }
+        }
     }
 }
