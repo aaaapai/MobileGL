@@ -376,13 +376,13 @@ namespace MG_GL::GL {
     static unordered_map<GLuint, GLuint> s_bufferMap;
     static unordered_map<GLuint, GLuint> s_programMap;
     static unordered_map<GLuint, GLuint> s_framebufferMap;
-    struct MipLevelInfo {
-        GLenum internalFormat;
-        GLsizei width;
-        GLsizei height;
-        GLenum format;
-        GLenum type;
+
+    struct TexParamCache {
+        std::unordered_map<GLenum, GLint>  lastInt;
+        std::unordered_map<GLenum, GLfloat> lastFloat;
     };
+
+    static std::unordered_map<const TextureObject*, TexParamCache> cache;
 
     void CheckGLESError() {
         while (GLenum err = ::GLES::glGetError() != GL_NO_ERROR) {
@@ -409,12 +409,21 @@ namespace MG_GL::GL {
             }
             GLenum target = texObj.target;
             CallAndCheck(::GLES::glBindTexture(target, glTexId);)
-
+            TexParamCache& entry = cache[&texObj];
             for (auto& [pname, param] : texObj.params.texPropertiesInt) {
-                CallAndCheck(::GLES::glTexParameteri(target, pname, param);)
+                auto it = entry.lastInt.find(pname);
+                if (it == entry.lastInt.end() || it->second != param) {
+                    CallAndCheck(::GLES::glTexParameteri(target, pname, param);)
+                    entry.lastInt[pname] = param;
+                }
             }
+
             for (auto& [pname, param] : texObj.params.texPropertiesFloat) {
-                CallAndCheck(::GLES::glTexParameterf(target, pname, param);)
+                auto it = entry.lastFloat.find(pname);
+                if (it == entry.lastFloat.end() || it->second != param) {
+                    CallAndCheck(::GLES::glTexParameterf(target, pname, param);)
+                    entry.lastFloat[pname] = param;
+                }
             }
 
             for (auto& [level, mip] : texObj.params.mipmapData) {
@@ -432,7 +441,6 @@ namespace MG_GL::GL {
                                 mip.width, mip.height, 0,
                                 format, type, data
                         );)
-//                        s_textureLevelUploaded[mgTexId][level] = true;
                         MG_Util::Debug::LogD("Initial upload texture %u level %d (size=%zu)",
                                              mgTexId, level, mip.pixelData.size());
                         break;
@@ -445,7 +453,6 @@ namespace MG_GL::GL {
         }
     }
 
-//    static std::unordered_map<GLuint, void*> s_bufferDirtyFlags_bufferObj;
     void SyncAllBuffersToGLES(BufferState* bufferState) {
         GLint prev_buf = 0;
         // Delete removed buffers in GLES
@@ -497,7 +504,6 @@ namespace MG_GL::GL {
                         obj.data.data(), //obj.dataValid || obj.isMapped ? obj.data.data() : nullptr,
                         obj.usage);)
 
-//            s_bufferDirtyFlags_bufferObj[mgname] = obj.data.data();
         }
         CallAndCheck(::GLES::glBindBuffer(GL_COPY_WRITE_BUFFER, prev_buf);)
     }
@@ -510,8 +516,6 @@ namespace MG_GL::GL {
             return;
 
         GLuint glvao = 0;
-
-//        if (vao.attribDirty || vao.eboDirty) {
             if (s_vaoMap.find(mgid) == s_vaoMap.end()) {
                 CallAndCheck(::GLES::glGenVertexArrays(1, &glvao);)
                 s_vaoMap[mgid] = glvao;
@@ -521,7 +525,6 @@ namespace MG_GL::GL {
             }
             MG_Util::Debug::LogD("Updating MG VAO: %d", mgid);
             CallAndCheck(::GLES::glBindVertexArray(glvao);)
-//        }
     }
 
     void SyncCurrentVAOToGLES(VertexArrayState* vaState) {
@@ -532,18 +535,6 @@ namespace MG_GL::GL {
                 return;
 
             GLuint glvao = 0;
-
-//            if (vao.attribDirty || vao.eboDirty) {
-//                if (s_vaoMap.find(mgid) == s_vaoMap.end()) {
-//                    CallAndCheck(::GLES::glGenVertexArrays(1, &glvao);)
-//                    s_vaoMap[mgid] = glvao;
-//                    MG_Util::Debug::LogD("Creating MG VAO: %d", mgid);
-//                } else {
-//                    glvao = s_vaoMap[mgid];
-//                }
-//                MG_Util::Debug::LogD("Updating MG VAO: %d", mgid);
-//                CallAndCheck(::GLES::glBindVertexArray(glvao);)
-//            } else return;
 
             if (vao.attribDirty) {
                 MG_Util::Debug::LogD("Updating MG VAO %d, dirty attrib", mgid);
@@ -583,9 +574,9 @@ namespace MG_GL::GL {
                 }
             }
 
-//            CallAndCheck(::GLES::glBindVertexArray(0);)
         }
     }
+
 
     void SyncAllVAOsToGLES(VertexArrayState* vaState) {
         for (auto& [mgid, vao] : vaState->vaos_) {
@@ -812,12 +803,21 @@ namespace MG_GL::GL {
                         
                         CallAndCheck(::GLES::glBindTexture(target, glTexId);)
                         TextureObject& mgTex = textureState->textures[texId];
-                        
+                        TexParamCache& entry = cache[&mgTex];
                         for (auto& [pname, param] : mgTex.params.texPropertiesInt) {
-                            CallAndCheck(::GLES::glTexParameteri(target, pname, param);)
+                            auto it = entry.lastInt.find(pname);
+                            if (it == entry.lastInt.end() || it->second != param) {
+                                CallAndCheck(::GLES::glTexParameteri(target, pname, param);)
+                                entry.lastInt[pname] = param;
+                            }
                         }
+                        
                         for (auto& [pname, param] : mgTex.params.texPropertiesFloat) {
-                            CallAndCheck(::GLES::glTexParameterf(target, pname, param);)
+                            auto it = entry.lastFloat.find(pname);
+                            if (it == entry.lastFloat.end() || it->second != param) {
+                                CallAndCheck(::GLES::glTexParameterf(target, pname, param);)
+                                entry.lastFloat[pname] = param;
+                            }
                         }
                         
                         for (auto& [level, mip] : mgTex.params.mipmapData) {
@@ -848,44 +848,11 @@ namespace MG_GL::GL {
         CallAndCheck(::GLES::glBindBuffer(GL_ARRAY_BUFFER, s_bufferMap[vbo]);)
         MG_Util::Debug::LogD("binding vbo MG %d -> ES %d", vbo, s_bufferMap[vbo]);
 
-//        SyncAllVAOsToGLES(vaState);
         SyncCurrentVAOToGLES(vaState);
-
-
-//        if (s_vaoMap.find(currentMgVAO) != s_vaoMap.end()) {
-//            CallAndCheck(::GLES::glBindVertexArray(s_vaoMap[currentMgVAO]);)
-//        } else {
-//            MG_Util::Debug::LogD("ERROR: MG VAO %d not found! Check SyncAllVAOsToGLES!", currentMgVAO);
-//            CallAndCheck(::GLES::glBindVertexArray(0);)
-//        }
-
-//        CallAndCheck(::GLES::glBindBuffer(GL_ARRAY_BUFFER, s_bufferMap[vbo]);)
-//        MG_Util::Debug::LogD("binding vbo MG %d -> ES %d", vbo, s_bufferMap[vbo]);
-
+        
         // EBO
         GLuint curVaoId = vaState->currentVao_;
         VertexArrayObject* curvao = &vaState->vaos_[curVaoId];
-//        if (curvao->elementBuffer != 0) {
-//            if (s_bufferMap.find(curvao->elementBuffer) != s_bufferMap.end()) {
-//                CallAndCheck(::GLES::glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, s_bufferMap[curvao->elementBuffer]);)
-//            }
-//        } else if (indices != nullptr) {
-//            static GLuint dynamicIBO = 0;
-//            if (dynamicIBO == 0) {
-//                CallAndCheck(::GLES::glGenBuffers(1, &dynamicIBO);)
-//            }
-//
-//            size_t typeSize = 0;
-//            switch(type) {
-//                case GL_UNSIGNED_BYTE:  typeSize = sizeof(GLubyte); break;
-//                case GL_UNSIGNED_SHORT: typeSize = sizeof(GLushort); break;
-//                case GL_UNSIGNED_INT:   typeSize = sizeof(GLuint); break;
-//            }
-//            size_t dataSize = count * typeSize;
-//
-//            CallAndCheck(::GLES::glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, dynamicIBO);)
-//            CallAndCheck(::GLES::glBufferData(GL_ELEMENT_ARRAY_BUFFER, dataSize, indices, GL_STREAM_DRAW);)
-//        }
         
         // Program
         GLuint currentProgram = programState->GetCurrentProgram();
@@ -893,9 +860,6 @@ namespace MG_GL::GL {
             if (s_programMap.find(currentProgram) == s_programMap.end()) {
                 GLuint glProgram = ::GLES::glCreateProgram();
                 ProgramObject& mgProgram = programState->programs_[currentProgram];
-
-//                std::string name = std::format("MG Program {}", currentProgram);
-//                ::GLES::glObjectLabel(GL_PROGRAM, glProgram, name.length(), name.c_str());
 
                 // Attribute Names
                 // before vertex shader attach
