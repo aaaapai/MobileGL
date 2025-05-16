@@ -32,6 +32,7 @@ public:
     GLenum Create(GLuint buffer);
     GLenum Bind(GLenum target, GLuint buffer);
     GLenum CommitStorage(GLenum target, GLsizeiptr size, const void* data, GLenum usage);
+    GLenum CommitStorageRegion(GLenum target, GLintptr offset, GLsizeiptr size, const void* data);
     GLenum AcquireBufferMemoryRange(GLenum target, GLintptr offset, GLsizeiptr length, GLbitfield access, void** mappedPointer);
     GLenum SyncBufferMemory(GLenum target, GLintptr offset, GLsizeiptr length);
     GLenum CopyBufferRange(GLenum readTarget, GLenum writeTarget, GLintptr readOffset, GLintptr writeOffset, GLsizeiptr size);

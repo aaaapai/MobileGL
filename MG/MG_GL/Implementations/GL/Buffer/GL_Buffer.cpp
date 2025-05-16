@@ -163,6 +163,18 @@ namespace MG_GL::GL {
         return isValid ? GL_TRUE : GL_FALSE;
     }
 
+    void BufferSubData(GLenum target, GLintptr offset, GLsizeiptr size, const void* data) {
+        MG_Util::Debug::LogD("glBufferSubData, target: %s, offset: %lld, size: %lld, data: %p",
+                             MG_Util::Debug::GLEnumToString(target),
+                             static_cast<long long>(offset),
+                             static_cast<long long>(size),
+                             data);
+        GLenum result = MG_State::CommitBufferStorageRegion(target, offset, size, data);
+        if (result != GL_NO_ERROR) {
+            MG_State::SetError(result);
+            MG_Util::Debug::LogE("Error from MG State: %s", MG_Util::Debug::GLEnumToString(result));
+        }
+    }
     void DeleteBuffers(GLsizei n, const GLuint *buffers) {
         MG_Util::Debug::LogD("glDeleteBuffers, n: %d, buffers: %p", n, buffers);
 

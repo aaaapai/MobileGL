@@ -85,6 +85,27 @@ GLenum BufferState::CommitStorage(GLenum target, GLsizeiptr size, const void* da
     return GL_NO_ERROR;
 }
 
+GLenum BufferState::CommitStorageRegion(GLenum target, GLintptr offset, GLsizeiptr size, const void* data) {
+    MG_Util::Debug::LogD("MG_State: Buffer: BufferSubData called on target 0x%x, offset=%ld, size=%ld", target, offset, size);
+    if (!IsValidTarget_(target)) return GL_INVALID_ENUM;
+    if (offset < 0 || size < 0) return GL_INVALID_VALUE;
+
+    auto it = currentBindings_.find(target);
+    if (it == currentBindings_.end() || it->second == 0)
+        return GL_INVALID_OPERATION;
+
+    BufferObject& obj = buffers_[it->second];
+    MG_Util::Debug::LogD("MG_State: Buffer: BufferSubData get buffer object %u at target 0x%x", it->second, target);
+
+    if (static_cast<size_t>(offset + size) > obj.data.size()) return GL_INVALID_VALUE;
+
+    if (data) {
+        memcpy(obj.data.data() + offset, data, size);
+        obj.dirty = true;
+    }
+    return GL_NO_ERROR;
+}
+
 GLenum BufferState::AcquireBufferMemoryRange(GLenum target, GLintptr offset, GLsizeiptr length, GLbitfield access, void** mappedPointer) {
     MG_Util::Debug::LogD("MG_State: Buffer: AcquireBufferMemoryRange called with target=0x%x, offset=%ld, length=%ld, access=0x%x", target, offset, length, access);
     if (!IsValidTarget_(target)) {

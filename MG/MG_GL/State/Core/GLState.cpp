@@ -195,6 +195,10 @@ namespace MG_State {
         return MG_State_T::bufferState->CommitStorage(target, size, data, usage);
     }
 
+    GLenum CommitBufferStorageRegion(GLenum target, GLintptr offset, GLsizeiptr size, const void* data) {
+        return MG_State_T::bufferState->CommitStorageRegion(target, offset, size, data);
+    }
+
     bool ValidateAllocatedBufferHandle(GLuint buffer) {
         return MG_State_T::bufferState->ValidateAllocatedHandle(buffer);
     }

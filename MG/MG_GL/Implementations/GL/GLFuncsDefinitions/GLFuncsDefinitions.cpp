@@ -46,7 +46,7 @@ DECLARE_GL_FUNCTION_STUB_HEAD(void, BlendEquationSeparate, GLenum modeRGB, GLenu
 DECLARE_GL_FUNCTION_HEAD(void, BlendFunc, GLenum sfactor, GLenum dfactor) DECLARE_GL_FUNCTION_END_NO_RETURN(void, BlendFunc, sfactor,dfactor)
 DECLARE_GL_FUNCTION_HEAD(void, BlendFuncSeparate, GLenum sfactorRGB, GLenum dfactorRGB, GLenum sfactorAlpha, GLenum dfactorAlpha) DECLARE_GL_FUNCTION_END_NO_RETURN(void, BlendFuncSeparate, sfactorRGB,dfactorRGB,sfactorAlpha,dfactorAlpha)
 DECLARE_GL_FUNCTION_HEAD(void, BufferData, GLenum target, GLsizeiptr size, const void *data, GLenum usage) DECLARE_GL_FUNCTION_END_NO_RETURN(void, BufferData, target,size,data,usage)
-DECLARE_GL_FUNCTION_STUB_HEAD(void, BufferSubData, GLenum target, GLintptr offset, GLsizeiptr size, const void *data) DECLARE_GL_FUNCTION_STUB_END_NO_RETURN(void, BufferSubData, target,offset,size,data)
+DECLARE_GL_FUNCTION_HEAD(void, BufferSubData, GLenum target, GLintptr offset, GLsizeiptr size, const void *data) DECLARE_GL_FUNCTION_END_NO_RETURN(void, BufferSubData, target,offset,size,data)
 DECLARE_GL_FUNCTION_HEAD(GLenum, CheckFramebufferStatus, GLenum target) DECLARE_GL_FUNCTION_END(GLenum, CheckFramebufferStatus, target)
 DECLARE_GL_FUNCTION_HEAD(void, Clear, GLbitfield mask) DECLARE_GL_FUNCTION_END_NO_RETURN(void, Clear, mask)
 DECLARE_GL_FUNCTION_HEAD(void, ClearColor, GLfloat red, GLfloat green, GLfloat blue, GLfloat alpha) DECLARE_GL_FUNCTION_END_NO_RETURN(void, ClearColor, red,green,blue,alpha)

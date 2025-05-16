@@ -65,6 +65,7 @@ namespace MG_State {
     GLenum GenBufferNames(GLsizei n, GLuint* buffers);
     GLenum BindBuffer(GLenum target, GLuint buffer);
     GLenum CommitBufferStorage(GLenum target, GLsizeiptr size, const void* data, GLenum usage);
+    GLenum CommitBufferStorageRegion(GLenum target, GLintptr offset, GLsizeiptr size, const void* data);
     bool ValidateAllocatedBufferHandle(GLuint buffer);
     bool ValidateGeneratedName(GLuint buffer);
     void DeleteBuffer(GLuint buffer);
