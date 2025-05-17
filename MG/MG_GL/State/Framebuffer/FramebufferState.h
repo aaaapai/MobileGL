@@ -35,7 +35,7 @@ public:
     GLenum glValidateCompleteness(GLenum target);
     FramebufferObject* GetCurrentFBO(GLenum target);
     
-public: // TODO
+private:
     std::unordered_map<GLuint, FramebufferObject> framebuffers_;
     std::unordered_map<GLenum, GLuint> currentBindings_; // READ/DRAW/FRAMEBUFFER
     std::set<GLuint> freeIds_;

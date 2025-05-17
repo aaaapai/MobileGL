@@ -147,39 +147,4 @@ namespace MG_Util::Program {
         }
         DumpUniforms(state, current);
     }
-
-    std::string CompileSPIRVToGLSL(std::vector<unsigned int> spirv, uint glslVersion, bool isES) {
-        spvc_context context = nullptr;
-        spvc_parsed_ir ir = nullptr;
-        spvc_compiler compiler_glsl = nullptr;
-        spvc_compiler_options options = nullptr;
-        spvc_resources resources = nullptr;
-        const spvc_reflected_resource *list = nullptr;
-        const char *result = nullptr;
-        size_t count;
-
-        const SpvId *p_spirv = spirv.data();
-        size_t word_count = spirv.size();
-
-        spvc_context_create(&context);
-        spvc_context_parse_spirv(context, p_spirv, word_count, &ir);
-        spvc_context_create_compiler(context, SPVC_BACKEND_GLSL, ir, SPVC_CAPTURE_MODE_TAKE_OWNERSHIP, &compiler_glsl);
-        spvc_compiler_create_shader_resources(compiler_glsl, &resources);
-        spvc_resources_get_resource_list_for_type(resources, SPVC_RESOURCE_TYPE_UNIFORM_BUFFER, &list, &count);
-        spvc_compiler_create_compiler_options(compiler_glsl, &options);
-        spvc_compiler_options_set_uint(options, SPVC_COMPILER_OPTION_GLSL_VERSION, glslVersion);
-        spvc_compiler_options_set_bool(options, SPVC_COMPILER_OPTION_GLSL_ES, isES ? SPVC_TRUE : SPVC_FALSE);
-        spvc_compiler_install_compiler_options(compiler_glsl, options);
-        spvc_compiler_compile(compiler_glsl, &result);
-
-        if (!result) {
-            return{};
-        }
-
-        std::string essl = result;
-
-        spvc_context_destroy(context);
-
-        return essl;
-    }
 }

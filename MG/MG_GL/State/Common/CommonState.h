@@ -9,7 +9,7 @@
 #include "../../../Includes.h"
 
 class CommonState {
-public: // TODO
+private:
     // Pixel storage parameters
     std::unordered_map<GLenum, GLint> pixelStoreParams;
 
