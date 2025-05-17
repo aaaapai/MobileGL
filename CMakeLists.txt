@@ -85,7 +85,7 @@ add_library(${CMAKE_PROJECT_NAME} SHARED
 
 target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE ./includes)
 
-target_link_libraries(${CMAKE_PROJECT_NAME}
+target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE
         ${CMAKE_SOURCE_DIR}/library/arm64-v8a/libglslang.a
         ${CMAKE_SOURCE_DIR}/library/arm64-v8a/libspirv-cross-c-shared.so
         #${CMAKE_SOURCE_DIR}/library/arm64-v8a/libshaderconv.so
@@ -111,11 +111,18 @@ target_include_directories(MobileGL PUBLIC
         ${CMAKE_SOURCE_DIR}/include
         )
 
+add_subdirectory(3rdparty/DiligentCore)
+
+target_link_libraries(MobileGL
+        PRIVATE
+        Diligent-Common
+        Diligent-GraphicsEngineOpenGL-static
+)
 
 if (PROFILING)
         find_package(Threads)
         include_directories(${CMAKE_SOURCE_DIR}/3rdparty/perfetto/sdk)
         add_library(perfetto STATIC ${CMAKE_SOURCE_DIR}/3rdparty/perfetto/sdk/perfetto.cc)
-        target_link_libraries(MobileGL perfetto ${CMAKE_THREAD_LIBS_INIT})
+        target_link_libraries(MobileGL PRIVATE perfetto ${CMAKE_THREAD_LIBS_INIT})
         target_compile_definitions(MobileGL PUBLIC PROFILING=1)
 endif()
