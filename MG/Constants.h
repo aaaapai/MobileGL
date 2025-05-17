@@ -177,6 +177,7 @@ namespace MG_Constants {
 #define BACKEND_VULKAN 0x0015
 #define BACKEND_METAL 0x0016
 #define BACKEND_GLES 0x0017
+#define BACKEND_DILIGENT 0x0018
     }
     
     inline const char* RenderName = "MobileGL";

@@ -48,7 +48,12 @@ MG_EXPORT EGLBoolean eglGetConfigAttrib(EGLDisplay dpy, EGLConfig config, EGLint
 
 MG_EXPORT EGLSurface eglCreateWindowSurface(EGLDisplay dpy, EGLConfig config, EGLNativeWindowType win, const EGLint *attrib_list) {
     LOAD_EGL(eglCreateWindowSurface)
-    return egl_eglCreateWindowSurface(dpy, config, win, attrib_list);
+    EGLSurface surface = egl_eglCreateWindowSurface(dpy, config, win, attrib_list);
+
+//    auto* pFactoryOpenGL = GetEngineFactoryOpenGL();
+
+
+    return surface;
 }
 
 MG_EXPORT EGLSurface eglCreatePbufferSurface(EGLDisplay dpy, EGLConfig config, const EGLint *attrib_list) {

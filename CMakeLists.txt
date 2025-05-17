@@ -109,7 +109,8 @@ target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE
 
 target_include_directories(MobileGL PUBLIC
         ${CMAKE_SOURCE_DIR}/include
-        )
+        ${CMAKE_SOURCE_DIR}/3rdparty/DiligentCore
+)
 
 add_subdirectory(3rdparty/DiligentCore)
 

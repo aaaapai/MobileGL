@@ -3,7 +3,7 @@
 //
 
 #include "Constants.h"
-#define BACKEND_TYPE BACKEND_GLES
+#define BACKEND_TYPE BACKEND_DILIGENT
 #include "Global.h"
 #ifndef MOBILEGL_GLES_LOADER_H
 #include "MG_GL/BackendLoader/GLES/Loader.h"
