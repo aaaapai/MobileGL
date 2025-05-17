@@ -100,6 +100,7 @@
 #include <optional>
 #include <unordered_map>
 #include <queue>
+#include <format>
 #include <glslang/Public/ShaderLang.h>
 #include <glslang/Include/Types.h>
 #include <glslang/Public/ShaderLang.h>
@@ -107,7 +108,8 @@
 #include <glslang/SPIRV/GlslangToSpv.h>
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/glm.hpp>
-#include "GLES3/gl32.h"
+#include <ankerl/unordered_dense.h>
+#include <GLES3/gl32.h>
 
 #include "MG_Include/UncertainBool.hpp"
 

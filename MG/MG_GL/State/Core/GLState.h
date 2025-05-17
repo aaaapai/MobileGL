@@ -57,18 +57,25 @@ namespace MG_State {
     
     // Buffer
     GLenum AcquireBufferMemory(GLenum target, GLenum access, void** mappedPtr);
+    GLenum AcquireBufferMemoryRange(GLenum target, GLintptr offset, GLsizeiptr length, GLbitfield access, void** mappedPointer);
+    GLenum SyncBufferMemory(GLenum target, GLintptr offset, GLsizeiptr length);
+    GLenum CopyBufferRange(GLenum readTarget, GLenum writeTarget, GLintptr readOffset, GLintptr writeOffset, GLsizeiptr size);
     GLenum ReleaseBufferMemory(GLenum target);
-    GLenum CreateBuffer(GLuint* buffer);
-    GLenum CreateBuffers(GLsizei n, GLuint* buffers);
+    GLenum CreateBuffer(GLuint buffer);
+    GLenum GenBufferNames(GLsizei n, GLuint* buffers);
     GLenum BindBuffer(GLenum target, GLuint buffer);
     GLenum CommitBufferStorage(GLenum target, GLsizeiptr size, const void* data, GLenum usage);
-    bool ValidateBufferHandle(GLuint buffer);
+    GLenum CommitBufferStorageRegion(GLenum target, GLintptr offset, GLsizeiptr size, const void* data);
+    bool ValidateAllocatedBufferHandle(GLuint buffer);
+    bool ValidateGeneratedName(GLuint buffer);
     void DeleteBuffer(GLuint buffer);
+    GLenum DeleteBuffers(GLsizei n, const GLuint* buffers);
     GLenum QueryBufferPropertyIntVector(GLenum target, GLenum pname, GLint* params);
     
     // VertexArray
     GLenum CreateVertexArray(GLuint* array);
     GLenum CreateVertexArrays(GLsizei n, GLuint* arrays);
+    GLenum GenVertexArraysNames(GLsizei n, GLuint* arrays);
     GLenum BindVertexArray(GLuint array);
     GLenum EnableVertexAttribArray(GLuint index);
     GLenum DisableVertexAttribArray(GLuint index);

@@ -17,7 +17,7 @@ struct FramebufferAttachment {
 
 struct FramebufferObject {
     bool generated = false;
-    std::unordered_map<GLenum, FramebufferAttachment> attachments;
+    ankerl::unordered_map<GLenum, FramebufferAttachment> attachments;
     GLenum status = GL_FRAMEBUFFER_INCOMPLETE_MISSING_ATTACHMENT;
     GLsizei width = 0;
     GLsizei height = 0;
@@ -30,14 +30,15 @@ public:
     GLenum CreateN(GLsizei n, GLuint* framebuffers);
     GLenum Delete(GLuint framebuffer);
     GLenum Bind(GLenum target, GLuint framebuffer);
-    GLenum glAttachTexture2D(GLenum target, GLenum attachment,
-                             GLenum textarget, GLuint texture, GLint level);
-    GLenum glValidateCompleteness(GLenum target);
+    GLenum AttachTexture2D(GLenum target, GLenum attachment,
+                           GLenum textarget, GLuint texture, GLint level);
+    GLenum ValidateCompleteness(GLenum target);
     FramebufferObject* GetCurrentFBO(GLenum target);
     
+    ankerl::unordered_map<GLenum, GLuint> currentBindings_; // READ/DRAW
+    
 private:
-    std::unordered_map<GLuint, FramebufferObject> framebuffers_;
-    std::unordered_map<GLenum, GLuint> currentBindings_; // READ/DRAW/FRAMEBUFFER
+    ankerl::unordered_map<GLuint, FramebufferObject> framebuffers_;
     std::set<GLuint> freeIds_;
     GLuint lastId_ = 0;
     bool ValidateHandle(GLuint framebuffer);

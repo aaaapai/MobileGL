@@ -4,7 +4,7 @@
 - [x] glGetAttribLocation
 - [x] glGetBufferParameteriv
 - [x] glGetError
-- [ ] glGetIntegerv
+- [x] glGetIntegerv
 - [x] glGetProgramiv
 - [x] glGetShaderiv
 - [x] glGetString
@@ -33,6 +33,8 @@
 - [x] glFramebufferTexture2D
 - [x] glGenFramebuffers
 
+　　~~glBlitFramebuffer~~
+
 ---
 
 ### **4. Shader & Program Management**
@@ -60,6 +62,10 @@
 - [x] glUnmapBuffer
 - [x] glVertexAttribIPointer
 - [x] glVertexAttribPointer
+- [x] glBufferSubData
+- [x] glMapBufferRange
+- [x] glFlushMappedBufferRange
+- [x] glCopyBufferSubData
 
 ---
 
@@ -90,28 +96,27 @@
 ---
 
 ### **8. Drawing Commands**
-- [ ] glDrawElements
-- [ ] glDrawArrays
+　　~~glDrawElements~~
 
 ## Abstraction Layer (MG_RHI)
 
 ### **1. Initialization & Query Functions**
 
-glGetAttribLocation~~
+　　~~glGetAttribLocation~~
 
-glGetBufferParameteriv~~
+　　~~glGetBufferParameteriv~~
 
-glGetError~~
+　　~~glGetError~~
 	
-- [ ] glGetIntegerv
+　　~~glGetIntegerv~~
 - [ ] glGetProgramiv
 - [ ] glGetShaderiv
 - [ ] glGetString
 - [ ] glGetStringi
 
-glGetTexLevelParameteriv~~
+　　~~glGetTexLevelParameteriv~~
 
-glGetUniformLocation~~
+　　~~glGetUniformLocation~~
 
 ---
 
@@ -133,6 +138,7 @@ glGetUniformLocation~~
 - [ ] glDeleteFramebuffers
 - [ ] glFramebufferTexture2D
 - [ ] glGenFramebuffers
+- [ ] glBlitFramebuffer
 
 ---
 
@@ -161,6 +167,10 @@ glGetUniformLocation~~
 - [ ] glUnmapBuffer
 - [ ] glVertexAttribIPointer
 - [ ] glVertexAttribPointer
+- [ ] glBufferSubData
+- [ ] glMapBufferRange
+- [ ] glFlushMappedBufferRange
+- [ ] glCopyBufferSubData
 
 ---
 
@@ -192,4 +202,3 @@ glGetUniformLocation~~
 
 ### **8. Drawing Commands**
 - [ ] glDrawElements
-- [ ] glDrawArrays

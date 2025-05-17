@@ -9,7 +9,7 @@
 #include "../../../Includes.h"
 
 struct VertexAttribState {
-    bool enabled = false;
+    bool enabled;
     GLint size = 4;
     GLenum type = GL_FLOAT;
     GLboolean normalized = GL_FALSE;
@@ -21,8 +21,10 @@ struct VertexAttribState {
 
 struct VertexArrayObject {
     bool generated = false;
+    bool attribDirty = false;
+    bool eboDirty = false;
     GLuint elementBuffer = 0;
-    std::unordered_map<GLuint, VertexAttribState> attribs;
+    ankerl::unordered_map<GLuint, VertexAttribState> attribs;
 };
 
 class VertexArrayState {
@@ -30,6 +32,8 @@ public:
     VertexArrayState();
     
     // Return: the validity of the operation, according to OpenGL 3 standard
+    GLenum GenName(GLuint* array);
+    GLenum GenNameN(GLsizei n, GLuint* arrays);
     GLenum Create(GLuint* array);
     GLenum CreateN(GLsizei n, GLuint* arrays);
     GLenum Bind(GLuint array);
@@ -42,12 +46,14 @@ public:
     
     GLuint GetBoundElementBuffer();
     VertexArrayObject* GetCurrentVAO();
+    bool ValidateGeneratedName(GLuint array);
+    bool ValidateAllocatedHandle(GLuint array);
 
+    GLuint currentVao_ = 0;
+    ankerl::unordered_map<GLuint, VertexArrayObject> vaos_;
 private:
-    std::unordered_map<GLuint, VertexArrayObject> vaos_;
     std::set<GLuint> freeIds_;
     GLuint lastId_ = 0;
-    GLuint currentVao_ = 0;
 };
 
 #endif //MOBILEGL_VERTEXARRAYSTATE_H

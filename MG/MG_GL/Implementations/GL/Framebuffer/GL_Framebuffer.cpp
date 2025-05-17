@@ -45,6 +45,7 @@ namespace MG_GL::GL {
         GLenum result = MG_State::AttachTexture2DToFramebuffer(
                 target, attachment, textarget, texture, level
         );
+
         if (result == GL_NO_ERROR) return;
         MG_State::SetError(result);
         MG_Util::Debug::LogE("Texture attachment failed: %s", MG_Util::Debug::GLEnumToString(result));
@@ -63,5 +64,10 @@ namespace MG_GL::GL {
         MG_Util::Debug::LogE("Framebuffer incomplete: %s",
                              MG_Util::Debug::GLEnumToString(result));
         return result;
+    }
+
+    void BlitFramebuffer(GLint srcX0, GLint srcY0, GLint srcX1, GLint srcY1,
+                         GLint dstX0, GLint dstY0, GLint dstX1, GLint dstY1, GLbitfield mask, GLenum filter) {
+        // TODO
     }
 }

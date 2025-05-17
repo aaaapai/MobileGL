@@ -177,6 +177,7 @@ namespace MG_Util::Program {
     std::string CompileGLSLToTShader(GLenum shaderType, const std::string& source, glslang::TShader *&shader);
     std::vector<std::vector<unsigned>> CompileMultipleShadersToSPIRV(const ProgramState& state, ProgramObject& prog, std::string& infoLog);
     void ReflectSPIRVUniforms(const std::vector<std::vector<unsigned>>& allSpirv, ProgramObject& prog, std::string& infoLog);
+    std::string CompileSPIRVToGLSL(std::vector<unsigned int> spirv, uint glslVersion, bool isES);
 }
 
 #endif //MOBILEGL_GLSLTOOL_H

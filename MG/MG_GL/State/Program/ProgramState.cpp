@@ -48,7 +48,7 @@ GLenum ProgramState::DeleteProgram(GLuint program) {
     }
 
     programs_.erase(program);
-    freeProgramIds_.insert(program);
+    //freeProgramIds_.insert(program);
     if (currentProgram_ == program)
         currentProgram_ = 0;
     MG_Util::Debug::LogD("MG_State: Program: DeleteProgram success, id=%u", program);
@@ -261,6 +261,7 @@ GLenum ProgramState::SetUniform(GLuint program, GLint location, GLsizei count, c
     }
 
     UniformValue& uniform = prog.uniformValues[uniformName];
+    
     uniform.setData(type, count, value);
     MG_Util::Debug::LogD("MG_State: Program: SetUniform success: %s set", uniformName.c_str());
     return GL_NO_ERROR;
@@ -303,7 +304,7 @@ GLenum ProgramState::SetUniformMatrix(GLuint program, GLint location, GLsizei co
     }
 
     UniformValue& uniform = prog.uniformValues[uniformName];
-    uniform.setData(matrixType, count * MG_Util::Program::GetMatrixElementCount(matrixType), value);
+    uniform.setData(matrixType, count, value);
     MG_Util::Debug::LogD("MG_State: Program: SetUniformMatrix success: %s set", uniformName.c_str());
     return GL_NO_ERROR;
 }
@@ -334,15 +335,15 @@ void ProgramState::UpdateUniform##suffix##Vector1(GLint location, GLsizei count,
     } \
 void ProgramState::UpdateUniform##suffix##Vector2(GLint location, GLsizei count, const type* value) { \
     MG_Util::Debug::LogD("MG_State: Program: UpdateUniform" #suffix "Vector2 called, location=%d, count=%d", location, count); \
-    SetUniform<type>(currentProgram_, location, count * 2, value, vecType);              \
+    SetUniform<type>(currentProgram_, location, count, value, vecType);              \
     } \
 void ProgramState::UpdateUniform##suffix##Vector3(GLint location, GLsizei count, const type* value) { \
     MG_Util::Debug::LogD("MG_State: Program: UpdateUniform" #suffix "Vector3 called, location=%d, count=%d", location, count); \
-    SetUniform<type>(currentProgram_, location, count * 3, value, vecType);              \
+    SetUniform<type>(currentProgram_, location, count, value, vecType);              \
     } \
 void ProgramState::UpdateUniform##suffix##Vector4(GLint location, GLsizei count, const type* value) { \
     MG_Util::Debug::LogD("MG_State: Program: UpdateUniform" #suffix "Vector4 called, location=%d, count=%d", location, count); \
-    SetUniform<type>(currentProgram_, location, count * 4, value, vecType);              \
+    SetUniform<type>(currentProgram_, location, count, value, vecType);              \
     }
 
 IMPLEMENT_UNIFORM_FUNCTIONS(GLfloat, Float, GL_FLOAT_VEC4)
@@ -462,15 +463,61 @@ void ProgramState::CleanupShaders_() {
 
 // UniformValue
 template<typename T>
-void UniformValue::setData(GLenum uniformType, GLsizei numElements, const T* values) {
-    MG_Util::Debug::LogD("MG_State: Program: UniformValue::setData called, type=0x%X, count=%d", uniformType, numElements);
+void UniformValue::setData(GLenum uniformType, GLsizei count_, const T* values) {
+    MG_Util::Debug::LogD("MG_State: Program: UniformValue::setData called, type=0x%X, count=%d", uniformType, count_);
     //type = uniformType;
-    count = numElements;
+    count = count_;
 
     floatData.clear();
     intData.clear();
     uintData.clear();
     boolData.clear();
+
+    switch (type) {
+        case GL_FLOAT:                           numElements = count_ * 1; break;
+        case GL_FLOAT_VEC2:                      numElements = count_ * 2; break;
+        case GL_FLOAT_VEC3:                      numElements = count_ * 3; break;
+        case GL_FLOAT_VEC4:                      numElements = count_ * 4; break;
+        case GL_INT:                             numElements = count_ * 1; break;
+        case GL_INT_VEC2:                        numElements = count_ * 2; break;
+        case GL_INT_VEC3:                        numElements = count_ * 3; break;
+        case GL_INT_VEC4:                        numElements = count_ * 4; break;
+        case GL_UNSIGNED_INT:                    numElements = count_ * 1; break;
+        case GL_UNSIGNED_INT_VEC2:               numElements = count_ * 2; break;
+        case GL_UNSIGNED_INT_VEC3:               numElements = count_ * 3; break;
+        case GL_UNSIGNED_INT_VEC4:               numElements = count_ * 4; break;
+        case GL_BOOL:                            numElements = count_ * 1; break;
+        case GL_BOOL_VEC2:                       numElements = count_ * 2; break;
+        case GL_BOOL_VEC3:                       numElements = count_ * 3; break;
+        case GL_BOOL_VEC4:                       numElements = count_ * 4; break;
+        case GL_FLOAT_MAT2:                      numElements = count_ * 4; break; // 2x2
+        case GL_FLOAT_MAT3:                      numElements = count_ * 9; break; // 3x3
+        case GL_FLOAT_MAT4:                      numElements = count_ * 16; break; // 4x4
+        case GL_FLOAT_MAT2x3:                    numElements = count_ * 6; break; // 2x3
+        case GL_FLOAT_MAT2x4:                    numElements = count_ * 8; break; // 2x4
+        case GL_FLOAT_MAT3x2:                    numElements = count_ * 6; break; // 3x2
+        case GL_FLOAT_MAT3x4:                    numElements = count_ * 12; break; // 3x4
+        case GL_FLOAT_MAT4x2:                    numElements = count_ * 8; break; // 4x2
+        case GL_FLOAT_MAT4x3:                    numElements = count_ * 12; break; // 4x3
+        case GL_SAMPLER_1D:
+        case GL_SAMPLER_2D:
+        case GL_SAMPLER_3D:
+        case GL_SAMPLER_CUBE:
+        case GL_SAMPLER_1D_SHADOW:
+        case GL_SAMPLER_2D_SHADOW:
+        case GL_SAMPLER_CUBE_SHADOW:
+        case GL_SAMPLER_1D_ARRAY:
+        case GL_SAMPLER_2D_ARRAY:
+        case GL_SAMPLER_1D_ARRAY_SHADOW:
+        case GL_SAMPLER_2D_ARRAY_SHADOW:
+        case GL_SAMPLER_BUFFER:
+        case GL_SAMPLER_2D_MULTISAMPLE:
+        case GL_SAMPLER_2D_MULTISAMPLE_ARRAY:    numElements = count_ * 1; break;
+        default:
+            MG_Util::Debug::LogW("MG_State: Program: UniformValue::setData warning: unsupported type 0x%X for numElements", uniformType);
+            numElements = 1;
+            return;
+    }
 
     for (GLsizei i = 0; i < numElements; ++i) {
         switch (uniformType) {

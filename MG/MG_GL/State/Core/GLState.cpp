@@ -155,17 +155,30 @@ namespace MG_State {
     GLenum AcquireBufferMemory(GLenum target, GLenum access, void** mappedPtr) {
         return MG_State_T::bufferState->AcquireBufferMemory(target, access, mappedPtr);
     }
+    
+    GLenum AcquireBufferMemoryRange(GLenum target, GLintptr offset, GLsizeiptr length, GLbitfield access, void** mappedPointer) {
+        return MG_State_T::bufferState->AcquireBufferMemoryRange(target, offset, length, access, mappedPointer);
+    }
+
+    GLenum SyncBufferMemory(GLenum target, GLintptr offset, GLsizeiptr length) {
+        return MG_State_T::bufferState->SyncBufferMemory(target, offset, length);
+    }
+
+    GLenum CopyBufferRange(GLenum readTarget, GLenum writeTarget, GLintptr readOffset, GLintptr writeOffset, GLsizeiptr size) {
+        return MG_State_T::bufferState->CopyBufferRange(readTarget, writeTarget, readOffset,
+                                                        writeOffset, size);
+    }
 
     GLenum ReleaseBufferMemory(GLenum target) {
         return MG_State_T::bufferState->ReleaseBufferMemory(target);
     }
 
-    GLenum CreateBuffer(GLuint* buffer) {
+    GLenum CreateBuffer(GLuint buffer) {
         return MG_State_T::bufferState->Create(buffer);
     }
 
-    GLenum CreateBuffers(GLsizei n, GLuint* buffers) {
-        return MG_State_T::bufferState->CreateN(n, buffers);
+    GLenum GenBufferNames(GLsizei n, GLuint* buffers) {
+        return MG_State_T::bufferState->GenNameN(n, buffers);
     }
 
     GLenum BindBuffer(GLenum target, GLuint buffer) {
@@ -173,6 +186,7 @@ namespace MG_State {
             auto* vao = MG_State_T::vertexArrayState->GetCurrentVAO();
             if (!vao) return GL_INVALID_OPERATION;
             vao->elementBuffer = (GLuint)buffer;
+            vao->eboDirty = true;
         }
         return MG_State_T::bufferState->Bind(target, buffer);
     }
@@ -181,12 +195,24 @@ namespace MG_State {
         return MG_State_T::bufferState->CommitStorage(target, size, data, usage);
     }
 
-    bool ValidateBufferHandle(GLuint buffer) {
-        return MG_State_T::bufferState->ValidateHandle(buffer);
+    GLenum CommitBufferStorageRegion(GLenum target, GLintptr offset, GLsizeiptr size, const void* data) {
+        return MG_State_T::bufferState->CommitStorageRegion(target, offset, size, data);
+    }
+
+    bool ValidateAllocatedBufferHandle(GLuint buffer) {
+        return MG_State_T::bufferState->ValidateAllocatedHandle(buffer);
+    }
+
+    bool ValidateGeneratedName(GLuint buffer) {
+        return MG_State_T::bufferState->ValidateGeneratedName(buffer);
     }
 
     void DeleteBuffer(GLuint buffer) {
         return MG_State_T::bufferState->Delete(buffer);
+    }
+
+    GLenum DeleteBuffers(GLsizei n, const GLuint* buffers) {
+        return MG_State_T::bufferState->DeleteN(n, buffers);
     }
 
     GLenum QueryBufferPropertyIntVector(GLenum target, GLenum pname, GLint* params) {
@@ -204,6 +230,10 @@ namespace MG_State {
 
     GLenum CreateVertexArrays(GLsizei n, GLuint* arrays) {
         return MG_State_T::vertexArrayState->CreateN(n, arrays);
+    }
+
+    GLenum GenVertexArraysNames(GLsizei n, GLuint* arrays) {
+        return MG_State_T::vertexArrayState->GenNameN(n, arrays);
     }
 
     GLenum EnableVertexAttribArray(GLuint index) {
@@ -367,11 +397,11 @@ void UpdateProgramUniformMatrix##suffix##Vector(GLint location, GLsizei count, G
     
     GLenum MG_State::AttachTexture2DToFramebuffer(GLenum target, GLenum attachment, GLenum textarget,
                                                   GLuint texture, GLint level) {
-        return MG_State_T::framebufferState->glAttachTexture2D(target, attachment, textarget,
-                                                               texture, level);
+        return MG_State_T::framebufferState->AttachTexture2D(target, attachment, textarget,
+                                                             texture, level);
     }
     
     GLenum MG_State::ValidateFramebufferCompleteness(GLenum target) {
-        return MG_State_T::framebufferState->glValidateCompleteness(target);
+        return MG_State_T::framebufferState->ValidateCompleteness(target);
     }
 }

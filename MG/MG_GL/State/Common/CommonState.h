@@ -9,9 +9,17 @@
 #include "../../../Includes.h"
 
 class CommonState {
-private:
+    template <typename K, typename V>
+    using unordered_map = ankerl::unordered_dense::map<K, V>;
+public:
+    // Viewport
+    GLint viewport[4] = {0, 0, 0, 0};
+    
+    // Color mask
+    GLboolean colorMask[4] = {GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE};
+    
     // Pixel storage parameters
-    std::unordered_map<GLenum, GLint> pixelStoreParams;
+    unordered_map<GLenum, GLint> pixelStoreParams;
 
     // Blend state
     GLenum blendSrcRGB = GL_ONE;
@@ -22,21 +30,15 @@ private:
     // Clear state
     GLfloat clearColor[4] = {0.0f, 0.0f, 0.0f, 0.0f};
     GLfloat clearDepth = 1.0f;
-    
-    // Color mask
-    GLboolean colorMask[4] = {GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE};
-    
+    GLenum clearMask;
+
     // Depth state
     GLenum depthFunc = GL_LESS;
     GLboolean depthMask = GL_TRUE;
-    
-    // Viewport
-    GLint viewport[4] = {0, 0, 0, 0};
-    
+
     // Capability enables
-    std::unordered_map<GLenum, bool> capabilities;
+    unordered_map<GLenum, bool> capabilities;
     
-public:
     CommonState();
     
     // Return: the validity of the operation, according to OpenGL 3 standard
@@ -57,6 +59,7 @@ public:
     GLenum Viewport(GLint x, GLint y, GLsizei width, GLsizei height);
     
     GLint QueryPixelStoreInt(GLenum pname);
+
 };
 
 #endif //MOBILEGL_COMMONSTATE_H

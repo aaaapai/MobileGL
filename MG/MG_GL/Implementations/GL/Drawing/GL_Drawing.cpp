@@ -5,13 +5,27 @@
 #include "GL_Drawing.h"
 
 namespace MG_GL::GL {
-    // This is a test function that directly draws textures.
     void DrawElements(GLenum mode, GLsizei count, GLenum type, const void *indices) {
-        ::GLES::glViewport(0,0,3200,1440);
-        MG_RHI::GLES::Test::DrawAllTextures();
-    };
+        // TODO
+    }
+    
     void DrawArrays(GLenum mode, GLint first, GLsizei count) {
-        ::GLES::glViewport(0,0,3200,1440);
-        MG_RHI::GLES::Test::DrawAllTextures();
-    };
+        // TODO
+    }
+    
+    void DrawElementsBaseVertex(GLenum mode, GLsizei count, GLenum type, const GLvoid *indices, GLint basevertex) {
+        // TODO
+    }
+
+    void MultiDrawElements(GLenum mode, const GLsizei *count, GLenum type, const GLvoid *const *indices, GLsizei drawcount) {
+        // TODO
+    }
+    
+    void MultiDrawElementsBaseVertex(GLenum mode, const GLsizei *count, GLenum type, const GLvoid *const *indices, GLsizei drawcount, const GLint *basevertex) {
+        // TODO
+    }
+
+    void DrawBuffer(GLenum buf) {
+        // TODO
+    }
 }

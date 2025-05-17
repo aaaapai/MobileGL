@@ -27,36 +27,37 @@ struct UniformValue {
     std::vector<GLuint> uintData;
     std::vector<GLboolean> boolData;
     GLsizei count;
+    GLsizei numElements;
 
     UniformValue() : type(0), count(0) {}
 
     template<typename T>
-    void setData(GLenum uniformType, GLsizei numElements, const T* values);
+    void setData(GLenum uniformType, GLsizei count_, const T* values);
 };
 
 struct ProgramObject {
     std::vector<GLuint> attachedShaders;
     UncertainBool linked;
+    bool dirty;
     GLint linkStatus;
     std::string infoLog;
-    std::unordered_map<std::string, GLint> attribBindings;
-    std::unordered_map<std::string, GLint> attribLocations;
-    std::unordered_map<std::string, GLint> uniformLocations;
-    std::unordered_map<std::string, UniformValue> uniformValues;
+    ankerl::unordered_map<std::string, GLint> attribBindings;
+    ankerl::unordered_map<std::string, GLint> attribLocations;
+    ankerl::unordered_map<std::string, GLint> uniformLocations;
+    ankerl::unordered_map<std::string, UniformValue> uniformValues;
     bool markedForDeletion;
 };
 
 class ProgramState {
-private:
-    std::unordered_map<GLuint, ShaderObject> shaders_;
-    std::unordered_map<GLuint, ProgramObject> programs_;
+public:
+    ankerl::unordered_map<GLuint, ShaderObject> shaders_;
+    ankerl::unordered_map<GLuint, ProgramObject> programs_;
     std::set<GLuint> freeShaderIds_;
     std::set<GLuint> freeProgramIds_;
     GLuint lastShaderId_ = 0;
     GLuint lastProgramId_ = 0;
     GLuint currentProgram_ = 0;
 
-public:
     ProgramState();
     ~ProgramState();
     

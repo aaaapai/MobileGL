@@ -5,6 +5,16 @@
 #include "GL_Common.h"
 
 namespace MG_GL::GL {
+    void Clear(GLbitfield mask) {
+        MG_Util::Debug::LogD("glClear, mask: 0x%X", mask);
+        GLenum result = MG_State::glClear(mask);
+        if (result == GL_NO_ERROR) {
+            return;
+        }
+        MG_State::SetError(result);
+        MG_Util::Debug::LogE("Error clearing buffers: %s", MG_Util::Debug::GLEnumToString(result));
+    }
+    
     void Enable(GLenum cap) {
         MG_Util::Debug::LogD("glEnable, cap: %s", MG_Util::Debug::GLEnumToString(cap));
         GLenum result = MG_State::glEnable(cap);
@@ -41,14 +51,6 @@ namespace MG_GL::GL {
         if (result == GL_NO_ERROR) return;
         MG_State::SetError(result);
         MG_Util::Debug::LogE("Error setting separate blend func: %s", MG_Util::Debug::GLEnumToString(result));
-    }
-
-    void Clear(GLbitfield mask) {
-        MG_Util::Debug::LogD("glClear, mask: 0x%X", mask);
-        GLenum result = MG_State::glClear(mask);
-        if (result == GL_NO_ERROR) return;
-        MG_State::SetError(result);
-        MG_Util::Debug::LogE("Error clearing buffers: %s", MG_Util::Debug::GLEnumToString(result));
     }
 
     void ClearColor(GLfloat red, GLfloat green, GLfloat blue, GLfloat alpha) {
