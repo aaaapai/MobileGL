@@ -22,7 +22,7 @@ namespace MG_Global {
     
     namespace GL {
         inline const int GLVersionMajor = 3;
-        inline const int GLVersionMinor = 0;
+        inline const int GLVersionMinor = 2;
         inline const int GLVersionRevision = 0;
     }
     
