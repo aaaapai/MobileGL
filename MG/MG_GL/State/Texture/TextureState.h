@@ -62,7 +62,6 @@ class TextureState {
     template <typename K, typename V>
     using unordered_map = ankerl::unordered_dense::map<K, V>;
 private:
-    GLuint activeTextureUnit_ = 0;
 
     GLuint lastUsedID_ = 1;
 //    std::unordered_set<GLuint> freeIDs_;
@@ -96,6 +95,7 @@ public:
     GLenum QueryLevelPropertyIntVector(GLenum target, GLint level, GLenum pname, GLint* params);
 
     std::vector<TextureUnitState> textureUnits_;
+    GLuint activeTextureUnit_ = 0;
 private:
     size_t CalculatePixelDataSize_(GLenum format, GLenum type, GLsizei width, GLsizei height);
     void InvalidateTextureInAllUnits_(GLuint texture);
