@@ -280,8 +280,8 @@ namespace MG_RHI::GLES {
         SyncAllBuffersToGLES(bufferState);
 
         // VAO
-        GLuint mgVAOId = vaState->currentVao_;
-        VertexArrayObject* vao = &vaState->vaos_[mgVAOId];
+        GLuint mgVAO = vaState->currentVao_;
+        VertexArrayObject* vao = &vaState->vaos_[vaState->currentVao_];
         for (auto& [mgVAOId, mgVAO] : vaState->vaos_) {
             MG_Util::Debug::LogD("Uploading VAO: %d", mgVAOId);
             if (!mgVAO.generated) continue;
@@ -290,7 +290,6 @@ namespace MG_RHI::GLES {
             GLuint glVAO;
             if (vaoMap_.find(mgVAOId) == vaoMap_.end()) {
                 MGL_TRY(::GLES::glGenVertexArrays(1, &glVAO);)
-                MG_Util::Debug::LogD("Saving VAO: %d -> %d", mgVAOId, glVAO);
                 vaoMap_[mgVAOId] = glVAO;
             } else {
                 glVAO = vaoMap_[mgVAOId];
@@ -302,7 +301,7 @@ namespace MG_RHI::GLES {
             }
 
             for (auto& [index, attrib] : mgVAO.attribs) {
-                MG_Util::Debug::LogD("attrib #%d, type = %s, size = %d, stride = %d, pointer = %p",
+                MG_Util::Debug::LogD("attrib #%s, type = %s, size = %d, stride = %d, pointer = %p",
                                      index, MG_Util::Debug::GLEnumToString(attrib.type), attrib.size, attrib.stride, attrib.pointer);
                 if (attrib.buffer != 0 && bufferMap_.count(attrib.buffer)) {
                     MGL_TRY(::GLES::glBindBuffer(GL_ARRAY_BUFFER, bufferMap_[attrib.buffer]);)
@@ -330,11 +329,11 @@ namespace MG_RHI::GLES {
             MGL_TRY(::GLES::glBindVertexArray(0);)
             //}
         }
-//        GLuint currentMgVAO = vaState->currentVao_;
-        if (vaoMap_.find(mgVAOId) != vaoMap_.end()) {
-            MGL_TRY(::GLES::glBindVertexArray(vaoMap_[mgVAOId]);)
+        GLuint currentMgVAO = vaState->currentVao_;
+        if (vaoMap_.count(currentMgVAO)) {
+            MGL_TRY(::GLES::glBindVertexArray(vaoMap_[currentMgVAO]);)
 
-            VertexArrayObject& currentVAO = vaState->vaos_[mgVAOId];
+            VertexArrayObject& currentVAO = vaState->vaos_[currentMgVAO];
             for (auto& [index, attrib] : currentVAO.attribs) {
                 if (attrib.enabled) {
                     MGL_TRY(::GLES::glEnableVertexAttribArray(index);)
@@ -624,6 +623,8 @@ namespace MG_RHI::GLES {
 
                 lastBoundFBO = currentFBO;
             }
+
+            
         }
     }
 }

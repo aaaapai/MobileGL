@@ -45,9 +45,8 @@ public:
 
 public: // TODO
     std::unordered_map<GLuint, VertexArrayObject> vaos_;
-//    std::set<GLuint> freeIds_;
-    std::vector<GLuint> freeId_;
-    GLuint lastId_ = 1; // reserve 0 for default vao
+    std::set<GLuint> freeIds_;
+    GLuint lastId_ = 0;
     GLuint currentVao_ = 0;
 };
 

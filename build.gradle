@@ -8,7 +8,7 @@ android {
         minSdk 26
 
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
-        ndkVersion '27.2.12479018'
+        ndkVersion '27.1.12297006'
     }
 
     buildTypes {
