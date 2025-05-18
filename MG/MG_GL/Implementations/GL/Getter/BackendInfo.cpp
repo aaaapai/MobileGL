@@ -12,6 +12,8 @@ namespace MG_GL::Getter {
         return "Metal";
 #elif BACKEND_TYPE == BACKEND_GLES
         return "OpenGL ES";
+#elif BACKEND_TYPE == BACKEND_DILIGENT
+        return "Diligent";
 #else
         return "<Unknown Backend>";
 #endif
@@ -24,6 +26,8 @@ namespace MG_GL::Getter {
         return "MobileGlumtl";
 #elif BACKEND_TYPE == BACKEND_GLES
         return "MobileGlues";
+#elif BACKEND_TYPE == BACKEND_DILIGENT
+        return "MobileGluDiligent";
 #else
         return "<Unknown MobileGL Version>";
 #endif
@@ -79,6 +83,8 @@ namespace MG_GL::Getter {
                 std::to_string(minor)+"." + std::to_string(patch);
 #elif BACKEND_TYPE == BACKEND_GLES
         backendVersion = std::string((const char*)::GLES::glGetString(GL_VERSION));
+#elif BACKEND_TYPE == BACKEND_DILIGENT
+        backendVersion = "Diligent";
 #else
         backendVersion = "<Unknown Backend>";
 #endif

@@ -134,3 +134,13 @@
 #include <EGL/egl.h>
 #include <GL/gl.h>
 #include <GL/glext.h>
+
+#if BACKEND_TYPE == BACKEND_DILIGENT
+#include "EngineFactory.h"
+#include "EngineFactoryOpenGL.h"
+#include "RefCntAutoPtr.hpp"
+
+#include "PipelineState.h"
+#include "GraphicsTypes.h"
+#include "DeviceContext.h"
+#endif

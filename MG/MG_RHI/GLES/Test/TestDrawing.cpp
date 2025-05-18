@@ -14,6 +14,7 @@ namespace MG_RHI::GLES::Test {
     }
 
     bool CheckShaderCompileStatus(GLuint shader, const char* type) {
+#if BACKEND_TYPE == BACKEND_GLES
         GLint success;
         ::GLES::glGetShaderiv(shader, GL_COMPILE_STATUS, &success);
         if (!success) {
@@ -22,10 +23,12 @@ namespace MG_RHI::GLES::Test {
             MG_Util::Debug::LogE("Shader compilation error (%s): %s", type, infoLog);
             return false;
         }
+#endif
         return true;
     }
 
     bool CheckProgramLinkStatus(GLuint program) {
+#if BACKEND_TYPE == BACKEND_GLES
         GLint success;
         ::GLES::glGetProgramiv(program, GL_LINK_STATUS, &success);
         if (!success) {
@@ -34,11 +37,13 @@ namespace MG_RHI::GLES::Test {
             MG_Util::Debug::LogE("Program link error: %s", infoLog);
             return false;
         }
+#endif
         return true;
     }
 
     // TODO: Use the textures state from MG_RHI(another state?) rather than directly from MG_State
     void DrawAllTextures() {
+#if BACKEND_TYPE == BACKEND_GLES
         ::GLES::glClearColor(1,1,1,1);
         ::GLES::glClear(GL_COLOR_BUFFER_BIT);
         
@@ -230,5 +235,6 @@ namespace MG_RHI::GLES::Test {
         ::GLES::glUseProgram(origProgram);
         ::GLES::glViewport(origViewport[0], origViewport[1],
                            origViewport[2], origViewport[3]);
+#endif
     }
 }

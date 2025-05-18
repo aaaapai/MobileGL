@@ -52,7 +52,9 @@ add_library(${CMAKE_PROJECT_NAME} SHARED
         MG/MG_GL/Implementations/EGL/VK/EGL_EMU.cpp
 
         MG/MG_GL/Implementations/EGL/GLES/EGL_WRAP.cpp
-        
+
+        MG/MG_GL/Implementations/EGL/Diligent/GLES/EGL_impl.cpp
+
         # MG_GL/State
         MG/MG_GL/State/Core/GLState.cpp
         
@@ -107,17 +109,16 @@ target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE
         vulkan
 )
 
+add_subdirectory(3rdparty/DiligentCore)
+
 target_include_directories(MobileGL PUBLIC
         ${CMAKE_SOURCE_DIR}/include
-        ${CMAKE_SOURCE_DIR}/3rdparty/DiligentCore
 )
-
-add_subdirectory(3rdparty/DiligentCore)
 
 target_link_libraries(MobileGL
         PRIVATE
         Diligent-Common
-        Diligent-GraphicsEngineOpenGL-static
+        Diligent-GraphicsEngineOpenGL-shared
 )
 
 if (PROFILING)

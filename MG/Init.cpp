@@ -8,7 +8,9 @@ __attribute__((constructor)) void MG_Initialize() {
     MG_Util::Debug::LogInit();
     MG_Util::Debug::LogI("MobileGL Initializing...");
     MG_State::Init();
+#if BACKEND_TYPE == BACKEND_GLES
     MG_GL::BackendLoader::Init();
+#endif
 }
 
 __attribute__((destructor)) void MG_Destroy() {
