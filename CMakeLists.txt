@@ -53,7 +53,7 @@ add_library(${CMAKE_PROJECT_NAME} SHARED
 
         MG/MG_GL/Implementations/EGL/GLES/EGL_WRAP.cpp
 
-        MG/MG_GL/Implementations/EGL/Diligent/GLES/EGL_impl.cpp
+        MG/MG_GL/Implementations/EGL/Diligent/EGL_impl.cpp
 
         # MG_GL/State
         MG/MG_GL/State/Core/GLState.cpp
@@ -119,6 +119,7 @@ target_link_libraries(MobileGL
         PRIVATE
         Diligent-Common
         Diligent-GraphicsEngineOpenGL-shared
+        Diligent-GraphicsEngineVk-shared
 )
 
 if (PROFILING)

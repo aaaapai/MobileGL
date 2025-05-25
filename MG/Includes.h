@@ -138,6 +138,7 @@
 #if BACKEND_TYPE == BACKEND_DILIGENT
 #include "EngineFactory.h"
 #include "EngineFactoryOpenGL.h"
+#include "EngineFactoryVk.h"
 #include "RefCntAutoPtr.hpp"
 
 #include "PipelineState.h"

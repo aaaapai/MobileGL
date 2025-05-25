@@ -2,22 +2,17 @@
 // Created by Swung 0x48 on 2025-05-18.
 //
 
-#ifndef MOBILEGLUES_EGL_IMPL_H
-#define MOBILEGLUES_EGL_IMPL_H
+#ifndef MOBILEGL_EGL_IMPL_H
+#define MOBILEGL_EGL_IMPL_H
 
-
-#include "../../../../../Includes.h"
+#include "../../../../Includes.h"
+#include "DiligentConfig.h"
 
 #if BACKEND_TYPE == BACKEND_DILIGENT
 
 namespace MG_EGL::Diligent {
     struct DeviceContext {
     public:
-        static inline DeviceContext& GetInstance() {
-            static DeviceContext devctx;
-            return devctx;
-        }
-
         ::Diligent::RefCntAutoPtr<::Diligent::IRenderDevice> pDevice;
         ::Diligent::RefCntAutoPtr<::Diligent::IDeviceContext> pContext;
         ::Diligent::RefCntAutoPtr<::Diligent::ISwapChain> pSwapChain;
@@ -27,6 +22,8 @@ namespace MG_EGL::Diligent {
         int minorVer = 5;
 
     };
+    
+    static struct DeviceContext ctx;
 
     EGLSurface eglCreateWindowSurface(EGLDisplay dpy, EGLConfig config, NativeWindowType window, const EGLint* attrib_list);
     EGLBoolean eglChooseConfig(EGLDisplay dpy, const EGLint* attrib_list, EGLConfig* configs, EGLint config_size, EGLint* num_config);
@@ -59,4 +56,4 @@ MG_EXPORT __eglMustCastToProperFunctionPointerType eglGetProcAddress(const char 
 #endif
 
 
-#endif //MOBILEGLUES_EGL_IMPL_H
+#endif //MOBILEGL_EGL_IMPL_H

@@ -4,6 +4,7 @@
 
 #include "EGL_impl.h"
 
+typedef Diligent::IEngineFactoryVk* (*Diligent_GetEngineFactoryVk_t)();
 typedef Diligent::IEngineFactoryOpenGL* (*Diligent_GetEngineFactoryOpenGL_t)();
 
 using namespace Diligent;
@@ -53,9 +54,8 @@ void main(in  PSInput  PSIn,
     PSOut.Color = float4(PSIn.Color.rgb, 1.0);
 }
 )";
-
-    EGLSurface eglCreateWindowSurface(EGLDisplay dpy, EGLConfig config, NativeWindowType window,
-                                      const EGLint *attrib_list) {
+    
+    void LoadDiligentCoreOpenGL(NativeWindowType window) {
         void *handle = dlopen("libGraphicsEngineOpenGL.so", RTLD_LAZY);
         auto Diligent_GetEngineFactoryOpenGL =
                 (Diligent_GetEngineFactoryOpenGL_t) dlsym(handle,
@@ -68,10 +68,44 @@ void main(in  PSInput  PSIn,
 
         ::Diligent::SwapChainDesc SCDesc;
 
-        auto &ctx = MG_EGL::Diligent::DeviceContext::GetInstance();
-
         pFactoryOpenGL->CreateDeviceAndSwapChainGL(
                 EngineCI, &ctx.pDevice, &ctx.pContext, SCDesc, &ctx.pSwapChain);
+    }
+    
+    void LoadDiligentCoreVulkan(NativeWindowType window) {
+        void *handle = dlopen("libGraphicsEngineVk.so", RTLD_LAZY);
+        auto Diligent_GetEngineFactoryVk =
+                (Diligent_GetEngineFactoryVk_t) dlsym(handle,
+                                                          "Diligent_GetEngineFactoryVk");
+
+        auto *pFactoryVk = Diligent_GetEngineFactoryVk();
+        ::Diligent::EngineVkCreateInfo EngineCI;
+
+        ::Diligent::SwapChainDesc SCDesc;
+
+        pFactoryVk->CreateDeviceAndContextsVk(
+                EngineCI, &ctx.pDevice, &ctx.pContext);
+        AndroidNativeWindow nativeWindow{window};
+        pFactoryVk->CreateSwapChainVk(
+                ctx.pDevice, ctx.pContext, SCDesc, nativeWindow, &ctx.pSwapChain);
+    }
+    
+    void LoadDiligentCore(NativeWindowType window) {
+        switch (DILIGENT_BACKEND_TYPE) {
+            case MG_Constants::Backend::BACKEND_DILIGENT_VULKAN:
+                LoadDiligentCoreVulkan(window);
+                break;
+            case MG_Constants::Backend::BACKEND_DILIGENT_OPENGL:
+            default:
+                LoadDiligentCoreOpenGL(window);
+                break;
+        }
+        
+    }
+
+    EGLSurface eglCreateWindowSurface(EGLDisplay dpy, EGLConfig config, NativeWindowType window,
+                                      const EGLint *attrib_list) {
+        LoadDiligentCore(window);
 
         // Pipeline state object encompasses configuration of all GPU stages
 
@@ -205,8 +239,6 @@ void main(in  PSInput  PSIn,
     }
 
     EGLBoolean eglSwapBuffers(EGLDisplay dpy, EGLSurface draw) {
-        auto &ctx = MG_EGL::Diligent::DeviceContext::GetInstance();
-
         // Clear the back buffer
         const float ClearColor[] = {0.350f, 0.350f, 0.350f, 1.0f};
         // Let the engine perform required state transitions
@@ -226,6 +258,7 @@ void main(in  PSInput  PSIn,
         DrawAttribs drawAttrs;
         drawAttrs.NumVertices = 3; // We will render 3 vertices
         ctx.pContext->Draw(drawAttrs);
+        ctx.pContext->Flush();
 
         ctx.pSwapChain->Present();
 
