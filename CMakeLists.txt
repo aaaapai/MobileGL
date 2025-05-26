@@ -109,6 +109,7 @@ target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE
         android
         log
         EGL
+        libomp.a
 )
 
 add_subdirectory(3rdparty/DiligentCore)
