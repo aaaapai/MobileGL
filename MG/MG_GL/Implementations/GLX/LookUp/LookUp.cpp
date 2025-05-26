@@ -6,6 +6,14 @@
 
 #include "../../../../Includes.h"
 
+void* glXGetProcAddress(const char *name) {
+    return MG_GL::GLX::GetProcAddress(name);
+}
+
+void* glXGetProcAddressARB(const char *name) {
+    return MG_GL::GLX::GetProcAddressARB(name);
+}
+
 namespace MG_GL::GLX {
     void* GetProcAddress(const char *name) {
         void* proc = dlsym(RTLD_DEFAULT, (const char*)name);
