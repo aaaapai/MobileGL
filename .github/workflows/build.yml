@@ -14,7 +14,10 @@ jobs:
         fetch-depth: 1
       
     - name: Configure CMake and Build
-      run: bash android_ci_build.bash
+      run: |
+          git submodule update --remote --recursive
+          git add .
+          bash android_ci_build.bash
 
     - name: Upload build output
       uses: actions/upload-artifact@main
