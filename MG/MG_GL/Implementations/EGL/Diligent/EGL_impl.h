@@ -17,12 +17,14 @@ namespace MG_EGL::Diligent {
         ::Diligent::RefCntAutoPtr<::Diligent::IDeviceContext> pContext;
         ::Diligent::RefCntAutoPtr<::Diligent::ISwapChain> pSwapChain;
         ::Diligent::RefCntAutoPtr<::Diligent::IPipelineState> pPSO;
+        ::Diligent::RefCntAutoPtr<::Diligent::IRenderPass> pRenderPass;
+        std::vector<::Diligent::RefCntAutoPtr<::Diligent::IFramebuffer>> pFramebuffers;
         bool initialized = false;
         int majorVer = 1;
         int minorVer = 5;
 
     };
-    
+
     static struct DeviceContext ctx;
 
     EGLSurface eglCreateWindowSurface(EGLDisplay dpy, EGLConfig config, NativeWindowType window, const EGLint* attrib_list);

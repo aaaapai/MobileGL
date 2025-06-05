@@ -35,7 +35,6 @@ void main(in  uint    VertId : SV_VertexID,
 }
 )";
 
-// Pixel shader simply outputs interpolated vertex color
     static const char *PSSource = R"(
 struct PSInput
 {
@@ -54,7 +53,7 @@ void main(in  PSInput  PSIn,
     PSOut.Color = float4(PSIn.Color.rgb, 1.0);
 }
 )";
-    
+
     void LoadDiligentCoreOpenGL(NativeWindowType window) {
         void *handle = dlopen("libGraphicsEngineOpenGL.so", RTLD_LAZY);
         auto Diligent_GetEngineFactoryOpenGL =
@@ -71,12 +70,12 @@ void main(in  PSInput  PSIn,
         pFactoryOpenGL->CreateDeviceAndSwapChainGL(
                 EngineCI, &ctx.pDevice, &ctx.pContext, SCDesc, &ctx.pSwapChain);
     }
-    
+
     void LoadDiligentCoreVulkan(NativeWindowType window) {
         void *handle = dlopen("libGraphicsEngineVk.so", RTLD_LAZY);
         auto Diligent_GetEngineFactoryVk =
                 (Diligent_GetEngineFactoryVk_t) dlsym(handle,
-                                                          "Diligent_GetEngineFactoryVk");
+                                                      "Diligent_GetEngineFactoryVk");
 
         auto *pFactoryVk = Diligent_GetEngineFactoryVk();
         ::Diligent::EngineVkCreateInfo EngineCI;
@@ -89,7 +88,7 @@ void main(in  PSInput  PSIn,
         pFactoryVk->CreateSwapChainVk(
                 ctx.pDevice, ctx.pContext, SCDesc, nativeWindow, &ctx.pSwapChain);
     }
-    
+
     void LoadDiligentCore(NativeWindowType window) {
         switch (DILIGENT_BACKEND_TYPE) {
             case MG_Constants::Backend::BACKEND_DILIGENT_VULKAN:
@@ -100,46 +99,58 @@ void main(in  PSInput  PSIn,
                 LoadDiligentCoreOpenGL(window);
                 break;
         }
-        
+
     }
 
     EGLSurface eglCreateWindowSurface(EGLDisplay dpy, EGLConfig config, NativeWindowType window,
                                       const EGLint *attrib_list) {
         LoadDiligentCore(window);
 
-        // Pipeline state object encompasses configuration of all GPU stages
+        RenderPassAttachmentDesc RPAttachmentDescs[2];
+        RPAttachmentDescs[0].Format = ctx.pSwapChain->GetDesc().ColorBufferFormat;
+        RPAttachmentDescs[0].InitialState = RESOURCE_STATE_RENDER_TARGET;
+        RPAttachmentDescs[0].FinalState = RESOURCE_STATE_RENDER_TARGET;
+        RPAttachmentDescs[0].LoadOp = ATTACHMENT_LOAD_OP_CLEAR;
+        RPAttachmentDescs[0].StoreOp = ATTACHMENT_STORE_OP_STORE;
+        RPAttachmentDescs[1].Format = ctx.pSwapChain->GetDesc().DepthBufferFormat;
+        RPAttachmentDescs[1].InitialState = RESOURCE_STATE_DEPTH_WRITE;
+        RPAttachmentDescs[1].FinalState = RESOURCE_STATE_DEPTH_WRITE;
+        RPAttachmentDescs[1].LoadOp = ATTACHMENT_LOAD_OP_CLEAR;
+        RPAttachmentDescs[1].StoreOp = ATTACHMENT_STORE_OP_DISCARD;
+
+        SubpassDesc Subpass;
+        Subpass.InputAttachmentCount = 0;
+        Subpass.RenderTargetAttachmentCount = 1;
+        AttachmentReference RTAttachmentRef = {0, RESOURCE_STATE_RENDER_TARGET};
+        Subpass.pRenderTargetAttachments = &RTAttachmentRef;
+        AttachmentReference DSAttachmentRef = {1, RESOURCE_STATE_DEPTH_WRITE};
+        Subpass.pDepthStencilAttachment = &DSAttachmentRef;
+
+        RenderPassDesc RPDesc;
+        RPDesc.Name = "Main render pass";
+        RPDesc.AttachmentCount = 2;
+        RPDesc.pAttachments = RPAttachmentDescs;
+        RPDesc.SubpassCount = 1;
+        RPDesc.pSubpasses = &Subpass;
+
+        ctx.pDevice->CreateRenderPass(RPDesc, &ctx.pRenderPass);
 
         GraphicsPipelineStateCreateInfo PSOCreateInfo;
-
-        // Pipeline state name is used by the engine to report issues.
-        // It is always a good idea to give objects descriptive names.
         PSOCreateInfo.PSODesc.Name = "Simple triangle PSO";
 
-        // This is a graphics pipeline
         PSOCreateInfo.PSODesc.PipelineType = PIPELINE_TYPE_GRAPHICS;
 
-        // clang-format off
-        // This tutorial will render to a single render target
-        PSOCreateInfo.GraphicsPipeline.NumRenderTargets = 1;
-        // Set render target format which is the format of the swap chain's color buffer
-        PSOCreateInfo.GraphicsPipeline.RTVFormats[0] = ctx.pSwapChain->GetDesc().ColorBufferFormat;
-        // Use the depth buffer format from the swap chain
-        PSOCreateInfo.GraphicsPipeline.DSVFormat = ctx.pSwapChain->GetDesc().DepthBufferFormat;
-        // Primitive topology defines what kind of primitives will be rendered by this pipeline state
+        PSOCreateInfo.GraphicsPipeline.NumRenderTargets = 0;
+        PSOCreateInfo.GraphicsPipeline.RTVFormats[0] = TEX_FORMAT_UNKNOWN;
+        PSOCreateInfo.GraphicsPipeline.DSVFormat = TEX_FORMAT_UNKNOWN;
         PSOCreateInfo.GraphicsPipeline.PrimitiveTopology = PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
-        // No back face culling for this tutorial
         PSOCreateInfo.GraphicsPipeline.RasterizerDesc.CullMode = CULL_MODE_NONE;
-        // Disable depth testing
         PSOCreateInfo.GraphicsPipeline.DepthStencilDesc.DepthEnable = False;
-        // clang-format on
+        PSOCreateInfo.GraphicsPipeline.pRenderPass = ctx.pRenderPass;
 
         ShaderCreateInfo ShaderCI;
-        // Tell the system that the shader source code is in HLSL.
-        // For OpenGL, the engine will convert this into GLSL under the hood.
         ShaderCI.SourceLanguage = SHADER_SOURCE_LANGUAGE_HLSL;
-        // OpenGL backend requires emulated combined HLSL texture samplers (g_Texture + g_Texture_sampler combination)
         ShaderCI.Desc.UseCombinedTextureSamplers = true;
-        // Create a vertex shader
         RefCntAutoPtr <IShader> pVS;
         {
             ShaderCI.Desc.ShaderType = SHADER_TYPE_VERTEX;
@@ -149,7 +160,6 @@ void main(in  PSInput  PSIn,
             ctx.pDevice->CreateShader(ShaderCI, &pVS);
         }
 
-        // Create a pixel shader
         RefCntAutoPtr <IShader> pPS;
         {
             ShaderCI.Desc.ShaderType = SHADER_TYPE_PIXEL;
@@ -159,11 +169,14 @@ void main(in  PSInput  PSIn,
             ctx.pDevice->CreateShader(ShaderCI, &pPS);
         }
 
-        // Finally, create the pipeline state
         PSOCreateInfo.pVS = pVS;
         PSOCreateInfo.pPS = pPS;
         ctx.pDevice->CreateGraphicsPipelineState(PSOCreateInfo, &ctx.pPSO);
 
+        const auto& SCDesc = ctx.pSwapChain->GetDesc();
+        ctx.pFramebuffers.resize(SCDesc.BufferCount);
+
+        ctx.pContext->SetRenderTargets(0, nullptr, nullptr, RESOURCE_STATE_TRANSITION_MODE_NONE);
         return (EGLSurface) 1;
     }
 
@@ -238,30 +251,63 @@ void main(in  PSInput  PSIn,
         return EGL_TRUE;
     }
 
+    static int swapBuffersCount = 0;
+    static int bufferCount = 0;
     EGLBoolean eglSwapBuffers(EGLDisplay dpy, EGLSurface draw) {
-        // Clear the back buffer
         const float ClearColor[] = {0.350f, 0.350f, 0.350f, 1.0f};
-        // Let the engine perform required state transitions
-        ITextureView *pRTV = ctx.pSwapChain->GetCurrentBackBufferRTV();
-        ITextureView *pDSV = ctx.pSwapChain->GetDepthBufferDSV();
-        ctx.pContext->ClearRenderTarget(pRTV, ClearColor,
-                                        RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
-        ctx.pContext->ClearDepthStencil(pDSV, CLEAR_DEPTH_FLAG, 1.f, 0,
-                                        RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
 
-        // Set the pipeline state in the immediate context
+        // Framebuffer Creation
+        if (!bufferCount) bufferCount = ctx.pSwapChain->GetDesc().BufferCount;
+        ITextureView* pDSV = ctx.pSwapChain->GetDepthBufferDSV();
+        if (swapBuffersCount < bufferCount) {
+            ITextureView *pRTV = ctx.pSwapChain->GetCurrentBackBufferRTV();
+            ITextureView *attachments[2];
+            attachments[0] = pRTV;
+            attachments[1] = pDSV;
+
+            FramebufferDesc FBDesc;
+            FBDesc.Name = ("Main framebuffer " + std::to_string(swapBuffersCount)).c_str();
+            FBDesc.pRenderPass = ctx.pRenderPass;
+            FBDesc.AttachmentCount = 2;
+            FBDesc.ppAttachments = attachments;
+            ctx.pDevice->CreateFramebuffer(FBDesc, &ctx.pFramebuffers[swapBuffersCount]);
+        }
+
+        BeginRenderPassAttribs beginRenderPassAttribs;
+
+        beginRenderPassAttribs.pFramebuffer = ctx.pFramebuffers[swapBuffersCount % bufferCount];
+        beginRenderPassAttribs.pRenderPass = ctx.pRenderPass;
+        beginRenderPassAttribs.ClearValueCount = 2;
+        OptimizedClearValue optimizedClearValues[2];
+        optimizedClearValues[0].Color[0] = ClearColor[0];
+        optimizedClearValues[0].Color[1] = ClearColor[1];
+        optimizedClearValues[0].Color[2] = ClearColor[2];
+        optimizedClearValues[0].Color[3] = ClearColor[3];
+        optimizedClearValues[1].DepthStencil.Depth = 1.f;
+        optimizedClearValues[1].DepthStencil.Stencil = 0;
+
+        beginRenderPassAttribs.pClearValues = optimizedClearValues;
+        beginRenderPassAttribs.StateTransitionMode = RESOURCE_STATE_TRANSITION_MODE_TRANSITION;
+
+        ctx.pContext->BeginRenderPass(beginRenderPassAttribs);
+
+        Viewport vp = {0, 0, (float)ctx.pSwapChain->GetDesc().Width, (float)ctx.pSwapChain->GetDesc().Height, 0, 1};
+        ctx.pContext->SetViewports(1, &vp, ctx.pSwapChain->GetDesc().Width, ctx.pSwapChain->GetDesc().Height);
+
         ctx.pContext->SetPipelineState(ctx.pPSO);
 
-        // Typically we should now call CommitShaderResources(), however shaders in this example don't
-        // use any resources.
-
         DrawAttribs drawAttrs;
-        drawAttrs.NumVertices = 3; // We will render 3 vertices
+        drawAttrs.NumVertices = 3;
+        drawAttrs.Flags = DRAW_FLAG_VERIFY_ALL;
         ctx.pContext->Draw(drawAttrs);
+
+        ctx.pContext->EndRenderPass();
+
         ctx.pContext->Flush();
 
         ctx.pSwapChain->Present();
 
+        swapBuffersCount++;
         return EGL_TRUE;
     }
 
