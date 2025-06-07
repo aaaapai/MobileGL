@@ -5,6 +5,7 @@
 #ifndef MOBILEGL_TEXTURESTATE_H
 #define MOBILEGL_TEXTURESTATE_H
 #define MOBILEGL_GLSTATE_H
+#define MOBILEGL_DILIGENT_EGL_IMPL_H
 
 #include "../../../Includes.h"
 
@@ -19,10 +20,8 @@ struct ComponentSizes {
 };
 
 struct TextureParams {
-    template <typename K, typename V>
-    using unordered_map = ankerl::unordered_dense::map<K, V>;
-    unordered_map<GLenum, GLfloat> texPropertiesFloat;
-    unordered_map<GLenum, GLint> texPropertiesInt;
+    MG_Global::unordered_map<GLenum, GLfloat> texPropertiesFloat;
+    MG_Global::unordered_map<GLenum, GLint> texPropertiesInt;
     struct MipmapLevel {
         GLsizei width = 0;
         GLsizei height = 0;
@@ -33,7 +32,7 @@ struct TextureParams {
         bool hasData = false;
         bool dirty = false; // TODO: encapsulate this with an public API to RHI
     };
-    unordered_map<GLint, MipmapLevel> mipmapData;
+    MG_Global::unordered_map<GLint, MipmapLevel> mipmapData;
 };
 
 class TextureObject {
@@ -47,27 +46,23 @@ public:
 };
 
 class TextureUnitState {
-    template <typename K, typename V>
-    using unordered_map = ankerl::unordered_dense::map<K, V>;
 private:
     GLenum activeTarget = GL_TEXTURE_2D;
     
 public:
-    unordered_map<GLenum, GLuint> boundTextures;
+    MG_Global::unordered_map<GLenum, GLuint> boundTextures;
     void Bind(GLenum target, GLuint texture);
     GLuint GetBoundTexture(GLenum target);
 };
 
 class TextureState {
-    template <typename K, typename V>
-    using unordered_map = ankerl::unordered_dense::map<K, V>;
 private:
 
     GLuint lastUsedID_ = 1;
-//    ankerl::unordered_set<GLuint> freeIDs_;
+//    MG_Global::unordered_set<GLuint> freeIDs_;
     std::vector<GLuint> freeID_;
 
-    unordered_map<GLenum, TextureObject> proxyTextures_;
+    MG_Global::unordered_map<GLenum, TextureObject> proxyTextures_;
     
     static GLint GetUnpackParam_(GLenum pname);
 public:
@@ -75,7 +70,7 @@ public:
     
     bool IsTextureGenerated(GLuint texture);
     bool IsTexture(GLuint texture);
-    unordered_map<GLuint, TextureObject> textures;
+    MG_Global::unordered_map<GLuint, TextureObject> textures;
 
     // Return: the validity of the operation, according to OpenGL 3 standard
     GLenum BindUnit(GLenum textureUnit);

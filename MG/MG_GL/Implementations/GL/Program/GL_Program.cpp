@@ -4,13 +4,162 @@
 
 #include "GL_Program.h"
 
+#undef MOBILEGL_GLSLTOOL_H
+#include "../../../../Includes.h"
+
 namespace MG_GL::GL {
+    inline bool IsSamplerType(GLenum type) {
+        switch (type) {
+            case GL_SAMPLER_2D:
+            case GL_SAMPLER_3D:
+            case GL_SAMPLER_CUBE:
+            case GL_SAMPLER_2D_SHADOW:
+            case GL_SAMPLER_2D_ARRAY:
+            case GL_SAMPLER_2D_ARRAY_SHADOW:
+            case GL_SAMPLER_CUBE_SHADOW:
+                return true;
+            default:
+                return false;
+        }
+    }
+
+    inline size_t GetUniformSize(GLenum type) {
+        switch (type) {
+            case GL_FLOAT: return sizeof(float);
+            case GL_FLOAT_VEC2: return 2 * sizeof(float);
+            case GL_FLOAT_VEC3: return 3 * sizeof(float);
+            case GL_FLOAT_VEC4: return 4 * sizeof(float);
+            case GL_FLOAT_MAT2: return 4 * sizeof(float);
+            case GL_FLOAT_MAT3: return 9 * sizeof(float);
+            case GL_FLOAT_MAT4: return 16 * sizeof(float);
+            case GL_INT:
+            case GL_BOOL:
+                return sizeof(int);
+            case GL_INT_VEC2: return 2 * sizeof(int);
+            case GL_INT_VEC3: return 3 * sizeof(int);
+            case GL_INT_VEC4: return 4 * sizeof(int);
+            case GL_UNSIGNED_INT: return sizeof(uint32_t);
+            case GL_UNSIGNED_INT_VEC2: return 2 * sizeof(uint32_t);
+            case GL_UNSIGNED_INT_VEC3: return 3 * sizeof(uint32_t);
+            case GL_UNSIGNED_INT_VEC4: return 4 * sizeof(uint32_t);
+            default: return 0;
+        }
+    }
+
+    inline size_t AlignSize(size_t size, size_t alignment) {
+        return (size + alignment - 1) & ~(alignment - 1);
+    }
+    
+    void CreateDefaultUBO(MG_Diligent::GLProgramInfo& programInfo) {
+        MG_Util::Debug::LogD("CreateDefaultUBO for program");
+        size_t uboSize = 0;
+        std::vector<size_t> uniformSizes;
+
+        for (auto& [name, uniform] : programInfo.programObj.uniformValues) {
+            if (IsSamplerType(uniform.type)) continue;
+
+            size_t size = GetUniformSize(uniform.type);
+            size_t alignedSize = AlignSize(size, 16);
+            uniformSizes.push_back(alignedSize);
+            MG_Util::Debug::LogD("  Uniform '%s': size = %zu, alignedSize = %zu",
+                                 name.c_str(), size, alignedSize);
+            uboSize += alignedSize;
+        }
+
+        if (uboSize > 0) {
+            Diligent::BufferDesc BuffDesc;
+            BuffDesc.Name = "MG_DEFAULT_UBO";
+            BuffDesc.Size = uboSize;
+            BuffDesc.Usage = Diligent::USAGE_DYNAMIC;
+            BuffDesc.BindFlags = Diligent::BIND_UNIFORM_BUFFER;
+            BuffDesc.CPUAccessFlags = Diligent::CPU_ACCESS_WRITE;
+
+            MG_Diligent::g_pDevice->CreateBuffer(BuffDesc, nullptr, &programInfo.pDefaultUBO);
+            MG_Util::Debug::LogD("Created default UBO: size = %zu", uboSize);
+        } else {
+            MG_Util::Debug::LogD("No non-sampler uniforms found, default UBO not created.");
+        }
+    }
+
+    void RecordUniformOffsets(MG_Diligent::GLProgramInfo& programInfo) {
+        MG_Util::Debug::LogD("RecordUniformOffsets for program");
+        size_t offset = 0;
+        programInfo.uniformOffsets.clear();
+
+        for (auto& [name, uniform] : programInfo.programObj.uniformValues) {
+            if (IsSamplerType(uniform.type)) continue;
+
+            size_t size = GetUniformSize(uniform.type);
+            size_t alignedSize = AlignSize(size, 16);
+
+            programInfo.uniformOffsets[name] = offset;
+            MG_Util::Debug::LogD("  Uniform '%s': offset = %zu, size = %zu, alignedSize = %zu",
+                                 name.c_str(), offset, size, alignedSize);
+            offset += alignedSize;
+        }
+    }
+    
+    Diligent::VALUE_TYPE ConvertGLTypeToDiligent(GLenum type) {
+        switch (type) {
+            case GL_FLOAT: return Diligent::VT_FLOAT32;
+            case GL_FLOAT_VEC2: return Diligent::VT_FLOAT32;
+            case GL_FLOAT_VEC3: return Diligent::VT_FLOAT32;
+            case GL_FLOAT_VEC4: return Diligent::VT_FLOAT32;
+            case GL_INT: return Diligent::VT_INT32;
+            case GL_INT_VEC2: return Diligent::VT_INT32;
+            case GL_INT_VEC3: return Diligent::VT_INT32;
+            case GL_INT_VEC4: return Diligent::VT_INT32;
+            case GL_UNSIGNED_INT: return Diligent::VT_UINT32;
+            case GL_UNSIGNED_INT_VEC2: return Diligent::VT_UINT32;
+            case GL_UNSIGNED_INT_VEC3: return Diligent::VT_UINT32;
+            case GL_UNSIGNED_INT_VEC4: return Diligent::VT_UINT32;
+            case GL_FLOAT_MAT2: return Diligent::VT_FLOAT32;
+            case GL_FLOAT_MAT3: return Diligent::VT_FLOAT32;
+            case GL_FLOAT_MAT4: return Diligent::VT_FLOAT32;
+            case GL_FLOAT_MAT2x3: return Diligent::VT_FLOAT32;
+            case GL_FLOAT_MAT2x4: return Diligent::VT_FLOAT32;
+            case GL_FLOAT_MAT3x2: return Diligent::VT_FLOAT32;
+            case GL_FLOAT_MAT3x4: return Diligent::VT_FLOAT32;
+            case GL_FLOAT_MAT4x2: return Diligent::VT_FLOAT32;
+            case GL_FLOAT_MAT4x3: return Diligent::VT_FLOAT32;
+            default: return Diligent::VT_UNDEFINED;
+        }
+    }
+
+    GLint GetGLTypeComponentCount(GLenum type) {
+        switch (type) {
+            case GL_FLOAT: return 1;
+            case GL_FLOAT_VEC2: return 2;
+            case GL_FLOAT_VEC3: return 3;
+            case GL_FLOAT_VEC4: return 4;
+            case GL_INT: return 1;
+            case GL_INT_VEC2: return 2;
+            case GL_INT_VEC3: return 3;
+            case GL_INT_VEC4: return 4;
+            case GL_UNSIGNED_INT: return 1;
+            case GL_UNSIGNED_INT_VEC2: return 2;
+            case GL_UNSIGNED_INT_VEC3: return 3;
+            case GL_UNSIGNED_INT_VEC4: return 4;
+            case GL_FLOAT_MAT2: return 4;
+            case GL_FLOAT_MAT3: return 9;
+            case GL_FLOAT_MAT4: return 16; // 4 * 4
+            case GL_FLOAT_MAT2x3: return 6; // 2 * 3
+            case GL_FLOAT_MAT2x4: return 8; // 2 * 4
+            case GL_FLOAT_MAT3x2: return 6; // 3 * 2
+            case GL_FLOAT_MAT3x4: return 12; // 3 * 4
+            case GL_FLOAT_MAT4x2: return 8; // 4 * 2
+            case GL_FLOAT_MAT4x3: return 12; // 4 * 3
+            default: return 0;
+        }
+    }
+    
     GLuint CreateShader(GLenum type) {
         MG_Util::Debug::LogD("glCreateShader, type: %s", MG_Util::Debug::GLEnumToString(type));
         GLuint shader;
         GLenum result = MG_State::CreateShader(type, &shader);
         if (result == GL_NO_ERROR) {
             MG_Util::Debug::LogD("Created shader ID: %u", shader);
+            MG_Diligent::g_ShaderMap[shader] = nullptr;
             return shader;
         }
         MG_State::SetError(result);
@@ -34,7 +183,16 @@ namespace MG_GL::GL {
     void DeleteShader(GLuint shader) {
         MG_Util::Debug::LogD("glDeleteShader, shader: %u", shader);
         GLenum result = MG_State::DeleteShader(shader);
-        if (result == GL_NO_ERROR) return;
+        if (result == GL_NO_ERROR) {
+            auto it = MG_Diligent::g_ShaderMap.find(shader);
+            if (it != MG_Diligent::g_ShaderMap.end()) {
+                if (it->second) {
+                    it->second->Release();
+                }
+                MG_Diligent::g_ShaderMap.erase(it);
+            }
+            return;
+        }
         MG_State::SetError(result);
         MG_Util::Debug::LogE("Error deleting shader: %s", MG_Util::Debug::GLEnumToString(result));
     }
@@ -42,7 +200,9 @@ namespace MG_GL::GL {
     void DeleteProgram(GLuint program) {
         MG_Util::Debug::LogD("glDeleteProgram, program: %u", program);
         GLenum result = MG_State::DeleteProgram(program);
-        if (result == GL_NO_ERROR) return;
+        if (result == GL_NO_ERROR) {
+            return;
+        }
         MG_State::SetError(result);
         MG_Util::Debug::LogE("Error deleting program: %s", MG_Util::Debug::GLEnumToString(result));
     }
@@ -50,7 +210,9 @@ namespace MG_GL::GL {
     void AttachShader(GLuint program, GLuint shader) {
         MG_Util::Debug::LogD("glAttachShader, program: %u, shader: %u", program, shader);
         GLenum result = MG_State::LinkShaderToProgram(program, shader);
-        if (result == GL_NO_ERROR) return;
+        if (result == GL_NO_ERROR) {
+            return;
+        }
         MG_State::SetError(result);
         MG_Util::Debug::LogE("Error attaching shader: %s", MG_Util::Debug::GLEnumToString(result));
     }
@@ -65,16 +227,114 @@ namespace MG_GL::GL {
     
     void CompileShader(GLuint shader) {
         MG_Util::Debug::LogD("glCompileShader, shader: %u", shader);
+        // Defer actual compilation to LinkProgram
         GLenum result = MG_State::BuildShaderStage(shader);
         if (result == GL_NO_ERROR) return;
         MG_State::SetError(result);
-        MG_Util::Debug::LogE("Error compiling shader: %s", MG_Util::Debug::GLEnumToString(result));
+        MG_Util::Debug::LogE("Error marking shader for compilation: %s", MG_Util::Debug::GLEnumToString(result));
     }
     
     void LinkProgram(GLuint program) {
         MG_Util::Debug::LogD("glLinkProgram, program: %u", program);
         GLenum result = MG_State::FinalizeProgramPipeline(program);
-        if (result == GL_NO_ERROR) return;
+        if (result == GL_NO_ERROR) {
+            auto& programInfo = MG_Diligent::g_ProgramMap[program];
+            auto& programObj = MG_State_T::programState->programs_[program];
+
+            for (const auto& shaderId : programObj.attachedShaders) {
+                programInfo.AttachedShadersID.push_back(shaderId);
+            }
+
+            MG_Global::unordered_map<GLuint, std::string> shaderSources;
+            for (GLuint shaderId : programInfo.AttachedShadersID) {
+                auto& shaderObj = MG_State_T::programState->shaders_[shaderId];
+                shaderSources[shaderId] = shaderObj.source;
+            }
+
+            MG_Util::Program::GenerateDefaultUBOForGLSL_Multi(shaderSources);
+            
+            // Compile attached shaders
+            for (GLuint shaderId : programInfo.AttachedShadersID) {
+                auto& shaderObj = MG_State_T::programState->shaders_[shaderId];
+                // Compile only if not already compiled in Diligent
+                if (MG_Diligent::g_ShaderMap.find(shaderId) == MG_Diligent::g_ShaderMap.end() || MG_Diligent::g_ShaderMap[shaderId] == nullptr) {
+                    GLenum shaderType = shaderObj.type;
+                    std::string sourceStr = shaderSources[shaderId];
+
+                    Diligent::ShaderCreateInfo ShaderCI;
+                    ShaderCI.Source = sourceStr.c_str();
+                    ShaderCI.EntryPoint = "main";
+
+                    switch (shaderType) {
+                        case GL_VERTEX_SHADER: ShaderCI.Desc.ShaderType = Diligent::SHADER_TYPE_VERTEX; break;
+                        case GL_FRAGMENT_SHADER: ShaderCI.Desc.ShaderType = Diligent::SHADER_TYPE_PIXEL; break;
+                        case GL_GEOMETRY_SHADER: ShaderCI.Desc.ShaderType = Diligent::SHADER_TYPE_GEOMETRY; break;
+                        case GL_TESS_CONTROL_SHADER: ShaderCI.Desc.ShaderType = Diligent::SHADER_TYPE_HULL; break;
+                        case GL_TESS_EVALUATION_SHADER: ShaderCI.Desc.ShaderType = Diligent::SHADER_TYPE_DOMAIN; break;
+                        case GL_COMPUTE_SHADER: ShaderCI.Desc.ShaderType = Diligent::SHADER_TYPE_COMPUTE; break;
+                        default: MG_Util::Debug::LogW("Unsupported shader type for compilation: %u", shaderType); continue;
+                    }
+
+                    ShaderCI.Desc.Name = ("Shader_" + std::to_string(shaderId)).c_str();
+                    ShaderCI.SourceLanguage = Diligent::SHADER_SOURCE_LANGUAGE_GLSL_VERBATIM;
+
+                    Diligent::IShader* pShader = nullptr;
+                    MG_Diligent::g_pDevice->CreateShader(ShaderCI, &pShader);
+
+                    if (pShader) {
+                        MG_Diligent::g_ShaderMap[shaderId] = pShader;
+                        programInfo.AttachedShaders.push_back(pShader);
+                        shaderObj.compiled = UncertainBool::True;
+                        shaderObj.compileStatus = GL_TRUE;
+                        MG_Util::Debug::LogD("Successfully compiled shader ID: %u for program %u", shaderId, program);
+                    } else {
+                        shaderObj.compiled = UncertainBool::False;
+                        shaderObj.compileStatus = GL_FALSE;
+                        MG_Util::Debug::LogE("Failed to compile shader ID: %u for program %u", shaderId, program);
+                    }
+                } else {
+                    // Shader already compiled, just add to programInfo
+                    programInfo.AttachedShaders.push_back(MG_Diligent::g_ShaderMap[shaderId]);
+                }
+            }
+
+            programInfo.id = program;
+            programInfo.inputLayout.clear();
+
+            auto* pVAO = MG_State_T::vertexArrayState->GetCurrentVAO();
+            if (!pVAO) return;
+
+            for (const auto& [index, attrib] : pVAO->attribs) {
+                if (attrib.enabled) {
+                    Diligent::LayoutElement elem;
+                    elem.InputIndex = index;
+                    elem.BufferSlot = 0;
+                    elem.NumComponents = attrib.size;
+                    elem.ValueType = ConvertGLTypeToDiligent(attrib.type);
+                    elem.IsNormalized = attrib.normalized;
+                    elem.RelativeOffset = static_cast<GLuint>(reinterpret_cast<size_t>(attrib.pointer));
+
+                    programInfo.inputLayout.push_back(elem);
+                }
+            }
+
+            programInfo.psoDirty = true;
+            programInfo.psoStateHash = 0;
+            programInfo.uniformStages.clear();
+            programInfo.programObj = MG_State_T::programState->programs_[program];
+            
+            if (programInfo.pResourceBinding) {
+                programInfo.pResourceBinding->Release();
+                programInfo.pResourceBinding = nullptr;
+            }
+
+            CreateDefaultUBO(programInfo);
+            RecordUniformOffsets(programInfo);
+
+            programObj.linked = true;
+            programObj.linkStatus = GL_TRUE;
+            return;
+        }
         MG_State::SetError(result);
         MG_Util::Debug::LogE("Error linking program: %s", MG_Util::Debug::GLEnumToString(result));
     }
@@ -82,7 +342,9 @@ namespace MG_GL::GL {
     void UseProgram(GLuint program) {
         MG_Util::Debug::LogD("glUseProgram, program: %u", program);
         GLenum result = MG_State::ActivateRenderProgram(program);
-        if (result == GL_NO_ERROR) return;
+        if (result == GL_NO_ERROR) {
+            return;
+        }
         MG_State::SetError(result);
         MG_Util::Debug::LogE("Error using program: %s", MG_Util::Debug::GLEnumToString(result));
     }

@@ -5,6 +5,7 @@
 #ifndef MOBILEGL_PROGRAMSTATE_H
 #define MOBILEGL_PROGRAMSTATE_H
 #define MOBILEGL_GLSTATE_H
+#define MOBILEGL_DILIGENT_EGL_IMPL_H
 #define MOBILEGL_PROGRAM_DEBUGTOOL_H
 #define MOBILEGL_GLSLTOOL_H
 
@@ -41,17 +42,17 @@ struct ProgramObject {
     bool dirty;
     GLint linkStatus;
     std::string infoLog;
-    ankerl::unordered_map<std::string, GLint> attribBindings;
-    ankerl::unordered_map<std::string, GLint> attribLocations;
-    ankerl::unordered_map<std::string, GLint> uniformLocations;
-    ankerl::unordered_map<std::string, UniformValue> uniformValues;
+    MG_Global::unordered_map<std::string, GLint> attribBindings;
+    MG_Global::unordered_map<std::string, GLint> attribLocations;
+    MG_Global::unordered_map<std::string, GLint> uniformLocations;
+    MG_Global::unordered_map<std::string, UniformValue> uniformValues;
     bool markedForDeletion;
 };
 
 class ProgramState {
 public:
-    ankerl::unordered_map<GLuint, ShaderObject> shaders_;
-    ankerl::unordered_map<GLuint, ProgramObject> programs_;
+    MG_Global::unordered_map<GLuint, ShaderObject> shaders_;
+    MG_Global::unordered_map<GLuint, ProgramObject> programs_;
     std::set<GLuint> freeShaderIds_;
     std::set<GLuint> freeProgramIds_;
     GLuint lastShaderId_ = 0;

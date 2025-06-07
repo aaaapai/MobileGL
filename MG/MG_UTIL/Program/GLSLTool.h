@@ -178,6 +178,10 @@ namespace MG_Util::Program {
     std::vector<std::vector<unsigned>> CompileMultipleShadersToSPIRV(const ProgramState& state, ProgramObject& prog, std::string& infoLog);
     void ReflectSPIRVUniforms(const std::vector<std::vector<unsigned>>& allSpirv, ProgramObject& prog, std::string& infoLog);
     std::string CompileSPIRVToGLSL(std::vector<unsigned int> spirv, uint glslVersion, bool isES);
+    std::pair<std::string, std::string> GenerateDefaultUBOForGLSL(const std::pair<std::string,
+                                                                  std::string>& glslSources);
+    void GenerateDefaultUBOForGLSL_Multi(
+            MG_Global::unordered_map<GLuint, std::string> &shaderSources);
 }
 
 #endif //MOBILEGL_GLSLTOOL_H

@@ -4,56 +4,416 @@
 
 #include "EGL_impl.h"
 
+#undef MOBILEGL_GLSLTOOL_H
+#undef MOBILEGL_PROGRAM_DEBUGTOOL_H
+#include "../../../../Includes.h"
+
 typedef Diligent::IEngineFactoryVk* (*Diligent_GetEngineFactoryVk_t)();
 typedef Diligent::IEngineFactoryOpenGL* (*Diligent_GetEngineFactoryOpenGL_t)();
+
+namespace MG_Diligent {
+    Diligent::IRenderDevice*      g_pDevice;
+    Diligent::IDeviceContext*     g_pContext;
+    Diligent::ISwapChain*         g_pSwapChain;
+    MG_Global::unordered_map<GLuint, Diligent::IBuffer*>         g_BufferMap;
+    MG_Global::unordered_map<GLuint, Diligent::ITexture*>        g_TextureMap;
+    MG_Global::unordered_map<GLuint, Diligent::ITextureView*>    g_TextureViewMap;
+    MG_Global::unordered_map<GLuint, GLFramebufferInfo>          g_FramebufferMap;
+    MG_Global::unordered_map<GLuint, Diligent::IShader*>         g_ShaderMap;
+    MG_Global::unordered_map<GLuint, GLProgramInfo>              g_ProgramMap;
+    MG_Global::unordered_map<GLuint, Diligent::ISampler*>        g_SamplerMap;
+    MG_Global::unordered_map<GLuint, Diligent::IBuffer*>         g_UniformBufferMap;
+    bool IsInRenderPass = false;
+    bool initialized = false;
+
+    void PipelineStateManager::ConfigurePSO(
+            Diligent::GraphicsPipelineStateCreateInfo &PSOCreateInfo,
+            GLProgramInfo &programInfo,
+            CommonState &commonState,
+            VertexArrayState &vaState,
+            GLFramebufferInfo& fbInfo) {
+        PSOCreateInfo.PSODesc.Name = "Program_PSO";
+        PSOCreateInfo.PSODesc.PipelineType = Diligent::PIPELINE_TYPE_GRAPHICS;
+
+        __android_log_print(ANDROID_LOG_DEBUG, "Diligent Engine", "Num AttachedShaders: %zu", programInfo.AttachedShaders.size());
+        for (auto shader: programInfo.AttachedShaders) {
+            __android_log_print(ANDROID_LOG_DEBUG, "Diligent Engine", "AttachedShader: %p, Type: %d", shader, shader->GetDesc().ShaderType);
+            switch (shader->GetDesc().ShaderType) {
+                case Diligent::SHADER_TYPE_VERTEX:
+                    PSOCreateInfo.pVS = shader;
+                    break;
+                case Diligent::SHADER_TYPE_PIXEL:
+                    PSOCreateInfo.pPS = shader;
+                    break;
+                case Diligent::SHADER_TYPE_GEOMETRY:
+                    PSOCreateInfo.pGS = shader;
+                    break;
+                default:
+                    break;
+            }
+        }
+
+        PSOCreateInfo.GraphicsPipeline.InputLayout.LayoutElements = programInfo.inputLayout.data();
+        PSOCreateInfo.GraphicsPipeline.InputLayout.NumElements = programInfo.inputLayout.size();
+
+        PSOCreateInfo.GraphicsPipeline.PrimitiveTopology = Diligent::PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+
+        PSOCreateInfo.GraphicsPipeline.NumRenderTargets = fbInfo.ColorRTVs.size();
+        for (size_t i = 0; i < fbInfo.ColorRTVs.size(); ++i) {
+            if (fbInfo.ColorRTVs[i]) {
+                PSOCreateInfo.GraphicsPipeline.RTVFormats[i] =
+                        fbInfo.ColorRTVs[i]->GetDesc().Format;
+            } else {
+                PSOCreateInfo.GraphicsPipeline.RTVFormats[i] = Diligent::TEX_FORMAT_RGBA8_UNORM;
+            }
+        }
+
+        if (fbInfo.DepthStencilFormat != Diligent::TEX_FORMAT_UNKNOWN) {
+            PSOCreateInfo.GraphicsPipeline.DSVFormat = fbInfo.DepthStencilFormat;
+        } else {
+            PSOCreateInfo.GraphicsPipeline.DSVFormat = Diligent::TEX_FORMAT_D32_FLOAT;
+        }
+
+        Diligent::BlendStateDesc &blendDesc = PSOCreateInfo.GraphicsPipeline.BlendDesc;
+        blendDesc.IndependentBlendEnable = false;
+        blendDesc.RenderTargets[0].BlendEnable = commonState.capabilities[GL_BLEND];
+        blendDesc.RenderTargets[0].SrcBlend = ConvertGLBlendFactor(commonState.blendSrcRGB);
+        blendDesc.RenderTargets[0].DestBlend = ConvertGLBlendFactor(commonState.blendDstRGB);
+        blendDesc.RenderTargets[0].BlendOp = Diligent::BLEND_OPERATION_ADD;
+        blendDesc.RenderTargets[0].SrcBlendAlpha = ConvertGLBlendFactor(
+                commonState.blendSrcAlpha);
+        blendDesc.RenderTargets[0].DestBlendAlpha = ConvertGLBlendFactor(
+                commonState.blendDstAlpha);
+        blendDesc.RenderTargets[0].BlendOpAlpha = Diligent::BLEND_OPERATION_ADD;
+        blendDesc.RenderTargets[0].RenderTargetWriteMask = Diligent::COLOR_MASK_ALL;
+
+        Diligent::DepthStencilStateDesc &depthStencilDesc = PSOCreateInfo.GraphicsPipeline.DepthStencilDesc;
+        depthStencilDesc.DepthEnable = commonState.capabilities[GL_DEPTH_TEST];
+        depthStencilDesc.DepthWriteEnable = commonState.depthMask;
+        depthStencilDesc.DepthFunc = ConvertGLDepthFunc(commonState.depthFunc);
+
+        Diligent::RasterizerStateDesc &rasterizerDesc = PSOCreateInfo.GraphicsPipeline.RasterizerDesc;
+        rasterizerDesc.CullMode = commonState.capabilities[GL_CULL_FACE] ?
+                                  Diligent::CULL_MODE_BACK : Diligent::CULL_MODE_NONE;
+        rasterizerDesc.FrontCounterClockwise = true;
+
+        ConfigureResourceLayout(PSOCreateInfo, programInfo);
+    }
+
+    void PipelineStateManager::ReleasePSO(GLuint program) {
+        auto &programInfo = g_ProgramMap[program];
+        if (programInfo.pPipelineState) {
+            MG_Util::Debug::LogD("Releasing PSO for program %u", program);
+            programInfo.pPipelineState->Release();
+            programInfo.pPipelineState = nullptr;
+            MG_Util::Debug::LogD("PSO released for program %u", program);
+        }
+        programInfo.psoDirty = true;
+    }
+
+    void PipelineStateManager::MarkPSODirty(GLuint program) {
+        auto &programInfo = g_ProgramMap[program];
+        programInfo.psoDirty = true;
+        MG_Util::Debug::LogD("Marked PSO dirty for program %u", program);
+    }
+
+    Diligent::IPipelineState *PipelineStateManager::GetOrCreatePSO(
+            GLuint program,
+            GLProgramInfo &programInfo,
+            CommonState &commonState,
+            VertexArrayState &vaState,
+            GLFramebufferInfo& fbInfo) {
+        uint64_t currentStateHash = CalculateStateHash(commonState, vaState, fbInfo);
+
+        if (programInfo.pPipelineState &&
+            programInfo.psoStateHash == currentStateHash &&
+            !programInfo.psoDirty) {
+            return programInfo.pPipelineState;
+        }
+
+        PSOKey key{program, currentStateHash};
+
+        auto it = psoCache.find(key);
+        if (it != psoCache.end()) {
+            return it->second;
+        }
+
+        Diligent::GraphicsPipelineStateCreateInfo PSOCreateInfo;
+        ConfigurePSO(PSOCreateInfo, programInfo, commonState, vaState, fbInfo);
+
+        Diligent::IPipelineState *pNewPSO = nullptr;
+        MG_Util::Debug::LogD("Creating new PSO for program %u", program);
+        g_pDevice->CreateGraphicsPipelineState(PSOCreateInfo, &pNewPSO);
+        if (pNewPSO) {
+            MG_Util::Debug::LogD("PSO created successfully for program %u: %p", program, pNewPSO);
+        } else {
+            MG_Util::Debug::LogE("Failed to create PSO for program %u", program);
+        }
+
+        psoCache[key] = pNewPSO;
+
+        return pNewPSO;
+    }
+
+    void PipelineStateManager::ConfigureResourceLayout(
+            Diligent::GraphicsPipelineStateCreateInfo& PSOCreateInfo,
+            const GLProgramInfo& programInfo)
+    {
+        MG_Util::Debug::LogD("Begin configuring resource layout for pipeline");
+
+        auto& ResourceLayout = PSOCreateInfo.PSODesc.ResourceLayout;
+        ResourceLayout.DefaultVariableType = Diligent::SHADER_RESOURCE_VARIABLE_TYPE_MUTABLE;
+
+        std::vector<Diligent::ShaderResourceVariableDesc> Variables;
+        std::vector<Diligent::ImmutableSamplerDesc> ImmutableSamplers;
+        
+        MG_Global::unordered_map<GLuint, std::string> shaderSourcesMap;
+
+        ProgramObject programObj = MG_State_T::programState->programs_[programInfo.id];
+
+        for (GLuint shaderId : programObj.attachedShaders) {
+            auto it = MG_State_T::programState->shaders_.find(shaderId);
+            if (it != MG_State_T::programState->shaders_.end() &&
+                !it->second.markedForDeletion) {
+                shaderSourcesMap[it->first] = it->second.source;
+            }
+        }
+
+        MG_Util::Program::GenerateDefaultUBOForGLSL_Multi(shaderSourcesMap);
+        
+        for (auto shader : programInfo.AttachedShaders) {
+            GLuint shaderId = 0;
+            for (auto const& [key, val] : MG_Diligent::g_ShaderMap) {
+                if (val == shader) {
+                    shaderId = key;
+                    break;
+                }
+            }
+            MG_Util::Debug::LogD("Processing shader ID: %u", shaderId);
+
+            auto& shaderObj = MG_State_T::programState->shaders_[shaderId];
+
+            std::string compilationLog;
+            auto spirv = 
+                    MG_Util::Program::CompileGLSLToSPIRV(shaderObj.type,
+                                                         shaderSourcesMap[shaderId],
+                                                         compilationLog);
+            if (spirv.empty()) {
+                MG_Util::Debug::LogE("Failed to compile shader %u: %s", shaderId, compilationLog.c_str());
+                continue;
+            } else {
+                MG_Util::Debug::LogD("Shader %u (modified) compiled to SPIR-V successfully", shaderId);
+            }
+
+            spvc_context context = nullptr;
+            spvc_parsed_ir parsed_ir = nullptr;
+            spvc_compiler compiler = nullptr;
+            spvc_resources resources = nullptr;
+
+            spvc_result result = spvc_context_create(&context);
+            if (result != SPVC_SUCCESS) {
+                MG_Util::Debug::LogE("spvc_context_create failed for shader %u", shaderId);
+                continue;
+            }
+
+            result = spvc_context_parse_spirv(context,
+                                              spirv.data(),
+                                              spirv.size(),
+                                              &parsed_ir);
+
+            if (result != SPVC_SUCCESS) {
+                MG_Util::Debug::LogE("spvc_context_parse_spirv failed for shader %u", shaderId);
+                spvc_context_destroy(context);
+                continue;
+            }
+
+            result = spvc_context_create_compiler(context, SPVC_BACKEND_GLSL,
+                                                  parsed_ir, SPVC_CAPTURE_MODE_TAKE_OWNERSHIP, &compiler);
+
+            if (result != SPVC_SUCCESS) {
+                MG_Util::Debug::LogE("spvc_context_create_compiler failed for shader %u", shaderId);
+                spvc_context_destroy(context);
+                continue;
+            }
+
+            result = spvc_compiler_create_shader_resources(compiler, &resources);
+            if (result != SPVC_SUCCESS) {
+                MG_Util::Debug::LogE("spvc_compiler_create_shader_resources failed for shader %u", shaderId);
+                spvc_context_destroy(context);
+                continue;
+            }
+
+            Diligent::SHADER_TYPE shaderType;
+            switch (shaderObj.type) {
+                case GL_VERTEX_SHADER:
+                    shaderType = Diligent::SHADER_TYPE_VERTEX;
+                    break;
+                case GL_FRAGMENT_SHADER:
+                    shaderType = Diligent::SHADER_TYPE_PIXEL;
+                    break;
+                case GL_GEOMETRY_SHADER:
+                    shaderType = Diligent::SHADER_TYPE_GEOMETRY;
+                    break;
+                case GL_COMPUTE_SHADER:
+                    shaderType = Diligent::SHADER_TYPE_COMPUTE;
+                    break;
+                default:
+                    shaderType = Diligent::SHADER_TYPE_UNKNOWN;
+            }
+
+            MG_Util::Debug::LogD("Shader %u mapped to Diligent shader type %d", shaderId, shaderType);
+
+            const spvc_reflected_resource* resourceList = nullptr;
+            size_t resourceCount = 0;
+
+            spvc_resources_get_resource_list_for_type(
+                    resources, SPVC_RESOURCE_TYPE_UNIFORM_BUFFER,
+                    &resourceList, &resourceCount);
+            MG_Util::Debug::LogD("Shader %u has %zu uniform buffers", shaderId, resourceCount);
+
+            for (size_t i = 0; i < resourceCount; i++) {
+                bool already_added = false;
+                for(const auto& existing_var : Variables) {
+                    if (strcmp(existing_var.Name, resourceList[i].name) == 0) {
+                        already_added = true;
+                        MG_Util::Debug::LogD("Uniform buffer %s already added, skipping.", resourceList[i].name);
+                        break;
+                    }
+                }
+                if (already_added) continue;
+
+                Diligent::ShaderResourceVariableDesc varDesc;
+                varDesc.Name = strdup(resourceList[i].name);
+                varDesc.ShaderStages = Diligent::SHADER_TYPE_ALL; // TODO
+                varDesc.Type = Diligent::SHADER_RESOURCE_VARIABLE_TYPE_MUTABLE;
+                MG_Util::Debug::LogD("Uniform buffer: %s, Stage: %u, Type: %u", varDesc.Name, varDesc.ShaderStages, varDesc.Type);
+                Variables.push_back(varDesc);
+            }
+
+            spvc_resources_get_resource_list_for_type(
+                    resources, SPVC_RESOURCE_TYPE_SAMPLED_IMAGE,
+                    &resourceList, &resourceCount);
+            MG_Util::Debug::LogD("Shader %u has %zu sampled images", shaderId, resourceCount);
+
+            for (size_t i = 0; i < resourceCount; i++) {
+                Diligent::ShaderResourceVariableDesc varDesc;
+                varDesc.Name = strdup(resourceList[i].name);
+                varDesc.ShaderStages = shaderType;
+                varDesc.Type = Diligent::SHADER_RESOURCE_VARIABLE_TYPE_MUTABLE;
+                MG_Util::Debug::LogD("Sampled image: %s", varDesc.Name);
+                Variables.push_back(varDesc);
+
+                const char* samplerName = varDesc.Name;
+
+                if (samplerName) {
+                    auto& texState = *MG_State_T::textureState;
+                    GLuint activeTextureUnit = texState.activeTextureUnit_;
+                    if (activeTextureUnit < texState.textureUnits_.size()) {
+                        auto& unitState = texState.textureUnits_[activeTextureUnit];
+                        GLuint boundTexture = unitState.GetBoundTexture(GL_TEXTURE_2D);
+                        if (boundTexture != 0) {
+                            auto texIt = texState.textures.find(boundTexture);
+                            if (texIt != texState.textures.end()) {
+                                auto& texObj = texIt->second;
+                                Diligent::ImmutableSamplerDesc samplerDesc;
+                                samplerDesc.ShaderStages = shaderType;
+                                samplerDesc.SamplerOrTextureName = samplerName;
+
+                                auto minFilterIt = texObj.params.texPropertiesInt.find(GL_TEXTURE_MIN_FILTER);
+                                samplerDesc.Desc.MinFilter = (minFilterIt != texObj.params.texPropertiesInt.end()) ?
+                                                             ConvertGLFilter(minFilterIt->second) : Diligent::FILTER_TYPE_LINEAR;
+
+                                auto magFilterIt = texObj.params.texPropertiesInt.find(GL_TEXTURE_MAG_FILTER);
+                                samplerDesc.Desc.MagFilter = (magFilterIt != texObj.params.texPropertiesInt.end()) ?
+                                                             ConvertGLFilter(magFilterIt->second) : Diligent::FILTER_TYPE_LINEAR;
+
+                                samplerDesc.Desc.MipFilter = ConvertGLMipFilter(
+                                        minFilterIt != texObj.params.texPropertiesInt.end() ?
+                                        minFilterIt->second : GL_LINEAR_MIPMAP_LINEAR);
+
+                                auto wrapSIt = texObj.params.texPropertiesInt.find(GL_TEXTURE_WRAP_S);
+                                samplerDesc.Desc.AddressU = (wrapSIt != texObj.params.texPropertiesInt.end()) ?
+                                                            ConvertGLWrapMode(wrapSIt->second) : Diligent::TEXTURE_ADDRESS_WRAP;
+
+                                auto wrapTIt = texObj.params.texPropertiesInt.find(GL_TEXTURE_WRAP_T);
+                                samplerDesc.Desc.AddressV = (wrapTIt != texObj.params.texPropertiesInt.end()) ?
+                                                            ConvertGLWrapMode(wrapTIt->second) : Diligent::TEXTURE_ADDRESS_WRAP;
+
+                                samplerDesc.Desc.AddressW = Diligent::TEXTURE_ADDRESS_CLAMP;
+
+                                MG_Util::Debug::LogD("Created immutable sampler for: %s", samplerName);
+                                ImmutableSamplers.push_back(samplerDesc);
+                            }
+                        }
+                    }
+                }
+            }
+
+            spvc_resources_get_resource_list_for_type(
+                    resources, SPVC_RESOURCE_TYPE_SEPARATE_SAMPLERS,
+                    &resourceList, &resourceCount);
+            MG_Util::Debug::LogD("Shader %u has %zu separate samplers", shaderId, resourceCount);
+
+            for (size_t i = 0; i < resourceCount; i++) {
+                Diligent::ShaderResourceVariableDesc varDesc;
+                varDesc.Name = strdup(resourceList[i].name);
+                varDesc.ShaderStages = shaderType;
+                varDesc.Type = Diligent::SHADER_RESOURCE_VARIABLE_TYPE_MUTABLE;
+                Variables.push_back(varDesc);
+
+                Diligent::ImmutableSamplerDesc samplerDesc;
+                samplerDesc.ShaderStages = shaderType;
+                samplerDesc.Desc.MinFilter = Diligent::FILTER_TYPE_LINEAR;
+                samplerDesc.Desc.MagFilter = Diligent::FILTER_TYPE_LINEAR;
+                samplerDesc.Desc.MipFilter = Diligent::FILTER_TYPE_LINEAR;
+                samplerDesc.Desc.AddressU = Diligent::TEXTURE_ADDRESS_WRAP;
+                samplerDesc.Desc.AddressV = Diligent::TEXTURE_ADDRESS_WRAP;
+                samplerDesc.Desc.AddressW = Diligent::TEXTURE_ADDRESS_CLAMP;
+                samplerDesc.SamplerOrTextureName = resourceList[i].name;
+
+                MG_Util::Debug::LogD("Added fallback immutable sampler: %s", samplerDesc.SamplerOrTextureName);
+                ImmutableSamplers.push_back(samplerDesc);
+            }
+
+            spvc_resources_get_resource_list_for_type(
+                    resources, SPVC_RESOURCE_TYPE_STORAGE_IMAGE,
+                    &resourceList, &resourceCount);
+            MG_Util::Debug::LogD("Shader %u has %zu storage images", shaderId, resourceCount);
+
+            for (size_t i = 0; i < resourceCount; i++) {
+                Diligent::ShaderResourceVariableDesc varDesc;
+                varDesc.Name = strdup(resourceList[i].name);
+                varDesc.ShaderStages = shaderType;
+                varDesc.Type = Diligent::SHADER_RESOURCE_VARIABLE_TYPE_MUTABLE;
+                MG_Util::Debug::LogD("Storage image: %s", varDesc.Name);
+                Variables.push_back(varDesc);
+            }
+
+            spvc_context_destroy(context);
+        }
+
+        if (!Variables.empty()) {
+            ResourceLayout.Variables = Variables.data();
+            ResourceLayout.NumVariables = static_cast<Diligent::Uint32>(Variables.size());
+            MG_Util::Debug::LogD("Added %u shader resource variables", ResourceLayout.NumVariables);
+        }
+
+        if (!ImmutableSamplers.empty()) {
+            ResourceLayout.ImmutableSamplers = ImmutableSamplers.data();
+            ResourceLayout.NumImmutableSamplers = static_cast<Diligent::Uint32>(ImmutableSamplers.size());
+            MG_Util::Debug::LogD("Added %u immutable samplers", ResourceLayout.NumImmutableSamplers);
+        }
+
+        MG_Util::Debug::LogD("Finished configuring resource layout");
+    }
+
+
+    PipelineStateManager g_PSOManager;
+}
 
 using namespace Diligent;
 
 namespace MG_EGL::Diligent {
-    static const char *VSSource = R"(
-struct PSInput
-{
-    float4 Pos   : SV_POSITION;
-    float3 Color : COLOR;
-};
-
-void main(in  uint    VertId : SV_VertexID,
-          out PSInput PSIn)
-{
-    float4 Pos[3];
-    Pos[0] = float4(-0.5, -0.5, 0.0, 1.0);
-    Pos[1] = float4( 0.0, +0.5, 0.0, 1.0);
-    Pos[2] = float4(+0.5, -0.5, 0.0, 1.0);
-
-    float3 Col[3];
-    Col[0] = float3(1.0, 0.0, 0.0); // red
-    Col[1] = float3(0.0, 1.0, 0.0); // green
-    Col[2] = float3(0.0, 0.0, 1.0); // blue
-
-    PSIn.Pos   = Pos[VertId];
-    PSIn.Color = Col[VertId];
-}
-)";
-
-    static const char *PSSource = R"(
-struct PSInput
-{
-    float4 Pos   : SV_POSITION;
-    float3 Color : COLOR;
-};
-
-struct PSOutput
-{
-    float4 Color : SV_TARGET;
-};
-
-void main(in  PSInput  PSIn,
-          out PSOutput PSOut)
-{
-    PSOut.Color = float4(PSIn.Color.rgb, 1.0);
-}
-)";
-
     void LoadDiligentCoreOpenGL(NativeWindowType window) {
         void *handle = dlopen("libGraphicsEngineOpenGL.so", RTLD_LAZY);
         auto Diligent_GetEngineFactoryOpenGL =
@@ -67,8 +427,15 @@ void main(in  PSInput  PSIn,
 
         ::Diligent::SwapChainDesc SCDesc;
 
+        MG_Util::Debug::LogD("Creating OpenGL device and swap chain");
         pFactoryOpenGL->CreateDeviceAndSwapChainGL(
-                EngineCI, &ctx.pDevice, &ctx.pContext, SCDesc, &ctx.pSwapChain);
+                EngineCI, &MG_Diligent::g_pDevice, &MG_Diligent::g_pContext, SCDesc, &MG_Diligent::g_pSwapChain);
+        if (MG_Diligent::g_pDevice && MG_Diligent::g_pContext && MG_Diligent::g_pSwapChain) {
+            MG_Util::Debug::LogD("OpenGL device created: device=%p, context=%p, swapchain=%p", 
+                                 MG_Diligent::g_pDevice, MG_Diligent::g_pContext, MG_Diligent::g_pSwapChain);
+        } else {
+            MG_Util::Debug::LogE("Failed to create OpenGL device");
+        }
     }
 
     void LoadDiligentCoreVulkan(NativeWindowType window) {
@@ -82,11 +449,25 @@ void main(in  PSInput  PSIn,
 
         ::Diligent::SwapChainDesc SCDesc;
 
+        MG_Util::Debug::LogD("Creating Vulkan device and contexts");
         pFactoryVk->CreateDeviceAndContextsVk(
-                EngineCI, &ctx.pDevice, &ctx.pContext);
+                EngineCI, &MG_Diligent::g_pDevice, &MG_Diligent::g_pContext);
+        if (MG_Diligent::g_pDevice && MG_Diligent::g_pContext) {
+            MG_Util::Debug::LogD("Vulkan device created: device=%p, context=%p", 
+                                 MG_Diligent::g_pDevice, MG_Diligent::g_pContext);
+        } else {
+            MG_Util::Debug::LogE("Failed to create Vulkan device");
+        }
+
         AndroidNativeWindow nativeWindow{window};
+        MG_Util::Debug::LogD("Creating Vulkan swap chain");
         pFactoryVk->CreateSwapChainVk(
-                ctx.pDevice, ctx.pContext, SCDesc, nativeWindow, &ctx.pSwapChain);
+                MG_Diligent::g_pDevice, MG_Diligent::g_pContext, SCDesc, nativeWindow, &MG_Diligent::g_pSwapChain);
+        if (MG_Diligent::g_pSwapChain) {
+            MG_Util::Debug::LogD("Vulkan swap chain created: %p", MG_Diligent::g_pSwapChain);
+        } else {
+            MG_Util::Debug::LogE("Failed to create Vulkan swap chain");
+        }
     }
 
     void LoadDiligentCore(NativeWindowType window) {
@@ -102,81 +483,48 @@ void main(in  PSInput  PSIn,
 
     }
 
+    void CreateDefaultRenderPass() {
+        ::Diligent::RenderPassDesc RPDesc;
+        RPDesc.AttachmentCount = 2;
+        ::Diligent::RenderPassAttachmentDesc Attachments[2];
+        RPDesc.pAttachments = Attachments;
+
+        Attachments[0].Format = ::Diligent::TEX_FORMAT_RGBA8_UNORM;
+        Attachments[0].InitialState = ::Diligent::RESOURCE_STATE_RENDER_TARGET;
+        Attachments[0].FinalState = ::Diligent::RESOURCE_STATE_RENDER_TARGET;
+        Attachments[0].LoadOp = ::Diligent::ATTACHMENT_LOAD_OP_CLEAR;
+        Attachments[0].StoreOp = ::Diligent::ATTACHMENT_STORE_OP_STORE;
+
+        Attachments[1].Format = ::Diligent::TEX_FORMAT_D24_UNORM_S8_UINT;
+        Attachments[1].InitialState = ::Diligent::RESOURCE_STATE_DEPTH_WRITE;
+        Attachments[1].FinalState = ::Diligent::RESOURCE_STATE_DEPTH_WRITE;
+        Attachments[1].LoadOp = ::Diligent::ATTACHMENT_LOAD_OP_CLEAR;
+        Attachments[1].StoreOp = ::Diligent::ATTACHMENT_STORE_OP_STORE;
+
+        ::Diligent::AttachmentReference RTAttachmentRef{0, ::Diligent::RESOURCE_STATE_RENDER_TARGET};
+        ::Diligent::AttachmentReference DSAttachmentRef{1, ::Diligent::RESOURCE_STATE_DEPTH_WRITE};
+
+        ::Diligent::SubpassDesc Subpasses[1];
+        Subpasses[0].RenderTargetAttachmentCount = 1;
+        Subpasses[0].pRenderTargetAttachments = &RTAttachmentRef;
+        Subpasses[0].pDepthStencilAttachment  = &DSAttachmentRef;
+
+        RPDesc.SubpassCount = 1;
+        RPDesc.pSubpasses = Subpasses;
+
+        MG_Util::Debug::LogD("Creating default render pass");
+        MG_Diligent::g_pDevice->CreateRenderPass(RPDesc, &MG_Diligent::g_FramebufferMap[0].pRenderPass);
+        if (MG_Diligent::g_FramebufferMap[0].pRenderPass) {
+            MG_Util::Debug::LogD("Default render pass created: %p", MG_Diligent::g_FramebufferMap[0].pRenderPass);
+        } else {
+            MG_Util::Debug::LogE("Failed to create default render pass");
+        }
+    }
+
     EGLSurface eglCreateWindowSurface(EGLDisplay dpy, EGLConfig config, NativeWindowType window,
                                       const EGLint *attrib_list) {
         LoadDiligentCore(window);
-
-        RenderPassAttachmentDesc RPAttachmentDescs[2];
-        RPAttachmentDescs[0].Format = ctx.pSwapChain->GetDesc().ColorBufferFormat;
-        RPAttachmentDescs[0].InitialState = RESOURCE_STATE_RENDER_TARGET;
-        RPAttachmentDescs[0].FinalState = RESOURCE_STATE_RENDER_TARGET;
-        RPAttachmentDescs[0].LoadOp = ATTACHMENT_LOAD_OP_CLEAR;
-        RPAttachmentDescs[0].StoreOp = ATTACHMENT_STORE_OP_STORE;
-        RPAttachmentDescs[1].Format = ctx.pSwapChain->GetDesc().DepthBufferFormat;
-        RPAttachmentDescs[1].InitialState = RESOURCE_STATE_DEPTH_WRITE;
-        RPAttachmentDescs[1].FinalState = RESOURCE_STATE_DEPTH_WRITE;
-        RPAttachmentDescs[1].LoadOp = ATTACHMENT_LOAD_OP_CLEAR;
-        RPAttachmentDescs[1].StoreOp = ATTACHMENT_STORE_OP_DISCARD;
-
-        SubpassDesc Subpass;
-        Subpass.InputAttachmentCount = 0;
-        Subpass.RenderTargetAttachmentCount = 1;
-        AttachmentReference RTAttachmentRef = {0, RESOURCE_STATE_RENDER_TARGET};
-        Subpass.pRenderTargetAttachments = &RTAttachmentRef;
-        AttachmentReference DSAttachmentRef = {1, RESOURCE_STATE_DEPTH_WRITE};
-        Subpass.pDepthStencilAttachment = &DSAttachmentRef;
-
-        RenderPassDesc RPDesc;
-        RPDesc.Name = "Main render pass";
-        RPDesc.AttachmentCount = 2;
-        RPDesc.pAttachments = RPAttachmentDescs;
-        RPDesc.SubpassCount = 1;
-        RPDesc.pSubpasses = &Subpass;
-
-        ctx.pDevice->CreateRenderPass(RPDesc, &ctx.pRenderPass);
-
-        GraphicsPipelineStateCreateInfo PSOCreateInfo;
-        PSOCreateInfo.PSODesc.Name = "Simple triangle PSO";
-
-        PSOCreateInfo.PSODesc.PipelineType = PIPELINE_TYPE_GRAPHICS;
-
-        PSOCreateInfo.GraphicsPipeline.NumRenderTargets = 0;
-        PSOCreateInfo.GraphicsPipeline.RTVFormats[0] = TEX_FORMAT_UNKNOWN;
-        PSOCreateInfo.GraphicsPipeline.DSVFormat = TEX_FORMAT_UNKNOWN;
-        PSOCreateInfo.GraphicsPipeline.PrimitiveTopology = PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
-        PSOCreateInfo.GraphicsPipeline.RasterizerDesc.CullMode = CULL_MODE_NONE;
-        PSOCreateInfo.GraphicsPipeline.DepthStencilDesc.DepthEnable = False;
-        PSOCreateInfo.GraphicsPipeline.pRenderPass = ctx.pRenderPass;
-
-        ShaderCreateInfo ShaderCI;
-        ShaderCI.SourceLanguage = SHADER_SOURCE_LANGUAGE_HLSL;
-        ShaderCI.Desc.UseCombinedTextureSamplers = true;
-        RefCntAutoPtr <IShader> pVS;
-        {
-            ShaderCI.Desc.ShaderType = SHADER_TYPE_VERTEX;
-            ShaderCI.EntryPoint = "main";
-            ShaderCI.Desc.Name = "Triangle vertex shader";
-            ShaderCI.Source = VSSource;
-            ctx.pDevice->CreateShader(ShaderCI, &pVS);
-        }
-
-        RefCntAutoPtr <IShader> pPS;
-        {
-            ShaderCI.Desc.ShaderType = SHADER_TYPE_PIXEL;
-            ShaderCI.EntryPoint = "main";
-            ShaderCI.Desc.Name = "Triangle pixel shader";
-            ShaderCI.Source = PSSource;
-            ctx.pDevice->CreateShader(ShaderCI, &pPS);
-        }
-
-        PSOCreateInfo.pVS = pVS;
-        PSOCreateInfo.pPS = pPS;
-        ctx.pDevice->CreateGraphicsPipelineState(PSOCreateInfo, &ctx.pPSO);
-
-        const auto& SCDesc = ctx.pSwapChain->GetDesc();
-        ctx.pFramebuffers.resize(SCDesc.BufferCount);
-
-        ctx.pContext->SetRenderTargets(0, nullptr, nullptr, RESOURCE_STATE_TRANSITION_MODE_NONE);
+        MG_GL::GL::UpdateDefaultFramebuffer();
         return (EGLSurface) 1;
     }
 
@@ -251,63 +599,39 @@ void main(in  PSInput  PSIn,
         return EGL_TRUE;
     }
 
-    static int swapBuffersCount = 0;
-    static int bufferCount = 0;
     EGLBoolean eglSwapBuffers(EGLDisplay dpy, EGLSurface draw) {
-        const float ClearColor[] = {0.350f, 0.350f, 0.350f, 1.0f};
+        MG_Util::Debug::LogD("Flushing context");
+        MG_Diligent::g_pContext->Flush();
 
-        // Framebuffer Creation
-        if (!bufferCount) bufferCount = ctx.pSwapChain->GetDesc().BufferCount;
-        ITextureView* pDSV = ctx.pSwapChain->GetDepthBufferDSV();
-        if (swapBuffersCount < bufferCount) {
-            ITextureView *pRTV = ctx.pSwapChain->GetCurrentBackBufferRTV();
-            ITextureView *attachments[2];
-            attachments[0] = pRTV;
-            attachments[1] = pDSV;
+        MG_Util::Debug::LogD("Presenting swap chain");
+        MG_Diligent::g_pSwapChain->Present();
+        MG_GL::GL::UpdateDefaultFramebuffer();
+    
+        MG_Util::Debug::LogD("Finishing frame");
+        MG_Diligent::g_pContext->FinishFrame();
 
-            FramebufferDesc FBDesc;
-            FBDesc.Name = ("Main framebuffer " + std::to_string(swapBuffersCount)).c_str();
-            FBDesc.pRenderPass = ctx.pRenderPass;
-            FBDesc.AttachmentCount = 2;
-            FBDesc.ppAttachments = attachments;
-            ctx.pDevice->CreateFramebuffer(FBDesc, &ctx.pFramebuffers[swapBuffersCount]);
+        auto& fbInfo = MG_Diligent::g_FramebufferMap[0];
+        if (fbInfo.pRenderPass && fbInfo.pFramebuffer) {
+            MG_Util::Debug::LogD("Setting render targets: %zu color attachments", fbInfo.ColorRTVs.size());
+            MG_Diligent::g_pContext->SetRenderTargets(
+                    static_cast<Uint32>(fbInfo.ColorRTVs.size()),
+                    fbInfo.ColorRTVs.data(),
+                    fbInfo.pDepthStencilRTV,
+                    ::Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION
+            );
+
+            MG_Util::Debug::LogD("Beginning render pass: pass=%p, fb=%p", fbInfo.pRenderPass, fbInfo.pFramebuffer);
+            MG_Diligent::g_pContext->BeginRenderPass(
+                    ::Diligent::BeginRenderPassAttribs{
+                            fbInfo.pRenderPass,
+                            fbInfo.pFramebuffer,
+                            ::Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION
+                    }
+            );
         }
-
-        BeginRenderPassAttribs beginRenderPassAttribs;
-
-        beginRenderPassAttribs.pFramebuffer = ctx.pFramebuffers[swapBuffersCount % bufferCount];
-        beginRenderPassAttribs.pRenderPass = ctx.pRenderPass;
-        beginRenderPassAttribs.ClearValueCount = 2;
-        OptimizedClearValue optimizedClearValues[2];
-        optimizedClearValues[0].Color[0] = ClearColor[0];
-        optimizedClearValues[0].Color[1] = ClearColor[1];
-        optimizedClearValues[0].Color[2] = ClearColor[2];
-        optimizedClearValues[0].Color[3] = ClearColor[3];
-        optimizedClearValues[1].DepthStencil.Depth = 1.f;
-        optimizedClearValues[1].DepthStencil.Stencil = 0;
-
-        beginRenderPassAttribs.pClearValues = optimizedClearValues;
-        beginRenderPassAttribs.StateTransitionMode = RESOURCE_STATE_TRANSITION_MODE_TRANSITION;
-
-        ctx.pContext->BeginRenderPass(beginRenderPassAttribs);
-
-        Viewport vp = {0, 0, (float)ctx.pSwapChain->GetDesc().Width, (float)ctx.pSwapChain->GetDesc().Height, 0, 1};
-        ctx.pContext->SetViewports(1, &vp, ctx.pSwapChain->GetDesc().Width, ctx.pSwapChain->GetDesc().Height);
-
-        ctx.pContext->SetPipelineState(ctx.pPSO);
-
-        DrawAttribs drawAttrs;
-        drawAttrs.NumVertices = 3;
-        drawAttrs.Flags = DRAW_FLAG_VERIFY_ALL;
-        ctx.pContext->Draw(drawAttrs);
-
-        ctx.pContext->EndRenderPass();
-
-        ctx.pContext->Flush();
-
-        ctx.pSwapChain->Present();
-
-        swapBuffersCount++;
+        const auto& SCDesc = MG_Diligent::g_pSwapChain->GetDesc();
+        MG_Util::Debug::LogD("Setting viewport: width=%d, height=%d", SCDesc.Width, SCDesc.Height);
+        MG_Diligent::g_pContext->SetViewports(1, nullptr, 0, 0);
         return EGL_TRUE;
     }
 
@@ -382,6 +706,11 @@ __eglMustCastToProperFunctionPointerType eglGetProcAddress(const char *procname)
         return (__eglMustCastToProperFunctionPointerType)(&eglGetProcAddress);
     }
 
+#define MG_EGL_PROC_EXPORT(name) \
+    if (strncmp(procname, #name, strlen(#name)) == 0) { \
+        return (__eglMustCastToProperFunctionPointerType)(&MG_EGL::Diligent::name); \
+    }
+
     MG_EGL_PROC_EXPORT(eglCreateWindowSurface);
     MG_EGL_PROC_EXPORT(eglChooseConfig);
     MG_EGL_PROC_EXPORT(eglCreateContext);
@@ -401,6 +730,7 @@ __eglMustCastToProperFunctionPointerType eglGetProcAddress(const char *procname)
     MG_EGL_PROC_EXPORT(eglSwapInterval);
     MG_EGL_PROC_EXPORT(eglSwapBuffers);
     MG_EGL_PROC_EXPORT(eglCreatePbufferSurface);
+#undef MG_EGL_PROC_EXPORT
 
     /* TODO: Call real eglGetProcAddress() to get the rest (should be real native GLES functions) */
     if (!libEGL) {

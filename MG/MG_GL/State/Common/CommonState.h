@@ -5,12 +5,11 @@
 #ifndef MOBILEGL_COMMONSTATE_H
 #define MOBILEGL_COMMONSTATE_H
 #define MOBILEGL_GLSTATE_H
+#define MOBILEGL_DILIGENT_EGL_IMPL_H
 
 #include "../../../Includes.h"
 
 class CommonState {
-    template <typename K, typename V>
-    using unordered_map = ankerl::unordered_dense::map<K, V>;
 public:
     // Viewport
     GLint viewport[4] = {0, 0, 0, 0};
@@ -19,7 +18,7 @@ public:
     GLboolean colorMask[4] = {GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE};
     
     // Pixel storage parameters
-    unordered_map<GLenum, GLint> pixelStoreParams;
+    MG_Global::unordered_map<GLenum, GLint> pixelStoreParams;
 
     // Blend state
     GLenum blendSrcRGB = GL_ONE;
@@ -37,7 +36,7 @@ public:
     GLboolean depthMask = GL_TRUE;
 
     // Capability enables
-    unordered_map<GLenum, bool> capabilities;
+    MG_Global::unordered_map<GLenum, bool> capabilities;
     
     CommonState();
     
