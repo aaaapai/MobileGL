@@ -260,6 +260,8 @@ namespace MG_GL::GL {
                 if (MG_Diligent::g_ShaderMap.find(shaderId) == MG_Diligent::g_ShaderMap.end() || MG_Diligent::g_ShaderMap[shaderId] == nullptr) {
                     GLenum shaderType = shaderObj.type;
                     std::string sourceStr = shaderSources[shaderId];
+                    MG_Util::Debug::LogD("Shader ID: %u, type: %s\nConverted source:\n%s",
+                                         shaderId, MG_Util::Debug::GLEnumToString(shaderType), sourceStr.c_str());
 
                     Diligent::ShaderCreateInfo ShaderCI;
                     ShaderCI.Source = sourceStr.c_str();

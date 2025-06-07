@@ -380,6 +380,14 @@ namespace MG_GL::GL {
     }
 
     void DrawElements(GLenum mode, GLsizei count, GLenum type, const void* indices) {
+        if (MG_Diligent::IsInRenderPass) {
+            MG_Util::Debug::LogD("Ending current render pass.");
+            MG_Diligent::g_pContext->EndRenderPass();
+            MG_Diligent::IsInRenderPass = false;
+            MG_Util::Debug::LogD("Current render pass ended.");
+        } else {
+            MG_Util::Debug::LogD("No active render pass to end.");
+        }
         GLuint program = MG_State::GetCurrentProgram();
         MG_Util::Debug::LogD("DrawElements called with mode: %d, count: %d, type: %d, program: %u", mode, count, type, program);
         if (program == 0) {
@@ -499,7 +507,6 @@ namespace MG_GL::GL {
 
         EnsureRenderPassActive();
         MG_Diligent::g_pContext->DrawIndexed(drawAttrs);
-
         MG_Diligent::g_pContext->EndRenderPass();
         MG_Diligent::IsInRenderPass = false;
         MG_Util::Debug::LogD("DrawIndexed completed.");

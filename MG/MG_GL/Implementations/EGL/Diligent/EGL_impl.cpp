@@ -64,6 +64,7 @@ namespace MG_Diligent {
 
         PSOCreateInfo.GraphicsPipeline.PrimitiveTopology = Diligent::PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
 
+        /*
         PSOCreateInfo.GraphicsPipeline.NumRenderTargets = fbInfo.ColorRTVs.size();
         for (size_t i = 0; i < fbInfo.ColorRTVs.size(); ++i) {
             if (fbInfo.ColorRTVs[i]) {
@@ -73,12 +74,9 @@ namespace MG_Diligent {
                 PSOCreateInfo.GraphicsPipeline.RTVFormats[i] = Diligent::TEX_FORMAT_RGBA8_UNORM;
             }
         }
+        */
 
-        if (fbInfo.DepthStencilFormat != Diligent::TEX_FORMAT_UNKNOWN) {
-            PSOCreateInfo.GraphicsPipeline.DSVFormat = fbInfo.DepthStencilFormat;
-        } else {
-            PSOCreateInfo.GraphicsPipeline.DSVFormat = Diligent::TEX_FORMAT_D32_FLOAT;
-        }
+        PSOCreateInfo.GraphicsPipeline.DSVFormat = Diligent::TEX_FORMAT_UNKNOWN;
 
         Diligent::BlendStateDesc &blendDesc = PSOCreateInfo.GraphicsPipeline.BlendDesc;
         blendDesc.IndependentBlendEnable = false;
@@ -672,11 +670,28 @@ namespace MG_EGL::Diligent {
 
     EGLBoolean eglSwapBuffers(EGLDisplay dpy, EGLSurface draw) {
         MG_Util::Debug::LogD("Flushing context");
+        if (MG_Diligent::IsInRenderPass) {
+            MG_Util::Debug::LogD("Ending current render pass.");
+            MG_Diligent::g_pContext->EndRenderPass();
+            MG_Diligent::IsInRenderPass = false;
+            MG_Util::Debug::LogD("Current render pass ended.");
+        } else {
+            MG_Util::Debug::LogD("No active render pass to end.");
+        }
         MG_Diligent::g_pContext->Flush();
 
         MG_Util::Debug::LogD("Presenting swap chain");
         MG_Diligent::g_pSwapChain->Present();
         MG_GL::GL::UpdateDefaultFramebuffer();
+        if (MG_Diligent::IsInRenderPass) {
+            MG_Util::Debug::LogD("Ending current render pass.");
+            MG_Diligent::g_pContext->EndRenderPass();
+            MG_Diligent::IsInRenderPass = false;
+            MG_Util::Debug::LogD("Current render pass ended.");
+        } else {
+            MG_Util::Debug::LogD("No active render pass to end.");
+        }
+        MG_Diligent::g_pContext->Flush();
     
         MG_Util::Debug::LogD("Finishing frame");
         MG_Diligent::g_pContext->FinishFrame();
@@ -691,14 +706,23 @@ namespace MG_EGL::Diligent {
                     ::Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION
             );
 
+            static ::Diligent::OptimizedClearValue DefaultClearValues[2];
+            DefaultClearValues[0].Format = fbInfo.ColorRTVs[0]->GetDesc().Format;
+            DefaultClearValues[0].Color[0] = 0.0f;
+            DefaultClearValues[0].Color[1] = 0.0f;
+            DefaultClearValues[0].Color[2] = 0.0f;
+            DefaultClearValues[0].Color[3] = 1.0f;
+            DefaultClearValues[1].Format = fbInfo.DepthStencilFormat;
+            DefaultClearValues[1].DepthStencil.Depth = 1.0f;
+            DefaultClearValues[1].DepthStencil.Stencil = 0;
+
             MG_Util::Debug::LogD("Beginning render pass: pass=%p, fb=%p", fbInfo.pRenderPass, fbInfo.pFramebuffer);
             MG_Diligent::g_pContext->BeginRenderPass(
-                    ::Diligent::BeginRenderPassAttribs{
-                            fbInfo.pRenderPass,
-                            fbInfo.pFramebuffer,
-                            ::Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION
-                    }
-            );
+                    ::Diligent::BeginRenderPassAttribs{ fbInfo.pRenderPass, fbInfo.pFramebuffer,
+                                                        2, DefaultClearValues,
+                                                        ::Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION}
+                                                        );
+            MG_Diligent::IsInRenderPass = true;
         }
         const auto& SCDesc = MG_Diligent::g_pSwapChain->GetDesc();
         MG_Util::Debug::LogD("Setting viewport: width=%d, height=%d", SCDesc.Width, SCDesc.Height);
