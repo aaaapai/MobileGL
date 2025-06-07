@@ -171,30 +171,25 @@ namespace MG_GL::GL {
             spvc_context_destroy(context);
         }
         if (stage == Diligent::SHADER_TYPE_ALL)
-            stage = Diligent::SHADER_TYPE_VERTEX;
+            stage = Diligent::SHADER_TYPE_PIXEL;
         programInfo.uniformStages[name] = stage;
 
         return stage;
     }
     
-    void UpdateSamplerAndTextureUniforms(GLuint program) {
-        auto& programInfo = MG_Diligent::g_ProgramMap[program];
+    void UpdateSamplerAndTextureUniforms(GLuint program, Diligent::IShaderResourceBinding& pSRB) {
+        MG_Util::Debug::LogD("Updating sampler and texture uniforms for program %u", program);
         auto& programObj = MG_State_T::programState->programs_[program];
-
-        if (!programInfo.pResourceBinding) return;
-
+        
         for (auto& [name, uniform] : programObj.uniformValues) {
             if (!IsSamplerType(uniform.type)) continue;
 
-            Diligent::IShaderResourceVariable* pVar =
-                    programInfo.pResourceBinding->GetVariableByName(
-                            GetShaderStageForUniform(program, name.c_str()), name.c_str());
-
-            if (!pVar) continue;
-
             GLuint textureID = 0;
             if (!uniform.intData.empty()) {
-                textureID = static_cast<GLuint>(uniform.intData[0]);
+                auto textureUnit = static_cast<GLuint>(uniform.intData[0]);
+                auto unitState = &MG_State_T::textureState->textureUnits_[textureUnit];
+                textureID = unitState->GetBoundTexture(unitState->activeTarget);
+                MG_Util::Debug::LogD("Sampler '%s' (type: %X) uses texture ID: %u", name.c_str(), uniform.type, textureID);
             }
             
             Diligent::ITextureView* pTextureView = nullptr;
@@ -202,16 +197,24 @@ namespace MG_GL::GL {
                 auto it = MG_Diligent::g_TextureViewMap.find(textureID);
                 if (it != MG_Diligent::g_TextureViewMap.end()) {
                     pTextureView = it->second;
+                    MG_Util::Debug::LogD("Found ITextureView for texture ID %u.", textureID);
+                } else {
+                    MG_Util::Debug::LogW("ITextureView not found for texture ID %u (sampler '%s').", textureID, name.c_str());
                 }
             }
 
             if (pTextureView) {
-                pVar->Set(pTextureView);
+                Diligent::SHADER_TYPE stage = GetShaderStageForUniform(program, name);
+                MG_Util::Debug::LogD("Setting texture view for sampler '%s' in stage %d.", name.c_str(), stage);
+                pSRB.GetVariableByName(stage, name.c_str())->Set(pTextureView); // here causes a nullptr err
+            } else {
+                MG_Util::Debug::LogW("No ITextureView available for sampler '%s' (texture ID: %u). Skipping.", name.c_str(), textureID);
             }
         }
+        MG_Util::Debug::LogD("Finished updating sampler and texture uniforms for program %u.", program);
     }
 
-    void UpdateUniformsToDefaultUBO(GLuint program) {
+    void UpdateUniformsToDefaultUBO(GLuint program, Diligent::IShaderResourceBinding& pSRB) {
         MG_Util::Debug::LogD("Updating uniforms to default UBO for program %u", program);
         auto& programInfo = MG_Diligent::g_ProgramMap[program];
         auto& programObj = MG_State_T::programState->programs_[program];
@@ -235,7 +238,7 @@ namespace MG_GL::GL {
                 auto it = programInfo.uniformOffsets.find(name);
                 if (it != programInfo.uniformOffsets.end()) {
                     size_t offset = it->second;
-                    // MG_Util::Debug::LogD("Updating uniform '%s' at offset %zu for program %u", name.c_str(), offset, program);
+                    MG_Util::Debug::LogD("Updating uniform '%s' at offset %zu for program %u", name.c_str(), offset, program);
 
                     switch (uniform.type) {
                         case GL_FLOAT:
@@ -318,6 +321,8 @@ namespace MG_GL::GL {
 
         MG_Util::Debug::LogD("Unmapping UBO for program %u", program);
         MG_Diligent::g_pContext->UnmapBuffer(programInfo.pDefaultUBO, Diligent::MAP_WRITE);
+        pSRB.GetVariableByName(Diligent::SHADER_TYPE_VERTEX, "MG_DEFAULT_UBO")->Set(programInfo.pDefaultUBO);
+        pSRB.GetVariableByName(Diligent::SHADER_TYPE_PIXEL, "MG_DEFAULT_UBO")->Set(programInfo.pDefaultUBO);
     }
 
     void EnsureRenderPassActive() {
@@ -417,6 +422,7 @@ namespace MG_GL::GL {
                 MG_Util::Debug::LogE("Failed to create ShaderResourceBinding for program %u", program);
                 return;
             }
+            
             MG_Util::Debug::LogD("Successfully created ShaderResourceBinding for program %u", program);
         }
 
@@ -475,8 +481,8 @@ namespace MG_GL::GL {
         }
 
         MG_Util::Debug::LogD("Updating uniforms for program %u", program);
-        UpdateUniformsToDefaultUBO(program);
-        UpdateSamplerAndTextureUniforms(program);
+        UpdateUniformsToDefaultUBO(program, *programInfo.pResourceBinding);
+        UpdateSamplerAndTextureUniforms(program, *programInfo.pResourceBinding);
 
         MG_Util::Debug::LogD("Committing shader resources for program %u", program);
         MG_Diligent::g_pContext->CommitShaderResources(

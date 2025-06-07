@@ -46,13 +46,12 @@ public:
 };
 
 class TextureUnitState {
-private:
-    GLenum activeTarget = GL_TEXTURE_2D;
-    
 public:
-    MG_Global::unordered_map<GLenum, GLuint> boundTextures;
     void Bind(GLenum target, GLuint texture);
     GLuint GetBoundTexture(GLenum target);
+    
+    GLenum activeTarget = GL_TEXTURE_2D;
+    MG_Global::unordered_map<GLenum, GLuint> boundTextures;
 };
 
 class TextureState {
