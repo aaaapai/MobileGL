@@ -141,6 +141,59 @@ namespace MG_Diligent {
         Diligent::GraphicsPipelineStateCreateInfo PSOCreateInfo;
         ConfigurePSO(PSOCreateInfo, programInfo, commonState, vaState, fbInfo);
 
+        MG_Util::Debug::LogD("Dumping PSOCreateInfo for program %u:", program);
+        MG_Util::Debug::LogD("  PSODesc.Name: %s", PSOCreateInfo.PSODesc.Name);
+        MG_Util::Debug::LogD("  PSODesc.PipelineType: %d", PSOCreateInfo.PSODesc.PipelineType);
+        MG_Util::Debug::LogD("  PSODesc.ResourceLayout.DefaultVariableType: %d", PSOCreateInfo.PSODesc.ResourceLayout.DefaultVariableType);
+        MG_Util::Debug::LogD("  PSODesc.ResourceLayout.NumVariables: %u", PSOCreateInfo.PSODesc.ResourceLayout.NumVariables);
+        if (PSOCreateInfo.PSODesc.ResourceLayout.Variables) {
+            for (Diligent::Uint32 i = 0; i < PSOCreateInfo.PSODesc.ResourceLayout.NumVariables; ++i) {
+                MG_Util::Debug::LogD("    Variable %u:", i);
+                MG_Util::Debug::LogD("      Name: %s", PSOCreateInfo.PSODesc.ResourceLayout.Variables[i].Name);
+                MG_Util::Debug::LogD("      ShaderStages: %u", PSOCreateInfo.PSODesc.ResourceLayout.Variables[i].ShaderStages);
+                MG_Util::Debug::LogD("      Type: %d", PSOCreateInfo.PSODesc.ResourceLayout.Variables[i].Type);
+            }
+        }
+        MG_Util::Debug::LogD("  PSODesc.ResourceLayout.NumImmutableSamplers: %u", PSOCreateInfo.PSODesc.ResourceLayout.NumImmutableSamplers);
+        if (PSOCreateInfo.PSODesc.ResourceLayout.ImmutableSamplers) {
+            for (Diligent::Uint32 i = 0; i < PSOCreateInfo.PSODesc.ResourceLayout.NumImmutableSamplers; ++i) {
+                MG_Util::Debug::LogD("    ImmutableSampler %u:", i);
+                MG_Util::Debug::LogD("      ShaderStages: %u", PSOCreateInfo.PSODesc.ResourceLayout.ImmutableSamplers[i].ShaderStages);
+                MG_Util::Debug::LogD("      SamplerOrTextureName: %s", PSOCreateInfo.PSODesc.ResourceLayout.ImmutableSamplers[i].SamplerOrTextureName);
+                // SamplerDesc
+                MG_Util::Debug::LogD("      Desc.MinFilter: %d", PSOCreateInfo.PSODesc.ResourceLayout.ImmutableSamplers[i].Desc.MinFilter);
+                MG_Util::Debug::LogD("      Desc.MagFilter: %d", PSOCreateInfo.PSODesc.ResourceLayout.ImmutableSamplers[i].Desc.MagFilter);
+                MG_Util::Debug::LogD("      Desc.MipFilter: %d", PSOCreateInfo.PSODesc.ResourceLayout.ImmutableSamplers[i].Desc.MipFilter);
+                MG_Util::Debug::LogD("      Desc.AddressU: %d", PSOCreateInfo.PSODesc.ResourceLayout.ImmutableSamplers[i].Desc.AddressU);
+                MG_Util::Debug::LogD("      Desc.AddressV: %d", PSOCreateInfo.PSODesc.ResourceLayout.ImmutableSamplers[i].Desc.AddressV);
+                MG_Util::Debug::LogD("      Desc.AddressW: %d", PSOCreateInfo.PSODesc.ResourceLayout.ImmutableSamplers[i].Desc.AddressW);
+            }
+        }
+        MG_Util::Debug::LogD("  pVS: %p (Shader Type: %d)", PSOCreateInfo.pVS, PSOCreateInfo.pVS ? PSOCreateInfo.pVS->GetDesc().ShaderType : -1);
+        MG_Util::Debug::LogD("  pPS: %p (Shader Type: %d)", PSOCreateInfo.pPS, PSOCreateInfo.pPS ? PSOCreateInfo.pPS->GetDesc().ShaderType : -1);
+        MG_Util::Debug::LogD("  pGS: %p (Shader Type: %d)", PSOCreateInfo.pGS, PSOCreateInfo.pGS ? PSOCreateInfo.pGS->GetDesc().ShaderType : -1);
+        // GraphicsPipeline
+        MG_Util::Debug::LogD("  GraphicsPipeline.InputLayout.NumElements: %u", PSOCreateInfo.GraphicsPipeline.InputLayout.NumElements);
+        if (PSOCreateInfo.GraphicsPipeline.InputLayout.LayoutElements) {
+            for (Diligent::Uint32 i = 0; i < PSOCreateInfo.GraphicsPipeline.InputLayout.NumElements; ++i) {
+                MG_Util::Debug::LogD("    LayoutElement %u:", i);
+                MG_Util::Debug::LogD("      InputIndex: %u", PSOCreateInfo.GraphicsPipeline.InputLayout.LayoutElements[i].InputIndex);
+                MG_Util::Debug::LogD("      BufferSlot: %u", PSOCreateInfo.GraphicsPipeline.InputLayout.LayoutElements[i].BufferSlot);
+                MG_Util::Debug::LogD("      NumComponents: %u", PSOCreateInfo.GraphicsPipeline.InputLayout.LayoutElements[i].NumComponents);
+                MG_Util::Debug::LogD("      ValueType: %d", PSOCreateInfo.GraphicsPipeline.InputLayout.LayoutElements[i].ValueType);
+                MG_Util::Debug::LogD("      IsNormalized: %s", PSOCreateInfo.GraphicsPipeline.InputLayout.LayoutElements[i].IsNormalized ? "true" : "false");
+            }
+        }
+        MG_Util::Debug::LogD("  GraphicsPipeline.PrimitiveTopology: %d", PSOCreateInfo.GraphicsPipeline.PrimitiveTopology);
+        MG_Util::Debug::LogD("  GraphicsPipeline.NumRenderTargets: %u", PSOCreateInfo.GraphicsPipeline.NumRenderTargets);
+        for (Diligent::Uint8 i = 0; i < PSOCreateInfo.GraphicsPipeline.NumRenderTargets; ++i) {
+            MG_Util::Debug::LogD("    RTVFormats[%u]: %d", i, PSOCreateInfo.GraphicsPipeline.RTVFormats[i]);
+        }
+        MG_Util::Debug::LogD("  GraphicsPipeline.DSVFormat: %d", PSOCreateInfo.GraphicsPipeline.DSVFormat);
+        MG_Util::Debug::LogD("  GraphicsPipeline.BlendDesc.IndependentBlendEnable: %s", PSOCreateInfo.GraphicsPipeline.BlendDesc.IndependentBlendEnable ? "true" : "false");
+        MG_Util::Debug::LogD("  GraphicsPipeline.DepthStencilDesc.DepthEnable: %s", PSOCreateInfo.GraphicsPipeline.DepthStencilDesc.DepthEnable ? "true" : "false");
+        MG_Util::Debug::LogD("  GraphicsPipeline.RasterizerDesc.CullMode: %d", PSOCreateInfo.GraphicsPipeline.RasterizerDesc.CullMode);
+
         Diligent::IPipelineState *pNewPSO = nullptr;
         MG_Util::Debug::LogD("Creating new PSO for program %u", program);
         g_pDevice->CreateGraphicsPipelineState(PSOCreateInfo, &pNewPSO);
@@ -164,8 +217,8 @@ namespace MG_Diligent {
         auto& ResourceLayout = PSOCreateInfo.PSODesc.ResourceLayout;
         ResourceLayout.DefaultVariableType = Diligent::SHADER_RESOURCE_VARIABLE_TYPE_MUTABLE;
 
-        std::vector<Diligent::ShaderResourceVariableDesc> Variables;
-        std::vector<Diligent::ImmutableSamplerDesc> ImmutableSamplers;
+        static std::vector<Diligent::ShaderResourceVariableDesc> Variables;
+        static std::vector<Diligent::ImmutableSamplerDesc> ImmutableSamplers;
         
         MG_Global::unordered_map<GLuint, std::string> shaderSourcesMap;
 
@@ -402,6 +455,17 @@ namespace MG_Diligent {
             ResourceLayout.ImmutableSamplers = ImmutableSamplers.data();
             ResourceLayout.NumImmutableSamplers = static_cast<Diligent::Uint32>(ImmutableSamplers.size());
             MG_Util::Debug::LogD("Added %u immutable samplers", ResourceLayout.NumImmutableSamplers);
+            for (Diligent::Uint32 i = 0; i < ResourceLayout.NumImmutableSamplers; ++i) {
+                MG_Util::Debug::LogD("    ImmutableSampler %u:", i);
+                MG_Util::Debug::LogD("      ShaderStages: %u", ResourceLayout.ImmutableSamplers[i].ShaderStages);
+                MG_Util::Debug::LogD("      SamplerOrTextureName: %s", ResourceLayout.ImmutableSamplers[i].SamplerOrTextureName);
+                MG_Util::Debug::LogD("      Desc.MinFilter: %d", ResourceLayout.ImmutableSamplers[i].Desc.MinFilter);
+                MG_Util::Debug::LogD("      Desc.MagFilter: %d", ResourceLayout.ImmutableSamplers[i].Desc.MagFilter);
+                MG_Util::Debug::LogD("      Desc.MipFilter: %d", ResourceLayout.ImmutableSamplers[i].Desc.MipFilter);
+                MG_Util::Debug::LogD("      Desc.AddressU: %d", ResourceLayout.ImmutableSamplers[i].Desc.AddressU);
+                MG_Util::Debug::LogD("      Desc.AddressV: %d", ResourceLayout.ImmutableSamplers[i].Desc.AddressV);
+                MG_Util::Debug::LogD("      Desc.AddressW: %d", ResourceLayout.ImmutableSamplers[i].Desc.AddressW);
+            }
         }
 
         MG_Util::Debug::LogD("Finished configuring resource layout");
