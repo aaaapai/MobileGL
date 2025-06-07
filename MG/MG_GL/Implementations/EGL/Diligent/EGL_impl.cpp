@@ -52,7 +52,7 @@ namespace MG_Diligent {
                     break;
             }
         }
-
+        
         PSOCreateInfo.GraphicsPipeline.InputLayout.LayoutElements = programInfo.inputLayout.data();
         PSOCreateInfo.GraphicsPipeline.InputLayout.NumElements = programInfo.inputLayout.size();
 
@@ -336,8 +336,8 @@ namespace MG_Diligent {
                 if (already_added) continue;
 
                 Diligent::ShaderResourceVariableDesc varDesc;
-                varDesc.Name = strdup(resourceList[i].name);
-                varDesc.ShaderStages = Diligent::SHADER_TYPE_ALL; // TODO
+                varDesc.Name = strdup(resourceList[i].name);    
+                varDesc.ShaderStages = Diligent::SHADER_TYPE_VS_PS; // TODO
                 varDesc.Type = Diligent::SHADER_RESOURCE_VARIABLE_TYPE_MUTABLE;
                 MG_Util::Debug::LogD("Uniform buffer: %s, Stage: %u, Type: %u", varDesc.Name, varDesc.ShaderStages, varDesc.Type);
                 Variables.push_back(varDesc);
