@@ -56,6 +56,12 @@ namespace MG_Diligent {
         PSOCreateInfo.GraphicsPipeline.InputLayout.LayoutElements = programInfo.inputLayout.data();
         PSOCreateInfo.GraphicsPipeline.InputLayout.NumElements = programInfo.inputLayout.size();
 
+        if (fbInfo.pRenderPass) {
+            PSOCreateInfo.GraphicsPipeline.pRenderPass = fbInfo.pRenderPass;
+        } else {
+            PSOCreateInfo.GraphicsPipeline.pRenderPass = g_FramebufferMap[0].pRenderPass; // Default render pass
+        }
+
         PSOCreateInfo.GraphicsPipeline.PrimitiveTopology = Diligent::PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
 
         PSOCreateInfo.GraphicsPipeline.NumRenderTargets = fbInfo.ColorRTVs.size();
@@ -183,6 +189,7 @@ namespace MG_Diligent {
                 MG_Util::Debug::LogD("      ValueType: %d", PSOCreateInfo.GraphicsPipeline.InputLayout.LayoutElements[i].ValueType);
                 MG_Util::Debug::LogD("      IsNormalized: %s", PSOCreateInfo.GraphicsPipeline.InputLayout.LayoutElements[i].IsNormalized ? "true" : "false");
             }
+        MG_Util::Debug::LogD("  GraphicsPipeline.pRenderPass: %p", PSOCreateInfo.GraphicsPipeline.pRenderPass);
         }
         MG_Util::Debug::LogD("  GraphicsPipeline.PrimitiveTopology: %d", PSOCreateInfo.GraphicsPipeline.PrimitiveTopology);
         MG_Util::Debug::LogD("  GraphicsPipeline.NumRenderTargets: %u", PSOCreateInfo.GraphicsPipeline.NumRenderTargets);

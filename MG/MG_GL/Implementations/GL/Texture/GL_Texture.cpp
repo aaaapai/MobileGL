@@ -92,48 +92,6 @@ namespace MG_GL::GL {
         MG_Util::Debug::LogD("glBindTexture, target: %d, texture: %d", target, texture);
         GLenum result = MG_State::BindTexture(target, texture);
         if (result == GL_NO_ERROR) {
-            auto& texState = *MG_State_T::textureState;
-            auto activeUnit = texState.activeTextureUnit_;
-            auto unitState = &texState.textureUnits_[activeUnit];
-            
-            GLuint boundTextureID = unitState->GetBoundTexture(target);
-            
-            if (boundTextureID == 0) {
-                auto it = MG_Diligent::g_TextureMap.find(texture);
-                if (it != MG_Diligent::g_TextureMap.end()) {
-                    if (it->second) {
-                        it->second->Release();
-                        it->second = nullptr;
-                    }
-                }
-                return;
-            }
-            
-            auto it = MG_Diligent::g_TextureMap.find(boundTextureID);
-            if (it == MG_Diligent::g_TextureMap.end() || it->second == nullptr) {
-                Diligent::TextureDesc TexDesc;
-                TexDesc.Type = (target == GL_TEXTURE_2D) ?
-                               Diligent::RESOURCE_DIM_TEX_2D : Diligent::RESOURCE_DIM_UNDEFINED;
-                TexDesc.Format = Diligent::TEX_FORMAT_RGBA8_UNORM;
-                TexDesc.Width = 1;
-                TexDesc.Height = 1;
-                TexDesc.BindFlags = Diligent::BIND_SHADER_RESOURCE;
-                
-                Diligent::ITexture* pTexture = nullptr;
-                MG_Diligent::g_pDevice->CreateTexture(TexDesc, nullptr, &pTexture);
-                
-                Diligent::ITextureView* pSRV = nullptr;
-                if (pTexture) {
-                    Diligent::TextureViewDesc SRVDesc;
-                    SRVDesc.ViewType = Diligent::TEXTURE_VIEW_SHADER_RESOURCE;
-                    SRVDesc.TextureDim = Diligent::RESOURCE_DIM_TEX_2D;
-                    pTexture->CreateView(SRVDesc, &pSRV);
-                }
-                
-                MG_Diligent::g_TextureMap[boundTextureID] = pTexture;
-                MG_Diligent::g_TextureViewMap[boundTextureID] = pSRV;
-                MG_Util::Debug::LogD("Created placeholder Diligent texture for GL name %u", boundTextureID);
-            }
             return;
         }
         MG_State::SetError(result);
@@ -227,6 +185,41 @@ namespace MG_GL::GL {
         if (!pTexture) {
             MG_Util::Debug::LogD("TexImage2D: No existing Diligent texture found for GL name %u. Creating new.", boundTextureID);
             needCreateTexture = true;
+            // Create a placeholder texture if none exists
+            if (width == 0 || height == 0) {
+                Diligent::TextureDesc PlaceholderTexDesc;
+                PlaceholderTexDesc.Type = (target == GL_TEXTURE_2D) ?
+                               Diligent::RESOURCE_DIM_TEX_2D : Diligent::RESOURCE_DIM_UNDEFINED;
+                PlaceholderTexDesc.Format = Diligent::TEX_FORMAT_RGBA8_UNORM;
+                PlaceholderTexDesc.Width = 1;
+                PlaceholderTexDesc.Height = 1;
+                bool isDepth = false;
+                switch (newFormat) {
+                    case Diligent::TEX_FORMAT_D16_UNORM:
+                    case Diligent::TEX_FORMAT_D32_FLOAT:
+                    case Diligent::TEX_FORMAT_D24_UNORM_S8_UINT:
+                    case Diligent::TEX_FORMAT_D32_FLOAT_S8X24_UINT:
+                        isDepth = true;
+                        break;
+                    default:
+                        break;
+                }
+                PlaceholderTexDesc.BindFlags = Diligent::BIND_SHADER_RESOURCE | (isDepth ? Diligent::BIND_DEPTH_STENCIL : Diligent::BIND_RENDER_TARGET);
+
+                Diligent::ITexture* pPlaceholderTexture = nullptr;
+                MG_Diligent::g_pDevice->CreateTexture(PlaceholderTexDesc, nullptr, &pPlaceholderTexture);
+
+                Diligent::ITextureView* pPlaceholderSRV = nullptr;
+                if (pPlaceholderTexture) {
+                    Diligent::TextureViewDesc SRVDesc;
+                    SRVDesc.ViewType = data == nullptr ? Diligent::TEXTURE_VIEW_RENDER_TARGET : Diligent::TEXTURE_VIEW_SHADER_RESOURCE;
+                    SRVDesc.TextureDim = Diligent::RESOURCE_DIM_TEX_2D;
+                    pPlaceholderTexture->CreateView(SRVDesc, &pPlaceholderSRV);
+                }
+                MG_Diligent::g_TextureMap[boundTextureID] = pPlaceholderTexture;
+                MG_Diligent::g_TextureViewMap[boundTextureID] = pPlaceholderSRV;
+                MG_Util::Debug::LogD("Created placeholder Diligent texture for GL name %u", boundTextureID);
+            }
         } else {
             Diligent::TextureDesc existingDesc = pTexture->GetDesc();
             if (existingDesc.Width != static_cast<Diligent::Uint32>(width) ||
