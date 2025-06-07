@@ -426,53 +426,83 @@ namespace MG_GL::GL {
                        GLsizei height, GLenum format, GLenum type, const void* pixels) {
         MG_Util::Debug::LogD("glTexSubImage2D, target: %d, level: %d, xoffset: %d, yoffset: %d, width: %d, height: %d, format: %d, type: %d, pixels: %p",
                              target, level, xoffset, yoffset, width, height, format, type, pixels);
-        
+
         GLenum result = MG_State::UpdateTextureRegion2D(target, level, xoffset, yoffset, width, height, format, type, pixels);
         if (result != GL_NO_ERROR) {
             MG_State::SetError(result);
             MG_Util::Debug::LogE("Error from MG State: %s", MG_Util::Debug::GLEnumToString(result));
             return;
         }
-        
+
         auto& texState = *MG_State_T::textureState;
         auto activeUnit = texState.activeTextureUnit_;
         auto unitState = &texState.textureUnits_[activeUnit];
         GLuint boundTextureID = unitState->GetBoundTexture(target);
-        
+
         if (boundTextureID == 0) {
-            MG_Util::Debug::LogD("TexSubImage2D: No texture bound. Skipping update.");
+            MG_Util::Debug::LogD("TexSubImage2D: No texture bound to active unit. Skipping update.");
             return;
         }
-        
-        Diligent::ITexture* pTexture = MG_Diligent::g_TextureMap[boundTextureID];
+
+        Diligent::ITexture* pTexture = nullptr;
+        auto texIt = MG_Diligent::g_TextureMap.find(boundTextureID);
+        if (texIt != MG_Diligent::g_TextureMap.end()) {
+            pTexture = texIt->second;
+        }
+
         if (!pTexture) {
             MG_Util::Debug::LogW("TexSubImage2D: Diligent texture not found for GL name %u", boundTextureID);
             return;
         }
-        
+
+        const auto& texDesc = pTexture->GetDesc();
+        if (!(texDesc.BindFlags & Diligent::BIND_SHADER_RESOURCE)) {
+            MG_Util::Debug::LogE("TexSubImage2D: Texture %u does not have BIND_SHADER_RESOURCE flag", boundTextureID);
+            return;
+        }
+
+        Diligent::TextureDesc desc = pTexture->GetDesc();
+        if (xoffset < 0 || yoffset < 0 ||
+            (xoffset + width) > desc.Width ||
+            (yoffset + height) > desc.Height) {
+            MG_Util::Debug::LogE("TexSubImage2D: Update region out of bounds: [%d, %d, %d, %d] vs texture size [%u, %u]",
+                                 xoffset, yoffset, width, height, desc.Width, desc.Height);
+            return;
+        }
+
         Diligent::TextureSubResData SubResData;
         SubResData.pData = pixels;
         SubResData.Stride = width * GetBytesPerPixel(format, type);
-        
+
         Diligent::Box UpdateBox;
-        UpdateBox.MinX = xoffset; 
+        UpdateBox.MinX = xoffset;
         UpdateBox.MaxX = xoffset + width;
-        UpdateBox.MinY = yoffset; 
+        UpdateBox.MinY = yoffset;
         UpdateBox.MaxY = yoffset + height;
-        
-        MG_Util::Debug::LogD("TexSubImage2D: Updating region [%d,%d]-[%d,%d] at level %d", 
-                            xoffset, yoffset, xoffset+width, yoffset+height, level);
+        UpdateBox.MinZ = 0;
+        UpdateBox.MaxZ = 1;
+
+        MG_Util::Debug::LogD("TexSubImage2D: Updating region [%d,%d]-[%d,%d] at level %d",
+                             xoffset, yoffset, xoffset+width, yoffset+height, level);
+
+        if (MG_Diligent::IsInRenderPass) {
+            MG_Diligent::g_pContext->EndRenderPass();
+            MG_Diligent::IsInRenderPass = false;
+        }
         
         MG_Diligent::g_pContext->UpdateTexture(
-            pTexture, 
-            level, 
-            0, 
-            UpdateBox, 
-            SubResData,
-            Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION,
-            Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION
+                pTexture,
+                level,
+                0,
+                UpdateBox,
+                SubResData,
+                Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION,
+                Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION
         );
+
+        MG_Util::Debug::LogD("TexSubImage2D: Update completed successfully");
     }
+
 
     void GetTexLevelParameteriv(GLenum target, GLint level, GLenum pname, GLint* params) {
         MG_Util::Debug::LogD("glGetTexLevelParameteriv, target: %d, level: %d, pname: %d, params: %p",
