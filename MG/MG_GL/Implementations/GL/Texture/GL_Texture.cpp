@@ -264,8 +264,29 @@ namespace MG_GL::GL {
             TexDesc.Width = width;
             TexDesc.Height = height;
             TexDesc.Format = newFormat;
-            TexDesc.BindFlags = Diligent::BIND_SHADER_RESOURCE;
 
+            bool isDepthStencil = false;
+            switch (internalFormat) {
+                case GL_DEPTH_COMPONENT:
+                case GL_DEPTH_COMPONENT16:
+                case GL_DEPTH_COMPONENT24:
+                case GL_DEPTH_COMPONENT32:
+                case GL_DEPTH_COMPONENT32F:
+                case GL_DEPTH_STENCIL:
+                case GL_DEPTH24_STENCIL8:
+                case GL_DEPTH32F_STENCIL8:
+                    isDepthStencil = true;
+                    break;
+                default:
+                    isDepthStencil = false;
+            }
+
+            if (isDepthStencil) {
+                TexDesc.BindFlags = Diligent::BIND_SHADER_RESOURCE | Diligent::BIND_DEPTH_STENCIL;
+            } else {
+                TexDesc.BindFlags = Diligent::BIND_SHADER_RESOURCE | Diligent::BIND_RENDER_TARGET;
+            }
+            
             if (level > 0) {
                 TexDesc.MipLevels = level + 1;
             }
