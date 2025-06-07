@@ -45,22 +45,19 @@ namespace MG_GL::GL {
                 MG_Util::Debug::LogE("CreateRenderPassAndFramebuffer: Swap chain not initialized for default framebuffer");
                 return;
             }
-        }
-        else {
-            if (!fbInfo.ColorRTVs.empty() && fbInfo.ColorRTVs[0]) {
-                const auto& desc = fbInfo.ColorRTVs[0]->GetTexture()->GetDesc();
-                width = desc.Width;
-                height = desc.Height;
-                MG_Util::Debug::LogD("CreateRenderPassAndFramebuffer: Using color attachment 0 for dimensions: %ux%u", width, height);
-            } else if (fbInfo.pDepthStencilRTV) {
-                const auto& desc = fbInfo.pDepthStencilRTV->GetTexture()->GetDesc();
-                width = desc.Width;
-                height = desc.Height;
-                MG_Util::Debug::LogD("CreateRenderPassAndFramebuffer: Using depth/stencil attachment for dimensions: %ux%u", width, height);
-            } else {
-                MG_Util::Debug::LogE("CreateRenderPassAndFramebuffer: Failed to determine framebuffer dimensions. No attachments.");
-                return;
-            }
+        } else if (!fbInfo.ColorRTVs.empty() && fbInfo.ColorRTVs[0]) {
+            const auto& desc = fbInfo.ColorRTVs[0]->GetTexture()->GetDesc();
+            width = desc.Width;
+            height = desc.Height;
+            MG_Util::Debug::LogD("CreateRenderPassAndFramebuffer: Using color attachment 0 for dimensions: %ux%u", width, height);
+        } else if (fbInfo.pDepthStencilRTV) {
+            const auto& desc = fbInfo.pDepthStencilRTV->GetTexture()->GetDesc();
+            width = desc.Width;
+            height = desc.Height;
+            MG_Util::Debug::LogD("CreateRenderPassAndFramebuffer: Using depth/stencil attachment for dimensions: %ux%u", width, height);
+        } else {
+            MG_Util::Debug::LogE("CreateRenderPassAndFramebuffer: Failed to determine framebuffer dimensions. No attachments.");
+            return;
         }
 
         if (width == 0 || height == 0) {
@@ -76,7 +73,8 @@ namespace MG_GL::GL {
         for (size_t i = 0; i < fbInfo.ColorRTVs.size(); ++i) {
             if (fbInfo.ColorRTVs[i]) {
                 Diligent::RenderPassAttachmentDesc ColorAttachment;
-                ColorAttachment.Format = fbInfo.ColorRTVs[i]->GetDesc().Format;
+                ColorAttachment.Format = framebuffer != 0 ? fbInfo.ColorRTVs[i]->GetDesc().Format:
+                                         MG_Diligent::g_pSwapChain->GetDesc().ColorBufferFormat;
                 ColorAttachment.SampleCount = 1;
                 ColorAttachment.InitialState = Diligent::RESOURCE_STATE_RENDER_TARGET;
                 ColorAttachment.FinalState = Diligent::RESOURCE_STATE_RENDER_TARGET;
