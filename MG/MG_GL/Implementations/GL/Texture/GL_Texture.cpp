@@ -186,7 +186,6 @@ namespace MG_GL::GL {
                     GLenum format, GLenum type, const void* data) {
         MG_Util::Debug::LogD("glTexImage2D, target: %d, level: %d, internalFormat: %d, width: %d, height: %d, format: %d, type: %d, data: %p",
                              target, level, internalFormat, width, height, format, type, data);
-
         GLenum result = MG_State::UploadTexture2D(target, level, internalFormat, width, height,
                                                   border, format, type, data);
         if (result != GL_NO_ERROR) {
@@ -209,12 +208,12 @@ namespace MG_GL::GL {
 
         Diligent::ITexture* pTexture = nullptr;
         Diligent::ITextureView* pSRV = nullptr;
-        auto texIt = MG_Diligent::g_TextureMap.find(boundTextureID);
-        auto srvIt = MG_Diligent::g_TextureViewMap.find(boundTextureID);
 
+        auto texIt = MG_Diligent::g_TextureMap.find(boundTextureID);
         if (texIt != MG_Diligent::g_TextureMap.end()) {
             pTexture = texIt->second;
         }
+        auto srvIt = MG_Diligent::g_TextureViewMap.find(boundTextureID);
         if (srvIt != MG_Diligent::g_TextureViewMap.end()) {
             pSRV = srvIt->second;
         }
@@ -239,12 +238,17 @@ namespace MG_GL::GL {
                                      width, height, newFormat);
 
                 if (pSRV) {
+                    MG_Util::Debug::LogD("TexImage2D: Releasing existing SRV %p", (void*)pSRV);
                     pSRV->Release();
                     MG_Diligent::g_TextureViewMap[boundTextureID] = nullptr;
+                    pSRV = nullptr; 
                 }
+
                 if (pTexture) {
+                    MG_Util::Debug::LogD("TexImage2D: Releasing existing texture %p", (void*)pTexture);
                     pTexture->Release();
                     MG_Diligent::g_TextureMap[boundTextureID] = nullptr;
+                    pTexture = nullptr; 
                 }
 
                 needCreateTexture = true;
@@ -252,6 +256,9 @@ namespace MG_GL::GL {
         }
 
         if (needCreateTexture) {
+            Diligent::ITexture* newTexture = nullptr;
+            Diligent::ITextureView* newSRV = nullptr;
+
             Diligent::TextureDesc TexDesc;
             TexDesc.Type = Diligent::RESOURCE_DIM_TEX_2D;
             TexDesc.Width = width;
@@ -265,22 +272,29 @@ namespace MG_GL::GL {
 
             MG_Util::Debug::LogD("TexImage2D: Creating new Diligent texture with Width: %d, Height: %d, Format: %d",
                                  width, height, newFormat);
-            MG_Diligent::g_pDevice->CreateTexture(TexDesc, nullptr, &pTexture);
 
-            MG_Diligent::g_TextureMap[boundTextureID] = pTexture;
-            MG_Util::Debug::LogD("TexImage2D: Created new Diligent texture %p for GL name %u.",
-                                 (void*)pTexture, boundTextureID);
+            MG_Diligent::g_pDevice->CreateTexture(TexDesc, nullptr, &newTexture);
 
-            if (pTexture) {
+            if (newTexture) {
+                MG_Util::Debug::LogD("TexImage2D: Created new Diligent texture %p for GL name %u.",
+                                     (void*)newTexture, boundTextureID);
+
                 Diligent::TextureViewDesc SRVDesc;
                 SRVDesc.ViewType = Diligent::TEXTURE_VIEW_SHADER_RESOURCE;
                 SRVDesc.TextureDim = Diligent::RESOURCE_DIM_TEX_2D;
                 SRVDesc.MostDetailedMip = 0;
                 SRVDesc.NumMipLevels = TexDesc.MipLevels;
 
-                pTexture->CreateView(SRVDesc, &pSRV);
-                MG_Diligent::g_TextureViewMap[boundTextureID] = pSRV;
-                MG_Util::Debug::LogD("TexImage2D: Created new SRV %p for texture.", (void*)pSRV);
+                newTexture->CreateView(SRVDesc, &newSRV);
+                MG_Util::Debug::LogD("TexImage2D: Created new SRV %p for texture.", (void*)newSRV);
+
+                MG_Diligent::g_TextureMap[boundTextureID] = newTexture;
+                MG_Diligent::g_TextureViewMap[boundTextureID] = newSRV;
+
+                pTexture = newTexture;
+                pSRV = newSRV;
+            } else {
+                MG_Util::Debug::LogE("TexImage2D: Failed to create new texture!");
             }
         }
 
@@ -310,6 +324,7 @@ namespace MG_GL::GL {
             MG_Util::Debug::LogD("TexImage2D: UpdateTexture completed.");
         }
     }
+
 
     void TexParameterf(GLenum target, GLenum pname, GLfloat param) {
         MG_Util::Debug::LogD("glTexParameterf, target: %d, pname: %d, param: %f", target, pname, param);
@@ -414,7 +429,6 @@ namespace MG_GL::GL {
             return;
         }
         
-        // 4. 更新纹理子区域
         Diligent::TextureSubResData SubResData;
         SubResData.pData = pixels;
         SubResData.Stride = width * GetBytesPerPixel(format, type);
