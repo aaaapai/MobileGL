@@ -187,23 +187,29 @@ namespace MG_GL::GL {
             Diligent::IBuffer*& pBuffer = MG_Diligent::g_BufferMap[buffer];
 
             Diligent::BufferDesc BuffDesc;
-            BuffDesc.Name = "Buffer";
+            std::string name;
             BuffDesc.Size = static_cast<Diligent::Uint64>(size);
 
             switch (target) {
                 case GL_ARRAY_BUFFER:
                     BuffDesc.BindFlags = Diligent::BIND_VERTEX_BUFFER;
+                    name += std::format("VBO {}", buffer);
                     break;
                 case GL_ELEMENT_ARRAY_BUFFER:
                     BuffDesc.BindFlags = Diligent::BIND_INDEX_BUFFER;
+                    name += std::format("IBO {}", buffer);
                     break;
                 case GL_UNIFORM_BUFFER:
                     BuffDesc.BindFlags = Diligent::BIND_UNIFORM_BUFFER;
+                    name += std::format("UBO {}", buffer);
                     break;
                 default:
                     BuffDesc.BindFlags = Diligent::BIND_SHADER_RESOURCE;
+                    name += std::format("SRV {}", buffer);
                     break;
             }
+
+            BuffDesc.Name = name.c_str();
 
             switch (usage) {
                 case GL_STATIC_DRAW:
