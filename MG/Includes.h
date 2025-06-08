@@ -113,6 +113,10 @@
 
 #include "MG_Include/UncertainBool.hpp"
 
+#ifdef _WIN32
+#include <Windows.h>
+#endif
+
 #ifndef _WIN32
 #include <dlfcn.h>
 #include <unistd.h>
