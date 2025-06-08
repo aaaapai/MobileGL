@@ -105,6 +105,10 @@ namespace MG_GL::GL {
             case GL_FLOAT_VEC2: return Diligent::VT_FLOAT32;
             case GL_FLOAT_VEC3: return Diligent::VT_FLOAT32;
             case GL_FLOAT_VEC4: return Diligent::VT_FLOAT32;
+            case GL_SHORT: return Diligent::VT_INT16;
+            case GL_UNSIGNED_SHORT: return Diligent::VT_UINT16;
+            case GL_BYTE: return Diligent::VT_INT8;
+            case GL_UNSIGNED_BYTE: return Diligent::VT_UINT8;
             case GL_INT: return Diligent::VT_INT32;
             case GL_INT_VEC2: return Diligent::VT_INT32;
             case GL_INT_VEC3: return Diligent::VT_INT32;

@@ -461,7 +461,7 @@ namespace MG_GL::GL {
                     BuffDesc.Usage = Diligent::USAGE_DYNAMIC;
                     BuffDesc.BindFlags = Diligent::BIND_VERTEX_BUFFER;
                     BuffDesc.CPUAccessFlags = Diligent::CPU_ACCESS_WRITE;
-
+                    
                     if (pBuffer) {
                         pBuffer->Release();
                     }
@@ -600,10 +600,9 @@ namespace MG_GL::GL {
 
         MG_Util::Debug::LogD("Preparing to draw indexed for program %u", program);
         Diligent::DrawIndexedAttribs drawAttrs;
-        drawAttrs.IndexType = ConvertGLTypeToDiligent(type);
         drawAttrs.NumIndices = count;
         drawAttrs.Flags = Diligent::DRAW_FLAG_VERIFY_ALL;
-        drawAttrs.IndexType = Diligent::VT_UINT32;
+        drawAttrs.IndexType = ConvertGLTypeToDiligent(type);
         MG_Util::Debug::LogD("DrawIndexedAttribs Dump:");
         MG_Util::Debug::LogD("  NumIndices: %u", drawAttrs.NumIndices);
         MG_Util::Debug::LogD("  IndexType: %d", drawAttrs.IndexType);
