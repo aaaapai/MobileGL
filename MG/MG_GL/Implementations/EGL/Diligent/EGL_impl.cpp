@@ -214,7 +214,7 @@ namespace MG_Diligent {
         PSOKey key{program, currentStateHash};
 
         auto it = psoCache.find(key);
-        if (it != psoCache.end()) {
+        if (it != psoCache.end() && it->second) {
             return it->second;
         }
         
@@ -302,6 +302,8 @@ namespace MG_Diligent {
 
         static std::vector<Diligent::ShaderResourceVariableDesc> Variables;
         static std::vector<Diligent::ImmutableSamplerDesc> ImmutableSamplers;
+        Variables.clear();
+        ImmutableSamplers.clear();
         
         MG_Global::unordered_map<GLuint, std::string> shaderSourcesMap;
 
