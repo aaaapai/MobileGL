@@ -17,7 +17,6 @@ namespace MG_Diligent {
     extern MG_Global::unordered_map<GLuint, Diligent::IBuffer*>         g_BufferMap;
     extern MG_Global::unordered_map<GLuint, Diligent::ITexture*>        g_TextureMap;
     extern MG_Global::unordered_map<GLuint, Diligent::ITextureView*>    g_TextureViewMap;
-    extern MG_Global::unordered_map<GLuint, Diligent::IBuffer*>         g_BufferMap;
     
     struct GLFramebufferInfo
     {
