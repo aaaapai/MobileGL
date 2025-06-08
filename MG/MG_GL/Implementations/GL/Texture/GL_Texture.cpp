@@ -455,13 +455,6 @@ namespace MG_GL::GL {
         }
 
         Diligent::TextureDesc desc = pTexture->GetDesc();
-        if (xoffset < 0 || yoffset < 0 ||
-            (xoffset + width) > desc.Width ||
-            (yoffset + height) > desc.Height) {
-            MG_Util::Debug::LogE("TexSubImage2D: Update region out of bounds: [%d, %d, %d, %d] vs texture size [%u, %u]",
-                                 xoffset, yoffset, width, height, desc.Width, desc.Height);
-            return;
-        }
 
         Diligent::TextureSubResData SubResData;
         SubResData.pData = pixels;
