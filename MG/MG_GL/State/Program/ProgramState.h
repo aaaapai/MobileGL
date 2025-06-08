@@ -42,7 +42,6 @@ struct ProgramObject {
     bool dirty;
     GLint linkStatus;
     std::string infoLog;
-    MG_Global::unordered_map<std::string, GLint> attribBindings;
     MG_Global::unordered_map<std::string, GLint> attribLocations;
     MG_Global::unordered_map<std::string, GLint> uniformLocations;
     MG_Global::unordered_map<std::string, UniformValue> uniformValues;

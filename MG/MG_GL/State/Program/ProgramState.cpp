@@ -118,10 +118,8 @@ GLenum ProgramState::FinalizeProgramPipeline(GLuint program) {
         MG_Util::Debug::LogE("MG_State: Program: FinalizeProgramPipeline error: %s", prog.infoLog.c_str());
         return GL_INVALID_OPERATION;
     }
-
-    for (auto& [name, index] : prog.attribBindings) {
-        prog.attribLocations[name] = index;
-    }
+    
+    // TODO: Support explicitly assign attrib locations in the shaders.
 
     prog.linked = {UncertainBool::Unknown, UncertainBool::True};
     prog.linkStatus = GL_TRUE;
@@ -159,7 +157,7 @@ GLenum ProgramState::DefineProgramAttributeBinding(GLuint program, GLuint index,
         return GL_INVALID_VALUE;
     }
 
-    programs_[program].attribBindings[name] = index;
+    programs_[program].attribLocations[name] = index;
     MG_Util::Debug::LogD("MG_State: Program: DefineProgramAttributeBinding success: %s -> %u", name, index);
     return GL_NO_ERROR;
 }
