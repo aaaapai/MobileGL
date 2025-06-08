@@ -353,7 +353,7 @@ namespace MG_GL::GL {
     
     void BindAttribLocation(GLuint program, GLuint index, const GLchar* name) {
         MG_Util::Debug::LogD("glBindAttribLocation, program: %u, index: %u, name: %s", program, index, name);
-        GLenum result = MG_State::DefineProgramAttributeBinding(program, index, name);
+        GLenum result = MG_State::DefineProgramAttributeLocation(program, index, name);
         if (result == GL_NO_ERROR) return;
         MG_State::SetError(result);
         MG_Util::Debug::LogE("Error binding attribute: %s", MG_Util::Debug::GLEnumToString(result));
@@ -361,7 +361,7 @@ namespace MG_GL::GL {
     
     GLint GetAttribLocation(GLuint program, const GLchar* name) {
         MG_Util::Debug::LogD("glGetAttribLocation, program: %u, name: %s", program, name);
-        GLint location = MG_State::QueryProgramAttributeBinding(program, name);
+        GLint location = MG_State::QueryProgramAttributeLocation(program, name);
         if (location != -1) return location;
         MG_State::SetError(GL_INVALID_OPERATION);
         MG_Util::Debug::LogE("Attribute not found: %s", name);

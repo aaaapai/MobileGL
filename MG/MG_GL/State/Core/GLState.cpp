@@ -298,12 +298,12 @@ namespace MG_State {
         return MG_State_T::programState->ActivateRenderProgram(program);
     }
 
-    GLenum DefineProgramAttributeBinding(GLuint program, GLuint index, const GLchar* name) {
-        return MG_State_T::programState->DefineProgramAttributeBinding(program, index, name);
+    GLenum DefineProgramAttributeLocation(GLuint program, GLuint index, const GLchar* name) {
+        return MG_State_T::programState->DefineProgramAttributeLocation(program, index, name);
     }
 
-    GLint QueryProgramAttributeBinding(GLuint program, const GLchar* name) {
-        return MG_State_T::programState->QueryProgramAttributeBinding(program, name);
+    GLint QueryProgramAttributeLocation(GLuint program, const GLchar* name) {
+        return MG_State_T::programState->QueryProgramAttributeLocation(program, name);
     }
 
     GLint QueryProgramUniformLocation(GLuint program, const GLchar* name) {

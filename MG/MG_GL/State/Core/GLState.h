@@ -96,8 +96,8 @@ namespace MG_State {
     GLenum BuildShaderStage(GLuint shader);
     GLenum FinalizeProgramPipeline(GLuint program);
     GLenum ActivateRenderProgram(GLuint program);
-    GLenum DefineProgramAttributeBinding(GLuint program, GLuint index, const GLchar* name);
-    GLint QueryProgramAttributeBinding(GLuint program, const GLchar* name);
+    GLenum DefineProgramAttributeLocation(GLuint program, GLuint index, const GLchar* name);
+    GLint QueryProgramAttributeLocation(GLuint program, const GLchar* name);
     GLint QueryProgramUniformLocation(GLuint program, const GLchar* name);
     GLenum QueryProgramStateIntVector(GLuint program, GLenum pname, GLint* params);
     GLenum QueryShaderStateIntVector(GLuint shader, GLenum pname, GLint* params);
