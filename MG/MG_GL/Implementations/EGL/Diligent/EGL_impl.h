@@ -243,7 +243,10 @@ namespace MG_Diligent {
     };
 
     extern PipelineStateManager g_PSOManager;
-    
+
+    void BuildInputLayout(GLuint program, VertexArrayState& vaState, 
+                          std::vector<Diligent::LayoutElement>& inputLayout);
+
     extern bool initialized;
     extern bool IsInRenderPass;
 }

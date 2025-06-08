@@ -26,6 +26,61 @@ namespace MG_Diligent {
     bool IsInRenderPass = false;
     bool initialized = false;
 
+    void BuildInputLayout(GLuint program, VertexArrayState& vaState,
+                          std::vector<Diligent::LayoutElement>& inputLayout) {
+        inputLayout.clear();
+
+        auto& programObj = MG_State_T::programState->programs_[program];
+
+        for (const auto& [attribIndex, attrib] : vaState.vaos_[vaState.currentVao_].attribs) {
+            if (!attrib.enabled) continue;
+
+            std::string attribName;
+            for (auto [name, loc] : programObj.attribLocations) {
+                if (loc == attribIndex) {
+                    attribName = name;
+                    break;
+                }
+            }
+            
+            MG_State::QueryProgramAttributeLocation(program, attribName.c_str());
+            if (attribIndex == -1) {
+                continue;
+            }
+
+            Diligent::LayoutElement element;
+            element.InputIndex = static_cast<Diligent::Uint32>(attribIndex);
+            element.BufferSlot = 0;
+            element.NumComponents = attrib.size;
+
+            switch (attrib.type) {
+                case GL_BYTE:           element.ValueType = Diligent::VT_INT8; break;
+                case GL_UNSIGNED_BYTE:  element.ValueType = Diligent::VT_UINT8; break;
+                case GL_SHORT:          element.ValueType = Diligent::VT_INT16; break;
+                case GL_UNSIGNED_SHORT: element.ValueType = Diligent::VT_UINT16; break;
+                case GL_INT:            element.ValueType = Diligent::VT_INT32; break;
+                case GL_UNSIGNED_INT:   element.ValueType = Diligent::VT_UINT32; break;
+                case GL_FLOAT:          element.ValueType = Diligent::VT_FLOAT32; break;
+                case GL_HALF_FLOAT:     element.ValueType = Diligent::VT_FLOAT16; break;
+                case GL_DOUBLE:         element.ValueType = Diligent::VT_FLOAT64; break;
+                default:                element.ValueType = Diligent::VT_UNDEFINED; break;
+            }
+
+            element.IsNormalized = attrib.normalized;
+            element.RelativeOffset = static_cast<Diligent::Uint32>(reinterpret_cast<size_t>(attrib.pointer));
+
+            inputLayout.push_back(element);
+
+            MG_Util::Debug::LogD("Built LayoutElement for attrib '%s' (location %d): "
+                                 "NumComponents=%d, ValueType=%d, IsNormalized=%s, RelativeOffset=%u",
+                                 attribName.c_str(), attribIndex,
+                                 element.NumComponents, element.ValueType,
+                                 element.IsNormalized ? "true" : "false",
+                                 element.RelativeOffset);
+        }
+    }
+
+
     void PipelineStateManager::ConfigurePSO(
             Diligent::GraphicsPipelineStateCreateInfo &PSOCreateInfo,
             GLProgramInfo &programInfo,
@@ -101,6 +156,20 @@ namespace MG_Diligent {
                                   Diligent::CULL_MODE_BACK : Diligent::CULL_MODE_NONE;
         rasterizerDesc.FrontCounterClockwise = true;
 
+        if (!programInfo.inputLayout.empty()) {
+            PSOCreateInfo.GraphicsPipeline.InputLayout.LayoutElements = programInfo.inputLayout.data();
+            PSOCreateInfo.GraphicsPipeline.InputLayout.NumElements = 
+                    static_cast<Diligent::Uint32>(programInfo.inputLayout.size());
+
+            MG_Util::Debug::LogD("Configured InputLayout with %zu elements",
+                                 programInfo.inputLayout.size());
+        } else {
+            MG_Util::Debug::LogW("No input layout elements for PSO");
+            PSOCreateInfo.GraphicsPipeline.InputLayout.LayoutElements = nullptr;
+            PSOCreateInfo.GraphicsPipeline.InputLayout.NumElements = 0;
+        }
+
+
         ConfigureResourceLayout(PSOCreateInfo, programInfo);
     }
 
@@ -141,7 +210,9 @@ namespace MG_Diligent {
         if (it != psoCache.end()) {
             return it->second;
         }
-
+        
+        MG_Diligent::BuildInputLayout(program, vaState, programInfo.inputLayout);
+        
         Diligent::GraphicsPipelineStateCreateInfo PSOCreateInfo;
         ConfigurePSO(PSOCreateInfo, programInfo, commonState, vaState, fbInfo);
 

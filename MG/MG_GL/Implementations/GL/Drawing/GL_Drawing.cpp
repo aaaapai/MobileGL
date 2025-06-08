@@ -8,7 +8,7 @@ namespace MG_GL::GL {
     void CreateRenderPassAndFramebuffer(GLuint framebuffer,
                                         const FramebufferObject& fbo,
                                         MG_Diligent::GLFramebufferInfo& fbInfo);
-    
+
     inline bool IsSamplerType(GLenum type) {
         switch (type) {
             case GL_SAMPLER_2D:
@@ -43,14 +43,14 @@ namespace MG_GL::GL {
             case GL_UNSIGNED_INT_VEC2: return 2 * sizeof(uint32_t);
             case GL_UNSIGNED_INT_VEC3: return 3 * sizeof(uint32_t);
             case GL_UNSIGNED_INT_VEC4: return 4 * sizeof(uint32_t);
-            // case GL_DOUBLE: return sizeof(double); // Not supported
-            // case GL_DOUBLE_VEC2: return 2 * sizeof(double); // Not supported
-            // case GL_DOUBLE_VEC3: return 3 * sizeof(double); // Not supported
-            // case GL_DOUBLE_VEC4: return 4 * sizeof(double); // Not supported
+                // case GL_DOUBLE: return sizeof(double); // Not supported
+                // case GL_DOUBLE_VEC2: return 2 * sizeof(double); // Not supported
+                // case GL_DOUBLE_VEC3: return 3 * sizeof(double); // Not supported
+                // case GL_DOUBLE_VEC4: return 4 * sizeof(double); // Not supported
             default: return 0;
         }
     }
-    
+
     inline size_t AlignSize(size_t size, size_t alignment) {
         return (size + alignment - 1) & ~(alignment - 1);
     }
@@ -73,7 +73,7 @@ namespace MG_GL::GL {
                 return Diligent::SHADER_TYPE_UNKNOWN;
         }
     }
-    
+
     Diligent::SHADER_TYPE GetShaderStageForUniform(GLuint program, const std::string& name) {
         auto& programInfo = MG_Diligent::g_ProgramMap[program];
         auto& programObj = MG_State_T::programState->programs_[program];
@@ -176,11 +176,11 @@ namespace MG_GL::GL {
 
         return stage;
     }
-    
+
     void UpdateSamplerAndTextureUniforms(GLuint program, Diligent::IShaderResourceBinding& pSRB) {
         MG_Util::Debug::LogD("Updating sampler and texture uniforms for program %u", program);
         auto& programObj = MG_State_T::programState->programs_[program];
-        
+
         for (auto& [name, uniform] : programObj.uniformValues) {
             if (!IsSamplerType(uniform.type)) continue;
 
@@ -191,7 +191,7 @@ namespace MG_GL::GL {
                 textureID = unitState->GetBoundTexture(unitState->activeTarget);
                 MG_Util::Debug::LogD("Sampler '%s' (type: %X) uses texture ID: %u", name.c_str(), uniform.type, textureID);
             }
-            
+
             Diligent::ITextureView* pTextureView = nullptr;
             if (textureID != 0) {
                 auto it = MG_Diligent::g_TextureViewMap.find(textureID);
@@ -226,7 +226,7 @@ namespace MG_GL::GL {
         void * mapped;
         MG_Util::Debug::LogD("Mapping UBO for program %u", program);
         MG_Diligent::g_pContext->MapBuffer(programInfo.pDefaultUBO, Diligent::MAP_WRITE,
-                              Diligent::MAP_FLAG_DISCARD, mapped);
+                                           Diligent::MAP_FLAG_DISCARD, mapped);
 
         if (mapped) {
             MG_Util::Debug::LogD("UBO mapped successfully for program %u. Updating uniform values.", program);
@@ -287,30 +287,30 @@ namespace MG_GL::GL {
                         case GL_UNSIGNED_INT_VEC4:
                             memcpy(uboData + offset, uniform.uintData.data(), 4 * sizeof(uint32_t));
                             break;
-                        
-                        // Not supported types
-                        // case GL_DOUBLE:
+
+                            // Not supported types
+                            // case GL_DOUBLE:
                             // *reinterpret_cast<double*>(uboData + offset) = uniform.doubleData[0];
                             // break;
-                        // case GL_DOUBLE_VEC2:
+                            // case GL_DOUBLE_VEC2:
                             // memcpy(uboData + offset, uniform.doubleData.data(), 2 * sizeof(double));
                             // break;
-                        // case GL_DOUBLE_VEC3:
+                            // case GL_DOUBLE_VEC3:
                             // memcpy(uboData + offset, uniform.doubleData.data(), 3 * sizeof(double));
                             // break;
-                        // case GL_DOUBLE_VEC4:
+                            // case GL_DOUBLE_VEC4:
                             // memcpy(uboData + offset, uniform.doubleData.data(), 4 * sizeof(double));
                             // break;
-                        // case GL_DOUBLE_MAT2:
+                            // case GL_DOUBLE_MAT2:
                             // memcpy(uboData + offset, uniform.doubleData.data(), 4 * sizeof(double));
                             // break;
-                        // case GL_DOUBLE_MAT3:
+                            // case GL_DOUBLE_MAT3:
                             // memcpy(uboData + offset, uniform.doubleData.data(), 9 * sizeof(double));
                             // break;
-                        // case GL_DOUBLE_MAT4:
+                            // case GL_DOUBLE_MAT4:
                             // memcpy(uboData + offset, uniform.doubleData.data(), 16 * sizeof(double));
                             // break;
-                        // ...
+                            // ...
                     }
                 }
             }
@@ -396,7 +396,7 @@ namespace MG_GL::GL {
         }
 
         auto& programInfo = MG_Diligent::g_ProgramMap[program];
-        
+
         GLuint drawFB = MG_State_T::framebufferState->currentBindings_[GL_DRAW_FRAMEBUFFER];
         if (drawFB == 0) drawFB = 0;
 
@@ -406,7 +406,7 @@ namespace MG_GL::GL {
             return;
         }
         MG_Diligent::GLFramebufferInfo& fbInfo = itFB->second;
-        
+
         MG_Util::Debug::LogD("Fetching PSO for program %u", program);
         programInfo.pPipelineState = MG_Diligent::g_PSOManager.GetOrCreatePSO(
                 program,
@@ -430,12 +430,12 @@ namespace MG_GL::GL {
                 MG_Util::Debug::LogE("Failed to create ShaderResourceBinding for program %u", program);
                 return;
             }
-            
+
             MG_Util::Debug::LogD("Successfully created ShaderResourceBinding for program %u", program);
         }
 
         MG_Diligent::g_pContext->SetPipelineState(programInfo.pPipelineState);
-        
+
         auto* pVAO = MG_State_T::vertexArrayState->GetCurrentVAO();
         if (!pVAO) {
             MG_Util::Debug::LogE("No current VAO found. A VAO must be bound before drawing.");
@@ -455,14 +455,12 @@ namespace MG_GL::GL {
 
                 if (!pBuffer) {
                     Diligent::BufferDesc BuffDesc;
-                    BuffDesc.Name = "Buffer";
+                    std::string bufferName = "Dynamic VBO " + std::to_string(buffer);
+                    BuffDesc.Name = bufferName.c_str();
                     BuffDesc.Size = bufferObj.data.size();
                     BuffDesc.Usage = Diligent::USAGE_DYNAMIC;
                     BuffDesc.BindFlags = Diligent::BIND_VERTEX_BUFFER;
-
-                    if (bufferObj.isDynamic) {
-                        BuffDesc.CPUAccessFlags = Diligent::CPU_ACCESS_WRITE;
-                    }
+                    BuffDesc.CPUAccessFlags = Diligent::CPU_ACCESS_WRITE;
 
                     if (pBuffer) {
                         pBuffer->Release();
@@ -470,13 +468,13 @@ namespace MG_GL::GL {
 
                     MG_Diligent::g_pDevice->CreateBuffer(BuffDesc, nullptr, &pBuffer);
                 }
-                
+
                 if (pBuffer && !bufferObj.data.empty()) {
                     void* pMappedData = nullptr;
                     MG_Diligent::g_pContext->MapBuffer(
                             pBuffer,
                             Diligent::MAP_WRITE,
-                            bufferObj.isDynamic ? Diligent::MAP_FLAG_DISCARD : Diligent::MAP_FLAG_NONE,
+                            Diligent::MAP_FLAG_DISCARD,
                             pMappedData
                     );
 
@@ -499,15 +497,13 @@ namespace MG_GL::GL {
 
                 if (!pBuffer) {
                     Diligent::BufferDesc BuffDesc;
-                    BuffDesc.Name = "IndexBuffer";
+                    std::string bufferName = "Dynamic IBO " + std::to_string(buffer);
+                    BuffDesc.Name = bufferName.c_str();
                     BuffDesc.Size = bufferObj.data.size();
                     BuffDesc.Usage = bufferObj.isDynamic ? Diligent::USAGE_DYNAMIC
                                                          : Diligent::USAGE_DEFAULT;
                     BuffDesc.BindFlags = Diligent::BIND_INDEX_BUFFER;
-
-                    if (bufferObj.isDynamic) {
-                        BuffDesc.CPUAccessFlags = Diligent::CPU_ACCESS_WRITE;
-                    }
+                    BuffDesc.CPUAccessFlags = Diligent::CPU_ACCESS_WRITE;
 
                     if (pBuffer) {
                         pBuffer->Release();
@@ -515,7 +511,7 @@ namespace MG_GL::GL {
 
                     MG_Diligent::g_pDevice->CreateBuffer(BuffDesc, nullptr, &pBuffer);
                 }
-                
+
                 if (pBuffer && !bufferObj.data.empty()) {
                     void* pMappedData = nullptr;
                     MG_Diligent::g_pContext->MapBuffer(
@@ -532,7 +528,7 @@ namespace MG_GL::GL {
                         createdBuffers[buffer] = pBuffer;
                     }
                 }
-                
+
             }
         }
 
@@ -551,6 +547,23 @@ namespace MG_GL::GL {
         }
 
         if (!vertexBuffers.empty()) {
+            MG_Util::Debug::LogD("Setting Vertex Buffers:");
+            MG_Util::Debug::LogD("  NumBuffers: %u", static_cast<Diligent::Uint32>(vertexBuffers.size()));
+            for (size_t i = 0; i < vertexBuffers.size(); ++i) {
+                MG_Util::Debug::LogD("  Buffer %zu:", i);
+                if (vertexBuffers[i]) {
+                    const auto& desc = vertexBuffers[i]->GetDesc();
+                    MG_Util::Debug::LogD("    Name: %s", desc.Name ? desc.Name : "N/A");
+                    MG_Util::Debug::LogD("    Size: %llu", desc.Size);
+                    MG_Util::Debug::LogD("    Usage: %d", desc.Usage);
+                    MG_Util::Debug::LogD("    BindFlags: %u", desc.BindFlags);
+                    MG_Util::Debug::LogD("    CPUAccessFlags: %u", desc.CPUAccessFlags);
+                } else {
+                    MG_Util::Debug::LogD("    <null buffer>");
+                }
+                MG_Util::Debug::LogD("    Offset: %llu", offsets[i]);
+            }
+
             MG_Diligent::g_pContext->SetVertexBuffers(
                     0,
                     static_cast<Diligent::Uint32>(vertexBuffers.size()),
@@ -565,7 +578,7 @@ namespace MG_GL::GL {
             GLuint buffer = pVAO->elementBuffer;
             auto it = MG_Diligent::g_BufferMap.find(buffer);
             if (it != MG_Diligent::g_BufferMap.end() && it->second) {
-                Diligent::Uint64 offset = reinterpret_cast<uintptr_t>(indices);
+                auto offset = reinterpret_cast<uintptr_t>(indices);
 
                 MG_Diligent::g_pContext->SetIndexBuffer(
                         it->second,
@@ -611,7 +624,7 @@ namespace MG_GL::GL {
     void DrawArrays(GLenum mode, GLint first, GLsizei count) {
         // TODO
     }
-    
+
     void DrawElementsBaseVertex(GLenum mode, GLsizei count, GLenum type, const GLvoid *indices, GLint basevertex) {
         // TODO
     }
@@ -619,7 +632,7 @@ namespace MG_GL::GL {
     void MultiDrawElements(GLenum mode, const GLsizei *count, GLenum type, const GLvoid *const *indices, GLsizei drawcount) {
         // TODO
     }
-    
+
     void MultiDrawElementsBaseVertex(GLenum mode, const GLsizei *count, GLenum type, const GLvoid *const *indices, GLsizei drawcount, const GLint *basevertex) {
         // TODO
     }
