@@ -43,13 +43,18 @@ namespace MG_Diligent {
                 }
             }
             
+            if (attribName.empty()) {
+                continue; 
+                // This can happen if an attribute is bound but not used by the shader program.
+            }
+            
             MG_State::QueryProgramAttributeLocation(program, attribName.c_str());
             if (attribIndex == -1) {
                 continue;
             }
 
             Diligent::LayoutElement element;
-            element.InputIndex = static_cast<Diligent::Uint32>(attribIndex);
+            element.InputIndex = attribIndex;
             element.BufferSlot = 0;
             element.NumComponents = attrib.size;
 
@@ -67,16 +72,18 @@ namespace MG_Diligent {
             }
 
             element.IsNormalized = attrib.normalized;
-            element.RelativeOffset = static_cast<Diligent::Uint32>(reinterpret_cast<size_t>(attrib.pointer));
+            element.Stride = attrib.stride; // Set stride by attrib.stride
+            
+            element.RelativeOffset = static_cast<Diligent::Uint32>(reinterpret_cast<uintptr_t>(attrib.pointer));
 
             inputLayout.push_back(element);
 
             MG_Util::Debug::LogD("Built LayoutElement for attrib '%s' (location %d): "
-                                 "NumComponents=%d, ValueType=%d, IsNormalized=%s, RelativeOffset=%u",
+                                 "NumComponents=%d, ValueType=%d, IsNormalized=%s, RelativeOffset=%u, Stride=%u",
                                  attribName.c_str(), attribIndex,
                                  element.NumComponents, element.ValueType,
                                  element.IsNormalized ? "true" : "false",
-                                 element.RelativeOffset);
+                                 element.RelativeOffset, element.Stride);
         }
     }
 
