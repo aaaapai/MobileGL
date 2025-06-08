@@ -490,6 +490,13 @@ namespace MG_GL::GL {
 
     void BlitFramebuffer(GLint srcX0, GLint srcY0, GLint srcX1, GLint srcY1,
                          GLint dstX0, GLint dstY0, GLint dstX1, GLint dstY1, GLbitfield mask, GLenum filter) {
+        if (MG_Diligent::IsInRenderPass) {
+            MG_Util::Debug::LogD("Ending current render pass.");
+            MG_Diligent::g_pContext->EndRenderPass();
+            MG_Diligent::IsInRenderPass = false;
+            MG_Util::Debug::LogD("Current render pass ended.");
+        }
+        
         GLuint readFB = MG_State_T::framebufferState->currentBindings_[GL_READ_FRAMEBUFFER];
         GLuint drawFB = MG_State_T::framebufferState->currentBindings_[GL_DRAW_FRAMEBUFFER];
 
