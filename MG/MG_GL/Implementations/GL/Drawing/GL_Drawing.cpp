@@ -451,40 +451,21 @@ namespace MG_GL::GL {
             GLuint buffer = attrib.buffer;
             auto& bufferObj = MG_State_T::bufferState->buffers_[buffer];
 
-            if (bufferObj.isDynamic || MG_Diligent::g_BufferMap.find(buffer) == MG_Diligent::g_BufferMap.end()) {
-                Diligent::IBuffer*& pBuffer = MG_Diligent::g_BufferMap[buffer];
+            Diligent::IBuffer *&pBuffer = MG_Diligent::g_BufferMap[buffer];
+            if (bufferObj.isDynamic && !pBuffer) {
+                Diligent::BufferDesc BuffDesc;
+                std::string bufferName = "Dynamic VBO " + std::to_string(buffer);
+                BuffDesc.Name = bufferName.c_str();
+                BuffDesc.Size = bufferObj.data.size();
+                BuffDesc.Usage = Diligent::USAGE_DYNAMIC;
+                BuffDesc.BindFlags = Diligent::BIND_VERTEX_BUFFER;
+                BuffDesc.CPUAccessFlags = Diligent::CPU_ACCESS_WRITE;
 
+                MG_Diligent::g_pDevice->CreateBuffer(BuffDesc, nullptr, &pBuffer);
+                
                 if (!pBuffer) {
-                    Diligent::BufferDesc BuffDesc;
-                    std::string bufferName = "Dynamic VBO " + std::to_string(buffer);
-                    BuffDesc.Name = bufferName.c_str();
-                    BuffDesc.Size = bufferObj.data.size();
-                    BuffDesc.Usage = Diligent::USAGE_DYNAMIC;
-                    BuffDesc.BindFlags = Diligent::BIND_VERTEX_BUFFER;
-                    BuffDesc.CPUAccessFlags = Diligent::CPU_ACCESS_WRITE;
-                    
-                    if (pBuffer) {
-                        pBuffer->Release();
-                    }
-
-                    MG_Diligent::g_pDevice->CreateBuffer(BuffDesc, nullptr, &pBuffer);
-                }
-
-                if (pBuffer && !bufferObj.data.empty()) {
-                    void* pMappedData = nullptr;
-                    MG_Diligent::g_pContext->MapBuffer(
-                            pBuffer,
-                            Diligent::MAP_WRITE,
-                            Diligent::MAP_FLAG_DISCARD,
-                            pMappedData
-                    );
-
-                    if (pMappedData) {
-                        memcpy(pMappedData, bufferObj.data.data(), bufferObj.data.size());
-                        MG_Diligent::g_pContext->UnmapBuffer(pBuffer, Diligent::MAP_WRITE);
-                        bufferObj.dirty = false;
-                        createdBuffers[buffer] = pBuffer;
-                    }
+                    MG_Util::Debug::LogE("Failed to create dynamic vertex buffer %u", buffer);
+                    continue;
                 }
             }
         }
@@ -493,43 +474,49 @@ namespace MG_GL::GL {
             GLuint buffer = pVAO->elementBuffer;
             auto& bufferObj = MG_State_T::bufferState->buffers_[buffer];
 
-            if (bufferObj.isDynamic || MG_Diligent::g_BufferMap.find(buffer) == MG_Diligent::g_BufferMap.end()) {
-                Diligent::IBuffer*& pBuffer = MG_Diligent::g_BufferMap[buffer];
+            Diligent::IBuffer*& pBuffer = MG_Diligent::g_BufferMap[buffer];
+            if (bufferObj.isDynamic && !pBuffer) {
+                 Diligent::BufferDesc BuffDesc;
+                 std::string bufferName = "Dynamic IBO " + std::to_string(buffer);
+                 BuffDesc.Name = bufferName.c_str();
+                 BuffDesc.Size = bufferObj.data.size();
+                 BuffDesc.Usage = Diligent::USAGE_DYNAMIC;
+                 BuffDesc.BindFlags = Diligent::BIND_INDEX_BUFFER;
+                 BuffDesc.CPUAccessFlags = Diligent::CPU_ACCESS_WRITE;
 
-                if (!pBuffer) {
-                    Diligent::BufferDesc BuffDesc;
-                    std::string bufferName = "Dynamic IBO " + std::to_string(buffer);
-                    BuffDesc.Name = bufferName.c_str();
-                    BuffDesc.Size = bufferObj.data.size();
-                    BuffDesc.Usage = bufferObj.isDynamic ? Diligent::USAGE_DYNAMIC
-                                                         : Diligent::USAGE_DEFAULT;
-                    BuffDesc.BindFlags = Diligent::BIND_INDEX_BUFFER;
-                    BuffDesc.CPUAccessFlags = Diligent::CPU_ACCESS_WRITE;
+                 if (pBuffer) {
+                     pBuffer->Release();
+                 }
 
-                    if (pBuffer) {
-                        pBuffer->Release();
-                    }
+                 MG_Diligent::g_pDevice->CreateBuffer(BuffDesc, nullptr, &pBuffer);
 
-                    MG_Diligent::g_pDevice->CreateBuffer(BuffDesc, nullptr, &pBuffer);
+                 if (!pBuffer) {
+                     MG_Util::Debug::LogE("Failed to create dynamic index buffer %u", buffer);
+                 }
+            }
+        }
+
+        // Update data for all dynamic buffers
+        for (auto& [bufferID, pBuffer] : MG_Diligent::g_BufferMap) {
+            auto& bufferObj = MG_State_T::bufferState->buffers_[bufferID];
+            if (pBuffer && bufferObj.isDynamic && !bufferObj.data.empty()) {
+                void* pMappedData = nullptr;
+                MG_Util::Debug::LogD("Mapping dynamic buffer %u for data update.", bufferID);
+                MG_Diligent::g_pContext->MapBuffer(
+                    pBuffer,
+                    Diligent::MAP_WRITE,
+                    Diligent::MAP_FLAG_DISCARD,
+                    pMappedData);
+
+                if (pMappedData) {
+                    memcpy(pMappedData, bufferObj.data.data(), bufferObj.data.size());
+                    MG_Diligent::g_pContext->UnmapBuffer(pBuffer, Diligent::MAP_WRITE);
+                    bufferObj.dirty = false;
+                    MG_Util::Debug::LogD("Successfully updated data for dynamic buffer %u.", bufferID);
+                    createdBuffers[bufferID] = pBuffer;
+                } else {
+                    MG_Util::Debug::LogE("Failed to map dynamic buffer %u for data update.", bufferID);
                 }
-
-                if (pBuffer && !bufferObj.data.empty()) {
-                    void* pMappedData = nullptr;
-                    MG_Diligent::g_pContext->MapBuffer(
-                            pBuffer,
-                            Diligent::MAP_WRITE,
-                            bufferObj.isDynamic ? Diligent::MAP_FLAG_DISCARD : Diligent::MAP_FLAG_NONE,
-                            pMappedData
-                    );
-
-                    if (pMappedData) {
-                        memcpy(pMappedData, bufferObj.data.data(), bufferObj.data.size());
-                        MG_Diligent::g_pContext->UnmapBuffer(pBuffer, Diligent::MAP_WRITE);
-                        bufferObj.dirty = false;
-                        createdBuffers[buffer] = pBuffer;
-                    }
-                }
-
             }
         }
 
