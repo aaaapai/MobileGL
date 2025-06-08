@@ -324,8 +324,10 @@ namespace MG_Util::Program {
     }
 
     void GenerateDefaultUBOForGLSL_Multi(
-            MG_Global::unordered_map<GLuint, std::string> &shaderSources) {
+            MG_Global::unordered_map<GLuint, std::string> &shaderSources, std::vector<std::string>& outUniformBufferNames) {
         if (shaderSources.empty()) return;
+
+        outUniformBufferNames.clear();
 
         std::unordered_map<GLuint, std::vector<bool>> commentMasks;
         for (auto const& [id, source] : shaderSources) {
@@ -405,6 +407,8 @@ namespace MG_Util::Program {
                 if (allUniformNames.find(varName) == allUniformNames.end()) {
                     mergedUniforms.push_back(declaration);
                     allUniformNames.insert(varName);
+                    // save the uniform names in order
+                    outUniformBufferNames.emplace_back(varName);
                 }
 
                 size_t removeStart = declStart;

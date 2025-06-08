@@ -232,7 +232,8 @@ namespace MG_GL::GL {
             MG_Util::Debug::LogD("UBO mapped successfully for program %u. Updating uniform values.", program);
             uint8_t* uboData = static_cast<uint8_t*>(mapped);
 
-            for (auto& [name, uniform] : programObj.uniformValues) {
+            for (auto& name: programInfo.uniformBufferNames) {
+                auto& uniform = programObj.uniformValues[name];
                 if (IsSamplerType(uniform.type)) continue;
 
                 auto it = programInfo.uniformOffsets.find(name);

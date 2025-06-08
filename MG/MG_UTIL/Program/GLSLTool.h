@@ -181,7 +181,7 @@ namespace MG_Util::Program {
     std::pair<std::string, std::string> GenerateDefaultUBOForGLSL(const std::pair<std::string,
                                                                   std::string>& glslSources);
     void GenerateDefaultUBOForGLSL_Multi(
-            MG_Global::unordered_map<GLuint, std::string> &shaderSources);
+            MG_Global::unordered_map<GLuint, std::string> &shaderSources, std::vector<std::string>& outUniformBufferNames);
 }
 
 #endif //MOBILEGL_GLSLTOOL_H

@@ -43,6 +43,10 @@ namespace MG_Diligent {
         std::vector<Diligent::LayoutElement> inputLayout;
         GLuint DefaultFBO = 0;
         ProgramObject programObj;
+
+        // Uniform names, in the order of their index in uniform buffer
+        std::vector<std::string> uniformBufferNames;
+
         Diligent::IBuffer* pDefaultUBO = nullptr;
 
         std::unordered_map<std::string, Diligent::SHADER_TYPE> uniformStages;
@@ -239,7 +243,7 @@ namespace MG_Diligent {
 
         void ConfigureResourceLayout(
                 Diligent::GraphicsPipelineStateCreateInfo& PSOCreateInfo,
-                const GLProgramInfo& programInfo);
+                GLProgramInfo& programInfo);
     };
 
     extern PipelineStateManager g_PSOManager;

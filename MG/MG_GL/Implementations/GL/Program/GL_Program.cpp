@@ -86,7 +86,8 @@ namespace MG_GL::GL {
         size_t offset = 0;
         programInfo.uniformOffsets.clear();
 
-        for (auto& [name, uniform] : programInfo.programObj.uniformValues) {
+        for (auto& name: programInfo.uniformBufferNames) {
+            auto& uniform = programInfo.programObj.uniformValues[name];
             if (IsSamplerType(uniform.type)) continue;
 
             size_t size = GetUniformSize(uniform.type);
@@ -255,7 +256,7 @@ namespace MG_GL::GL {
                 shaderSources[shaderId] = shaderObj.source;
             }
 
-            MG_Util::Program::GenerateDefaultUBOForGLSL_Multi(shaderSources);
+            MG_Util::Program::GenerateDefaultUBOForGLSL_Multi(shaderSources, programInfo.uniformBufferNames);
             
             // Compile attached shaders
             for (GLuint shaderId : programInfo.AttachedShadersID) {

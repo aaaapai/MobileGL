@@ -286,7 +286,7 @@ namespace MG_Diligent {
 
     void PipelineStateManager::ConfigureResourceLayout(
             Diligent::GraphicsPipelineStateCreateInfo& PSOCreateInfo,
-            const GLProgramInfo& programInfo)
+            GLProgramInfo& programInfo)
     {
         MG_Util::Debug::LogD("Begin configuring resource layout for pipeline");
 
@@ -308,7 +308,7 @@ namespace MG_Diligent {
             }
         }
 
-        MG_Util::Program::GenerateDefaultUBOForGLSL_Multi(shaderSourcesMap);
+        MG_Util::Program::GenerateDefaultUBOForGLSL_Multi(shaderSourcesMap, programInfo.uniformBufferNames);
         
         for (auto shader : programInfo.AttachedShaders) {
             GLuint shaderId = 0;
