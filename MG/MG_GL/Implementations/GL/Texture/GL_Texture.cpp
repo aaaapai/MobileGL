@@ -140,10 +140,23 @@ namespace MG_GL::GL {
         MG_Util::Debug::LogE("Error from MG State: %s", MG_Util::Debug::GLEnumToString(result));
     }
 
+    Diligent::Uint32 CalculateMipLevels(GLsizei width, GLsizei height) {
+        Diligent::Uint32 levels = 1;
+        GLsizei size = std::max(width, height);
+
+        while (size > 1) {
+            size >>= 1;
+            levels++;
+        }
+
+        return levels;
+    }
+
     void TexImage2D(GLenum target, GLint level, GLint internalFormat, GLsizei width, GLsizei height, GLint border,
                     GLenum format, GLenum type, const void* data) {
         MG_Util::Debug::LogD("glTexImage2D, target: %d, level: %d, internalFormat: %d, width: %d, height: %d, format: %d, type: %d, data: %p",
                              target, level, internalFormat, width, height, format, type, data);
+
         GLenum result = MG_State::UploadTexture2D(target, level, internalFormat, width, height,
                                                   border, format, type, data);
         if (result != GL_NO_ERROR) {
@@ -181,82 +194,60 @@ namespace MG_GL::GL {
                              internalFormat, newFormat);
 
         bool needCreateTexture = false;
+        bool isBaseLevel = (level == 0);
 
         if (!pTexture) {
             MG_Util::Debug::LogD("TexImage2D: No existing Diligent texture found for GL name %u. Creating new.", boundTextureID);
             needCreateTexture = true;
-            // Create a placeholder texture if none exists
-            if (width == 0 || height == 0) {
-                Diligent::TextureDesc PlaceholderTexDesc;
-                PlaceholderTexDesc.Type = (target == GL_TEXTURE_2D) ?
-                               Diligent::RESOURCE_DIM_TEX_2D : Diligent::RESOURCE_DIM_UNDEFINED;
-                PlaceholderTexDesc.Format = Diligent::TEX_FORMAT_RGBA8_UNORM;
-                PlaceholderTexDesc.Width = 1;
-                PlaceholderTexDesc.Height = 1;
-                bool isDepth = false;
-                switch (newFormat) {
-                    case Diligent::TEX_FORMAT_D16_UNORM:
-                    case Diligent::TEX_FORMAT_D32_FLOAT:
-                    case Diligent::TEX_FORMAT_D24_UNORM_S8_UINT:
-                    case Diligent::TEX_FORMAT_D32_FLOAT_S8X24_UINT:
-                        isDepth = true;
-                        break;
-                    default:
-                        break;
-                }
-                PlaceholderTexDesc.BindFlags = Diligent::BIND_SHADER_RESOURCE | (isDepth ? Diligent::BIND_DEPTH_STENCIL : Diligent::BIND_RENDER_TARGET);
-
-                Diligent::ITexture* pPlaceholderTexture = nullptr;
-                MG_Diligent::g_pDevice->CreateTexture(PlaceholderTexDesc, nullptr, &pPlaceholderTexture);
-
-                Diligent::ITextureView* pPlaceholderSRV = nullptr;
-                if (pPlaceholderTexture) {
-                    Diligent::TextureViewDesc SRVDesc;
-                    SRVDesc.ViewType = data == nullptr ? Diligent::TEXTURE_VIEW_RENDER_TARGET : Diligent::TEXTURE_VIEW_SHADER_RESOURCE;
-                    SRVDesc.TextureDim = Diligent::RESOURCE_DIM_TEX_2D;
-                    pPlaceholderTexture->CreateView(SRVDesc, &pPlaceholderSRV);
-                }
-                MG_Diligent::g_TextureMap[boundTextureID] = pPlaceholderTexture;
-                MG_Diligent::g_TextureViewMap[boundTextureID] = pPlaceholderSRV;
-                MG_Util::Debug::LogD("Created placeholder Diligent texture for GL name %u", boundTextureID);
-            }
         } else {
             Diligent::TextureDesc existingDesc = pTexture->GetDesc();
-            if (existingDesc.Width != static_cast<Diligent::Uint32>(width) ||
-                existingDesc.Height != static_cast<Diligent::Uint32>(height) ||
-                existingDesc.Format != newFormat) {
-                MG_Util::Debug::LogD("TexImage2D: Texture properties changed. Recreating texture.");
+
+            if (isBaseLevel &&
+                (existingDesc.Width != static_cast<Diligent::Uint32>(width) ||
+                 existingDesc.Height != static_cast<Diligent::Uint32>(height) ||
+                 existingDesc.Format != newFormat)) {
+
+                MG_Util::Debug::LogD("TexImage2D: Base level properties changed. Recreating texture.");
                 MG_Util::Debug::LogD("TexImage2D: Old (W:%u, H:%u, F:%d), New (W:%d, H:%d, F:%d)",
                                      existingDesc.Width, existingDesc.Height, existingDesc.Format,
                                      width, height, newFormat);
 
-                if (pSRV) {
-                    MG_Util::Debug::LogD("TexImage2D: Releasing existing SRV %p", (void*)pSRV);
-                    pSRV->Release();
-                    MG_Diligent::g_TextureViewMap[boundTextureID] = nullptr;
-                    pSRV = nullptr; 
-                }
-
-                if (pTexture) {
-                    MG_Util::Debug::LogD("TexImage2D: Releasing existing texture %p", (void*)pTexture);
-                    pTexture->Release();
-                    MG_Diligent::g_TextureMap[boundTextureID] = nullptr;
-                    pTexture = nullptr; 
-                }
-
+                needCreateTexture = true;
+            } else if (level >= static_cast<GLint>(existingDesc.MipLevels)) {
+                MG_Util::Debug::LogD("TexImage2D: Level %d exceeds current mip levels (%d). Recreating texture.",
+                                     level, existingDesc.MipLevels);
                 needCreateTexture = true;
             }
         }
 
         if (needCreateTexture) {
-            Diligent::ITexture* newTexture = nullptr;
-            Diligent::ITextureView* newSRV = nullptr;
+            if (pSRV) {
+                MG_Util::Debug::LogD("TexImage2D: Releasing existing SRV %p", (void*)pSRV);
+                pSRV->Release();
+                MG_Diligent::g_TextureViewMap[boundTextureID] = nullptr;
+                pSRV = nullptr;
+            }
+
+            if (pTexture) {
+                MG_Util::Debug::LogD("TexImage2D: Releasing existing texture %p", (void*)pTexture);
+                pTexture->Release();
+                MG_Diligent::g_TextureMap[boundTextureID] = nullptr;
+                pTexture = nullptr;
+            }
+
+            Diligent::Uint32 mipLevels = 1;
+            if (isBaseLevel) {
+                mipLevels = CalculateMipLevels(width, height);
+            } else if (pTexture) {
+                mipLevels = pTexture->GetDesc().MipLevels;
+            }
 
             Diligent::TextureDesc TexDesc;
             TexDesc.Type = Diligent::RESOURCE_DIM_TEX_2D;
             TexDesc.Width = width;
             TexDesc.Height = height;
             TexDesc.Format = newFormat;
+            TexDesc.MipLevels = mipLevels;
 
             bool isDepthStencil = false;
             switch (internalFormat) {
@@ -279,14 +270,11 @@ namespace MG_GL::GL {
             } else {
                 TexDesc.BindFlags = Diligent::BIND_SHADER_RESOURCE | Diligent::BIND_RENDER_TARGET;
             }
-            
-            if (level > 0) {
-                TexDesc.MipLevels = level + 1;
-            }
 
-            MG_Util::Debug::LogD("TexImage2D: Creating new Diligent texture with Width: %d, Height: %d, Format: %d",
-                                 width, height, newFormat);
+            MG_Util::Debug::LogD("TexImage2D: Creating new Diligent texture with Width: %d, Height: %d, Format: %d, MipLevels: %u",
+                                 width, height, newFormat, mipLevels);
 
+            Diligent::ITexture* newTexture = nullptr;
             MG_Diligent::g_pDevice->CreateTexture(TexDesc, nullptr, &newTexture);
 
             if (newTexture) {
@@ -299,6 +287,7 @@ namespace MG_GL::GL {
                 SRVDesc.MostDetailedMip = 0;
                 SRVDesc.NumMipLevels = TexDesc.MipLevels;
 
+                Diligent::ITextureView* newSRV = nullptr;
                 newTexture->CreateView(SRVDesc, &newSRV);
                 MG_Util::Debug::LogD("TexImage2D: Created new SRV %p for texture.", (void*)newSRV);
 
@@ -309,6 +298,7 @@ namespace MG_GL::GL {
                 pSRV = newSRV;
             } else {
                 MG_Util::Debug::LogE("TexImage2D: Failed to create new texture!");
+                return;
             }
         }
 
@@ -322,6 +312,8 @@ namespace MG_GL::GL {
             UpdateBox.MaxX = width;
             UpdateBox.MinY = 0;
             UpdateBox.MaxY = height;
+            UpdateBox.MinZ = 0;
+            UpdateBox.MaxZ = 1;
 
             MG_Util::Debug::LogD("TexImage2D: Updating texture. Level: %d, Box: [%u,%u]x[%u,%u], Stride: %llu",
                                  level, UpdateBox.MinX, UpdateBox.MaxX, UpdateBox.MinY, UpdateBox.MaxY, SubResData.Stride);
@@ -335,10 +327,9 @@ namespace MG_GL::GL {
                     Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION,
                     Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION
             );
-            MG_Util::Debug::LogD("TexImage2D: UpdateTexture completed.");
+            MG_Util::Debug::LogD("TexImage2D: UpdateTexture completed for level %d.", level);
         }
     }
-
 
     void TexParameterf(GLenum target, GLenum pname, GLfloat param) {
         MG_Util::Debug::LogD("glTexParameterf, target: %d, pname: %d, param: %f", target, pname, param);
