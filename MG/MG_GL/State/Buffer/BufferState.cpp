@@ -74,6 +74,8 @@ GLenum BufferState::CommitStorage(GLenum target, GLsizeiptr size, const void* da
     BufferObject& obj = buffers_[it->second];
     MG_Util::Debug::LogD("MG_State: Buffer: CommitStorage get buffer object %u at target 0x%x",it->second,target);
     obj.usage = usage;
+    obj.isDynamic = (usage == GL_DYNAMIC_DRAW || usage == GL_DYNAMIC_READ || 
+            usage == GL_DYNAMIC_COPY || usage == GL_STREAM_DRAW);
     obj.data.resize(size);
     if (data) {
         memcpy(obj.data.data(), data, size);

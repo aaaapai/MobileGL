@@ -435,57 +435,144 @@ namespace MG_GL::GL {
         }
 
         MG_Diligent::g_pContext->SetPipelineState(programInfo.pPipelineState);
-
+        
         auto* pVAO = MG_State_T::vertexArrayState->GetCurrentVAO();
-        if (pVAO) {
-            std::vector<Diligent::IBuffer*> vertexBuffers;
-            std::vector<Diligent::Uint32> offsets;
-            for (auto& attrib : pVAO->attribs) {
-                if (!attrib.second.enabled) {
-                    MG_Util::Debug::LogD("Vertex attribute %u is not enabled, skipping.", attrib.first);
-                    continue;
-                }
+        if (!pVAO) {
+            MG_Util::Debug::LogE("No current VAO found. A VAO must be bound before drawing.");
+            return;
+        }
 
-                GLuint buffer = attrib.second.buffer;
-                if (buffer != 0) {
-                    MG_Util::Debug::LogD("Processing vertex attribute %u with buffer %u", attrib.first, buffer);
-                    auto it = MG_Diligent::g_BufferMap.find(buffer);
-                    if (it != MG_Diligent::g_BufferMap.end()) {
-                        MG_Util::Debug::LogD("Found buffer %u in g_BufferMap", buffer);
-                        vertexBuffers.push_back(it->second);
-                        offsets.push_back(static_cast<Diligent::Uint32>(
-                                reinterpret_cast<size_t>(attrib.second.pointer)));
-                    } else {
-                        MG_Util::Debug::LogW("Buffer %u not found in g_BufferMap for vertex attribute %u", buffer, attrib.first);
+        std::unordered_map<GLuint, Diligent::IBuffer*> createdBuffers;
+
+        for (const auto& [attribIndex, attrib] : pVAO->attribs) {
+            if (!attrib.enabled || attrib.buffer == 0) continue;
+
+            GLuint buffer = attrib.buffer;
+            auto& bufferObj = MG_State_T::bufferState->buffers_[buffer];
+
+            if (bufferObj.isDynamic || MG_Diligent::g_BufferMap.find(buffer) == MG_Diligent::g_BufferMap.end()) {
+                Diligent::IBuffer*& pBuffer = MG_Diligent::g_BufferMap[buffer];
+
+                if (!pBuffer) {
+                    Diligent::BufferDesc BuffDesc;
+                    BuffDesc.Name = "Buffer";
+                    BuffDesc.Size = bufferObj.data.size();
+                    BuffDesc.Usage = Diligent::USAGE_DYNAMIC;
+                    BuffDesc.BindFlags = Diligent::BIND_VERTEX_BUFFER;
+
+                    if (bufferObj.isDynamic) {
+                        BuffDesc.CPUAccessFlags = Diligent::CPU_ACCESS_WRITE;
+                    }
+
+                    if (pBuffer) {
+                        pBuffer->Release();
+                    }
+
+                    MG_Diligent::g_pDevice->CreateBuffer(BuffDesc, nullptr, &pBuffer);
+                }
+                
+                if (pBuffer && !bufferObj.data.empty()) {
+                    void* pMappedData = nullptr;
+                    MG_Diligent::g_pContext->MapBuffer(
+                            pBuffer,
+                            Diligent::MAP_WRITE,
+                            bufferObj.isDynamic ? Diligent::MAP_FLAG_DISCARD : Diligent::MAP_FLAG_NONE,
+                            pMappedData
+                    );
+
+                    if (pMappedData) {
+                        memcpy(pMappedData, bufferObj.data.data(), bufferObj.data.size());
+                        MG_Diligent::g_pContext->UnmapBuffer(pBuffer, Diligent::MAP_WRITE);
+                        bufferObj.dirty = false;
+                        createdBuffers[buffer] = pBuffer;
                     }
                 }
             }
+        }
 
-            if (!vertexBuffers.empty()) {
-                MG_Util::Debug::LogD("Setting %zu vertex buffers", vertexBuffers.size());
-                MG_Diligent::g_pContext->SetVertexBuffers(
-                        0, vertexBuffers.size(), vertexBuffers.data(),
-                        (const Diligent::Uint64*) offsets.data(),
-                        Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION,
-                        Diligent::SET_VERTEX_BUFFERS_FLAG_RESET
+        if (pVAO->elementBuffer != 0) {
+            GLuint buffer = pVAO->elementBuffer;
+            auto& bufferObj = MG_State_T::bufferState->buffers_[buffer];
+
+            if (bufferObj.isDynamic || MG_Diligent::g_BufferMap.find(buffer) == MG_Diligent::g_BufferMap.end()) {
+                Diligent::IBuffer*& pBuffer = MG_Diligent::g_BufferMap[buffer];
+
+                if (!pBuffer) {
+                    Diligent::BufferDesc BuffDesc;
+                    BuffDesc.Name = "IndexBuffer";
+                    BuffDesc.Size = bufferObj.data.size();
+                    BuffDesc.Usage = bufferObj.isDynamic ? Diligent::USAGE_DYNAMIC
+                                                         : Diligent::USAGE_DEFAULT;
+                    BuffDesc.BindFlags = Diligent::BIND_INDEX_BUFFER;
+
+                    if (bufferObj.isDynamic) {
+                        BuffDesc.CPUAccessFlags = Diligent::CPU_ACCESS_WRITE;
+                    }
+
+                    if (pBuffer) {
+                        pBuffer->Release();
+                    }
+
+                    MG_Diligent::g_pDevice->CreateBuffer(BuffDesc, nullptr, &pBuffer);
+                }
+                
+                if (pBuffer && !bufferObj.data.empty()) {
+                    void* pMappedData = nullptr;
+                    MG_Diligent::g_pContext->MapBuffer(
+                            pBuffer,
+                            Diligent::MAP_WRITE,
+                            bufferObj.isDynamic ? Diligent::MAP_FLAG_DISCARD : Diligent::MAP_FLAG_NONE,
+                            pMappedData
+                    );
+
+                    if (pMappedData) {
+                        memcpy(pMappedData, bufferObj.data.data(), bufferObj.data.size());
+                        MG_Diligent::g_pContext->UnmapBuffer(pBuffer, Diligent::MAP_WRITE);
+                        bufferObj.dirty = false;
+                        createdBuffers[buffer] = pBuffer;
+                    }
+                }
+                
+            }
+        }
+
+        std::vector<Diligent::IBuffer*> vertexBuffers;
+        std::vector<Diligent::Uint64> offsets;
+
+        for (const auto& [attribIndex, attrib] : pVAO->attribs) {
+            if (!attrib.enabled || attrib.buffer == 0) continue;
+
+            GLuint buffer = attrib.buffer;
+            auto it = MG_Diligent::g_BufferMap.find(buffer);
+            if (it == MG_Diligent::g_BufferMap.end() || !it->second) continue;
+
+            vertexBuffers.push_back(it->second);
+            offsets.push_back(static_cast<Diligent::Uint64>(reinterpret_cast<size_t>(attrib.pointer)));
+        }
+
+        if (!vertexBuffers.empty()) {
+            MG_Diligent::g_pContext->SetVertexBuffers(
+                    0,
+                    static_cast<Diligent::Uint32>(vertexBuffers.size()),
+                    vertexBuffers.data(),
+                    offsets.data(),
+                    Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION,
+                    Diligent::SET_VERTEX_BUFFERS_FLAG_NONE
+            );
+        }
+
+        if (pVAO->elementBuffer != 0) {
+            GLuint buffer = pVAO->elementBuffer;
+            auto it = MG_Diligent::g_BufferMap.find(buffer);
+            if (it != MG_Diligent::g_BufferMap.end() && it->second) {
+                Diligent::Uint64 offset = reinterpret_cast<uintptr_t>(indices);
+
+                MG_Diligent::g_pContext->SetIndexBuffer(
+                        it->second,
+                        offset,
+                        Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION
                 );
             }
-
-            if (pVAO->elementBuffer != 0) {
-                MG_Util::Debug::LogD("Processing element buffer %u", pVAO->elementBuffer);
-                auto it = MG_Diligent::g_BufferMap.find(pVAO->elementBuffer);
-                if (it != MG_Diligent::g_BufferMap.end()) {
-                    MG_Util::Debug::LogD("Found element buffer %u in g_BufferMap, setting index buffer.", pVAO->elementBuffer);
-                    MG_Diligent::g_pContext->SetIndexBuffer(
-                            it->second, 0,
-                            Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION
-                    );
-                } else {
-                    MG_Util::Debug::LogW("Element buffer %u not found in g_BufferMap.", pVAO->elementBuffer);
-                }
-            }
-        } else {
-            MG_Util::Debug::LogD("No current VAO found.");
         }
 
         MG_Util::Debug::LogD("Updating uniforms for program %u", program);
@@ -504,6 +591,15 @@ namespace MG_GL::GL {
         drawAttrs.NumIndices = count;
         drawAttrs.Flags = Diligent::DRAW_FLAG_VERIFY_ALL;
         drawAttrs.IndexType = Diligent::VT_UINT32;
+        MG_Util::Debug::LogD("DrawIndexedAttribs Dump:");
+        MG_Util::Debug::LogD("  NumIndices: %u", drawAttrs.NumIndices);
+        MG_Util::Debug::LogD("  IndexType: %d", drawAttrs.IndexType);
+        MG_Util::Debug::LogD("  Flags: %u", drawAttrs.Flags);
+        MG_Util::Debug::LogD("  NumInstances: %u", drawAttrs.NumInstances);
+        MG_Util::Debug::LogD("  BaseVertex: %u", drawAttrs.BaseVertex);
+        MG_Util::Debug::LogD("  FirstIndexLocation: %u", drawAttrs.FirstIndexLocation);
+        MG_Util::Debug::LogD("  FirstInstanceLocation: %u", drawAttrs.FirstInstanceLocation);
+        // DUMP_DRAW_ATTRIBS_END
 
         EnsureRenderPassActive();
         MG_Diligent::g_pContext->DrawIndexed(drawAttrs);

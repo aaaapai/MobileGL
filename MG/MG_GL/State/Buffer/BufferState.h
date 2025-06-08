@@ -18,6 +18,7 @@ public:
         bool dirty = false; // TODO: encapsulate this with an public API to RHI
         bool isMapped = false;
         bool generated = false;
+        bool isDynamic = false;
         GLenum accessMode = GL_READ_WRITE;
         GLintptr mapOffset = 0;
         GLsizeiptr mapLength = 0;

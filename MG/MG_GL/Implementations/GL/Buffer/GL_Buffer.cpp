@@ -53,7 +53,7 @@ namespace MG_GL::GL {
             if (pBuffer && bufferObj.data.size() >= end) {
                 void * data;
                 MG_Diligent::g_pContext->MapBuffer(pBuffer, Diligent::MAP_WRITE, 
-                                                   Diligent::MAP_FLAG_NONE, data);
+                                                   Diligent::MAP_FLAG_DISCARD, data);
 
                 if (data) {
                     void* dst = static_cast<char*>(data) + offset;
@@ -135,7 +135,7 @@ namespace MG_GL::GL {
         if (pBuffer) {
             void * data;
             MG_Diligent::g_pContext->MapBuffer(pBuffer, Diligent::MAP_WRITE, 
-                                               Diligent::MAP_FLAG_NONE, data);
+                                               Diligent::MAP_FLAG_DISCARD, data);
 
             if (data) {
                 memcpy(data, bufferObj.data.data(), bufferObj.data.size());
@@ -180,7 +180,10 @@ namespace MG_GL::GL {
         if (result == GL_NO_ERROR) {
             GLuint buffer = MG_State_T::bufferState->GetCurrentBinding(target);
             if (buffer == 0) return;
-
+            auto& bufferObj = MG_State_T::bufferState->buffers_[buffer];
+            if (bufferObj.isDynamic) return; // Dynamic buffer should be created by glDraw*
+            
+            bufferObj.dirty = false;
             Diligent::IBuffer*& pBuffer = MG_Diligent::g_BufferMap[buffer];
 
             Diligent::BufferDesc BuffDesc;
@@ -204,16 +207,8 @@ namespace MG_GL::GL {
 
             switch (usage) {
                 case GL_STATIC_DRAW:
-                    BuffDesc.Usage = Diligent::USAGE_UNIFIED;
-                    BuffDesc.CPUAccessFlags = Diligent::CPU_ACCESS_WRITE;
-                    break;
-                case GL_DYNAMIC_DRAW:
-                    BuffDesc.Usage = Diligent::USAGE_UNIFIED;
-                    BuffDesc.CPUAccessFlags = Diligent::CPU_ACCESS_WRITE;
-                    break;
-                case GL_STREAM_DRAW:
-                    BuffDesc.Usage = Diligent::USAGE_UNIFIED;
-                    BuffDesc.CPUAccessFlags = Diligent::CPU_ACCESS_WRITE;
+                    BuffDesc.Usage = Diligent::USAGE_IMMUTABLE;
+                    BuffDesc.CPUAccessFlags = Diligent::CPU_ACCESS_NONE;
                     break;
                 default:
                     BuffDesc.Usage = Diligent::USAGE_DEFAULT;
@@ -223,33 +218,15 @@ namespace MG_GL::GL {
             if (pBuffer == nullptr) {
                 Diligent::BufferData BuffData;
                 // Initial data must not be null for immutable buffers
-                if (BuffDesc.Usage == Diligent::USAGE_IMMUTABLE) {
-                    BuffData.pData = data;
-                }
-                else {
-                    BuffData.pData = nullptr;
-                }
+                BuffData.pData = BuffDesc.Usage != Diligent::USAGE_IMMUTABLE ? nullptr : bufferObj.data.data();
                 BuffData.DataSize = static_cast<Diligent::Uint64>(size);
                 MG_Diligent::g_pDevice->CreateBuffer(BuffDesc, &BuffData, &pBuffer);
             }
             
-            if (data != nullptr) {
-                if (BuffDesc.Usage == Diligent::USAGE_DEFAULT ||
-                    BuffDesc.Usage == Diligent::USAGE_SPARSE) {
+            if (data != nullptr && BuffDesc.Usage != Diligent::USAGE_IMMUTABLE) {
                     MG_Diligent::g_pContext->UpdateBuffer(pBuffer, 0,
                                                           static_cast<Diligent::Uint64>(size), data,
                                                           Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
-                } else if (BuffDesc.Usage == Diligent::USAGE_UNIFIED ||
-                           BuffDesc.Usage == Diligent::USAGE_STAGING ||
-                           BuffDesc.Usage == Diligent::USAGE_DYNAMIC) {
-                    void *pMappedData = nullptr;
-                    MG_Diligent::g_pContext->MapBuffer(pBuffer, Diligent::MAP_WRITE,
-                                                       Diligent::MAP_FLAG_NONE, pMappedData);
-                    if (pMappedData) {
-                        memcpy(pMappedData, data, size);
-                        MG_Diligent::g_pContext->UnmapBuffer(pBuffer, Diligent::MAP_WRITE);
-                    }
-                }
             }
             return;
         }
@@ -318,11 +295,20 @@ namespace MG_GL::GL {
         GLuint buffer = MG_State_T::bufferState->GetCurrentBinding(target);
         if (buffer == 0) return;
 
+        auto& bufferObj = MG_State_T::bufferState->buffers_[buffer];
+        if (bufferObj.isDynamic) return; // Dynamic buffer should be created by glDraw*
+
         Diligent::IBuffer* pBuffer = MG_Diligent::g_BufferMap[buffer];
         if (pBuffer) {
-            MG_Diligent::g_pContext->UpdateBuffer(pBuffer, static_cast<Diligent::Uint64>(offset), 
-                                                  static_cast<Diligent::Uint64>(size), data, 
-                                                  Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
+            void* pMappedData = nullptr;
+            MG_Diligent::g_pContext->MapBuffer(pBuffer, Diligent::MAP_WRITE, Diligent::MAP_FLAG_DISCARD, pMappedData);
+            if (pMappedData)
+            {
+                memcpy(static_cast<Diligent::Uint8*>(pMappedData) + offset, data, size);
+                MG_Diligent::g_pContext->UnmapBuffer(pBuffer, Diligent::MAP_WRITE);
+            } else {
+                MG_Util::Debug::LogE("Failed to map buffer for BufferSubData");
+            }
         }
     }
     void DeleteBuffers(GLsizei n, const GLuint *buffers) {
@@ -333,9 +319,14 @@ namespace MG_GL::GL {
             for (GLsizei i = 0; i < n; ++i) {
                 GLuint buffer = buffers[i];
                 if (buffer != 0) {
-                    Diligent::IBuffer* pBuffer = MG_Diligent::g_BufferMap[buffer];
-                    if (pBuffer) pBuffer->Release();
-                    MG_Diligent::g_BufferMap.erase(buffer);
+                    auto it = MG_Diligent::g_BufferMap.find(buffer);
+                    if (it != MG_Diligent::g_BufferMap.end()) {
+                        if (it->second) {
+                            it->second->Release();
+                        }
+                        MG_Diligent::g_BufferMap.erase(it);
+                    }
+
                 }
             }
             return;
