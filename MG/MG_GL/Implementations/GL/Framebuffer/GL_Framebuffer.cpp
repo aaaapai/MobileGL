@@ -43,7 +43,7 @@ namespace MG_GL::GL {
             height = desc.Height;
             MG_Util::Debug::LogD("CreateRenderPassAndFramebuffer: Using depth/stencil attachment for dimensions: %ux%u", width, height);
         } else {
-            MG_Util::Debug::LogE("CreateRenderPassAndFramebuffer: Failed to determine framebuffer dimensions. No attachments.");
+            MG_Util::Debug::LogD("CreateRenderPassAndFramebuffer: Failed to determine framebuffer dimensions. No attachments.");
             return;
         }
 
