@@ -345,10 +345,8 @@ namespace MG_Diligent {
         ResourceLayout.DefaultVariableType = Diligent::SHADER_RESOURCE_VARIABLE_TYPE_MUTABLE;
 
         static std::vector<Diligent::ShaderResourceVariableDesc> Variables;
-        static std::vector<Diligent::ImmutableSamplerDesc> ImmutableSamplers;
         Variables.clear();
-        ImmutableSamplers.clear();
-        
+
         MG_Global::unordered_map<GLuint, std::string> shaderSourcesMap;
 
         ProgramObject programObj = MG_State_T::programState->programs_[programInfo.id];
@@ -380,7 +378,7 @@ namespace MG_Diligent {
         }
 
         MG_Util::Program::GenerateDefaultUBOForGLSL_Multi(shaderSourcesMap, programInfo.uniformBufferNames);
-        
+
         for (auto shader : programInfo.AttachedShaders) {
             GLuint shaderId = 0;
             for (auto const& [key, val] : MG_Diligent::g_ShaderMap) {
@@ -394,7 +392,7 @@ namespace MG_Diligent {
             auto& shaderObj = MG_State_T::programState->shaders_[shaderId];
 
             std::string compilationLog;
-            auto spirv = 
+            auto spirv =
                     MG_Util::Program::CompileGLSLToSPIRV(shaderObj.type,
                                                          shaderSourcesMap[shaderId],
                                                          compilationLog);
@@ -483,8 +481,8 @@ namespace MG_Diligent {
                 if (already_added) continue;
 
                 Diligent::ShaderResourceVariableDesc varDesc;
-                varDesc.Name = strdup(resourceList[i].name);    
-                varDesc.ShaderStages = Diligent::SHADER_TYPE_VS_PS; // TODO
+                varDesc.Name = strdup(resourceList[i].name);
+                varDesc.ShaderStages = shaderType;
                 varDesc.Type = Diligent::SHADER_RESOURCE_VARIABLE_TYPE_MUTABLE;
                 MG_Util::Debug::LogD("Uniform buffer: %s, Stage: %u, Type: %u", varDesc.Name, varDesc.ShaderStages, varDesc.Type);
                 Variables.push_back(varDesc);
@@ -502,51 +500,6 @@ namespace MG_Diligent {
                 varDesc.Type = Diligent::SHADER_RESOURCE_VARIABLE_TYPE_MUTABLE;
                 MG_Util::Debug::LogD("Sampled image: %s", varDesc.Name);
                 Variables.push_back(varDesc);
-
-                const char* samplerName = varDesc.Name;
-
-                if (samplerName) {
-                    auto& texState = *MG_State_T::textureState;
-                    GLuint activeTextureUnit = texState.activeTextureUnit_;
-                    if (activeTextureUnit < texState.textureUnits_.size()) {
-                        auto& unitState = texState.textureUnits_[activeTextureUnit];
-                        GLuint boundTexture = unitState.GetBoundTexture(GL_TEXTURE_2D);
-                        if (boundTexture != 0) {
-                            auto texIt = texState.textures.find(boundTexture);
-                            if (texIt != texState.textures.end()) {
-                                auto& texObj = texIt->second;
-                                Diligent::ImmutableSamplerDesc samplerDesc;
-                                samplerDesc.ShaderStages = shaderType;
-                                samplerDesc.SamplerOrTextureName = samplerName;
-
-                                auto minFilterIt = texObj.params.texPropertiesInt.find(GL_TEXTURE_MIN_FILTER);
-                                samplerDesc.Desc.MinFilter = (minFilterIt != texObj.params.texPropertiesInt.end()) ?
-                                                             ConvertGLFilter(minFilterIt->second) : Diligent::FILTER_TYPE_LINEAR;
-
-                                auto magFilterIt = texObj.params.texPropertiesInt.find(GL_TEXTURE_MAG_FILTER);
-                                samplerDesc.Desc.MagFilter = (magFilterIt != texObj.params.texPropertiesInt.end()) ?
-                                                             ConvertGLFilter(magFilterIt->second) : Diligent::FILTER_TYPE_LINEAR;
-
-                                samplerDesc.Desc.MipFilter = ConvertGLMipFilter(
-                                        minFilterIt != texObj.params.texPropertiesInt.end() ?
-                                        minFilterIt->second : GL_LINEAR_MIPMAP_LINEAR);
-
-                                auto wrapSIt = texObj.params.texPropertiesInt.find(GL_TEXTURE_WRAP_S);
-                                samplerDesc.Desc.AddressU = (wrapSIt != texObj.params.texPropertiesInt.end()) ?
-                                                            ConvertGLWrapMode(wrapSIt->second) : Diligent::TEXTURE_ADDRESS_WRAP;
-
-                                auto wrapTIt = texObj.params.texPropertiesInt.find(GL_TEXTURE_WRAP_T);
-                                samplerDesc.Desc.AddressV = (wrapTIt != texObj.params.texPropertiesInt.end()) ?
-                                                            ConvertGLWrapMode(wrapTIt->second) : Diligent::TEXTURE_ADDRESS_WRAP;
-
-                                samplerDesc.Desc.AddressW = Diligent::TEXTURE_ADDRESS_CLAMP;
-
-                                MG_Util::Debug::LogD("Created immutable sampler for: %s", samplerName);
-                                ImmutableSamplers.push_back(samplerDesc);
-                            }
-                        }
-                    }
-                }
             }
 
             spvc_resources_get_resource_list_for_type(
@@ -560,19 +513,7 @@ namespace MG_Diligent {
                 varDesc.ShaderStages = shaderType;
                 varDesc.Type = Diligent::SHADER_RESOURCE_VARIABLE_TYPE_MUTABLE;
                 Variables.push_back(varDesc);
-
-                Diligent::ImmutableSamplerDesc samplerDesc;
-                samplerDesc.ShaderStages = shaderType;
-                samplerDesc.Desc.MinFilter = Diligent::FILTER_TYPE_LINEAR;
-                samplerDesc.Desc.MagFilter = Diligent::FILTER_TYPE_LINEAR;
-                samplerDesc.Desc.MipFilter = Diligent::FILTER_TYPE_LINEAR;
-                samplerDesc.Desc.AddressU = Diligent::TEXTURE_ADDRESS_WRAP;
-                samplerDesc.Desc.AddressV = Diligent::TEXTURE_ADDRESS_WRAP;
-                samplerDesc.Desc.AddressW = Diligent::TEXTURE_ADDRESS_CLAMP;
-                samplerDesc.SamplerOrTextureName = resourceList[i].name;
-
-                MG_Util::Debug::LogD("Added fallback immutable sampler: %s", samplerDesc.SamplerOrTextureName);
-                ImmutableSamplers.push_back(samplerDesc);
+                MG_Util::Debug::LogD("Separate sampler: %s", varDesc.Name);
             }
 
             spvc_resources_get_resource_list_for_type(
@@ -597,26 +538,14 @@ namespace MG_Diligent {
             ResourceLayout.NumVariables = static_cast<Diligent::Uint32>(Variables.size());
             MG_Util::Debug::LogD("Added %u shader resource variables", ResourceLayout.NumVariables);
         }
-
-        if (!ImmutableSamplers.empty()) {
-            ResourceLayout.ImmutableSamplers = ImmutableSamplers.data();
-            ResourceLayout.NumImmutableSamplers = static_cast<Diligent::Uint32>(ImmutableSamplers.size());
-            MG_Util::Debug::LogD("Added %u immutable samplers", ResourceLayout.NumImmutableSamplers);
-            for (Diligent::Uint32 i = 0; i < ResourceLayout.NumImmutableSamplers; ++i) {
-                MG_Util::Debug::LogD("    ImmutableSampler %u:", i);
-                MG_Util::Debug::LogD("      ShaderStages: %u", ResourceLayout.ImmutableSamplers[i].ShaderStages);
-                MG_Util::Debug::LogD("      SamplerOrTextureName: %s", ResourceLayout.ImmutableSamplers[i].SamplerOrTextureName);
-                MG_Util::Debug::LogD("      Desc.MinFilter: %d", ResourceLayout.ImmutableSamplers[i].Desc.MinFilter);
-                MG_Util::Debug::LogD("      Desc.MagFilter: %d", ResourceLayout.ImmutableSamplers[i].Desc.MagFilter);
-                MG_Util::Debug::LogD("      Desc.MipFilter: %d", ResourceLayout.ImmutableSamplers[i].Desc.MipFilter);
-                MG_Util::Debug::LogD("      Desc.AddressU: %d", ResourceLayout.ImmutableSamplers[i].Desc.AddressU);
-                MG_Util::Debug::LogD("      Desc.AddressV: %d", ResourceLayout.ImmutableSamplers[i].Desc.AddressV);
-                MG_Util::Debug::LogD("      Desc.AddressW: %d", ResourceLayout.ImmutableSamplers[i].Desc.AddressW);
-            }
-        }
+        
+        ResourceLayout.ImmutableSamplers = nullptr;
+        ResourceLayout.NumImmutableSamplers = 0;
+        MG_Util::Debug::LogD("Immutable samplers disabled");
 
         MG_Util::Debug::LogD("Finished configuring resource layout");
     }
+
 
 
     PipelineStateManager g_PSOManager;
