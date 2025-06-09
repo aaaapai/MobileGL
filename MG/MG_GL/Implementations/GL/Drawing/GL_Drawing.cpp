@@ -270,77 +270,59 @@ namespace MG_GL::GL {
                     size_t offset = it->second;
                     MG_Util::Debug::LogD("Updating uniform '%s' at offset %zu for program %u", name.c_str(), offset, program);
 
-                    switch (uniform.type) {
-                        case GL_FLOAT:
-                            *reinterpret_cast<float*>(uboData + offset) = uniform.floatData[0];
-                            break;
-                        case GL_FLOAT_VEC2:
-                            memcpy(uboData + offset, uniform.floatData.data(), 2 * sizeof(float));
-                            break;
-                        case GL_FLOAT_VEC3:
-                            memcpy(uboData + offset, uniform.floatData.data(), 3 * sizeof(float));
-                            break;
-                        case GL_FLOAT_VEC4:
-                            memcpy(uboData + offset, uniform.floatData.data(), 4 * sizeof(float));
-                            break;
-                        case GL_FLOAT_MAT2:
-                            memcpy(uboData + offset, uniform.floatData.data(), 4 * sizeof(float));
-                            break;
-                        case GL_FLOAT_MAT3:
-                            memcpy(uboData + offset, uniform.floatData.data(), 9 * sizeof(float));
-                            break;
-                        case GL_FLOAT_MAT4:
-                            memcpy(uboData + offset, uniform.floatData.data(), 16 * sizeof(float));
-                            break;
-                        case GL_INT:
-                        case GL_BOOL:
-                            *reinterpret_cast<int*>(uboData + offset) = uniform.intData[0];
-                            break;
-                        case GL_INT_VEC2:
-                            memcpy(uboData + offset, uniform.intData.data(), 2 * sizeof(int));
-                            break;
-                        case GL_INT_VEC3:
-                            memcpy(uboData + offset, uniform.intData.data(), 3 * sizeof(int));
-                            break;
-                        case GL_INT_VEC4:
-                            memcpy(uboData + offset, uniform.intData.data(), 4 * sizeof(int));
-                            break;
-                        case GL_UNSIGNED_INT:
-                            *reinterpret_cast<uint32_t*>(uboData + offset) = uniform.uintData[0];
-                            break;
-                        case GL_UNSIGNED_INT_VEC2:
-                            memcpy(uboData + offset, uniform.uintData.data(), 2 * sizeof(uint32_t));
-                            break;
-                        case GL_UNSIGNED_INT_VEC3:
-                            memcpy(uboData + offset, uniform.uintData.data(), 3 * sizeof(uint32_t));
-                            break;
-                        case GL_UNSIGNED_INT_VEC4:
-                            memcpy(uboData + offset, uniform.uintData.data(), 4 * sizeof(uint32_t));
-                            break;
+                    size_t dataSize = 0;
+                    const void* dataPtr = nullptr;
 
-                            // Not supported types
-                            // case GL_DOUBLE:
-                            // *reinterpret_cast<double*>(uboData + offset) = uniform.doubleData[0];
-                            // break;
-                            // case GL_DOUBLE_VEC2:
-                            // memcpy(uboData + offset, uniform.doubleData.data(), 2 * sizeof(double));
-                            // break;
-                            // case GL_DOUBLE_VEC3:
-                            // memcpy(uboData + offset, uniform.doubleData.data(), 3 * sizeof(double));
-                            // break;
-                            // case GL_DOUBLE_VEC4:
-                            // memcpy(uboData + offset, uniform.doubleData.data(), 4 * sizeof(double));
-                            // break;
-                            // case GL_DOUBLE_MAT2:
-                            // memcpy(uboData + offset, uniform.doubleData.data(), 4 * sizeof(double));
-                            // break;
-                            // case GL_DOUBLE_MAT3:
-                            // memcpy(uboData + offset, uniform.doubleData.data(), 9 * sizeof(double));
-                            // break;
-                            // case GL_DOUBLE_MAT4:
-                            // memcpy(uboData + offset, uniform.doubleData.data(), 16 * sizeof(double));
-                            // break;
-                            // ...
+                    if (!uniform.floatData.empty()) {
+                        dataSize = uniform.floatData.size() * sizeof(float);
+                        dataPtr = uniform.floatData.data();
+                    } else if (!uniform.intData.empty()) {
+                        dataSize = uniform.intData.size() * sizeof(int);
+                        dataPtr = uniform.intData.data();
+                    } else if (!uniform.uintData.empty()) {
+                        dataSize = uniform.uintData.size() * sizeof(uint32_t);
+                        dataPtr = uniform.uintData.data();
+                    }
+
+                    if (dataPtr && dataSize > 0 && dataSize <= GetUniformSize(uniform.type)) {
+                         memcpy(uboData + offset, dataPtr, dataSize);
+                    } else {
+                        if (!dataPtr || dataSize == 0) {
+                            MG_Util::Debug::LogW("Cannot copy data for uniform '%s': data is null or size is zero.", name.c_str());
+                        } else if (dataSize > GetUniformSize(uniform.type)) {
+                            MG_Util::Debug::LogW("Cannot copy data for uniform '%s': provided data size (%zu) exceeds uniform size (%zu).", name.c_str(), dataSize, GetUniformSize(uniform.type));
+                        }
+                        // Fallback to individual assignments if memcpy is not suitable or data is malformed
+                        switch (uniform.type) {
+                            case GL_FLOAT:
+                                if (!uniform.floatData.empty()) *reinterpret_cast<float*>(uboData + offset) = uniform.floatData[0];
+                                break;
+                            case GL_FLOAT_VEC2:
+                            case GL_FLOAT_VEC3:
+                            case GL_FLOAT_VEC4:
+                            case GL_FLOAT_MAT2:
+                            case GL_FLOAT_MAT3:
+                            case GL_FLOAT_MAT4:
+                                // memcpy handled above if data is valid
+                                break;
+                            case GL_INT:
+                            case GL_BOOL:
+                                if (!uniform.intData.empty()) *reinterpret_cast<int*>(uboData + offset) = uniform.intData[0];
+                                break;
+                            case GL_INT_VEC2:
+                            case GL_INT_VEC3:
+                            case GL_INT_VEC4:
+                                // memcpy handled above if data is valid
+                                break;
+                            case GL_UNSIGNED_INT:
+                                if (!uniform.uintData.empty()) *reinterpret_cast<uint32_t*>(uboData + offset) = uniform.uintData[0];
+                                break;
+                            case GL_UNSIGNED_INT_VEC2:
+                            case GL_UNSIGNED_INT_VEC3:
+                            case GL_UNSIGNED_INT_VEC4:
+                                // memcpy handled above if data is valid
+                                break;
+                        }
                     }
                 }
             }
