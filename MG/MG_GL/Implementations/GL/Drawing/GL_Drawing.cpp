@@ -392,8 +392,8 @@ namespace MG_GL::GL {
             MG_Util::Debug::LogE("RenderPass or Framebuffer not yet created for FBO %u.", drawFB);
         }
     }
-
-    void DrawElements(GLenum mode, GLsizei count, GLenum type, const void* indices) {
+    
+    void PrepareForDraw() {
         if (MG_Diligent::IsInRenderPass) {
             MG_Util::Debug::LogD("Ending current render pass.");
             MG_Diligent::g_pContext->EndRenderPass();
@@ -403,7 +403,7 @@ namespace MG_GL::GL {
             MG_Util::Debug::LogD("No active render pass to end.");
         }
         GLuint program = MG_State::GetCurrentProgram();
-        MG_Util::Debug::LogD("DrawElements called with mode: %d, count: %d, type: %d, program: %u", mode, count, type, program);
+       
         if (program == 0) {
             MG_Util::Debug::LogE("No active program for DrawElements");
             return;
@@ -447,7 +447,7 @@ namespace MG_GL::GL {
 
             MG_Util::Debug::LogD("Successfully created ShaderResourceBinding for program %u", program);
         }
-        
+
         MG_Diligent::g_pContext->SetPipelineState(programInfo.pPipelineState);
 
         auto* pVAO = MG_State_T::vertexArrayState->GetCurrentVAO();
@@ -475,7 +475,7 @@ namespace MG_GL::GL {
                 BuffDesc.CPUAccessFlags = Diligent::CPU_ACCESS_WRITE;
 
                 MG_Diligent::g_pDevice->CreateBuffer(BuffDesc, nullptr, &pBuffer);
-                
+
                 if (!pBuffer) {
                     MG_Util::Debug::LogE("Failed to create dynamic vertex buffer %u", buffer);
                     continue;
@@ -489,23 +489,23 @@ namespace MG_GL::GL {
 
             Diligent::IBuffer*& pBuffer = MG_Diligent::g_BufferMap[buffer];
             if (bufferObj.isDynamic && !pBuffer) {
-                 Diligent::BufferDesc BuffDesc;
-                 std::string bufferName = "Dynamic IBO " + std::to_string(buffer);
-                 BuffDesc.Name = bufferName.c_str();
-                 BuffDesc.Size = bufferObj.data.size();
-                 BuffDesc.Usage = Diligent::USAGE_DYNAMIC;
-                 BuffDesc.BindFlags = Diligent::BIND_INDEX_BUFFER;
-                 BuffDesc.CPUAccessFlags = Diligent::CPU_ACCESS_WRITE;
+                Diligent::BufferDesc BuffDesc;
+                std::string bufferName = "Dynamic IBO " + std::to_string(buffer);
+                BuffDesc.Name = bufferName.c_str();
+                BuffDesc.Size = bufferObj.data.size();
+                BuffDesc.Usage = Diligent::USAGE_DYNAMIC;
+                BuffDesc.BindFlags = Diligent::BIND_INDEX_BUFFER;
+                BuffDesc.CPUAccessFlags = Diligent::CPU_ACCESS_WRITE;
 
-                 if (pBuffer) {
-                     pBuffer->Release();
-                 }
+                if (pBuffer) {
+                    pBuffer->Release();
+                }
 
-                 MG_Diligent::g_pDevice->CreateBuffer(BuffDesc, nullptr, &pBuffer);
+                MG_Diligent::g_pDevice->CreateBuffer(BuffDesc, nullptr, &pBuffer);
 
-                 if (!pBuffer) {
-                     MG_Util::Debug::LogE("Failed to create dynamic index buffer %u", buffer);
-                 }
+                if (!pBuffer) {
+                    MG_Util::Debug::LogE("Failed to create dynamic index buffer %u", buffer);
+                }
             }
         }
 
@@ -516,10 +516,10 @@ namespace MG_GL::GL {
                 void* pMappedData = nullptr;
                 MG_Util::Debug::LogD("Mapping dynamic buffer %u for data update.", bufferID);
                 MG_Diligent::g_pContext->MapBuffer(
-                    pBuffer,
-                    Diligent::MAP_WRITE,
-                    Diligent::MAP_FLAG_DISCARD,
-                    pMappedData);
+                        pBuffer,
+                        Diligent::MAP_WRITE,
+                        Diligent::MAP_FLAG_DISCARD,
+                        pMappedData);
 
                 if (pMappedData) {
                     memcpy(pMappedData, bufferObj.data.data(), bufferObj.data.size());
@@ -575,6 +575,21 @@ namespace MG_GL::GL {
             );
         }
 
+        MG_Util::Debug::LogD("Updating uniforms for program %u", program);
+        UpdateUniformsToDefaultUBO(program, *programInfo.pResourceBinding);
+        UpdateSamplerAndTextureUniforms(program, *programInfo.pResourceBinding,
+                                        programInfo.pPipelineState->GetDesc().ResourceLayout);
+
+        MG_Util::Debug::LogD("Committing shader resources for program %u", program);
+        MG_Diligent::g_pContext->CommitShaderResources(
+                programInfo.pResourceBinding,
+                Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION
+        );
+    }
+
+    void DrawElements(GLenum mode, GLsizei count, GLenum type, const void* indices) {
+        PrepareForDraw();
+        auto* pVAO = MG_State_T::vertexArrayState->GetCurrentVAO();
         if (pVAO->elementBuffer != 0) {
             GLuint buffer = pVAO->elementBuffer;
             auto it = MG_Diligent::g_BufferMap.find(buffer);
@@ -588,19 +603,7 @@ namespace MG_GL::GL {
                 );
             }
         }
-
-        MG_Util::Debug::LogD("Updating uniforms for program %u", program);
-        UpdateUniformsToDefaultUBO(program, *programInfo.pResourceBinding);
-        UpdateSamplerAndTextureUniforms(program, *programInfo.pResourceBinding, 
-                                        programInfo.pPipelineState->GetDesc().ResourceLayout);
-
-        MG_Util::Debug::LogD("Committing shader resources for program %u", program);
-        MG_Diligent::g_pContext->CommitShaderResources(
-                programInfo.pResourceBinding,
-                Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION
-        );
-
-        MG_Util::Debug::LogD("Preparing to draw indexed for program %u", program);
+        
         Diligent::DrawIndexedAttribs drawAttrs;
         drawAttrs.NumIndices = count;
         drawAttrs.Flags = Diligent::DRAW_FLAG_VERIFY_ALL;
@@ -626,7 +629,40 @@ namespace MG_GL::GL {
     }
 
     void DrawElementsBaseVertex(GLenum mode, GLsizei count, GLenum type, const GLvoid *indices, GLint basevertex) {
-        // TODO
+        auto* pVAO = MG_State_T::vertexArrayState->GetCurrentVAO();
+        if (pVAO->elementBuffer != 0) {
+            GLuint buffer = pVAO->elementBuffer;
+            auto it = MG_Diligent::g_BufferMap.find(buffer);
+            if (it != MG_Diligent::g_BufferMap.end() && it->second) {
+                auto offset = reinterpret_cast<uintptr_t>(indices);
+
+                MG_Diligent::g_pContext->SetIndexBuffer(
+                        it->second,
+                        offset,
+                        Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION
+                );
+            }
+        }
+
+        Diligent::DrawIndexedAttribs drawAttrs;
+        drawAttrs.NumIndices = count;
+        drawAttrs.Flags = Diligent::DRAW_FLAG_VERIFY_ALL;
+        drawAttrs.IndexType = ConvertGLTypeToDiligent(type);
+        drawAttrs.BaseVertex = basevertex; // Apply basevertex
+        MG_Util::Debug::LogD("DrawIndexedAttribs Dump (BaseVertex):");
+        MG_Util::Debug::LogD("  NumIndices: %u", drawAttrs.NumIndices);
+        MG_Util::Debug::LogD("  IndexType: %d", drawAttrs.IndexType);
+        MG_Util::Debug::LogD("  Flags: %u", drawAttrs.Flags);
+        MG_Util::Debug::LogD("  NumInstances: %u", drawAttrs.NumInstances);
+        MG_Util::Debug::LogD("  BaseVertex: %u", drawAttrs.BaseVertex);
+        MG_Util::Debug::LogD("  FirstIndexLocation: %u", drawAttrs.FirstIndexLocation);
+        MG_Util::Debug::LogD("  FirstInstanceLocation: %u", drawAttrs.FirstInstanceLocation);
+
+        EnsureRenderPassActive();
+        MG_Diligent::g_pContext->DrawIndexed(drawAttrs);
+        MG_Diligent::g_pContext->EndRenderPass();
+        MG_Diligent::IsInRenderPass = false;
+        MG_Util::Debug::LogD("DrawIndexed (BaseVertex) completed.");
     }
 
     void MultiDrawElements(GLenum mode, const GLsizei *count, GLenum type, const GLvoid *const *indices, GLsizei drawcount) {
@@ -634,7 +670,78 @@ namespace MG_GL::GL {
     }
 
     void MultiDrawElementsBaseVertex(GLenum mode, const GLsizei *count, GLenum type, const GLvoid *const *indices, GLsizei drawcount, const GLint *basevertex) {
-        // TODO
+        PrepareForDraw();
+
+        auto* pVAO = MG_State_T::vertexArrayState->GetCurrentVAO();
+        Diligent::IBuffer* pIndexBuffer = nullptr;
+        if (pVAO->elementBuffer != 0) {
+            auto it = MG_Diligent::g_BufferMap.find(pVAO->elementBuffer);
+            if (it != MG_Diligent::g_BufferMap.end() && it->second) {
+                pIndexBuffer = it->second;
+            }
+        }
+
+        if (!pIndexBuffer) {
+            MG_Util::Debug::LogE("No valid index buffer bound for multi-draw");
+            return;
+        }
+
+        std::vector<Diligent::MultiDrawIndexedItem> drawItems;
+        drawItems.reserve(drawcount);
+
+        Diligent::VALUE_TYPE indexType = ConvertGLTypeToDiligent(type);
+        Diligent::Uint32 indexSize = 0;
+        switch (indexType) {
+            case Diligent::VT_UINT16: indexSize = 2; break;
+            case Diligent::VT_UINT32: indexSize = 4; break;
+            default:
+                MG_Util::Debug::LogE("Unsupported index type for multi-draw: %d", type);
+                return;
+        }
+
+        for (GLsizei i = 0; i < drawcount; i++) {
+            if (count[i] <= 0) continue;
+            Diligent::MultiDrawIndexedItem item;
+            item.NumIndices = static_cast<Diligent::Uint32>(count[i]);
+            Diligent::Uint64 byteOffset = reinterpret_cast<Diligent::Uint64>(indices[i]);
+            item.FirstIndexLocation = static_cast<Diligent::Uint32>(byteOffset / indexSize);
+            item.BaseVertex = static_cast<Diligent::Int32>(basevertex[i]);
+            drawItems.push_back(item);
+        }
+
+        if (drawItems.empty()) {
+            MG_Util::Debug::LogW("No valid draw items in multi-draw");
+            return;
+        }
+
+        Diligent::MultiDrawIndexedAttribs drawAttrs;
+        drawAttrs.DrawCount = static_cast<Diligent::Uint32>(drawItems.size());
+        drawAttrs.pDrawItems = drawItems.data();
+        drawAttrs.IndexType = indexType;
+        drawAttrs.Flags = Diligent::DRAW_FLAG_VERIFY_ALL;
+        drawAttrs.NumInstances = 1;
+        drawAttrs.FirstInstanceLocation = 0;
+
+        MG_Util::Debug::LogD("MultiDrawIndexedAttribs Dump:");
+        MG_Util::Debug::LogD("  DrawCount: %u", drawAttrs.DrawCount);
+        MG_Util::Debug::LogD("  IndexType: %d", drawAttrs.IndexType);
+        MG_Util::Debug::LogD("  Flags: %u", drawAttrs.Flags);
+        MG_Util::Debug::LogD("  NumInstances: %u", drawAttrs.NumInstances);
+        MG_Util::Debug::LogD("  FirstInstanceLocation: %u", drawAttrs.FirstInstanceLocation);
+
+        for (Diligent::Uint32 i = 0; i < drawAttrs.DrawCount; i++) {
+            const auto& item = drawAttrs.pDrawItems[i];
+            MG_Util::Debug::LogD("  DrawItem[%u]:", i);
+            MG_Util::Debug::LogD("    NumIndices: %u", item.NumIndices);
+            MG_Util::Debug::LogD("    FirstIndexLocation: %u", item.FirstIndexLocation);
+            MG_Util::Debug::LogD("    BaseVertex: %d", item.BaseVertex);
+        }
+
+        EnsureRenderPassActive();
+        MG_Diligent::g_pContext->MultiDrawIndexed(drawAttrs);
+        MG_Diligent::g_pContext->EndRenderPass();
+        MG_Diligent::IsInRenderPass = false;
+        MG_Util::Debug::LogD("MultiDrawIndexed completed.");
     }
 
     void DrawBuffer(GLenum buf) {
