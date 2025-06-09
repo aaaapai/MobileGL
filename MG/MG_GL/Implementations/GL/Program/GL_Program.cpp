@@ -277,6 +277,7 @@ namespace MG_GL::GL {
                     } else {
                         shaderSource = it->second.source;
                     }
+                    MG_Util::Program::RenameGLSLBuiltinsForVulkan(shaderSource);
                     shaderSources[it->first] = shaderSource;
                 }
             }

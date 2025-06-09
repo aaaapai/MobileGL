@@ -5,8 +5,19 @@
 #include "GLSLTool.h"
 
 namespace MG_Util::Program {
-    std::string BindInputLayoutLocationsForGLSL(const std::vector<uint32_t>& spirv,
-                                                const MG_Global::unordered_map<std::string, GLint>&
+    void RenameGLSLBuiltinsForVulkan(std::string &src) {
+        static const std::vector<std::pair<std::regex, std::string>> rules = {
+                { std::regex(R"(\bgl_VertexID\b)"),   "gl_VertexIndex"    },
+                { std::regex(R"(\bgl_InstanceID\b)"), "gl_InstanceIndex"  }
+        };
+
+        for (auto &rule : rules) {
+            src = std::regex_replace(src, rule.first, rule.second);
+        }
+    }
+    
+    std::string BindInputLayoutLocationsForGLSL(std::vector<uint32_t>& spirv,
+                                                MG_Global::unordered_map<std::string, GLint>&
                                                         name_location_map) {
         spvc_context context = nullptr;
         spvc_parsed_ir ir = nullptr;
@@ -17,11 +28,13 @@ namespace MG_Util::Program {
         std::string output_glsl;
 
         if ((result = spvc_context_create(&context)) != SPVC_SUCCESS) {
+            MG_Util::Debug::LogE("[SPIRV-Cross] Failed to create context.");
             return {};
         }
 
         if ((result = spvc_context_parse_spirv(context, spirv.data(), spirv.size(), &ir)) != SPVC_SUCCESS) {
             spvc_context_destroy(context);
+            MG_Util::Debug::LogE("[SPIRV-Cross] Failed to parse SPIR-V.");
             return {};
         }
 
@@ -33,11 +46,13 @@ namespace MG_Util::Program {
                 &compiler
         )) != SPVC_SUCCESS) {
             spvc_context_destroy(context);
+            MG_Util::Debug::LogE("[SPIRV-Cross] Failed to create compiler.");
             return {};
         }
 
         if ((result = spvc_compiler_create_shader_resources(compiler, &resources)) != SPVC_SUCCESS) {
             spvc_context_destroy(context);
+            MG_Util::Debug::LogE("[SPIRV-Cross] Failed to create shader resources.");
             return {};
         }
 
@@ -50,6 +65,7 @@ namespace MG_Util::Program {
                 &num_inputs
         )) != SPVC_SUCCESS) {
             spvc_context_destroy(context);
+            MG_Util::Debug::LogE("[SPIRV-Cross] Failed to get stage inputs.");
             return {};
         }
 
@@ -61,8 +77,8 @@ namespace MG_Util::Program {
         for (const auto& [name, location] : name_location_map) {
             auto it = name_to_id.find(name);
             if (it == name_to_id.end()) {
-                spvc_context_destroy(context);
-                return {};
+                MG_Util::Debug::LogW("[SPIRV-Cross] Input name not found in shader: %s", name.c_str());
+                continue;
             }
 
             spvc_compiler_set_decoration(
@@ -81,6 +97,8 @@ namespace MG_Util::Program {
 
         if ((result = spvc_compiler_compile(compiler, &glsl_source)) != SPVC_SUCCESS) {
             spvc_context_destroy(context);
+            MG_Util::Debug::LogE("[SPIRV-Cross] Failed to compile to GLSL: %s",
+                                 spvc_context_get_last_error_string(context));
             return {};
         }
 

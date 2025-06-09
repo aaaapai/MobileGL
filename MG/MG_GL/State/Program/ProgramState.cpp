@@ -176,9 +176,25 @@ GLint ProgramState::QueryProgramAttributeLocation(GLuint program, const GLchar* 
         GLint loc = it->second;
         MG_Util::Debug::LogD("MG_State: Program: QueryProgramAttributeLocation success: %s -> %d", name, loc);
         return loc;
+    } else {
+        MG_Util::Debug::LogW("MG_State: Program: QueryProgramAttributeLocation warning: name '%s' not found, generating new one...", name);
+        // Find the next available location
+        GLint loc = (GLint)prog.attribLocations.size();
+        bool locInUse;
+        do {
+            locInUse = false;
+            for (const auto& pair : prog.attribLocations) {
+                if (pair.second == loc) {
+                    locInUse = true;
+                    loc++;
+                    break;
+                }
+            }
+        } while (locInUse);
+        prog.attribLocations[name] = loc;
+        MG_Util::Debug::LogD("MG_State: Program: QueryProgramAttributeLocation success: %s -> %d", name, loc);
+        return prog.attribLocations[name];
     }
-    MG_Util::Debug::LogW("MG_State: Program: QueryProgramAttributeLocation warning: name '%s' not found", name);
-    return -1;
 }
 
 GLenum ProgramState::QueryProgramStateIntVector(GLuint program, GLenum pname, GLint* params) {

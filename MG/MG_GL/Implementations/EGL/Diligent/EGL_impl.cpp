@@ -371,6 +371,7 @@ namespace MG_Diligent {
 
                     shaderSource = MG_Util::Program::BindInputLayoutLocationsForGLSL(spirv,
                                                                                      programObj.attribLocations);
+                    MG_Util::Program::RenameGLSLBuiltinsForVulkan(shaderSource);
                 } else {
                     shaderSource = it->second.source;
                 }
