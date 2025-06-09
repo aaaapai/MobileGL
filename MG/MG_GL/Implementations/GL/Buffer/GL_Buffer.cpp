@@ -51,19 +51,24 @@ namespace MG_GL::GL {
 
             Diligent::IBuffer* pBuffer = MG_Diligent::g_BufferMap[buffer];
             if (pBuffer && bufferObj.data.size() >= end) {
-                void * data;
-                MG_Diligent::g_pContext->MapBuffer(pBuffer, Diligent::MAP_WRITE, 
-                                                   Diligent::MAP_FLAG_DISCARD, data);
+                const auto& Desc = pBuffer->GetDesc();
+                if (Desc.Usage == Diligent::USAGE_STAGING || Desc.Usage == Diligent::USAGE_DYNAMIC || Desc.Usage == Diligent::USAGE_UNIFIED) {
+                    void * data;
+                    MG_Diligent::g_pContext->MapBuffer(pBuffer, Diligent::MAP_WRITE,
+                                                       Diligent::MAP_FLAG_DISCARD, data);
 
-                if (data) {
-                    void* dst = static_cast<char*>(data) + offset;
-                    const void* src = bufferObj.data.data() + offset;
-                    memcpy(dst, src, length);
+                    if (data) {
+                        void* dst = static_cast<char*>(data) + offset;
+                        const void* src = bufferObj.data.data() + offset;
+                        memcpy(dst, src, length);
 
-                    MG_Diligent::g_pContext->UnmapBuffer(pBuffer, Diligent::MAP_WRITE);
+                        MG_Diligent::g_pContext->UnmapBuffer(pBuffer, Diligent::MAP_WRITE);
+                    }
+                } else {
+                    // For USAGE_DEFAULT or USAGE_IMMUTABLE, use UpdateBuffer
+                    MG_Diligent::g_pContext->UpdateBuffer(pBuffer, static_cast<Diligent::Uint64>(offset), static_cast<Diligent::Uint64>(length), bufferObj.data.data() + offset, Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
                 }
             }
-            
             return;
         }
         MG_State::SetError(result);
@@ -133,13 +138,19 @@ namespace MG_GL::GL {
         
         Diligent::IBuffer* pBuffer = MG_Diligent::g_BufferMap[buffer];
         if (pBuffer) {
-            void * data;
-            MG_Diligent::g_pContext->MapBuffer(pBuffer, Diligent::MAP_WRITE, 
-                                               Diligent::MAP_FLAG_DISCARD, data);
+            const auto& Desc = pBuffer->GetDesc();
+            if (Desc.Usage == Diligent::USAGE_STAGING || Desc.Usage == Diligent::USAGE_DYNAMIC || Desc.Usage == Diligent::USAGE_UNIFIED) {
+                void * data;
+                MG_Diligent::g_pContext->MapBuffer(pBuffer, Diligent::MAP_WRITE,
+                                                   Diligent::MAP_FLAG_DISCARD, data);
 
-            if (data) {
-                memcpy(data, bufferObj.data.data(), bufferObj.data.size());
-                MG_Diligent::g_pContext->UnmapBuffer(pBuffer, Diligent::MAP_WRITE);
+                if (data) {
+                    memcpy(data, bufferObj.data.data(), bufferObj.data.size());
+                    MG_Diligent::g_pContext->UnmapBuffer(pBuffer, Diligent::MAP_WRITE);
+                }
+            } else {
+                // For USAGE_DEFAULT or USAGE_IMMUTABLE, use UpdateBuffer
+                MG_Diligent::g_pContext->UpdateBuffer(pBuffer, 0, bufferObj.data.size(), bufferObj.data.data(), Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);    
             }
         }
         
@@ -210,16 +221,7 @@ namespace MG_GL::GL {
             }
 
             BuffDesc.Name = name.c_str();
-
-            switch (usage) {
-                case GL_STATIC_DRAW:
-                    BuffDesc.Usage = Diligent::USAGE_IMMUTABLE;
-                    BuffDesc.CPUAccessFlags = Diligent::CPU_ACCESS_NONE;
-                    break;
-                default:
-                    BuffDesc.Usage = Diligent::USAGE_DEFAULT;
-                    break;
-            }
+            BuffDesc.Usage = Diligent::USAGE_DEFAULT;
 
             if (pBuffer == nullptr) {
                 Diligent::BufferData BuffData;
@@ -306,14 +308,22 @@ namespace MG_GL::GL {
 
         Diligent::IBuffer* pBuffer = MG_Diligent::g_BufferMap[buffer];
         if (pBuffer) {
-            void* pMappedData = nullptr;
-            MG_Diligent::g_pContext->MapBuffer(pBuffer, Diligent::MAP_WRITE, Diligent::MAP_FLAG_DISCARD, pMappedData);
-            if (pMappedData)
-            {
-                memcpy(static_cast<Diligent::Uint8*>(pMappedData) + offset, data, size);
-                MG_Diligent::g_pContext->UnmapBuffer(pBuffer, Diligent::MAP_WRITE);
+            const auto& Desc = pBuffer->GetDesc();
+            if (Desc.Usage == Diligent::USAGE_STAGING || Desc.Usage == Diligent::USAGE_DYNAMIC || Desc.Usage == Diligent::USAGE_UNIFIED) {
+                void* pMappedData = nullptr;
+                MG_Diligent::g_pContext->MapBuffer(pBuffer, Diligent::MAP_WRITE, Diligent::MAP_FLAG_DISCARD, pMappedData);
+                if (pMappedData)
+                {
+                    memcpy(static_cast<Diligent::Uint8*>(pMappedData) + offset, data, size);
+                    MG_Diligent::g_pContext->UnmapBuffer(pBuffer, Diligent::MAP_WRITE);
+                } else {
+                    MG_Util::Debug::LogE("Failed to map buffer for BufferSubData");
+                }
             } else {
-                MG_Util::Debug::LogE("Failed to map buffer for BufferSubData");
+                // For USAGE_DEFAULT or USAGE_IMMUTABLE, use UpdateBuffer
+                MG_Diligent::g_pContext->UpdateBuffer(pBuffer, static_cast<Diligent::Uint64>(offset),
+                                                      static_cast<Diligent::Uint64>(size), data,
+                                                      Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
             }
         }
     }
