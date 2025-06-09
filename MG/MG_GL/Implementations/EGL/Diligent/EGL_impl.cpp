@@ -87,6 +87,50 @@ namespace MG_Diligent {
         }
     }
 
+    uint64_t PipelineStateManager::CalculateStateHash(
+            CommonState &commonState,
+            VertexArrayState &vaState,
+            GLFramebufferInfo& fbInfo) {
+        uint64_t hash = 0;
+
+        MG_Global::unordered_map<GLenum, bool> capabilities = commonState.capabilities;
+
+        hash ^= std::hash<int>()(commonState.blendSrcRGB);
+        hash ^= std::hash<int>()(commonState.blendDstRGB);
+        hash ^= std::hash<int>()(commonState.blendSrcAlpha);
+        hash ^= std::hash<int>()(commonState.blendDstAlpha);
+        hash ^= std::hash<bool>()(capabilities[GL_BLEND]);
+
+        hash ^= std::hash<int>()(commonState.depthFunc);
+        hash ^= std::hash<bool>()(commonState.depthMask);
+        hash ^= std::hash<bool>()(capabilities[GL_DEPTH_TEST]);
+
+        hash ^= std::hash<int>()(0); // TODO: Cull Face Mode
+        hash ^= std::hash<bool>()(capabilities[GL_CULL_FACE]);
+
+        hash ^= std::hash<bool>()(capabilities[GL_STENCIL_TEST]);
+
+        auto *pVAO = vaState.GetCurrentVAO();
+        for (const auto &[index, attrib]: pVAO->attribs) {
+            if (attrib.enabled) {
+                hash ^= std::hash<int>()(index);
+                hash ^= std::hash<int>()(attrib.size);
+                hash ^= std::hash<int>()(attrib.type);
+                hash ^= std::hash<bool>()(attrib.normalized);
+            }
+        }
+
+        hash ^= std::hash<size_t>()(fbInfo.ColorRTVs.size());
+        for (const auto& rtv : fbInfo.ColorRTVs) {
+            if (rtv) {
+                hash ^= std::hash<uint32_t>()(rtv->GetDesc().Format);
+            }
+        }
+
+        hash ^= std::hash<uint32_t>()(fbInfo.DepthStencilFormat);
+
+        return hash;
+    }
 
     void PipelineStateManager::ConfigurePSO(
             Diligent::GraphicsPipelineStateCreateInfo &PSOCreateInfo,
@@ -311,9 +355,26 @@ namespace MG_Diligent {
 
         for (GLuint shaderId : programObj.attachedShaders) {
             auto it = MG_State_T::programState->shaders_.find(shaderId);
-            if (it != MG_State_T::programState->shaders_.end() &&
-                !it->second.markedForDeletion) {
-                shaderSourcesMap[it->first] = it->second.source;
+            if (it != MG_State_T::programState->shaders_.end() && !it->second.markedForDeletion) {
+                std::string shaderSource;
+                if (it->second.type == GL_VERTEX_SHADER) {
+                    std::string infoLog;
+                    auto spirv =
+                            MG_Util::Program::CompileGLSLToSPIRV(it->second.type,
+                                                                 it->second.source,
+                                                                 infoLog);
+                    if (spirv.empty()) {
+                        MG_Util::Debug::LogE("Failed to compile shader %u: %s", shaderId,
+                                             infoLog.c_str());
+                        continue;
+                    }
+
+                    shaderSource = MG_Util::Program::BindInputLayoutLocationsForGLSL(spirv,
+                                                                                     programObj.attribLocations);
+                } else {
+                    shaderSource = it->second.source;
+                }
+                shaderSourcesMap[it->first] = shaderSource;
             }
         }
 

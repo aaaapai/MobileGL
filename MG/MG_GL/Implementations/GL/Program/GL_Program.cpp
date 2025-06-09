@@ -224,6 +224,11 @@ namespace MG_GL::GL {
     
     void ShaderSource(GLuint shader, GLsizei count, const GLchar *const*string, const GLint* length) {
         MG_Util::Debug::LogD("glShaderSource, shader: %u, count: %d", shader, count);
+        if (count > 0 && string != nullptr && string[0] != nullptr) {
+            MG_Util::Debug::LogD("Shader source for shader %u:\n%s", shader, string[0]);
+        } else {
+            MG_Util::Debug::LogD("Shader source for shader %u is empty or null.", shader);
+        }
         GLenum result = MG_State::UploadShaderSource(shader, count, (const GLchar **)string, length);
         if (result == GL_NO_ERROR) return;
         MG_State::SetError(result);
@@ -251,13 +256,36 @@ namespace MG_GL::GL {
             }
 
             MG_Global::unordered_map<GLuint, std::string> shaderSources;
-            for (GLuint shaderId : programInfo.AttachedShadersID) {
-                auto& shaderObj = MG_State_T::programState->shaders_[shaderId];
-                shaderSources[shaderId] = shaderObj.source;
+            for (GLuint shaderId : programObj.attachedShaders) {
+                auto it = MG_State_T::programState->shaders_.find(shaderId);
+                if (it != MG_State_T::programState->shaders_.end() && !it->second.markedForDeletion) {
+                    std::string shaderSource;
+                    if (it->second.type == GL_VERTEX_SHADER) {
+                        std::string infoLog;
+                        auto spirv =
+                                MG_Util::Program::CompileGLSLToSPIRV(it->second.type,
+                                                                     it->second.source,
+                                                                     infoLog);
+                        if (spirv.empty()) {
+                            MG_Util::Debug::LogE("Failed to compile shader %u: %s", shaderId,
+                                                 infoLog.c_str());
+                            continue;
+                        }
+
+                        shaderSource = MG_Util::Program::BindInputLayoutLocationsForGLSL(spirv,
+                                                                          programObj.attribLocations);
+                    } else {
+                        shaderSource = it->second.source;
+                    }
+                    shaderSources[it->first] = shaderSource;
+                }
             }
 
             MG_Util::Program::GenerateDefaultUBOForGLSL_Multi(shaderSources, programInfo.uniformBufferNames);
-            
+            MG_Util::Debug::LogD("Shader sources after UBO generation for program %u:", program);
+            for (const auto& [shaderId, source] : shaderSources) {
+                MG_Util::Debug::LogD("  Program %u Shader %u:\n%s", program, shaderId, source.c_str());
+            }
             // Compile attached shaders
             for (GLuint shaderId : programInfo.AttachedShadersID) {
                 auto& shaderObj = MG_State_T::programState->shaders_[shaderId];

@@ -5,6 +5,92 @@
 #include "GLSLTool.h"
 
 namespace MG_Util::Program {
+    std::string BindInputLayoutLocationsForGLSL(const std::vector<uint32_t>& spirv,
+                                                const MG_Global::unordered_map<std::string, GLint>&
+                                                        name_location_map) {
+        spvc_context context = nullptr;
+        spvc_parsed_ir ir = nullptr;
+        spvc_compiler compiler = nullptr;
+        spvc_resources resources = nullptr;
+        spvc_result result = SPVC_SUCCESS;
+        const char* glsl_source = nullptr;
+        std::string output_glsl;
+
+        if ((result = spvc_context_create(&context)) != SPVC_SUCCESS) {
+            return {};
+        }
+
+        if ((result = spvc_context_parse_spirv(context, spirv.data(), spirv.size(), &ir)) != SPVC_SUCCESS) {
+            spvc_context_destroy(context);
+            return {};
+        }
+
+        if ((result = spvc_context_create_compiler(
+                context,
+                SPVC_BACKEND_GLSL,
+                ir,
+                SPVC_CAPTURE_MODE_TAKE_OWNERSHIP,
+                &compiler
+        )) != SPVC_SUCCESS) {
+            spvc_context_destroy(context);
+            return {};
+        }
+
+        if ((result = spvc_compiler_create_shader_resources(compiler, &resources)) != SPVC_SUCCESS) {
+            spvc_context_destroy(context);
+            return {};
+        }
+
+        const spvc_reflected_resource* inputs = nullptr;
+        size_t num_inputs = 0;
+        if ((result = spvc_resources_get_resource_list_for_type(
+                resources,
+                SPVC_RESOURCE_TYPE_STAGE_INPUT,
+                &inputs,
+                &num_inputs
+        )) != SPVC_SUCCESS) {
+            spvc_context_destroy(context);
+            return {};
+        }
+
+        std::unordered_map<std::string, spvc_variable_id> name_to_id;
+        for (size_t i = 0; i < num_inputs; i++) {
+            name_to_id[inputs[i].name] = inputs[i].id;
+        }
+        
+        for (const auto& [name, location] : name_location_map) {
+            auto it = name_to_id.find(name);
+            if (it == name_to_id.end()) {
+                spvc_context_destroy(context);
+                return {};
+            }
+
+            spvc_compiler_set_decoration(
+                    compiler,
+                    it->second,
+                    SpvDecorationLocation,
+                    location
+            );
+        }
+
+        spvc_compiler_options options = nullptr;
+        spvc_compiler_create_compiler_options(compiler, &options);
+        spvc_compiler_options_set_uint(options, SPVC_COMPILER_OPTION_GLSL_VERSION, 450);
+        spvc_compiler_options_set_bool(options, SPVC_COMPILER_OPTION_GLSL_ES, SPVC_FALSE);
+        spvc_compiler_install_compiler_options(compiler, options);
+
+        if ((result = spvc_compiler_compile(compiler, &glsl_source)) != SPVC_SUCCESS) {
+            spvc_context_destroy(context);
+            return {};
+        }
+
+        output_glsl = glsl_source;
+
+        spvc_context_destroy(context);
+
+        return output_glsl;
+    }
+    
     static std::vector<bool> buildCommentMask(const std::string &src) {
         enum State {
             NORMAL,

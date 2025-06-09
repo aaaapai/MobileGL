@@ -192,47 +192,7 @@ namespace MG_Diligent {
         uint64_t CalculateStateHash(
                 CommonState &commonState,
                 VertexArrayState &vaState,
-                GLFramebufferInfo& fbInfo) {
-            uint64_t hash = 0;
-
-            MG_Global::unordered_map<GLenum, bool> capabilities = commonState.capabilities;
-
-            hash ^= std::hash<int>()(commonState.blendSrcRGB);
-            hash ^= std::hash<int>()(commonState.blendDstRGB);
-            hash ^= std::hash<int>()(commonState.blendSrcAlpha);
-            hash ^= std::hash<int>()(commonState.blendDstAlpha);
-            hash ^= std::hash<bool>()(capabilities[GL_BLEND]);
-
-            hash ^= std::hash<int>()(commonState.depthFunc);
-            hash ^= std::hash<bool>()(commonState.depthMask);
-            hash ^= std::hash<bool>()(capabilities[GL_DEPTH_TEST]);
-
-            hash ^= std::hash<int>()(0); // TODO: Cull Face Mode
-            hash ^= std::hash<bool>()(capabilities[GL_CULL_FACE]);
-
-            hash ^= std::hash<bool>()(capabilities[GL_STENCIL_TEST]);
-
-            auto *pVAO = vaState.GetCurrentVAO();
-            for (const auto &[index, attrib]: pVAO->attribs) {
-                if (attrib.enabled) {
-                    hash ^= std::hash<int>()(index);
-                    hash ^= std::hash<int>()(attrib.size);
-                    hash ^= std::hash<int>()(attrib.type);
-                    hash ^= std::hash<bool>()(attrib.normalized);
-                }
-            }
-
-            hash ^= std::hash<size_t>()(fbInfo.ColorRTVs.size());
-            for (const auto& rtv : fbInfo.ColorRTVs) {
-                if (rtv) {
-                    hash ^= std::hash<uint32_t>()(rtv->GetDesc().Format);
-                }
-            }
-
-            hash ^= std::hash<uint32_t>()(fbInfo.DepthStencilFormat);
-            
-            return hash;
-        }
+                GLFramebufferInfo& fbInfo);
 
         void ConfigurePSO(
                 Diligent::GraphicsPipelineStateCreateInfo &PSOCreateInfo,
