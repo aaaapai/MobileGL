@@ -120,8 +120,8 @@ target_include_directories(MobileGL PUBLIC
 target_link_libraries(MobileGL
         PRIVATE
         Diligent-Common
-        libDiligent-GraphicsEngineVk-static.a
-        libDiligent-GraphicsEngineOpenGL-static.a
+        libGraphicsEngineVk.so
+        libGraphicsEngineOpenGL.so
 )
 
 if (PROFILING)
