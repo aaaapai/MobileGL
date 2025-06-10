@@ -115,7 +115,10 @@ add_subdirectory(3rdparty/DiligentCore)
 
 target_include_directories(MobileGL PUBLIC
         ${CMAKE_SOURCE_DIR}/include
+        ${CMAKE_SOURCE_DIR}/3rdparty/DiligentCore/Graphics/GraphicsEngine/interface
         ${CMAKE_SOURCE_DIR}/3rdparty/DiligentCore/Graphics/GraphicsEngineOpenGL/interface
+        ${CMAKE_SOURCE_DIR}/3rdparty/DiligentCore/Graphics/GraphicsEngineVulkan/interface
+        ${CMAKE_SOURCE_DIR}/3rdparty/DiligentCore/Common/interface
 )
 
 target_link_libraries(MobileGL
