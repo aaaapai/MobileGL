@@ -362,6 +362,8 @@ namespace MG_Diligent {
                                                                  it->second.source,
                                                                  infoLog);
                     if (spirv.empty()) {
+                        MG_Util::Debug::LogE("Shader Source for %u:\n%s", shaderId,
+                                             it->second.source.c_str());
                         MG_Util::Debug::LogE("Failed to compile shader %u: %s", shaderId,
                                              infoLog.c_str());
                         continue;
@@ -586,6 +588,7 @@ namespace MG_EGL::Diligent {
 
         auto *pFactoryVk = Diligent_GetEngineFactoryVk();
         ::Diligent::EngineVkCreateInfo EngineCI;
+        EngineCI.DynamicHeapSize = 256 << 20;
 
         ::Diligent::SwapChainDesc SCDesc;
 
