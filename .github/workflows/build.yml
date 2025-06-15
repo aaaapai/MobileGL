@@ -12,7 +12,17 @@ jobs:
       with:
         submodules: recursive
         fetch-depth: 1
-      
+
+    - name: Cache CCache
+      uses: actions/cache@main
+      with:
+        path: |
+             ${{ github.workspace }}/ccache
+        key: |
+             ${{ runner.os }}-ccache-${{ hashFiles('**/CMakeLists.txt') }}
+        restore-keys: |
+             ${{ runner.os }}-ccache-${{ hashFiles('**/CMakeLists.txt') }}
+
     - name: Configure CMake and Build
       run: |
           git submodule update --remote --recursive
@@ -25,12 +35,3 @@ jobs:
         name: MG
         path: build/*.so
 
-    - name: Cache CCache
-      uses: actions/cache@main
-      with:
-        path: |
-             ${{ github.workspace }}/ccache
-        key: |
-             ${{ runner.os }}-ccache-${{ hashFiles('**/CMakeLists.txt') }}
-        restore-keys: |
-             ${{ runner.os }}-ccache-${{ hashFiles('**/CMakeLists.txt') }}
