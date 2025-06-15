@@ -81,6 +81,41 @@ namespace MG_GL::GL {
         }
     }
 
+    size_t GetStd140Alignment(GLenum type) {
+        switch (type) {
+            case GL_FLOAT:
+            case GL_INT:
+            case GL_BOOL:
+            case GL_UNSIGNED_INT:
+                return size_t(4);
+            case GL_FLOAT_VEC2:
+            case GL_INT_VEC2:
+            case GL_BOOL_VEC2:
+            case GL_UNSIGNED_INT_VEC2:
+                return size_t(8);
+            case GL_FLOAT_VEC3:
+            case GL_FLOAT_VEC4:
+            case GL_INT_VEC3:
+            case GL_INT_VEC4:
+            case GL_BOOL_VEC3:
+            case GL_BOOL_VEC4:
+            case GL_UNSIGNED_INT_VEC3:
+            case GL_UNSIGNED_INT_VEC4:
+            case GL_FLOAT_MAT2:
+            case GL_FLOAT_MAT3:
+            case GL_FLOAT_MAT4:
+            case GL_FLOAT_MAT2x3:
+            case GL_FLOAT_MAT2x4:
+            case GL_FLOAT_MAT3x2:
+            case GL_FLOAT_MAT3x4:
+            case GL_FLOAT_MAT4x2:
+            case GL_FLOAT_MAT4x3:
+                return size_t(16);
+            default:
+                return size_t(16); 
+        }
+    }
+
     void RecordUniformOffsets(MG_Diligent::GLProgramInfo& programInfo) {
         MG_Util::Debug::LogD("RecordUniformOffsets for program");
         size_t offset = 0;
@@ -89,14 +124,13 @@ namespace MG_GL::GL {
         for (auto& name: programInfo.uniformBufferNames) {
             auto& uniform = programInfo.programObj.uniformValues[name];
             if (IsSamplerType(uniform.type)) continue;
-
             size_t size = GetUniformSize(uniform.type);
-            size_t alignedSize = AlignSize(size, 16);
-
+            size_t alignment = GetStd140Alignment(uniform.type);
+            offset = AlignSize(offset, alignment);
             programInfo.uniformOffsets[name] = offset;
-            MG_Util::Debug::LogD("  Uniform '%s': offset = %zu, size = %zu, alignedSize = %zu",
-                                 name.c_str(), offset, size, alignedSize);
-            offset += alignedSize;
+            MG_Util::Debug::LogD("  Uniform '%s': offset = %zu, size = %zu, alignment = %zu", name.c_str(), offset, size, alignment);
+            size_t paddedSize = AlignSize(size, alignment);
+            offset += paddedSize;
         }
     }
     
