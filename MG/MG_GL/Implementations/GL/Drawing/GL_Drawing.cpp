@@ -692,6 +692,7 @@ namespace MG_GL::GL {
         Diligent::VALUE_TYPE indexType = ConvertGLTypeToDiligent(type);
         Diligent::Uint32 indexSize = 0;
         switch (indexType) {
+            case Diligent::VT_UINT8:  indexSize = 1; break;
             case Diligent::VT_UINT16: indexSize = 2; break;
             case Diligent::VT_UINT32: indexSize = 4; break;
             default:
