@@ -465,7 +465,12 @@ namespace MG_GL::GL {
             auto& bufferObj = MG_State_T::bufferState->buffers_[buffer];
 
             Diligent::IBuffer *&pBuffer = MG_Diligent::g_BufferMap[buffer];
-            if (bufferObj.isDynamic && !pBuffer) {
+            if (bufferObj.isDynamic && (!pBuffer || (pBuffer && pBuffer->GetDesc().Size != bufferObj.data.size()))) {
+                if (pBuffer) {
+                    pBuffer->Release();
+                    pBuffer = nullptr;
+                }
+                
                 Diligent::BufferDesc BuffDesc;
                 std::string bufferName = "Dynamic VBO " + std::to_string(buffer);
                 BuffDesc.Name = bufferName.c_str();
@@ -488,7 +493,12 @@ namespace MG_GL::GL {
             auto& bufferObj = MG_State_T::bufferState->buffers_[buffer];
 
             Diligent::IBuffer*& pBuffer = MG_Diligent::g_BufferMap[buffer];
-            if (bufferObj.isDynamic && !pBuffer) {
+            if (bufferObj.isDynamic && (!pBuffer || (pBuffer && pBuffer->GetDesc().Size != bufferObj.data.size()))) {
+                if (pBuffer) {
+                    pBuffer->Release();
+                    pBuffer = nullptr;
+                }
+                
                 Diligent::BufferDesc BuffDesc;
                 std::string bufferName = "Dynamic IBO " + std::to_string(buffer);
                 BuffDesc.Name = bufferName.c_str();
@@ -496,10 +506,6 @@ namespace MG_GL::GL {
                 BuffDesc.Usage = Diligent::USAGE_DYNAMIC;
                 BuffDesc.BindFlags = Diligent::BIND_INDEX_BUFFER;
                 BuffDesc.CPUAccessFlags = Diligent::CPU_ACCESS_WRITE;
-
-                if (pBuffer) {
-                    pBuffer->Release();
-                }
 
                 MG_Diligent::g_pDevice->CreateBuffer(BuffDesc, nullptr, &pBuffer);
 

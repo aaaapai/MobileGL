@@ -223,7 +223,11 @@ namespace MG_GL::GL {
             BuffDesc.Name = name.c_str();
             BuffDesc.Usage = Diligent::USAGE_DEFAULT;
 
-            if (pBuffer == nullptr) {
+            if (!pBuffer || (pBuffer && pBuffer->GetDesc().Size != bufferObj.data.size())) {
+                if (pBuffer) {
+                    pBuffer->Release();
+                    pBuffer = nullptr;
+                }
                 Diligent::BufferData BuffData;
                 // Initial data must not be null for immutable buffers
                 BuffData.pData = BuffDesc.Usage != Diligent::USAGE_IMMUTABLE ? nullptr : bufferObj.data.data();
