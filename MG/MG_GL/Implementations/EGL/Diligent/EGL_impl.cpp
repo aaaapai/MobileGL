@@ -371,7 +371,7 @@ namespace MG_Diligent {
 
                     shaderSource = MG_Util::Program::BindInputLayoutLocationsForGLSL(spirv,
                                                                                      programObj.attribLocations);
-                    MG_Util::Program::RenameGLSLBuiltinsForVulkan(shaderSource);
+                    // MG_Util::Program::RenameGLSLBuiltinsForVulkan(shaderSource);
                 } else {
                     shaderSource = it->second.source;
                 }
@@ -381,17 +381,13 @@ namespace MG_Diligent {
 
         MG_Util::Program::GenerateDefaultUBOForGLSL_Multi(shaderSourcesMap, programInfo.uniformBufferNames);
 
-        for (auto shader : programInfo.AttachedShaders) {
-            GLuint shaderId = 0;
-            for (auto const& [key, val] : MG_Diligent::g_ShaderMap) {
-                if (val == shader) {
-                    shaderId = key;
-                    break;
-                }
-            }
+        for (auto shaderId : programInfo.AttachedShadersID) {
+            auto shader = MG_Diligent::g_ShaderMap[shaderId];
             MG_Util::Debug::LogD("Processing shader ID: %u", shaderId);
 
             auto& shaderObj = MG_State_T::programState->shaders_[shaderId];
+            MG_Util::Debug::LogD("Shader source for %u before SPIR-V compilation:\n%s", shaderId,
+                                 shaderSourcesMap[shaderId].c_str());
 
             std::string compilationLog;
             auto spirv =

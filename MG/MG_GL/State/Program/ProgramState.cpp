@@ -465,7 +465,7 @@ void ProgramState::CleanupShaders_() {
             }
             if (!inUse) {
                 MG_Util::Debug::LogD("MG_State: Program: CleanupShaders_ deleting shader %u", it->first);
-                freeShaderIds_.insert(it->first);
+                // freeShaderIds_.insert(it->first);
                 it = shaders_.erase(it);
                 continue;
             }
