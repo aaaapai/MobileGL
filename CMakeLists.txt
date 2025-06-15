@@ -106,6 +106,10 @@ target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE
         ${CMAKE_SOURCE_DIR}/library/arm64-v8a/libSPIRV-Tools.a
         ${CMAKE_SOURCE_DIR}/library/arm64-v8a/libSPIRV.a
         ${CMAKE_SOURCE_DIR}/library/arm64-v8a/libSPVRemapper.a
+        ${CMAKE_SOURCE_DIR}/library/arm64-v8a/libDiligent-Common.a
+        ${CMAKE_SOURCE_DIR}/library/arm64-v8a/libGraphicsEngineVk.so
+        ${CMAKE_SOURCE_DIR}/library/arm64-v8a/libGraphicsEngineOpenGL.so
+
         android
         log
         EGL
@@ -120,12 +124,6 @@ target_include_directories(MobileGL PUBLIC
         ${CMAKE_SOURCE_DIR}/3rdparty/DiligentCore/Common/interface
 )
 
-target_link_libraries(MobileGL
-        PRIVATE
-        Diligent-Common
-        libGraphicsEngineVk.so
-        libGraphicsEngineOpenGL.so
-)
 
 if (PROFILING)
         find_package(Threads)
