@@ -5,6 +5,15 @@
 #include "GL_Buffer.h"
 
 namespace MG_GL::GL {
+    Diligent::VALUE_TYPE ConvertGLIndexTypeToDiligent(GLenum type) {
+        switch (type) {
+            case GL_UNSIGNED_BYTE: return Diligent::VT_UINT8;
+            case GL_UNSIGNED_SHORT: return Diligent::VT_UINT16;
+            case GL_UNSIGNED_INT: return Diligent::VT_UINT32;
+            default: return Diligent::VT_UNDEFINED;
+        }
+    }
+    
     void* MapBufferRange(GLenum target, GLintptr offset, GLsizeiptr length,
                          GLbitfield access) {
         MG_Util::Debug::LogD("glMapBufferRange, target: %s, offset: %lld, length: %lld, access: 0x%X",
@@ -31,6 +40,35 @@ namespace MG_GL::GL {
                              static_cast<long long>(length));
         GLenum result = MG_State::SyncBufferMemory(target, offset, length);
         if (result == GL_NO_ERROR) {
+            GLuint buffer = MG_State_T::bufferState->GetCurrentBinding(target);
+            if (buffer == 0) return;
+
+            auto& bufferObj = MG_State_T::bufferState->buffers_[buffer];
+            if (!bufferObj.isMapped) return;
+
+            size_t start = static_cast<size_t>(offset);
+            size_t end = start + static_cast<size_t>(length);
+
+            Diligent::IBuffer* pBuffer = MG_Diligent::g_BufferMap[buffer];
+            if (pBuffer && bufferObj.data.size() >= end) {
+                const auto& Desc = pBuffer->GetDesc();
+                if (Desc.Usage == Diligent::USAGE_STAGING || Desc.Usage == Diligent::USAGE_DYNAMIC || Desc.Usage == Diligent::USAGE_UNIFIED) {
+                    void * data;
+                    MG_Diligent::g_pContext->MapBuffer(pBuffer, Diligent::MAP_WRITE,
+                                                       Diligent::MAP_FLAG_DISCARD, data);
+
+                    if (data) {
+                        void* dst = static_cast<char*>(data) + offset;
+                        const void* src = bufferObj.data.data() + offset;
+                        memcpy(dst, src, length);
+
+                        MG_Diligent::g_pContext->UnmapBuffer(pBuffer, Diligent::MAP_WRITE);
+                    }
+                } else {
+                    // For USAGE_DEFAULT or USAGE_IMMUTABLE, use UpdateBuffer
+                    MG_Diligent::g_pContext->UpdateBuffer(pBuffer, static_cast<Diligent::Uint64>(offset), static_cast<Diligent::Uint64>(length), bufferObj.data.data() + offset, Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
+                }
+            }
             return;
         }
         MG_State::SetError(result);
@@ -50,6 +88,22 @@ namespace MG_GL::GL {
                              static_cast<long long>(size));
         GLenum result = MG_State::CopyBufferRange(readTarget, writeTarget, readOffset, writeOffset, size);
         if (result == GL_NO_ERROR) {
+            GLuint srcBuffer = MG_State_T::bufferState->GetCurrentBinding(readTarget);
+            GLuint dstBuffer = MG_State_T::bufferState->GetCurrentBinding(writeTarget);
+
+            if (srcBuffer == 0 || dstBuffer == 0) return;
+
+            Diligent::IBuffer* pSrcBuffer = MG_Diligent::g_BufferMap[srcBuffer];
+            Diligent::IBuffer* pDstBuffer = MG_Diligent::g_BufferMap[dstBuffer];
+
+            if (pSrcBuffer && pDstBuffer) {
+                MG_Diligent::g_pContext->CopyBuffer(pSrcBuffer, static_cast<Diligent::Uint64>(readOffset), 
+                                                    Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION,
+                                                    pDstBuffer, static_cast<Diligent::Uint64>(writeOffset),
+                                                    static_cast<Diligent::Uint64>(size),
+                                                    Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
+            }
+            
             return;
         }
         MG_State::SetError(result);
@@ -78,6 +132,28 @@ namespace MG_GL::GL {
             MG_Util::Debug::LogE("glUnmapBuffer failed: %s", MG_Util::Debug::GLEnumToString(err));
             return GL_FALSE;
         }
+        
+        GLuint buffer = MG_State_T::bufferState->currentBindings_[target];
+        auto& bufferObj = MG_State_T::bufferState->buffers_[buffer];
+        
+        Diligent::IBuffer* pBuffer = MG_Diligent::g_BufferMap[buffer];
+        if (pBuffer) {
+            const auto& Desc = pBuffer->GetDesc();
+            if (Desc.Usage == Diligent::USAGE_STAGING || Desc.Usage == Diligent::USAGE_DYNAMIC || Desc.Usage == Diligent::USAGE_UNIFIED) {
+                void * data;
+                MG_Diligent::g_pContext->MapBuffer(pBuffer, Diligent::MAP_WRITE,
+                                                   Diligent::MAP_FLAG_DISCARD, data);
+
+                if (data) {
+                    memcpy(data, bufferObj.data.data(), bufferObj.data.size());
+                    MG_Diligent::g_pContext->UnmapBuffer(pBuffer, Diligent::MAP_WRITE);
+                }
+            } else {
+                // For USAGE_DEFAULT or USAGE_IMMUTABLE, use UpdateBuffer
+                MG_Diligent::g_pContext->UpdateBuffer(pBuffer, 0, bufferObj.data.size(), bufferObj.data.data(), Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);    
+            }
+        }
+        
         MG_Util::Debug::LogD("glUnmapBuffer succeeded");
         return GL_TRUE;
     }
@@ -112,8 +188,60 @@ namespace MG_GL::GL {
         MG_Util::Debug::LogD("glBufferData, target: %s, size: %zd, data: %p, usage: %s",
                              MG_Util::Debug::GLEnumToString(target), size, data, MG_Util::Debug::GLEnumToString(usage));
         GLenum result = MG_State::CommitBufferStorage(target, size, data, usage);
-        if (result == GL_NO_ERROR)
+        if (result == GL_NO_ERROR) {
+            GLuint buffer = MG_State_T::bufferState->GetCurrentBinding(target);
+            if (buffer == 0) return;
+            auto& bufferObj = MG_State_T::bufferState->buffers_[buffer];
+            if (bufferObj.isDynamic) return; // Dynamic buffer should be created by glDraw*
+            
+            bufferObj.dirty = false;
+            Diligent::IBuffer*& pBuffer = MG_Diligent::g_BufferMap[buffer];
+
+            Diligent::BufferDesc BuffDesc;
+            std::string name;
+            BuffDesc.Size = static_cast<Diligent::Uint64>(size);
+
+            switch (target) {
+                case GL_ARRAY_BUFFER:
+                    BuffDesc.BindFlags = Diligent::BIND_VERTEX_BUFFER;
+                    name += std::format("VBO {}", buffer);
+                    break;
+                case GL_ELEMENT_ARRAY_BUFFER:
+                    BuffDesc.BindFlags = Diligent::BIND_INDEX_BUFFER;
+                    name += std::format("IBO {}", buffer);
+                    break;
+                case GL_UNIFORM_BUFFER:
+                    BuffDesc.BindFlags = Diligent::BIND_UNIFORM_BUFFER;
+                    name += std::format("UBO {}", buffer);
+                    break;
+                default:
+                    BuffDesc.BindFlags = Diligent::BIND_SHADER_RESOURCE;
+                    name += std::format("SRV {}", buffer);
+                    break;
+            }
+
+            BuffDesc.Name = name.c_str();
+            BuffDesc.Usage = Diligent::USAGE_DEFAULT;
+
+            if (!pBuffer || (pBuffer && pBuffer->GetDesc().Size != bufferObj.data.size())) {
+                if (pBuffer) {
+                    pBuffer->Release();
+                    pBuffer = nullptr;
+                }
+                Diligent::BufferData BuffData;
+                // Initial data must not be null for immutable buffers
+                BuffData.pData = BuffDesc.Usage != Diligent::USAGE_IMMUTABLE ? nullptr : bufferObj.data.data();
+                BuffData.DataSize = static_cast<Diligent::Uint64>(size);
+                MG_Diligent::g_pDevice->CreateBuffer(BuffDesc, &BuffData, &pBuffer);
+            }
+            
+            if (data != nullptr && BuffDesc.Usage != Diligent::USAGE_IMMUTABLE) {
+                    MG_Diligent::g_pContext->UpdateBuffer(pBuffer, 0,
+                                                          static_cast<Diligent::Uint64>(size), data,
+                                                          Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
+            }
             return;
+        }
         MG_State::SetError(result);
         MG_Util::Debug::LogE("Error from MG State: %s", MG_Util::Debug::GLEnumToString(result));
     }
@@ -140,8 +268,9 @@ namespace MG_GL::GL {
         GLenum result = MG_State::GenBufferNames(n, buffers);
         if (result == GL_NO_ERROR) {
             MG_Util::Debug::LogD("Generated buffer names:");
-            for (GLsizei i = 0; i < n; ++i) {
+            for (GLsizei i = 0; i < n; ++i) {                 
                 MG_Util::Debug::LogD("  Buffer[%d] = %u", i, buffers[i]);
+                MG_Diligent::g_BufferMap[buffers[i]] = nullptr;
             }
             return;
         }
@@ -174,13 +303,54 @@ namespace MG_GL::GL {
             MG_State::SetError(result);
             MG_Util::Debug::LogE("Error from MG State: %s", MG_Util::Debug::GLEnumToString(result));
         }
+
+        GLuint buffer = MG_State_T::bufferState->GetCurrentBinding(target);
+        if (buffer == 0) return;
+
+        auto& bufferObj = MG_State_T::bufferState->buffers_[buffer];
+        if (bufferObj.isDynamic) return; // Dynamic buffer should be created by glDraw*
+
+        Diligent::IBuffer* pBuffer = MG_Diligent::g_BufferMap[buffer];
+        if (pBuffer) {
+            const auto& Desc = pBuffer->GetDesc();
+            if (Desc.Usage == Diligent::USAGE_STAGING || Desc.Usage == Diligent::USAGE_DYNAMIC || Desc.Usage == Diligent::USAGE_UNIFIED) {
+                void* pMappedData = nullptr;
+                MG_Diligent::g_pContext->MapBuffer(pBuffer, Diligent::MAP_WRITE, Diligent::MAP_FLAG_DISCARD, pMappedData);
+                if (pMappedData)
+                {
+                    memcpy(static_cast<Diligent::Uint8*>(pMappedData) + offset, data, size);
+                    MG_Diligent::g_pContext->UnmapBuffer(pBuffer, Diligent::MAP_WRITE);
+                } else {
+                    MG_Util::Debug::LogE("Failed to map buffer for BufferSubData");
+                }
+            } else {
+                // For USAGE_DEFAULT or USAGE_IMMUTABLE, use UpdateBuffer
+                MG_Diligent::g_pContext->UpdateBuffer(pBuffer, static_cast<Diligent::Uint64>(offset),
+                                                      static_cast<Diligent::Uint64>(size), data,
+                                                      Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
+            }
+        }
     }
     void DeleteBuffers(GLsizei n, const GLuint *buffers) {
         MG_Util::Debug::LogD("glDeleteBuffers, n: %d, buffers: %p", n, buffers);
 
         GLenum result = MG_State::DeleteBuffers(n, buffers);
-        if (result == GL_NO_ERROR)
+        if (result == GL_NO_ERROR) {
+            for (GLsizei i = 0; i < n; ++i) {
+                GLuint buffer = buffers[i];
+                if (buffer != 0) {
+                    auto it = MG_Diligent::g_BufferMap.find(buffer);
+                    if (it != MG_Diligent::g_BufferMap.end()) {
+                        if (it->second) {
+                            it->second->Release();
+                        }
+                        MG_Diligent::g_BufferMap.erase(it);
+                    }
+
+                }
+            }
             return;
+        }
 
         MG_State::SetError(result);
         MG_Util::Debug::LogE("Error from MG State: %s", MG_Util::Debug::GLEnumToString(result));

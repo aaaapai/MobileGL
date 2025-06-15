@@ -118,10 +118,8 @@ GLenum ProgramState::FinalizeProgramPipeline(GLuint program) {
         MG_Util::Debug::LogE("MG_State: Program: FinalizeProgramPipeline error: %s", prog.infoLog.c_str());
         return GL_INVALID_OPERATION;
     }
-
-    for (auto& [name, index] : prog.attribBindings) {
-        prog.attribLocations[name] = index;
-    }
+    
+    // TODO: Support explicitly assign attrib locations in the shaders.
 
     prog.linked = {UncertainBool::Unknown, UncertainBool::True};
     prog.linkStatus = GL_TRUE;
@@ -147,28 +145,28 @@ GLenum ProgramState::ActivateRenderProgram(GLuint program) {
     return GL_NO_ERROR;
 }
 
-GLenum ProgramState::DefineProgramAttributeBinding(GLuint program, GLuint index, const GLchar* name) {
-    MG_Util::Debug::LogD("MG_State: Program: DefineProgramAttributeBinding called, program=%u, index=%u, name=%s",
+GLenum ProgramState::DefineProgramAttributeLocation(GLuint program, GLuint index, const GLchar* name) {
+    MG_Util::Debug::LogD("MG_State: Program: DefineProgramAttributeLocation called, program=%u, index=%u, name=%s",
                          program, index, name);
     if (!ValidateProgram_(program)) {
-        MG_Util::Debug::LogE("MG_State: Program: DefineProgramAttributeBinding error: invalid program id %u", program);
+        MG_Util::Debug::LogE("MG_State: Program: DefineProgramAttributeLocation error: invalid program id %u", program);
         return GL_INVALID_VALUE;
     }
     if (index >= GL_MAX_VERTEX_ATTRIBS) {
-        MG_Util::Debug::LogE("MG_State: Program: DefineProgramAttributeBinding error: index %u out of range", index);
+        MG_Util::Debug::LogE("MG_State: Program: DefineProgramAttributeLocation error: index %u out of range", index);
         return GL_INVALID_VALUE;
     }
 
-    programs_[program].attribBindings[name] = index;
-    MG_Util::Debug::LogD("MG_State: Program: DefineProgramAttributeBinding success: %s -> %u", name, index);
+    programs_[program].attribLocations[name] = index;
+    MG_Util::Debug::LogD("MG_State: Program: DefineProgramAttributeLocation success: %s -> %u", name, index);
     return GL_NO_ERROR;
 }
 
-GLint ProgramState::QueryProgramAttributeBinding(GLuint program, const GLchar* name) {
-    MG_Util::Debug::LogD("MG_State: Program: QueryProgramAttributeBinding called, program=%u, name=%s",
+GLint ProgramState::QueryProgramAttributeLocation(GLuint program, const GLchar* name) {
+    MG_Util::Debug::LogD("MG_State: Program: QueryProgramAttributeLocation called, program=%u, name=%s",
                          program, name);
     if (!ValidateProgram_(program)) {
-        MG_Util::Debug::LogE("MG_State: Program: QueryProgramAttributeBinding error: invalid program id %u", program);
+        MG_Util::Debug::LogE("MG_State: Program: QueryProgramAttributeLocation error: invalid program id %u", program);
         return -1;
     }
 
@@ -176,11 +174,27 @@ GLint ProgramState::QueryProgramAttributeBinding(GLuint program, const GLchar* n
     auto it = prog.attribLocations.find(name);
     if (it != prog.attribLocations.end()) {
         GLint loc = it->second;
-        MG_Util::Debug::LogD("MG_State: Program: QueryProgramAttributeBinding success: %s -> %d", name, loc);
+        MG_Util::Debug::LogD("MG_State: Program: QueryProgramAttributeLocation success: %s -> %d", name, loc);
         return loc;
+    } else {
+        MG_Util::Debug::LogW("MG_State: Program: QueryProgramAttributeLocation warning: name '%s' not found, generating new one...", name);
+        // Find the next available location
+        GLint loc = (GLint)prog.attribLocations.size();
+        bool locInUse;
+        do {
+            locInUse = false;
+            for (const auto& pair : prog.attribLocations) {
+                if (pair.second == loc) {
+                    locInUse = true;
+                    loc++;
+                    break;
+                }
+            }
+        } while (locInUse);
+        prog.attribLocations[name] = loc;
+        MG_Util::Debug::LogD("MG_State: Program: QueryProgramAttributeLocation success: %s -> %d", name, loc);
+        return prog.attribLocations[name];
     }
-    MG_Util::Debug::LogW("MG_State: Program: QueryProgramAttributeBinding warning: name '%s' not found", name);
-    return -1;
 }
 
 GLenum ProgramState::QueryProgramStateIntVector(GLuint program, GLenum pname, GLint* params) {
@@ -451,7 +465,7 @@ void ProgramState::CleanupShaders_() {
             }
             if (!inUse) {
                 MG_Util::Debug::LogD("MG_State: Program: CleanupShaders_ deleting shader %u", it->first);
-                freeShaderIds_.insert(it->first);
+                // freeShaderIds_.insert(it->first);
                 it = shaders_.erase(it);
                 continue;
             }

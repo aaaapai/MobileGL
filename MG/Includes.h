@@ -32,6 +32,9 @@
 #ifndef MOBILEGL_GL_VERTEXARRAY_H
 #include "MG_GL/Implementations/GL/VertexArray/GL_VertexArray.h"
 #endif
+#ifndef MOBILEGL_DILIGENT_EGL_IMPL_H
+#include "MG_GL/Implementations/EGL/Diligent/EGL_impl.h"
+#endif
 #ifndef MOBILEGL_GLSTATE_H
 #include "MG_GL/State/Core/GLState.h"
 #endif
@@ -90,6 +93,7 @@
 #include <string>
 #include <map>
 #include <vector>
+#include <cctype>
 #include <stdexcept>
 #include <atomic>
 #include <regex>

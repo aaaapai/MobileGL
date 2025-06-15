@@ -146,7 +146,6 @@ GLenum TextureState::Bind(GLenum target, GLuint texture) {
         }
     }
     
-
     TextureUnitState& unit = textureUnits_[activeTextureUnit_];
     TextureObject* texObj = nullptr;
     auto it = this->textures.find(texture);
@@ -700,7 +699,7 @@ GLenum TextureState::QueryLevelPropertyIntVector(GLenum target, GLint level, GLe
         return GL_NO_ERROR;
     }
 
-    unordered_map<GLuint, TextureObject>::iterator texIt;
+    MG_Global::unordered_map<GLuint, TextureObject>::iterator texIt;
     
     if (!isProxyTexture) {
         texIt = textures.find(boundTexture);

@@ -5,6 +5,7 @@
 #ifndef MOBILEGL_VERTEXARRAYSTATE_H
 #define MOBILEGL_VERTEXARRAYSTATE_H
 #define MOBILEGL_GLSTATE_H
+#define MOBILEGL_DILIGENT_EGL_IMPL_H
 
 #include "../../../Includes.h"
 
@@ -24,7 +25,7 @@ struct VertexArrayObject {
     bool attribDirty = false;
     bool eboDirty = false;
     GLuint elementBuffer = 0;
-    ankerl::unordered_map<GLuint, VertexAttribState> attribs;
+    MG_Global::unordered_map<GLuint, VertexAttribState> attribs;
 };
 
 class VertexArrayState {
@@ -50,7 +51,7 @@ public:
     bool ValidateAllocatedHandle(GLuint array);
 
     GLuint currentVao_ = 0;
-    ankerl::unordered_map<GLuint, VertexArrayObject> vaos_;
+    MG_Global::unordered_map<GLuint, VertexArrayObject> vaos_;
 private:
     std::set<GLuint> freeIds_;
     GLuint lastId_ = 0;

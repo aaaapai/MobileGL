@@ -142,7 +142,6 @@ namespace MG_Util::Program {
         
         GLuint current = state.GetCurrentProgram();
         if (current == 0) {
-            MG_Util::Debug::LogE("No active program");
             return;
         }
         DumpUniforms(state, current);

@@ -8,6 +8,8 @@
 #include "../../../../Includes.h"
 
 namespace MG_GL::GL {
+    Diligent::VALUE_TYPE ConvertGLTypeToDiligent(GLenum type);
+    
     GLuint CreateShader(GLenum type);
     GLuint CreateProgram();
     void DeleteShader(GLuint shader);

@@ -5,6 +5,7 @@
 #ifndef MOBILEGL_FRAMEBUFFERSTATE_H
 #define MOBILEGL_FRAMEBUFFERSTATE_H
 #define MOBILEGL_GLSTATE_H
+#define MOBILEGL_DILIGENT_EGL_IMPL_H
 
 #include "../../../Includes.h"
 
@@ -17,7 +18,7 @@ struct FramebufferAttachment {
 
 struct FramebufferObject {
     bool generated = false;
-    ankerl::unordered_map<GLenum, FramebufferAttachment> attachments;
+    MG_Global::unordered_map<GLenum, FramebufferAttachment> attachments;
     GLenum status = GL_FRAMEBUFFER_INCOMPLETE_MISSING_ATTACHMENT;
     GLsizei width = 0;
     GLsizei height = 0;
@@ -35,10 +36,10 @@ public:
     GLenum ValidateCompleteness(GLenum target);
     FramebufferObject* GetCurrentFBO(GLenum target);
     
-    ankerl::unordered_map<GLenum, GLuint> currentBindings_; // READ/DRAW
+    MG_Global::unordered_map<GLenum, GLuint> currentBindings_; // READ/DRAW
     
 private:
-    ankerl::unordered_map<GLuint, FramebufferObject> framebuffers_;
+    MG_Global::unordered_map<GLuint, FramebufferObject> framebuffers_;
     std::set<GLuint> freeIds_;
     GLuint lastId_ = 0;
     bool ValidateHandle(GLuint framebuffer);

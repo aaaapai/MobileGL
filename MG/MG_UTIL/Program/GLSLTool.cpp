@@ -5,6 +5,593 @@
 #include "GLSLTool.h"
 
 namespace MG_Util::Program {
+    void RenameGLSLBuiltinsForVulkan(std::string &src) {
+        static const std::vector<std::pair<std::regex, std::string>> rules = {
+                { std::regex(R"(\bgl_VertexID\b)"),   "gl_VertexIndex"    },
+                { std::regex(R"(\bgl_InstanceID\b)"), "gl_InstanceIndex"  }
+        };
+
+        for (auto &rule : rules) {
+            src = std::regex_replace(src, rule.first, rule.second);
+        }
+    }
+    
+    std::string BindInputLayoutLocationsForGLSL(std::vector<uint32_t>& spirv,
+                                                MG_Global::unordered_map<std::string, GLint>&
+                                                        name_location_map) {
+        spvc_context context = nullptr;
+        spvc_parsed_ir ir = nullptr;
+        spvc_compiler compiler = nullptr;
+        spvc_resources resources = nullptr;
+        spvc_result result = SPVC_SUCCESS;
+        const char* glsl_source = nullptr;
+        std::string output_glsl;
+
+        if ((result = spvc_context_create(&context)) != SPVC_SUCCESS) {
+            MG_Util::Debug::LogE("[SPIRV-Cross] Failed to create context.");
+            return {};
+        }
+
+        if ((result = spvc_context_parse_spirv(context, spirv.data(), spirv.size(), &ir)) != SPVC_SUCCESS) {
+            spvc_context_destroy(context);
+            MG_Util::Debug::LogE("[SPIRV-Cross] Failed to parse SPIR-V.");
+            return {};
+        }
+
+        if ((result = spvc_context_create_compiler(
+                context,
+                SPVC_BACKEND_GLSL,
+                ir,
+                SPVC_CAPTURE_MODE_TAKE_OWNERSHIP,
+                &compiler
+        )) != SPVC_SUCCESS) {
+            spvc_context_destroy(context);
+            MG_Util::Debug::LogE("[SPIRV-Cross] Failed to create compiler.");
+            return {};
+        }
+
+        if ((result = spvc_compiler_create_shader_resources(compiler, &resources)) != SPVC_SUCCESS) {
+            spvc_context_destroy(context);
+            MG_Util::Debug::LogE("[SPIRV-Cross] Failed to create shader resources.");
+            return {};
+        }
+
+        const spvc_reflected_resource* inputs = nullptr;
+        size_t num_inputs = 0;
+        if ((result = spvc_resources_get_resource_list_for_type(
+                resources,
+                SPVC_RESOURCE_TYPE_STAGE_INPUT,
+                &inputs,
+                &num_inputs
+        )) != SPVC_SUCCESS) {
+            spvc_context_destroy(context);
+            MG_Util::Debug::LogE("[SPIRV-Cross] Failed to get stage inputs.");
+            return {};
+        }
+
+        std::unordered_map<std::string, spvc_variable_id> name_to_id;
+        for (size_t i = 0; i < num_inputs; i++) {
+            name_to_id[inputs[i].name] = inputs[i].id;
+        }
+        
+        for (const auto& [name, location] : name_location_map) {
+            auto it = name_to_id.find(name);
+            if (it == name_to_id.end()) {
+                MG_Util::Debug::LogW("[SPIRV-Cross] Input name not found in shader: %s", name.c_str());
+                continue;
+            }
+
+            spvc_compiler_set_decoration(
+                    compiler,
+                    it->second,
+                    SpvDecorationLocation,
+                    location
+            );
+        }
+
+        spvc_compiler_options options = nullptr;
+        spvc_compiler_create_compiler_options(compiler, &options);
+        spvc_compiler_options_set_uint(options, SPVC_COMPILER_OPTION_GLSL_VERSION, 450);
+        spvc_compiler_options_set_bool(options, SPVC_COMPILER_OPTION_GLSL_ES, SPVC_FALSE);
+        spvc_compiler_install_compiler_options(compiler, options);
+
+        if ((result = spvc_compiler_compile(compiler, &glsl_source)) != SPVC_SUCCESS) {
+            spvc_context_destroy(context);
+            MG_Util::Debug::LogE("[SPIRV-Cross] Failed to compile to GLSL: %s",
+                                 spvc_context_get_last_error_string(context));
+            return {};
+        }
+
+        output_glsl = glsl_source;
+
+        spvc_context_destroy(context);
+
+        return output_glsl;
+    }
+    
+    static std::vector<bool> buildCommentMask(const std::string &src) {
+        enum State {
+            NORMAL,
+            LINE_COMMENT,
+            BLOCK_COMMENT,
+            STRING_LITERAL,
+            CHAR_LITERAL
+        };
+
+        std::vector<bool> isComment(src.size(), false);
+        State state = NORMAL;
+
+        for (size_t i = 0; i < src.size(); ++i) {
+            switch (state) {
+                case NORMAL:
+                    if (i + 1 < src.size() && src[i] == '/' && src[i + 1] == '/') {
+                        state = LINE_COMMENT;
+                        isComment[i] = true;
+                        isComment[i + 1] = true;
+                        ++i;
+                    }
+                    else if (i + 1 < src.size() && src[i] == '/' && src[i + 1] == '*') {
+                        state = BLOCK_COMMENT;
+                        isComment[i] = true;
+                        isComment[i + 1] = true;
+                        ++i;
+                    }
+                    else if (src[i] == '"') {
+                        state = STRING_LITERAL;
+                    }
+                    else if (src[i] == '\'') {
+                        state = CHAR_LITERAL;
+                    }
+                    break;
+
+                case LINE_COMMENT:
+                    isComment[i] = true;
+                    if (src[i] == '\n') {
+                        state = NORMAL;
+                    }
+                    break;
+
+                case BLOCK_COMMENT:
+                    isComment[i] = true;
+                    if (i + 1 < src.size() && src[i] == '*' && src[i + 1] == '/') {
+                        isComment[i + 1] = true;
+                        state = NORMAL;
+                        ++i;
+                    }
+                    break;
+
+                case STRING_LITERAL:
+                    if (src[i] == '\\' && (i + 1 < src.size())) {
+                        i++;
+                    }
+                    else if (src[i] == '"') {
+                        state = NORMAL;
+                    }
+                    break;
+
+                case CHAR_LITERAL:
+                    if (src[i] == '\\' && (i + 1 < src.size())) {
+                        i++;
+                    }
+                    else if (src[i] == '\'') {
+                        state = NORMAL;
+                    }
+                    break;
+            }
+        }
+
+        return isComment;
+    }
+
+    static bool isPreprocessorLine(const std::string &src, size_t pos) {
+        size_t lineStart = src.rfind('\n', pos);
+        if (lineStart == std::string::npos) {
+            lineStart = 0;
+        } else {
+            lineStart += 1;
+        }
+        size_t firstNonSpace = src.find_first_not_of(" \t\r\n", lineStart);
+        if (firstNonSpace != std::string::npos && src[firstNonSpace] == '#') {
+            return true;
+        }
+        return false;
+    }
+
+    static inline bool isInComment(const std::vector<bool> &mask, size_t pos) {
+        if (pos >= mask.size()) return false;
+        return mask[pos];
+    }
+
+    static inline void leftTrim(std::string &s) {
+        s.erase(s.begin(), std::find_if(s.begin(), s.end(), [](unsigned char ch) {
+            return !std::isspace(ch);
+        }));
+    }
+    static inline void rightTrim(std::string &s) {
+        s.erase(std::find_if(s.rbegin(), s.rend(), [](unsigned char ch) {
+            return !std::isspace(ch);
+        }).base(), s.end());
+    }
+    static inline void trim(std::string &s) {
+        leftTrim(s);
+        rightTrim(s);
+    }
+    static size_t findNextNonSpace(const std::string& str, size_t pos) {
+        return str.find_first_not_of(" \t\r\n", pos);
+    }
+
+    static std::string extractVarNameFromUniformDecl(const std::string& decl) {
+        const std::regex layoutRegex(R"(\s*layout\s*\([^)]*\))");
+        std::string declNoLayout = std::regex_replace(decl, layoutRegex, "");
+
+        size_t uniformPos = declNoLayout.find("uniform");
+        if (uniformPos != std::string::npos) {
+            declNoLayout = declNoLayout.substr(uniformPos + 7);
+        }
+        trim(declNoLayout);
+
+        size_t semiPos = declNoLayout.rfind(';');
+        if (semiPos != std::string::npos) {
+            declNoLayout = declNoLayout.substr(0, semiPos);
+        }
+        trim(declNoLayout);
+
+        size_t lastSpace = declNoLayout.find_last_of(" \t\r\n");
+        if (lastSpace == std::string::npos) {
+            return declNoLayout;
+        }
+
+        std::string candidate = declNoLayout.substr(lastSpace + 1);
+        size_t bracketPos = candidate.find('[');
+        if (bracketPos != std::string::npos) {
+            candidate = candidate.substr(0, bracketPos);
+        }
+
+        return candidate;
+    }
+
+    std::pair<std::string, std::string> GenerateDefaultUBOForGLSL(const std::pair<std::string,
+                                                                  std::string>& glslSources) {
+        std::string source1 = glslSources.first;
+        std::string source2 = glslSources.second;
+
+        std::vector<bool> commentMask1 = buildCommentMask(source1);
+        std::vector<bool> commentMask2 = buildCommentMask(source2);
+
+        const std::regex layoutRegex(R"(\s*layout\s*\([^)]*\))");
+        std::set<std::string> allUniformNames;
+        std::vector<std::string> mergedUniforms;
+        std::vector<std::pair<size_t, size_t>> removalSpans1;
+        std::vector<std::pair<size_t, size_t>> removalSpans2;
+
+        auto processSource = [&](std::string& source, const std::vector<bool>& commentMask,
+                                 std::vector<std::pair<size_t, size_t>>& removalSpans,
+                                 bool isFirstSource)
+        {
+            size_t searchPos = 0;
+            while ((searchPos = source.find("uniform", searchPos)) != std::string::npos) {
+                if (isInComment(commentMask, searchPos)) {
+                    searchPos++;
+                    continue;
+                }
+
+                if (isPreprocessorLine(source, searchPos)) {
+                    searchPos++;
+                    continue;
+                }
+
+                if (searchPos > 0 && (std::isalnum(source[searchPos - 1]) || source[searchPos - 1] == '_')) {
+                    searchPos++;
+                    continue;
+                }
+
+                size_t nextCharPos = findNextNonSpace(source, searchPos + 7);
+                if (nextCharPos == std::string::npos) break;
+
+                if (source[nextCharPos] == '{') {
+                    searchPos = nextCharPos + 1;
+                    continue;
+                }
+
+                size_t bracePos = source.find('{', nextCharPos);
+                size_t semicolonPos = source.find(';', nextCharPos);
+                if (bracePos != std::string::npos && (semicolonPos == std::string::npos || bracePos < semicolonPos)) {
+                    searchPos = bracePos + 1;
+                    continue;
+                }
+
+                if (semicolonPos == std::string::npos) {
+                    searchPos++;
+                    continue;
+                }
+
+                size_t declStart = searchPos;
+                size_t declLength = semicolonPos - searchPos + 1;
+                std::string declaration = source.substr(declStart, declLength);
+
+                std::string declNoLayout = std::regex_replace(declaration, layoutRegex, "");
+                std::string afterUniform = declNoLayout.substr(declNoLayout.find("uniform") + 7);
+                trim(afterUniform);
+                size_t sep = afterUniform.find_first_of(" \t\r\n[");
+                std::string typeToken = (sep == std::string::npos ? afterUniform : afterUniform.substr(0, sep));
+                bool isSamplerOrImage = false;
+                if (typeToken.rfind("sampler", 0) == 0 ||
+                    typeToken.rfind("isampler", 0) == 0 ||
+                    typeToken.rfind("usampler", 0) == 0 ||
+                    typeToken.rfind("image", 0) == 0)
+                {
+                    isSamplerOrImage = true;
+                }
+                if (isSamplerOrImage) {
+                    searchPos = declStart + declLength;
+                    continue;
+                }
+
+                std::string varName = extractVarNameFromUniformDecl(declaration);
+
+                if (isFirstSource) {
+                    mergedUniforms.push_back(declaration);
+                    allUniformNames.insert(varName);
+                } else {
+                    if (allUniformNames.find(varName) == allUniformNames.end()) {
+                        mergedUniforms.push_back(declaration);
+                        allUniformNames.insert(varName);
+                    }
+                }
+
+                size_t removeStart = declStart;
+                {
+                    size_t scanBack = declStart;
+                    while (scanBack > 0 && std::isspace((unsigned char)source[scanBack - 1])) {
+                        scanBack--;
+                    }
+                    if (scanBack >= 6) {
+                        size_t maybeLayout = source.rfind("layout", scanBack - 6);
+                        if (maybeLayout != std::string::npos) {
+                            size_t parenOpen = source.find('(', maybeLayout + 6);
+                            if (parenOpen != std::string::npos && parenOpen < scanBack) {
+                                size_t parenClose = source.find(')', parenOpen);
+                                if (parenClose != std::string::npos && parenClose < declStart) {
+                                    std::string between = source.substr(maybeLayout, declStart - maybeLayout);
+                                    const std::regex onlyLayout(R"(layout\s*\([^)]*\)\s*)");
+                                    if (std::regex_match(between, onlyLayout)) {
+                                        removeStart = maybeLayout;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                removalSpans.emplace_back(removeStart, (declStart + declLength) - removeStart);
+
+                searchPos = declStart + declLength;
+            }
+        };
+
+        processSource(source1, commentMask1, removalSpans1, true);
+        processSource(source2, commentMask2, removalSpans2, false);
+
+        if (mergedUniforms.empty()) {
+            return glslSources;
+        }
+
+        std::sort(removalSpans1.rbegin(), removalSpans1.rend());
+        for (auto &span : removalSpans1) {
+            source1.erase(span.first, span.second);
+        }
+        source1 = std::regex_replace(source1, std::regex(R"((\r\n|\n|\r){2,})"), "$1");
+
+        std::sort(removalSpans2.rbegin(), removalSpans2.rend());
+        for (auto &span : removalSpans2) {
+            source2.erase(span.first, span.second);
+        }
+        source2 = std::regex_replace(source2, std::regex(R"((\r\n|\n|\r){2,})"), "$1");
+
+        std::string uboBlock = "\nlayout(std140) uniform MG_DEFAULT_UBO\n{\n";
+        for (auto &decl : mergedUniforms) {
+            std::string cleaned = std::regex_replace(decl, layoutRegex, "");
+            std::string memberDecl = cleaned.substr(cleaned.find("uniform") + 7);
+            size_t semiPos = memberDecl.rfind(';');
+            if (semiPos != std::string::npos) {
+                memberDecl.erase(semiPos);
+            }
+            trim(memberDecl);
+            uboBlock += "    " + memberDecl + ";\n";
+        }
+        uboBlock += "};\n";
+
+        auto insertUBO = [&](std::string& source) {
+            size_t insertPos = 0, lastDirectivePos = 0;
+            size_t searchPos = 0;
+            while ((searchPos = source.find('#', searchPos)) != std::string::npos) {
+                if (isInComment(commentMask1, searchPos)) {
+                    searchPos++;
+                    continue;
+                }
+
+                size_t eol = source.find('\n', searchPos);
+                if (eol == std::string::npos) break;
+                std::string line = source.substr(searchPos, eol - searchPos);
+                if (line.find("#version") != std::string::npos || line.find("#extension") != std::string::npos) {
+                    lastDirectivePos = eol + 1;
+                }
+                searchPos = eol + 1;
+            }
+            insertPos = lastDirectivePos;
+            source.insert(insertPos, uboBlock);
+        };
+
+        insertUBO(source1);
+        insertUBO(source2);
+
+        return {source1, source2};
+    }
+
+    void GenerateDefaultUBOForGLSL_Multi(
+            MG_Global::unordered_map<GLuint, std::string> &shaderSources, std::vector<std::string>& outUniformBufferNames) {
+        if (shaderSources.empty()) return;
+
+        outUniformBufferNames.clear();
+
+        std::unordered_map<GLuint, std::vector<bool>> commentMasks;
+        for (auto const& [id, source] : shaderSources) {
+            commentMasks[id] = buildCommentMask(source);
+        }
+
+        const std::regex layoutRegex(R"(\s*layout\s*\([^)]*\))");
+        std::set<std::string> allUniformNames;
+        std::vector<std::string> mergedUniforms;
+        std::unordered_map<GLuint, std::vector<std::pair<size_t, size_t>>> removalSpansPerShader;
+
+        for (auto& [id, source] : shaderSources) {
+            std::vector<bool>& commentMask = commentMasks[id];
+            // Ensure an entry exists for this shader ID, even if no uniforms are found
+            auto& removalSpans = removalSpansPerShader[id];
+
+            size_t searchPos = 0;
+            while ((searchPos = source.find("uniform", searchPos)) != std::string::npos) {
+                if (isInComment(commentMask, searchPos)) {
+                    searchPos++;
+                    continue;
+                }
+
+                if (isPreprocessorLine(source, searchPos)) {
+                    searchPos++;
+                    continue;
+                }
+
+                if (searchPos > 0 && (std::isalnum(source[searchPos - 1]) ||
+                                      source[searchPos - 1] == '_')) {
+                    searchPos++;
+                    continue;
+                }
+
+                size_t nextCharPos = findNextNonSpace(source, searchPos + 7);
+                if (nextCharPos == std::string::npos) break;
+
+                if (source[nextCharPos] == '{') {
+                    searchPos = nextCharPos + 1;
+                    continue;
+                }
+
+                size_t bracePos = source.find('{', nextCharPos);
+                size_t semicolonPos = source.find(';', nextCharPos);
+                if (bracePos != std::string::npos &&
+                    (semicolonPos == std::string::npos || bracePos < semicolonPos)) {
+                    searchPos = bracePos + 1;
+                    continue;
+                }
+
+                if (semicolonPos == std::string::npos) {
+                    searchPos++;
+                    continue;
+                }
+
+                size_t declStart = searchPos;
+                size_t declLength = semicolonPos - searchPos + 1;
+                std::string declaration = source.substr(declStart, declLength);
+
+                std::string declNoLayout = std::regex_replace(declaration, layoutRegex, "");
+                std::string afterUniform = declNoLayout.substr(declNoLayout.find("uniform") + 7);
+                trim(afterUniform);
+                size_t sep = afterUniform.find_first_of(" \t\r\n[");
+                std::string typeToken = (sep == std::string::npos ? afterUniform : afterUniform.substr(0, sep));
+                bool isSamplerOrImage =
+                        typeToken.rfind("sampler", 0) == 0 ||
+                        typeToken.rfind("isampler", 0) == 0 ||
+                        typeToken.rfind("usampler", 0) == 0 ||
+                        typeToken.rfind("image", 0) == 0;
+
+                if (isSamplerOrImage) {
+                    searchPos = declStart + declLength;
+                    continue;
+                }
+
+                std::string varName = extractVarNameFromUniformDecl(declaration);
+                if (allUniformNames.find(varName) == allUniformNames.end()) {
+                    mergedUniforms.push_back(declaration);
+                    allUniformNames.insert(varName);
+                    // save the uniform names in order
+                    outUniformBufferNames.emplace_back(varName);
+                }
+
+                size_t removeStart = declStart;
+                size_t scanBack = declStart;
+                while (scanBack > 0 && std::isspace(static_cast<unsigned char>(source[scanBack - 1]))) {
+                    scanBack--;
+                }
+                if (scanBack >= 6) {
+                    size_t maybeLayout = source.rfind("layout", scanBack - 6);
+                    if (maybeLayout != std::string::npos) {
+                        size_t parenOpen = source.find('(', maybeLayout + 6);
+                        if (parenOpen != std::string::npos && parenOpen < scanBack) {
+                            size_t parenClose = source.find(')', parenOpen);
+                            if (parenClose != std::string::npos && parenClose < declStart) {
+                                std::string between = source.substr(maybeLayout, declStart - maybeLayout);
+                                const std::regex onlyLayout(R"(layout\s*\([^)]*\)\s*)");
+                                if (std::regex_match(between, onlyLayout)) {
+                                    removeStart = maybeLayout;
+                                }
+                            }
+                        }
+                    }
+                }
+                removalSpans.emplace_back(removeStart, (declStart + declLength) - removeStart);
+                searchPos = declStart + declLength;
+            }
+        }
+
+        if (mergedUniforms.empty()) return;
+
+        for (auto& [id, source] : shaderSources) {
+            auto& removalSpans = removalSpansPerShader[id];
+            std::sort(removalSpans.rbegin(), removalSpans.rend());
+            for (auto& span : removalSpans) {
+                source.erase(span.first, span.second);
+            }
+            source = std::regex_replace(
+                    source,
+                    std::regex(R"((\r\n|\n|\r){2,})"),
+                    "$1"
+            );
+        }
+
+        std::string uboBlock = "\nlayout(std140) uniform MG_DEFAULT_UBO\n{\n";
+        for (auto& decl : mergedUniforms) {
+            std::string cleaned = std::regex_replace(decl, layoutRegex, "");
+            std::string memberDecl = cleaned.substr(cleaned.find("uniform") + 7);
+            size_t semiPos = memberDecl.rfind(';');
+            if (semiPos != std::string::npos) {
+                memberDecl.erase(semiPos);
+            }
+            trim(memberDecl);
+            uboBlock += "    " + memberDecl + ";\n";
+        }
+        uboBlock += "};\n";
+
+        for (auto& [id, source] : shaderSources) {
+            size_t insertPos = 0, lastDirectivePos = 0;
+            size_t searchPos = 0;
+            while ((searchPos = source.find('#', searchPos)) != std::string::npos) {
+                if (isInComment(commentMasks[id], searchPos)) {
+                    searchPos++;
+                    continue;
+                }
+
+                size_t eol = source.find('\n', searchPos);
+                if (eol == std::string::npos) break;
+                std::string line = source.substr(searchPos, eol - searchPos);
+                if (line.find("#version") != std::string::npos ||
+                    line.find("#extension") != std::string::npos) {
+                    lastDirectivePos = eol + 1;
+                }
+                searchPos = eol + 1;
+            }
+            insertPos = lastDirectivePos;
+            source.insert(insertPos, uboBlock);
+        }
+    }
+    
     std::string CompileGLSLToTShader(GLenum shaderType, const std::string& source, glslang::TShader *&shader) {
         std::string infoLog;
         using namespace glslang;
@@ -108,7 +695,7 @@ namespace MG_Util::Program {
             return;
         }
 
-        ankerl::unordered_set<GLint> used_locations;
+        MG_Global::unordered_set<GLint> used_locations;
         GLint auto_location = 0;
         for (auto spirv: allSpirv) {
             spvc_parsed_ir ir = nullptr;

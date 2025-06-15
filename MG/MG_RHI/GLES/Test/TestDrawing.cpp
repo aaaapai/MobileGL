@@ -53,8 +53,8 @@ namespace MG_RHI::GLES::Test {
             GLuint quadVBO = 0;
             GLint uTexLoc = -1;
             GLint uMVPLoc = -1;
-            ankerl::unordered_map<GLuint, GLuint> textureCache;
-            ankerl::unordered_map<GLuint, bool> textureDirty;
+            MG_Global::unordered_map<GLuint, GLuint> textureCache;
+            MG_Global::unordered_map<GLuint, bool> textureDirty;
         };
 
         static ScreenResources sRes;

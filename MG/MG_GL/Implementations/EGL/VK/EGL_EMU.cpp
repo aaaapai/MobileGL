@@ -11,9 +11,9 @@ std::atomic<uintptr_t> g_nextSurfaceId{1};
 EGLenum g_currentAPI = EGL_OPENGL_ES_API;
 
 std::mutex g_globalMutex;
-ankerl::unordered_map<EGLDisplay, VulkanDisplay> g_displays;
-ankerl::unordered_map<EGLSurface, VulkanSurface> g_surfaces;
-ankerl::unordered_map<EGLContext, VulkanContext> g_contexts;
+MG_Global::unordered_map<EGLDisplay, VulkanDisplay> g_displays;
+MG_Global::unordered_map<EGLSurface, VulkanSurface> g_surfaces;
+MG_Global::unordered_map<EGLContext, VulkanContext> g_contexts;
 EGLint g_lastError = EGL_SUCCESS;
 
 thread_local EGLContext tls_currentContext = EGL_NO_CONTEXT;

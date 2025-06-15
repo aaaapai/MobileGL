@@ -8,6 +8,8 @@
 #include "../../../../Includes.h"
 
 namespace MG_GL::GL {
+    void UpdateDefaultFramebuffer();
+
     void GenFramebuffers(GLsizei n, GLuint* framebuffers);
     void DeleteFramebuffers(GLsizei n, const GLuint* framebuffers);
     void BindFramebuffer(GLenum target, GLuint framebuffer);

@@ -5,13 +5,11 @@
 #ifndef MOBILEGL_BUFFERSTATE_H
 #define MOBILEGL_BUFFERSTATE_H
 #define MOBILEGL_GLSTATE_H
+#define MOBILEGL_DILIGENT_EGL_IMPL_H
 
 #include "../../../Includes.h"
 
 class BufferState {
-    template <typename K, typename V>
-    using unordered_map = ankerl::unordered_dense::map<K, V>;
-
 public:
     struct BufferObject {
         GLenum usage = GL_STATIC_DRAW;
@@ -20,6 +18,7 @@ public:
         bool dirty = false; // TODO: encapsulate this with an public API to RHI
         bool isMapped = false;
         bool generated = false;
+        bool isDynamic = false;
         GLenum accessMode = GL_READ_WRITE;
         GLintptr mapOffset = 0;
         GLsizeiptr mapLength = 0;
@@ -46,8 +45,8 @@ public:
     void Delete(GLuint buffer);
     GLuint GetCurrentBinding(GLenum target) const;
 
-    unordered_map<GLenum, GLuint> currentBindings_;
-    unordered_map<GLuint, BufferObject> buffers_;
+    MG_Global::unordered_map<GLenum, GLuint> currentBindings_;
+    MG_Global::unordered_map<GLuint, BufferObject> buffers_;
 private:
     std::vector<GLuint> freeId_;
     GLuint lastId_ = 1;
