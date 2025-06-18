@@ -587,6 +587,7 @@ namespace MG_EGL::Diligent {
         EngineCI.DynamicHeapSize = 256 << 20;
 
         ::Diligent::SwapChainDesc SCDesc;
+        SCDesc.ColorBufferFormat = TEX_FORMAT_RGBA8_UNORM;
         SCDesc.PreTransform = SURFACE_TRANSFORM_HORIZONTAL_MIRROR_ROTATE_180;
 
         MG_Util::Debug::LogD("Creating Vulkan device and contexts");
