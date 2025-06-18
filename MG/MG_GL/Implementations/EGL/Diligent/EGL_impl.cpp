@@ -95,13 +95,13 @@ namespace MG_Diligent {
 
         MG_Global::unordered_map<GLenum, bool> capabilities = commonState.capabilities;
 
-        hash ^= std::hash<int>()(commonState.blendSrcRGB);
-        hash ^= std::hash<int>()(commonState.blendDstRGB);
-        hash ^= std::hash<int>()(commonState.blendSrcAlpha);
-        hash ^= std::hash<int>()(commonState.blendDstAlpha);
+        hash ^= std::hash<uint32_t>()(commonState.blendSrcRGB);
+        hash ^= std::hash<uint32_t>()(commonState.blendDstRGB);
+        hash ^= std::hash<uint32_t>()(commonState.blendSrcAlpha);
+        hash ^= std::hash<uint32_t>()(commonState.blendDstAlpha);
         hash ^= std::hash<bool>()(capabilities[GL_BLEND]);
 
-        hash ^= std::hash<int>()(commonState.depthFunc);
+        hash ^= std::hash<uint32_t>()(commonState.depthFunc);
         hash ^= std::hash<bool>()(commonState.depthMask);
         hash ^= std::hash<bool>()(capabilities[GL_DEPTH_TEST]);
 
@@ -113,9 +113,9 @@ namespace MG_Diligent {
         auto *pVAO = vaState.GetCurrentVAO();
         for (const auto &[index, attrib]: pVAO->attribs) {
             if (attrib.enabled) {
-                hash ^= std::hash<int>()(index);
+                hash ^= std::hash<uint32_t>()(index);
                 hash ^= std::hash<int>()(attrib.size);
-                hash ^= std::hash<int>()(attrib.type);
+                hash ^= std::hash<uint32_t>()(attrib.type);
                 hash ^= std::hash<bool>()(attrib.normalized);
             }
         }
