@@ -93,7 +93,7 @@ namespace MG_Diligent {
             GLFramebufferInfo& fbInfo) {
         uint64_t hash = 0;
 
-        MG_Global::unordered_map<GLenum, bool> capabilities = commonState.capabilities;
+        auto& capabilities = commonState.capabilities;
 
         hash ^= std::hash<uint32_t>()(commonState.blendSrcRGB);
         hash ^= std::hash<uint32_t>()(commonState.blendDstRGB);
