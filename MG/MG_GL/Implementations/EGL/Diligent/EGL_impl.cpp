@@ -87,55 +87,66 @@ namespace MG_Diligent {
         }
     }
 
+    namespace {
+        template <typename T>
+        inline void hash_combine(std::size_t& seed, const T& v) {
+            std::hash<T> hasher;
+            seed ^= hasher(v) + 0x9e3779b9 + (seed << 6) + (seed >> 2);
+        }
+    }
+
     uint64_t PipelineStateManager::CalculateStateHash(
             CommonState &commonState,
             VertexArrayState &vaState,
             GLFramebufferInfo& fbInfo) {
-        uint64_t hash = 0;
+        size_t hash = 0;
 
         auto& capabilities = commonState.capabilities;
 
-        hash ^= std::hash<uint32_t>()(commonState.blendSrcRGB);
-        hash ^= std::hash<uint32_t>()(commonState.blendDstRGB);
-        hash ^= std::hash<uint32_t>()(commonState.blendSrcAlpha);
-        hash ^= std::hash<uint32_t>()(commonState.blendDstAlpha);
+        hash_combine(hash, commonState.blendSrcRGB);
+        hash_combine(hash, commonState.blendDstRGB);
+        hash_combine(hash, commonState.blendSrcAlpha);
+        hash_combine(hash, commonState.blendDstAlpha);
         uint32_t colorMask = (commonState.colorMask[0] ? 1 : 0) |
                              (commonState.colorMask[1] ? 2 : 0) |
                              (commonState.colorMask[2] ? 4 : 0) |
                              (commonState.colorMask[3] ? 8 : 0);
-        hash ^= std::hash<uint32_t>()(colorMask);
-        hash ^= std::hash<bool>()(capabilities[GL_BLEND]);
+        hash_combine(hash, colorMask);
+        hash_combine(hash, capabilities[GL_BLEND]);
 
-        hash ^= std::hash<uint32_t>()(commonState.depthFunc);
-        hash ^= std::hash<bool>()(commonState.depthMask);
-        hash ^= std::hash<bool>()(capabilities[GL_DEPTH_TEST]);
+        hash_combine(hash, commonState.depthFunc);
+        hash_combine(hash, commonState.depthMask);
+        hash_combine(hash, capabilities[GL_DEPTH_TEST]);
 
-        hash ^= std::hash<int>()(0); // TODO: Cull Face Mode
-        hash ^= std::hash<bool>()(capabilities[GL_CULL_FACE]);
-
-        hash ^= std::hash<bool>()(capabilities[GL_STENCIL_TEST]);
+        hash_combine(hash, 0); // TODO: Cull Face Mode
+        hash_combine(hash, capabilities[GL_CULL_FACE]);
+        hash_combine(hash, capabilities[GL_STENCIL_TEST]);
 
         auto *pVAO = vaState.GetCurrentVAO();
-        for (const auto &[index, attrib]: pVAO->attribs) {
+        // 保证顺序一致，按index排序
+        std::vector<uint32_t> attribIndices;
+        for (const auto& [index, _] : pVAO->attribs)
+            attribIndices.push_back(index);
+        std::sort(attribIndices.begin(), attribIndices.end());
+        for (auto index : attribIndices) {
+            const auto& attrib = pVAO->attribs.at(index);
             if (attrib.enabled) {
-                hash ^= std::hash<uint32_t>()(index);
-                hash ^= std::hash<int>()(attrib.size);
-                hash ^= std::hash<uint32_t>()(attrib.type);
-                hash ^= std::hash<bool>()(attrib.normalized);
+                hash_combine(hash, index);
+                hash_combine(hash, attrib.size);
+                hash_combine(hash, attrib.type);
+                hash_combine(hash, attrib.normalized);
             }
         }
 
-        hash ^= std::hash<size_t>()(fbInfo.ColorRTVs.size());
+        hash_combine(hash, fbInfo.ColorRTVs.size());
         if (!fbInfo.pRenderPass) {
-            // 只有在使用隐式渲染通道时，才将渲染目标格式包含在哈希中
             for (const auto& rtv : fbInfo.ColorRTVs) {
                 if (rtv) {
-                    hash ^= std::hash<uint32_t>()(rtv->GetDesc().Format);
+                    hash_combine(hash, rtv->GetDesc().Format);
                 }
             }
         }
-
-        hash ^= std::hash<uint32_t>()(fbInfo.DepthStencilFormat);
+        hash_combine(hash, fbInfo.DepthStencilFormat);
 
         return hash;
     }
@@ -178,15 +189,11 @@ namespace MG_Diligent {
 
         PSOCreateInfo.GraphicsPipeline.PrimitiveTopology = Diligent::PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
 
-        // 设置渲染目标数量和格式
         if (fbInfo.pRenderPass) {
-            // 当使用显式渲染通道时，NumRenderTargets必须为0
             PSOCreateInfo.GraphicsPipeline.NumRenderTargets = 0;
         } else {
-            // 当使用隐式渲染通道时，需要设置渲染目标数量和格式
             PSOCreateInfo.GraphicsPipeline.NumRenderTargets = fbInfo.ColorRTVs.size();
             if (PSOCreateInfo.GraphicsPipeline.NumRenderTargets == 0) {
-                // 如果没有颜色附件，至少设置一个默认的
                 PSOCreateInfo.GraphicsPipeline.NumRenderTargets = 1;
                 PSOCreateInfo.GraphicsPipeline.RTVFormats[0] = Diligent::TEX_FORMAT_RGBA8_UNORM;
             } else {
@@ -220,7 +227,6 @@ namespace MG_Diligent {
                 (commonState.colorMask[2] ? Diligent::COLOR_MASK_BLUE : 0) |
                 (commonState.colorMask[3] ? Diligent::COLOR_MASK_ALPHA : 0));
 
-        // 添加详细的混合状态调试信息
         MG_Util::Debug::LogD("Configured Blend State:");
         MG_Util::Debug::LogD("  Using explicit render pass: %s", fbInfo.pRenderPass ? "true" : "false");
         MG_Util::Debug::LogD("  NumRenderTargets: %u", PSOCreateInfo.GraphicsPipeline.NumRenderTargets);
@@ -313,8 +319,6 @@ namespace MG_Diligent {
         if (it != psoCache.end() && it->second) {
             MG_Util::Debug::LogD("Found cached PSO: %04X%04X", it->first.programHash, it->first.stateHash);
 
-            // TODO: This fixes alpha states, but how does PSO cache not corresponds to GL state machine (commonState)?
-            // probably a problem in hashing?
             auto& desc = it->second->GetGraphicsPipelineDesc();
             MG_Util::Debug::LogD("PSO state - Blend states: ");
             MG_Util::Debug::LogD("  SrcBlend: %s", MG_Util::Debug::DiligentBlendFactorToString(desc.BlendDesc.RenderTargets[0].SrcBlend));
@@ -322,14 +326,14 @@ namespace MG_Diligent {
             MG_Util::Debug::LogD("  SrcBlendAlpha: %s", MG_Util::Debug::DiligentBlendFactorToString(desc.BlendDesc.RenderTargets[0].SrcBlendAlpha));
             MG_Util::Debug::LogD("  DestBlendAlpha: %s", MG_Util::Debug::DiligentBlendFactorToString(desc.BlendDesc.RenderTargets[0].DestBlendAlpha));
             // These asserts can fail
-//            assert(ConvertGLBlendFactor(commonState.blendSrcRGB) == desc.BlendDesc.RenderTargets[0].SrcBlend);
-//            assert(ConvertGLBlendFactor(commonState.blendDstRGB) == desc.BlendDesc.RenderTargets[0].DestBlend);
-//            assert(ConvertGLBlendFactor(commonState.blendSrcAlpha) == desc.BlendDesc.RenderTargets[0].SrcBlendAlpha);
-//            assert(ConvertGLBlendFactor(commonState.blendDstAlpha) == desc.BlendDesc.RenderTargets[0].DestBlendAlpha);
-            if ((ConvertGLBlendFactor(commonState.blendSrcRGB) == desc.BlendDesc.RenderTargets[0].SrcBlend) &&
-            (ConvertGLBlendFactor(commonState.blendDstRGB) == desc.BlendDesc.RenderTargets[0].DestBlend) &&
-            (ConvertGLBlendFactor(commonState.blendSrcAlpha) == desc.BlendDesc.RenderTargets[0].SrcBlendAlpha) &&
-            (ConvertGLBlendFactor(commonState.blendDstAlpha) == desc.BlendDesc.RenderTargets[0].DestBlendAlpha))
+            assert(ConvertGLBlendFactor(commonState.blendSrcRGB) == desc.BlendDesc.RenderTargets[0].SrcBlend);
+            assert(ConvertGLBlendFactor(commonState.blendDstRGB) == desc.BlendDesc.RenderTargets[0].DestBlend);
+            assert(ConvertGLBlendFactor(commonState.blendSrcAlpha) == desc.BlendDesc.RenderTargets[0].SrcBlendAlpha);
+            assert(ConvertGLBlendFactor(commonState.blendDstAlpha) == desc.BlendDesc.RenderTargets[0].DestBlendAlpha);
+//            if ((ConvertGLBlendFactor(commonState.blendSrcRGB) == desc.BlendDesc.RenderTargets[0].SrcBlend) &&
+//            (ConvertGLBlendFactor(commonState.blendDstRGB) == desc.BlendDesc.RenderTargets[0].DestBlend) &&
+//            (ConvertGLBlendFactor(commonState.blendSrcAlpha) == desc.BlendDesc.RenderTargets[0].SrcBlendAlpha) &&
+//            (ConvertGLBlendFactor(commonState.blendDstAlpha) == desc.BlendDesc.RenderTargets[0].DestBlendAlpha))
                 return it->second;
         }
         
