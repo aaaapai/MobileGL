@@ -23,6 +23,7 @@ namespace MG_Util {
         void LogWrite(const char* format, va_list args);
         
         const char* GLEnumToString(::GLenum value);
+        const char* DiligentBlendFactorToString(Diligent::BLEND_FACTOR value);
     }
 }
 

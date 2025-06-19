@@ -104,7 +104,6 @@ namespace MG_Diligent {
                              (commonState.colorMask[2] ? 4 : 0) |
                              (commonState.colorMask[3] ? 8 : 0);
         hash ^= std::hash<uint32_t>()(colorMask);
-        hash ^= std::hash<uint32_t>()(commonState.blendDstAlpha);
         hash ^= std::hash<bool>()(capabilities[GL_BLEND]);
 
         hash ^= std::hash<uint32_t>()(commonState.depthFunc);
@@ -127,9 +126,12 @@ namespace MG_Diligent {
         }
 
         hash ^= std::hash<size_t>()(fbInfo.ColorRTVs.size());
-        for (const auto& rtv : fbInfo.ColorRTVs) {
-            if (rtv) {
-                hash ^= std::hash<uint32_t>()(rtv->GetDesc().Format);
+        if (!fbInfo.pRenderPass) {
+            // 只有在使用隐式渲染通道时，才将渲染目标格式包含在哈希中
+            for (const auto& rtv : fbInfo.ColorRTVs) {
+                if (rtv) {
+                    hash ^= std::hash<uint32_t>()(rtv->GetDesc().Format);
+                }
             }
         }
 
@@ -176,17 +178,28 @@ namespace MG_Diligent {
 
         PSOCreateInfo.GraphicsPipeline.PrimitiveTopology = Diligent::PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
 
-        /*
-        PSOCreateInfo.GraphicsPipeline.NumRenderTargets = fbInfo.ColorRTVs.size();
-        for (size_t i = 0; i < fbInfo.ColorRTVs.size(); ++i) {
-            if (fbInfo.ColorRTVs[i]) {
-                PSOCreateInfo.GraphicsPipeline.RTVFormats[i] =
-                        fbInfo.ColorRTVs[i]->GetDesc().Format;
+        // 设置渲染目标数量和格式
+        if (fbInfo.pRenderPass) {
+            // 当使用显式渲染通道时，NumRenderTargets必须为0
+            PSOCreateInfo.GraphicsPipeline.NumRenderTargets = 0;
+        } else {
+            // 当使用隐式渲染通道时，需要设置渲染目标数量和格式
+            PSOCreateInfo.GraphicsPipeline.NumRenderTargets = fbInfo.ColorRTVs.size();
+            if (PSOCreateInfo.GraphicsPipeline.NumRenderTargets == 0) {
+                // 如果没有颜色附件，至少设置一个默认的
+                PSOCreateInfo.GraphicsPipeline.NumRenderTargets = 1;
+                PSOCreateInfo.GraphicsPipeline.RTVFormats[0] = Diligent::TEX_FORMAT_RGBA8_UNORM;
             } else {
-                PSOCreateInfo.GraphicsPipeline.RTVFormats[i] = Diligent::TEX_FORMAT_RGBA8_UNORM;
+                for (size_t i = 0; i < fbInfo.ColorRTVs.size(); ++i) {
+                    if (fbInfo.ColorRTVs[i]) {
+                        PSOCreateInfo.GraphicsPipeline.RTVFormats[i] =
+                                fbInfo.ColorRTVs[i]->GetDesc().Format;
+                    } else {
+                        PSOCreateInfo.GraphicsPipeline.RTVFormats[i] = Diligent::TEX_FORMAT_RGBA8_UNORM;
+                    }
+                }
             }
         }
-        */
 
         PSOCreateInfo.GraphicsPipeline.DSVFormat = Diligent::TEX_FORMAT_UNKNOWN;
 
@@ -206,12 +219,28 @@ namespace MG_Diligent {
                 (commonState.colorMask[1] ? Diligent::COLOR_MASK_GREEN : 0) |
                 (commonState.colorMask[2] ? Diligent::COLOR_MASK_BLUE : 0) |
                 (commonState.colorMask[3] ? Diligent::COLOR_MASK_ALPHA : 0));
-//        MG_Util::Debug::LogD("Blend states: ");
-//        MG_Util::Debug::LogD("  BlendEnable: %s", blendDesc.RenderTargets[0].BlendEnable ? "true" : "false");
-//        MG_Util::Debug::LogD("  SrcBlend: %s", MG_Util::Debug::GLEnumToString(commonState.blendSrcRGB));
-//        MG_Util::Debug::LogD("  DestBlend: %s", MG_Util::Debug::GLEnumToString(commonState.blendDstRGB));
-//        MG_Util::Debug::LogD("  SrcBlendAlpha: %s", MG_Util::Debug::GLEnumToString(commonState.blendSrcAlpha));
-//        MG_Util::Debug::LogD("  DestBlendAlpha: %s", MG_Util::Debug::GLEnumToString(commonState.blendDstAlpha));
+
+        // 添加详细的混合状态调试信息
+        MG_Util::Debug::LogD("Configured Blend State:");
+        MG_Util::Debug::LogD("  Using explicit render pass: %s", fbInfo.pRenderPass ? "true" : "false");
+        MG_Util::Debug::LogD("  NumRenderTargets: %u", PSOCreateInfo.GraphicsPipeline.NumRenderTargets);
+        MG_Util::Debug::LogD("  IndependentBlendEnable: %s", blendDesc.IndependentBlendEnable ? "true" : "false");
+        MG_Util::Debug::LogD("  RenderTargets[0].BlendEnable: %s", blendDesc.RenderTargets[0].BlendEnable ? "true" : "false");
+        MG_Util::Debug::LogD("  RenderTargets[0].SrcBlend: %d (GL: %s)", 
+                             blendDesc.RenderTargets[0].SrcBlend, 
+                             MG_Util::Debug::GLEnumToString(commonState.blendSrcRGB));
+        MG_Util::Debug::LogD("  RenderTargets[0].DestBlend: %d (GL: %s)", 
+                             blendDesc.RenderTargets[0].DestBlend, 
+                             MG_Util::Debug::GLEnumToString(commonState.blendDstRGB));
+        MG_Util::Debug::LogD("  RenderTargets[0].BlendOp: %d", blendDesc.RenderTargets[0].BlendOp);
+        MG_Util::Debug::LogD("  RenderTargets[0].SrcBlendAlpha: %d (GL: %s)", 
+                             blendDesc.RenderTargets[0].SrcBlendAlpha, 
+                             MG_Util::Debug::GLEnumToString(commonState.blendSrcAlpha));
+        MG_Util::Debug::LogD("  RenderTargets[0].DestBlendAlpha: %d (GL: %s)", 
+                             blendDesc.RenderTargets[0].DestBlendAlpha, 
+                             MG_Util::Debug::GLEnumToString(commonState.blendDstAlpha));
+        MG_Util::Debug::LogD("  RenderTargets[0].BlendOpAlpha: %d", blendDesc.RenderTargets[0].BlendOpAlpha);
+        MG_Util::Debug::LogD("  RenderTargets[0].RenderTargetWriteMask: %u", blendDesc.RenderTargets[0].RenderTargetWriteMask);
 
         Diligent::DepthStencilStateDesc &depthStencilDesc = PSOCreateInfo.GraphicsPipeline.DepthStencilDesc;
         depthStencilDesc.DepthEnable = commonState.capabilities[GL_DEPTH_TEST];
@@ -284,7 +313,24 @@ namespace MG_Diligent {
         if (it != psoCache.end() && it->second) {
             MG_Util::Debug::LogD("Found cached PSO: %04X%04X", it->first.programHash, it->first.stateHash);
 
-            return it->second;
+            // TODO: This fixes alpha states, but how does PSO cache not corresponds to GL state machine (commonState)?
+            // probably a problem in hashing?
+            auto& desc = it->second->GetGraphicsPipelineDesc();
+            MG_Util::Debug::LogD("PSO state - Blend states: ");
+            MG_Util::Debug::LogD("  SrcBlend: %s", MG_Util::Debug::DiligentBlendFactorToString(desc.BlendDesc.RenderTargets[0].SrcBlend));
+            MG_Util::Debug::LogD("  DestBlend: %s", MG_Util::Debug::DiligentBlendFactorToString(desc.BlendDesc.RenderTargets[0].DestBlend));
+            MG_Util::Debug::LogD("  SrcBlendAlpha: %s", MG_Util::Debug::DiligentBlendFactorToString(desc.BlendDesc.RenderTargets[0].SrcBlendAlpha));
+            MG_Util::Debug::LogD("  DestBlendAlpha: %s", MG_Util::Debug::DiligentBlendFactorToString(desc.BlendDesc.RenderTargets[0].DestBlendAlpha));
+            // These asserts can fail
+//            assert(ConvertGLBlendFactor(commonState.blendSrcRGB) == desc.BlendDesc.RenderTargets[0].SrcBlend);
+//            assert(ConvertGLBlendFactor(commonState.blendDstRGB) == desc.BlendDesc.RenderTargets[0].DestBlend);
+//            assert(ConvertGLBlendFactor(commonState.blendSrcAlpha) == desc.BlendDesc.RenderTargets[0].SrcBlendAlpha);
+//            assert(ConvertGLBlendFactor(commonState.blendDstAlpha) == desc.BlendDesc.RenderTargets[0].DestBlendAlpha);
+            if ((ConvertGLBlendFactor(commonState.blendSrcRGB) == desc.BlendDesc.RenderTargets[0].SrcBlend) &&
+            (ConvertGLBlendFactor(commonState.blendDstRGB) == desc.BlendDesc.RenderTargets[0].DestBlend) &&
+            (ConvertGLBlendFactor(commonState.blendSrcAlpha) == desc.BlendDesc.RenderTargets[0].SrcBlendAlpha) &&
+            (ConvertGLBlendFactor(commonState.blendDstAlpha) == desc.BlendDesc.RenderTargets[0].DestBlendAlpha))
+                return it->second;
         }
         
         MG_Diligent::BuildInputLayout(program, vaState, programInfo.inputLayout);
