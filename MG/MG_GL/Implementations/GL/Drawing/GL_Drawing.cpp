@@ -9,7 +9,7 @@ namespace MG_GL::GL {
                                         const FramebufferObject& fbo,
                                         MG_Diligent::GLFramebufferInfo& fbInfo);
 
-    inline bool IsSamplerType(GLenum type) {
+    bool IsSamplerType(GLenum type) {
         switch (type) {
             case GL_SAMPLER_2D:
             case GL_SAMPLER_3D:

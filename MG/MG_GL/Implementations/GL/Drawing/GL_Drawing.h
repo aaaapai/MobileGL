@@ -7,6 +7,8 @@
 #include "../../../../Includes.h"
 
 namespace MG_GL::GL {
+    bool IsSamplerType(GLenum type);
+    
     void DrawElements(GLenum mode, GLsizei count, GLenum type, const void *indices);
     void DrawArrays(GLenum mode, GLint first, GLsizei count);
     void DrawElementsBaseVertex(GLenum mode, GLsizei count, GLenum type, const GLvoid *indices, GLint basevertex);
