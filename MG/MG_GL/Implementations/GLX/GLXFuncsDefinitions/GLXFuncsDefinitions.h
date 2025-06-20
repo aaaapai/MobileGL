@@ -1,0 +1,10 @@
+//
+// Created by Swung 0x48 on 2025/6/20.
+//
+
+#ifndef FOLD_CRAFT_LAUNCHER_GLXFUNCSDEFINITIONS_H
+#define FOLD_CRAFT_LAUNCHER_GLXFUNCSDEFINITIONS_H
+
+#include "../../../../Includes.h"
+
+#endif //FOLD_CRAFT_LAUNCHER_GLXFUNCSDEFINITIONS_H
