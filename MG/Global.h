@@ -9,10 +9,10 @@
 
 namespace MG_Global {
     namespace MG {
-        inline const int VersionMajor = 1;
-        inline const int VersionMinor = 0;
-        inline const int VersionRevision = 0;
-        inline const int VersionPatch = 0;
+        inline const int VersionMajor          = 1;
+        inline const int VersionMinor          = 0;
+        inline const int VersionRevision       = 0;
+        inline const int VersionPatch          = 0;
         inline const std::string VersionSuffix = "-Dev";
     }
     
@@ -21,13 +21,14 @@ namespace MG_Global {
     }
     
     namespace GL {
-        inline const int GLVersionMajor = 3;
-        inline const int GLVersionMinor = 2;
+        inline const int GLVersionMajor    = 3;
+        inline const int GLVersionMinor    = 2;
         inline const int GLVersionRevision = 0;
     }
     
     namespace Common {
-        inline constexpr int LogLevel = MG_Constants::Common::LOG_LEVEL_INFO;
+        inline constexpr int LogLevel    = MG_Constants::Common::LOG_LEVEL_INFO;
+        inline constexpr int LogTarget   = MG_Constants::Common::LOG_TARGET_ALL;
         
 #ifdef __ANDROID__
         inline const char* LOG_FILE_PATH = "/sdcard/MG/latest.log";
