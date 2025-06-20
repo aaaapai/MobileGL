@@ -31,11 +31,18 @@ namespace MG_Global {
 
 namespace MG_Constants {
     namespace Common {
-        inline const int LOG_LEVEL_DEBUG = 0x0010;
-        inline const int LOG_LEVEL_WARN = 0x0011;
-        inline const int LOG_LEVEL_ERROR = 0x0012;
-        inline const int LOG_LEVEL_INFO = 0x0013;
-        inline const int LOG_LEVEL_FATAL = 0x0014;
+        inline constexpr int LOG_LEVEL_DEBUG     = 0x0010;
+        inline constexpr int LOG_LEVEL_WARN      = 0x0011;
+        inline constexpr int LOG_LEVEL_ERROR     = 0x0012;
+        inline constexpr int LOG_LEVEL_INFO      = 0x0013;
+        inline constexpr int LOG_LEVEL_FATAL     = 0x0014;
+
+
+        inline constexpr int LOG_TARGET_NONE     = 0x00;
+        inline constexpr int LOG_TARGET_CONSOLE  = 0x01;
+        inline constexpr int LOG_TARGET_FILE     = 0x02;
+        inline constexpr int LOG_TARGET_ANDROID  = 0x04;  // Android logcat
+        inline constexpr int LOG_TARGET_ALL      = LOG_TARGET_CONSOLE | LOG_TARGET_FILE | LOG_TARGET_ANDROID;
     }
     
     namespace Blend {
@@ -174,14 +181,15 @@ namespace MG_Constants {
     }
 
     namespace Backend {
-#define BACKEND_VULKAN 0x0015
-#define BACKEND_METAL 0x0016
-#define BACKEND_GLES 0x0017
+#define BACKEND_VULKAN   0x0015
+#define BACKEND_METAL    0x0016
+#define BACKEND_GLES     0x0017
 #define BACKEND_DILIGENT 0x0018
 
 inline const int BACKEND_DILIGENT_VULKAN = 0x0020;
 inline const int BACKEND_DILIGENT_METAL = 0x0021; // not ready currently
 inline const int BACKEND_DILIGENT_OPENGL = 0x0022;
+
     }
     
     inline const char* RenderName = "MobileGL";

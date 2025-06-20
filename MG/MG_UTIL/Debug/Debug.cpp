@@ -72,14 +72,22 @@ namespace MG_Util::Debug {
         std::string full_format = header + format + "\n";
 
 #ifdef __ANDROID__
-        __android_log_vprint(androidLevel, MG_Constants::RenderName, full_format.c_str(), args);
+        if (MG_Global::Common::LogTarget & MG_Constants::Common::LOG_TARGET_ANDROID) {
+            __android_log_vprint(androidLevel, MG_Constants::RenderName, full_format.c_str(), args);
+        }
 #endif
 
-        vprintf(full_format.c_str(), args);
-        va_list args_copy;
-        va_copy(args_copy, args);
-        LogWrite(full_format.c_str(), args_copy);
-        va_end(args_copy);
+        if (MG_Global::Common::LogTarget & MG_Constants::Common::LOG_TARGET_CONSOLE) {
+            vprintf(full_format.c_str(), args);
+        }
+
+        if ((MG_Global::Common::LogTarget & MG_Constants::Common::LOG_TARGET_FILE) &&
+            MG_Global::Common::LOG_FILE_PATH != nullptr) {
+            va_list args_copy;
+            va_copy(args_copy, args);
+            LogWrite(full_format.c_str(), args_copy);
+            va_end(args_copy);
+        }
     }
     
 #define DECLARE_LOG_FUNCTION(name, level) \
