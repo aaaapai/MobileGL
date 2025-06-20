@@ -54,7 +54,7 @@ namespace MG_Util::Program {
         std::ostringstream ss;
         ss << "[";
 
-        const size_t elemCount = std::min<size_t>(value.count, 16);
+        const size_t elemCount = std::min<size_t>(value.numElements, 16);
 
         switch(value.type) {
             case GL_FLOAT:
