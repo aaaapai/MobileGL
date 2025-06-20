@@ -8,21 +8,6 @@
 #include "../../../../Includes.h"
 
 namespace MG_GL::GL {
-    inline bool IsSamplerType(GLenum type) {
-        switch (type) {
-            case GL_SAMPLER_2D:
-            case GL_SAMPLER_3D:
-            case GL_SAMPLER_CUBE:
-            case GL_SAMPLER_2D_SHADOW:
-            case GL_SAMPLER_2D_ARRAY:
-            case GL_SAMPLER_2D_ARRAY_SHADOW:
-            case GL_SAMPLER_CUBE_SHADOW:
-                return true;
-            default:
-                return false;
-        }
-    }
-
     inline size_t GetUniformSize(GLenum type) {
         switch (type) {
             case GL_FLOAT: return sizeof(float);
