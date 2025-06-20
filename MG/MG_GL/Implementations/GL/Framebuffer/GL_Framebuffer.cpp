@@ -319,18 +319,128 @@ namespace MG_GL::GL {
 
             MG_Util::Debug::LogD("BindFramebuffer: Setting render targets. ColorRTVs count: %zu, DepthStencilRTV: %p",
                                  fbInfo.ColorRTVs.size(), fbInfo.pDepthStencilRTV);
-
+            
             MG_Diligent::g_pContext->SetRenderTargets(
-                    static_cast<Diligent::Uint32>(fbInfo.ColorRTVs.size()),
-                    fbInfo.ColorRTVs.empty() ? nullptr : fbInfo.ColorRTVs.data(),
-                    fbInfo.pDepthStencilRTV,
-                    Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION
+                static_cast<Diligent::Uint32>(fbInfo.ColorRTVs.size()),
+                fbInfo.ColorRTVs.empty() ? nullptr : fbInfo.ColorRTVs.data(),
+                fbInfo.pDepthStencilRTV,
+                Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION
             );
             MG_Util::Debug::LogD("BindFramebuffer: SetRenderTargets called.");
             return;
         }
         MG_State::SetError(result);
         MG_Util::Debug::LogE("Framebuffer bind error: %s", MG_Util::Debug::GLEnumToString(result));
+    }
+    
+    void AttachTexture2DToFramebuffer(GLuint fbo, GLuint texture, GLenum attachment, GLint level) {
+        auto it = MG_Diligent::g_FramebufferMap.find(fbo);
+        if (it == MG_Diligent::g_FramebufferMap.end()) {
+            MG_Util::Debug::LogE("Framebuffer %u not found in map", fbo);
+            return;
+        }
+
+        MG_Diligent::GLFramebufferInfo& fbInfo = it->second;
+
+        if (fbInfo.pFramebuffer) {
+            fbInfo.pFramebuffer->Release();
+            fbInfo.pFramebuffer = nullptr;
+            MG_Util::Debug::LogD("Released existing framebuffer");
+        }
+        if (fbInfo.pRenderPass) {
+            fbInfo.pRenderPass->Release();
+            fbInfo.pRenderPass = nullptr;
+            MG_Util::Debug::LogD("Released existing render pass");
+        }
+
+        if (texture == 0) {
+            MG_Util::Debug::LogD("Unbinding attachment: %s", MG_Util::Debug::GLEnumToString(attachment));
+
+            if (attachment == GL_DEPTH_ATTACHMENT ||
+                attachment == GL_STENCIL_ATTACHMENT ||
+                attachment == GL_DEPTH_STENCIL_ATTACHMENT) {
+                if (fbInfo.pDepthStencilRTV) {
+                    fbInfo.pDepthStencilRTV->Release();
+                    fbInfo.pDepthStencilRTV = nullptr;
+                    MG_Util::Debug::LogD("Released depth/stencil attachment");
+                }
+            } else {
+                size_t index = attachment - GL_COLOR_ATTACHMENT0;
+                if (index < fbInfo.ColorRTVs.size() && fbInfo.ColorRTVs[index]) {
+                    fbInfo.ColorRTVs[index]->Release();
+                    fbInfo.ColorRTVs[index] = nullptr;
+                    bool allNull = true;
+                    for (const auto& rtv : fbInfo.ColorRTVs) {
+                        if (rtv != nullptr) {
+                            allNull = false;
+                            break;
+                        }
+                    }
+                    if (allNull) fbInfo.ColorRTVs.clear();
+                    MG_Util::Debug::LogD("Released color attachment %zu", index);
+                }
+            }
+        } else {
+            Diligent::ITexture* pTexture = MG_Diligent::g_TextureMap[texture];
+            if (!pTexture) {
+                MG_Util::Debug::LogE("Texture %u exists in map but pointer is null", texture);
+                return;
+            }
+            const auto& texDesc = pTexture->GetDesc();
+            MG_Util::Debug::LogD("Attaching texture: %s (size: %ux%u)",
+                                 texDesc.Name,
+                                 texDesc.Width, texDesc.Height);
+            Diligent::TextureViewDesc ViewDesc;
+            ViewDesc.TextureDim = Diligent::RESOURCE_DIM_TEX_2D;
+            ViewDesc.MostDetailedMip = level;
+            ViewDesc.NumMipLevels = 1;
+
+            if (attachment == GL_DEPTH_ATTACHMENT ||
+                attachment == GL_STENCIL_ATTACHMENT ||
+                attachment == GL_DEPTH_STENCIL_ATTACHMENT) {
+                MG_Util::Debug::LogD("Creating depth/stencil attachment");
+
+                if (fbInfo.pDepthStencilRTV) {
+                    fbInfo.pDepthStencilRTV->Release();
+                    fbInfo.pDepthStencilRTV = nullptr;
+                    MG_Util::Debug::LogD("Released existing depth/stencil attachment");
+                }
+
+                ViewDesc.ViewType = Diligent::TEXTURE_VIEW_DEPTH_STENCIL;
+                fbInfo.DepthStencilFormat = texDesc.Format;
+                pTexture->CreateView(ViewDesc, &fbInfo.pDepthStencilRTV);
+
+                if (fbInfo.pDepthStencilRTV) {
+                    fbInfo.HasDepthStencil = true;
+                    MG_Util::Debug::LogD("Created new depth/stencil RTV");
+                } else {
+                    MG_Util::Debug::LogE("Failed to create depth/stencil RTV");
+                }
+            } else {
+                size_t index = attachment - GL_COLOR_ATTACHMENT0;
+                MG_Util::Debug::LogD("Creating color attachment at index %zu", index);
+
+                if (index >= fbInfo.ColorRTVs.size()) {
+                    fbInfo.ColorRTVs.resize(index + 1, nullptr);
+                    MG_Util::Debug::LogD("Resized color attachments to %zu", fbInfo.ColorRTVs.size());
+                }
+
+                if (fbInfo.ColorRTVs[index]) {
+                    fbInfo.ColorRTVs[index]->Release();
+                    fbInfo.ColorRTVs[index] = nullptr;
+                    MG_Util::Debug::LogD("Released existing color attachment %zu", index);
+                }
+
+                ViewDesc.ViewType = Diligent::TEXTURE_VIEW_RENDER_TARGET;
+                pTexture->CreateView(ViewDesc, &fbInfo.ColorRTVs[index]);
+
+                if (fbInfo.ColorRTVs[index]) {
+                    MG_Util::Debug::LogD("Created new color RTV at index %zu", index);
+                } else {
+                    MG_Util::Debug::LogE("Failed to create color RTV at index %zu", index);
+                }
+            }
+        }
     }
 
     void FramebufferTexture2D(GLenum target, GLenum attachment, GLenum textarget,
@@ -339,114 +449,43 @@ namespace MG_GL::GL {
                              MG_Util::Debug::GLEnumToString(target),
                              MG_Util::Debug::GLEnumToString(attachment),
                              MG_Util::Debug::GLEnumToString(textarget),
-                             texture, level);
+                             texture,
+                             level);
+        MG_Util::Debug::LogD("  Current READ_FRAMEBUFFER binding: %u", MG_State_T::framebufferState->currentBindings_[GL_READ_FRAMEBUFFER]);
+        MG_Util::Debug::LogD("  Current DRAW_FRAMEBUFFER binding: %u", MG_State_T::framebufferState->currentBindings_[GL_DRAW_FRAMEBUFFER]);
 
-        GLuint currentFB = MG_State_T::framebufferState->currentBindings_[target];
-        
         GLenum result = MG_State::AttachTexture2DToFramebuffer(
                 target, attachment, textarget, texture, level
         );
 
         if (result == GL_NO_ERROR) {
-            auto it = MG_Diligent::g_FramebufferMap.find(currentFB);
-            if (it == MG_Diligent::g_FramebufferMap.end()) {
-                MG_Util::Debug::LogE("Framebuffer %u not found in map", currentFB);
-                return;
-            }
-
-            MG_Diligent::GLFramebufferInfo& fbInfo = it->second;
-
-            if (fbInfo.pFramebuffer) {
-                fbInfo.pFramebuffer->Release();
-                fbInfo.pFramebuffer = nullptr;
-                MG_Util::Debug::LogD("Released existing framebuffer");
-            }
-            if (fbInfo.pRenderPass) {
-                fbInfo.pRenderPass->Release();
-                fbInfo.pRenderPass = nullptr;
-                MG_Util::Debug::LogD("Released existing render pass");
-            }
-
-            if (texture == 0) {
-                MG_Util::Debug::LogD("Unbinding attachment: %s", MG_Util::Debug::GLEnumToString(attachment));
-
-                if (attachment == GL_DEPTH_ATTACHMENT ||
-                    attachment == GL_STENCIL_ATTACHMENT ||
-                    attachment == GL_DEPTH_STENCIL_ATTACHMENT) {
-                    if (fbInfo.pDepthStencilRTV) {
-                        fbInfo.pDepthStencilRTV->Release();
-                        fbInfo.pDepthStencilRTV = nullptr;
-                        MG_Util::Debug::LogD("Released depth/stencil attachment");
-                    }
+            if (target == GL_FRAMEBUFFER) {
+                if (MG_State_T::framebufferState->currentBindings_[GL_READ_FRAMEBUFFER] == MG_State_T::framebufferState->currentBindings_[GL_DRAW_FRAMEBUFFER]) {
+                    MG_Util::Debug::LogD("  Target is GL_FRAMEBUFFER and READ/DRAW bindings are the same (%u). Applying to GL_DRAW_FRAMEBUFFER.", MG_State_T::framebufferState->currentBindings_[GL_DRAW_FRAMEBUFFER]);
+                    target = GL_DRAW_FRAMEBUFFER;
                 } else {
-                    size_t index = attachment - GL_COLOR_ATTACHMENT0;
-                    if (index < fbInfo.ColorRTVs.size() && fbInfo.ColorRTVs[index]) {
-                        fbInfo.ColorRTVs[index]->Release();
-                        fbInfo.ColorRTVs[index] = nullptr;
-                        MG_Util::Debug::LogD("Released color attachment %zu", index);
+                    MG_Util::Debug::LogD("  Target is GL_FRAMEBUFFER and READ/DRAW bindings differ. Applying to both if non-zero.");
+                    if (MG_State_T::framebufferState->currentBindings_[GL_READ_FRAMEBUFFER] != 0) {
+                        MG_Util::Debug::LogD("  Attaching to READ_FRAMEBUFFER: %u", MG_State_T::framebufferState->currentBindings_[GL_READ_FRAMEBUFFER]);
+                        AttachTexture2DToFramebuffer(MG_State_T::framebufferState->currentBindings_[GL_READ_FRAMEBUFFER], 
+                                                     texture, attachment, level);
                     }
-                }
-            } else {
-                Diligent::ITexture* pTexture = MG_Diligent::g_TextureMap[texture];
-                if (!pTexture) {
-                    MG_Util::Debug::LogE("Texture %u exists in map but pointer is null", texture);
+                    if (MG_State_T::framebufferState->currentBindings_[GL_DRAW_FRAMEBUFFER] != 0) {
+                        MG_Util::Debug::LogD("  Attaching to DRAW_FRAMEBUFFER: %u", MG_State_T::framebufferState->currentBindings_[GL_DRAW_FRAMEBUFFER]);
+                        AttachTexture2DToFramebuffer(MG_State_T::framebufferState->currentBindings_[GL_DRAW_FRAMEBUFFER],
+                                                     texture, attachment, level);
+                    }
+                    MG_Util::Debug::LogD("FramebufferTexture2D completed successfully after separate READ/DRAW attachments.");
                     return;
                 }
-                const auto& texDesc = pTexture->GetDesc();
-                MG_Util::Debug::LogD("Attaching texture: %s (size: %ux%u)",
-                                     texDesc.Name,
-                                     texDesc.Width, texDesc.Height);
-                Diligent::TextureViewDesc ViewDesc;
-                ViewDesc.TextureDim = Diligent::RESOURCE_DIM_TEX_2D;
-                ViewDesc.MostDetailedMip = level;
-                ViewDesc.NumMipLevels = 1;
-
-                if (attachment == GL_DEPTH_ATTACHMENT ||
-                    attachment == GL_STENCIL_ATTACHMENT ||
-                    attachment == GL_DEPTH_STENCIL_ATTACHMENT) {
-                    MG_Util::Debug::LogD("Creating depth/stencil attachment");
-
-                    if (fbInfo.pDepthStencilRTV) {
-                        fbInfo.pDepthStencilRTV->Release();
-                        MG_Util::Debug::LogD("Released existing depth/stencil attachment");
-                    }
-
-                    ViewDesc.ViewType = Diligent::TEXTURE_VIEW_DEPTH_STENCIL;
-                    fbInfo.DepthStencilFormat = texDesc.Format;
-                    pTexture->CreateView(ViewDesc, &fbInfo.pDepthStencilRTV);
-
-                    if (fbInfo.pDepthStencilRTV) {
-                        fbInfo.HasDepthStencil = true;
-                        MG_Util::Debug::LogD("Created new depth/stencil RTV");
-                    } else {
-                        MG_Util::Debug::LogE("Failed to create depth/stencil RTV");
-                    }
-                } else {
-                    size_t index = attachment - GL_COLOR_ATTACHMENT0;
-                    MG_Util::Debug::LogD("Creating color attachment at index %zu", index);
-
-                    if (index >= fbInfo.ColorRTVs.size()) {
-                        fbInfo.ColorRTVs.resize(index + 1, nullptr);
-                        MG_Util::Debug::LogD("Resized color attachments to %zu", fbInfo.ColorRTVs.size());
-                    }
-
-                    if (fbInfo.ColorRTVs[index]) {
-                        fbInfo.ColorRTVs[index]->Release();
-                        MG_Util::Debug::LogD("Released existing color attachment %zu", index);
-                    }
-
-                    ViewDesc.ViewType = Diligent::TEXTURE_VIEW_RENDER_TARGET;
-                    pTexture->CreateView(ViewDesc, &fbInfo.ColorRTVs[index]);
-
-                    if (fbInfo.ColorRTVs[index]) {
-                        MG_Util::Debug::LogD("Created new color RTV at index %zu", index);
-                    } else {
-                        MG_Util::Debug::LogE("Failed to create color RTV at index %zu", index);
-                    }
-                }
             }
+            GLuint fboToModify = MG_State_T::framebufferState->currentBindings_[target];
+            MG_Util::Debug::LogD("  Target is %s. Applying to bound FBO: %u",
+                                 MG_Util::Debug::GLEnumToString(target), fboToModify);
+            AttachTexture2DToFramebuffer(fboToModify,
+                                         texture, attachment, level);
 
-            MG_Util::Debug::LogD("FramebufferTexture2D completed successfully");
+            MG_Util::Debug::LogD("FramebufferTexture2D completed successfully for target %s (FBO %u).", MG_Util::Debug::GLEnumToString(target), fboToModify);
             return;
         }
         MG_State::SetError(result);
