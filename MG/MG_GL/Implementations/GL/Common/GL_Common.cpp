@@ -5,6 +5,10 @@
 #include "GL_Common.h"
 
 namespace MG_GL::GL {
+    void CreateRenderPassAndFramebuffer(GLuint framebuffer,
+                                        const FramebufferObject& fbo,
+                                        MG_Diligent::GLFramebufferInfo& fbInfo);
+    
     void Clear(GLbitfield mask) {
         GLuint drawFramebuffer = MG_State_T::framebufferState->currentBindings_[GL_DRAW_FRAMEBUFFER];
         if (drawFramebuffer == 0) {
@@ -20,26 +24,32 @@ namespace MG_GL::GL {
         MG_Diligent::GLFramebufferInfo& fbInfo = it->second;
         auto& commonState = *MG_State_T::commonState;
 
-        /*if (!MG_Diligent::IsInRenderPass) {
-            if (fbInfo.pRenderPass && fbInfo.pFramebuffer) {
-                Diligent::BeginRenderPassAttribs beginRenderPassAttribs;
-                beginRenderPassAttribs.pFramebuffer = fbInfo.pFramebuffer;
-                beginRenderPassAttribs.pRenderPass = fbInfo.pRenderPass;
-                beginRenderPassAttribs.StateTransitionMode = Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION;
-                beginRenderPassAttribs.ClearValueCount = fbInfo.ClearValues.size();
-                beginRenderPassAttribs.pClearValues = fbInfo.ClearValues.data();
+        if (MG_Diligent::IsInRenderPass) {
+            MG_Util::Debug::LogD("Ending render pass before clear operation");
+            MG_Diligent::g_pContext->EndRenderPass();
+            MG_Diligent::IsInRenderPass = false;
+        }
 
-                MG_Diligent::g_pContext->BeginRenderPass(beginRenderPassAttribs);
-                MG_Diligent::IsInRenderPass = true;
-            } else {
-                MG_Util::Debug::LogE("Cannot begin render pass for framebuffer: %u", drawFramebuffer);
-                return;
-            }
-        }*/
+        MG_Util::Debug::LogD("Beginning render pass for clear operation");
 
+        if (!fbInfo.pRenderPass) {
+            MG_GL::GL::CreateRenderPassAndFramebuffer(drawFramebuffer, 
+                                                      *MG_State_T::framebufferState->GetCurrentFBO(GL_DRAW_FRAMEBUFFER), fbInfo);
+        }
+        Diligent::BeginRenderPassAttribs beginAttribs;
+        beginAttribs.pRenderPass = fbInfo.pRenderPass;
+        beginAttribs.pFramebuffer = fbInfo.pFramebuffer;
+        beginAttribs.StateTransitionMode = Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION;
+        beginAttribs.ClearValueCount = 0;
+        beginAttribs.pClearValues = nullptr;
+
+        MG_Diligent::g_pContext->BeginRenderPass(beginAttribs);
+        MG_Diligent::IsInRenderPass = true;
+        
         if (mask & GL_COLOR_BUFFER_BIT) {
             for (size_t i = 0; i < fbInfo.ColorRTVs.size(); ++i) {
                 if (fbInfo.ColorRTVs[i]) {
+                    MG_Util::Debug::LogD("Clearing color attachment %zu", i);
                     MG_Diligent::g_pContext->ClearRenderTarget(
                             fbInfo.ColorRTVs[i],
                             commonState.clearColor,
@@ -55,6 +65,7 @@ namespace MG_GL::GL {
                 if (mask & GL_DEPTH_BUFFER_BIT) clearFlags |= Diligent::CLEAR_DEPTH_FLAG;
                 if (mask & GL_STENCIL_BUFFER_BIT) clearFlags |= Diligent::CLEAR_STENCIL_FLAG;
 
+                MG_Util::Debug::LogD("Clearing depth/stencil (flags: %u)", clearFlags);
                 MG_Diligent::g_pContext->ClearDepthStencil(
                         fbInfo.pDepthStencilRTV,
                         static_cast<Diligent::CLEAR_DEPTH_STENCIL_FLAGS>(clearFlags),
@@ -64,6 +75,10 @@ namespace MG_GL::GL {
                 );
             }
         }
+
+        MG_Util::Debug::LogD("Ending render pass after clear operation");
+        MG_Diligent::g_pContext->EndRenderPass();
+        MG_Diligent::IsInRenderPass = false;
     }
 
     void Enable(GLenum cap) {

@@ -4,6 +4,7 @@
 
 #include "Debug.h"
 #include "../../Includes.h"
+#include "BlendState.h"
 
 namespace MG_Util::Debug {
     static FILE* logFile;
@@ -71,14 +72,22 @@ namespace MG_Util::Debug {
         std::string full_format = header + format + "\n";
 
 #ifdef __ANDROID__
-        __android_log_vprint(androidLevel, MG_Constants::RenderName, full_format.c_str(), args);
+        if (MG_Global::Common::LogTarget & MG_Constants::Common::LOG_TARGET_ANDROID) {
+            __android_log_vprint(androidLevel, MG_Constants::RenderName, full_format.c_str(), args);
+        }
 #endif
 
-        vprintf(full_format.c_str(), args);
-        va_list args_copy;
-        va_copy(args_copy, args);
-        LogWrite(full_format.c_str(), args_copy);
-        va_end(args_copy);
+        if (MG_Global::Common::LogTarget & MG_Constants::Common::LOG_TARGET_CONSOLE) {
+            vprintf(full_format.c_str(), args);
+        }
+
+        if ((MG_Global::Common::LogTarget & MG_Constants::Common::LOG_TARGET_FILE) &&
+            MG_Global::Common::LOG_FILE_PATH != nullptr) {
+            va_list args_copy;
+            va_copy(args_copy, args);
+            LogWrite(full_format.c_str(), args_copy);
+            va_end(args_copy);
+        }
     }
     
 #define DECLARE_LOG_FUNCTION(name, level) \
@@ -1951,6 +1960,36 @@ void Log##name(const char* format, ...) { \
             }
 #undef CASE
         }
+
+    const char* DiligentBlendFactorToString(Diligent::BLEND_FACTOR value) {
+        static char str[128];
+        switch (value) {
+#define CASE(value) \
+    case value: return #value;
+            CASE(Diligent::BLEND_FACTOR_UNDEFINED)
+            CASE(Diligent::BLEND_FACTOR_ZERO)
+            CASE(Diligent::BLEND_FACTOR_ONE)
+            CASE(Diligent::BLEND_FACTOR_SRC_COLOR)
+            CASE(Diligent::BLEND_FACTOR_INV_SRC_COLOR)
+            CASE(Diligent::BLEND_FACTOR_SRC_ALPHA)
+            CASE(Diligent::BLEND_FACTOR_INV_SRC_ALPHA)
+            CASE(Diligent::BLEND_FACTOR_DEST_ALPHA)
+            CASE(Diligent::BLEND_FACTOR_DEST_COLOR)
+            CASE(Diligent::BLEND_FACTOR_INV_DEST_COLOR)
+            CASE(Diligent::BLEND_FACTOR_SRC_ALPHA_SAT)
+            CASE(Diligent::BLEND_FACTOR_BLEND_FACTOR)
+            CASE(Diligent::BLEND_FACTOR_INV_BLEND_FACTOR)
+            CASE(Diligent::BLEND_FACTOR_SRC1_COLOR)
+            CASE(Diligent::BLEND_FACTOR_INV_SRC1_COLOR)
+            CASE(Diligent::BLEND_FACTOR_SRC1_ALPHA)
+            CASE(Diligent::BLEND_FACTOR_INV_SRC1_ALPHA)
+
+            default:
+                sprintf(str, "0x%x", value);
+                return str;
+        }
+#undef CASE
+    }
 }
 
 

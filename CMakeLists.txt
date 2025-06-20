@@ -27,6 +27,9 @@ find_library(GLSLANG_LIB glslang PATHS ${CMAKE_SOURCE_DIR}/libraries/arm64-v8a/)
 add_library(${CMAKE_PROJECT_NAME} SHARED 
         MG/Init.cpp
 
+        # MG_GL/Implementations/GLX
+        MG/MG_GL/Implementations/GLX/GLXFuncsDefinitions/GLXFuncsDefinitions.cpp
+
         # MG_GL/Implementations/GL
         MG/MG_GL/Implementations/GL/GLFuncsDefinitions/GLFuncsDefinitions.cpp
         

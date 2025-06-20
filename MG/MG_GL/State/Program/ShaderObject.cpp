@@ -42,10 +42,6 @@ GLenum ProgramState::DeleteShader(GLuint shader) {
         MG_Util::Debug::LogE("MG_State: Program: DeleteShader error: invalid shader id %u", shader);
         return GL_INVALID_VALUE;
     }
-    if (shaders_[shader].markedForDeletion) {
-        MG_Util::Debug::LogW("MG_State: Program: DeleteShader warning: shader %u already marked for deletion", shader);
-        return GL_NO_ERROR;
-    }
 
     bool inUse = false;
     for (auto& [progId, program] : programs_) {

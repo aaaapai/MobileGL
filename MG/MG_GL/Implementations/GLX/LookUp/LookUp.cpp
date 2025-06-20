@@ -16,6 +16,7 @@ void* glXGetProcAddressARB(const char *name) {
 
 namespace MG_GL::GLX {
     void* GetProcAddress(const char *name) {
+        MG_Util::Debug::LogD("glXGetProcAddress(\"%s\")", name);
         void* proc = dlsym(RTLD_DEFAULT, (const char*)name);
 
         if (!proc) {
