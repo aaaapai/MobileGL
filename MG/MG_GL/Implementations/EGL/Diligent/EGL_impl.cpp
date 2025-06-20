@@ -678,8 +678,6 @@ namespace MG_EGL::Diligent {
 
         ::Diligent::SwapChainDesc SCDesc;
         SCDesc.ColorBufferFormat = TEX_FORMAT_RGBA8_UNORM;
-        SCDesc.PreTransform = SURFACE_TRANSFORM_HORIZONTAL_MIRROR_ROTATE_180;
-
         MG_Util::Debug::LogD("Creating Vulkan device and contexts");
         pFactoryVk->CreateDeviceAndContextsVk(
                 EngineCI, &MG_Diligent::g_pDevice, &MG_Diligent::g_pContext);
