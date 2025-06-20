@@ -223,6 +223,8 @@ namespace MG_GL::GL {
         MG_Util::Debug::LogD("glDeleteShader, shader: %u", shader);
         GLenum result = MG_State::DeleteShader(shader);
         if (result == GL_NO_ERROR) {
+            // Do not delete the shader object since it may be used in glDraw*.
+            /*
             auto it = MG_Diligent::g_ShaderMap.find(shader);
             if (it != MG_Diligent::g_ShaderMap.end()) {
                 if (it->second) {
@@ -231,6 +233,7 @@ namespace MG_GL::GL {
                 MG_Diligent::g_ShaderMap.erase(it);
             }
             return;
+            */
         }
         MG_State::SetError(result);
         MG_Util::Debug::LogE("Error deleting shader: %s", MG_Util::Debug::GLEnumToString(result));
