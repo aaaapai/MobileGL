@@ -123,7 +123,7 @@ namespace MG_Diligent {
         hash_combine(hash, capabilities[GL_STENCIL_TEST]);
 
         auto *pVAO = vaState.GetCurrentVAO();
-        // 保证顺序一致，按index排序
+        
         std::vector<uint32_t> attribIndices;
         for (const auto& [index, _] : pVAO->attribs)
             attribIndices.push_back(index);
@@ -147,7 +147,20 @@ namespace MG_Diligent {
             }
         }
         hash_combine(hash, fbInfo.DepthStencilFormat);
+        auto& programObj = MG_State_T::programState->programs_[MG_State_T::programState->currentProgram_];
 
+        for (auto& [name, uniform] : programObj.uniformValues) {
+            if (!MG_GL::GL::IsSamplerType(uniform.type)) continue;
+
+            std::string textureIDStr;
+            if (!uniform.intData.empty()) {
+                auto textureUnit = static_cast<GLuint>(uniform.intData[0]);
+                auto unitState = &MG_State_T::textureState->textureUnits_[textureUnit];
+                textureIDStr = "tex" + std::to_string(unitState->GetBoundTexture(unitState->activeTarget));
+                hash_combine(hash, textureIDStr);
+                MG_Util::Debug::LogD("Hashing sampler: %s, texture: %s", name.c_str(), textureIDStr.c_str());
+            }
+        }
         return hash;
     }
 
