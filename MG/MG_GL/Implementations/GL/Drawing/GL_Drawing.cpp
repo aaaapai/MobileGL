@@ -260,7 +260,7 @@ namespace MG_GL::GL {
 
         if (mapped) {
             MG_Util::Debug::LogD("UBO mapped successfully for program %u. Updating uniform values.", program);
-            uint8_t* uboData = static_cast<uint8_t*>(mapped);
+            auto* uboData = static_cast<uint8_t*>(mapped);
 
             for (auto& name: programInfo.uniformBufferNames) {
                 auto& uniform = programObj.uniformValues[name];
@@ -333,11 +333,23 @@ namespace MG_GL::GL {
         }
 
         MG_Util::Debug::LogD("Unmapping UBO for program %u", program);
-        MG_Diligent::g_pContext->UnmapBuffer(programInfo.pDefaultUBO, Diligent::MAP_WRITE);
-        pSRB.GetVariableByName(Diligent::SHADER_TYPE_VERTEX, "MG_DEFAULT_UBO")->Set(programInfo.pDefaultUBO,
-                                                                                    Diligent::SET_SHADER_RESOURCE_FLAG_ALLOW_OVERWRITE);
-        pSRB.GetVariableByName(Diligent::SHADER_TYPE_PIXEL, "MG_DEFAULT_UBO")->Set(programInfo.pDefaultUBO,
-                                                                                   Diligent::SET_SHADER_RESOURCE_FLAG_ALLOW_OVERWRITE);
+        if (programInfo.pDefaultUBO) {
+            MG_Diligent::g_pContext->UnmapBuffer(programInfo.pDefaultUBO, Diligent::MAP_WRITE);
+            auto* pVarVertex = pSRB.GetVariableByName(Diligent::SHADER_TYPE_VERTEX, "MG_DEFAULT_UBO");
+            if (pVarVertex) {
+                pVarVertex->Set(programInfo.pDefaultUBO, Diligent::SET_SHADER_RESOURCE_FLAG_ALLOW_OVERWRITE);
+            } else {
+                MG_Util::Debug::LogE("Failed to get vertex shader variable 'MG_DEFAULT_UBO' for program %u.", program);
+            }
+            auto* pVarPixel = pSRB.GetVariableByName(Diligent::SHADER_TYPE_PIXEL, "MG_DEFAULT_UBO");
+            if (pVarPixel) {
+                pVarPixel->Set(programInfo.pDefaultUBO, Diligent::SET_SHADER_RESOURCE_FLAG_ALLOW_OVERWRITE);
+            } else {
+                MG_Util::Debug::LogE("Failed to get pixel shader variable 'MG_DEFAULT_UBO' for program %u.", program);
+            }
+        } else {
+            MG_Util::Debug::LogW("Default UBO is null for program %u. Skipping setting shader variables.", program);
+        }
     }
 
     void EnsureRenderPassActive() {
