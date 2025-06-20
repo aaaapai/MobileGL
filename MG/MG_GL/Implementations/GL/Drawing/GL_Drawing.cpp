@@ -231,6 +231,7 @@ namespace MG_GL::GL {
                 MG_Util::Debug::LogD("Setting texture view for sampler '%s' in stage %d.", name.c_str(), stage);
                 auto* pVar = pSRB.GetVariableByName(stage, name.c_str());
                 if (pVar) {
+                    pTextureView->SetSampler(MG_Diligent::g_SamplerMap[textureID]);
                     pVar->Set(pTextureView, Diligent::SET_SHADER_RESOURCE_FLAG_ALLOW_OVERWRITE);
                 } else {
                     MG_Util::Debug::LogE("Failed to get shader variable for sampler '%s' in stage %d. Skipping.", name.c_str(), stage);
