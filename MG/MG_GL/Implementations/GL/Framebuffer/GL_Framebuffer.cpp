@@ -146,7 +146,6 @@ namespace MG_GL::GL {
                 Diligent::ITexture* pTexture = FBDesc.ppAttachments[i]->GetTexture();
                 if (pTexture) {
                     const auto& texDesc = pTexture->GetDesc();
-                    MG_Util::Debug::LogW("  pTexture->GetDesc available", i);
                     MG_Util::Debug::LogD("  Attachment %u: Texture '%s', Dim: %ux%u",
                                          i, texDesc.Name ? texDesc.Name : "N/A", texDesc.Width, texDesc.Height);
                 } else {
@@ -328,26 +327,6 @@ namespace MG_GL::GL {
                     Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION
             );
             MG_Util::Debug::LogD("BindFramebuffer: SetRenderTargets called.");
-
-
-            if (fbInfo.pRenderPass && fbInfo.pFramebuffer) {
-                MG_Util::Debug::LogD("BindFramebuffer: Beginning new render pass for framebuffer %u.", framebuffer);
-                Diligent::BeginRenderPassAttribs beginRenderPassAttribs;
-
-                beginRenderPassAttribs.pFramebuffer = fbInfo.pFramebuffer;
-                beginRenderPassAttribs.pRenderPass = fbInfo.pRenderPass;
-                beginRenderPassAttribs.ClearValueCount = fbInfo.ClearValues.size();
-                beginRenderPassAttribs.pClearValues = fbInfo.ClearValues.data();
-                beginRenderPassAttribs.StateTransitionMode = Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION;
-                MG_Util::Debug::LogD("BindFramebuffer: BeginRenderPassAttribs populated. ClearValueCount: %zu", beginRenderPassAttribs.ClearValueCount);
-
-                MG_Diligent::g_pContext->BeginRenderPass(beginRenderPassAttribs);
-                MG_Diligent::IsInRenderPass = true;
-                MG_Util::Debug::LogD("BindFramebuffer: New render pass began. IsInRenderPass set to true.");
-            } else {
-                MG_Util::Debug::LogW("BindFramebuffer: Skipping BeginRenderPass as pRenderPass (%p) or pFramebuffer (%p) is null for framebuffer %u.",
-                                     fbInfo.pRenderPass, fbInfo.pFramebuffer, framebuffer);
-            }
             return;
         }
         MG_State::SetError(result);
