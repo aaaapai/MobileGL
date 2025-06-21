@@ -29,7 +29,7 @@ namespace MG_GL::GL {
             case GL_FLOAT: return sizeof(float);
             case GL_FLOAT_VEC2: return 2 * sizeof(float);
             case GL_FLOAT_VEC3: return 3 * sizeof(float);
-            case GL_FLOAT_VEC4: return 4 * sizeof(float);
+            case GL_FLOAT_VEC4:
             case GL_FLOAT_MAT2: return 4 * sizeof(float);
             case GL_FLOAT_MAT3: return 9 * sizeof(float);
             case GL_FLOAT_MAT4: return 16 * sizeof(float);
@@ -684,8 +684,132 @@ namespace MG_GL::GL {
         MG_Util::Debug::LogD("DrawIndexed (BaseVertex) completed.");
     }
 
+    struct DrawIndexedArguments
+    {
+        Diligent::Uint32 IndexCount;
+        Diligent::Uint32 InstanceCount;
+        Diligent::Uint32 FirstIndex;
+        Diligent::Uint32 BaseVertex;
+        Diligent::Uint32 FirstInstance;
+    };
+    
     void MultiDrawElements(GLenum mode, const GLsizei *count, GLenum type, const GLvoid *const *indices, GLsizei drawcount) {
-        // TODO
+        PrepareForDraw();
+        
+        auto* pVAO = MG_State_T::vertexArrayState->GetCurrentVAO();
+        Diligent::IBuffer* pIndexBuffer = nullptr;
+        if (pVAO->elementBuffer != 0) {
+            auto it = MG_Diligent::g_BufferMap.find(pVAO->elementBuffer);
+            if (it != MG_Diligent::g_BufferMap.end())
+                pIndexBuffer = it->second;
+        }
+        if (!pIndexBuffer) {
+            MG_Util::Debug::LogE("No valid index buffer bound for multi-draw");
+            return;
+        }
+
+        Diligent::VALUE_TYPE indexType = ConvertGLTypeToDiligent(type);
+        Diligent::Uint32 indexSize = 0;
+        switch (indexType) {
+            case Diligent::VT_UINT16: indexSize = 2; break;
+            case Diligent::VT_UINT32: indexSize = 4; break;
+            default:
+                MG_Util::Debug::LogE("Unsupported index type for multi-draw: %d", type);
+                return;
+        }
+
+        std::vector<DrawIndexedArguments> indirectCmds;
+        indirectCmds.reserve(drawcount);
+        for (GLsizei i = 0; i < drawcount; ++i) {
+            if (count[i] <= 0) continue;
+            
+            DrawIndexedArguments cmd{};
+            cmd.IndexCount    = static_cast<Diligent::Uint32>(count[i]);
+            cmd.InstanceCount = 1;
+            cmd.FirstIndex    = static_cast<Diligent::Uint32>(reinterpret_cast<uintptr_t>(indices[i]) / indexSize);
+            cmd.BaseVertex    = 0;
+            cmd.FirstInstance = 0;
+
+            indirectCmds.push_back(cmd);
+        }
+
+        if (indirectCmds.empty()) {
+            MG_Util::Debug::LogW("No valid draw items in multi-draw");
+            return;
+        }
+
+        static GLuint indirectBufId = 0;
+        Diligent::IBuffer* pIndirectBuffer = nullptr;
+        if (indirectBufId == 0) {
+            bool isIdFree = false;
+            while (!isIdFree) {
+                MG_Diligent::g_NextResourceId++;
+                bool isIdAlreadyExist = false;
+                for (auto& [id, bufferObj] : MG_State_T::bufferState->buffers_) {
+                    if (MG_Diligent::g_NextResourceId == id) {
+                        isIdAlreadyExist = true;
+                        break;
+                    }
+                }
+                isIdFree = !isIdAlreadyExist;
+            }
+            indirectBufId = MG_Diligent::g_NextResourceId;
+            MG_Diligent::g_NextResourceId++;
+        }
+
+        auto& bufEntry = MG_Diligent::g_BufferMap[indirectBufId];
+        const auto requiredSize = indirectCmds.size() * sizeof(DrawIndexedArguments);
+
+        bool recreateBuffer = !bufEntry || bufEntry->GetDesc().Size != requiredSize;
+
+        if (recreateBuffer) {
+            if (bufEntry) {
+                bufEntry->Release();
+                bufEntry = nullptr; 
+            }
+
+            Diligent::BufferDesc desc;
+            desc.Name = "MultiDrawIndirectArgs";
+            desc.Usage = Diligent::USAGE_DYNAMIC;
+            desc.BindFlags = Diligent::BIND_INDIRECT_DRAW_ARGS;
+            desc.Size = static_cast<Diligent::Uint64>(requiredSize);
+            desc.CPUAccessFlags = Diligent::CPU_ACCESS_WRITE;
+            MG_Diligent::g_pDevice->CreateBuffer(desc, nullptr, &bufEntry);
+        }
+        pIndirectBuffer = bufEntry;
+
+        void* pMappedData = nullptr;
+        
+        MG_Util::Debug::LogD("Mapping indirect draw buffer for multi-draw.");
+        MG_Diligent::g_pContext->MapBuffer(
+            pIndirectBuffer,
+            Diligent::MAP_WRITE,
+            Diligent::MAP_FLAG_DISCARD,
+            pMappedData
+            );
+
+        if (pMappedData) {
+            memcpy(pMappedData, indirectCmds.data(), requiredSize);
+            MG_Diligent::g_pContext->UnmapBuffer(pIndirectBuffer, Diligent::MAP_WRITE);
+            MG_Util::Debug::LogD("Successfully updated indirect draw buffer.");
+        } else {
+            MG_Util::Debug::LogE("Failed to map indirect draw buffer for multi-draw.");
+            return;
+        }
+        
+        // Execute multi-draw indirect!
+        EnsureRenderPassActive();
+        Diligent::DrawIndexedIndirectAttribs mdAttribs;
+        mdAttribs.IndexType = indexType;
+        mdAttribs.pAttribsBuffer = pIndirectBuffer;
+        mdAttribs.DrawCount = static_cast<Diligent::Uint32>(indirectCmds.size());
+
+        MG_Diligent::g_pContext->DrawIndexedIndirect(mdAttribs);
+
+        MG_Diligent::g_pContext->EndRenderPass();
+        MG_Diligent::IsInRenderPass = false;
+
+        MG_Util::Debug::LogD("MultiDrawElements completed with %d draws.", indirectCmds.size());
     }
 
     void MultiDrawElementsBaseVertex(GLenum mode, const GLsizei *count, GLenum type, const GLvoid *const *indices, GLsizei drawcount, const GLint *basevertex) {
@@ -723,7 +847,7 @@ namespace MG_GL::GL {
             if (count[i] <= 0) continue;
             Diligent::MultiDrawIndexedItem item;
             item.NumIndices = static_cast<Diligent::Uint32>(count[i]);
-            Diligent::Uint64 byteOffset = reinterpret_cast<Diligent::Uint64>(indices[i]);
+            auto byteOffset = reinterpret_cast<Diligent::Uint64>(indices[i]);
             item.FirstIndexLocation = static_cast<Diligent::Uint32>(byteOffset / indexSize);
             item.BaseVertex = static_cast<Diligent::Int32>(basevertex[i]);
             drawItems.push_back(item);
