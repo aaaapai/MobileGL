@@ -213,6 +213,7 @@ namespace MG_Diligent {
 
     extern bool initialized;
     extern bool IsInRenderPass;
+    extern GLuint g_NextResourceId;
 }
 
 namespace MG_EGL::Diligent {

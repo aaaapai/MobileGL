@@ -23,6 +23,7 @@ namespace MG_Diligent {
     MG_Global::unordered_map<GLuint, GLProgramInfo>              g_ProgramMap;
     MG_Global::unordered_map<GLuint, Diligent::ISampler*>        g_SamplerMap;
     MG_Global::unordered_map<GLuint, Diligent::IBuffer*>         g_UniformBufferMap;
+    GLuint g_NextResourceId = 0;
     bool IsInRenderPass = false;
     bool initialized = false;
 
@@ -173,9 +174,9 @@ namespace MG_Diligent {
         PSOCreateInfo.PSODesc.Name = "Program_PSO";
         PSOCreateInfo.PSODesc.PipelineType = Diligent::PIPELINE_TYPE_GRAPHICS;
 
-        __android_log_print(ANDROID_LOG_DEBUG, "Diligent Engine", "Num AttachedShaders: %zu", programInfo.AttachedShaders.size());
+        MG_Util::Debug::LogD("Num AttachedShaders: %zu", programInfo.AttachedShaders.size());
         for (auto shader: programInfo.AttachedShaders) {
-            __android_log_print(ANDROID_LOG_DEBUG, "Diligent Engine", "AttachedShader: %p, Type: %d", shader, shader->GetDesc().ShaderType);
+            MG_Util::Debug::LogD("AttachedShader: %p, Type: %d", shader, shader->GetDesc().ShaderType);
             switch (shader->GetDesc().ShaderType) {
                 case Diligent::SHADER_TYPE_VERTEX:
                     PSOCreateInfo.pVS = shader;
