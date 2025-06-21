@@ -249,7 +249,12 @@ namespace MG_GL::GL {
         auto& programInfo = MG_Diligent::g_ProgramMap[program];
         auto& programObj = MG_State_T::programState->programs_[program];
 
-        if (programObj.uniformValues.empty() || !programInfo.pDefaultUBO) {
+        if (!programInfo.pDefaultUBO) {
+            MG_Util::Debug::LogE("Program %u does not have a default UBO. Skipping uniform update.", program);
+            return;
+        }
+        if (programObj.uniformValues.empty()) {
+            MG_Util::Debug::LogE("Program %u has no uniforms. Skipping uniform update.", program);
             return;
         }
 

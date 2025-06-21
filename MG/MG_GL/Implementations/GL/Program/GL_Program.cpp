@@ -61,7 +61,8 @@ namespace MG_GL::GL {
         auto spirv = MG_Util::Program::CompileGLSLToSPIRV(
                 MG_State_T::programState->shaders_[reflectionShaderId].type,
                 itSource->second,
-                infoLog
+                infoLog,
+                true
         );
         if (spirv.empty()) {
             MG_Util::Debug::LogE("GLSL to SPIR-V compilation failed for shader %u: %s", reflectionShaderId, infoLog.c_str());
