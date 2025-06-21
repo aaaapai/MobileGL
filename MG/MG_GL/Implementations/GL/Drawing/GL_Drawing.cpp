@@ -530,6 +530,11 @@ namespace MG_GL::GL {
 
         // Update data for all dynamic buffers
         for (auto& [bufferID, pBuffer] : MG_Diligent::g_BufferMap) {
+            if (MG_State_T::bufferState->buffers_.find(bufferID) == MG_State_T::bufferState->buffers_.end()) {
+                MG_Util::Debug::LogW("Buffer ID %u not found in bufferState. Skipping update.", bufferID);
+                continue;
+            }
+            
             auto& bufferObj = MG_State_T::bufferState->buffers_[bufferID];
             if (pBuffer && bufferObj.isDynamic && !bufferObj.data.empty()) {
                 void* pMappedData = nullptr;
@@ -708,6 +713,12 @@ namespace MG_GL::GL {
             return;
         }
 
+        MG_Diligent::g_pContext->SetIndexBuffer(
+                pIndexBuffer,
+                0,
+                Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION
+        );
+
         Diligent::VALUE_TYPE indexType = ConvertGLTypeToDiligent(type);
         Diligent::Uint32 indexSize = 0;
         switch (indexType) {
@@ -720,6 +731,7 @@ namespace MG_GL::GL {
 
         std::vector<DrawIndexedArguments> indirectCmds;
         indirectCmds.reserve(drawcount);
+        indirectCmds.clear();
         for (GLsizei i = 0; i < drawcount; ++i) {
             if (count[i] <= 0) continue;
             
