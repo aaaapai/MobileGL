@@ -592,7 +592,8 @@ namespace MG_Util::Program {
         }
     }
     
-    std::string CompileGLSLToTShader(GLenum shaderType, const std::string& source, glslang::TShader *&shader) {
+    std::string CompileGLSLToTShader(GLenum shaderType, const std::string& source, 
+                                     glslang::TShader *&shader, bool isVkGLSL) {
         std::string infoLog;
         using namespace glslang;
         
@@ -609,7 +610,7 @@ namespace MG_Util::Program {
         const char *src = source.c_str();
         shader->setStrings(&src, 1);
         shader->setEnvInput(EShSourceGlsl, language, EShClientVulkan, glslVersion);
-        shader->setEnvClient(EShClientOpenGL, EShTargetOpenGL_450);
+        shader->setEnvClient(EShClientOpenGL, isVkGLSL ? EShTargetVulkan_1_3 : EShTargetOpenGL_450);
         shader->setEnvTarget(EShTargetSpv, EShTargetSpv_1_6);
         shader->setAutoMapLocations(true);
         shader->setAutoMapBindings(true);
@@ -617,7 +618,7 @@ namespace MG_Util::Program {
         // Is InitResources() really correct?
         TBuiltInResource resources = InitResources();
 
-        if (!shader->parse(&resources, glslVersion, true, EShMsgDefault)) {
+        if (!shader->parse(&resources, glslVersion, true, isVkGLSL ? EShMsgVulkanRules : EShMsgDefault)) {
             infoLog += "Error: [glslang] Cannot compile the " + GetShaderTypeName(shaderType) + ":\n"
                       + std::to_string(shader->getInfoLog());
             return infoLog;
@@ -662,18 +663,19 @@ namespace MG_Util::Program {
         return allSpirv;
     }
     
-    std::vector<unsigned> CompileGLSLToSPIRV(GLenum shaderType, const std::string &source, std::string &infoLog) {
+    std::vector<unsigned> CompileGLSLToSPIRV(GLenum shaderType, const std::string &source, 
+                                             std::string &infoLog, bool isVkGLSL) {
         using namespace glslang;
 
         TShader* shader = nullptr;
-        std::string infoLogOfShader = CompileGLSLToTShader(shaderType, source, shader);
+        std::string infoLogOfShader = CompileGLSLToTShader(shaderType, source, shader, isVkGLSL);
         if (!infoLogOfShader.empty()) {
             infoLog = "Error: [glslang] Cannot compile " + GetShaderTypeName(shaderType) + ":\n" + infoLogOfShader;
             return {};
         }
         TProgram program;
         program.addShader(shader);
-        if (!program.link(EShMsgDefault)) {
+        if (!program.link(isVkGLSL ? EShMsgVulkanRules : EShMsgDefault)) {
             infoLog = "Error: [glslang] Cannot link the program of the single shader:\n" + std::to_string(program.getInfoLog());
             return {};
         }
