@@ -841,6 +841,12 @@ namespace MG_GL::GL {
             return;
         }
 
+        MG_Diligent::g_pContext->SetIndexBuffer(
+                pIndexBuffer,
+                0,
+                Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION
+        );
+
         std::vector<Diligent::MultiDrawIndexedItem> drawItems;
         drawItems.reserve(drawcount);
 
