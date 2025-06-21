@@ -457,7 +457,7 @@ namespace MG_Diligent {
 
         for (GLuint shaderId : programObj.attachedShaders) {
             auto it = MG_State_T::programState->shaders_.find(shaderId);
-            if (it != MG_State_T::programState->shaders_.end() && !it->second.markedForDeletion) {
+            if (it != MG_State_T::programState->shaders_.end()) {
                 std::string shaderSource;
                 if (it->second.type == GL_VERTEX_SHADER) {
                     std::string infoLog;
