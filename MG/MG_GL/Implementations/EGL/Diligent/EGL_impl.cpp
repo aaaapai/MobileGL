@@ -270,7 +270,8 @@ namespace MG_Diligent {
         Diligent::RasterizerStateDesc &rasterizerDesc = PSOCreateInfo.GraphicsPipeline.RasterizerDesc;
         rasterizerDesc.CullMode = commonState.capabilities[GL_CULL_FACE] ?
                                   Diligent::CULL_MODE_BACK : Diligent::CULL_MODE_NONE;
-        rasterizerDesc.FrontCounterClockwise = true;
+        rasterizerDesc.FrontCounterClockwise = false;
+        // TODO: Get correct FrontCounterClockwise state.
 
         if (!programInfo.inputLayout.empty()) {
             PSOCreateInfo.GraphicsPipeline.InputLayout.LayoutElements = programInfo.inputLayout.data();
@@ -716,7 +717,7 @@ namespace MG_EGL::Diligent {
     }
 
     void LoadDiligentCore(NativeWindowType window) {
-        switch (DILIGENT_BACKEND_TYPE) {
+        switch (MG_Diligent::DILIGENT_BACKEND_TYPE) {
             case MG_Constants::Backend::BACKEND_DILIGENT_VULKAN:
                 LoadDiligentCoreVulkan(window);
                 break;
