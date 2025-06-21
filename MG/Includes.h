@@ -84,6 +84,8 @@
 #include "MG_RHI/GLES/Test/TestDrawing.h"
 #endif
 
+#include "MG_GL/Implementations/EGL/Diligent/DiligentConfig.h"
+
 #include <cstring>
 #include <iostream>
 #include <cstdio>
