@@ -689,7 +689,7 @@ namespace MG_EGL::Diligent {
 
         auto *pFactoryVk = Diligent_GetEngineFactoryVk();
         ::Diligent::EngineVkCreateInfo EngineCI;
-        EngineCI.DynamicHeapSize = 256 << 20;
+        EngineCI.DynamicHeapSize = 512 << 20;
 
         ::Diligent::SwapChainDesc SCDesc;
         SCDesc.ColorBufferFormat = TEX_FORMAT_RGBA8_UNORM;
