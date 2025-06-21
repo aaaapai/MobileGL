@@ -8,49 +8,8 @@
 #include "../../../../Includes.h"
 
 namespace MG_GL::GL {
-    inline size_t GetUniformSize(GLenum type) {
-        switch (type) {
-            case GL_FLOAT: return sizeof(float);
-            case GL_FLOAT_VEC2: return 2 * sizeof(float);
-            case GL_FLOAT_VEC3: return 3 * sizeof(float);
-            case GL_FLOAT_VEC4: return 4 * sizeof(float);
-            case GL_FLOAT_MAT2: return 4 * sizeof(float);
-            case GL_FLOAT_MAT3: return 9 * sizeof(float);
-            case GL_FLOAT_MAT4: return 16 * sizeof(float);
-            case GL_INT:
-            case GL_BOOL:
-                return sizeof(int);
-            case GL_INT_VEC2: return 2 * sizeof(int);
-            case GL_INT_VEC3: return 3 * sizeof(int);
-            case GL_INT_VEC4: return 4 * sizeof(int);
-            case GL_UNSIGNED_INT: return sizeof(uint32_t);
-            case GL_UNSIGNED_INT_VEC2: return 2 * sizeof(uint32_t);
-            case GL_UNSIGNED_INT_VEC3: return 3 * sizeof(uint32_t);
-            case GL_UNSIGNED_INT_VEC4: return 4 * sizeof(uint32_t);
-            default: return 0;
-        }
-    }
-
-    inline size_t AlignSize(size_t size, size_t alignment) {
-        return (size + alignment - 1) & ~(alignment - 1);
-    }
-    
-    void CreateDefaultUBO(MG_Diligent::GLProgramInfo& programInfo) {
-        MG_Util::Debug::LogD("CreateDefaultUBO for program");
-        size_t uboSize = 0;
-        std::vector<size_t> uniformSizes;
-
-        for (auto& [name, uniform] : programInfo.programObj.uniformValues) {
-            if (IsSamplerType(uniform.type)) continue;
-
-            size_t size = GetUniformSize(uniform.type);
-            size_t alignedSize = AlignSize(size, 16);
-            uniformSizes.push_back(alignedSize);
-            MG_Util::Debug::LogD("  Uniform '%s': size = %zu, alignedSize = %zu",
-                                 name.c_str(), size, alignedSize);
-            uboSize += alignedSize;
-        }
-
+    void CreateDefaultUBO(MG_Diligent::GLProgramInfo& programInfo, size_t uboSize) {
+        MG_Util::Debug::LogD("CreateDefaultUBO for program, size = %zu", uboSize);
         if (uboSize > 0) {
             Diligent::BufferDesc BuffDesc;
             BuffDesc.Name = "MG_DEFAULT_UBO";
@@ -58,65 +17,144 @@ namespace MG_GL::GL {
             BuffDesc.Usage = Diligent::USAGE_DYNAMIC;
             BuffDesc.BindFlags = Diligent::BIND_UNIFORM_BUFFER;
             BuffDesc.CPUAccessFlags = Diligent::CPU_ACCESS_WRITE;
-
             MG_Diligent::g_pDevice->CreateBuffer(BuffDesc, nullptr, &programInfo.pDefaultUBO);
             MG_Util::Debug::LogD("Created default UBO: size = %zu", uboSize);
         } else {
-            MG_Util::Debug::LogD("No non-sampler uniforms found, default UBO not created.");
+            MG_Util::Debug::LogD("UBO size is 0, default UBO not created.");
         }
     }
 
-    size_t GetStd140Alignment(GLenum type) {
-        switch (type) {
-            case GL_FLOAT:
-            case GL_INT:
-            case GL_BOOL:
-            case GL_UNSIGNED_INT:
-                return size_t(4);
-            case GL_FLOAT_VEC2:
-            case GL_INT_VEC2:
-            case GL_BOOL_VEC2:
-            case GL_UNSIGNED_INT_VEC2:
-                return size_t(8);
-            case GL_FLOAT_VEC3:
-            case GL_FLOAT_VEC4:
-            case GL_INT_VEC3:
-            case GL_INT_VEC4:
-            case GL_BOOL_VEC3:
-            case GL_BOOL_VEC4:
-            case GL_UNSIGNED_INT_VEC3:
-            case GL_UNSIGNED_INT_VEC4:
-            case GL_FLOAT_MAT2:
-            case GL_FLOAT_MAT3:
-            case GL_FLOAT_MAT4:
-            case GL_FLOAT_MAT2x3:
-            case GL_FLOAT_MAT2x4:
-            case GL_FLOAT_MAT3x2:
-            case GL_FLOAT_MAT3x4:
-            case GL_FLOAT_MAT4x2:
-            case GL_FLOAT_MAT4x3:
-                return size_t(16);
-            default:
-                return size_t(16); 
-        }
-    }
-
-    void RecordUniformOffsets(MG_Diligent::GLProgramInfo& programInfo) {
-        MG_Util::Debug::LogD("RecordUniformOffsets for program");
-        size_t offset = 0;
+    size_t RecordUniformOffsets(MG_Diligent::GLProgramInfo& programInfo, const MG_Global::unordered_map<GLuint, std::string>& shaderSources) {
+        MG_Util::Debug::LogD("RecordUniformOffsets for program %u using SPIRV-Cross", programInfo.id);
+        size_t uboTotalSize = 0;
         programInfo.uniformOffsets.clear();
 
-        for (auto& name: programInfo.uniformBufferNames) {
-            auto& uniform = programInfo.programObj.uniformValues[name];
-            if (IsSamplerType(uniform.type)) continue;
-            size_t size = GetUniformSize(uniform.type);
-            size_t alignment = GetStd140Alignment(uniform.type);
-            offset = AlignSize(offset, alignment);
-            programInfo.uniformOffsets[name] = offset;
-            MG_Util::Debug::LogD("  Uniform '%s': offset = %zu, size = %zu, alignment = %zu", name.c_str(), offset, size, alignment);
-            size_t paddedSize = AlignSize(size, alignment);
-            offset += paddedSize;
+        GLuint reflectionShaderId = 0;
+        for (auto shaderId : programInfo.AttachedShadersID) {
+            auto& shaderObj = MG_State_T::programState->shaders_[shaderId];
+            MG_Util::Debug::LogD("  Checking attached shader %u, type: %s", shaderId, MG_Util::Debug::GLEnumToString(shaderObj.type));
+            if (shaderObj.type == GL_VERTEX_SHADER) {
+                reflectionShaderId = shaderId;
+                MG_Util::Debug::LogD("  Found vertex shader %u for reflection.", reflectionShaderId);
+                break;
+            }
         }
+        if (!reflectionShaderId && !programInfo.AttachedShadersID.empty()) {
+            reflectionShaderId = programInfo.AttachedShadersID[0];
+            MG_Util::Debug::LogD("  No vertex shader found, using first attached shader %u for reflection.", reflectionShaderId);
+        }
+        if (!reflectionShaderId) {
+            MG_Util::Debug::LogW("  No suitable shader found for UBO reflection.");
+            return uboTotalSize;
+        }
+
+        MG_Util::Debug::LogD("  Using shader %u for UBO reflection.", reflectionShaderId);
+        auto itSource = shaderSources.find(reflectionShaderId);
+        if (itSource == shaderSources.end()) {
+            MG_Util::Debug::LogE("  Could not find source for reflection shader %u.", reflectionShaderId);
+            return uboTotalSize;
+        }
+
+        MG_Util::Debug::LogD("  Found source for shader %u.", reflectionShaderId);
+        MG_Util::Debug::LogD("  Shader source for reflection:\n%s", itSource->second.c_str());
+        std::string infoLog;
+        auto spirv = MG_Util::Program::CompileGLSLToSPIRV(
+                MG_State_T::programState->shaders_[reflectionShaderId].type,
+                itSource->second,
+                infoLog
+        );
+        if (spirv.empty()) {
+            MG_Util::Debug::LogE("GLSL to SPIR-V compilation failed for shader %u: %s", reflectionShaderId, infoLog.c_str());
+            return uboTotalSize;
+        }
+
+        MG_Util::Debug::LogD("  Successfully compiled GLSL to SPIR-V for shader %u.", reflectionShaderId);
+
+        spvc_context context = nullptr;
+        spvc_parsed_ir ir = nullptr;
+        spvc_compiler compiler = nullptr;
+        spvc_resources resources = nullptr;
+
+        if (spvc_context_create(&context) != SPVC_SUCCESS) {
+            MG_Util::Debug::LogE("SPIRV-Cross: Failed to create context: %s", spvc_context_get_last_error_string(context));
+            return uboTotalSize;
+        }
+
+        if (spvc_context_parse_spirv(context, spirv.data(), spirv.size(), &ir) != SPVC_SUCCESS) {
+            MG_Util::Debug::LogE("SPIRV-Cross: Failed to parse SPIR-V: %s", spvc_context_get_last_error_string(context));
+            spvc_context_destroy(context);
+            return uboTotalSize;
+        }
+
+        if (spvc_context_create_compiler(context, SPVC_BACKEND_GLSL, ir, SPVC_CAPTURE_MODE_TAKE_OWNERSHIP, &compiler) != SPVC_SUCCESS) {
+            MG_Util::Debug::LogE("SPIRV-Cross: Failed to create compiler: %s", spvc_context_get_last_error_string(context));
+            spvc_context_destroy(context);
+            return uboTotalSize;
+        }
+
+        MG_Util::Debug::LogD("  spvc_context_create_compiler successful.");
+
+        if (spvc_compiler_create_shader_resources(compiler, &resources) != SPVC_SUCCESS) {
+            MG_Util::Debug::LogE("SPIRV-Cross: Failed to create shader resources: %s", spvc_context_get_last_error_string(context));
+            spvc_context_destroy(context);
+            return uboTotalSize;
+        }
+
+        MG_Util::Debug::LogD("  spvc_compiler_create_shader_resources successful.");
+
+        const spvc_reflected_resource* ubo_list = nullptr;
+        size_t ubo_count = 0;
+        if (spvc_resources_get_resource_list_for_type(resources, SPVC_RESOURCE_TYPE_UNIFORM_BUFFER, &ubo_list, &ubo_count) != SPVC_SUCCESS) {
+            MG_Util::Debug::LogE("SPIRV-Cross: Failed to get resource list for UBO: %s", spvc_context_get_last_error_string(context));
+            spvc_context_destroy(context);
+            return uboTotalSize;
+        }
+
+        MG_Util::Debug::LogD("  Found %zu UBO resources.", ubo_count);
+
+        for (size_t i = 0; i < ubo_count; i++) {
+            const char* name = ubo_list[i].name;
+            if (!name || strcmp(name, "MG_DEFAULT_UBO") != 0) {
+                MG_Util::Debug::LogD("  Skipping UBO '%s'.", name ? name : "<unnamed>");
+                continue;
+            }
+
+            MG_Util::Debug::LogD("  Found UBO 'MG_DEFAULT_UBO'.");
+            spvc_type_id ubo_type_id = ubo_list[i].type_id;
+            spvc_type ubo_type = spvc_compiler_get_type_handle(compiler, ubo_type_id);
+
+            size_t currentUboSize = 0;
+            if (spvc_compiler_get_declared_struct_size(compiler, ubo_type, &currentUboSize) != SPVC_SUCCESS) {
+                MG_Util::Debug::LogE("SPIRV-Cross: Failed to get declared struct size: %s", spvc_context_get_last_error_string(context));
+                spvc_context_destroy(context);
+                return uboTotalSize;
+            }
+
+            uboTotalSize = currentUboSize;
+            MG_Util::Debug::LogD("  UBO 'MG_DEFAULT_UBO' total size: %zu", uboTotalSize);
+
+            size_t member_count = spvc_type_get_num_member_types(ubo_type);
+            for (size_t member_index = 0; member_index < member_count; member_index++) {
+                const char* member_name = programInfo.uniformBufferNames[member_index].c_str();
+
+                unsigned offset;
+                spvc_compiler_type_struct_member_offset(compiler, ubo_type, member_index, &offset);
+
+                if (member_name) {
+                    programInfo.uniformOffsets[member_name] = offset;
+                    MG_Util::Debug::LogD(
+                            "  Uniform '%s' offset = %u (via SPIRV-Cross)",
+                            member_name,
+                            offset
+                    );
+                }
+            }
+            break;
+        }
+
+        spvc_context_destroy(context);
+        MG_Util::Debug::LogD("RecordUniformOffsets completed for program %u, UBO total size: %zu", programInfo.id, uboTotalSize);
+        return uboTotalSize;
     }
     
     Diligent::VALUE_TYPE ConvertGLTypeToDiligent(GLenum type) {
@@ -147,33 +185,6 @@ namespace MG_GL::GL {
             case GL_FLOAT_MAT4x2: return Diligent::VT_FLOAT32;
             case GL_FLOAT_MAT4x3: return Diligent::VT_FLOAT32;
             default: return Diligent::VT_UNDEFINED;
-        }
-    }
-
-    GLint GetGLTypeComponentCount(GLenum type) {
-        switch (type) {
-            case GL_FLOAT: return 1;
-            case GL_FLOAT_VEC2: return 2;
-            case GL_FLOAT_VEC3: return 3;
-            case GL_FLOAT_VEC4: return 4;
-            case GL_INT: return 1;
-            case GL_INT_VEC2: return 2;
-            case GL_INT_VEC3: return 3;
-            case GL_INT_VEC4: return 4;
-            case GL_UNSIGNED_INT: return 1;
-            case GL_UNSIGNED_INT_VEC2: return 2;
-            case GL_UNSIGNED_INT_VEC3: return 3;
-            case GL_UNSIGNED_INT_VEC4: return 4;
-            case GL_FLOAT_MAT2: return 4;
-            case GL_FLOAT_MAT3: return 9;
-            case GL_FLOAT_MAT4: return 16; // 4 * 4
-            case GL_FLOAT_MAT2x3: return 6; // 2 * 3
-            case GL_FLOAT_MAT2x4: return 8; // 2 * 4
-            case GL_FLOAT_MAT3x2: return 6; // 3 * 2
-            case GL_FLOAT_MAT3x4: return 12; // 3 * 4
-            case GL_FLOAT_MAT4x2: return 8; // 4 * 2
-            case GL_FLOAT_MAT4x3: return 12; // 4 * 3
-            default: return 0;
         }
     }
     
@@ -309,6 +320,10 @@ namespace MG_GL::GL {
             for (const auto& [shaderId, source] : shaderSources) {
                 MG_Util::Debug::LogD("  Program %u Shader %u:\n%s", program, shaderId, source.c_str());
             }
+
+            size_t uboTotalSize = RecordUniformOffsets(programInfo, shaderSources);
+            CreateDefaultUBO(programInfo, uboTotalSize);
+            
             // Compile attached shaders
             for (GLuint shaderId : programInfo.AttachedShadersID) {
                 auto& shaderObj = MG_State_T::programState->shaders_[shaderId];
@@ -385,9 +400,6 @@ namespace MG_GL::GL {
                 programInfo.pResourceBinding->Release();
                 programInfo.pResourceBinding = nullptr;
             }
-
-            CreateDefaultUBO(programInfo);
-            RecordUniformOffsets(programInfo);
 
             programObj.linked = true;
             programObj.linkStatus = GL_TRUE;
