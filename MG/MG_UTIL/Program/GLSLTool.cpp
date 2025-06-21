@@ -93,6 +93,8 @@ namespace MG_Util::Program {
         spvc_compiler_create_compiler_options(compiler, &options);
         spvc_compiler_options_set_uint(options, SPVC_COMPILER_OPTION_GLSL_VERSION, 450);
         spvc_compiler_options_set_bool(options, SPVC_COMPILER_OPTION_GLSL_ES, SPVC_FALSE);
+        spvc_compiler_options_set_bool(options, SPVC_COMPILER_OPTION_FLIP_VERTEX_Y, SPVC_TRUE);
+        
         spvc_compiler_install_compiler_options(compiler, options);
 
         if ((result = spvc_compiler_compile(compiler, &glsl_source)) != SPVC_SUCCESS) {
@@ -105,7 +107,13 @@ namespace MG_Util::Program {
         output_glsl = glsl_source;
 
         spvc_context_destroy(context);
-
+        MG_Util::Debug::LogI("[SPIRV-Cross] Converted GLSL:\n%s", output_glsl.c_str());
+        
+        // TODO: Use other methods to implement clip space fixing.
+        size_t pos = output_glsl.find("\n    gl_Position.y = -gl_Position.y;\n}");
+        if (pos != std::string::npos) {
+             output_glsl.replace(pos, strlen("\n    gl_Position.y = -gl_Position.y;\n}"), "\n    gl_Position.y = -gl_Position.y;\n    gl_Position.z = (gl_Position.z + gl_Position.w) * 0.5;\n}");
+        }
         return output_glsl;
     }
     
