@@ -15,7 +15,7 @@ namespace MG_GL::GL {
         MG_Util::Debug::LogD("glGetString, name: %s", MG_Util::Debug::GLEnumToString(name));
         switch (name) {
             case GL_VENDOR: 
-                return (const GLubyte *)"MobileGL-Dev";
+                return (const GLubyte *)"MobileGL-Dev (BZLZHH, Swung0x48, Tungsten)";
             case GL_VERSION: {
                 static std::string versionStr;
                 if (versionStr.empty()) {
@@ -44,9 +44,11 @@ namespace MG_GL::GL {
                 }
                 return (const GLubyte *)rendererString.c_str();
                  */
-
-                static std::string MobileGL_GL_Getter_rendererName = MG_GL::Getter::GetMGName() + " (MobileGL Core) Renderer";
-                return (const GLubyte *)MobileGL_GL_Getter_rendererName.c_str();
+                return (const GLubyte *)std::format("{} | {} {}.{}",
+                                                    MG_GL::Getter::GetGPUName(),
+                                                    MG_GL::Getter::GetBackendGfxAPIName(),
+                                                    MG_GL::Getter::GetBackendGfxAPIVersionMajor(),
+                                                    MG_GL::Getter::GetBackendGfxAPIVersionMinor()).c_str();
             }
             case GL_SHADING_LANGUAGE_VERSION:
                 return (const GLubyte *) "4.50 MobileGL with glslang";

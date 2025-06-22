@@ -249,7 +249,12 @@ namespace MG_GL::GL {
         auto& programInfo = MG_Diligent::g_ProgramMap[program];
         auto& programObj = MG_State_T::programState->programs_[program];
 
-        if (programObj.uniformValues.empty() || !programInfo.pDefaultUBO) {
+        if (!programInfo.pDefaultUBO) {
+            MG_Util::Debug::LogE("Program %u does not have a default UBO. Skipping uniform update.", program);
+            return;
+        }
+        if (programObj.uniformValues.empty()) {
+            MG_Util::Debug::LogE("Program %u has no uniforms. Skipping uniform update.", program);
             return;
         }
 
@@ -489,7 +494,9 @@ namespace MG_GL::GL {
                 BuffDesc.Name = bufferName.c_str();
                 BuffDesc.Size = bufferObj.data.size();
                 BuffDesc.Usage = Diligent::USAGE_DYNAMIC;
-                BuffDesc.BindFlags = Diligent::BIND_VERTEX_BUFFER;
+                BuffDesc.BindFlags = Diligent::BIND_VERTEX_BUFFER |
+                                     Diligent::BIND_INDEX_BUFFER |
+                                     Diligent::BIND_UNIFORM_BUFFER;
                 BuffDesc.CPUAccessFlags = Diligent::CPU_ACCESS_WRITE;
 
                 MG_Diligent::g_pDevice->CreateBuffer(BuffDesc, nullptr, &pBuffer);
@@ -517,7 +524,9 @@ namespace MG_GL::GL {
                 BuffDesc.Name = bufferName.c_str();
                 BuffDesc.Size = bufferObj.data.size();
                 BuffDesc.Usage = Diligent::USAGE_DYNAMIC;
-                BuffDesc.BindFlags = Diligent::BIND_INDEX_BUFFER;
+                BuffDesc.BindFlags = Diligent::BIND_VERTEX_BUFFER |
+                                     Diligent::BIND_INDEX_BUFFER |
+                                     Diligent::BIND_UNIFORM_BUFFER;
                 BuffDesc.CPUAccessFlags = Diligent::CPU_ACCESS_WRITE;
 
                 MG_Diligent::g_pDevice->CreateBuffer(BuffDesc, nullptr, &pBuffer);
@@ -700,6 +709,15 @@ namespace MG_GL::GL {
     
     void MultiDrawElements(GLenum mode, const GLsizei *count, GLenum type, const GLvoid *const *indices, GLsizei drawcount) {
         PrepareForDraw();
+        
+        if (MG_Diligent::IsInRenderPass) {
+            MG_Util::Debug::LogD("Ending current render pass.");
+            MG_Diligent::g_pContext->EndRenderPass();
+            MG_Diligent::IsInRenderPass = false;
+            MG_Util::Debug::LogD("Current render pass ended.");
+        } else {
+            MG_Util::Debug::LogD("No active render pass to end.");
+        }
         
         auto* pVAO = MG_State_T::vertexArrayState->GetCurrentVAO();
         Diligent::IBuffer* pIndexBuffer = nullptr;

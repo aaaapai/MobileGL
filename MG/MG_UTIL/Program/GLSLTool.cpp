@@ -93,6 +93,8 @@ namespace MG_Util::Program {
         spvc_compiler_create_compiler_options(compiler, &options);
         spvc_compiler_options_set_uint(options, SPVC_COMPILER_OPTION_GLSL_VERSION, 450);
         spvc_compiler_options_set_bool(options, SPVC_COMPILER_OPTION_GLSL_ES, SPVC_FALSE);
+        spvc_compiler_options_set_bool(options, SPVC_COMPILER_OPTION_FLIP_VERTEX_Y, SPVC_TRUE);
+        
         spvc_compiler_install_compiler_options(compiler, options);
 
         if ((result = spvc_compiler_compile(compiler, &glsl_source)) != SPVC_SUCCESS) {
@@ -105,7 +107,13 @@ namespace MG_Util::Program {
         output_glsl = glsl_source;
 
         spvc_context_destroy(context);
-
+        MG_Util::Debug::LogI("[SPIRV-Cross] Converted GLSL:\n%s", output_glsl.c_str());
+        
+        // TODO: Use other methods to implement clip space fixing.
+        size_t pos = output_glsl.find("\n    gl_Position.y = -gl_Position.y;\n}");
+        if (pos != std::string::npos) {
+             output_glsl.replace(pos, strlen("\n    gl_Position.y = -gl_Position.y;\n}"), "\n    gl_Position.y = -gl_Position.y;\n    gl_Position.z = (gl_Position.z + gl_Position.w) * 0.5;\n}");
+        }
         return output_glsl;
     }
     
@@ -592,7 +600,8 @@ namespace MG_Util::Program {
         }
     }
     
-    std::string CompileGLSLToTShader(GLenum shaderType, const std::string& source, glslang::TShader *&shader) {
+    std::string CompileGLSLToTShader(GLenum shaderType, const std::string& source, 
+                                     glslang::TShader *&shader, bool isVkGLSL) {
         std::string infoLog;
         using namespace glslang;
         
@@ -609,7 +618,7 @@ namespace MG_Util::Program {
         const char *src = source.c_str();
         shader->setStrings(&src, 1);
         shader->setEnvInput(EShSourceGlsl, language, EShClientVulkan, glslVersion);
-        shader->setEnvClient(EShClientOpenGL, EShTargetOpenGL_450);
+        shader->setEnvClient(EShClientOpenGL, isVkGLSL ? EShTargetVulkan_1_3 : EShTargetOpenGL_450);
         shader->setEnvTarget(EShTargetSpv, EShTargetSpv_1_6);
         shader->setAutoMapLocations(true);
         shader->setAutoMapBindings(true);
@@ -617,7 +626,7 @@ namespace MG_Util::Program {
         // Is InitResources() really correct?
         TBuiltInResource resources = InitResources();
 
-        if (!shader->parse(&resources, glslVersion, true, EShMsgDefault)) {
+        if (!shader->parse(&resources, glslVersion, true, isVkGLSL ? EShMsgVulkanRules : EShMsgDefault)) {
             infoLog += "Error: [glslang] Cannot compile the " + GetShaderTypeName(shaderType) + ":\n"
                       + std::to_string(shader->getInfoLog());
             return infoLog;
@@ -662,18 +671,19 @@ namespace MG_Util::Program {
         return allSpirv;
     }
     
-    std::vector<unsigned> CompileGLSLToSPIRV(GLenum shaderType, const std::string &source, std::string &infoLog) {
+    std::vector<unsigned> CompileGLSLToSPIRV(GLenum shaderType, const std::string &source, 
+                                             std::string &infoLog, bool isVkGLSL) {
         using namespace glslang;
 
         TShader* shader = nullptr;
-        std::string infoLogOfShader = CompileGLSLToTShader(shaderType, source, shader);
+        std::string infoLogOfShader = CompileGLSLToTShader(shaderType, source, shader, isVkGLSL);
         if (!infoLogOfShader.empty()) {
             infoLog = "Error: [glslang] Cannot compile " + GetShaderTypeName(shaderType) + ":\n" + infoLogOfShader;
             return {};
         }
         TProgram program;
         program.addShader(shader);
-        if (!program.link(EShMsgDefault)) {
+        if (!program.link(isVkGLSL ? EShMsgVulkanRules : EShMsgDefault)) {
             infoLog = "Error: [glslang] Cannot link the program of the single shader:\n" + std::to_string(program.getInfoLog());
             return {};
         }

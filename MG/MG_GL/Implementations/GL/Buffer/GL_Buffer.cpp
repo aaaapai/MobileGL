@@ -203,15 +203,15 @@ namespace MG_GL::GL {
 
             switch (target) {
                 case GL_ARRAY_BUFFER:
-                    BuffDesc.BindFlags = Diligent::BIND_VERTEX_BUFFER;
+//                    BuffDesc.BindFlags = Diligent::BIND_VERTEX_BUFFER;
                     name += std::format("VBO {}", buffer);
                     break;
                 case GL_ELEMENT_ARRAY_BUFFER:
-                    BuffDesc.BindFlags = Diligent::BIND_INDEX_BUFFER;
+//                    BuffDesc.BindFlags = Diligent::BIND_INDEX_BUFFER;
                     name += std::format("IBO {}", buffer);
                     break;
                 case GL_UNIFORM_BUFFER:
-                    BuffDesc.BindFlags = Diligent::BIND_UNIFORM_BUFFER;
+//                    BuffDesc.BindFlags = Diligent::BIND_UNIFORM_BUFFER;
                     name += std::format("UBO {}", buffer);
                     break;
                 default:
@@ -220,6 +220,9 @@ namespace MG_GL::GL {
                     break;
             }
 
+            BuffDesc.BindFlags |= Diligent::BIND_VERTEX_BUFFER |
+                                  Diligent::BIND_INDEX_BUFFER |
+                                  Diligent::BIND_UNIFORM_BUFFER;
             BuffDesc.Name = name.c_str();
             BuffDesc.Usage = Diligent::USAGE_DEFAULT;
 

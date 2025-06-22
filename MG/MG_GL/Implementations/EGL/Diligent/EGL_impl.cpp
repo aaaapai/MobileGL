@@ -270,7 +270,8 @@ namespace MG_Diligent {
         Diligent::RasterizerStateDesc &rasterizerDesc = PSOCreateInfo.GraphicsPipeline.RasterizerDesc;
         rasterizerDesc.CullMode = commonState.capabilities[GL_CULL_FACE] ?
                                   Diligent::CULL_MODE_BACK : Diligent::CULL_MODE_NONE;
-        rasterizerDesc.FrontCounterClockwise = true;
+        rasterizerDesc.FrontCounterClockwise = false;
+        // TODO: Get correct FrontCounterClockwise state.
 
         if (!programInfo.inputLayout.empty()) {
             PSOCreateInfo.GraphicsPipeline.InputLayout.LayoutElements = programInfo.inputLayout.data();
@@ -290,6 +291,8 @@ namespace MG_Diligent {
     }
 
     void PipelineStateManager::ReleasePSO(GLuint program) {
+        if (program == 0)
+            return;
         auto &programInfo = g_ProgramMap[program];
         if (programInfo.pPipelineState) {
             MG_Util::Debug::LogD("Releasing PSO for program %u", program);
@@ -301,6 +304,8 @@ namespace MG_Diligent {
     }
 
     void PipelineStateManager::MarkPSODirty(GLuint program) {
+        if (program == 0)
+            return;
         auto &programInfo = g_ProgramMap[program];
         programInfo.psoDirty = true;
         MG_Util::Debug::LogD("Marked PSO dirty for program %u", program);
@@ -344,6 +349,9 @@ namespace MG_Diligent {
             assert(ConvertGLBlendFactor(commonState.blendDstRGB) == desc.BlendDesc.RenderTargets[0].DestBlend);
             assert(ConvertGLBlendFactor(commonState.blendSrcAlpha) == desc.BlendDesc.RenderTargets[0].SrcBlendAlpha);
             assert(ConvertGLBlendFactor(commonState.blendDstAlpha) == desc.BlendDesc.RenderTargets[0].DestBlendAlpha);
+
+            assert(ConvertGLDepthFunc(commonState.depthFunc) == desc.DepthStencilDesc.DepthFunc);
+            assert(commonState.capabilities[GL_DEPTH_TEST] == desc.DepthStencilDesc.DepthEnable);
 //            if ((ConvertGLBlendFactor(commonState.blendSrcRGB) == desc.BlendDesc.RenderTargets[0].SrcBlend) &&
 //            (ConvertGLBlendFactor(commonState.blendDstRGB) == desc.BlendDesc.RenderTargets[0].DestBlend) &&
 //            (ConvertGLBlendFactor(commonState.blendSrcAlpha) == desc.BlendDesc.RenderTargets[0].SrcBlendAlpha) &&
@@ -408,6 +416,7 @@ namespace MG_Diligent {
         MG_Util::Debug::LogD("  GraphicsPipeline.DSVFormat: %d", PSOCreateInfo.GraphicsPipeline.DSVFormat);
         MG_Util::Debug::LogD("  GraphicsPipeline.BlendDesc.IndependentBlendEnable: %s", PSOCreateInfo.GraphicsPipeline.BlendDesc.IndependentBlendEnable ? "true" : "false");
         MG_Util::Debug::LogD("  GraphicsPipeline.DepthStencilDesc.DepthEnable: %s", PSOCreateInfo.GraphicsPipeline.DepthStencilDesc.DepthEnable ? "true" : "false");
+        MG_Util::Debug::LogD("  GraphicsPipeline.DepthStencilDesc.DepthFunc: 0x%x", PSOCreateInfo.GraphicsPipeline.DepthStencilDesc.DepthFunc);
         MG_Util::Debug::LogD("  GraphicsPipeline.RasterizerDesc.CullMode: %d", PSOCreateInfo.GraphicsPipeline.RasterizerDesc.CullMode);
 
         MG_Util::Debug::LogD("Blend states: ");
@@ -457,7 +466,7 @@ namespace MG_Diligent {
 
         for (GLuint shaderId : programObj.attachedShaders) {
             auto it = MG_State_T::programState->shaders_.find(shaderId);
-            if (it != MG_State_T::programState->shaders_.end() && !it->second.markedForDeletion) {
+            if (it != MG_State_T::programState->shaders_.end()) {
                 std::string shaderSource;
                 if (it->second.type == GL_VERTEX_SHADER) {
                     std::string infoLog;
@@ -689,7 +698,7 @@ namespace MG_EGL::Diligent {
 
         auto *pFactoryVk = Diligent_GetEngineFactoryVk();
         ::Diligent::EngineVkCreateInfo EngineCI;
-        EngineCI.DynamicHeapSize = 256 << 20;
+        EngineCI.DynamicHeapSize = 512 << 20;
 
         ::Diligent::SwapChainDesc SCDesc;
         SCDesc.ColorBufferFormat = TEX_FORMAT_RGBA8_UNORM;
@@ -701,6 +710,22 @@ namespace MG_EGL::Diligent {
         if (MG_Diligent::g_pDevice && MG_Diligent::g_pContext) {
             MG_Util::Debug::LogD("Vulkan device created: device=%p, context=%p", 
                                  MG_Diligent::g_pDevice, MG_Diligent::g_pContext);
+            auto version = MG_Diligent::g_pDevice->GetDeviceInfo().APIVersion;
+            std::string apiVersion;
+            switch (MG_Diligent::DILIGENT_BACKEND_TYPE) {
+                case MG_Constants::Backend::BACKEND_DILIGENT_VULKAN:
+                    apiVersion = std::format("Vulkan {}.{}", version.Major, version.Minor);
+                    break;
+                case MG_Constants::Backend::BACKEND_DILIGENT_METAL:
+                    apiVersion = std::format("Metal {}.{}", version.Major, version.Minor);
+                    break;
+                case MG_Constants::Backend::BACKEND_DILIGENT_OPENGL:
+                    apiVersion = std::format("OpenGL {}.{}", version.Major, version.Minor);
+                    break;
+                default:
+                    apiVersion = "<unknown>";
+            }
+            MG_Util::Debug::LogD("Running on %s, %s", MG_Diligent::g_pDevice->GetAdapterInfo().Description, apiVersion.c_str());
         } else {
             MG_Util::Debug::LogE("Failed to create Vulkan device");
         }
@@ -717,7 +742,7 @@ namespace MG_EGL::Diligent {
     }
 
     void LoadDiligentCore(NativeWindowType window) {
-        switch (DILIGENT_BACKEND_TYPE) {
+        switch (MG_Diligent::DILIGENT_BACKEND_TYPE) {
             case MG_Constants::Backend::BACKEND_DILIGENT_VULKAN:
                 LoadDiligentCoreVulkan(window);
                 break;

@@ -137,6 +137,7 @@ GLenum CommonState::DepthFunc(GLenum func) {
         return GL_INVALID_ENUM;
     }
     depthFunc = func;
+    MG_Util::Debug::LogD("%s(%s)", __func__, MG_Util::Debug::GLEnumToString(func));
     return GL_NO_ERROR;
 }
 
