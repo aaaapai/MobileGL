@@ -69,7 +69,52 @@ namespace MG_GL::GL {
 
         return components * typeSize;
     }
-  
+
+    // return value: mipmap type or not
+    bool FillFilterTypeFromGLEnum(GLenum param, Diligent::FILTER_TYPE& filter, Diligent::FILTER_TYPE& mipFilter) {
+        switch (param) {
+            case GL_NEAREST:
+                filter = Diligent::FILTER_TYPE_POINT;
+                break;
+            case GL_LINEAR:
+                filter = Diligent::FILTER_TYPE_LINEAR;
+                break;
+            case GL_NEAREST_MIPMAP_NEAREST:
+                filter = Diligent::FILTER_TYPE_POINT;
+                mipFilter = Diligent::FILTER_TYPE_POINT;
+                return true;
+            case GL_LINEAR_MIPMAP_NEAREST:
+                filter = Diligent::FILTER_TYPE_LINEAR;
+                mipFilter = Diligent::FILTER_TYPE_POINT;
+                return true;
+            case GL_NEAREST_MIPMAP_LINEAR:
+                filter = Diligent::FILTER_TYPE_POINT;
+                mipFilter = Diligent::FILTER_TYPE_LINEAR;
+                return true;
+            case GL_LINEAR_MIPMAP_LINEAR:
+                filter = Diligent::FILTER_TYPE_LINEAR;
+                mipFilter = Diligent::FILTER_TYPE_LINEAR;
+                return true;
+            default:
+                break;
+        }
+        return false;
+    }
+
+    Diligent::COMPARISON_FUNCTION ConvertComparsionFunc(GLint param) {
+        switch (param) {
+            case GL_LEQUAL: return Diligent::COMPARISON_FUNC_LESS_EQUAL;
+            case GL_GEQUAL: return Diligent::COMPARISON_FUNC_GREATER_EQUAL;
+            case GL_LESS: return Diligent::COMPARISON_FUNC_LESS;
+            case GL_GREATER: return Diligent::COMPARISON_FUNC_GREATER;
+            case GL_EQUAL: return Diligent::COMPARISON_FUNC_EQUAL;
+            case GL_NOTEQUAL: return Diligent::COMPARISON_FUNC_NOT_EQUAL;
+            case GL_ALWAYS: return Diligent::COMPARISON_FUNC_ALWAYS;
+            case GL_NEVER: return Diligent::COMPARISON_FUNC_NEVER;
+            default: return Diligent::COMPARISON_FUNC_NEVER;
+        }
+    }
+
     Diligent::TEXTURE_ADDRESS_MODE ConvertAddressMode(GLint param) {
         switch (param) {
             case GL_REPEAT: return Diligent::TEXTURE_ADDRESS_WRAP;
@@ -334,10 +379,14 @@ namespace MG_GL::GL {
     void TexParameterf(GLenum target, GLenum pname, GLfloat param) {
         MG_Util::Debug::LogD("glTexParameterf, target: %d, pname: %d, param: %f", target, pname, param);
         GLenum result = MG_State::SetTexturePropertyFloat(target, pname, param);
-        if (result == GL_NO_ERROR)
+        if (result == GL_NO_ERROR) {
+            MG_State::SetError(result);
+            MG_Util::Debug::LogE("Error from MG State: %s", MG_Util::Debug::GLEnumToString(result));
             return;
-        MG_State::SetError(result);
-        MG_Util::Debug::LogE("Error from MG State: %s", MG_Util::Debug::GLEnumToString(result));
+        }
+
+        // TODO: Fix sampler
+
     }
 
     void TexParameteri(GLenum target, GLenum pname, GLint param) {
@@ -348,7 +397,8 @@ namespace MG_GL::GL {
             MG_Util::Debug::LogE("Error from MG State: %s", MG_Util::Debug::GLEnumToString(result));
             return;
         }
-        
+
+        // TODO: Fix sampler
         auto& texState = *MG_State_T::textureState;
         auto activeUnit = texState.activeTextureUnit_;
         auto unitState = &texState.textureUnits_[activeUnit];
@@ -373,12 +423,10 @@ namespace MG_GL::GL {
         
         switch (pname) {
             case GL_TEXTURE_MIN_FILTER:
-                SamDesc.MinFilter = (param == GL_NEAREST) ?
-                                    Diligent::FILTER_TYPE_POINT : Diligent::FILTER_TYPE_LINEAR;
+                FillFilterTypeFromGLEnum(param, SamDesc.MinFilter, SamDesc.MipFilter);
                 break;
             case GL_TEXTURE_MAG_FILTER:
-                SamDesc.MagFilter = (param == GL_NEAREST) ?
-                                    Diligent::FILTER_TYPE_POINT : Diligent::FILTER_TYPE_LINEAR;
+                FillFilterTypeFromGLEnum(param, SamDesc.MagFilter, SamDesc.MipFilter);
                 break;
             case GL_TEXTURE_WRAP_S:
                 SamDesc.AddressU = ConvertAddressMode(param);
@@ -389,6 +437,17 @@ namespace MG_GL::GL {
             case GL_TEXTURE_WRAP_R:
                 SamDesc.AddressW = ConvertAddressMode(param);
                 break;
+            case GL_TEXTURE_MIN_LOD:
+                SamDesc.MinLOD = (float)param;
+                break;
+            case GL_TEXTURE_MAX_LOD:
+                SamDesc.MaxLOD = (float)param;
+                break;
+            case GL_TEXTURE_COMPARE_FUNC:
+                SamDesc.ComparisonFunc = ConvertComparsionFunc(param);
+                break;
+            default:
+                MG_Util::Debug::LogE("%s: not handled param: %s", __func__, MG_Util::Debug::GLEnumToString(param));
         }
         
         Diligent::ISampler* pNewSampler = nullptr;
