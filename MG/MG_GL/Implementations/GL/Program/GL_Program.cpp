@@ -285,6 +285,8 @@ namespace MG_GL::GL {
             auto& programInfo = MG_Diligent::g_ProgramMap[program];
             auto& programObj = MG_State_T::programState->programs_[program];
 
+            programInfo.id = program;
+
             for (const auto& shaderId : programObj.attachedShaders) {
                 programInfo.AttachedShadersID.push_back(shaderId);
             }
@@ -372,7 +374,6 @@ namespace MG_GL::GL {
                 }
             }
 
-            programInfo.id = program;
             programInfo.inputLayout.clear();
 
             auto* pVAO = MG_State_T::vertexArrayState->GetCurrentVAO();

@@ -291,6 +291,8 @@ namespace MG_Diligent {
     }
 
     void PipelineStateManager::ReleasePSO(GLuint program) {
+        if (program == 0)
+            return;
         auto &programInfo = g_ProgramMap[program];
         if (programInfo.pPipelineState) {
             MG_Util::Debug::LogD("Releasing PSO for program %u", program);
@@ -302,6 +304,8 @@ namespace MG_Diligent {
     }
 
     void PipelineStateManager::MarkPSODirty(GLuint program) {
+        if (program == 0)
+            return;
         auto &programInfo = g_ProgramMap[program];
         programInfo.psoDirty = true;
         MG_Util::Debug::LogD("Marked PSO dirty for program %u", program);
@@ -345,6 +349,9 @@ namespace MG_Diligent {
             assert(ConvertGLBlendFactor(commonState.blendDstRGB) == desc.BlendDesc.RenderTargets[0].DestBlend);
             assert(ConvertGLBlendFactor(commonState.blendSrcAlpha) == desc.BlendDesc.RenderTargets[0].SrcBlendAlpha);
             assert(ConvertGLBlendFactor(commonState.blendDstAlpha) == desc.BlendDesc.RenderTargets[0].DestBlendAlpha);
+
+            assert(ConvertGLDepthFunc(commonState.depthFunc) == desc.DepthStencilDesc.DepthFunc);
+            assert(commonState.capabilities[GL_DEPTH_TEST] == desc.DepthStencilDesc.DepthEnable);
 //            if ((ConvertGLBlendFactor(commonState.blendSrcRGB) == desc.BlendDesc.RenderTargets[0].SrcBlend) &&
 //            (ConvertGLBlendFactor(commonState.blendDstRGB) == desc.BlendDesc.RenderTargets[0].DestBlend) &&
 //            (ConvertGLBlendFactor(commonState.blendSrcAlpha) == desc.BlendDesc.RenderTargets[0].SrcBlendAlpha) &&
@@ -409,6 +416,7 @@ namespace MG_Diligent {
         MG_Util::Debug::LogD("  GraphicsPipeline.DSVFormat: %d", PSOCreateInfo.GraphicsPipeline.DSVFormat);
         MG_Util::Debug::LogD("  GraphicsPipeline.BlendDesc.IndependentBlendEnable: %s", PSOCreateInfo.GraphicsPipeline.BlendDesc.IndependentBlendEnable ? "true" : "false");
         MG_Util::Debug::LogD("  GraphicsPipeline.DepthStencilDesc.DepthEnable: %s", PSOCreateInfo.GraphicsPipeline.DepthStencilDesc.DepthEnable ? "true" : "false");
+        MG_Util::Debug::LogD("  GraphicsPipeline.DepthStencilDesc.DepthFunc: 0x%x", PSOCreateInfo.GraphicsPipeline.DepthStencilDesc.DepthFunc);
         MG_Util::Debug::LogD("  GraphicsPipeline.RasterizerDesc.CullMode: %d", PSOCreateInfo.GraphicsPipeline.RasterizerDesc.CullMode);
 
         MG_Util::Debug::LogD("Blend states: ");
