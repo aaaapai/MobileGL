@@ -126,7 +126,9 @@ namespace MG_GL::GL {
             case GL_REPEAT: return Diligent::TEXTURE_ADDRESS_WRAP;
             case GL_CLAMP_TO_EDGE: return Diligent::TEXTURE_ADDRESS_CLAMP;
             case GL_MIRRORED_REPEAT: return Diligent::TEXTURE_ADDRESS_MIRROR;
-            default: return Diligent::TEXTURE_ADDRESS_WRAP;
+            default:
+                MG_Util::Debug::LogE("%s: not handled param: %s", __func__, MG_Util::Debug::GLEnumToString(param));
+                return Diligent::TEXTURE_ADDRESS_WRAP;
         }
     }
   
@@ -440,7 +442,7 @@ namespace MG_GL::GL {
                 SamDesc.ComparisonFunc = ConvertComparsionFunc(param);
                 break;
             default:
-                MG_Util::Debug::LogE("%s: not handled param: %s", __func__, MG_Util::Debug::GLEnumToString(param));
+                MG_Util::Debug::LogE("%s: not handled pname: %s", __func__, MG_Util::Debug::GLEnumToString(pname));
         }
 
         Diligent::ISampler* pNewSampler = nullptr;
@@ -516,7 +518,7 @@ namespace MG_GL::GL {
                 SamDesc.ComparisonFunc = ConvertComparsionFunc(param);
                 break;
             default:
-                MG_Util::Debug::LogE("%s: not handled param: %s", __func__, MG_Util::Debug::GLEnumToString(param));
+                MG_Util::Debug::LogE("%s: not handled pname: %s", __func__, MG_Util::Debug::GLEnumToString(pname));
         }
         
         Diligent::ISampler* pNewSampler = nullptr;
