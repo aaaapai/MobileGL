@@ -386,7 +386,70 @@ namespace MG_GL::GL {
         }
 
         // TODO: Fix sampler
+        auto& texState = *MG_State_T::textureState;
+        auto activeUnit = texState.activeTextureUnit_;
+        auto unitState = &texState.textureUnits_[activeUnit];
+        GLuint boundTextureID = unitState->GetBoundTexture(target);
 
+        if (boundTextureID == 0) {
+            MG_Util::Debug::LogD("TexParameterf: No texture bound. Skipping sampler update.");
+            return;
+        }
+
+        Diligent::SamplerDesc SamDesc;
+        auto it = MG_Diligent::g_SamplerMap.find(boundTextureID);
+        if (it != MG_Diligent::g_SamplerMap.end() && it->second) {
+            SamDesc = it->second->GetDesc();
+        } else {
+            SamDesc.MinFilter = Diligent::FILTER_TYPE_LINEAR;
+            SamDesc.MagFilter = Diligent::FILTER_TYPE_LINEAR;
+            SamDesc.AddressU = Diligent::TEXTURE_ADDRESS_WRAP;
+            SamDesc.AddressV = Diligent::TEXTURE_ADDRESS_WRAP;
+            SamDesc.AddressW = Diligent::TEXTURE_ADDRESS_WRAP;
+        }
+
+        switch (pname) {
+            case GL_TEXTURE_MIN_FILTER:
+                FillFilterTypeFromGLEnum(param, SamDesc.MinFilter, SamDesc.MipFilter);
+                break;
+            case GL_TEXTURE_MAG_FILTER:
+                FillFilterTypeFromGLEnum(param, SamDesc.MagFilter, SamDesc.MipFilter);
+                break;
+            case GL_TEXTURE_WRAP_S:
+                SamDesc.AddressU = ConvertAddressMode(param);
+                break;
+            case GL_TEXTURE_WRAP_T:
+                SamDesc.AddressV = ConvertAddressMode(param);
+                break;
+            case GL_TEXTURE_WRAP_R:
+                SamDesc.AddressW = ConvertAddressMode(param);
+                break;
+            case GL_TEXTURE_MIN_LOD:
+                SamDesc.MinLOD = (float)param;
+                break;
+            case GL_TEXTURE_MAX_LOD:
+                SamDesc.MaxLOD = (float)param;
+                break;
+            case GL_TEXTURE_COMPARE_FUNC:
+                SamDesc.ComparisonFunc = ConvertComparsionFunc(param);
+                break;
+            default:
+                MG_Util::Debug::LogE("%s: not handled param: %s", __func__, MG_Util::Debug::GLEnumToString(param));
+        }
+
+        Diligent::ISampler* pNewSampler = nullptr;
+        MG_Diligent::g_pDevice->CreateSampler(SamDesc, &pNewSampler);
+
+        if (it != MG_Diligent::g_SamplerMap.end()) {
+            if (it->second) {
+                it->second->Release();
+            }
+            it->second = pNewSampler;
+        } else {
+            MG_Diligent::g_SamplerMap[boundTextureID] = pNewSampler;
+        }
+
+        MG_Util::Debug::LogD("TexParameterf: Updated sampler for texture %u", boundTextureID);
     }
 
     void TexParameteri(GLenum target, GLenum pname, GLint param) {
