@@ -71,13 +71,17 @@ namespace MG_GL::GL {
     }
 
     // return value: mipmap type or not
-    bool FillFilterTypeFromGLEnum(GLenum param, Diligent::FILTER_TYPE& filter, Diligent::FILTER_TYPE& mipFilter) {
+    bool FillFilterTypeFromGLEnum(GLenum pname, GLenum param, Diligent::FILTER_TYPE& filter, Diligent::FILTER_TYPE& mipFilter) {
         switch (param) {
             case GL_NEAREST:
                 filter = Diligent::FILTER_TYPE_POINT;
+                if (pname == GL_TEXTURE_MIN_FILTER)
+                    mipFilter = Diligent::FILTER_TYPE_POINT;
                 break;
             case GL_LINEAR:
                 filter = Diligent::FILTER_TYPE_LINEAR;
+                if (pname == GL_TEXTURE_MIN_FILTER)
+                    mipFilter = Diligent::FILTER_TYPE_POINT;
                 break;
             case GL_NEAREST_MIPMAP_NEAREST:
                 filter = Diligent::FILTER_TYPE_POINT;
@@ -111,7 +115,9 @@ namespace MG_GL::GL {
             case GL_NOTEQUAL: return Diligent::COMPARISON_FUNC_NOT_EQUAL;
             case GL_ALWAYS: return Diligent::COMPARISON_FUNC_ALWAYS;
             case GL_NEVER: return Diligent::COMPARISON_FUNC_NEVER;
-            default: return Diligent::COMPARISON_FUNC_NEVER;
+            default:
+                MG_Util::Debug::LogE("%s: not handled param: %s", __func__, MG_Util::Debug::GLEnumToString(param));
+                return Diligent::COMPARISON_FUNC_NEVER;
         }
     }
 
@@ -410,10 +416,10 @@ namespace MG_GL::GL {
 
         switch (pname) {
             case GL_TEXTURE_MIN_FILTER:
-                FillFilterTypeFromGLEnum(param, SamDesc.MinFilter, SamDesc.MipFilter);
+                FillFilterTypeFromGLEnum(pname, param, SamDesc.MinFilter, SamDesc.MipFilter);
                 break;
             case GL_TEXTURE_MAG_FILTER:
-                FillFilterTypeFromGLEnum(param, SamDesc.MagFilter, SamDesc.MipFilter);
+                FillFilterTypeFromGLEnum(pname, param, SamDesc.MagFilter, SamDesc.MipFilter);
                 break;
             case GL_TEXTURE_WRAP_S:
                 SamDesc.AddressU = ConvertAddressMode(param);
@@ -428,7 +434,7 @@ namespace MG_GL::GL {
                 SamDesc.MinLOD = (float)param;
                 break;
             case GL_TEXTURE_MAX_LOD:
-                SamDesc.MaxLOD = (float)param;
+                SamDesc.MaxLOD = std::max(param, 0.25f);
                 break;
             case GL_TEXTURE_COMPARE_FUNC:
                 SamDesc.ComparisonFunc = ConvertComparsionFunc(param);
@@ -486,10 +492,10 @@ namespace MG_GL::GL {
         
         switch (pname) {
             case GL_TEXTURE_MIN_FILTER:
-                FillFilterTypeFromGLEnum(param, SamDesc.MinFilter, SamDesc.MipFilter);
+                FillFilterTypeFromGLEnum(pname, param, SamDesc.MinFilter, SamDesc.MipFilter);
                 break;
             case GL_TEXTURE_MAG_FILTER:
-                FillFilterTypeFromGLEnum(param, SamDesc.MagFilter, SamDesc.MipFilter);
+                FillFilterTypeFromGLEnum(pname, param, SamDesc.MagFilter, SamDesc.MipFilter);
                 break;
             case GL_TEXTURE_WRAP_S:
                 SamDesc.AddressU = ConvertAddressMode(param);
@@ -504,7 +510,7 @@ namespace MG_GL::GL {
                 SamDesc.MinLOD = (float)param;
                 break;
             case GL_TEXTURE_MAX_LOD:
-                SamDesc.MaxLOD = (float)param;
+                SamDesc.MaxLOD = std::max((float)param, 0.25f);
                 break;
             case GL_TEXTURE_COMPARE_FUNC:
                 SamDesc.ComparisonFunc = ConvertComparsionFunc(param);
