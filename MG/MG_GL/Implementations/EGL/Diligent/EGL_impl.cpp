@@ -701,6 +701,22 @@ namespace MG_EGL::Diligent {
         if (MG_Diligent::g_pDevice && MG_Diligent::g_pContext) {
             MG_Util::Debug::LogD("Vulkan device created: device=%p, context=%p", 
                                  MG_Diligent::g_pDevice, MG_Diligent::g_pContext);
+            auto version = MG_Diligent::g_pDevice->GetDeviceInfo().APIVersion;
+            std::string apiVersion;
+            switch (MG_Diligent::DILIGENT_BACKEND_TYPE) {
+                case MG_Constants::Backend::BACKEND_DILIGENT_VULKAN:
+                    apiVersion = std::format("Vulkan {}.{}", version.Major, version.Minor);
+                    break;
+                case MG_Constants::Backend::BACKEND_DILIGENT_METAL:
+                    apiVersion = std::format("Metal {}.{}", version.Major, version.Minor);
+                    break;
+                case MG_Constants::Backend::BACKEND_DILIGENT_OPENGL:
+                    apiVersion = std::format("OpenGL {}.{}", version.Major, version.Minor);
+                    break;
+                default:
+                    apiVersion = "<unknown>";
+            }
+            MG_Util::Debug::LogD("Running on %s, %s", MG_Diligent::g_pDevice->GetAdapterInfo().Description, apiVersion.c_str());
         } else {
             MG_Util::Debug::LogE("Failed to create Vulkan device");
         }

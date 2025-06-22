@@ -51,6 +51,53 @@ namespace MG_GL::Getter {
 #endif
     }
 
+    const std::string GetBackendGfxAPIName() {
+#if BACKEND_TYPE == BACKEND_VULKAN
+        return "Vulkan";
+#elif BACKEND_TYPE == BACKEND_METAL
+        return "Metal";
+#elif BACKEND_TYPE == BACKEND_GLES
+        return "OpenGL ES";
+#elif BACKEND_TYPE == BACKEND_DILIGENT
+        switch (MG_Diligent::DILIGENT_BACKEND_TYPE) {
+            case MG_Constants::Backend::BACKEND_DILIGENT_VULKAN:
+                return "Vulkan";
+            case MG_Constants::Backend::BACKEND_DILIGENT_METAL:
+                return "Metal";
+            case MG_Constants::Backend::BACKEND_DILIGENT_OPENGL:
+                return "OpenGL";
+            default:
+                return "<unknown>";
+        }
+#else
+        return "<Unknown Backend>";
+#endif
+    }
+
+    const std::string GetGPUName() {
+#if BACKEND_TYPE == BACKEND_DILIGENT
+        return MG_Diligent::g_pDevice->GetAdapterInfo().Description;
+#else
+        return "<unknown GPU>";
+#endif
+    }
+
+    const uint32_t GetBackendGfxAPIVersionMajor() {
+#if BACKEND_TYPE == BACKEND_DILIGENT
+        return MG_Diligent::g_pDevice->GetDeviceInfo().APIVersion.Major;
+#else
+        return 0;
+#endif
+    }
+
+    const uint32_t GetBackendGfxAPIVersionMinor() {
+#if BACKEND_TYPE == BACKEND_DILIGENT
+        return MG_Diligent::g_pDevice->GetDeviceInfo().APIVersion.Minor;
+#else
+        return 0;
+#endif
+    }
+
     void LogMGInfo() {
         std::string MGName = MG_GL::Getter::GetMGName() + " (MobileGL Core)";
 
