@@ -496,6 +496,7 @@ namespace MG_Diligent {
 
         for (auto shaderId : programInfo.AttachedShadersID) {
             auto shader = MG_Diligent::g_ShaderMap[shaderId];
+            (void)shader;
             MG_Util::Debug::LogD("Processing shader ID: %u", shaderId);
 
             auto& shaderObj = MG_State_T::programState->shaders_[shaderId];

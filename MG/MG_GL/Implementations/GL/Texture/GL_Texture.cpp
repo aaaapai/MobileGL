@@ -576,6 +576,7 @@ namespace MG_GL::GL {
         }
 
         Diligent::TextureDesc desc = pTexture->GetDesc();
+        (void)desc;
 
         Diligent::TextureSubResData SubResData;
         SubResData.pData = pixels;
