@@ -70,8 +70,44 @@ namespace MG_GL::GL {
         return components * typeSize;
     }
 
-    // return value: mipmap type or not
-    bool FillFilterTypeFromGLEnum(GLenum pname, GLenum param, Diligent::FILTER_TYPE& filter, Diligent::FILTER_TYPE& mipFilter) {
+    Diligent::FILTER_TYPE ConvertCompareFilter(Diligent::FILTER_TYPE& filter, bool compare) {
+        if (compare) {
+            switch (filter) {
+                case Diligent::FILTER_TYPE_POINT: return Diligent::FILTER_TYPE_COMPARISON_POINT;
+                case Diligent::FILTER_TYPE_LINEAR: return Diligent::FILTER_TYPE_COMPARISON_LINEAR;
+                case Diligent::FILTER_TYPE_ANISOTROPIC: return Diligent::FILTER_TYPE_COMPARISON_ANISOTROPIC;
+                default: return filter;
+            }
+        } else {
+            switch (filter) {
+                case Diligent::FILTER_TYPE_COMPARISON_POINT: return Diligent::FILTER_TYPE_POINT;
+                case Diligent::FILTER_TYPE_COMPARISON_LINEAR: return Diligent::FILTER_TYPE_LINEAR;
+                case Diligent::FILTER_TYPE_COMPARISON_ANISOTROPIC: return Diligent::FILTER_TYPE_ANISOTROPIC;
+                default: return filter;
+            }
+        }
+    }
+
+    bool IsCompareFilter(Diligent::FILTER_TYPE filter) {
+        switch (filter) {
+            case Diligent::FILTER_TYPE_COMPARISON_POINT: return true;
+            case Diligent::FILTER_TYPE_COMPARISON_LINEAR: return true;
+            case Diligent::FILTER_TYPE_COMPARISON_ANISOTROPIC: return true;
+            default: return false;
+        }
+    }
+
+    void FillFilterTypeFromGLEnum(GLenum pname, GLenum param, Diligent::FILTER_TYPE& filter, Diligent::FILTER_TYPE& mipFilter) {
+        if (pname == GL_TEXTURE_COMPARE_MODE) {
+            bool compare = (param == GL_COMPARE_REF_TO_TEXTURE);
+            filter = ConvertCompareFilter(filter, compare);
+            mipFilter = ConvertCompareFilter(mipFilter, compare);
+            return;
+        }
+
+        bool filterIsCompare = IsCompareFilter(filter);
+        bool mipFilterIsCompare = IsCompareFilter(filter);
+
         switch (param) {
             case GL_NEAREST:
                 filter = Diligent::FILTER_TYPE_POINT;
@@ -86,23 +122,25 @@ namespace MG_GL::GL {
             case GL_NEAREST_MIPMAP_NEAREST:
                 filter = Diligent::FILTER_TYPE_POINT;
                 mipFilter = Diligent::FILTER_TYPE_POINT;
-                return true;
+                break;
             case GL_LINEAR_MIPMAP_NEAREST:
                 filter = Diligent::FILTER_TYPE_LINEAR;
                 mipFilter = Diligent::FILTER_TYPE_POINT;
-                return true;
+                break;
             case GL_NEAREST_MIPMAP_LINEAR:
                 filter = Diligent::FILTER_TYPE_POINT;
                 mipFilter = Diligent::FILTER_TYPE_LINEAR;
-                return true;
+                break;
             case GL_LINEAR_MIPMAP_LINEAR:
                 filter = Diligent::FILTER_TYPE_LINEAR;
                 mipFilter = Diligent::FILTER_TYPE_LINEAR;
-                return true;
+                break;
             default:
                 break;
         }
-        return false;
+
+        filter = ConvertCompareFilter(filter, filterIsCompare);
+        mipFilter = ConvertCompareFilter(mipFilter, mipFilterIsCompare);
     }
 
     Diligent::COMPARISON_FUNCTION ConvertComparsionFunc(GLint param) {
@@ -441,6 +479,9 @@ namespace MG_GL::GL {
             case GL_TEXTURE_COMPARE_FUNC:
                 SamDesc.ComparisonFunc = ConvertComparsionFunc(param);
                 break;
+            case GL_TEXTURE_COMPARE_MODE:
+                FillFilterTypeFromGLEnum(pname, param, SamDesc.MinFilter, SamDesc.MipFilter);
+                break;
             default:
                 MG_Util::Debug::LogE("%s: not handled pname: %s", __func__, MG_Util::Debug::GLEnumToString(pname));
         }
@@ -516,6 +557,9 @@ namespace MG_GL::GL {
                 break;
             case GL_TEXTURE_COMPARE_FUNC:
                 SamDesc.ComparisonFunc = ConvertComparsionFunc(param);
+                break;
+            case GL_TEXTURE_COMPARE_MODE:
+                FillFilterTypeFromGLEnum(pname, param, SamDesc.MinFilter, SamDesc.MipFilter);
                 break;
             default:
                 MG_Util::Debug::LogE("%s: not handled pname: %s", __func__, MG_Util::Debug::GLEnumToString(pname));
