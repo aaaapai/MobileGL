@@ -32,9 +32,9 @@ namespace MG_Global {
 namespace MG_Constants {
     namespace Common {
         inline constexpr int LOG_LEVEL_DEBUG     = 0x0010;
-        inline constexpr int LOG_LEVEL_WARN      = 0x0011;
-        inline constexpr int LOG_LEVEL_ERROR     = 0x0012;
-        inline constexpr int LOG_LEVEL_INFO      = 0x0013;
+        inline constexpr int LOG_LEVEL_INFO      = 0x0011;
+        inline constexpr int LOG_LEVEL_WARN      = 0x0012;
+        inline constexpr int LOG_LEVEL_ERROR     = 0x0013;
         inline constexpr int LOG_LEVEL_FATAL     = 0x0014;
 
 
