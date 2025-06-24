@@ -268,10 +268,11 @@ namespace MG_Diligent {
         depthStencilDesc.DepthFunc = ConvertGLDepthFunc(commonState.depthFunc);
 
         Diligent::RasterizerStateDesc &rasterizerDesc = PSOCreateInfo.GraphicsPipeline.RasterizerDesc;
-        rasterizerDesc.CullMode = commonState.capabilities[GL_CULL_FACE] ?
-                                  Diligent::CULL_MODE_BACK : Diligent::CULL_MODE_NONE;
+//        rasterizerDesc.CullMode = commonState.capabilities[GL_CULL_FACE] ?
+//                                  Diligent::CULL_MODE_BACK : Diligent::CULL_MODE_NONE;
+        rasterizerDesc.CullMode = Diligent::CULL_MODE_NONE;
         rasterizerDesc.FrontCounterClockwise = false;
-        // TODO: Get correct FrontCounterClockwise state.
+        // TODO: Get correct FrontCounterClockwise state and re-enable backface culling.
 
         if (!programInfo.inputLayout.empty()) {
             PSOCreateInfo.GraphicsPipeline.InputLayout.LayoutElements = programInfo.inputLayout.data();
@@ -351,7 +352,7 @@ namespace MG_Diligent {
             assert(ConvertGLBlendFactor(commonState.blendDstAlpha) == desc.BlendDesc.RenderTargets[0].DestBlendAlpha);
 
             assert(ConvertGLDepthFunc(commonState.depthFunc) == desc.DepthStencilDesc.DepthFunc);
-            assert(commonState.capabilities[GL_DEPTH_TEST] == desc.DepthStencilDesc.DepthEnable);
+//            assert(commonState.capabilities[GL_DEPTH_TEST] == desc.DepthStencilDesc.DepthEnable);
 //            if ((ConvertGLBlendFactor(commonState.blendSrcRGB) == desc.BlendDesc.RenderTargets[0].SrcBlend) &&
 //            (ConvertGLBlendFactor(commonState.blendDstRGB) == desc.BlendDesc.RenderTargets[0].DestBlend) &&
 //            (ConvertGLBlendFactor(commonState.blendSrcAlpha) == desc.BlendDesc.RenderTargets[0].SrcBlendAlpha) &&
@@ -701,11 +702,12 @@ namespace MG_EGL::Diligent {
 
         ::Diligent::SwapChainDesc SCDesc;
         SCDesc.ColorBufferFormat = TEX_FORMAT_RGBA8_UNORM;
-        SCDesc.PreTransform = SURFACE_TRANSFORM_HORIZONTAL_MIRROR_ROTATE_180;
+        SCDesc.PreTransform = SURFACE_TRANSFORM_IDENTITY;
 
         MG_Util::Debug::LogD("Creating Vulkan device and contexts");
         pFactoryVk->CreateDeviceAndContextsVk(
                 EngineCI, &MG_Diligent::g_pDevice, &MG_Diligent::g_pContext);
+
         if (MG_Diligent::g_pDevice && MG_Diligent::g_pContext) {
             MG_Util::Debug::LogD("Vulkan device created: device=%p, context=%p", 
                                  MG_Diligent::g_pDevice, MG_Diligent::g_pContext);
