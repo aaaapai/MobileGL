@@ -110,8 +110,8 @@ public:
     DECLARE_MATRIX_FUNCTIONS(4x3, GL_FLOAT_MAT4x3)
 #undef DECLARE_MATRIX_FUNCTIONS
     
-    ProgramObject GetProgramObject(GLuint program) const;
-    ShaderObject GetShaderObject(GLuint program) const;
+    const ProgramObject* GetProgramObject(GLuint program) const;
+    const ShaderObject* GetShaderObject(GLuint program) const;
     GLuint GetCurrentProgram() const;
     bool SetProgramStatus(GLuint program, GLboolean status);
     bool SetShaderStatus(GLuint shader, GLboolean status);

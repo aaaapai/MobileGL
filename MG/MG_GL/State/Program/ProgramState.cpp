@@ -422,26 +422,26 @@ GLuint ProgramState::GetCurrentProgram() const {
     return currentProgram_;
 }
 
-ShaderObject ProgramState::GetShaderObject(GLuint shader) const {
+const ShaderObject* ProgramState::GetShaderObject(GLuint shader) const {
     MG_Util::Debug::LogD("MG_State: Program: GetShaderObject called, shader=%u", shader);
     auto it = shaders_.find(shader);
     if (it == shaders_.end()) {
         MG_Util::Debug::LogW("MG_State: Program: GetShaderObject warning: invalid shader id %u", shader);
-        return ShaderObject();
+        return nullptr;
     }
     MG_Util::Debug::LogD("MG_State: Program: GetShaderObject success, returning object");
-    return it->second;
+    return &(it->second);
 }
 
-ProgramObject ProgramState::GetProgramObject(GLuint program) const {
+const ProgramObject* ProgramState::GetProgramObject(GLuint program) const {
     MG_Util::Debug::LogD("MG_State: Program: GetProgramObject called, program=%u", program);
     auto it = programs_.find(program);
     if (it == programs_.end()) {
         MG_Util::Debug::LogW("MG_State: Program: GetProgramObject warning: invalid program id %u", program);
-        return ProgramObject();
+        return nullptr;
     }
     MG_Util::Debug::LogD("MG_State: Program: GetProgramObject success, returning object");
-    return it->second;
+    return &(it->second);
 }
 
 bool ProgramState::ValidateProgram_(GLuint program) {
