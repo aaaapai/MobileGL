@@ -327,11 +327,11 @@ namespace MG_GL::GL {
             }
 
             Diligent::Uint32 mipLevels = 1;
-            if (isBaseLevel) {
-                mipLevels = CalculateMipLevels(width, height);
-            } else if (pTexture) {
-                mipLevels = pTexture->GetDesc().MipLevels;
-            }
+//            if (isBaseLevel) {
+//                mipLevels = CalculateMipLevels(width, height);
+//            } else if (pTexture) {
+//                mipLevels = pTexture->GetDesc().MipLevels;
+//            }
 
             Diligent::TextureDesc TexDesc;
             TexDesc.Type = Diligent::RESOURCE_DIM_TEX_2D;
