@@ -112,7 +112,7 @@ namespace MG_Util::Program {
         // TODO: Use other methods to implement clip space fixing.
         size_t pos = output_glsl.find("\n    gl_Position.y = -gl_Position.y;\n}");
         if (pos != std::string::npos) {
-            output_glsl.replace(pos, strlen("\n    gl_Position.y = -gl_Position.y;\n}"), "\n    gl_Position.z = (gl_Position.z + gl_Position.w) * 0.5;\n}");
+            output_glsl.replace(pos, strlen("\n    gl_Position.y = -gl_Position.y;\n}"), "\n    gl_Position.y = -gl_Position.y;\n    gl_Position.z = (gl_Position.z + gl_Position.w) * 0.5;\n}");
         }
         return output_glsl;
     }

@@ -268,9 +268,8 @@ namespace MG_Diligent {
         depthStencilDesc.DepthFunc = ConvertGLDepthFunc(commonState.depthFunc);
 
         Diligent::RasterizerStateDesc &rasterizerDesc = PSOCreateInfo.GraphicsPipeline.RasterizerDesc;
-//        rasterizerDesc.CullMode = commonState.capabilities[GL_CULL_FACE] ?
-//                                  Diligent::CULL_MODE_BACK : Diligent::CULL_MODE_NONE;
-        rasterizerDesc.CullMode = Diligent::CULL_MODE_NONE;
+        rasterizerDesc.CullMode = commonState.capabilities[GL_CULL_FACE] ?
+                                  Diligent::CULL_MODE_BACK : Diligent::CULL_MODE_NONE;
         rasterizerDesc.FrontCounterClockwise = false;
         // TODO: Get correct FrontCounterClockwise state and re-enable backface culling.
 
@@ -702,7 +701,7 @@ namespace MG_EGL::Diligent {
 
         ::Diligent::SwapChainDesc SCDesc;
         SCDesc.ColorBufferFormat = TEX_FORMAT_RGBA8_UNORM;
-        SCDesc.PreTransform = SURFACE_TRANSFORM_IDENTITY;
+        SCDesc.PreTransform = SURFACE_TRANSFORM_HORIZONTAL_MIRROR_ROTATE_180;
 
         MG_Util::Debug::LogD("Creating Vulkan device and contexts");
         pFactoryVk->CreateDeviceAndContextsVk(
@@ -929,6 +928,14 @@ namespace MG_EGL::Diligent {
         }
         const auto& SCDesc = MG_Diligent::g_pSwapChain->GetDesc();
         MG_Util::Debug::LogD("Setting viewport: width=%d, height=%d", SCDesc.Width, SCDesc.Height);
+
+//        ::Diligent::Viewport viewport;
+//        viewport.TopLeftX = 0.f;
+//        viewport.TopLeftY = SCDesc.Height;
+//        viewport.Width = SCDesc.Width;
+//        viewport.Height = SCDesc.Height;
+//        viewport.MinDepth = 0.f;
+//        viewport.MaxDepth = 1.f;
         MG_Diligent::g_pContext->SetViewports(1, nullptr, 0, 0);
         return EGL_TRUE;
     }
