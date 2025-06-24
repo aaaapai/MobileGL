@@ -474,7 +474,7 @@ namespace MG_GL::GL {
                 SamDesc.MinLOD = (float)param;
                 break;
             case GL_TEXTURE_MAX_LOD:
-                SamDesc.MaxLOD = std::max(param, 0.25f);
+                SamDesc.MaxLOD = param;
                 break;
             case GL_TEXTURE_COMPARE_FUNC:
                 SamDesc.ComparisonFunc = ConvertComparsionFunc(param);
