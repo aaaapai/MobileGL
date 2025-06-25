@@ -116,7 +116,7 @@ namespace MG_Util::Program {
     }
     
     void DumpUniforms(const ProgramState& state, GLuint program) {
-        if (MG_Global::Common::LogLevel > MG_Constants::Common::LOG_LEVEL_DEBUG)
+        if constexpr (MG_Global::Common::LogLevel > MG_Constants::Common::LOG_LEVEL_DEBUG)
             return;
         
         auto* prog = state.GetProgramObject(program);

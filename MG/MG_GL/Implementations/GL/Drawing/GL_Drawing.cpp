@@ -430,7 +430,6 @@ namespace MG_GL::GL {
         auto& programInfo = MG_Diligent::g_ProgramMap[program];
 
         GLuint drawFB = MG_State_T::framebufferState->currentBindings_[GL_DRAW_FRAMEBUFFER];
-        if (drawFB == 0) drawFB = 0;
 
         auto itFB = MG_Diligent::g_FramebufferMap.find(drawFB);
         if (itFB == MG_Diligent::g_FramebufferMap.end()) {
@@ -473,8 +472,6 @@ namespace MG_GL::GL {
             MG_Util::Debug::LogE("No current VAO found. A VAO must be bound before drawing.");
             return;
         }
-
-        std::unordered_map<GLuint, Diligent::IBuffer*> createdBuffers;
 
 //        for (const auto& [attribIndex, attrib] : pVAO->attribs) {
         for (uint32_t attribIndex = 0; attribIndex < MG_Constants::VertexArray::MAX_VERTEX_ATTRIBS; ++attribIndex) {
@@ -562,7 +559,6 @@ namespace MG_GL::GL {
                     MG_Diligent::g_pContext->UnmapBuffer(pBuffer, Diligent::MAP_WRITE);
                     bufferObj.dirty = false;
                     MG_Util::Debug::LogD("Successfully updated data for dynamic buffer %u.", bufferID);
-                    createdBuffers[bufferID] = pBuffer;
                 } else {
                     MG_Util::Debug::LogE("Failed to map dynamic buffer %u for data update.", bufferID);
                 }
