@@ -476,7 +476,9 @@ namespace MG_GL::GL {
 
         std::unordered_map<GLuint, Diligent::IBuffer*> createdBuffers;
 
-        for (const auto& [attribIndex, attrib] : pVAO->attribs) {
+//        for (const auto& [attribIndex, attrib] : pVAO->attribs) {
+        for (uint32_t attribIndex = 0; attribIndex < MG_Constants::VertexArray::MAX_VERTEX_ATTRIBS; ++attribIndex) {
+            const auto& attrib = pVAO->attribs[attribIndex];
             if (!attrib.enabled || attrib.buffer == 0) continue;
 
             GLuint buffer = attrib.buffer;
@@ -569,7 +571,8 @@ namespace MG_GL::GL {
         std::vector<Diligent::IBuffer*> vertexBuffers;
         std::vector<Diligent::Uint64> offsets;
 
-        for (const auto& [attribIndex, attrib] : pVAO->attribs) {
+        for (uint32_t attribIndex = 0; attribIndex < MG_Constants::VertexArray::MAX_VERTEX_ATTRIBS; ++attribIndex) {
+            const auto& attrib = pVAO->attribs[attribIndex];
             if (!attrib.enabled || attrib.buffer == 0) continue;
 
             GLuint buffer = attrib.buffer;

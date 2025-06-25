@@ -98,6 +98,10 @@ namespace MG_Constants {
         }; // OpenGL 3
     }
 
+    namespace VertexArray {
+        constexpr uint32_t MAX_VERTEX_ATTRIBS = 32;
+    }
+
     namespace PixelStore {
         static const MG_Global::unordered_map<GLenum, GLint> DEFAULT_VALUES_MAP = {
                 {GL_PACK_SWAP_BYTES,   GL_FALSE},

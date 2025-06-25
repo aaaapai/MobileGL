@@ -107,7 +107,7 @@ bool VertexArrayState::ValidateAllocatedHandle(GLuint array) {
 GLenum VertexArrayState::EnableAttrib(GLuint index) {
     if (!ValidateAllocatedHandle(currentVao_))
         return GL_INVALID_OPERATION;
-    if (index >= GL_MAX_VERTEX_ATTRIBS) return GL_INVALID_VALUE;
+    if (index >= MG_Constants::VertexArray::MAX_VERTEX_ATTRIBS) return GL_INVALID_VALUE;
     GetCurrentVAO()->attribs[index].enabled = true;
     MG_Util::Debug::LogD("Attrib vaos_[%u].attribs[%u].enabled = %d", currentVao_, index, vaos_[currentVao_].attribs[index].enabled);
 
@@ -118,7 +118,7 @@ GLenum VertexArrayState::EnableAttrib(GLuint index) {
 GLenum VertexArrayState::DisableAttrib(GLuint index) {
     if (!ValidateAllocatedHandle(currentVao_))
         return GL_INVALID_OPERATION;
-    if (index >= GL_MAX_VERTEX_ATTRIBS) return GL_INVALID_VALUE;
+    if (index >= MG_Constants::VertexArray::MAX_VERTEX_ATTRIBS) return GL_INVALID_VALUE;
     GetCurrentVAO()->attribs[index].enabled = false;
     MG_Util::Debug::LogD("Attrib vaos_[%u].attribs[%u].enabled = %d", currentVao_, index, vaos_[currentVao_].attribs[index].enabled);
 
@@ -132,7 +132,7 @@ GLenum VertexArrayState::SetAttribPointer(GLuint index, GLint size, GLenum type,
                                           GLuint currentArrayBuffer) {
     if (!ValidateAllocatedHandle(currentVao_))
         return GL_INVALID_OPERATION;
-    if (index >= GL_MAX_VERTEX_ATTRIBS) return GL_INVALID_VALUE;
+    if (index >= MG_Constants::VertexArray::MAX_VERTEX_ATTRIBS) return GL_INVALID_VALUE;
 
     VertexAttribState state;
     state.size = size;
@@ -142,8 +142,7 @@ GLenum VertexArrayState::SetAttribPointer(GLuint index, GLint size, GLenum type,
     state.pointer = pointer;
     state.buffer = currentArrayBuffer;
     state.isInteger = isInteger;
-    if (vaos_[currentVao_].attribs.count(index) && vaos_[currentVao_].attribs[index].enabled)
-        state.enabled = true;
+    state.enabled = vaos_[currentVao_].attribs[index].enabled;
 
     vaos_[currentVao_].attribs[index] = state;
 

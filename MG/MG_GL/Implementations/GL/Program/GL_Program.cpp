@@ -379,7 +379,9 @@ namespace MG_GL::GL {
             auto* pVAO = MG_State_T::vertexArrayState->GetCurrentVAO();
             if (!pVAO) return;
 
-            for (const auto& [index, attrib] : pVAO->attribs) {
+//            for (const auto& [index, attrib] : pVAO->attribs) {
+            for (uint32_t index = 0; index < MG_Constants::VertexArray::MAX_VERTEX_ATTRIBS; ++index) {
+                const auto& attrib = pVAO->attribs[index];
                 if (attrib.enabled) {
                     Diligent::LayoutElement elem;
                     elem.InputIndex = index;

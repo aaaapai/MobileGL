@@ -33,7 +33,9 @@ namespace MG_Diligent {
 
         auto& programObj = MG_State_T::programState->programs_[program];
 
-        for (const auto& [attribIndex, attrib] : vaState.vaos_[vaState.currentVao_].attribs) {
+//        for (const auto& [attribIndex, attrib] : vaState.vaos_[vaState.currentVao_].attribs) {
+        for (uint32_t attribIndex = 0; attribIndex < MG_Constants::VertexArray::MAX_VERTEX_ATTRIBS; ++attribIndex) {
+            const auto& attrib = vaState.vaos_[vaState.currentVao_].attribs[attribIndex];
             if (!attrib.enabled) continue;
 
             std::string attribName;
@@ -124,15 +126,11 @@ namespace MG_Diligent {
         hash_combine(hash, capabilities[GL_STENCIL_TEST]);
 
         auto *pVAO = vaState.GetCurrentVAO();
-        
-        std::vector<uint32_t> attribIndices;
-        for (const auto& [index, _] : pVAO->attribs)
-            attribIndices.push_back(index);
-        std::sort(attribIndices.begin(), attribIndices.end());
-        for (auto index : attribIndices) {
-            const auto& attrib = pVAO->attribs.at(index);
+
+        for (uint32_t i = 0; i < MG_Constants::VertexArray::MAX_VERTEX_ATTRIBS; ++i) {
+            const auto& attrib = pVAO->attribs[i];
             if (attrib.enabled) {
-                hash_combine(hash, index);
+                hash_combine(hash, i);
                 hash_combine(hash, attrib.size);
                 hash_combine(hash, attrib.type);
                 hash_combine(hash, attrib.normalized);
