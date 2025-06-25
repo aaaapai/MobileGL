@@ -541,12 +541,13 @@ namespace MG_GL::GL {
 
         // Update data for all dynamic buffers
         for (auto& [bufferID, pBuffer] : MG_Diligent::g_BufferMap) {
-            if (MG_State_T::bufferState->buffers_.find(bufferID) == MG_State_T::bufferState->buffers_.end()) {
+            auto it = MG_State_T::bufferState->buffers_.find(bufferID);
+            if (it == MG_State_T::bufferState->buffers_.end()) {
                 MG_Util::Debug::LogW("Buffer ID %u not found in bufferState. Skipping update.", bufferID);
                 continue;
             }
             
-            auto& bufferObj = MG_State_T::bufferState->buffers_[bufferID];
+            auto& bufferObj = it->second;
             if (pBuffer && bufferObj.isDynamic && !bufferObj.data.empty()) {
                 void* pMappedData = nullptr;
                 MG_Util::Debug::LogD("Mapping dynamic buffer %u for data update.", bufferID);
