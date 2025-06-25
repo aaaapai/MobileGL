@@ -600,6 +600,8 @@ namespace MG_GL::GL {
         auto unitState = &texState.textureUnits_[activeUnit];
         GLuint boundTextureID = unitState->GetBoundTexture(target);
 
+        MG_Util::Debug::LogD("TexSubImage2D: bound texture: GL name %u", boundTextureID);
+
         if (boundTextureID == 0) {
             MG_Util::Debug::LogD("TexSubImage2D: No texture bound to active unit. Skipping update.");
             return;
@@ -622,11 +624,11 @@ namespace MG_GL::GL {
             return;
         }
 
-        Diligent::TextureDesc desc = pTexture->GetDesc();
+        auto rowLength = TextureState::GetUnpackParam_(GL_UNPACK_ROW_LENGTH);
 
         Diligent::TextureSubResData SubResData;
         SubResData.pData = pixels;
-        SubResData.Stride = width * GetBytesPerPixel(format, type);
+        SubResData.Stride = ((rowLength > 0) ? rowLength : width) * GetBytesPerPixel(format, type);
 
         Diligent::Box UpdateBox;
         UpdateBox.MinX = xoffset;
@@ -636,8 +638,10 @@ namespace MG_GL::GL {
         UpdateBox.MinZ = 0;
         UpdateBox.MaxZ = 1;
 
-        MG_Util::Debug::LogD("TexSubImage2D: Updating region [%d,%d]-[%d,%d] at level %d",
-                             xoffset, yoffset, xoffset+width, yoffset+height, level);
+        MG_Util::Debug::LogD("TexSubImage2D: Got GL_UNPACK_ROW_LENGTH = %d", rowLength);
+
+        MG_Util::Debug::LogD("TexSubImage2D: Updating region [%d,%d]-[%d,%d] at level %d, %d bytes",
+                             xoffset, yoffset, xoffset+width, yoffset+height, level, width * height * GetBytesPerPixel(format, type));
 
         if (MG_Diligent::IsInRenderPass) {
             MG_Diligent::g_pContext->EndRenderPass();
