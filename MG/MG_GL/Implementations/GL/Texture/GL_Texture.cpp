@@ -334,6 +334,9 @@ namespace MG_GL::GL {
 //            }
 
             Diligent::TextureDesc TexDesc;
+            if constexpr (MG_Global::Common::LogLevel <= MG_Constants::Common::LOG_LEVEL_DEBUG) {
+                TexDesc.Name = std::format("GL Texture {}", boundTextureID).c_str();
+            }
             TexDesc.Type = Diligent::RESOURCE_DIM_TEX_2D;
             TexDesc.Width = width;
             TexDesc.Height = height;
@@ -553,7 +556,7 @@ namespace MG_GL::GL {
                 SamDesc.MinLOD = (float)param;
                 break;
             case GL_TEXTURE_MAX_LOD:
-                SamDesc.MaxLOD = std::max((float)param, 0.25f);
+                SamDesc.MaxLOD = (float)param;
                 break;
             case GL_TEXTURE_COMPARE_FUNC:
                 SamDesc.ComparisonFunc = ConvertComparsionFunc(param);
