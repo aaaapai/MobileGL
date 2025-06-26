@@ -624,11 +624,16 @@ namespace MG_GL::GL {
             return;
         }
 
-        auto rowLength = TextureState::GetUnpackParam_(GL_UNPACK_ROW_LENGTH);
+        auto rowLength = MG_State::QueryPixelStoreInt(GL_UNPACK_ROW_LENGTH);
+        rowLength = ((rowLength > 0) ? rowLength : width);
+        auto skipRows = MG_State::QueryPixelStoreInt(GL_UNPACK_SKIP_ROWS);
+        auto skipPixels = MG_State::QueryPixelStoreInt(GL_UNPACK_SKIP_PIXELS);
+        auto bpp = GetBytesPerPixel(format, type);
+        char* pixelStart = (char*)pixels + bpp * (rowLength * skipRows + skipPixels);
 
         Diligent::TextureSubResData SubResData;
-        SubResData.pData = pixels;
-        SubResData.Stride = ((rowLength > 0) ? rowLength : width) * GetBytesPerPixel(format, type);
+        SubResData.Stride = rowLength * bpp;
+        SubResData.pData = pixelStart;
 
         Diligent::Box UpdateBox;
         UpdateBox.MinX = xoffset;
