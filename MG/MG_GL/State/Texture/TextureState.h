@@ -62,14 +62,15 @@ private:
     std::vector<GLuint> freeID_;
 
     MG_Global::unordered_map<GLenum, TextureObject> proxyTextures_;
-    
     static GLint GetUnpackParam_(GLenum pname);
+
 public:
     TextureState();
     
     bool IsTextureGenerated(GLuint texture);
     bool IsTexture(GLuint texture);
     MG_Global::unordered_map<GLuint, TextureObject> textures;
+
 
     // Return: the validity of the operation, according to OpenGL 3 standard
     GLenum BindUnit(GLenum textureUnit);
