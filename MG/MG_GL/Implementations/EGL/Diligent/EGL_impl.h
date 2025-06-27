@@ -56,6 +56,23 @@ namespace MG_Diligent {
     
     extern MG_Global::unordered_map<GLuint, Diligent::ISampler*> g_SamplerMap;
     extern MG_Global::unordered_map<GLuint, Diligent::IBuffer*> g_UniformBufferMap;
+    extern Diligent::IBuffer* g_TriangleFanIndexBuffer;
+
+    inline Diligent::PRIMITIVE_TOPOLOGY GLPrimitiveTopologyToDiligent(GLenum Topology)
+    {
+        switch (Topology)
+        {
+            case GL_TRIANGLE_STRIP:
+                return Diligent::PRIMITIVE_TOPOLOGY_TRIANGLE_STRIP;
+            case GL_TRIANGLES:
+                return Diligent::PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+            case GL_TRIANGLE_FAN:
+                return Diligent::PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+            // TODO: Handle other topologies
+            default:
+                return Diligent::PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+        }
+    }
 
     class PipelineStateManager {
     private:
@@ -83,7 +100,8 @@ namespace MG_Diligent {
                 GLProgramInfo &programInfo,
                 CommonState &commonState,
                 VertexArrayState &vaState,
-                GLFramebufferInfo& fbInfo);
+                GLFramebufferInfo& fbInfo,
+                GLenum primitiveTopology);
 
         void MarkPSODirty(GLuint program);
 
@@ -191,14 +209,16 @@ namespace MG_Diligent {
         uint64_t CalculateStateHash(
                 CommonState &commonState,
                 VertexArrayState &vaState,
-                GLFramebufferInfo& fbInfo);
+                GLFramebufferInfo& fbInfo,
+                GLenum primitiveTopology);
 
         void ConfigurePSO(
                 Diligent::GraphicsPipelineStateCreateInfo &PSOCreateInfo,
                 GLProgramInfo &programInfo,
                 CommonState &commonState,
                 VertexArrayState &vaState,
-                GLFramebufferInfo& fbInfo);
+                GLFramebufferInfo& fbInfo,
+                GLenum primitiveTopology);
 
         void ConfigureResourceLayout(
                 Diligent::GraphicsPipelineStateCreateInfo& PSOCreateInfo,

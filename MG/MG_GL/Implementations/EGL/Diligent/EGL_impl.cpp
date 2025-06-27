@@ -23,6 +23,7 @@ namespace MG_Diligent {
     MG_Global::unordered_map<GLuint, GLProgramInfo>              g_ProgramMap;
     MG_Global::unordered_map<GLuint, Diligent::ISampler*>        g_SamplerMap;
     MG_Global::unordered_map<GLuint, Diligent::IBuffer*>         g_UniformBufferMap;
+    Diligent::IBuffer* g_TriangleFanIndexBuffer = nullptr;
     GLuint g_NextResourceId = 0;
     bool IsInRenderPass = false;
     bool initialized = false;
@@ -101,7 +102,8 @@ namespace MG_Diligent {
     uint64_t PipelineStateManager::CalculateStateHash(
             CommonState &commonState,
             VertexArrayState &vaState,
-            GLFramebufferInfo& fbInfo) {
+            GLFramebufferInfo& fbInfo,
+            GLenum primitiveTopology) {
         size_t hash = 0;
 
         auto& capabilities = commonState.capabilities;
@@ -121,6 +123,7 @@ namespace MG_Diligent {
         hash_combine(hash, commonState.depthMask);
         hash_combine(hash, capabilities[GL_DEPTH_TEST]);
 
+        hash_combine(hash, primitiveTopology);
         hash_combine(hash, 0); // TODO: Cull Face Mode
         hash_combine(hash, capabilities[GL_CULL_FACE]);
         hash_combine(hash, capabilities[GL_STENCIL_TEST]);
@@ -168,7 +171,8 @@ namespace MG_Diligent {
             GLProgramInfo &programInfo,
             CommonState &commonState,
             VertexArrayState &vaState,
-            GLFramebufferInfo& fbInfo) {
+            GLFramebufferInfo& fbInfo,
+            GLenum primitiveTopology) {
         PSOCreateInfo.PSODesc.Name = "Program_PSO";
         PSOCreateInfo.PSODesc.PipelineType = Diligent::PIPELINE_TYPE_GRAPHICS;
 
@@ -199,7 +203,7 @@ namespace MG_Diligent {
             PSOCreateInfo.GraphicsPipeline.pRenderPass = g_FramebufferMap[0].pRenderPass; // Default render pass
         }
 
-        PSOCreateInfo.GraphicsPipeline.PrimitiveTopology = Diligent::PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+        PSOCreateInfo.GraphicsPipeline.PrimitiveTopology = GLPrimitiveTopologyToDiligent(primitiveTopology);
 
         if (fbInfo.pRenderPass) {
             PSOCreateInfo.GraphicsPipeline.NumRenderTargets = 0;
@@ -314,8 +318,9 @@ namespace MG_Diligent {
             GLProgramInfo &programInfo,
             CommonState &commonState,
             VertexArrayState &vaState,
-            GLFramebufferInfo& fbInfo) {
-        uint64_t currentStateHash = CalculateStateHash(commonState, vaState, fbInfo);
+            GLFramebufferInfo& fbInfo,
+            GLenum primitiveTopology) {
+        uint64_t currentStateHash = CalculateStateHash(commonState, vaState, fbInfo, primitiveTopology);
 
         if (programInfo.pPipelineState &&
             programInfo.psoStateHash == currentStateHash &&
@@ -360,7 +365,7 @@ namespace MG_Diligent {
         MG_Diligent::BuildInputLayout(program, vaState, programInfo.inputLayout);
         
         Diligent::GraphicsPipelineStateCreateInfo PSOCreateInfo;
-        ConfigurePSO(PSOCreateInfo, programInfo, commonState, vaState, fbInfo);
+        ConfigurePSO(PSOCreateInfo, programInfo, commonState, vaState, fbInfo, primitiveTopology);
 
         MG_Util::Debug::LogD("Dumping PSOCreateInfo for program %u:", program);
         MG_Util::Debug::LogD("  PSODesc.Name: %s", PSOCreateInfo.PSODesc.Name);
