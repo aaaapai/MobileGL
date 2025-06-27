@@ -92,14 +92,16 @@ namespace MG_Util::Debug {
     
 #define DECLARE_LOG_FUNCTION(name, level) \
 void Log##name(const char* format, ...) { \
-    va_list args; \
-    va_start(args, format); \
-    LogImpl(MG_Constants::Common::LOG_LEVEL_##level, \
-           #level, \
-           format, \
-           ANDROID_LOG_##level, \
-           args); \
-    va_end(args); \
+    if constexpr (MG_Global::Common::LogLevel <= MG_Constants::Common::LOG_LEVEL_##level) { \
+        va_list args; \
+        va_start(args, format); \
+        LogImpl(MG_Constants::Common::LOG_LEVEL_##level, \
+               #level, \
+               format, \
+               ANDROID_LOG_##level, \
+               args); \
+        va_end(args);                         \
+    }                                     \
 }
 
     DECLARE_LOG_FUNCTION(D, DEBUG)
