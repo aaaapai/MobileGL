@@ -12,6 +12,7 @@ typedef Diligent::IEngineFactoryVk* (*Diligent_GetEngineFactoryVk_t)();
 typedef Diligent::IEngineFactoryOpenGL* (*Diligent_GetEngineFactoryOpenGL_t)();
 
 namespace MG_Diligent {
+    Diligent::IEngineFactory*     g_pFactory;
     Diligent::IRenderDevice*      g_pDevice;
     Diligent::IDeviceContext*     g_pContext;
     Diligent::ISwapChain*         g_pSwapChain;
@@ -668,7 +669,7 @@ namespace MG_Diligent {
 using namespace Diligent;
 
 namespace MG_EGL::Diligent {
-    void LoadDiligentCoreOpenGL(NativeWindowType window) {
+    void CreateWindowDiligentCoreOpenGL(NativeWindowType window) {
         void *handle = dlopen("libGraphicsEngineOpenGL.so", RTLD_LAZY);
         auto Diligent_GetEngineFactoryOpenGL =
                 (Diligent_GetEngineFactoryOpenGL_t) dlsym(handle,
@@ -692,26 +693,53 @@ namespace MG_EGL::Diligent {
         }
     }
 
-    void LoadDiligentCoreVulkan(NativeWindowType window) {
+    void CreateWindowDiligentCoreVulkan(NativeWindowType window) {
+        AndroidNativeWindow nativeWindow{window};
+        auto* pFactoryVk = static_cast<IEngineFactoryVk*>(MG_Diligent::g_pFactory);
+        MG_Util::Debug::LogD("Creating Vulkan swap chain");
+
+        ::Diligent::SwapChainDesc SCDesc;
+        SCDesc.ColorBufferFormat = TEX_FORMAT_RGBA8_UNORM;
+        SCDesc.PreTransform = SURFACE_TRANSFORM_HORIZONTAL_MIRROR_ROTATE_180;
+
+        pFactoryVk->CreateSwapChainVk(
+                MG_Diligent::g_pDevice, MG_Diligent::g_pContext, SCDesc, nativeWindow, &MG_Diligent::g_pSwapChain);
+        if (MG_Diligent::g_pSwapChain) {
+            MG_Util::Debug::LogD("Vulkan swap chain created: %p", MG_Diligent::g_pSwapChain);
+        } else {
+            MG_Util::Debug::LogE("Failed to create Vulkan swap chain");
+        }
+    }
+
+    void CreateWindowDiligentCore(NativeWindowType window) {
+        switch (MG_Diligent::DILIGENT_BACKEND_TYPE) {
+            case MG_Constants::Backend::BACKEND_DILIGENT_VULKAN:
+                CreateWindowDiligentCoreVulkan(window);
+                break;
+            case MG_Constants::Backend::BACKEND_DILIGENT_OPENGL:
+            default:
+                CreateWindowDiligentCoreOpenGL(window);
+                break;
+        }
+    }
+
+    void LoadDiligentCoreVulkan() {
         void *handle = dlopen("libGraphicsEngineVk.so", RTLD_LAZY);
         auto Diligent_GetEngineFactoryVk =
                 (Diligent_GetEngineFactoryVk_t) dlsym(handle,
                                                       "Diligent_GetEngineFactoryVk");
 
         auto *pFactoryVk = Diligent_GetEngineFactoryVk();
+        MG_Diligent::g_pFactory = pFactoryVk;
         ::Diligent::EngineVkCreateInfo EngineCI;
         EngineCI.DynamicHeapSize = 512 << 20;
-
-        ::Diligent::SwapChainDesc SCDesc;
-        SCDesc.ColorBufferFormat = TEX_FORMAT_RGBA8_UNORM;
-        SCDesc.PreTransform = SURFACE_TRANSFORM_HORIZONTAL_MIRROR_ROTATE_180;
 
         MG_Util::Debug::LogD("Creating Vulkan device and contexts");
         pFactoryVk->CreateDeviceAndContextsVk(
                 EngineCI, &MG_Diligent::g_pDevice, &MG_Diligent::g_pContext);
 
         if (MG_Diligent::g_pDevice && MG_Diligent::g_pContext) {
-            MG_Util::Debug::LogD("Vulkan device created: device=%p, context=%p", 
+            MG_Util::Debug::LogD("Vulkan device created: device=%p, context=%p",
                                  MG_Diligent::g_pDevice, MG_Diligent::g_pContext);
             auto version = MG_Diligent::g_pDevice->GetDeviceInfo().APIVersion;
             std::string apiVersion;
@@ -733,28 +761,18 @@ namespace MG_EGL::Diligent {
             MG_Util::Debug::LogE("Failed to create Vulkan device");
         }
 
-        AndroidNativeWindow nativeWindow{window};
-        MG_Util::Debug::LogD("Creating Vulkan swap chain");
-        pFactoryVk->CreateSwapChainVk(
-                MG_Diligent::g_pDevice, MG_Diligent::g_pContext, SCDesc, nativeWindow, &MG_Diligent::g_pSwapChain);
-        if (MG_Diligent::g_pSwapChain) {
-            MG_Util::Debug::LogD("Vulkan swap chain created: %p", MG_Diligent::g_pSwapChain);
-        } else {
-            MG_Util::Debug::LogE("Failed to create Vulkan swap chain");
-        }
     }
 
-    void LoadDiligentCore(NativeWindowType window) {
+    void LoadDiligentCore() {
         switch (MG_Diligent::DILIGENT_BACKEND_TYPE) {
             case MG_Constants::Backend::BACKEND_DILIGENT_VULKAN:
-                LoadDiligentCoreVulkan(window);
+                LoadDiligentCoreVulkan();
                 break;
             case MG_Constants::Backend::BACKEND_DILIGENT_OPENGL:
             default:
-                LoadDiligentCoreOpenGL(window);
+//                CreateWindowDiligentCoreOpenGL(window);
                 break;
         }
-
     }
 
     void CreateDefaultRenderPass() {
@@ -797,7 +815,7 @@ namespace MG_EGL::Diligent {
 
     EGLSurface eglCreateWindowSurface(EGLDisplay dpy, EGLConfig config, NativeWindowType window,
                                       const EGLint *attrib_list) {
-        LoadDiligentCore(window);
+        CreateWindowDiligentCore(window);
         MG_GL::GL::UpdateDefaultFramebuffer();
         return (EGLSurface) 1;
     }
@@ -814,6 +832,9 @@ namespace MG_EGL::Diligent {
     }
 
     EGLBoolean eglInitialize(EGLDisplay dpy, EGLint *major, EGLint *minor) {
+        LoadDiligentCore();
+        if (major) *major = 1;
+        if (minor) *minor = 5;
         return EGL_TRUE;
     }
 
@@ -929,8 +950,8 @@ namespace MG_EGL::Diligent {
                                                         );
             MG_Diligent::IsInRenderPass = true;
         }
-        const auto& SCDesc = MG_Diligent::g_pSwapChain->GetDesc();
-        MG_Util::Debug::LogD("Setting viewport: width=%d, height=%d", SCDesc.Width, SCDesc.Height);
+//        const auto& SCDesc = MG_Diligent::g_pSwapChain->GetDesc();
+//        MG_Util::Debug::LogD("Setting viewport: width=%d, height=%d", SCDesc.Width, SCDesc.Height);
 
 //        ::Diligent::Viewport viewport;
 //        viewport.TopLeftX = 0.f;
