@@ -36,9 +36,9 @@ namespace MG_Global {
 namespace MG_Constants {
     namespace Common {
         inline constexpr int LOG_LEVEL_DEBUG     = 0x0010;
-        inline constexpr int LOG_LEVEL_WARN      = 0x0011;
-        inline constexpr int LOG_LEVEL_ERROR     = 0x0012;
-        inline constexpr int LOG_LEVEL_INFO      = 0x0013;
+        inline constexpr int LOG_LEVEL_INFO      = 0x0011;
+        inline constexpr int LOG_LEVEL_WARN      = 0x0012;
+        inline constexpr int LOG_LEVEL_ERROR     = 0x0013;
         inline constexpr int LOG_LEVEL_FATAL     = 0x0014;
 
 
@@ -100,6 +100,10 @@ namespace MG_Constants {
         static const MG_Global::unordered_set<GLenum> VALID_ACCESS = {
                 GL_READ_ONLY, GL_WRITE_ONLY, GL_READ_WRITE
         }; // OpenGL 3
+    }
+
+    namespace VertexArray {
+        constexpr uint32_t MAX_VERTEX_ATTRIBS = 32;
     }
 
     namespace PixelStore {

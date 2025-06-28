@@ -451,6 +451,12 @@ namespace MG_GL::GL {
                              MG_Util::Debug::GLEnumToString(textarget),
                              texture,
                              level);
+
+        if (target == GL_FRAMEBUFFER) {
+            MG_Util::Debug::LogD("Got target == GL_FRAMEBUFFER, treating as GL_DRAW_FRAMEBUFFER");
+            target = GL_DRAW_FRAMEBUFFER;
+        }
+
         MG_Util::Debug::LogD("  Current READ_FRAMEBUFFER binding: %u", MG_State_T::framebufferState->currentBindings_[GL_READ_FRAMEBUFFER]);
         MG_Util::Debug::LogD("  Current DRAW_FRAMEBUFFER binding: %u", MG_State_T::framebufferState->currentBindings_[GL_DRAW_FRAMEBUFFER]);
 
@@ -459,26 +465,27 @@ namespace MG_GL::GL {
         );
 
         if (result == GL_NO_ERROR) {
-            if (target == GL_FRAMEBUFFER) {
-                if (MG_State_T::framebufferState->currentBindings_[GL_READ_FRAMEBUFFER] == MG_State_T::framebufferState->currentBindings_[GL_DRAW_FRAMEBUFFER]) {
-                    MG_Util::Debug::LogD("  Target is GL_FRAMEBUFFER and READ/DRAW bindings are the same (%u). Applying to GL_DRAW_FRAMEBUFFER.", MG_State_T::framebufferState->currentBindings_[GL_DRAW_FRAMEBUFFER]);
-                    target = GL_DRAW_FRAMEBUFFER;
-                } else {
-                    MG_Util::Debug::LogD("  Target is GL_FRAMEBUFFER and READ/DRAW bindings differ. Applying to both if non-zero.");
-                    if (MG_State_T::framebufferState->currentBindings_[GL_READ_FRAMEBUFFER] != 0) {
-                        MG_Util::Debug::LogD("  Attaching to READ_FRAMEBUFFER: %u", MG_State_T::framebufferState->currentBindings_[GL_READ_FRAMEBUFFER]);
-                        AttachTexture2DToFramebuffer(MG_State_T::framebufferState->currentBindings_[GL_READ_FRAMEBUFFER], 
-                                                     texture, attachment, level);
-                    }
-                    if (MG_State_T::framebufferState->currentBindings_[GL_DRAW_FRAMEBUFFER] != 0) {
-                        MG_Util::Debug::LogD("  Attaching to DRAW_FRAMEBUFFER: %u", MG_State_T::framebufferState->currentBindings_[GL_DRAW_FRAMEBUFFER]);
-                        AttachTexture2DToFramebuffer(MG_State_T::framebufferState->currentBindings_[GL_DRAW_FRAMEBUFFER],
-                                                     texture, attachment, level);
-                    }
-                    MG_Util::Debug::LogD("FramebufferTexture2D completed successfully after separate READ/DRAW attachments.");
-                    return;
-                }
-            }
+//            if (target == GL_FRAMEBUFFER) {
+//                if (MG_State_T::framebufferState->currentBindings_[GL_READ_FRAMEBUFFER] == MG_State_T::framebufferState->currentBindings_[GL_DRAW_FRAMEBUFFER]) {
+//                    MG_Util::Debug::LogD("  Target is GL_FRAMEBUFFER and READ/DRAW bindings are the same (%u). Applying to GL_DRAW_FRAMEBUFFER.",
+//                                         MG_State_T::framebufferState->currentBindings_[GL_DRAW_FRAMEBUFFER]);
+//                    target = GL_DRAW_FRAMEBUFFER;
+//                } else {
+//                    MG_Util::Debug::LogD("  Target is GL_FRAMEBUFFER and READ/DRAW bindings differ. Applying to both if non-zero.");
+//                    if (MG_State_T::framebufferState->currentBindings_[GL_READ_FRAMEBUFFER] != 0) {
+//                        MG_Util::Debug::LogD("  Attaching to READ_FRAMEBUFFER: %u", MG_State_T::framebufferState->currentBindings_[GL_READ_FRAMEBUFFER]);
+//                        AttachTexture2DToFramebuffer(MG_State_T::framebufferState->currentBindings_[GL_READ_FRAMEBUFFER],
+//                                                     texture, attachment, level);
+//                    }
+//                    if (MG_State_T::framebufferState->currentBindings_[GL_DRAW_FRAMEBUFFER] != 0) {
+//                        MG_Util::Debug::LogD("  Attaching to DRAW_FRAMEBUFFER: %u", MG_State_T::framebufferState->currentBindings_[GL_DRAW_FRAMEBUFFER]);
+//                        AttachTexture2DToFramebuffer(MG_State_T::framebufferState->currentBindings_[GL_DRAW_FRAMEBUFFER],
+//                                                     texture, attachment, level);
+//                    }
+//                    MG_Util::Debug::LogD("FramebufferTexture2D completed successfully after separate READ/DRAW attachments.");
+//                    return;
+//                }
+//            }
             GLuint fboToModify = MG_State_T::framebufferState->currentBindings_[target];
             MG_Util::Debug::LogD("  Target is %s. Applying to bound FBO: %u",
                                  MG_Util::Debug::GLEnumToString(target), fboToModify);

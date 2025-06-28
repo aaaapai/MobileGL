@@ -116,17 +116,17 @@ namespace MG_Util::Program {
     }
     
     void DumpUniforms(const ProgramState& state, GLuint program) {
-        if (MG_Global::Common::LogLevel > MG_Constants::Common::LOG_LEVEL_DEBUG)
+        if constexpr (MG_Global::Common::LogLevel > MG_Constants::Common::LOG_LEVEL_DEBUG)
             return;
         
-        auto prog = (ProgramObject)state.GetProgramObject(program);
-        if (!prog.linked.toBool()) {
+        auto* prog = state.GetProgramObject(program);
+        if (!prog->linked.toBool()) {
             MG_Util::Debug::LogE("Program %u not linked", program);
             return;
         }
         MG_Util::Debug::LogD("=== Dumping uniforms for program %u ===", program);
-        for(const auto& [name, loc] : prog.uniformLocations) {
-            const auto& value = prog.uniformValues.at(name);
+        for(const auto& [name, loc] : prog->uniformLocations) {
+            const auto& value = prog->uniformValues.at(name);
             MG_Util::Debug::LogD("Uniform: %-24s Location: %-4d Type: %-16s Count: %-3d Value: %s",
                                  name.c_str(),
                                  loc,

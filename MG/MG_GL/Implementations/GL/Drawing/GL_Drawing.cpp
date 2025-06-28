@@ -411,7 +411,22 @@ namespace MG_GL::GL {
         }
     }
     
-    void PrepareForDraw() {
+    template<typename T>
+    void generate_triangle_fan_indices(std::vector<uint8_t>& out_data, const void* in_indices, size_t count) {
+        const auto* pIn = static_cast<const T*>(in_indices);
+        std::vector<T> new_indices;
+        new_indices.reserve((count - 2) * 3);
+        T i0 = pIn[0];
+        for (size_t i = 1; i < count - 1; ++i) {
+            new_indices.push_back(i0);
+            new_indices.push_back(pIn[i]);
+            new_indices.push_back(pIn[i+1]);
+        }
+        out_data.resize(new_indices.size() * sizeof(T));
+        memcpy(out_data.data(), new_indices.data(), out_data.size());
+    }
+    
+    void PrepareForDraw(GLenum mode, GLsizei* pCount, GLenum type, const void*& pIndices) {
         if (MG_Diligent::IsInRenderPass) {
             MG_Util::Debug::LogD("Ending current render pass.");
             MG_Diligent::g_pContext->EndRenderPass();
@@ -430,7 +445,6 @@ namespace MG_GL::GL {
         auto& programInfo = MG_Diligent::g_ProgramMap[program];
 
         GLuint drawFB = MG_State_T::framebufferState->currentBindings_[GL_DRAW_FRAMEBUFFER];
-        if (drawFB == 0) drawFB = 0;
 
         auto itFB = MG_Diligent::g_FramebufferMap.find(drawFB);
         if (itFB == MG_Diligent::g_FramebufferMap.end()) {
@@ -445,7 +459,8 @@ namespace MG_GL::GL {
                 programInfo,
                 *MG_State_T::commonState,
                 *MG_State_T::vertexArrayState,
-                fbInfo
+                fbInfo,
+                mode
         );
 
         if (!programInfo.pPipelineState) {
@@ -474,9 +489,8 @@ namespace MG_GL::GL {
             return;
         }
 
-        std::unordered_map<GLuint, Diligent::IBuffer*> createdBuffers;
-
-        for (const auto& [attribIndex, attrib] : pVAO->attribs) {
+        for (uint32_t attribIndex = 0; attribIndex < MG_Constants::VertexArray::MAX_VERTEX_ATTRIBS; ++attribIndex) {
+            const auto& attrib = pVAO->attribs[attribIndex];
             if (!attrib.enabled || attrib.buffer == 0) continue;
 
             GLuint buffer = attrib.buffer;
@@ -508,7 +522,67 @@ namespace MG_GL::GL {
             }
         }
 
-        if (pVAO->elementBuffer != 0) {
+        if (mode == GL_TRIANGLE_FAN)
+        {
+            if (*pCount < 3) return;
+
+            const void* pOriginalIndices = nullptr;
+            if (pVAO->elementBuffer != 0)
+            {
+                auto& bufferObj = MG_State_T::bufferState->buffers_[pVAO->elementBuffer];
+                pOriginalIndices = bufferObj.data.data() + reinterpret_cast<uintptr_t>(pIndices);
+            }
+            else
+            {
+                pOriginalIndices = pIndices;
+            }
+            
+            std::vector<uint8_t> newIndexData;
+            switch(type) {
+                case GL_UNSIGNED_BYTE:
+                    generate_triangle_fan_indices<uint8_t>(newIndexData, pOriginalIndices, *pCount);
+                    break;
+                case GL_UNSIGNED_SHORT:
+                    generate_triangle_fan_indices<uint16_t>(newIndexData, pOriginalIndices, *pCount);
+                    break;
+                case GL_UNSIGNED_INT:
+                    generate_triangle_fan_indices<uint32_t>(newIndexData, pOriginalIndices, *pCount);
+                    break;
+                default:
+                    MG_Util::Debug::LogE("Unsupported index type for triangle fan conversion: %X", type);
+                    return;
+            }
+
+            *pCount = (static_cast<GLsizei>(*pCount) - 2) * 3;
+            pIndices = nullptr;
+
+            if (!MG_Diligent::g_TriangleFanIndexBuffer || MG_Diligent::g_TriangleFanIndexBuffer->GetDesc().Size < newIndexData.size())
+            {
+                if (MG_Diligent::g_TriangleFanIndexBuffer)
+                    MG_Diligent::g_TriangleFanIndexBuffer->Release();
+
+                Diligent::BufferDesc BuffDesc;
+                BuffDesc.Name           = "Triangle Fan Temp Index Buffer";
+                BuffDesc.Size           = newIndexData.size();
+                BuffDesc.Usage          = Diligent::USAGE_DYNAMIC;
+                BuffDesc.BindFlags      = Diligent::BIND_INDEX_BUFFER;
+                BuffDesc.CPUAccessFlags = Diligent::CPU_ACCESS_WRITE;
+                MG_Diligent::g_pDevice->CreateBuffer(BuffDesc, nullptr, &MG_Diligent::g_TriangleFanIndexBuffer);
+            }
+
+            if (MG_Diligent::g_TriangleFanIndexBuffer)
+            {
+                void* pMappedData = nullptr;
+                MG_Diligent::g_pContext->MapBuffer(MG_Diligent::g_TriangleFanIndexBuffer, Diligent::MAP_WRITE, Diligent::MAP_FLAG_DISCARD, pMappedData);
+                if (pMappedData)
+                {
+                    memcpy(pMappedData, newIndexData.data(), newIndexData.size());
+                    MG_Diligent::g_pContext->UnmapBuffer(MG_Diligent::g_TriangleFanIndexBuffer, Diligent::MAP_WRITE);
+                }
+                MG_Diligent::g_pContext->SetIndexBuffer(MG_Diligent::g_TriangleFanIndexBuffer, 0, Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
+            }
+        }
+        else if (pVAO->elementBuffer != 0) {
             GLuint buffer = pVAO->elementBuffer;
             auto& bufferObj = MG_State_T::bufferState->buffers_[buffer];
 
@@ -535,16 +609,21 @@ namespace MG_GL::GL {
                     MG_Util::Debug::LogE("Failed to create dynamic index buffer %u", buffer);
                 }
             }
+            if (pBuffer)
+            {
+                MG_Diligent::g_pContext->SetIndexBuffer(pBuffer, 0, Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
+            }
         }
 
         // Update data for all dynamic buffers
         for (auto& [bufferID, pBuffer] : MG_Diligent::g_BufferMap) {
-            if (MG_State_T::bufferState->buffers_.find(bufferID) == MG_State_T::bufferState->buffers_.end()) {
+            auto it = MG_State_T::bufferState->buffers_.find(bufferID);
+            if (it == MG_State_T::bufferState->buffers_.end()) {
                 MG_Util::Debug::LogW("Buffer ID %u not found in bufferState. Skipping update.", bufferID);
                 continue;
             }
             
-            auto& bufferObj = MG_State_T::bufferState->buffers_[bufferID];
+            auto& bufferObj = it->second;
             if (pBuffer && bufferObj.isDynamic && !bufferObj.data.empty()) {
                 void* pMappedData = nullptr;
                 MG_Util::Debug::LogD("Mapping dynamic buffer %u for data update.", bufferID);
@@ -559,7 +638,6 @@ namespace MG_GL::GL {
                     MG_Diligent::g_pContext->UnmapBuffer(pBuffer, Diligent::MAP_WRITE);
                     bufferObj.dirty = false;
                     MG_Util::Debug::LogD("Successfully updated data for dynamic buffer %u.", bufferID);
-                    createdBuffers[bufferID] = pBuffer;
                 } else {
                     MG_Util::Debug::LogE("Failed to map dynamic buffer %u for data update.", bufferID);
                 }
@@ -569,7 +647,8 @@ namespace MG_GL::GL {
         std::vector<Diligent::IBuffer*> vertexBuffers;
         std::vector<Diligent::Uint64> offsets;
 
-        for (const auto& [attribIndex, attrib] : pVAO->attribs) {
+        for (uint32_t attribIndex = 0; attribIndex < MG_Constants::VertexArray::MAX_VERTEX_ATTRIBS; ++attribIndex) {
+            const auto& attrib = pVAO->attribs[attribIndex];
             if (!attrib.enabled || attrib.buffer == 0) continue;
 
             GLuint buffer = attrib.buffer;
@@ -621,26 +700,22 @@ namespace MG_GL::GL {
     }
 
     void DrawElements(GLenum mode, GLsizei count, GLenum type, const void* indices) {
-        PrepareForDraw();
-        auto* pVAO = MG_State_T::vertexArrayState->GetCurrentVAO();
-        if (pVAO->elementBuffer != 0) {
-            GLuint buffer = pVAO->elementBuffer;
-            auto it = MG_Diligent::g_BufferMap.find(buffer);
-            if (it != MG_Diligent::g_BufferMap.end() && it->second) {
-                auto offset = reinterpret_cast<uintptr_t>(indices);
-
-                MG_Diligent::g_pContext->SetIndexBuffer(
-                        it->second,
-                        offset,
-                        Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION
-                );
-            }
-        }
+        const void* pIndices = indices;
+        PrepareForDraw(mode, &count, type, pIndices);
         
         Diligent::DrawIndexedAttribs drawAttrs;
         drawAttrs.NumIndices = count;
         drawAttrs.Flags = Diligent::DRAW_FLAG_VERIFY_ALL;
         drawAttrs.IndexType = ConvertGLTypeToDiligent(type);
+
+        auto* pVAO = MG_State_T::vertexArrayState->GetCurrentVAO();
+        if (pIndices != nullptr && pVAO != nullptr && pVAO->elementBuffer != 0) {
+            size_t indexSize = 1;
+            if (drawAttrs.IndexType == Diligent::VT_UINT16) indexSize = 2;
+            else if (drawAttrs.IndexType == Diligent::VT_UINT32) indexSize = 4;
+            drawAttrs.FirstIndexLocation = static_cast<Diligent::Uint32>(reinterpret_cast<uintptr_t>(pIndices) / indexSize);
+        }
+
         MG_Util::Debug::LogD("DrawIndexedAttribs Dump:");
         MG_Util::Debug::LogD("  NumIndices: %u", drawAttrs.NumIndices);
         MG_Util::Debug::LogD("  IndexType: %d", drawAttrs.IndexType);
@@ -708,8 +783,9 @@ namespace MG_GL::GL {
     };
     
     void MultiDrawElements(GLenum mode, const GLsizei *count, GLenum type, const GLvoid *const *indices, GLsizei drawcount) {
-        PrepareForDraw();
-        
+        return;
+        //        PrepareForDraw();
+
         if (MG_Diligent::IsInRenderPass) {
             MG_Util::Debug::LogD("Ending current render pass.");
             MG_Diligent::g_pContext->EndRenderPass();
@@ -843,7 +919,8 @@ namespace MG_GL::GL {
     }
 
     void MultiDrawElementsBaseVertex(GLenum mode, const GLsizei *count, GLenum type, const GLvoid *const *indices, GLsizei drawcount, const GLint *basevertex) {
-        PrepareForDraw();
+        return;
+        //        PrepareForDraw();
 
         auto* pVAO = MG_State_T::vertexArrayState->GetCurrentVAO();
         Diligent::IBuffer* pIndexBuffer = nullptr;

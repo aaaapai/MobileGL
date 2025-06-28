@@ -70,8 +70,44 @@ namespace MG_GL::GL {
         return components * typeSize;
     }
 
-    // return value: mipmap type or not
-    bool FillFilterTypeFromGLEnum(GLenum pname, GLenum param, Diligent::FILTER_TYPE& filter, Diligent::FILTER_TYPE& mipFilter) {
+    Diligent::FILTER_TYPE ConvertCompareFilter(Diligent::FILTER_TYPE& filter, bool compare) {
+        if (compare) {
+            switch (filter) {
+                case Diligent::FILTER_TYPE_POINT: return Diligent::FILTER_TYPE_COMPARISON_POINT;
+                case Diligent::FILTER_TYPE_LINEAR: return Diligent::FILTER_TYPE_COMPARISON_LINEAR;
+                case Diligent::FILTER_TYPE_ANISOTROPIC: return Diligent::FILTER_TYPE_COMPARISON_ANISOTROPIC;
+                default: return filter;
+            }
+        } else {
+            switch (filter) {
+                case Diligent::FILTER_TYPE_COMPARISON_POINT: return Diligent::FILTER_TYPE_POINT;
+                case Diligent::FILTER_TYPE_COMPARISON_LINEAR: return Diligent::FILTER_TYPE_LINEAR;
+                case Diligent::FILTER_TYPE_COMPARISON_ANISOTROPIC: return Diligent::FILTER_TYPE_ANISOTROPIC;
+                default: return filter;
+            }
+        }
+    }
+
+    bool IsCompareFilter(Diligent::FILTER_TYPE filter) {
+        switch (filter) {
+            case Diligent::FILTER_TYPE_COMPARISON_POINT: return true;
+            case Diligent::FILTER_TYPE_COMPARISON_LINEAR: return true;
+            case Diligent::FILTER_TYPE_COMPARISON_ANISOTROPIC: return true;
+            default: return false;
+        }
+    }
+
+    void FillFilterTypeFromGLEnum(GLenum pname, GLenum param, Diligent::FILTER_TYPE& filter, Diligent::FILTER_TYPE& mipFilter) {
+        if (pname == GL_TEXTURE_COMPARE_MODE) {
+            bool compare = (param == GL_COMPARE_REF_TO_TEXTURE);
+            filter = ConvertCompareFilter(filter, compare);
+            mipFilter = ConvertCompareFilter(mipFilter, compare);
+            return;
+        }
+
+        bool filterIsCompare = IsCompareFilter(filter);
+        bool mipFilterIsCompare = IsCompareFilter(filter);
+
         switch (param) {
             case GL_NEAREST:
                 filter = Diligent::FILTER_TYPE_POINT;
@@ -86,23 +122,25 @@ namespace MG_GL::GL {
             case GL_NEAREST_MIPMAP_NEAREST:
                 filter = Diligent::FILTER_TYPE_POINT;
                 mipFilter = Diligent::FILTER_TYPE_POINT;
-                return true;
+                break;
             case GL_LINEAR_MIPMAP_NEAREST:
                 filter = Diligent::FILTER_TYPE_LINEAR;
                 mipFilter = Diligent::FILTER_TYPE_POINT;
-                return true;
+                break;
             case GL_NEAREST_MIPMAP_LINEAR:
                 filter = Diligent::FILTER_TYPE_POINT;
                 mipFilter = Diligent::FILTER_TYPE_LINEAR;
-                return true;
+                break;
             case GL_LINEAR_MIPMAP_LINEAR:
                 filter = Diligent::FILTER_TYPE_LINEAR;
                 mipFilter = Diligent::FILTER_TYPE_LINEAR;
-                return true;
+                break;
             default:
                 break;
         }
-        return false;
+
+        filter = ConvertCompareFilter(filter, filterIsCompare);
+        mipFilter = ConvertCompareFilter(mipFilter, mipFilterIsCompare);
     }
 
     Diligent::COMPARISON_FUNCTION ConvertComparsionFunc(GLint param) {
@@ -289,13 +327,16 @@ namespace MG_GL::GL {
             }
 
             Diligent::Uint32 mipLevels = 1;
-            if (isBaseLevel) {
-                mipLevels = CalculateMipLevels(width, height);
-            } else if (pTexture) {
-                mipLevels = pTexture->GetDesc().MipLevels;
-            }
+//            if (isBaseLevel) {
+//                mipLevels = CalculateMipLevels(width, height);
+//            } else if (pTexture) {
+//                mipLevels = pTexture->GetDesc().MipLevels;
+//            }
 
             Diligent::TextureDesc TexDesc;
+            if constexpr (MG_Global::Common::LogLevel <= MG_Constants::Common::LOG_LEVEL_DEBUG) {
+                TexDesc.Name = std::format("GL Texture {}", boundTextureID).c_str();
+            }
             TexDesc.Type = Diligent::RESOURCE_DIM_TEX_2D;
             TexDesc.Width = width;
             TexDesc.Height = height;
@@ -436,10 +477,13 @@ namespace MG_GL::GL {
                 SamDesc.MinLOD = (float)param;
                 break;
             case GL_TEXTURE_MAX_LOD:
-                SamDesc.MaxLOD = std::max(param, 0.25f);
+                SamDesc.MaxLOD = param;
                 break;
             case GL_TEXTURE_COMPARE_FUNC:
                 SamDesc.ComparisonFunc = ConvertComparsionFunc(param);
+                break;
+            case GL_TEXTURE_COMPARE_MODE:
+                FillFilterTypeFromGLEnum(pname, param, SamDesc.MinFilter, SamDesc.MipFilter);
                 break;
             default:
                 MG_Util::Debug::LogE("%s: not handled pname: %s", __func__, MG_Util::Debug::GLEnumToString(pname));
@@ -512,10 +556,13 @@ namespace MG_GL::GL {
                 SamDesc.MinLOD = (float)param;
                 break;
             case GL_TEXTURE_MAX_LOD:
-                SamDesc.MaxLOD = std::max((float)param, 0.25f);
+                SamDesc.MaxLOD = (float)param;
                 break;
             case GL_TEXTURE_COMPARE_FUNC:
                 SamDesc.ComparisonFunc = ConvertComparsionFunc(param);
+                break;
+            case GL_TEXTURE_COMPARE_MODE:
+                FillFilterTypeFromGLEnum(pname, param, SamDesc.MinFilter, SamDesc.MipFilter);
                 break;
             default:
                 MG_Util::Debug::LogE("%s: not handled pname: %s", __func__, MG_Util::Debug::GLEnumToString(pname));
@@ -553,6 +600,8 @@ namespace MG_GL::GL {
         auto unitState = &texState.textureUnits_[activeUnit];
         GLuint boundTextureID = unitState->GetBoundTexture(target);
 
+        MG_Util::Debug::LogD("TexSubImage2D: bound texture: GL name %u", boundTextureID);
+
         if (boundTextureID == 0) {
             MG_Util::Debug::LogD("TexSubImage2D: No texture bound to active unit. Skipping update.");
             return;
@@ -575,12 +624,16 @@ namespace MG_GL::GL {
             return;
         }
 
-        Diligent::TextureDesc desc = pTexture->GetDesc();
-        (void)desc;
+        auto rowLength = MG_State::QueryPixelStoreInt(GL_UNPACK_ROW_LENGTH);
+        rowLength = ((rowLength > 0) ? rowLength : width);
+        auto skipRows = MG_State::QueryPixelStoreInt(GL_UNPACK_SKIP_ROWS);
+        auto skipPixels = MG_State::QueryPixelStoreInt(GL_UNPACK_SKIP_PIXELS);
+        auto bpp = GetBytesPerPixel(format, type);
+        char* pixelStart = (char*)pixels + bpp * (rowLength * skipRows + skipPixels);
 
         Diligent::TextureSubResData SubResData;
-        SubResData.pData = pixels;
-        SubResData.Stride = width * GetBytesPerPixel(format, type);
+        SubResData.Stride = rowLength * bpp;
+        SubResData.pData = pixelStart;
 
         Diligent::Box UpdateBox;
         UpdateBox.MinX = xoffset;
@@ -590,8 +643,10 @@ namespace MG_GL::GL {
         UpdateBox.MinZ = 0;
         UpdateBox.MaxZ = 1;
 
-        MG_Util::Debug::LogD("TexSubImage2D: Updating region [%d,%d]-[%d,%d] at level %d",
-                             xoffset, yoffset, xoffset+width, yoffset+height, level);
+        MG_Util::Debug::LogD("TexSubImage2D: Got GL_UNPACK_ROW_LENGTH = %d", rowLength);
+
+        MG_Util::Debug::LogD("TexSubImage2D: Updating region [%d,%d]-[%d,%d] at level %d, %d bytes",
+                             xoffset, yoffset, xoffset+width, yoffset+height, level, width * height * GetBytesPerPixel(format, type));
 
         if (MG_Diligent::IsInRenderPass) {
             MG_Diligent::g_pContext->EndRenderPass();

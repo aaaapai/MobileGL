@@ -12,6 +12,7 @@ typedef Diligent::IEngineFactoryVk* (*Diligent_GetEngineFactoryVk_t)();
 typedef Diligent::IEngineFactoryOpenGL* (*Diligent_GetEngineFactoryOpenGL_t)();
 
 namespace MG_Diligent {
+    Diligent::IEngineFactory*     g_pFactory;
     Diligent::IRenderDevice*      g_pDevice;
     Diligent::IDeviceContext*     g_pContext;
     Diligent::ISwapChain*         g_pSwapChain;
@@ -23,6 +24,7 @@ namespace MG_Diligent {
     MG_Global::unordered_map<GLuint, GLProgramInfo>              g_ProgramMap;
     MG_Global::unordered_map<GLuint, Diligent::ISampler*>        g_SamplerMap;
     MG_Global::unordered_map<GLuint, Diligent::IBuffer*>         g_UniformBufferMap;
+    Diligent::IBuffer* g_TriangleFanIndexBuffer = nullptr;
     GLuint g_NextResourceId = 0;
     bool IsInRenderPass = false;
     bool initialized = false;
@@ -33,7 +35,9 @@ namespace MG_Diligent {
 
         auto& programObj = MG_State_T::programState->programs_[program];
 
-        for (const auto& [attribIndex, attrib] : vaState.vaos_[vaState.currentVao_].attribs) {
+//        for (const auto& [attribIndex, attrib] : vaState.vaos_[vaState.currentVao_].attribs) {
+        for (uint32_t attribIndex = 0; attribIndex < MG_Constants::VertexArray::MAX_VERTEX_ATTRIBS; ++attribIndex) {
+            const auto& attrib = vaState.vaos_[vaState.currentVao_].attribs[attribIndex];
             if (!attrib.enabled) continue;
 
             std::string attribName;
@@ -99,7 +103,8 @@ namespace MG_Diligent {
     uint64_t PipelineStateManager::CalculateStateHash(
             CommonState &commonState,
             VertexArrayState &vaState,
-            GLFramebufferInfo& fbInfo) {
+            GLFramebufferInfo& fbInfo,
+            GLenum primitiveTopology) {
         size_t hash = 0;
 
         auto& capabilities = commonState.capabilities;
@@ -119,20 +124,17 @@ namespace MG_Diligent {
         hash_combine(hash, commonState.depthMask);
         hash_combine(hash, capabilities[GL_DEPTH_TEST]);
 
+        hash_combine(hash, primitiveTopology);
         hash_combine(hash, 0); // TODO: Cull Face Mode
         hash_combine(hash, capabilities[GL_CULL_FACE]);
         hash_combine(hash, capabilities[GL_STENCIL_TEST]);
 
         auto *pVAO = vaState.GetCurrentVAO();
-        
-        std::vector<uint32_t> attribIndices;
-        for (const auto& [index, _] : pVAO->attribs)
-            attribIndices.push_back(index);
-        std::sort(attribIndices.begin(), attribIndices.end());
-        for (auto index : attribIndices) {
-            const auto& attrib = pVAO->attribs.at(index);
+
+        for (uint32_t i = 0; i < MG_Constants::VertexArray::MAX_VERTEX_ATTRIBS; ++i) {
+            const auto& attrib = pVAO->attribs[i];
             if (attrib.enabled) {
-                hash_combine(hash, index);
+                hash_combine(hash, i);
                 hash_combine(hash, attrib.size);
                 hash_combine(hash, attrib.type);
                 hash_combine(hash, attrib.normalized);
@@ -170,7 +172,8 @@ namespace MG_Diligent {
             GLProgramInfo &programInfo,
             CommonState &commonState,
             VertexArrayState &vaState,
-            GLFramebufferInfo& fbInfo) {
+            GLFramebufferInfo& fbInfo,
+            GLenum primitiveTopology) {
         PSOCreateInfo.PSODesc.Name = "Program_PSO";
         PSOCreateInfo.PSODesc.PipelineType = Diligent::PIPELINE_TYPE_GRAPHICS;
 
@@ -201,7 +204,7 @@ namespace MG_Diligent {
             PSOCreateInfo.GraphicsPipeline.pRenderPass = g_FramebufferMap[0].pRenderPass; // Default render pass
         }
 
-        PSOCreateInfo.GraphicsPipeline.PrimitiveTopology = Diligent::PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+        PSOCreateInfo.GraphicsPipeline.PrimitiveTopology = GLPrimitiveTopologyToDiligent(primitiveTopology);
 
         if (fbInfo.pRenderPass) {
             PSOCreateInfo.GraphicsPipeline.NumRenderTargets = 0;
@@ -271,7 +274,7 @@ namespace MG_Diligent {
         rasterizerDesc.CullMode = commonState.capabilities[GL_CULL_FACE] ?
                                   Diligent::CULL_MODE_BACK : Diligent::CULL_MODE_NONE;
         rasterizerDesc.FrontCounterClockwise = false;
-        // TODO: Get correct FrontCounterClockwise state.
+        // TODO: Get correct FrontCounterClockwise state and re-enable backface culling.
 
         if (!programInfo.inputLayout.empty()) {
             PSOCreateInfo.GraphicsPipeline.InputLayout.LayoutElements = programInfo.inputLayout.data();
@@ -316,8 +319,9 @@ namespace MG_Diligent {
             GLProgramInfo &programInfo,
             CommonState &commonState,
             VertexArrayState &vaState,
-            GLFramebufferInfo& fbInfo) {
-        uint64_t currentStateHash = CalculateStateHash(commonState, vaState, fbInfo);
+            GLFramebufferInfo& fbInfo,
+            GLenum primitiveTopology) {
+        uint64_t currentStateHash = CalculateStateHash(commonState, vaState, fbInfo, primitiveTopology);
 
         if (programInfo.pPipelineState &&
             programInfo.psoStateHash == currentStateHash &&
@@ -351,7 +355,7 @@ namespace MG_Diligent {
             assert(ConvertGLBlendFactor(commonState.blendDstAlpha) == desc.BlendDesc.RenderTargets[0].DestBlendAlpha);
 
             assert(ConvertGLDepthFunc(commonState.depthFunc) == desc.DepthStencilDesc.DepthFunc);
-            assert(commonState.capabilities[GL_DEPTH_TEST] == desc.DepthStencilDesc.DepthEnable);
+//            assert(commonState.capabilities[GL_DEPTH_TEST] == desc.DepthStencilDesc.DepthEnable);
 //            if ((ConvertGLBlendFactor(commonState.blendSrcRGB) == desc.BlendDesc.RenderTargets[0].SrcBlend) &&
 //            (ConvertGLBlendFactor(commonState.blendDstRGB) == desc.BlendDesc.RenderTargets[0].DestBlend) &&
 //            (ConvertGLBlendFactor(commonState.blendSrcAlpha) == desc.BlendDesc.RenderTargets[0].SrcBlendAlpha) &&
@@ -362,7 +366,7 @@ namespace MG_Diligent {
         MG_Diligent::BuildInputLayout(program, vaState, programInfo.inputLayout);
         
         Diligent::GraphicsPipelineStateCreateInfo PSOCreateInfo;
-        ConfigurePSO(PSOCreateInfo, programInfo, commonState, vaState, fbInfo);
+        ConfigurePSO(PSOCreateInfo, programInfo, commonState, vaState, fbInfo, primitiveTopology);
 
         MG_Util::Debug::LogD("Dumping PSOCreateInfo for program %u:", program);
         MG_Util::Debug::LogD("  PSODesc.Name: %s", PSOCreateInfo.PSODesc.Name);
@@ -666,7 +670,7 @@ namespace MG_Diligent {
 using namespace Diligent;
 
 namespace MG_EGL::Diligent {
-    void LoadDiligentCoreOpenGL(NativeWindowType window) {
+    void CreateWindowDiligentCoreOpenGL(NativeWindowType window) {
         void *handle = dlopen("libGraphicsEngineOpenGL.so", RTLD_LAZY);
         auto Diligent_GetEngineFactoryOpenGL =
                 (Diligent_GetEngineFactoryOpenGL_t) dlsym(handle,
@@ -690,25 +694,53 @@ namespace MG_EGL::Diligent {
         }
     }
 
-    void LoadDiligentCoreVulkan(NativeWindowType window) {
+    void CreateWindowDiligentCoreVulkan(NativeWindowType window) {
+        AndroidNativeWindow nativeWindow{window};
+        auto* pFactoryVk = static_cast<IEngineFactoryVk*>(MG_Diligent::g_pFactory);
+        MG_Util::Debug::LogD("Creating Vulkan swap chain");
+
+        ::Diligent::SwapChainDesc SCDesc;
+        SCDesc.ColorBufferFormat = TEX_FORMAT_RGBA8_UNORM;
+        SCDesc.PreTransform = SURFACE_TRANSFORM_HORIZONTAL_MIRROR_ROTATE_180;
+
+        pFactoryVk->CreateSwapChainVk(
+                MG_Diligent::g_pDevice, MG_Diligent::g_pContext, SCDesc, nativeWindow, &MG_Diligent::g_pSwapChain);
+        if (MG_Diligent::g_pSwapChain) {
+            MG_Util::Debug::LogD("Vulkan swap chain created: %p", MG_Diligent::g_pSwapChain);
+        } else {
+            MG_Util::Debug::LogE("Failed to create Vulkan swap chain");
+        }
+    }
+
+    void CreateWindowDiligentCore(NativeWindowType window) {
+        switch (MG_Diligent::DILIGENT_BACKEND_TYPE) {
+            case MG_Constants::Backend::BACKEND_DILIGENT_VULKAN:
+                CreateWindowDiligentCoreVulkan(window);
+                break;
+            case MG_Constants::Backend::BACKEND_DILIGENT_OPENGL:
+            default:
+                CreateWindowDiligentCoreOpenGL(window);
+                break;
+        }
+    }
+
+    void LoadDiligentCoreVulkan() {
         void *handle = dlopen("libGraphicsEngineVk.so", RTLD_LAZY);
         auto Diligent_GetEngineFactoryVk =
                 (Diligent_GetEngineFactoryVk_t) dlsym(handle,
                                                       "Diligent_GetEngineFactoryVk");
 
         auto *pFactoryVk = Diligent_GetEngineFactoryVk();
+        MG_Diligent::g_pFactory = pFactoryVk;
         ::Diligent::EngineVkCreateInfo EngineCI;
         EngineCI.DynamicHeapSize = 512 << 20;
-
-        ::Diligent::SwapChainDesc SCDesc;
-        SCDesc.ColorBufferFormat = TEX_FORMAT_RGBA8_UNORM;
-        SCDesc.PreTransform = SURFACE_TRANSFORM_HORIZONTAL_MIRROR_ROTATE_180;
 
         MG_Util::Debug::LogD("Creating Vulkan device and contexts");
         pFactoryVk->CreateDeviceAndContextsVk(
                 EngineCI, &MG_Diligent::g_pDevice, &MG_Diligent::g_pContext);
+
         if (MG_Diligent::g_pDevice && MG_Diligent::g_pContext) {
-            MG_Util::Debug::LogD("Vulkan device created: device=%p, context=%p", 
+            MG_Util::Debug::LogD("Vulkan device created: device=%p, context=%p",
                                  MG_Diligent::g_pDevice, MG_Diligent::g_pContext);
             auto version = MG_Diligent::g_pDevice->GetDeviceInfo().APIVersion;
             std::string apiVersion;
@@ -730,28 +762,18 @@ namespace MG_EGL::Diligent {
             MG_Util::Debug::LogE("Failed to create Vulkan device");
         }
 
-        AndroidNativeWindow nativeWindow{window};
-        MG_Util::Debug::LogD("Creating Vulkan swap chain");
-        pFactoryVk->CreateSwapChainVk(
-                MG_Diligent::g_pDevice, MG_Diligent::g_pContext, SCDesc, nativeWindow, &MG_Diligent::g_pSwapChain);
-        if (MG_Diligent::g_pSwapChain) {
-            MG_Util::Debug::LogD("Vulkan swap chain created: %p", MG_Diligent::g_pSwapChain);
-        } else {
-            MG_Util::Debug::LogE("Failed to create Vulkan swap chain");
-        }
     }
 
-    void LoadDiligentCore(NativeWindowType window) {
+    void LoadDiligentCore() {
         switch (MG_Diligent::DILIGENT_BACKEND_TYPE) {
             case MG_Constants::Backend::BACKEND_DILIGENT_VULKAN:
-                LoadDiligentCoreVulkan(window);
+                LoadDiligentCoreVulkan();
                 break;
             case MG_Constants::Backend::BACKEND_DILIGENT_OPENGL:
             default:
-                LoadDiligentCoreOpenGL(window);
+//                CreateWindowDiligentCoreOpenGL(window);
                 break;
         }
-
     }
 
     void CreateDefaultRenderPass() {
@@ -794,7 +816,7 @@ namespace MG_EGL::Diligent {
 
     EGLSurface eglCreateWindowSurface(EGLDisplay dpy, EGLConfig config, NativeWindowType window,
                                       const EGLint *attrib_list) {
-        LoadDiligentCore(window);
+        CreateWindowDiligentCore(window);
         MG_GL::GL::UpdateDefaultFramebuffer();
         return (EGLSurface) 1;
     }
@@ -811,6 +833,9 @@ namespace MG_EGL::Diligent {
     }
 
     EGLBoolean eglInitialize(EGLDisplay dpy, EGLint *major, EGLint *minor) {
+        LoadDiligentCore();
+        if (major) *major = 1;
+        if (minor) *minor = 5;
         return EGL_TRUE;
     }
 
@@ -926,8 +951,16 @@ namespace MG_EGL::Diligent {
                                                         );
             MG_Diligent::IsInRenderPass = true;
         }
-        const auto& SCDesc = MG_Diligent::g_pSwapChain->GetDesc();
-        MG_Util::Debug::LogD("Setting viewport: width=%d, height=%d", SCDesc.Width, SCDesc.Height);
+//        const auto& SCDesc = MG_Diligent::g_pSwapChain->GetDesc();
+//        MG_Util::Debug::LogD("Setting viewport: width=%d, height=%d", SCDesc.Width, SCDesc.Height);
+
+//        ::Diligent::Viewport viewport;
+//        viewport.TopLeftX = 0.f;
+//        viewport.TopLeftY = SCDesc.Height;
+//        viewport.Width = SCDesc.Width;
+//        viewport.Height = SCDesc.Height;
+//        viewport.MinDepth = 0.f;
+//        viewport.MaxDepth = 1.f;
         MG_Diligent::g_pContext->SetViewports(1, nullptr, 0, 0);
         return EGL_TRUE;
     }

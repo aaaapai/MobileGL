@@ -10,7 +10,7 @@
 #include "../../../Includes.h"
 
 struct VertexAttribState {
-    bool enabled;
+    bool enabled = false;
     GLint size = 4;
     GLenum type = GL_FLOAT;
     GLboolean normalized = GL_FALSE;
@@ -25,7 +25,7 @@ struct VertexArrayObject {
     bool attribDirty = false;
     bool eboDirty = false;
     GLuint elementBuffer = 0;
-    MG_Global::unordered_map<GLuint, VertexAttribState> attribs;
+    std::array<VertexAttribState, MG_Constants::VertexArray::MAX_VERTEX_ATTRIBS> attribs;
 };
 
 class VertexArrayState {

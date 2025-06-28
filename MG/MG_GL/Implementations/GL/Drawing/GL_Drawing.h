@@ -8,6 +8,8 @@
 
 namespace MG_GL::GL {
     bool IsSamplerType(GLenum type);
+    Diligent::VALUE_TYPE ConvertGLTypeToDiligent(GLenum type);
+    void PrepareForDraw(GLenum mode, GLsizei* pCount, GLenum type, const void*& pIndices);
     
     void DrawElements(GLenum mode, GLsizei count, GLenum type, const void *indices);
     void DrawArrays(GLenum mode, GLint first, GLsizei count);

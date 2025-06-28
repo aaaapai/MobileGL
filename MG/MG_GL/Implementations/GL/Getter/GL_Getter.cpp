@@ -188,7 +188,7 @@ namespace MG_GL::GL {
                 break;
             case GL_MAX_VERTEX_ATTRIBS:
                 // TODO: Check the real value
-                params[0] = 64;
+                params[0] = MG_Constants::VertexArray::MAX_VERTEX_ATTRIBS;
                 break;
                 
             // Texture state

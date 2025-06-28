@@ -198,7 +198,7 @@ namespace MG_GL::GL {
     }
 
     void PixelStorei(GLenum pname, GLint param) {
-        MG_Util::Debug::LogD("glPixelStorei, pname: %d, param: %d", pname, param);
+        MG_Util::Debug::LogD("glPixelStorei, pname: %s, param: %d", MG_Util::Debug::GLEnumToString(pname), param);
         GLenum result = MG_State::SetPixelStoreInt(pname,param);
         if (result == GL_NO_ERROR) {
             MG_Diligent::g_PSOManager.MarkPSODirty(MG_State_T::programState->currentProgram_);

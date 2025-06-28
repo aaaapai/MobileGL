@@ -112,7 +112,7 @@ namespace MG_Util::Program {
         // TODO: Use other methods to implement clip space fixing.
         size_t pos = output_glsl.find("\n    gl_Position.y = -gl_Position.y;\n}");
         if (pos != std::string::npos) {
-             output_glsl.replace(pos, strlen("\n    gl_Position.y = -gl_Position.y;\n}"), "\n    gl_Position.y = -gl_Position.y;\n    gl_Position.z = (gl_Position.z + gl_Position.w) * 0.5;\n}");
+            output_glsl.replace(pos, strlen("\n    gl_Position.y = -gl_Position.y;\n}"), "\n    gl_Position.y = -gl_Position.y;\n    gl_Position.z = (gl_Position.z + gl_Position.w) * 0.5;\n}");
         }
         return output_glsl;
     }
@@ -641,12 +641,12 @@ namespace MG_Util::Program {
         std::vector<EShLanguage> usedShaderTypes;
         TProgram program;
         for (GLuint shaderId : prog.attachedShaders) {
-            auto shaderObject = state.GetShaderObject(shaderId);
-            EShLanguage shLanguage = GetEShLanguageByShaderType(shaderObject.type);
+            auto* shaderObject = state.GetShaderObject(shaderId);
+            EShLanguage shLanguage = GetEShLanguageByShaderType(shaderObject->type);
             TShader* shader = nullptr;
-            std::string infoLogOfShader = CompileGLSLToTShader(shaderObject.type, shaderObject.source, shader);
+            std::string infoLogOfShader = CompileGLSLToTShader(shaderObject->type, shaderObject->source, shader);
             if (!infoLogOfShader.empty()) {
-                infoLog = "Error: [glslang] Cannot compile " + GetShaderTypeName(shaderObject.type) +
+                infoLog = "Error: [glslang] Cannot compile " + GetShaderTypeName(shaderObject->type) +
                         " :\n" + infoLogOfShader;
                 return {};
             }
@@ -687,6 +687,7 @@ namespace MG_Util::Program {
             infoLog = "Error: [glslang] Cannot link the program of the single shader:\n" + std::to_string(program.getInfoLog());
             return {};
         }
+        program.mapIO();
         std::vector<unsigned> spirv;
         
         SpvOptions spvOptions;

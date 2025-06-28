@@ -60,22 +60,24 @@ GLenum FramebufferState::AttachTexture2D(GLenum target, GLenum attachment,
     if (MG_Constants::Framebuffer::VALID_ATTACHMENTS.find(attachment) == MG_Constants::Framebuffer::VALID_ATTACHMENTS.end() ||
         MG_Constants::Texture::VALID_TARGETS.find(textarget) == MG_Constants::Texture::VALID_TARGETS.end())
         return GL_INVALID_ENUM;
-    if (target == GL_FRAMEBUFFER) { 
-        if (currentBindings_[GL_READ_FRAMEBUFFER] == currentBindings_[GL_DRAW_FRAMEBUFFER]) {
-            target = GL_DRAW_FRAMEBUFFER;
-        } else {
-            if (currentBindings_[GL_READ_FRAMEBUFFER] != 0) {
-                GLenum err = AttachTexture2D(GL_READ_FRAMEBUFFER, attachment, textarget, texture, level);
-                if (err != GL_NO_ERROR)
-                    return err;
-            }
-            if (currentBindings_[GL_DRAW_FRAMEBUFFER] != 0) {
-                GLenum err = AttachTexture2D(GL_DRAW_FRAMEBUFFER, attachment, textarget, texture, level);
-                if (err != GL_NO_ERROR)
-                    return err;
-            }
-            return GL_NO_ERROR;
-        }
+    if (target == GL_FRAMEBUFFER) {
+        target = GL_DRAW_FRAMEBUFFER;
+
+//        if (currentBindings_[GL_READ_FRAMEBUFFER] == currentBindings_[GL_DRAW_FRAMEBUFFER]) {
+//            target = GL_DRAW_FRAMEBUFFER;
+//        } else {
+//            if (currentBindings_[GL_READ_FRAMEBUFFER] != 0) {
+//                GLenum err = AttachTexture2D(GL_READ_FRAMEBUFFER, attachment, textarget, texture, level);
+//                if (err != GL_NO_ERROR)
+//                    return err;
+//            }
+//            if (currentBindings_[GL_DRAW_FRAMEBUFFER] != 0) {
+//                GLenum err = AttachTexture2D(GL_DRAW_FRAMEBUFFER, attachment, textarget, texture, level);
+//                if (err != GL_NO_ERROR)
+//                    return err;
+//            }
+//            return GL_NO_ERROR;
+//        }
     }
     FramebufferObject* fbo = GetCurrentFBO(target);
     if (!fbo) return GL_INVALID_OPERATION;

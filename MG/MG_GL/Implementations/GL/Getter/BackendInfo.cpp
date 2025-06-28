@@ -76,7 +76,10 @@ namespace MG_GL::Getter {
 
     const std::string GetGPUName() {
 #if BACKEND_TYPE == BACKEND_DILIGENT
-        return MG_Diligent::g_pDevice->GetAdapterInfo().Description;
+        if (MG_Diligent::g_pDevice)
+            return MG_Diligent::g_pDevice->GetAdapterInfo().Description;
+
+        return "<not set yet>";
 #else
         return "<unknown GPU>";
 #endif
@@ -84,7 +87,10 @@ namespace MG_GL::Getter {
 
     const uint32_t GetBackendGfxAPIVersionMajor() {
 #if BACKEND_TYPE == BACKEND_DILIGENT
-        return MG_Diligent::g_pDevice->GetDeviceInfo().APIVersion.Major;
+        if (MG_Diligent::g_pDevice)
+            return MG_Diligent::g_pDevice->GetDeviceInfo().APIVersion.Major;
+
+        return 0;
 #else
         return 0;
 #endif
@@ -92,7 +98,10 @@ namespace MG_GL::Getter {
 
     const uint32_t GetBackendGfxAPIVersionMinor() {
 #if BACKEND_TYPE == BACKEND_DILIGENT
-        return MG_Diligent::g_pDevice->GetDeviceInfo().APIVersion.Minor;
+        if (MG_Diligent::g_pDevice)
+            return MG_Diligent::g_pDevice->GetDeviceInfo().APIVersion.Minor;
+
+        return 0;
 #else
         return 0;
 #endif
