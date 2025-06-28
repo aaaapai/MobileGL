@@ -12,7 +12,11 @@
 #include <ankerl/unordered_dense.h>
 
 #ifdef __ANDROID__
-#define __ANDROID_API__ 26
+#if __ANDROID_MIN_SDK_VERSION__ < 26
+#warning "Android API level < 26. Modify it to Android API level >= 26"
+#undef __ANDROID_MIN_SDK_VERSION__
+#define __ANDROID_MIN_SDK_VERSION__ 26
+#endif
 #endif
 
 #ifdef _WIN32
