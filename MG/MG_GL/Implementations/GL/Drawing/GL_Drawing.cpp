@@ -77,7 +77,7 @@ namespace MG_GL::GL {
     Diligent::SHADER_TYPE GetShaderStageForUniform(GLuint program, const std::string& name, 
                                                    Diligent::PipelineResourceLayoutDesc desc) {
         auto& programInfo = MG_Diligent::g_ProgramMap[program];
-        (void)auto& programObj = MG_State_T::programState->programs_[program];
+        auto& programObj = MG_State_T::programState->programs_[program];
 
         auto it = programInfo.uniformStages.find(name);
         if (it != programInfo.uniformStages.end()) {
