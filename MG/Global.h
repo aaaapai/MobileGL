@@ -27,7 +27,7 @@ namespace MG_Global {
     }
     
     namespace Common {
-        inline constexpr int LogLevel    = MG_Constants::Common::LOG_LEVEL_WARN | MG_Constants::Common::LOG_LEVEL_ERROR | MG_Constants::Common::LOG_LEVEL_FATAL;
+        inline constexpr int LogLevel    = MG_Constants::Common::LOG_LEVEL_WARN;
         inline constexpr int LogTarget   = MG_Constants::Common::LOG_TARGET_ALL;
         
 #ifdef __ANDROID__
