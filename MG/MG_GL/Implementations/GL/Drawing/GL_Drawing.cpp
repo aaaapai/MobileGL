@@ -494,7 +494,7 @@ namespace MG_GL::GL {
             if (!attrib.enabled || attrib.buffer == 0) continue;
 
             GLuint buffer = attrib.buffer;
-            auto& bufferObj = MG_State_T::bufferState->buffers_[buffer];
+            auto& bufferObj = *MG_State_T::bufferState->GetOrCreateBufferObject(buffer);
 
             Diligent::IBuffer *&pBuffer = MG_Diligent::g_BufferMap[buffer];
             if (bufferObj.isDynamic && (!pBuffer || (pBuffer && pBuffer->GetDesc().Size != bufferObj.data.size()))) {
@@ -529,7 +529,8 @@ namespace MG_GL::GL {
             const void* pOriginalIndices = nullptr;
             if (pVAO->elementBuffer != 0)
             {
-                auto& bufferObj = MG_State_T::bufferState->buffers_[pVAO->elementBuffer];
+                auto& bufferObj = *MG_State_T::bufferState->GetOrCreateBufferObject(
+                        pVAO->elementBuffer);
                 pOriginalIndices = bufferObj.data.data() + reinterpret_cast<uintptr_t>(pIndices);
             }
             else
@@ -584,10 +585,10 @@ namespace MG_GL::GL {
         }
         else if (pVAO->elementBuffer != 0) {
             GLuint buffer = pVAO->elementBuffer;
-            auto& bufferObj = MG_State_T::bufferState->buffers_[buffer];
+            auto& bufferObj = *MG_State_T::bufferState->GetOrCreateBufferObject(buffer);
 
             Diligent::IBuffer*& pBuffer = MG_Diligent::g_BufferMap[buffer];
-            if (bufferObj.isDynamic && (!pBuffer || (pBuffer && pBuffer->GetDesc().Size != bufferObj.data.size()))) {
+            if (bufferObj.isDynamic || (!pBuffer || (pBuffer && pBuffer->GetDesc().Size != bufferObj.data.size()))) {
                 if (pBuffer) {
                     pBuffer->Release();
                     pBuffer = nullptr;
@@ -617,14 +618,14 @@ namespace MG_GL::GL {
 
         // Update data for all dynamic buffers
         for (auto& [bufferID, pBuffer] : MG_Diligent::g_BufferMap) {
-            auto it = MG_State_T::bufferState->buffers_.find(bufferID);
-            if (it == MG_State_T::bufferState->buffers_.end()) {
+            auto* pBufferObject = MG_State_T::bufferState->GetOrCreateBufferObject(bufferID);
+            if (!pBufferObject) {
                 MG_Util::Debug::LogW("Buffer ID %u not found in bufferState. Skipping update.", bufferID);
                 continue;
             }
             
-            auto& bufferObj = it->second;
-            if (pBuffer && bufferObj.isDynamic && !bufferObj.data.empty()) {
+            auto& bufferObj = *pBufferObject;
+            if (pBuffer && bufferObj.isDynamic) {
                 void* pMappedData = nullptr;
                 MG_Util::Debug::LogD("Mapping dynamic buffer %u for data update.", bufferID);
                 MG_Diligent::g_pContext->MapBuffer(
@@ -786,6 +787,7 @@ namespace MG_GL::GL {
         return;
         //        PrepareForDraw();
 
+        /*
         if (MG_Diligent::IsInRenderPass) {
             MG_Util::Debug::LogD("Ending current render pass.");
             MG_Diligent::g_pContext->EndRenderPass();
@@ -916,6 +918,7 @@ namespace MG_GL::GL {
         MG_Diligent::IsInRenderPass = false;
 
         MG_Util::Debug::LogD("MultiDrawElements completed with %d draws.", indirectCmds.size());
+         */
     }
 
     void MultiDrawElementsBaseVertex(GLenum mode, const GLsizei *count, GLenum type, const GLvoid *const *indices, GLsizei drawcount, const GLint *basevertex) {

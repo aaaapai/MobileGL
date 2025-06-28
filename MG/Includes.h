@@ -107,6 +107,7 @@
 #include <unordered_map>
 #include <queue>
 #include <format>
+#include <memory>
 #include <glslang/Public/ShaderLang.h>
 #include <glslang/Include/Types.h>
 #include <glslang/Public/ShaderLang.h>
@@ -118,6 +119,7 @@
 #include <GLES3/gl32.h>
 
 #include "MG_Include/UncertainBool.hpp"
+#include "MG_Include/IndexGenerator.hpp"
 
 #ifdef _WIN32
 #include <Windows.h>

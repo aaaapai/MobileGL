@@ -6,36 +6,31 @@
 
 #include "BufferState.h"
 
-GLenum BufferState::GenName(GLuint *buffer) {
-    MG_Util::Debug::LogD("MG_State: Buffer: GenName");
-    if (!buffer)
-        return GL_INVALID_VALUE;
-
-    GLuint id = 0;
-    if (freeId_.empty()) {
-        id = lastId_++;
-    } else {
-        id = freeId_.back();
-        freeId_.pop_back();
-    }
-
-    *buffer = id;
-    MG_Util::Debug::LogD("MG_State: Buffer: Gen new name %d", id);
-
-    return GL_NO_ERROR;
-}
+//GLenum BufferState::GenName(GLuint *buffer) {
+//    MG_Util::Debug::LogD("MG_State: Buffer: GenName");
+//    if (!buffer)
+//        return GL_INVALID_VALUE;
+//
+//    GLuint id = 0;
+//    if (freeId_.empty()) {
+//        id = lastId_++;
+//    } else {
+//        id = freeId_.back();
+//        freeId_.pop_back();
+//    }
+//
+//    *buffer = id;
+//    MG_Util::Debug::LogD("MG_State: Buffer: Gen new name %d", id);
+//
+//    return GL_NO_ERROR;
+//}
 
 GLenum BufferState::GenNameN(GLsizei n, GLuint* buffers) {
     MG_Util::Debug::LogD("MG_State: Buffer: GenNameN called with n=%d", n);
-    if (n < 0) return GL_INVALID_VALUE;
+    if (n < 0 || buffers == nullptr) return GL_INVALID_VALUE;
 
-    for (GLsizei i = 0; i < n; ++i) {
-        GLenum result = GenName(&buffers[i]);
-        if (result != GL_NO_ERROR) {
-            MG_Util::Debug::LogE("MG_State: Buffer: GenNameN failed with error 0x%x", result);
-            return result;
-        }
-    }
+    indexGenerator_.Generate(n, buffers);
+
     MG_Util::Debug::LogD("MG_State: Buffer: GenNameN created buffers successfully");
     return GL_NO_ERROR;
 }
@@ -48,7 +43,7 @@ GLenum BufferState::Create(GLuint buffer) {
     if (ValidateAllocatedHandle(buffer))
         return GL_INVALID_VALUE;
 
-    BufferObject& obj = buffers_[buffer];
+    BufferObject& obj = *GetOrCreateBufferObject(buffer);
     MG_Util::Debug::LogD("MG_State: Buffer: Create created buffer %d", buffer);
     obj.generated = true;
     obj.dirty = true;
@@ -71,7 +66,7 @@ GLenum BufferState::CommitStorage(GLenum target, GLsizeiptr size, const void* da
     if (it == currentBindings_.end() || it->second == 0)
         return GL_INVALID_OPERATION;
 
-    BufferObject& obj = buffers_[it->second];
+    BufferObject& obj = *GetOrCreateBufferObject(it->second);
     MG_Util::Debug::LogD("MG_State: Buffer: CommitStorage get buffer object %u at target 0x%x",it->second,target);
     obj.usage = usage;
     obj.isDynamic = (usage == GL_DYNAMIC_DRAW || usage == GL_DYNAMIC_READ ||
@@ -96,7 +91,7 @@ GLenum BufferState::CommitStorageRegion(GLenum target, GLintptr offset, GLsizeip
     if (it == currentBindings_.end() || it->second == 0)
         return GL_INVALID_OPERATION;
 
-    BufferObject& obj = buffers_[it->second];
+    BufferObject& obj = *GetOrCreateBufferObject(it->second);
     MG_Util::Debug::LogD("MG_State: Buffer: BufferSubData get buffer object %u at target 0x%x", it->second, target);
 
     if (static_cast<size_t>(offset + size) > obj.data.size()) return GL_INVALID_VALUE;
@@ -125,7 +120,7 @@ GLenum BufferState::AcquireBufferMemoryRange(GLenum target, GLintptr offset, GLs
         return GL_INVALID_OPERATION;
     }
 
-    BufferObject& obj = buffers_[it->second];
+    BufferObject& obj = *GetOrCreateBufferObject(it->second);
     MG_Util::Debug::LogD("MG_State: Buffer: AcquireBufferMemoryRange operating on buffer %u", it->second);
     if (obj.isMapped) {
         MG_Util::Debug::LogE("MG_State: Buffer: AcquireBufferMemoryRange failed: buffer %u is already mapped", it->second);
@@ -161,7 +156,7 @@ GLenum BufferState::SyncBufferMemory(GLenum target, GLintptr offset, GLsizeiptr 
     if (it == currentBindings_.end() || it->second == 0)
         return GL_INVALID_OPERATION;
 
-    BufferObject& obj = buffers_[it->second];
+    BufferObject& obj = *GetOrCreateBufferObject(it->second);
     if (!obj.isMapped || !(obj.mapAccessFlags & GL_MAP_FLUSH_EXPLICIT_BIT))
         return GL_INVALID_OPERATION;
 
@@ -185,8 +180,8 @@ GLenum BufferState::CopyBufferRange(GLenum readTarget, GLenum writeTarget, GLint
     if (readBuffer == 0 || writeBuffer == 0 || readBuffer == writeBuffer)
         return GL_INVALID_OPERATION;
 
-    BufferObject& src = buffers_[readBuffer];
-    BufferObject& dst = buffers_[writeBuffer];
+    BufferObject& src = *GetOrCreateBufferObject(readBuffer);
+    BufferObject& dst = *GetOrCreateBufferObject(writeBuffer);
 
     if (static_cast<size_t>(readOffset + size) > src.data.size() ||
         static_cast<size_t>(writeOffset + size) > dst.data.size())
@@ -206,7 +201,7 @@ GLenum BufferState::AcquireBufferMemory(GLenum target, GLenum access, void** map
         default:
             flags = access;
     }
-    return AcquireBufferMemoryRange(target, 0, buffers_[currentBindings_[target]].data.size(), flags, mappedPointer);
+    return AcquireBufferMemoryRange(target, 0, GetOrCreateBufferObject(currentBindings_[target])->data.size(), flags, mappedPointer);
 }
 
 GLenum BufferState::ReleaseBufferMemory(GLenum target) {
@@ -217,7 +212,7 @@ GLenum BufferState::ReleaseBufferMemory(GLenum target) {
     if (it == currentBindings_.end() || it->second == 0)
         return GL_INVALID_OPERATION;
 
-    BufferObject& obj = buffers_[it->second];
+    BufferObject& obj = *GetOrCreateBufferObject(it->second);
     if (!obj.isMapped)
         return GL_INVALID_OPERATION;
 
@@ -234,24 +229,22 @@ GLenum BufferState::ReleaseBufferMemory(GLenum target) {
     return GL_NO_ERROR;
 }
 
-bool BufferState::ValidateAllocatedHandle(GLuint buffer) {
-    bool isValid = buffers_.find(buffer) != buffers_.end();
+bool BufferState::ValidateAllocatedHandle(GLuint buffer) const {
+    bool isValid = buffer != 0 && bufferObjects_.size() > buffer && bufferObjects_[buffer] != nullptr;
     MG_Util::Debug::LogD("MG_State: Buffer: ValidateAllocatedHandle called on buffer %u returns %d", buffer, isValid);
     return isValid;
 }
 
-bool BufferState::ValidateGeneratedName(GLuint buffer) {
-    bool inFreeList = std::find(freeId_.begin(), freeId_.end(), buffer) != freeId_.end();
-    bool lessThanLast = buffer < lastId_; // lastId_ is not generated yet
-    MG_Util::Debug::LogD("MG_State: Buffer: ValidateGeneratedName called on buffer %u returns %d", buffer, lessThanLast && !inFreeList);
-    return lessThanLast && !inFreeList;
+bool BufferState::ValidateGeneratedName(GLuint buffer) const {
+    bool isValid = indexGenerator_.IsValid(buffer);
+    MG_Util::Debug::LogD("MG_State: Buffer: ValidateGeneratedName called on buffer %u returns %s", buffer, isValid ? "true" : "false");
+    return isValid;
 }
 
 void BufferState::Delete(GLuint buffer) {
-    buffers_.erase(buffer);
-    if (ValidateGeneratedName(buffer))
-        // TODO: Prevent the object that uses a freeId from conflicting with legacy object in the backend.
-        //freeId_.emplace_back(buffer);
+    bufferObjects_[buffer].reset();
+    indexGenerator_.Delete(buffer);
+
     for (auto& [target, id] : currentBindings_) {
         if (id == buffer) id = 0;
     }
@@ -293,12 +286,12 @@ GLenum BufferState::QueryPropertyIntVector(GLenum target, GLenum pname, GLint* p
         return GL_INVALID_OPERATION;
     }
     GLuint bufferId = bindingIt->second;
-    auto bufferIt = buffers_.find(bufferId);
-    if (bufferIt == buffers_.end()) {
+
+    if (!ValidateAllocatedHandle(bufferId)) {
         return GL_INVALID_OPERATION;
     }
     
-    const BufferObject& buffer = bufferIt->second;
+    const BufferObject& buffer = *bufferObjects_[bufferId];
     
     switch (pname) {
         case GL_BUFFER_ACCESS:
@@ -327,4 +320,14 @@ GLuint BufferState::GetCurrentBinding(GLenum target) const {
         return it->second;
     }
     return 0;
+}
+
+BufferState::BufferObject* BufferState::GetOrCreateBufferObject(GLuint buffer) {
+    if (bufferObjects_.size() <= buffer) {
+        bufferObjects_.resize(buffer + 1);
+    }
+    if (bufferObjects_[buffer] == nullptr) {
+        bufferObjects_[buffer] = std::make_unique<BufferObject>();
+    }
+    return bufferObjects_[buffer].get();
 }
