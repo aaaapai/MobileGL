@@ -85,7 +85,7 @@ namespace MG_GL::Getter {
 #endif
     }
 
-    const uint32_t GetBackendGfxAPIVersionMajor() {
+    uint32_t GetBackendGfxAPIVersionMajor() {
 #if BACKEND_TYPE == BACKEND_DILIGENT
         if (MG_Diligent::g_pDevice)
             return MG_Diligent::g_pDevice->GetDeviceInfo().APIVersion.Major;
@@ -96,7 +96,7 @@ namespace MG_GL::Getter {
 #endif
     }
 
-    const uint32_t GetBackendGfxAPIVersionMinor() {
+    uint32_t GetBackendGfxAPIVersionMinor() {
 #if BACKEND_TYPE == BACKEND_DILIGENT
         if (MG_Diligent::g_pDevice)
             return MG_Diligent::g_pDevice->GetDeviceInfo().APIVersion.Minor;
