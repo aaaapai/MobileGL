@@ -5,13 +5,6 @@
 #ifndef MOBILEGL_LOOKUP_H
 #define MOBILEGL_LOOKUP_H
 
-#include <GL/gl.h>
-#ifdef __cplusplus
-extern "C" {
-#endif
-
-GLAPI GLAPIENTRY void *glXGetProcAddress(const char *name);
-GLAPI GLAPIENTRY void *glXGetProcAddressARB(const char *name);
 
 namespace MG_GL::GLX {
     void* GetProcAddress(const char *name);
