@@ -391,7 +391,6 @@ GLenum TextureState::UpdateRegion2D(GLenum target, GLint level, GLint xoffset,
 
     const size_t bytesPerPixel = CalculateBytesPerPixel_(format, type);
     const size_t srcSize = CalculatePixelDataSize_(format, type, width, height);
-    (void)srcSize;
 
     if (bytesPerPixel == 0) {
         MG_Util::Debug::LogE("MG_State: Texture: Invalid format/type combination");
@@ -416,7 +415,6 @@ GLenum TextureState::UpdateRegion2D(GLenum target, GLint level, GLint xoffset,
     srcData += unpackSkipPixels * bytesPerPixel;
 
     const size_t requiredSrcSize = (height - 1) * srcRowStride + width * bytesPerPixel;
-    (void)requiredSrcSize;
     // TODO: Check the buffer data size.
 
     const size_t dstRowStride = mip.width * bytesPerPixel;
