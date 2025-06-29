@@ -43,7 +43,7 @@ namespace MG_GL::GL {
             GLuint buffer = MG_State_T::bufferState->GetCurrentBinding(target);
             if (buffer == 0) return;
 
-            auto& bufferObj = MG_State_T::bufferState->buffers_[buffer];
+            auto& bufferObj = *MG_State_T::bufferState->GetOrCreateBufferObject(buffer);
             if (!bufferObj.isMapped) return;
 
             size_t start = static_cast<size_t>(offset);
@@ -134,8 +134,8 @@ namespace MG_GL::GL {
         }
         
         GLuint buffer = MG_State_T::bufferState->currentBindings_[target];
-        auto& bufferObj = MG_State_T::bufferState->buffers_[buffer];
-        
+        auto& bufferObj = *MG_State_T::bufferState->GetOrCreateBufferObject(buffer);
+
         Diligent::IBuffer* pBuffer = MG_Diligent::g_BufferMap[buffer];
         if (pBuffer) {
             const auto& Desc = pBuffer->GetDesc();
@@ -191,7 +191,7 @@ namespace MG_GL::GL {
         if (result == GL_NO_ERROR) {
             GLuint buffer = MG_State_T::bufferState->GetCurrentBinding(target);
             if (buffer == 0) return;
-            auto& bufferObj = MG_State_T::bufferState->buffers_[buffer];
+            auto& bufferObj = *MG_State_T::bufferState->GetOrCreateBufferObject(buffer);
             if (bufferObj.isDynamic) return; // Dynamic buffer should be created by glDraw*
             
             bufferObj.dirty = false;
@@ -310,7 +310,7 @@ namespace MG_GL::GL {
         GLuint buffer = MG_State_T::bufferState->GetCurrentBinding(target);
         if (buffer == 0) return;
 
-        auto& bufferObj = MG_State_T::bufferState->buffers_[buffer];
+        auto& bufferObj = *MG_State_T::bufferState->GetOrCreateBufferObject(buffer);
         if (bufferObj.isDynamic) return; // Dynamic buffer should be created by glDraw*
 
         Diligent::IBuffer* pBuffer = MG_Diligent::g_BufferMap[buffer];

@@ -26,7 +26,7 @@ public:
     };
 
     // Return: the validity of the operation, according to OpenGL 3 standard
-    GLenum GenName(GLuint* buffer);
+//    GLenum GenName(GLuint* buffer);
     GLenum GenNameN(GLsizei n, GLuint* buffers);
     GLenum Create(GLuint buffer);
     GLenum Bind(GLenum target, GLuint buffer);
@@ -40,16 +40,20 @@ public:
     GLenum QueryPropertyIntVector(GLenum target, GLenum pname, GLint* params) const;
     GLenum DeleteN(GLsizei n, const GLuint* buffers);
     
-    bool ValidateAllocatedHandle(GLuint buffer);
-    bool ValidateGeneratedName(GLuint buffer);
+    bool ValidateAllocatedHandle(GLuint buffer) const;
+    bool ValidateGeneratedName(GLuint buffer) const;
     void Delete(GLuint buffer);
     GLuint GetCurrentBinding(GLenum target) const;
 
+    BufferObject* GetOrCreateBufferObject(GLuint buffer);
+
     MG_Global::unordered_map<GLenum, GLuint> currentBindings_;
-    MG_Global::unordered_map<GLuint, BufferObject> buffers_;
+//    MG_Global::unordered_map<GLuint, BufferObject> buffers_;
 private:
-    std::vector<GLuint> freeId_;
-    GLuint lastId_ = 1;
+//    std::vector<GLuint> freeId_;
+//    GLuint lastId_ = 1;
+    IndexGenerator<GLuint> indexGenerator_;
+    std::vector<std::unique_ptr<BufferObject>> bufferObjects_;
 
     static bool IsValidTarget_(GLenum target);
 };
