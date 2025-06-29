@@ -117,6 +117,10 @@ void FramebufferState::UpdateCompleteness(FramebufferObject& fbo) {
     bool hasColor = false;
     bool hasDepth = false;
     bool hasStencil = false;
+    (void)hasColor;
+    (void)hasDepth;
+    (void)hasStencil;
+    
     GLsizei width = 0, height = 0;
     for (const auto& [attach, att] : fbo.attachments) {
         GLsizei attWidth = 0, attHeight = 0;
@@ -152,6 +156,7 @@ void FramebufferState::UpdateCompleteness(FramebufferObject& fbo) {
 
 bool FramebufferState::ValidateAttachmentCombination(const FramebufferObject& fbo) {
     bool depthStencilConflict = false;
+    (void)depthStencilConflict;
     for (const auto& [attach, att] : fbo.attachments) {
         if (attach == GL_DEPTH_STENCIL_ATTACHMENT) {
             GLint internalFormat = 0;

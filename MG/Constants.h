@@ -12,7 +12,11 @@
 #include <ankerl/unordered_dense.h>
 
 #ifdef __ANDROID__
-#define __ANDROID_API__ 26
+#if __ANDROID_MIN_SDK_VERSION__ < 26
+#warning "Android API level < 26. Modify it to Android API level >= 26"
+#undef __ANDROID_MIN_SDK_VERSION__
+#define __ANDROID_MIN_SDK_VERSION__ 26
+#endif
 #endif
 
 #ifdef _WIN32
@@ -88,7 +92,7 @@ namespace MG_Constants {
         }; // OpenGL 3
         
         static const MG_Global::unordered_set<GLenum> VALID_TARGETS = { 
-                GL_ARRAY_BUFFER, GL_COPY_READ_BUFFER, GL_COPY_WRITE_BUFFER, GL_ELEMENT_ARRAY_BUFFER,
+                GL_ARRAY_BUFFER, GL_QUERY_BUFFER, GL_COPY_READ_BUFFER, GL_COPY_WRITE_BUFFER, GL_ELEMENT_ARRAY_BUFFER,
                 GL_PIXEL_PACK_BUFFER, GL_PIXEL_UNPACK_BUFFER, GL_TEXTURE_BUFFER,
                 GL_TRANSFORM_FEEDBACK_BUFFER,  GL_UNIFORM_BUFFER
         }; // OpenGL 3

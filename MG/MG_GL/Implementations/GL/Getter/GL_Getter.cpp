@@ -82,6 +82,7 @@ namespace MG_GL::GL {
         if (!initialized) {
             for (auto & cache : caches) {
                 GLenum target = cache.name;
+                (void)target;
                 const GLubyte* str = nullptr;
                 const char* delimiter = " ";
                 str = GetString(GL_EXTENSIONS);
@@ -168,6 +169,10 @@ namespace MG_GL::GL {
                 params[0] = static_cast<GLint>(MG_State_T::bufferState->GetCurrentBinding(GL_ARRAY_BUFFER));
                 break;
 
+            case GL_QUERY_BUFFER_BINDING:
+                params[0] = static_cast<GLint>(MG_State_T::bufferState->GetCurrentBinding(GL_QUERY_BUFFER));
+                break;
+            
             case GL_ELEMENT_ARRAY_BUFFER_BINDING:
                 params[0] = static_cast<GLint>(MG_State_T::vertexArrayState->GetBoundElementBuffer());
                 break;

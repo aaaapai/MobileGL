@@ -270,7 +270,7 @@ bool BufferState::IsValidTarget_(GLenum target) {
 GLenum BufferState::QueryPropertyIntVector(GLenum target, GLenum pname, GLint* params) const {
     MG_Util::Debug::LogD("MG_State: Buffer: QueryPropertyIntVector called at target 0x%x,param name = 0x%x",target,pname);
     static const std::set<GLenum> validTargets = {
-            GL_ARRAY_BUFFER, GL_ELEMENT_ARRAY_BUFFER,
+            GL_ARRAY_BUFFER, GL_QUERY_BUFFER, GL_ELEMENT_ARRAY_BUFFER,
             GL_PIXEL_PACK_BUFFER, GL_PIXEL_UNPACK_BUFFER
     };
     if (validTargets.find(target) == validTargets.end()) {
