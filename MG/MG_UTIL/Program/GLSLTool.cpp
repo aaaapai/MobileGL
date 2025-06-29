@@ -672,7 +672,9 @@ namespace MG_Util::Program {
     }
     
     std::vector<unsigned> CompileGLSLToSPIRV(GLenum shaderType, const std::string &source, 
-                                             std::string &infoLog, bool isVkGLSL) {
+                                             std::string &infoLog, bool isVkGLSL, GLenum additionalShaderType,
+                                             const std::string& additionalShaderSource
+                                             ) {
         using namespace glslang;
 
         TShader* shader = nullptr;
@@ -682,12 +684,27 @@ namespace MG_Util::Program {
             return {};
         }
         TProgram program;
-        program.addShader(shader);
+        
+        if (additionalShaderType == GL_VERTEX_SHADER)
+            program.addShader(shader);
+        if (additionalShaderType && !additionalShaderSource.empty()) {
+            TShader* additionalShader = nullptr;
+            std::string additionalInfoLog = CompileGLSLToTShader(additionalShaderType, additionalShaderSource, additionalShader, isVkGLSL);
+            if (!additionalInfoLog.empty()) {
+                infoLog = "Error: [glslang] Cannot compile additional " + GetShaderTypeName(additionalShaderType) + ":\n" + additionalInfoLog;
+                return {};
+            }
+            program.addShader(additionalShader);
+        }
+        if (additionalShaderType != GL_VERTEX_SHADER)
+            program.addShader(shader);
+        
         if (!program.link(isVkGLSL ? EShMsgVulkanRules : EShMsgDefault)) {
             infoLog = "Error: [glslang] Cannot link the program of the single shader:\n" + std::to_string(program.getInfoLog());
             return {};
         }
         program.mapIO();
+        
         std::vector<unsigned> spirv;
         
         SpvOptions spvOptions;
@@ -999,7 +1016,7 @@ namespace MG_Util::Program {
         spvc_context_destroy(context);
     }
 
-    std::string CompileSPIRVToGLSL(std::vector<unsigned int> spirv, uint glslVersion, bool isES) {
+    std::string CompileSPIRVToGLSL(std::vector<unsigned int> spirv, uint glslVersion, bool isES, bool isVkGLSL) {
         spvc_context context = nullptr;
         spvc_parsed_ir ir = nullptr;
         spvc_compiler compiler_glsl = nullptr;
@@ -1018,12 +1035,15 @@ namespace MG_Util::Program {
         spvc_compiler_create_shader_resources(compiler_glsl, &resources);
         spvc_resources_get_resource_list_for_type(resources, SPVC_RESOURCE_TYPE_UNIFORM_BUFFER, &list, &count);
         spvc_compiler_create_compiler_options(compiler_glsl, &options);
+        
         spvc_compiler_options_set_uint(options, SPVC_COMPILER_OPTION_GLSL_VERSION, glslVersion);
         spvc_compiler_options_set_bool(options, SPVC_COMPILER_OPTION_GLSL_ES, isES ? SPVC_TRUE : SPVC_FALSE);
+        spvc_compiler_options_set_bool(options, SPVC_COMPILER_OPTION_GLSL_VULKAN_SEMANTICS, isVkGLSL ? SPVC_TRUE : SPVC_FALSE);
         spvc_compiler_install_compiler_options(compiler_glsl, options);
         spvc_compiler_compile(compiler_glsl, &result);
 
         if (!result) {
+            MG_Util::Debug::LogE("Failed to compile the shader to GLSL: %s", spvc_context_get_last_error_string(context));
             return{};
         }
 

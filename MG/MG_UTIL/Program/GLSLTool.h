@@ -174,12 +174,13 @@ namespace MG_Util::Program {
     }
     
     std::vector<unsigned> CompileGLSLToSPIRV(GLenum shaderType, const std::string& source, 
-                                             std::string& infoLog, bool isVkGLSL = false);
+                                             std::string& infoLog, bool isVkGLSL = false, GLenum additionalShaderType = 0,
+                                             const std::string& additionalShaderSource = {});
     std::string CompileGLSLToTShader(GLenum shaderType, const std::string& source,
                                      glslang::TShader *&shader, bool isVkGLSL = false);
     std::vector<std::vector<unsigned>> CompileMultipleShadersToSPIRV(const ProgramState& state, ProgramObject& prog, std::string& infoLog);
     void ReflectSPIRVUniforms(const std::vector<std::vector<unsigned>>& allSpirv, ProgramObject& prog, std::string& infoLog);
-    std::string CompileSPIRVToGLSL(std::vector<unsigned int> spirv, uint glslVersion, bool isES);
+    std::string CompileSPIRVToGLSL(std::vector<unsigned int> spirv, uint glslVersion, bool isES, bool isVkGLSL = false);
     std::pair<std::string, std::string> GenerateDefaultUBOForGLSL(const std::pair<std::string,
                                                                   std::string>& glslSources);
     void GenerateDefaultUBOForGLSL_Multi(

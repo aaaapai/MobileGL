@@ -292,39 +292,78 @@ namespace MG_GL::GL {
             }
 
             MG_Global::unordered_map<GLuint, std::string> shaderSources;
+            MG_Global::unordered_map<GLuint, std::string> finalShaderSources;
+            for (GLuint shaderId : programObj.attachedShaders) {
+                auto it = MG_State_T::programState->shaders_.find(shaderId);
+                if (it != MG_State_T::programState->shaders_.end() && !it->second.markedForDeletion) {
+                    shaderSources[it->first] = it->second.source;
+                    MG_Util::Program::RenameGLSLBuiltinsForVulkan(shaderSources[it->first]);
+                }
+            }
+
+            MG_Util::Program::GenerateDefaultUBOForGLSL_Multi(shaderSources, programInfo.uniformBufferNames);
+
             for (GLuint shaderId : programObj.attachedShaders) {
                 auto it = MG_State_T::programState->shaders_.find(shaderId);
                 if (it != MG_State_T::programState->shaders_.end() && !it->second.markedForDeletion) {
                     std::string shaderSource;
                     if (it->second.type == GL_VERTEX_SHADER) {
                         std::string infoLog;
-                        auto spirv =
-                                MG_Util::Program::CompileGLSLToSPIRV(it->second.type,
-                                                                     it->second.source,
-                                                                     infoLog);
+
+                        const char* fragmentShaderSource = nullptr;
+                        for (GLuint otherShaderId : programObj.attachedShaders) {
+                            if (otherShaderId != shaderId && MG_State_T::programState->shaders_[otherShaderId].type == GL_FRAGMENT_SHADER) {
+                                fragmentShaderSource = shaderSources[otherShaderId].c_str();
+                                break;
+                            }
+                        }
+                        auto spirv = MG_Util::Program::CompileGLSLToSPIRV(it->second.type,
+                                                                          shaderSources[shaderId],
+                                                                          infoLog, true, GL_FRAGMENT_SHADER, fragmentShaderSource);
                         if (spirv.empty()) {
-                            MG_Util::Debug::LogE("Failed to compile shader %u: %s", shaderId,
+                            MG_Util::Debug::LogE("Failed to compile vertex shader %u: %s", shaderId,
                                                  infoLog.c_str());
                             continue;
                         }
 
                         shaderSource = MG_Util::Program::BindInputLayoutLocationsForGLSL(spirv,
-                                                                          programObj.attribLocations);
+                                                                                         programObj.attribLocations);
+                    } else if (it->second.type == GL_FRAGMENT_SHADER) {
+                        std::string infoLog;
+
+                        const char* vertexShaderSource = nullptr;
+                        for (GLuint otherShaderId : programObj.attachedShaders) {
+                            if (otherShaderId != shaderId && MG_State_T::programState->shaders_[otherShaderId].type == GL_VERTEX_SHADER) {
+                                vertexShaderSource = shaderSources[otherShaderId].c_str();
+                                break;
+                            }
+                        }
+
+                        auto spirv = MG_Util::Program::CompileGLSLToSPIRV(it->second.type,
+                                                                          shaderSources[shaderId],
+                                                                          infoLog, true, 
+                                                                          GL_VERTEX_SHADER, vertexShaderSource);
+                        if (spirv.empty()) {
+                            MG_Util::Debug::LogE("Failed to compile fragment shader %u to SPIRV: %s", shaderId,
+                                                 infoLog.c_str());
+                            continue;
+                        }
+
+                        shaderSource = MG_Util::Program::CompileSPIRVToGLSL(spirv, 450, false, true);
                     } else {
                         shaderSource = it->second.source;
                     }
-                    MG_Util::Program::RenameGLSLBuiltinsForVulkan(shaderSource);
-                    shaderSources[it->first] = shaderSource;
+                    finalShaderSources[it->first] = shaderSource;
                 }
             }
-
-            MG_Util::Program::GenerateDefaultUBOForGLSL_Multi(shaderSources, programInfo.uniformBufferNames);
+            
+            
             MG_Util::Debug::LogD("Shader sources after UBO generation for program %u:", program);
-            for (const auto& [shaderId, source] : shaderSources) {
+            for (const auto& [shaderId, source] : finalShaderSources) {
                 MG_Util::Debug::LogD("  Program %u Shader %u:\n%s", program, shaderId, source.c_str());
             }
 
-            size_t uboTotalSize = RecordUniformOffsets(programInfo, shaderSources);
+            size_t uboTotalSize = RecordUniformOffsets(programInfo, finalShaderSources);
             CreateDefaultUBO(programInfo, uboTotalSize);
             
             // Compile attached shaders
@@ -333,7 +372,7 @@ namespace MG_GL::GL {
                 // Compile only if not already compiled in Diligent
                 if (MG_Diligent::g_ShaderMap.find(shaderId) == MG_Diligent::g_ShaderMap.end() || MG_Diligent::g_ShaderMap[shaderId] == nullptr) {
                     GLenum shaderType = shaderObj.type;
-                    std::string sourceStr = shaderSources[shaderId];
+                    std::string sourceStr = finalShaderSources[shaderId];
                     MG_Util::Debug::LogD("Shader ID: %u, type: %s\nConverted source:\n%s",
                                          shaderId, MG_Util::Debug::GLEnumToString(shaderType), sourceStr.c_str());
 

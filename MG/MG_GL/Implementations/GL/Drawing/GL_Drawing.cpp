@@ -922,8 +922,7 @@ namespace MG_GL::GL {
     }
 
     void MultiDrawElementsBaseVertex(GLenum mode, const GLsizei *count, GLenum type, const GLvoid *const *indices, GLsizei drawcount, const GLint *basevertex) {
-        return;
-        //        PrepareForDraw();
+        PrepareForDraw(mode, (GLsizei *)count, type, (const void*&)indices[0]);
 
         auto* pVAO = MG_State_T::vertexArrayState->GetCurrentVAO();
         Diligent::IBuffer* pIndexBuffer = nullptr;
