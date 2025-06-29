@@ -82,7 +82,6 @@ namespace MG_GL::GL {
         if (!initialized) {
             for (auto & cache : caches) {
                 GLenum target = cache.name;
-                (void)target;
                 const GLubyte* str = nullptr;
                 const char* delimiter = " ";
                 str = GetString(GL_EXTENSIONS);
