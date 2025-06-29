@@ -11,8 +11,4 @@ namespace MG_GL::GLX {
     void* GetProcAddressARB(const char *name);
 }
 
-#ifdef __cplusplus
-}
-#endif
-
 #endif //MOBILEGL_LOOKUP_H
