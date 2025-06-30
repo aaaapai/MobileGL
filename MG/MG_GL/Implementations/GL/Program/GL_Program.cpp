@@ -233,7 +233,7 @@ namespace MG_GL::GL {
             */
         }
         MG_State::SetError(result);
-        MG_Util::Debug::LogE("Error deleting shader: %s", MG_Util::Debug::GLEnumToString(result));
+        MG_Util::Debug::LogW("Error deleting shader: %s", MG_Util::Debug::GLEnumToString(result));
     }
     
     void DeleteProgram(GLuint program) {
@@ -297,7 +297,7 @@ namespace MG_GL::GL {
                 auto it = MG_State_T::programState->shaders_.find(shaderId);
                 if (it != MG_State_T::programState->shaders_.end() && !it->second.markedForDeletion) {
                     shaderSources[it->first] = it->second.source;
-                    MG_Util::Program::RenameGLSLBuiltinsForVulkan(shaderSources[it->first]);
+//                    MG_Util::Program::RenameGLSLBuiltinsForVulkan(shaderSources[it->first]);
                 }
             }
 
@@ -394,7 +394,8 @@ namespace MG_GL::GL {
                     ShaderCI.SourceLanguage = Diligent::SHADER_SOURCE_LANGUAGE_GLSL_VERBATIM;
 
                     Diligent::IShader* pShader = nullptr;
-                    MG_Diligent::g_pDevice->CreateShader(ShaderCI, &pShader);
+                    Diligent::RefCntAutoPtr<Diligent::IDataBlob> pMsg;
+                    MG_Diligent::g_pDevice->CreateShader(ShaderCI, &pShader, &pMsg);
 
                     if (pShader) {
                         MG_Diligent::g_ShaderMap[shaderId] = pShader;
@@ -405,7 +406,7 @@ namespace MG_GL::GL {
                     } else {
                         shaderObj.compiled = UncertainBool::False;
                         shaderObj.compileStatus = GL_FALSE;
-                        MG_Util::Debug::LogE("Failed to compile shader ID: %u for program %u", shaderId, program);
+                        MG_Util::Debug::LogE("Failed to compile shader ID: %u for program %u. \ncompiler info:\n%s", shaderId, program, pMsg->GetConstDataPtr<char>());
                     }
                 } else {
                     // Shader already compiled, just add to programInfo
@@ -494,7 +495,7 @@ namespace MG_GL::GL {
         GLenum result = MG_State::QueryProgramStateIntVector(program, pname, params);
         if (result == GL_NO_ERROR) return;
         MG_State::SetError(result);
-        MG_Util::Debug::LogE("Error getting program param: %s", MG_Util::Debug::GLEnumToString(result));
+        MG_Util::Debug::LogW("Error getting program param: %s", MG_Util::Debug::GLEnumToString(result));
     }
     
     void GetShaderiv(GLuint shader, GLenum pname, GLint* params) {

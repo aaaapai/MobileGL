@@ -7,8 +7,8 @@
 namespace MG_Util::Program {
     void RenameGLSLBuiltinsForVulkan(std::string &src) {
         static const std::vector<std::pair<std::regex, std::string>> rules = {
-                { std::regex(R"(\bgl_VertexID\b)"),   "gl_VertexIndex"    },
-                { std::regex(R"(\bgl_InstanceID\b)"), "gl_InstanceIndex"  }
+                { std::regex(R"(gl_VertexID)"),   "gl_VertexIndex"    },
+                { std::regex(R"(gl_InstanceID)"), "gl_InstanceIndex"  }
         };
 
         for (auto &rule : rules) {
@@ -94,7 +94,8 @@ namespace MG_Util::Program {
         spvc_compiler_options_set_uint(options, SPVC_COMPILER_OPTION_GLSL_VERSION, 450);
         spvc_compiler_options_set_bool(options, SPVC_COMPILER_OPTION_GLSL_ES, SPVC_FALSE);
         spvc_compiler_options_set_bool(options, SPVC_COMPILER_OPTION_FLIP_VERTEX_Y, SPVC_TRUE);
-        
+        spvc_compiler_options_set_bool(options, SPVC_COMPILER_OPTION_GLSL_VULKAN_SEMANTICS, SPVC_TRUE);
+
         spvc_compiler_install_compiler_options(compiler, options);
 
         if ((result = spvc_compiler_compile(compiler, &glsl_source)) != SPVC_SUCCESS) {
