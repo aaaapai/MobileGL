@@ -558,11 +558,6 @@ namespace MG_Util::Program {
             for (auto& span : removalSpans) {
                 source.erase(span.first, span.second);
             }
-            source = std::regex_replace(
-                    source,
-                    std::regex(R"((\r\n|\n|\r){2,})"),
-                    "$1"
-            );
         }
 
         std::string uboBlock = "\nlayout(std140) uniform MG_DEFAULT_UBO\n{\n";
