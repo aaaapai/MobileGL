@@ -1,5 +1,8 @@
 # MobileGL
 
+> [!NOTE]
+> **Important Note**: This project will undergo a complete redesign and rewrite in several weeks. The current implementation will be replaced completely.
+
 ## Third party components
 
 **SPIRV-Cross** by **KhronosGroup** - [Apache License 2.0](https://github.com/KhronosGroup/SPIRV-Cross/blob/master/LICENSE): [github](https://github.com/KhronosGroup/SPIRV-Cross)
