@@ -618,6 +618,10 @@ namespace MG_Util::Program {
         shader = new TShader(language);
         const char *src = source.c_str();
         shader->setStrings(&src, 1);
+        if (isVkGLSL) {
+            shader->setPreamble("#define gl_VertexID gl_VertexIndex\n"
+                                "#define gl_InstanceID gl_InstanceIndex\n");
+        }
         shader->setEnvInput(EShSourceGlsl, language, EShClientVulkan, glslVersion);
         shader->setEnvClient(EShClientOpenGL, isVkGLSL ? EShTargetVulkan_1_3 : EShTargetOpenGL_450);
         shader->setEnvTarget(EShTargetSpv, EShTargetSpv_1_6);
