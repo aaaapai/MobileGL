@@ -193,8 +193,10 @@ namespace MG_GL::GL {
             if (buffer == 0) return;
             auto& bufferObj = *MG_State_T::bufferState->GetOrCreateBufferObject(buffer);
             if (bufferObj.isDynamic) return; // Dynamic buffer should be created by glDraw*
-            
+            if (size <= 0) return; // ignore 0-sized reallocation
+
             bufferObj.dirty = false;
+
             Diligent::IBuffer*& pBuffer = MG_Diligent::g_BufferMap[buffer];
 
             Diligent::BufferDesc BuffDesc;
@@ -226,7 +228,7 @@ namespace MG_GL::GL {
             BuffDesc.Name = name.c_str();
             BuffDesc.Usage = Diligent::USAGE_DEFAULT;
 
-            if (!pBuffer || (pBuffer && pBuffer->GetDesc().Size != bufferObj.data.size())) {
+            if (!pBuffer || (pBuffer && pBuffer->GetDesc().Size != bufferObj.data.size()) ) {
                 if (pBuffer) {
                     pBuffer->Release();
                     pBuffer = nullptr;

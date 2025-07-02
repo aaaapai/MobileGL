@@ -233,7 +233,7 @@ namespace MG_GL::GL {
             */
         }
         MG_State::SetError(result);
-        MG_Util::Debug::LogE("Error deleting shader: %s", MG_Util::Debug::GLEnumToString(result));
+        MG_Util::Debug::LogW("Error deleting shader: %s", MG_Util::Debug::GLEnumToString(result));
     }
     
     void DeleteProgram(GLuint program) {
@@ -281,175 +281,176 @@ namespace MG_GL::GL {
     void LinkProgram(GLuint program) {
         MG_Util::Debug::LogD("glLinkProgram, program: %u", program);
         GLenum result = MG_State::FinalizeProgramPipeline(program);
-        if (result == GL_NO_ERROR) {
-            auto& programInfo = MG_Diligent::g_ProgramMap[program];
-            auto& programObj = MG_State_T::programState->programs_[program];
-
-            programInfo.id = program;
-
-            for (const auto& shaderId : programObj.attachedShaders) {
-                programInfo.AttachedShadersID.push_back(shaderId);
-            }
-
-            MG_Global::unordered_map<GLuint, std::string> shaderSources;
-            MG_Global::unordered_map<GLuint, std::string> finalShaderSources;
-            for (GLuint shaderId : programObj.attachedShaders) {
-                auto it = MG_State_T::programState->shaders_.find(shaderId);
-                if (it != MG_State_T::programState->shaders_.end() && !it->second.markedForDeletion) {
-                    shaderSources[it->first] = it->second.source;
-                    MG_Util::Program::RenameGLSLBuiltinsForVulkan(shaderSources[it->first]);
-                }
-            }
-
-            MG_Util::Program::GenerateDefaultUBOForGLSL_Multi(shaderSources, programInfo.uniformBufferNames);
-
-            for (GLuint shaderId : programObj.attachedShaders) {
-                auto it = MG_State_T::programState->shaders_.find(shaderId);
-                if (it != MG_State_T::programState->shaders_.end() && !it->second.markedForDeletion) {
-                    std::string shaderSource;
-                    if (it->second.type == GL_VERTEX_SHADER) {
-                        std::string infoLog;
-
-                        const char* fragmentShaderSource = nullptr;
-                        for (GLuint otherShaderId : programObj.attachedShaders) {
-                            if (otherShaderId != shaderId && MG_State_T::programState->shaders_[otherShaderId].type == GL_FRAGMENT_SHADER) {
-                                fragmentShaderSource = shaderSources[otherShaderId].c_str();
-                                break;
-                            }
-                        }
-                        auto spirv = MG_Util::Program::CompileGLSLToSPIRV(it->second.type,
-                                                                          shaderSources[shaderId],
-                                                                          infoLog, true, GL_FRAGMENT_SHADER, fragmentShaderSource);
-                        if (spirv.empty()) {
-                            MG_Util::Debug::LogE("Failed to compile vertex shader %u: %s", shaderId,
-                                                 infoLog.c_str());
-                            continue;
-                        }
-
-                        shaderSource = MG_Util::Program::BindInputLayoutLocationsForGLSL(spirv,
-                                                                                         programObj.attribLocations);
-                    } else if (it->second.type == GL_FRAGMENT_SHADER) {
-                        std::string infoLog;
-
-                        const char* vertexShaderSource = nullptr;
-                        for (GLuint otherShaderId : programObj.attachedShaders) {
-                            if (otherShaderId != shaderId && MG_State_T::programState->shaders_[otherShaderId].type == GL_VERTEX_SHADER) {
-                                vertexShaderSource = shaderSources[otherShaderId].c_str();
-                                break;
-                            }
-                        }
-
-                        auto spirv = MG_Util::Program::CompileGLSLToSPIRV(it->second.type,
-                                                                          shaderSources[shaderId],
-                                                                          infoLog, true, 
-                                                                          GL_VERTEX_SHADER, vertexShaderSource);
-                        if (spirv.empty()) {
-                            MG_Util::Debug::LogE("Failed to compile fragment shader %u to SPIRV: %s", shaderId,
-                                                 infoLog.c_str());
-                            continue;
-                        }
-
-                        shaderSource = MG_Util::Program::CompileSPIRVToGLSL(spirv, 450, false, true);
-                    } else {
-                        shaderSource = it->second.source;
-                    }
-                    finalShaderSources[it->first] = shaderSource;
-                }
-            }
-            
-            
-            MG_Util::Debug::LogD("Shader sources after UBO generation for program %u:", program);
-            for (const auto& [shaderId, source] : finalShaderSources) {
-                MG_Util::Debug::LogD("  Program %u Shader %u:\n%s", program, shaderId, source.c_str());
-            }
-
-            size_t uboTotalSize = RecordUniformOffsets(programInfo, finalShaderSources);
-            CreateDefaultUBO(programInfo, uboTotalSize);
-            
-            // Compile attached shaders
-            for (GLuint shaderId : programInfo.AttachedShadersID) {
-                auto& shaderObj = MG_State_T::programState->shaders_[shaderId];
-                // Compile only if not already compiled in Diligent
-                if (MG_Diligent::g_ShaderMap.find(shaderId) == MG_Diligent::g_ShaderMap.end() || MG_Diligent::g_ShaderMap[shaderId] == nullptr) {
-                    GLenum shaderType = shaderObj.type;
-                    std::string sourceStr = finalShaderSources[shaderId];
-                    MG_Util::Debug::LogD("Shader ID: %u, type: %s\nConverted source:\n%s",
-                                         shaderId, MG_Util::Debug::GLEnumToString(shaderType), sourceStr.c_str());
-
-                    Diligent::ShaderCreateInfo ShaderCI;
-                    ShaderCI.Source = sourceStr.c_str();
-                    ShaderCI.EntryPoint = "main";
-
-                    switch (shaderType) {
-                        case GL_VERTEX_SHADER: ShaderCI.Desc.ShaderType = Diligent::SHADER_TYPE_VERTEX; break;
-                        case GL_FRAGMENT_SHADER: ShaderCI.Desc.ShaderType = Diligent::SHADER_TYPE_PIXEL; break;
-                        case GL_GEOMETRY_SHADER: ShaderCI.Desc.ShaderType = Diligent::SHADER_TYPE_GEOMETRY; break;
-                        case GL_TESS_CONTROL_SHADER: ShaderCI.Desc.ShaderType = Diligent::SHADER_TYPE_HULL; break;
-                        case GL_TESS_EVALUATION_SHADER: ShaderCI.Desc.ShaderType = Diligent::SHADER_TYPE_DOMAIN; break;
-                        case GL_COMPUTE_SHADER: ShaderCI.Desc.ShaderType = Diligent::SHADER_TYPE_COMPUTE; break;
-                        default: MG_Util::Debug::LogW("Unsupported shader type for compilation: %u", shaderType); continue;
-                    }
-
-                    ShaderCI.Desc.Name = ("Shader_" + std::to_string(shaderId)).c_str();
-                    ShaderCI.SourceLanguage = Diligent::SHADER_SOURCE_LANGUAGE_GLSL_VERBATIM;
-
-                    Diligent::IShader* pShader = nullptr;
-                    MG_Diligent::g_pDevice->CreateShader(ShaderCI, &pShader);
-
-                    if (pShader) {
-                        MG_Diligent::g_ShaderMap[shaderId] = pShader;
-                        programInfo.AttachedShaders.push_back(pShader);
-                        shaderObj.compiled = UncertainBool::True;
-                        shaderObj.compileStatus = GL_TRUE;
-                        MG_Util::Debug::LogD("Successfully compiled shader ID: %u for program %u", shaderId, program);
-                    } else {
-                        shaderObj.compiled = UncertainBool::False;
-                        shaderObj.compileStatus = GL_FALSE;
-                        MG_Util::Debug::LogE("Failed to compile shader ID: %u for program %u", shaderId, program);
-                    }
-                } else {
-                    // Shader already compiled, just add to programInfo
-                    programInfo.AttachedShaders.push_back(MG_Diligent::g_ShaderMap[shaderId]);
-                }
-            }
-
-            programInfo.inputLayout.clear();
-
-            auto* pVAO = MG_State_T::vertexArrayState->GetCurrentVAO();
-            if (!pVAO) return;
-
-//            for (const auto& [index, attrib] : pVAO->attribs) {
-            for (uint32_t index = 0; index < MG_Constants::VertexArray::MAX_VERTEX_ATTRIBS; ++index) {
-                const auto& attrib = pVAO->attribs[index];
-                if (attrib.enabled) {
-                    Diligent::LayoutElement elem;
-                    elem.InputIndex = index;
-                    elem.BufferSlot = 0;
-                    elem.NumComponents = attrib.size;
-                    elem.ValueType = ConvertGLTypeToDiligent(attrib.type);
-                    elem.IsNormalized = attrib.normalized;
-                    elem.RelativeOffset = static_cast<GLuint>(reinterpret_cast<size_t>(attrib.pointer));
-
-                    programInfo.inputLayout.push_back(elem);
-                }
-            }
-
-            programInfo.psoDirty = true;
-            programInfo.psoStateHash = 0;
-            programInfo.uniformStages.clear();
-            programInfo.programObj = MG_State_T::programState->programs_[program];
-            
-            if (programInfo.pResourceBinding) {
-                programInfo.pResourceBinding->Release();
-                programInfo.pResourceBinding = nullptr;
-            }
-
-            programObj.linked = true;
-            programObj.linkStatus = GL_TRUE;
+        if (result != GL_NO_ERROR) {
+            MG_State::SetError(result);
+            MG_Util::Debug::LogE("Error linking program: %s", MG_Util::Debug::GLEnumToString(result));
             return;
         }
-        MG_State::SetError(result);
-        MG_Util::Debug::LogE("Error linking program: %s", MG_Util::Debug::GLEnumToString(result));
+        auto& programInfo = MG_Diligent::g_ProgramMap[program];
+        auto& programObj = MG_State_T::programState->programs_[program];
+
+        programInfo.id = program;
+
+        for (const auto& shaderId : programObj.attachedShaders) {
+            programInfo.AttachedShadersID.push_back(shaderId);
+        }
+
+        MG_Global::unordered_map<GLuint, std::string> shaderSources;
+        MG_Global::unordered_map<GLuint, std::string> finalShaderSources;
+        for (GLuint shaderId : programObj.attachedShaders) {
+            auto it = MG_State_T::programState->shaders_.find(shaderId);
+            if (it != MG_State_T::programState->shaders_.end() && !it->second.markedForDeletion) {
+                shaderSources[it->first] = it->second.source;
+//                    MG_Util::Program::RenameGLSLBuiltinsForVulkan(shaderSources[it->first]);
+            }
+        }
+
+        MG_Util::Program::GenerateDefaultUBOForGLSL_Multi(shaderSources, programInfo.uniformBufferNames);
+
+        for (GLuint shaderId : programObj.attachedShaders) {
+            auto it = MG_State_T::programState->shaders_.find(shaderId);
+            if (it != MG_State_T::programState->shaders_.end() && !it->second.markedForDeletion) {
+                std::string shaderSource;
+                if (it->second.type == GL_VERTEX_SHADER) {
+                    std::string infoLog;
+
+                    const char* fragmentShaderSource = nullptr;
+                    for (GLuint otherShaderId : programObj.attachedShaders) {
+                        if (otherShaderId != shaderId && MG_State_T::programState->shaders_[otherShaderId].type == GL_FRAGMENT_SHADER) {
+                            fragmentShaderSource = shaderSources[otherShaderId].c_str();
+                            break;
+                        }
+                    }
+                    auto spirv = MG_Util::Program::CompileGLSLToSPIRV(it->second.type,
+                                                                      shaderSources[shaderId],
+                                                                      infoLog, true, GL_FRAGMENT_SHADER, fragmentShaderSource);
+                    if (spirv.empty()) {
+                        MG_Util::Debug::LogE("Failed to compile vertex shader %u: %s", shaderId,
+                                             infoLog.c_str());
+                        continue;
+                    }
+
+                    shaderSource = MG_Util::Program::BindInputLayoutLocationsForGLSL(spirv,
+                                                                                     programObj.attribLocations);
+                } else if (it->second.type == GL_FRAGMENT_SHADER) {
+                    std::string infoLog;
+
+                    const char* vertexShaderSource = nullptr;
+                    for (GLuint otherShaderId : programObj.attachedShaders) {
+                        if (otherShaderId != shaderId && MG_State_T::programState->shaders_[otherShaderId].type == GL_VERTEX_SHADER) {
+                            vertexShaderSource = shaderSources[otherShaderId].c_str();
+                            break;
+                        }
+                    }
+
+                    auto spirv = MG_Util::Program::CompileGLSLToSPIRV(it->second.type,
+                                                                      shaderSources[shaderId],
+                                                                      infoLog, true,
+                                                                      GL_VERTEX_SHADER, vertexShaderSource);
+                    if (spirv.empty()) {
+                        MG_Util::Debug::LogE("Failed to compile fragment shader %u to SPIRV: %s", shaderId,
+                                             infoLog.c_str());
+                        continue;
+                    }
+
+                    shaderSource = MG_Util::Program::CompileSPIRVToGLSL(spirv, 450, false, true);
+                } else {
+                    shaderSource = it->second.source;
+                }
+                finalShaderSources[it->first] = shaderSource;
+            }
+        }
+
+
+        MG_Util::Debug::LogD("Shader sources after UBO generation for program %u:", program);
+        for (const auto& [shaderId, source] : finalShaderSources) {
+            MG_Util::Debug::LogD("  Program %u Shader %u:\n%s", program, shaderId, source.c_str());
+        }
+
+        size_t uboTotalSize = RecordUniformOffsets(programInfo, finalShaderSources);
+        CreateDefaultUBO(programInfo, uboTotalSize);
+
+        // Compile attached shaders
+        for (GLuint shaderId : programInfo.AttachedShadersID) {
+            auto& shaderObj = MG_State_T::programState->shaders_[shaderId];
+            // Compile only if not already compiled in Diligent
+            if (MG_Diligent::g_ShaderMap.find(shaderId) == MG_Diligent::g_ShaderMap.end() || MG_Diligent::g_ShaderMap[shaderId] == nullptr) {
+                GLenum shaderType = shaderObj.type;
+                std::string sourceStr = finalShaderSources[shaderId];
+                MG_Util::Debug::LogD("Shader ID: %u, type: %s\nConverted source:\n%s",
+                                     shaderId, MG_Util::Debug::GLEnumToString(shaderType), sourceStr.c_str());
+
+                Diligent::ShaderCreateInfo ShaderCI;
+                ShaderCI.Source = sourceStr.c_str();
+                ShaderCI.EntryPoint = "main";
+
+                switch (shaderType) {
+                    case GL_VERTEX_SHADER: ShaderCI.Desc.ShaderType = Diligent::SHADER_TYPE_VERTEX; break;
+                    case GL_FRAGMENT_SHADER: ShaderCI.Desc.ShaderType = Diligent::SHADER_TYPE_PIXEL; break;
+                    case GL_GEOMETRY_SHADER: ShaderCI.Desc.ShaderType = Diligent::SHADER_TYPE_GEOMETRY; break;
+                    case GL_TESS_CONTROL_SHADER: ShaderCI.Desc.ShaderType = Diligent::SHADER_TYPE_HULL; break;
+                    case GL_TESS_EVALUATION_SHADER: ShaderCI.Desc.ShaderType = Diligent::SHADER_TYPE_DOMAIN; break;
+                    case GL_COMPUTE_SHADER: ShaderCI.Desc.ShaderType = Diligent::SHADER_TYPE_COMPUTE; break;
+                    default: MG_Util::Debug::LogW("Unsupported shader type for compilation: %u", shaderType); continue;
+                }
+
+                ShaderCI.Desc.Name = ("Shader_" + std::to_string(shaderId)).c_str();
+                ShaderCI.SourceLanguage = Diligent::SHADER_SOURCE_LANGUAGE_GLSL_VERBATIM;
+
+                Diligent::IShader* pShader = nullptr;
+                Diligent::RefCntAutoPtr<Diligent::IDataBlob> pMsg;
+                MG_Diligent::g_pDevice->CreateShader(ShaderCI, &pShader, &pMsg);
+
+                if (pShader) {
+                    MG_Diligent::g_ShaderMap[shaderId] = pShader;
+                    programInfo.AttachedShaders.push_back(pShader);
+                    shaderObj.compiled = UncertainBool::True;
+                    shaderObj.compileStatus = GL_TRUE;
+                    MG_Util::Debug::LogD("Successfully compiled shader ID: %u for program %u", shaderId, program);
+                } else {
+                    shaderObj.compiled = UncertainBool::False;
+                    shaderObj.compileStatus = GL_FALSE;
+                    MG_Util::Debug::LogE("Failed to compile shader ID: %u for program %u. \ncompiler info:\n%s", shaderId, program, pMsg->GetConstDataPtr<char>());
+                }
+            } else {
+                // Shader already compiled, just add to programInfo
+                programInfo.AttachedShaders.push_back(MG_Diligent::g_ShaderMap[shaderId]);
+            }
+        }
+
+        programInfo.inputLayout.clear();
+
+        auto* pVAO = MG_State_T::vertexArrayState->GetCurrentVAO();
+        if (!pVAO) return;
+
+//            for (const auto& [index, attrib] : pVAO->attribs) {
+        for (uint32_t index = 0; index < MG_Constants::VertexArray::MAX_VERTEX_ATTRIBS; ++index) {
+            const auto& attrib = pVAO->attribs[index];
+            if (attrib.enabled) {
+                Diligent::LayoutElement elem;
+                elem.InputIndex = index;
+                elem.BufferSlot = 0;
+                elem.NumComponents = attrib.size;
+                elem.ValueType = ConvertGLTypeToDiligent(attrib.type);
+                elem.IsNormalized = attrib.normalized;
+                elem.RelativeOffset = static_cast<GLuint>(reinterpret_cast<size_t>(attrib.pointer));
+
+                programInfo.inputLayout.push_back(elem);
+            }
+        }
+
+        programInfo.psoDirty = true;
+        programInfo.psoStateHash = 0;
+        programInfo.uniformStages.clear();
+        programInfo.programObj = MG_State_T::programState->programs_[program];
+
+        if (programInfo.pResourceBinding) {
+            programInfo.pResourceBinding->Release();
+            programInfo.pResourceBinding = nullptr;
+        }
+
+        programObj.linked = true;
+        programObj.linkStatus = GL_TRUE;
     }
     
     void UseProgram(GLuint program) {
@@ -494,7 +495,7 @@ namespace MG_GL::GL {
         GLenum result = MG_State::QueryProgramStateIntVector(program, pname, params);
         if (result == GL_NO_ERROR) return;
         MG_State::SetError(result);
-        MG_Util::Debug::LogE("Error getting program param: %s", MG_Util::Debug::GLEnumToString(result));
+        MG_Util::Debug::LogW("Error getting program param: %s", MG_Util::Debug::GLEnumToString(result));
     }
     
     void GetShaderiv(GLuint shader, GLenum pname, GLint* params) {

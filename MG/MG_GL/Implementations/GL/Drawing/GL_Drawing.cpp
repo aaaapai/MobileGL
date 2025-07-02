@@ -559,8 +559,10 @@ namespace MG_GL::GL {
 
             if (!MG_Diligent::g_TriangleFanIndexBuffer || MG_Diligent::g_TriangleFanIndexBuffer->GetDesc().Size < newIndexData.size())
             {
-                if (MG_Diligent::g_TriangleFanIndexBuffer)
+                if (MG_Diligent::g_TriangleFanIndexBuffer) {
                     MG_Diligent::g_TriangleFanIndexBuffer->Release();
+                    MG_Diligent::g_TriangleFanIndexBuffer = nullptr;
+                }
 
                 Diligent::BufferDesc BuffDesc;
                 BuffDesc.Name           = "Triangle Fan Temp Index Buffer";

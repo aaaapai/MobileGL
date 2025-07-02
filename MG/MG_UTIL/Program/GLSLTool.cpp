@@ -7,8 +7,8 @@
 namespace MG_Util::Program {
     void RenameGLSLBuiltinsForVulkan(std::string &src) {
         static const std::vector<std::pair<std::regex, std::string>> rules = {
-                { std::regex(R"(\bgl_VertexID\b)"),   "gl_VertexIndex"    },
-                { std::regex(R"(\bgl_InstanceID\b)"), "gl_InstanceIndex"  }
+                { std::regex(R"(gl_VertexID)"),   "gl_VertexIndex"    },
+                { std::regex(R"(gl_InstanceID)"), "gl_InstanceIndex"  }
         };
 
         for (auto &rule : rules) {
@@ -94,7 +94,8 @@ namespace MG_Util::Program {
         spvc_compiler_options_set_uint(options, SPVC_COMPILER_OPTION_GLSL_VERSION, 450);
         spvc_compiler_options_set_bool(options, SPVC_COMPILER_OPTION_GLSL_ES, SPVC_FALSE);
         spvc_compiler_options_set_bool(options, SPVC_COMPILER_OPTION_FLIP_VERTEX_Y, SPVC_TRUE);
-        
+        spvc_compiler_options_set_bool(options, SPVC_COMPILER_OPTION_GLSL_VULKAN_SEMANTICS, SPVC_TRUE);
+
         spvc_compiler_install_compiler_options(compiler, options);
 
         if ((result = spvc_compiler_compile(compiler, &glsl_source)) != SPVC_SUCCESS) {
@@ -557,11 +558,6 @@ namespace MG_Util::Program {
             for (auto& span : removalSpans) {
                 source.erase(span.first, span.second);
             }
-            source = std::regex_replace(
-                    source,
-                    std::regex(R"((\r\n|\n|\r){2,})"),
-                    "$1"
-            );
         }
 
         std::string uboBlock = "\nlayout(std140) uniform MG_DEFAULT_UBO\n{\n";
@@ -617,6 +613,10 @@ namespace MG_Util::Program {
         shader = new TShader(language);
         const char *src = source.c_str();
         shader->setStrings(&src, 1);
+        if (isVkGLSL) {
+            shader->setPreamble("#define gl_VertexID gl_VertexIndex\n"
+                                "#define gl_InstanceID gl_InstanceIndex\n");
+        }
         shader->setEnvInput(EShSourceGlsl, language, EShClientVulkan, glslVersion);
         shader->setEnvClient(EShClientOpenGL, isVkGLSL ? EShTargetVulkan_1_3 : EShTargetOpenGL_450);
         shader->setEnvTarget(EShTargetSpv, EShTargetSpv_1_6);
@@ -655,6 +655,21 @@ namespace MG_Util::Program {
         }
         if (!program.link(EShMsgDefault)) {
             infoLog = "Error: [glslang] Cannot link the program:\n" + std::to_string(program.getInfoLog());
+            return {};
+        }
+
+        std::unique_ptr<glslang::TIoMapResolver> resolver;
+        for (unsigned stage = 0; stage < EShLangCount; stage++) {
+            auto* pResolver = program.getGlslIoResolver((EShLanguage)stage);
+            if (pResolver) {
+                resolver = std::unique_ptr<glslang::TIoMapResolver>(pResolver);
+                break;
+            }
+        }
+        auto ioMapper = std::unique_ptr<glslang::TIoMapper>(glslang::GetGlslIoMapper());
+
+        if (!program.mapIO(resolver.get(), ioMapper.get())) {
+            infoLog = "Error: [glslang] Cannot mapIO:\n" + std::to_string(program.getInfoLog());
             return {};
         }
 
@@ -785,8 +800,9 @@ namespace MG_Util::Program {
                 GLint final_location;
 
                 if (spirv_location > 0) {
-                    if (used_locations.find(spirv_location) != used_locations.end()) {
-                        infoLog += "\nLocation conflict for uniform: " + std::string(name);
+                    auto it = used_locations.find(spirv_location);
+                    if (it != used_locations.end()) {
+                        infoLog += "\nLocation conflict for uniform: " + std::string(name) + " at location " + std::to_string(spirv_location) + "\n";
                         continue;
                     }
                     final_location = spirv_location;
@@ -797,6 +813,7 @@ namespace MG_Util::Program {
                     final_location = auto_location;
                 }
 
+                MG_Util::Debug::LogD("%s: location = %d", name, final_location);
                 used_locations.insert(final_location);
 
                 spvc_type_id type_id = res.type_id;
