@@ -658,6 +658,21 @@ namespace MG_Util::Program {
             return {};
         }
 
+        std::unique_ptr<glslang::TIoMapResolver> resolver;
+        for (unsigned stage = 0; stage < EShLangCount; stage++) {
+            auto* pResolver = program.getGlslIoResolver((EShLanguage)stage);
+            if (pResolver) {
+                resolver = std::unique_ptr<glslang::TIoMapResolver>(pResolver);
+                break;
+            }
+        }
+        auto ioMapper = std::unique_ptr<glslang::TIoMapper>(glslang::GetGlslIoMapper());
+
+        if (!program.mapIO(resolver.get(), ioMapper.get())) {
+            infoLog = "Error: [glslang] Cannot mapIO:\n" + std::to_string(program.getInfoLog());
+            return {};
+        }
+
         SpvOptions spvOptions;
         spvOptions.disableOptimizer = false;
 
@@ -785,8 +800,9 @@ namespace MG_Util::Program {
                 GLint final_location;
 
                 if (spirv_location > 0) {
-                    if (used_locations.find(spirv_location) != used_locations.end()) {
-                        infoLog += "\nLocation conflict for uniform: " + std::string(name);
+                    auto it = used_locations.find(spirv_location);
+                    if (it != used_locations.end()) {
+                        infoLog += "\nLocation conflict for uniform: " + std::string(name) + " at location " + std::to_string(spirv_location) + "\n";
                         continue;
                     }
                     final_location = spirv_location;
@@ -797,6 +813,7 @@ namespace MG_Util::Program {
                     final_location = auto_location;
                 }
 
+                MG_Util::Debug::LogD("%s: location = %d", name, final_location);
                 used_locations.insert(final_location);
 
                 spvc_type_id type_id = res.type_id;
