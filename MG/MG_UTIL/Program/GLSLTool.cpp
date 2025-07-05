@@ -794,16 +794,47 @@ namespace MG_Util::Program {
                 const spvc_reflected_resource &res = *res_ptr;
                 const char *name = res.name;
                 if (name[0] == '_') continue;
-
+                
                 unsigned spirv_location = spvc_compiler_get_decoration(compiler, res.id,
                                                                        SpvDecorationLocation);
                 GLint final_location;
 
-                if (spirv_location > 0) {
-                    auto it = used_locations.find(spirv_location);
-                    if (it != used_locations.end()) {
-                        infoLog += "\nLocation conflict for uniform: " + std::string(name) + " at location " + std::to_string(spirv_location) + "\n";
-                        continue;
+                spvc_type_id type_id = res.type_id;
+                spvc_type type = spvc_compiler_get_type_handle(compiler, type_id);
+                spvc_basetype base_type = spvc_type_get_basetype(type);
+                GLenum gl_type = GL_NONE;
+
+                if (spirv_location >= 0 && base_type != SPVC_BASETYPE_SAMPLED_IMAGE) {
+                    auto conflict_it = used_locations.find(spirv_location);
+                    if (conflict_it != used_locations.end()) {
+                        // Check if the conflicting uniform is a sampler
+                        std::string conflicting_name;
+                        for (const auto& entry : prog.uniformLocations) {
+                            if (entry.second == spirv_location) {
+                                conflicting_name = entry.first;
+                                break;
+                            }
+                        }
+                        if(conflicting_name == std::string(name)) {
+                            continue;
+                        } else if (!conflicting_name.empty() && prog.uniformValues.count(conflicting_name) &&
+                                MG_GL::GL::IsSamplerType(prog.uniformValues[conflicting_name].type)) {
+                            // Reassign location for the sampler
+                            GLint new_sampler_loc = auto_location++;
+                            while (used_locations.find(new_sampler_loc) != used_locations.end()) new_sampler_loc++;
+                            prog.uniformLocations[conflicting_name] = new_sampler_loc;
+                            used_locations.erase(conflict_it); // Remove old sampler location
+                            used_locations.insert(new_sampler_loc); // Add new sampler location
+                        } else {
+                            infoLog += "\nLocation conflict for uniform: " + std::string(name) + " at location " + std::to_string(spirv_location);
+                            infoLog += "\nExisting uniforms and locations:";
+                            for (const auto& entry : prog.uniformLocations) {
+                                infoLog += "\n  " + entry.first + ": " + std::to_string(entry.second);
+                            }
+                             infoLog += "\nUsed locations set:";
+                            for (GLint loc : used_locations) infoLog += " " + std::to_string(loc);
+                            continue;
+                        }
                     }
                     final_location = spirv_location;
                 } else {
@@ -813,13 +844,7 @@ namespace MG_Util::Program {
                     final_location = auto_location;
                 }
 
-                MG_Util::Debug::LogD("%s: location = %d", name, final_location);
                 used_locations.insert(final_location);
-
-                spvc_type_id type_id = res.type_id;
-                spvc_type type = spvc_compiler_get_type_handle(compiler, type_id);
-                spvc_basetype base_type = spvc_type_get_basetype(type);
-                GLenum gl_type = GL_NONE;
 
                 if (base_type == SPVC_BASETYPE_SAMPLED_IMAGE) {
                     SpvDim dim = spvc_type_get_image_dimension(type);
