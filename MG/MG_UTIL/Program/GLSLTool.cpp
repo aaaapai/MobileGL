@@ -804,7 +804,7 @@ namespace MG_Util::Program {
                 spvc_basetype base_type = spvc_type_get_basetype(type);
                 GLenum gl_type = GL_NONE;
 
-                if (spirv_location > 0 && base_type != SPVC_BASETYPE_SAMPLED_IMAGE) {
+                if (spirv_location >= 0 && base_type != SPVC_BASETYPE_SAMPLED_IMAGE) {
                     auto conflict_it = used_locations.find(spirv_location);
                     if (conflict_it != used_locations.end()) {
                         // Check if the conflicting uniform is a sampler
