@@ -110,7 +110,21 @@ GLenum ProgramState::FinalizeProgramPipeline(GLuint program) {
     std::vector<std::vector<unsigned>> allSpirv = 
             MG_Util::Program::CompileMultipleShadersToSPIRV(*this, prog, prog.infoLog);
     
+    if (!prog.infoLog.empty() || allSpirv.empty()) {
+        prog.linked = UncertainBool::False;
+        prog.linkStatus = GL_FALSE;
+        prog.infoLog = "Program linking failed during SPIR-V compilation: " + prog.infoLog;
+        MG_Util::Debug::LogE("MG_State: Program: FinalizeProgramPipeline error: %s", prog.infoLog.c_str());
+        return GL_INVALID_OPERATION;
+    }
+    
     MG_Util::Program::ReflectSPIRVUniforms(allSpirv, prog, prog.infoLog);
+    
+    for (size_t i = 0; i < prog.attachedShaders.size(); ++i) {
+        GLuint shaderId = prog.attachedShaders[i];
+        shaders_[shaderId].source = MG_Util::Program::CompileSPIRVToGLSL(allSpirv[i], 450, false, false);
+    }
+    
     if (!prog.infoLog.empty()) {
         prog.linked = UncertainBool::False;
         prog.linkStatus = GL_FALSE;

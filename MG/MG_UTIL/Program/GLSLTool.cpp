@@ -658,6 +658,21 @@ namespace MG_Util::Program {
             return {};
         }
 
+        std::unique_ptr<glslang::TIoMapResolver> resolver;
+        for (unsigned stage = 0; stage < EShLangCount; stage++) {
+            auto* pResolver = program.getGlslIoResolver((EShLanguage)stage);
+            if (pResolver) {
+                resolver = std::unique_ptr<glslang::TIoMapResolver>(pResolver);
+                break;
+            }
+        }
+        auto ioMapper = std::unique_ptr<glslang::TIoMapper>(glslang::GetGlslIoMapper());
+
+        if (!program.mapIO(resolver.get(), ioMapper.get())) {
+            infoLog = "Error: [glslang] Cannot mapIO:\n" + std::to_string(program.getInfoLog());
+            return {};
+        }
+
         SpvOptions spvOptions;
         spvOptions.disableOptimizer = false;
 
