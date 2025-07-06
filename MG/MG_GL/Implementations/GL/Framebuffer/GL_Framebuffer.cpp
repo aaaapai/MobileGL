@@ -6,15 +6,15 @@
 
 namespace MG_GL::GL {
     void ReleaseFramebufferResources(MG_Diligent::GLFramebufferInfo& fbInfo) {
-        if (fbInfo.pFramebuffer) {
-            fbInfo.pFramebuffer->Release();
-            fbInfo.pFramebuffer = nullptr;
-        }
+//        if (fbInfo.pFramebuffer) {
+//            fbInfo.pFramebuffer->Release();
+//            fbInfo.pFramebuffer = nullptr;
+//        }
 
-        if (fbInfo.pRenderPass) {
-            fbInfo.pRenderPass->Release();
-            fbInfo.pRenderPass = nullptr;
-        }
+//        if (fbInfo.pRenderPass) {
+//            fbInfo.pRenderPass->Release();
+//            fbInfo.pRenderPass = nullptr;
+//        }
     }
 
     void CreateRenderPassAndFramebuffer(GLuint framebuffer,
@@ -52,115 +52,115 @@ namespace MG_GL::GL {
             return;
         }
 
-        Diligent::RenderPassDesc RPDesc;
-        std::vector<Diligent::RenderPassAttachmentDesc> Attachments;
-        std::vector<Diligent::SubpassDesc> Subpasses;
-        std::vector<Diligent::AttachmentReference> ColorRefs;
+//        Diligent::RenderPassDesc RPDesc;
+//        std::vector<Diligent::RenderPassAttachmentDesc> Attachments;
+//        std::vector<Diligent::SubpassDesc> Subpasses;
+//        std::vector<Diligent::AttachmentReference> ColorRefs;
+//
+//        for (size_t i = 0; i < fbInfo.ColorRTVs.size(); ++i) {
+//            if (fbInfo.ColorRTVs[i]) {
+//                Diligent::RenderPassAttachmentDesc ColorAttachment;
+//                ColorAttachment.Format = framebuffer != 0 ? fbInfo.ColorRTVs[i]->GetDesc().Format:
+//                                         MG_Diligent::g_pSwapChain->GetDesc().ColorBufferFormat;
+//                ColorAttachment.SampleCount = 1;
+//                ColorAttachment.InitialState = Diligent::RESOURCE_STATE_RENDER_TARGET;
+//                ColorAttachment.FinalState = Diligent::RESOURCE_STATE_RENDER_TARGET;
+//                ColorAttachment.LoadOp = Diligent::ATTACHMENT_LOAD_OP_LOAD;
+//                ColorAttachment.StoreOp = Diligent::ATTACHMENT_STORE_OP_STORE;
+//                Attachments.push_back(ColorAttachment);
+//
+//                Diligent::AttachmentReference ColorRef;
+//                ColorRef.AttachmentIndex = static_cast<Diligent::Uint32>(Attachments.size() - 1);
+//                ColorRef.State = Diligent::RESOURCE_STATE_RENDER_TARGET;
+//                ColorRefs.push_back(ColorRef);
+//                MG_Util::Debug::LogD("CreateRenderPassAndFramebuffer: Added color attachment %zu", i);
+//            }
+//        }
 
-        for (size_t i = 0; i < fbInfo.ColorRTVs.size(); ++i) {
-            if (fbInfo.ColorRTVs[i]) {
-                Diligent::RenderPassAttachmentDesc ColorAttachment;
-                ColorAttachment.Format = framebuffer != 0 ? fbInfo.ColorRTVs[i]->GetDesc().Format:
-                                         MG_Diligent::g_pSwapChain->GetDesc().ColorBufferFormat;
-                ColorAttachment.SampleCount = 1;
-                ColorAttachment.InitialState = Diligent::RESOURCE_STATE_RENDER_TARGET;
-                ColorAttachment.FinalState = Diligent::RESOURCE_STATE_RENDER_TARGET;
-                ColorAttachment.LoadOp = Diligent::ATTACHMENT_LOAD_OP_LOAD;
-                ColorAttachment.StoreOp = Diligent::ATTACHMENT_STORE_OP_STORE;
-                Attachments.push_back(ColorAttachment);
+//        Diligent::AttachmentReference DepthRef;
+//        if (fbInfo.pDepthStencilRTV) {
+//            Diligent::RenderPassAttachmentDesc DepthAttachment;
+//            DepthAttachment.Format = fbInfo.DepthStencilFormat;
+//            DepthAttachment.SampleCount = 1;
+//            DepthAttachment.InitialState = Diligent::RESOURCE_STATE_DEPTH_WRITE;
+//            DepthAttachment.FinalState = Diligent::RESOURCE_STATE_DEPTH_WRITE;
+//            DepthAttachment.LoadOp = Diligent::ATTACHMENT_LOAD_OP_LOAD;
+//            DepthAttachment.StoreOp = Diligent::ATTACHMENT_STORE_OP_STORE;
+//            DepthAttachment.StencilLoadOp = Diligent::ATTACHMENT_LOAD_OP_LOAD;
+//            DepthAttachment.StencilStoreOp = Diligent::ATTACHMENT_STORE_OP_STORE;
+//            Attachments.push_back(DepthAttachment);
+//
+//            DepthRef.AttachmentIndex = static_cast<Diligent::Uint32>(Attachments.size() - 1);
+//            DepthRef.State = Diligent::RESOURCE_STATE_DEPTH_WRITE;
+//            MG_Util::Debug::LogD("CreateRenderPassAndFramebuffer: Added depth/stencil attachment");
+//        }
 
-                Diligent::AttachmentReference ColorRef;
-                ColorRef.AttachmentIndex = static_cast<Diligent::Uint32>(Attachments.size() - 1);
-                ColorRef.State = Diligent::RESOURCE_STATE_RENDER_TARGET;
-                ColorRefs.push_back(ColorRef);
-                MG_Util::Debug::LogD("CreateRenderPassAndFramebuffer: Added color attachment %zu", i);
-            }
-        }
+//        Diligent::SubpassDesc Subpass;
+//        Subpass.RenderTargetAttachmentCount = static_cast<Diligent::Uint32>(ColorRefs.size());
+//        Subpass.pRenderTargetAttachments = ColorRefs.empty() ? nullptr : ColorRefs.data();
+//        Subpass.pDepthStencilAttachment = fbInfo.pDepthStencilRTV ? &DepthRef : nullptr;
+//        Subpasses.push_back(Subpass);
+//
+//        RPDesc.AttachmentCount = static_cast<Diligent::Uint32>(Attachments.size());
+//        RPDesc.pAttachments = Attachments.empty() ? nullptr : Attachments.data();
+//        RPDesc.SubpassCount = static_cast<Diligent::Uint32>(Subpasses.size());
+//        RPDesc.pSubpasses = Subpasses.data();
+//
+//        MG_Util::Debug::LogD("CreateRenderPassAndFramebuffer: Creating RenderPass with %u attachments and %u subpasses.",
+//                             RPDesc.AttachmentCount, RPDesc.SubpassCount);
+//
+//        MG_Diligent::g_pDevice->CreateRenderPass(RPDesc, &fbInfo.pRenderPass);
+//        if (!fbInfo.pRenderPass) {
+//            MG_Util::Debug::LogE("CreateRenderPassAndFramebuffer: Failed to create RenderPass.");
+//            return;
+//        }
+//        MG_Util::Debug::LogD("CreateRenderPassAndFramebuffer: RenderPass created successfully.");
 
-        Diligent::AttachmentReference DepthRef;
-        if (fbInfo.pDepthStencilRTV) {
-            Diligent::RenderPassAttachmentDesc DepthAttachment;
-            DepthAttachment.Format = fbInfo.DepthStencilFormat;
-            DepthAttachment.SampleCount = 1;
-            DepthAttachment.InitialState = Diligent::RESOURCE_STATE_DEPTH_WRITE;
-            DepthAttachment.FinalState = Diligent::RESOURCE_STATE_DEPTH_WRITE;
-            DepthAttachment.LoadOp = Diligent::ATTACHMENT_LOAD_OP_LOAD;
-            DepthAttachment.StoreOp = Diligent::ATTACHMENT_STORE_OP_STORE;
-            DepthAttachment.StencilLoadOp = Diligent::ATTACHMENT_LOAD_OP_LOAD;
-            DepthAttachment.StencilStoreOp = Diligent::ATTACHMENT_STORE_OP_STORE;
-            Attachments.push_back(DepthAttachment);
+//        Diligent::FramebufferDesc FBDesc;
+//        FBDesc.Name = "Framebuffer";
+////        FBDesc.pRenderPass = fbInfo.pRenderPass;
+//        FBDesc.AttachmentCount = static_cast<Diligent::Uint32>(Attachments.size());
+//
+//        std::vector<Diligent::ITextureView *> FBAtachments(Attachments.size());
+//        for (size_t i = 0; i < ColorRefs.size(); ++i) {
+//            if (i < fbInfo.ColorRTVs.size() && fbInfo.ColorRTVs[i]) {
+//                FBAtachments[i] = fbInfo.ColorRTVs[i];
+//            }
+//        }
+//
+//        if (fbInfo.pDepthStencilRTV) {
+//            FBAtachments[ColorRefs.size()] = fbInfo.pDepthStencilRTV;
+//        }
 
-            DepthRef.AttachmentIndex = static_cast<Diligent::Uint32>(Attachments.size() - 1);
-            DepthRef.State = Diligent::RESOURCE_STATE_DEPTH_WRITE;
-            MG_Util::Debug::LogD("CreateRenderPassAndFramebuffer: Added depth/stencil attachment");
-        }
-
-        Diligent::SubpassDesc Subpass;
-        Subpass.RenderTargetAttachmentCount = static_cast<Diligent::Uint32>(ColorRefs.size());
-        Subpass.pRenderTargetAttachments = ColorRefs.empty() ? nullptr : ColorRefs.data();
-        Subpass.pDepthStencilAttachment = fbInfo.pDepthStencilRTV ? &DepthRef : nullptr;
-        Subpasses.push_back(Subpass);
-
-        RPDesc.AttachmentCount = static_cast<Diligent::Uint32>(Attachments.size());
-        RPDesc.pAttachments = Attachments.empty() ? nullptr : Attachments.data();
-        RPDesc.SubpassCount = static_cast<Diligent::Uint32>(Subpasses.size());
-        RPDesc.pSubpasses = Subpasses.data();
-
-        MG_Util::Debug::LogD("CreateRenderPassAndFramebuffer: Creating RenderPass with %u attachments and %u subpasses.",
-                             RPDesc.AttachmentCount, RPDesc.SubpassCount);
-
-        MG_Diligent::g_pDevice->CreateRenderPass(RPDesc, &fbInfo.pRenderPass);
-        if (!fbInfo.pRenderPass) {
-            MG_Util::Debug::LogE("CreateRenderPassAndFramebuffer: Failed to create RenderPass.");
-            return;
-        }
-        MG_Util::Debug::LogD("CreateRenderPassAndFramebuffer: RenderPass created successfully.");
-
-        Diligent::FramebufferDesc FBDesc;
-        FBDesc.Name = "Framebuffer";
-        FBDesc.pRenderPass = fbInfo.pRenderPass;
-        FBDesc.AttachmentCount = static_cast<Diligent::Uint32>(Attachments.size());
-
-        std::vector<Diligent::ITextureView *> FBAtachments(Attachments.size());
-        for (size_t i = 0; i < ColorRefs.size(); ++i) {
-            if (i < fbInfo.ColorRTVs.size() && fbInfo.ColorRTVs[i]) {
-                FBAtachments[i] = fbInfo.ColorRTVs[i];
-            }
-        }
-
-        if (fbInfo.pDepthStencilRTV) {
-            FBAtachments[ColorRefs.size()] = fbInfo.pDepthStencilRTV;
-        }
-
-        FBDesc.ppAttachments = FBAtachments.data();
-        FBDesc.Width = width;
-        FBDesc.Height = height;
-        FBDesc.NumArraySlices = 1;
-
-        MG_Util::Debug::LogD("CreateRenderPassAndFramebuffer: FramebufferDesc Details:");
-        MG_Util::Debug::LogD("  Name: %s", FBDesc.Name ? FBDesc.Name : "N/A");
-        MG_Util::Debug::LogD("  pRenderPass: %p", FBDesc.pRenderPass);
-        MG_Util::Debug::LogD("  AttachmentCount: %u", FBDesc.AttachmentCount);
-        for (Diligent::Uint32 i = 0; i < FBDesc.AttachmentCount; ++i) {
-            if (FBDesc.ppAttachments && FBDesc.ppAttachments[i]) {
-                Diligent::ITexture* pTexture = FBDesc.ppAttachments[i]->GetTexture();
-                if (pTexture) {
-                    const auto& texDesc = pTexture->GetDesc();
-                    MG_Util::Debug::LogD("  Attachment %u: Texture '%s', Dim: %ux%u",
-                                         i, texDesc.Name ? texDesc.Name : "N/A", texDesc.Width, texDesc.Height);
-                } else {
-                    MG_Util::Debug::LogW("  Attachment %u: TextureView's texture is nullptr", i);
-                }
-            } else if (!FBDesc.ppAttachments) {
-                MG_Util::Debug::LogW("  FBDesc.ppAttachments is nullptr. Cannot access attachment %u.", i);
-            } else {
-                MG_Util::Debug::LogD("  Attachment %u: nullptr", i);
-            }
-        }
-        MG_Util::Debug::LogD("  Width: %u", FBDesc.Width);
-        MG_Util::Debug::LogD("  Height: %u", FBDesc.Height);
-        MG_Util::Debug::LogD("  NumArraySlices: %u", FBDesc.NumArraySlices);
-        MG_Util::Debug::LogD("  fbInfo.pFramebuffer: %p", fbInfo.pFramebuffer);
+//        FBDesc.ppAttachments = FBAtachments.data();
+//        FBDesc.Width = width;
+//        FBDesc.Height = height;
+//        FBDesc.NumArraySlices = 1;
+//
+//        MG_Util::Debug::LogD("CreateRenderPassAndFramebuffer: FramebufferDesc Details:");
+//        MG_Util::Debug::LogD("  Name: %s", FBDesc.Name ? FBDesc.Name : "N/A");
+//        MG_Util::Debug::LogD("  pRenderPass: %p", FBDesc.pRenderPass);
+//        MG_Util::Debug::LogD("  AttachmentCount: %u", FBDesc.AttachmentCount);
+//        for (Diligent::Uint32 i = 0; i < FBDesc.AttachmentCount; ++i) {
+//            if (FBDesc.ppAttachments && FBDesc.ppAttachments[i]) {
+//                Diligent::ITexture* pTexture = FBDesc.ppAttachments[i]->GetTexture();
+//                if (pTexture) {
+//                    const auto& texDesc = pTexture->GetDesc();
+//                    MG_Util::Debug::LogD("  Attachment %u: Texture '%s', Dim: %ux%u",
+//                                         i, texDesc.Name ? texDesc.Name : "N/A", texDesc.Width, texDesc.Height);
+//                } else {
+//                    MG_Util::Debug::LogW("  Attachment %u: TextureView's texture is nullptr", i);
+//                }
+//            } else if (!FBDesc.ppAttachments) {
+//                MG_Util::Debug::LogW("  FBDesc.ppAttachments is nullptr. Cannot access attachment %u.", i);
+//            } else {
+//                MG_Util::Debug::LogD("  Attachment %u: nullptr", i);
+//            }
+//        }
+//        MG_Util::Debug::LogD("  Width: %u", FBDesc.Width);
+//        MG_Util::Debug::LogD("  Height: %u", FBDesc.Height);
+//        MG_Util::Debug::LogD("  NumArraySlices: %u", FBDesc.NumArraySlices);
+//        MG_Util::Debug::LogD("  fbInfo.pFramebuffer: %p", fbInfo.pFramebuffer);
 
         fbInfo.ClearValues.clear();
         for (size_t i = 0; i < fbInfo.ColorRTVs.size(); ++i) {
@@ -179,12 +179,12 @@ namespace MG_GL::GL {
             fbInfo.ClearValues.push_back(clearValue);
         }
 
-        MG_Diligent::g_pDevice->CreateFramebuffer(FBDesc, &fbInfo.pFramebuffer);
-        if (!fbInfo.pFramebuffer) {
-            MG_Util::Debug::LogE("CreateRenderPassAndFramebuffer: Failed to create Framebuffer.");
-            return;
-        }
-        MG_Util::Debug::LogD("CreateRenderPassAndFramebuffer: Framebuffer created successfully.");
+//        MG_Diligent::g_pDevice->CreateFramebuffer(FBDesc, &fbInfo.pFramebuffer);
+//        if (!fbInfo.pFramebuffer) {
+//            MG_Util::Debug::LogE("CreateRenderPassAndFramebuffer: Failed to create Framebuffer.");
+//            return;
+//        }
+//        MG_Util::Debug::LogD("CreateRenderPassAndFramebuffer: Framebuffer created successfully.");
     }
 
     void UpdateDefaultFramebuffer() {
@@ -249,13 +249,13 @@ namespace MG_GL::GL {
                 if (it != MG_Diligent::g_FramebufferMap.end()) {
                     MG_Diligent::GLFramebufferInfo& fbInfo = it->second;
 
-                    if (fbInfo.pFramebuffer) {
-                        fbInfo.pFramebuffer->Release();
-                    }
+//                    if (fbInfo.pFramebuffer) {
+//                        fbInfo.pFramebuffer->Release();
+//                    }
 
-                    if (fbInfo.pRenderPass) {
-                        fbInfo.pRenderPass->Release();
-                    }
+//                    if (fbInfo.pRenderPass) {
+//                        fbInfo.pRenderPass->Release();
+//                    }
 
                     for (auto& rtv : fbInfo.ColorRTVs) {
                         if (rtv) rtv->Release();
@@ -279,14 +279,14 @@ namespace MG_GL::GL {
         if (result == GL_NO_ERROR) {
             MG_Util::Debug::LogD("BindFramebuffer: MG_State::BindFramebuffer successful.");
 
-            if (MG_Diligent::IsInRenderPass) {
-                MG_Util::Debug::LogD("BindFramebuffer: Ending current render pass.");
-                MG_Diligent::g_pContext->EndRenderPass();
-                MG_Diligent::IsInRenderPass = false;
-                MG_Util::Debug::LogD("BindFramebuffer: Current render pass ended.");
-            } else {
-                MG_Util::Debug::LogD("BindFramebuffer: No active render pass to end.");
-            }
+//            if (MG_Diligent::IsInRenderPass) {
+//                MG_Util::Debug::LogD("BindFramebuffer: Ending current render pass.");
+//                MG_Diligent::g_pContext->EndRenderPass();
+//                MG_Diligent::IsInRenderPass = false;
+//                MG_Util::Debug::LogD("BindFramebuffer: Current render pass ended.");
+//            } else {
+//                MG_Util::Debug::LogD("BindFramebuffer: No active render pass to end.");
+//            }
 
 
             if (framebuffer == 0) {
@@ -309,13 +309,13 @@ namespace MG_GL::GL {
 
             MG_Diligent::GLFramebufferInfo& fbInfo = it->second;
 
-            if (!fbInfo.pRenderPass || !fbInfo.pFramebuffer) {
-                MG_Util::Debug::LogD("BindFramebuffer: RenderPass or Framebuffer not yet created for framebuffer %u. Creating now.", framebuffer);
-                CreateRenderPassAndFramebuffer(framebuffer, pFBO ? *pFBO : FramebufferObject(), fbInfo);
-                MG_Util::Debug::LogD("BindFramebuffer: RenderPass and Framebuffer creation attempted for framebuffer %u.", framebuffer);
-            } else {
-                MG_Util::Debug::LogD("BindFramebuffer: RenderPass and Framebuffer already exist for framebuffer %u.", framebuffer);
-            }
+//            if (/*!fbInfo.pRenderPass || */!fbInfo.pFramebuffer) {
+//                MG_Util::Debug::LogD("BindFramebuffer: RenderPass or Framebuffer not yet created for framebuffer %u. Creating now.", framebuffer);
+//                CreateRenderPassAndFramebuffer(framebuffer, pFBO ? *pFBO : FramebufferObject(), fbInfo);
+//                MG_Util::Debug::LogD("BindFramebuffer: RenderPass and Framebuffer creation attempted for framebuffer %u.", framebuffer);
+//            } else {
+//                MG_Util::Debug::LogD("BindFramebuffer: RenderPass and Framebuffer already exist for framebuffer %u.", framebuffer);
+//            }
 
             MG_Util::Debug::LogD("BindFramebuffer: Setting render targets. ColorRTVs count: %zu, DepthStencilRTV: %p",
                                  fbInfo.ColorRTVs.size(), fbInfo.pDepthStencilRTV);
@@ -342,16 +342,16 @@ namespace MG_GL::GL {
 
         MG_Diligent::GLFramebufferInfo& fbInfo = it->second;
 
-        if (fbInfo.pFramebuffer) {
-            fbInfo.pFramebuffer->Release();
-            fbInfo.pFramebuffer = nullptr;
-            MG_Util::Debug::LogD("Released existing framebuffer");
-        }
-        if (fbInfo.pRenderPass) {
-            fbInfo.pRenderPass->Release();
-            fbInfo.pRenderPass = nullptr;
-            MG_Util::Debug::LogD("Released existing render pass");
-        }
+//        if (fbInfo.pFramebuffer) {
+//            fbInfo.pFramebuffer->Release();
+//            fbInfo.pFramebuffer = nullptr;
+//            MG_Util::Debug::LogD("Released existing framebuffer");
+//        }
+//        if (fbInfo.pRenderPass) {
+//            fbInfo.pRenderPass->Release();
+//            fbInfo.pRenderPass = nullptr;
+//            MG_Util::Debug::LogD("Released existing render pass");
+//        }
 
         if (texture == 0) {
             MG_Util::Debug::LogD("Unbinding attachment: %s", MG_Util::Debug::GLEnumToString(attachment));
@@ -515,12 +515,12 @@ namespace MG_GL::GL {
 
     void BlitFramebuffer(GLint srcX0, GLint srcY0, GLint srcX1, GLint srcY1,
                          GLint dstX0, GLint dstY0, GLint dstX1, GLint dstY1, GLbitfield mask, GLenum filter) {
-        if (MG_Diligent::IsInRenderPass) {
-            MG_Util::Debug::LogD("Ending current render pass.");
-            MG_Diligent::g_pContext->EndRenderPass();
-            MG_Diligent::IsInRenderPass = false;
-            MG_Util::Debug::LogD("Current render pass ended.");
-        }
+//        if (MG_Diligent::IsInRenderPass) {
+//            MG_Util::Debug::LogD("Ending current render pass.");
+//            MG_Diligent::g_pContext->EndRenderPass();
+//            MG_Diligent::IsInRenderPass = false;
+//            MG_Util::Debug::LogD("Current render pass ended.");
+//        }
         
         GLuint readFB = MG_State_T::framebufferState->currentBindings_[GL_READ_FRAMEBUFFER];
         GLuint drawFB = MG_State_T::framebufferState->currentBindings_[GL_DRAW_FRAMEBUFFER];
