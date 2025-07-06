@@ -5,9 +5,9 @@
 #include "GL_Drawing.h"
 
 namespace MG_GL::GL {
-    void CreateRenderPassAndFramebuffer(GLuint framebuffer,
-                                        const FramebufferObject& fbo,
-                                        MG_Diligent::GLFramebufferInfo& fbInfo);
+//    void CreateRenderPassAndFramebuffer(GLuint framebuffer,
+//                                        const FramebufferObject& fbo,
+//                                        MG_Diligent::GLFramebufferInfo& fbInfo);
 
     bool IsSamplerType(GLenum type) {
         switch (type) {
@@ -357,59 +357,59 @@ namespace MG_GL::GL {
         }
     }
 
-    void EnsureRenderPassActive() {
-        MG_Util::Debug::LogD("EnsureRenderPassActive called.");
-        if (MG_Diligent::IsInRenderPass) {
-            MG_Util::Debug::LogD("Render pass is already active.");
-            return;
-        }
-
-        MG_Util::Debug::LogD("Render pass is not active, attempting to begin one.");
-        GLuint drawFB = MG_State_T::framebufferState->currentBindings_[GL_DRAW_FRAMEBUFFER];
-        if (drawFB == 0) {
-            MG_Util::Debug::LogD("drawFB is 0, using default framebuffer (0).");
-            drawFB = 0;
-        }
-
-        auto it = MG_Diligent::g_FramebufferMap.find(drawFB);
-        if (it == MG_Diligent::g_FramebufferMap.end()) {
-            MG_Util::Debug::LogE("Framebuffer %u not found in g_FramebufferMap.", drawFB);
-            return;
-        }
-
-        MG_Util::Debug::LogD("Found framebuffer %u in g_FramebufferMap.", drawFB);
-        MG_Diligent::GLFramebufferInfo& fbInfo = it->second;
-
-        if (!fbInfo.pRenderPass || !fbInfo.pFramebuffer) {
-            MG_Util::Debug::LogD("RenderPass or Framebuffer not yet created for FBO %u. Creating now.", drawFB);
-            FramebufferObject* pFBO = MG_State_T::framebufferState->GetCurrentFBO(GL_DRAW_FRAMEBUFFER);
-            if (!pFBO) {
-                MG_Util::Debug::LogE("No current FBO found for GL_DRAW_FRAMEBUFFER when trying to create RenderPass/Framebuffer.");
-                return;
-            }
-            CreateRenderPassAndFramebuffer(drawFB, *pFBO, fbInfo);
-            if (!fbInfo.pRenderPass || !fbInfo.pFramebuffer) {
-                MG_Util::Debug::LogE("Failed to create RenderPass or Framebuffer for FBO %u.", drawFB);
-                return;
-            }
-            MG_Util::Debug::LogD("Successfully created RenderPass and Framebuffer for FBO %u.", drawFB);
-        }
-
-        MG_Util::Debug::LogD("Proceeding to begin render pass for FBO %u.", drawFB);
-        if (fbInfo.pRenderPass && fbInfo.pFramebuffer) {
-            Diligent::BeginRenderPassAttribs beginRenderPassAttribs;
-            beginRenderPassAttribs.pFramebuffer = fbInfo.pFramebuffer;
-            beginRenderPassAttribs.pRenderPass = fbInfo.pRenderPass;
-            beginRenderPassAttribs.StateTransitionMode = Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION;
-            beginRenderPassAttribs.ClearValueCount = fbInfo.ClearValues.size();
-            beginRenderPassAttribs.pClearValues = fbInfo.ClearValues.data();
-
-            MG_Diligent::g_pContext->BeginRenderPass(beginRenderPassAttribs);
-            MG_Diligent::IsInRenderPass = true;
-        } else {
-            MG_Util::Debug::LogE("RenderPass or Framebuffer not yet created for FBO %u.", drawFB);
-        }
-    }
+//    void EnsureRenderPassActive() {
+//        MG_Util::Debug::LogD("EnsureRenderPassActive called.");
+//        if (MG_Diligent::IsInRenderPass) {
+//            MG_Util::Debug::LogD("Render pass is already active.");
+//            return;
+//        }
+//
+//        MG_Util::Debug::LogD("Render pass is not active, attempting to begin one.");
+//        GLuint drawFB = MG_State_T::framebufferState->currentBindings_[GL_DRAW_FRAMEBUFFER];
+//        if (drawFB == 0) {
+//            MG_Util::Debug::LogD("drawFB is 0, using default framebuffer (0).");
+//            drawFB = 0;
+//        }
+//
+//        auto it = MG_Diligent::g_FramebufferMap.find(drawFB);
+//        if (it == MG_Diligent::g_FramebufferMap.end()) {
+//            MG_Util::Debug::LogE("Framebuffer %u not found in g_FramebufferMap.", drawFB);
+//            return;
+//        }
+//
+//        MG_Util::Debug::LogD("Found framebuffer %u in g_FramebufferMap.", drawFB);
+//        MG_Diligent::GLFramebufferInfo& fbInfo = it->second;
+//
+//        if (!fbInfo.pRenderPass || !fbInfo.pFramebuffer) {
+//            MG_Util::Debug::LogD("RenderPass or Framebuffer not yet created for FBO %u. Creating now.", drawFB);
+//            FramebufferObject* pFBO = MG_State_T::framebufferState->GetCurrentFBO(GL_DRAW_FRAMEBUFFER);
+//            if (!pFBO) {
+//                MG_Util::Debug::LogE("No current FBO found for GL_DRAW_FRAMEBUFFER when trying to create RenderPass/Framebuffer.");
+//                return;
+//            }
+//            CreateRenderPassAndFramebuffer(drawFB, *pFBO, fbInfo);
+//            if (!fbInfo.pRenderPass || !fbInfo.pFramebuffer) {
+//                MG_Util::Debug::LogE("Failed to create RenderPass or Framebuffer for FBO %u.", drawFB);
+//                return;
+//            }
+//            MG_Util::Debug::LogD("Successfully created RenderPass and Framebuffer for FBO %u.", drawFB);
+//        }
+//
+//        MG_Util::Debug::LogD("Proceeding to begin render pass for FBO %u.", drawFB);
+//        if (fbInfo.pRenderPass && fbInfo.pFramebuffer) {
+//            Diligent::BeginRenderPassAttribs beginRenderPassAttribs;
+//            beginRenderPassAttribs.pFramebuffer = fbInfo.pFramebuffer;
+//            beginRenderPassAttribs.pRenderPass = fbInfo.pRenderPass;
+//            beginRenderPassAttribs.StateTransitionMode = Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION;
+//            beginRenderPassAttribs.ClearValueCount = fbInfo.ClearValues.size();
+//            beginRenderPassAttribs.pClearValues = fbInfo.ClearValues.data();
+//
+//            MG_Diligent::g_pContext->BeginRenderPass(beginRenderPassAttribs);
+//            MG_Diligent::IsInRenderPass = true;
+//        } else {
+//            MG_Util::Debug::LogE("RenderPass or Framebuffer not yet created for FBO %u.", drawFB);
+//        }
+//    }
     
     template<typename T>
     void generate_triangle_fan_indices(std::vector<uint8_t>& out_data, const void* in_indices, size_t count) {
@@ -427,14 +427,14 @@ namespace MG_GL::GL {
     }
     
     void PrepareForDraw(GLenum mode, GLsizei* pCount, GLenum type, const void*& pIndices) {
-        if (MG_Diligent::IsInRenderPass) {
-            MG_Util::Debug::LogD("Ending current render pass.");
-            MG_Diligent::g_pContext->EndRenderPass();
-            MG_Diligent::IsInRenderPass = false;
-            MG_Util::Debug::LogD("Current render pass ended.");
-        } else {
-            MG_Util::Debug::LogD("No active render pass to end.");
-        }
+//        if (MG_Diligent::IsInRenderPass) {
+//            MG_Util::Debug::LogD("Ending current render pass.");
+//            MG_Diligent::g_pContext->EndRenderPass();
+//            MG_Diligent::IsInRenderPass = false;
+//            MG_Util::Debug::LogD("Current render pass ended.");
+//        } else {
+//            MG_Util::Debug::LogD("No active render pass to end.");
+//        }
         GLuint program = MG_State::GetCurrentProgram();
        
         if (program == 0) {
@@ -728,10 +728,10 @@ namespace MG_GL::GL {
         MG_Util::Debug::LogD("  FirstIndexLocation: %u", drawAttrs.FirstIndexLocation);
         MG_Util::Debug::LogD("  FirstInstanceLocation: %u", drawAttrs.FirstInstanceLocation);
 
-        EnsureRenderPassActive();
+//        EnsureRenderPassActive();
         MG_Diligent::g_pContext->DrawIndexed(drawAttrs);
-        MG_Diligent::g_pContext->EndRenderPass();
-        MG_Diligent::IsInRenderPass = false;
+//        MG_Diligent::g_pContext->EndRenderPass();
+//        MG_Diligent::IsInRenderPass = false;
         MG_Util::Debug::LogD("DrawIndexed completed.");
     }
 
@@ -769,10 +769,10 @@ namespace MG_GL::GL {
         MG_Util::Debug::LogD("  FirstIndexLocation: %u", drawAttrs.FirstIndexLocation);
         MG_Util::Debug::LogD("  FirstInstanceLocation: %u", drawAttrs.FirstInstanceLocation);
 
-        EnsureRenderPassActive();
+//        EnsureRenderPassActive();
         MG_Diligent::g_pContext->DrawIndexed(drawAttrs);
-        MG_Diligent::g_pContext->EndRenderPass();
-        MG_Diligent::IsInRenderPass = false;
+//        MG_Diligent::g_pContext->EndRenderPass();
+//        MG_Diligent::IsInRenderPass = false;
         MG_Util::Debug::LogD("DrawIndexed (BaseVertex) completed.");
     }
 
@@ -998,10 +998,10 @@ namespace MG_GL::GL {
             MG_Util::Debug::LogD("    BaseVertex: %d", item.BaseVertex);
         }
 
-        EnsureRenderPassActive();
+//        EnsureRenderPassActive();
         MG_Diligent::g_pContext->MultiDrawIndexed(drawAttrs);
-        MG_Diligent::g_pContext->EndRenderPass();
-        MG_Diligent::IsInRenderPass = false;
+//        MG_Diligent::g_pContext->EndRenderPass();
+//        MG_Diligent::IsInRenderPass = false;
         MG_Util::Debug::LogD("MultiDrawIndexed completed.");
     }
 

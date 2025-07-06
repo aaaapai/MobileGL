@@ -648,10 +648,10 @@ namespace MG_GL::GL {
         MG_Util::Debug::LogD("TexSubImage2D: Updating region [%d,%d]-[%d,%d] at level %d, %d bytes",
                              xoffset, yoffset, xoffset+width, yoffset+height, level, width * height * GetBytesPerPixel(format, type));
 
-        if (MG_Diligent::IsInRenderPass) {
-            MG_Diligent::g_pContext->EndRenderPass();
-            MG_Diligent::IsInRenderPass = false;
-        }
+//        if (MG_Diligent::IsInRenderPass) {
+//            MG_Diligent::g_pContext->EndRenderPass();
+//            MG_Diligent::IsInRenderPass = false;
+//        }
         
         MG_Diligent::g_pContext->UpdateTexture(
                 pTexture,

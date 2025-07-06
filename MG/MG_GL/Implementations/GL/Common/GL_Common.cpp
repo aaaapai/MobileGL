@@ -24,27 +24,27 @@ namespace MG_GL::GL {
         MG_Diligent::GLFramebufferInfo& fbInfo = it->second;
         auto& commonState = *MG_State_T::commonState;
 
-        if (MG_Diligent::IsInRenderPass) {
-            MG_Util::Debug::LogD("Ending render pass before clear operation");
-            MG_Diligent::g_pContext->EndRenderPass();
-            MG_Diligent::IsInRenderPass = false;
-        }
+//        if (MG_Diligent::IsInRenderPass) {
+//            MG_Util::Debug::LogD("Ending render pass before clear operation");
+//            MG_Diligent::g_pContext->EndRenderPass();
+//            MG_Diligent::IsInRenderPass = false;
+//        }
 
-        MG_Util::Debug::LogD("Beginning render pass for clear operation");
+//        MG_Util::Debug::LogD("Beginning render pass for clear operation");
 
-        if (!fbInfo.pRenderPass) {
-            MG_GL::GL::CreateRenderPassAndFramebuffer(drawFramebuffer, 
-                                                      *MG_State_T::framebufferState->GetCurrentFBO(GL_DRAW_FRAMEBUFFER), fbInfo);
-        }
-        Diligent::BeginRenderPassAttribs beginAttribs;
-        beginAttribs.pRenderPass = fbInfo.pRenderPass;
-        beginAttribs.pFramebuffer = fbInfo.pFramebuffer;
-        beginAttribs.StateTransitionMode = Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION;
-        beginAttribs.ClearValueCount = 0;
-        beginAttribs.pClearValues = nullptr;
+//        if (!fbInfo.pRenderPass) {
+//            MG_GL::GL::CreateRenderPassAndFramebuffer(drawFramebuffer,
+//                                                      *MG_State_T::framebufferState->GetCurrentFBO(GL_DRAW_FRAMEBUFFER), fbInfo);
+//        }
+//        Diligent::BeginRenderPassAttribs beginAttribs;
+//        beginAttribs.pRenderPass = fbInfo.pRenderPass;
+//        beginAttribs.pFramebuffer = fbInfo.pFramebuffer;
+//        beginAttribs.StateTransitionMode = Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION;
+//        beginAttribs.ClearValueCount = 0;
+//        beginAttribs.pClearValues = nullptr;
 
-        MG_Diligent::g_pContext->BeginRenderPass(beginAttribs);
-        MG_Diligent::IsInRenderPass = true;
+//        MG_Diligent::g_pContext->BeginRenderPass(beginAttribs);
+//        MG_Diligent::IsInRenderPass = true;
         
         if (mask & GL_COLOR_BUFFER_BIT) {
             for (size_t i = 0; i < fbInfo.ColorRTVs.size(); ++i) {
@@ -76,9 +76,9 @@ namespace MG_GL::GL {
             }
         }
 
-        MG_Util::Debug::LogD("Ending render pass after clear operation");
-        MG_Diligent::g_pContext->EndRenderPass();
-        MG_Diligent::IsInRenderPass = false;
+//        MG_Util::Debug::LogD("Ending render pass after clear operation");
+//        MG_Diligent::g_pContext->EndRenderPass();
+//        MG_Diligent::IsInRenderPass = false;
     }
 
     void Enable(GLenum cap) {

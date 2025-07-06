@@ -19,8 +19,8 @@ namespace MG_Diligent {
     
     struct GLFramebufferInfo
     {
-        Diligent::IFramebuffer*                     pFramebuffer   = nullptr;
-        Diligent::IRenderPass*                      pRenderPass   = nullptr;
+//        Diligent::IFramebuffer*                     pFramebuffer   = nullptr;
+//        Diligent::IRenderPass*                      pRenderPass   = nullptr;
         std::vector<Diligent::ITextureView*>        ColorRTVs;
         Diligent::ITextureView*                     pDepthStencilRTV = nullptr;
         Diligent::TEXTURE_FORMAT                    DepthStencilFormat = Diligent::TEX_FORMAT_UNKNOWN;
@@ -231,7 +231,7 @@ namespace MG_Diligent {
                           std::vector<Diligent::LayoutElement>& inputLayout);
 
     extern bool initialized;
-    extern bool IsInRenderPass;
+//    extern bool IsInRenderPass;
     extern GLuint g_NextResourceId;
 }
 
