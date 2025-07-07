@@ -340,11 +340,11 @@ namespace MG_GL::GL {
             }
 
             Diligent::Uint32 mipLevels = 1;
-//            if (isBaseLevel) {
-//                mipLevels = CalculateMipLevels(width, height);
-//            } else if (pTexture) {
-//                mipLevels = pTexture->GetDesc().MipLevels;
-//            }
+             if (isBaseLevel) {
+                mipLevels = CalculateMipLevels(width, height);
+            } else if (pTexture) {
+                mipLevels = pTexture->GetDesc().MipLevels;
+            }
 
             Diligent::TextureDesc TexDesc;
             if constexpr (MG_Global::Common::LogLevel <= MG_Constants::Common::LOG_LEVEL_DEBUG) {
