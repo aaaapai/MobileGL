@@ -582,4 +582,22 @@ namespace MG_GL::GL {
             MG_Diligent::g_pContext->CopyTexture(CopyAttribs);
         }
     }
+
+    void DrawBuffer(GLenum buf) {
+        MG_Util::Debug::LogD("glDrawBuffer, buf: %s", MG_Util::Debug::GLEnumToString(buf));
+    }
+
+    void DrawBuffers(GLsizei n, const GLenum *bufs) {
+        MG_Util::Debug::LogD("glDrawBuffers, n: %d, bufs: [", n);
+        for (int i = 0; i < n; ++i) {
+            MG_Util::Debug::LogD("%s,", MG_Util::Debug::GLEnumToString(bufs[i]));
+        }
+        MG_Util::Debug::LogD("]");
+
+    }
+
+    void ReadBuffer(GLenum buf) {
+        MG_Util::Debug::LogD("glReadBuffer, buf: %s", MG_Util::Debug::GLEnumToString(buf));
+
+    }
 }

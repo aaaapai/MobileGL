@@ -689,4 +689,10 @@ namespace MG_GL::GL {
         MG_State::SetError(result);
         MG_Util::Debug::LogE("Error from MG State: %s", MG_Util::Debug::GLEnumToString(result));
     }
+
+    void CopyTexSubImage2D(GLenum target, GLint level, GLint xoffset, GLint yoffset, GLint x, GLint y, GLsizei width, GLsizei height) {
+        MG_Util::Debug::LogD("glCopyTexSubImage2D, target: %d, level: %d, xoffset: %d, yoffset: %d, x: %d, y: %d, width: %d, height: %d",
+                             target, level, xoffset, yoffset, x, y, width, height);
+
+    }
 }

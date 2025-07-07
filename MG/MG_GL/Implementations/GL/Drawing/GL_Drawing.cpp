@@ -1004,8 +1004,4 @@ namespace MG_GL::GL {
 //        MG_Diligent::IsInRenderPass = false;
         MG_Util::Debug::LogD("MultiDrawIndexed completed.");
     }
-
-    void DrawBuffer(GLenum buf) {
-        // TODO
-    }
 }

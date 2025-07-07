@@ -17,6 +17,7 @@ namespace MG_GL::GL {
     void TexParameteri(GLenum target, GLenum pname, GLint param);
     void TexSubImage2D(GLenum target, GLint level, GLint xoffset, GLint yoffset, GLsizei width, GLsizei height, GLenum format, GLenum type, const void* pixels);
     void GetTexLevelParameteriv(GLenum target, GLint level, GLenum pname, GLint* params);
+     void CopyTexSubImage2D(GLenum target, GLint level, GLint xoffset, GLint yoffset, GLint x, GLint y, GLsizei width, GLsizei height);
 }
 
 #endif //MOBILEGL_GL_TEXTURE_H
