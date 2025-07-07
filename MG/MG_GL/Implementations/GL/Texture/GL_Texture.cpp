@@ -97,16 +97,29 @@ namespace MG_GL::GL {
         }
     }
 
-    void FillFilterTypeFromGLEnum(GLenum pname, GLenum param, Diligent::FILTER_TYPE& filter, Diligent::FILTER_TYPE& mipFilter) {
+    void FillFilterTypeFromGLEnum(GLenum pname, GLenum param, Diligent::FILTER_TYPE& minFilter, Diligent::FILTER_TYPE& magFilter, Diligent::FILTER_TYPE& mipFilter) {
         if (pname == GL_TEXTURE_COMPARE_MODE) {
             bool compare = (param == GL_COMPARE_REF_TO_TEXTURE);
-            filter = ConvertCompareFilter(filter, compare);
+            minFilter = ConvertCompareFilter(minFilter, compare);
+            magFilter = ConvertCompareFilter(magFilter, compare);
             mipFilter = ConvertCompareFilter(mipFilter, compare);
             return;
         }
 
+        Diligent::FILTER_TYPE* pFilter = nullptr;
+        if (pname == GL_TEXTURE_MIN_FILTER) {
+            pFilter = &minFilter;
+        } else if (pname == GL_TEXTURE_MAG_FILTER) {
+            pFilter = &magFilter;
+        } else {
+            MG_Util::Debug::LogD("FillFilterTypeFromGLEnum: not allowed pname!");
+            return;
+        }
+
+        Diligent::FILTER_TYPE& filter = *pFilter;
+
         bool filterIsCompare = IsCompareFilter(filter);
-        bool mipFilterIsCompare = IsCompareFilter(filter);
+        bool mipFilterIsCompare = IsCompareFilter(mipFilter);
 
         switch (param) {
             case GL_NEAREST:
@@ -459,10 +472,10 @@ namespace MG_GL::GL {
 
         switch (pname) {
             case GL_TEXTURE_MIN_FILTER:
-                FillFilterTypeFromGLEnum(pname, param, SamDesc.MinFilter, SamDesc.MipFilter);
+                FillFilterTypeFromGLEnum(pname, param, SamDesc.MinFilter, SamDesc.MagFilter, SamDesc.MipFilter);
                 break;
             case GL_TEXTURE_MAG_FILTER:
-                FillFilterTypeFromGLEnum(pname, param, SamDesc.MagFilter, SamDesc.MipFilter);
+                FillFilterTypeFromGLEnum(pname, param, SamDesc.MinFilter, SamDesc.MagFilter, SamDesc.MipFilter);
                 break;
             case GL_TEXTURE_WRAP_S:
                 SamDesc.AddressU = ConvertAddressMode(param);
@@ -483,7 +496,7 @@ namespace MG_GL::GL {
                 SamDesc.ComparisonFunc = ConvertComparsionFunc(param);
                 break;
             case GL_TEXTURE_COMPARE_MODE:
-                FillFilterTypeFromGLEnum(pname, param, SamDesc.MinFilter, SamDesc.MipFilter);
+                FillFilterTypeFromGLEnum(pname, param, SamDesc.MinFilter, SamDesc.MagFilter, SamDesc.MipFilter);
                 break;
             default:
                 MG_Util::Debug::LogE("%s: not handled pname: %s", __func__, MG_Util::Debug::GLEnumToString(pname));
@@ -538,10 +551,10 @@ namespace MG_GL::GL {
         
         switch (pname) {
             case GL_TEXTURE_MIN_FILTER:
-                FillFilterTypeFromGLEnum(pname, param, SamDesc.MinFilter, SamDesc.MipFilter);
+                FillFilterTypeFromGLEnum(pname, param, SamDesc.MinFilter, SamDesc.MagFilter, SamDesc.MipFilter);
                 break;
             case GL_TEXTURE_MAG_FILTER:
-                FillFilterTypeFromGLEnum(pname, param, SamDesc.MagFilter, SamDesc.MipFilter);
+                FillFilterTypeFromGLEnum(pname, param, SamDesc.MagFilter, SamDesc.MagFilter, SamDesc.MipFilter);
                 break;
             case GL_TEXTURE_WRAP_S:
                 SamDesc.AddressU = ConvertAddressMode(param);
@@ -562,7 +575,7 @@ namespace MG_GL::GL {
                 SamDesc.ComparisonFunc = ConvertComparsionFunc(param);
                 break;
             case GL_TEXTURE_COMPARE_MODE:
-                FillFilterTypeFromGLEnum(pname, param, SamDesc.MinFilter, SamDesc.MipFilter);
+                FillFilterTypeFromGLEnum(pname, param, SamDesc.MinFilter, SamDesc.MagFilter, SamDesc.MipFilter);
                 break;
             default:
                 MG_Util::Debug::LogE("%s: not handled pname: %s", __func__, MG_Util::Debug::GLEnumToString(pname));
