@@ -121,7 +121,7 @@ GLenum TextureState::CreateN(GLsizei n, GLuint* textures) {
 
 GLenum TextureState::Bind(GLenum target, GLuint texture) {
     MG_Util::Debug::LogD("MG_State: Texture: Bind called with target=0x%x, texture=%u", target, texture);
-    if (MG_Constants::Texture::VALID_TARGETS.find(target) == MG_Constants::Texture::VALID_TARGETS.end()) {
+    if (!MG_Constants::Common::Contains(target, MG_Constants::Texture::VALID_TARGETS)) {
         MG_Util::Debug::LogE("MG_State: Texture: Bind invalid target=0x%x", target);
         return GL_INVALID_ENUM;
     }
@@ -497,12 +497,12 @@ GLenum TextureState::UpdateRegion2D(GLenum target, GLint level, GLint xoffset,
 
 GLenum TextureState::SetTexturePropertyFloat(GLenum target, GLenum pname, GLfloat param) {
     MG_Util::Debug::LogD("MG_State: Texture: SetTexturePropertyFloat called target=0x%x, pname=0x%x, param=%f", target, pname, param);
-    if (MG_Constants::Texture::VALID_TARGETS.find(target) == MG_Constants::Texture::VALID_TARGETS.end()) {
+    if (!MG_Constants::Common::Contains(target, MG_Constants::Texture::VALID_TARGETS)) {
         MG_Util::Debug::LogE("MG_State: Texture: SetTexturePropertyFloat invalid target=0x%x", target);
         return GL_INVALID_ENUM;
     }
 
-    if (MG_Constants::Texture::VALID_TEXTURE_PARAM_NAMES.find(pname) == MG_Constants::Texture::VALID_TEXTURE_PARAM_NAMES.end()) {
+    if (!MG_Constants::Common::Contains(pname, MG_Constants::Texture::VALID_TEXTURE_PARAM_NAMES)) {
         MG_Util::Debug::LogE("MG_State: Texture: SetTexturePropertyFloat invalid pname=0x%x", pname);
         return GL_INVALID_ENUM;
     }
@@ -549,12 +549,12 @@ GLenum TextureState::SetTexturePropertyFloat(GLenum target, GLenum pname, GLfloa
 
 GLenum TextureState::SetTexturePropertyInt(GLenum target, GLenum pname, GLint param) {
     MG_Util::Debug::LogD("MG_State: Texture: SetTexturePropertyInt called target=0x%x, pname=0x%x, param=%d", target, pname, param);
-    if (MG_Constants::Texture::VALID_TARGETS.find(target) == MG_Constants::Texture::VALID_TARGETS.end()) {
+    if (!MG_Constants::Common::Contains(target, MG_Constants::Texture::VALID_TARGETS)) {
         MG_Util::Debug::LogE("MG_State: Texture: SetTexturePropertyInt invalid target=0x%x", target);
         return GL_INVALID_ENUM;
     }
 
-    if (MG_Constants::Texture::VALID_TEXTURE_PARAM_NAMES.find(pname) == MG_Constants::Texture::VALID_TEXTURE_PARAM_NAMES.end()) {
+    if (!MG_Constants::Common::Contains(pname, MG_Constants::Texture::VALID_TEXTURE_PARAM_NAMES)) {
         MG_Util::Debug::LogE("MG_State: Texture: SetTexturePropertyInt invalid pname=0x%x", pname);
         return GL_INVALID_ENUM;
     }
@@ -645,7 +645,7 @@ GLenum TextureState::DeleteN(GLsizei n, const GLuint* textures) {
 
 GLenum TextureState::QueryLevelPropertyIntVector(GLenum target, GLint level, GLenum pname, GLint* params) {
     MG_Util::Debug::LogD("MG_State: Texture: QueryLevelPropertyIntVector called target=0x%x, level=%d, pname=0x%x", target, level, pname);
-    if (MG_Constants::Texture::VALID_TARGETS.find(target) == MG_Constants::Texture::VALID_TARGETS.end()) {
+    if (!MG_Constants::Common::Contains(target, MG_Constants::Texture::VALID_TARGETS)) {
         MG_Util::Debug::LogE("MG_State: Texture: QueryLevelPropertyIntVector invalid target=0x%x", target);
         return GL_INVALID_ENUM;
     }
@@ -655,7 +655,7 @@ GLenum TextureState::QueryLevelPropertyIntVector(GLenum target, GLint level, GLe
         return GL_INVALID_VALUE;
     }
 
-    if (MG_Constants::Texture::VALID_QUERY_LEVEL_PROPERTY_PARAM_NAMES.find(pname) == MG_Constants::Texture::VALID_QUERY_LEVEL_PROPERTY_PARAM_NAMES.end()) {
+    if (!MG_Constants::Common::Contains(pname, MG_Constants::Texture::VALID_TEXTURE_PARAM_NAMES)) {
         MG_Util::Debug::LogE("MG_State: Texture: QueryLevelPropertyIntVector invalid pname=0x%x", pname);
         return GL_INVALID_ENUM;
     }
@@ -805,7 +805,7 @@ GLenum TextureState::CheckUploadingTexture2DValidity_(GLenum target, GLint level
                                                      GLsizei width, GLsizei height, GLint border, GLenum format,
                                                      GLenum type, const void* data) {
     MG_Util::Debug::LogD("MG_State: Texture: CheckUploadingTexture2DValidity_ called target=0x%x, level=%d", target, level);
-    if (MG_Constants::Texture::VALID_TARGETS.find(target) == MG_Constants::Texture::VALID_TARGETS.end()) {
+    if (!MG_Constants::Common::Contains(target, MG_Constants::Texture::VALID_TARGETS)) {
         MG_Util::Debug::LogE("MG_State: Texture: CheckUploadingTexture2DValidity_ invalid target=0x%x", target);
         return GL_INVALID_ENUM;
     }
@@ -845,17 +845,17 @@ GLenum TextureState::CheckUploadingTexture2DValidity_(GLenum target, GLint level
         return GL_INVALID_VALUE;
     }
 
-    if (MG_Constants::Texture::VALID_INTERNAL_FORMATS.find(internalFormat) == MG_Constants::Texture::VALID_INTERNAL_FORMATS.end()) {
+    if (!MG_Constants::Common::Contains((GLenum)internalFormat, MG_Constants::Texture::VALID_INTERNAL_FORMATS)) {
         MG_Util::Debug::LogE("MG_State: Texture: CheckUploadingTexture2DValidity_ invalid internalFormat=0x%x", internalFormat);
         return GL_INVALID_VALUE;
     }
 
-    if (MG_Constants::Texture::VALID_FORMATS.find(format) == MG_Constants::Texture::VALID_FORMATS.end()) {
+    if (!MG_Constants::Common::Contains((GLenum)format, MG_Constants::Texture::VALID_FORMATS)) {
         MG_Util::Debug::LogE("MG_State: Texture: CheckUploadingTexture2DValidity_ invalid format=0x%x", format);
         return GL_INVALID_ENUM;
     }
 
-    if (MG_Constants::Texture::VALID_TYPES.find(type) == MG_Constants::Texture::VALID_TYPES.end()) {
+    if (!MG_Constants::Common::Contains((GLenum)type, MG_Constants::Texture::VALID_TYPES)) {
         MG_Util::Debug::LogE("MG_State: Texture: CheckUploadingTexture2DValidity_ invalid type=0x%x", type);
         return GL_INVALID_ENUM;
     }
@@ -927,7 +927,7 @@ GLenum TextureState::CheckUpdatingTextureRegion2DValidity_(GLenum target, GLint 
     MG_Util::Debug::LogD("MG_State: Texture: CheckUpdatingTextureRegion2DValidity_ called target=0x%x, level=%d, x=%d, y=%d, w=%d, h=%d",
                          target, level, xoffset, yoffset, width, height);
 
-    if (MG_Constants::Texture::VALID_TARGETS.find(target) == MG_Constants::Texture::VALID_TARGETS.end()) {
+    if (!MG_Constants::Common::Contains(target, MG_Constants::Texture::VALID_TARGETS)) {
         MG_Util::Debug::LogE("MG_State: Texture: CheckUpdatingTextureRegion2DValidity_ invalid target=0x%x", target);
         return GL_INVALID_ENUM;
     }
@@ -977,12 +977,12 @@ GLenum TextureState::CheckUpdatingTextureRegion2DValidity_(GLenum target, GLint 
         return GL_INVALID_OPERATION;
     }
 
-    if (MG_Constants::Texture::VALID_FORMATS.find(format) == MG_Constants::Texture::VALID_FORMATS.end()) {
+    if (!MG_Constants::Common::Contains(format, MG_Constants::Texture::VALID_FORMATS)) {
         MG_Util::Debug::LogE("MG_State: Texture: CheckUpdatingTextureRegion2DValidity_ invalid format=0x%x", format);
         return GL_INVALID_ENUM;
     }
 
-    if (MG_Constants::Texture::VALID_TYPES.find(type) == MG_Constants::Texture::VALID_TYPES.end()) {
+    if (!MG_Constants::Common::Contains(type, MG_Constants::Texture::VALID_TYPES)) {
         MG_Util::Debug::LogE("MG_State: Texture: CheckUpdatingTextureRegion2DValidity_ invalid type=0x%x", type);
         return GL_INVALID_ENUM;
     }

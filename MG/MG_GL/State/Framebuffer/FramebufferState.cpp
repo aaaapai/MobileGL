@@ -42,7 +42,7 @@ GLenum FramebufferState::Delete(GLuint framebuffer) {
 }
 
 GLenum FramebufferState::Bind(GLenum target, GLuint framebuffer) {
-    if (MG_Constants::Framebuffer::VALID_TARGETS.find(target) == MG_Constants::Framebuffer::VALID_TARGETS.end()) 
+    if (!MG_Constants::Common::Contains(target, MG_Constants::Framebuffer::VALID_TARGETS))
         return GL_INVALID_ENUM;
     if (framebuffer != 0 && !ValidateHandle(framebuffer))
         return GL_INVALID_OPERATION;
@@ -57,8 +57,8 @@ GLenum FramebufferState::Bind(GLenum target, GLuint framebuffer) {
 
 GLenum FramebufferState::AttachTexture2D(GLenum target, GLenum attachment,
                                          GLenum textarget, GLuint texture, GLint level) {
-    if (MG_Constants::Framebuffer::VALID_ATTACHMENTS.find(attachment) == MG_Constants::Framebuffer::VALID_ATTACHMENTS.end() ||
-        MG_Constants::Texture::VALID_TARGETS.find(textarget) == MG_Constants::Texture::VALID_TARGETS.end())
+    if (!MG_Constants::Common::Contains(attachment, MG_Constants::Framebuffer::VALID_ATTACHMENTS) ||
+        !MG_Constants::Common::Contains(textarget, MG_Constants::Texture::VALID_TARGETS))
         return GL_INVALID_ENUM;
     if (target == GL_FRAMEBUFFER) {
         target = GL_DRAW_FRAMEBUFFER;

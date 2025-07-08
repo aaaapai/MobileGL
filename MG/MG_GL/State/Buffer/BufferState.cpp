@@ -263,8 +263,9 @@ GLenum BufferState::DeleteN(GLsizei n, const GLuint* buffers) {
 }
 
 bool BufferState::IsValidTarget_(GLenum target) {
-    MG_Util::Debug::LogD("MG_State: Buffer: IsValidTarget_ called with target=0x%x,result=%d", target, !(MG_Constants::Buffer::VALID_TARGETS.find(target) == MG_Constants::Buffer::VALID_TARGETS.end()));
-    return !(MG_Constants::Buffer::VALID_TARGETS.find(target) == MG_Constants::Buffer::VALID_TARGETS.end());
+    bool ret = MG_Constants::Common::Contains(target, MG_Constants::Buffer::VALID_TARGETS);
+    MG_Util::Debug::LogD("MG_State: Buffer: IsValidTarget_ called with target=0x%x,result=%d", target, ret);
+    return ret;
 }
 
 GLenum BufferState::QueryPropertyIntVector(GLenum target, GLenum pname, GLint* params) const {
@@ -277,7 +278,7 @@ GLenum BufferState::QueryPropertyIntVector(GLenum target, GLenum pname, GLint* p
         return GL_INVALID_ENUM;
     }
     
-    if (MG_Constants::Buffer::VALID_PARAM_NAMES.find(pname) == MG_Constants::Buffer::VALID_PARAM_NAMES.end()) {
+    if (!MG_Constants::Common::Contains(pname, MG_Constants::Buffer::VALID_PARAM_NAMES)) {
         return GL_INVALID_ENUM;
     }
     
