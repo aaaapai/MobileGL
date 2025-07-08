@@ -80,6 +80,9 @@ add_library(${CMAKE_PROJECT_NAME} SHARED
         # MG_UTIL/Program
         MG/MG_UTIL/Program/DebugTool.cpp
         MG/MG_UTIL/Program/GLSLTool.cpp
+
+        # MG_RHI/GLES
+        MG/MG_RHI/GLES/Test/TestDrawing.cpp
 )
 
 target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE ./includes)
