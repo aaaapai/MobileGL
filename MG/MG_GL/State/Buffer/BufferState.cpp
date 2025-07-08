@@ -43,7 +43,14 @@ GLenum BufferState::Create(GLuint buffer) {
     if (ValidateAllocatedHandle(buffer))
         return GL_INVALID_VALUE;
 
-    BufferObject& obj = *GetOrCreateBufferObject(buffer);
+    if (bufferObjects_.size() <= buffer) {
+        bufferObjects_.resize(buffer + 1);
+    }
+    if (bufferObjects_[buffer] == nullptr) {
+        bufferObjects_[buffer] = std::make_unique<BufferObject>();
+    }
+
+    BufferObject& obj = *GetBufferObject(buffer);
     MG_Util::Debug::LogD("MG_State: Buffer: Create created buffer %d", buffer);
     obj.generated = true;
     obj.dirty = true;
@@ -66,7 +73,7 @@ GLenum BufferState::CommitStorage(GLenum target, GLsizeiptr size, const void* da
     if (it == currentBindings_.end() || it->second == 0)
         return GL_INVALID_OPERATION;
 
-    BufferObject& obj = *GetOrCreateBufferObject(it->second);
+    BufferObject& obj = *GetBufferObject(it->second);
     MG_Util::Debug::LogD("MG_State: Buffer: CommitStorage get buffer object %u at target 0x%x",it->second,target);
     obj.usage = usage;
     obj.isDynamic = (usage == GL_DYNAMIC_DRAW || usage == GL_DYNAMIC_READ ||
@@ -92,7 +99,7 @@ GLenum BufferState::CommitStorageRegion(GLenum target, GLintptr offset, GLsizeip
     if (it == currentBindings_.end() || it->second == 0)
         return GL_INVALID_OPERATION;
 
-    BufferObject& obj = *GetOrCreateBufferObject(it->second);
+    BufferObject& obj = *GetBufferObject(it->second);
     MG_Util::Debug::LogD("MG_State: Buffer: BufferSubData get buffer object %u at target 0x%x", it->second, target);
 
     if (static_cast<size_t>(offset + size) > obj.data.size()) return GL_INVALID_VALUE;
@@ -121,7 +128,7 @@ GLenum BufferState::AcquireBufferMemoryRange(GLenum target, GLintptr offset, GLs
         return GL_INVALID_OPERATION;
     }
 
-    BufferObject& obj = *GetOrCreateBufferObject(it->second);
+    BufferObject& obj = *GetBufferObject(it->second);
     MG_Util::Debug::LogD("MG_State: Buffer: AcquireBufferMemoryRange operating on buffer %u", it->second);
     if (obj.isMapped) {
         MG_Util::Debug::LogE("MG_State: Buffer: AcquireBufferMemoryRange failed: buffer %u is already mapped", it->second);
@@ -157,7 +164,7 @@ GLenum BufferState::SyncBufferMemory(GLenum target, GLintptr offset, GLsizeiptr 
     if (it == currentBindings_.end() || it->second == 0)
         return GL_INVALID_OPERATION;
 
-    BufferObject& obj = *GetOrCreateBufferObject(it->second);
+    BufferObject& obj = *GetBufferObject(it->second);
     if (!obj.isMapped || !(obj.mapAccessFlags & GL_MAP_FLUSH_EXPLICIT_BIT))
         return GL_INVALID_OPERATION;
 
@@ -181,8 +188,8 @@ GLenum BufferState::CopyBufferRange(GLenum readTarget, GLenum writeTarget, GLint
     if (readBuffer == 0 || writeBuffer == 0 || readBuffer == writeBuffer)
         return GL_INVALID_OPERATION;
 
-    BufferObject& src = *GetOrCreateBufferObject(readBuffer);
-    BufferObject& dst = *GetOrCreateBufferObject(writeBuffer);
+    BufferObject& src = *GetBufferObject(readBuffer);
+    BufferObject& dst = *GetBufferObject(writeBuffer);
 
     if (static_cast<size_t>(readOffset + size) > src.data.size() ||
         static_cast<size_t>(writeOffset + size) > dst.data.size())
@@ -202,7 +209,7 @@ GLenum BufferState::AcquireBufferMemory(GLenum target, GLenum access, void** map
         default:
             flags = access;
     }
-    return AcquireBufferMemoryRange(target, 0, GetOrCreateBufferObject(currentBindings_[target])->data.size(), flags, mappedPointer);
+    return AcquireBufferMemoryRange(target, 0, GetBufferObject(currentBindings_[target])->data.size(), flags, mappedPointer);
 }
 
 GLenum BufferState::ReleaseBufferMemory(GLenum target) {
@@ -213,7 +220,7 @@ GLenum BufferState::ReleaseBufferMemory(GLenum target) {
     if (it == currentBindings_.end() || it->second == 0)
         return GL_INVALID_OPERATION;
 
-    BufferObject& obj = *GetOrCreateBufferObject(it->second);
+    BufferObject& obj = *GetBufferObject(it->second);
     if (!obj.isMapped)
         return GL_INVALID_OPERATION;
 
@@ -324,12 +331,13 @@ GLuint BufferState::GetCurrentBinding(GLenum target) const {
     return 0;
 }
 
-BufferState::BufferObject* BufferState::GetOrCreateBufferObject(GLuint buffer) {
+BufferState::BufferObject* BufferState::GetBufferObject(GLuint buffer) {
     if (bufferObjects_.size() <= buffer) {
-        bufferObjects_.resize(buffer + 1);
+        return nullptr;
     }
-    if (bufferObjects_[buffer] == nullptr) {
-        bufferObjects_[buffer] = std::make_unique<BufferObject>();
-    }
+//    if (bufferObjects_[buffer] == nullptr) {
+//        raise(SIGTRAP);
+////        bufferObjects_[buffer] = std::make_unique<BufferObject>();
+//    }
     return bufferObjects_[buffer].get();
 }

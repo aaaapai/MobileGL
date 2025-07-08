@@ -45,7 +45,7 @@ public:
     void Delete(GLuint buffer);
     GLuint GetCurrentBinding(GLenum target) const;
 
-    BufferObject* GetOrCreateBufferObject(GLuint buffer);
+    BufferObject* GetBufferObject(GLuint buffer);
 
     MG_Global::unordered_map<GLenum, GLuint> currentBindings_;
 //    MG_Global::unordered_map<GLuint, BufferObject> buffers_;

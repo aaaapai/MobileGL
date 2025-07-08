@@ -494,7 +494,9 @@ namespace MG_GL::GL {
             if (!attrib.enabled || attrib.buffer == 0) continue;
 
             GLuint buffer = attrib.buffer;
-            auto& bufferObj = *MG_State_T::bufferState->GetOrCreateBufferObject(buffer);
+            auto* pBufferObj = MG_State_T::bufferState->GetBufferObject(buffer);
+            assert(pBufferObj != nullptr);
+            auto& bufferObj = *pBufferObj;
 
             Diligent::IBuffer *&pBuffer = MG_Diligent::g_BufferMap[buffer];
             if (bufferObj.isDynamic && (!pBuffer || (pBuffer && pBuffer->GetDesc().Size != bufferObj.data.size()))) {
@@ -529,8 +531,9 @@ namespace MG_GL::GL {
             const void* pOriginalIndices = nullptr;
             if (pVAO->elementBuffer != 0)
             {
-                auto& bufferObj = *MG_State_T::bufferState->GetOrCreateBufferObject(
-                        pVAO->elementBuffer);
+                auto* pBufferObj = MG_State_T::bufferState->GetBufferObject(pVAO->elementBuffer);
+                assert(pBufferObj != nullptr);
+                auto& bufferObj = *pBufferObj;
                 pOriginalIndices = bufferObj.data.data() + reinterpret_cast<uintptr_t>(pIndices);
             }
             else
@@ -587,7 +590,9 @@ namespace MG_GL::GL {
         }
         else if (pVAO->elementBuffer != 0) {
             GLuint buffer = pVAO->elementBuffer;
-            auto& bufferObj = *MG_State_T::bufferState->GetOrCreateBufferObject(buffer);
+            auto* pBufferObj = MG_State_T::bufferState->GetBufferObject(buffer);
+            assert(pBufferObj != nullptr);
+            auto& bufferObj = *pBufferObj;
 
             Diligent::IBuffer*& pBuffer = MG_Diligent::g_BufferMap[buffer];
             if (bufferObj.isDynamic || (!pBuffer || (pBuffer && pBuffer->GetDesc().Size != bufferObj.data.size()))) {
@@ -620,7 +625,9 @@ namespace MG_GL::GL {
 
         // Update data for all dynamic buffers
         for (auto& [bufferID, pBuffer] : MG_Diligent::g_BufferMap) {
-            auto* pBufferObject = MG_State_T::bufferState->GetOrCreateBufferObject(bufferID);
+            MG_Util::Debug::LogD("g_BufferMap size: %d", MG_Diligent::g_BufferMap.size());
+
+            auto* pBufferObject = MG_State_T::bufferState->GetBufferObject(bufferID);
             if (!pBufferObject) {
                 MG_Util::Debug::LogW("Buffer ID %u not found in bufferState. Skipping update.", bufferID);
                 continue;
