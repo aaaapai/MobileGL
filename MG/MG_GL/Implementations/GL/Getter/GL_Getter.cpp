@@ -167,7 +167,6 @@ namespace MG_GL::GL {
             case GL_ARRAY_BUFFER_BINDING:
                 params[0] = static_cast<GLint>(MG_State_T::bufferState->GetCurrentBinding(GL_ARRAY_BUFFER));
                 break;
-
             case GL_ELEMENT_ARRAY_BUFFER_BINDING:
                 params[0] = static_cast<GLint>(MG_State_T::vertexArrayState->GetBoundElementBuffer());
                 break;

@@ -2,18 +2,20 @@ cmake_minimum_required(VERSION 3.22.1)
 
 project("MobileGL")
 
+enable_language(C)
+
 enable_language(CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 
+set(CAMKE_C_STANDARD 17)
+
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -w -fvisibility=hidden -funwind-tables -g -D_THREAD_SAFE -fPIC -stdlib=libc++")
+set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -O3 -pipe -integrated-as -mllvm -polly -mllvm -polly-vectorizer=stripmine -mllvm -polly-invariant-load-hoisting -mllvm -polly-run-inliner -mllvm -polly-run-dce -mllvm -polly-invariant-load-hoisting -flto=auto -mllvm -polly-run-inliner -mllvm -polly-run-dce -mllvm -polly-parallel -mllvm -polly-scheduling=dynamic -fno-emulated-tls -fwhole-program-vtables -fdata-sections -ffunction-sections -fmerge-all-constants -mllvm -polly-detect-keep-going -mllvm -polly-ast-use-context -march=armv8-a+simd -fvisibility=hidden -Wall -Wextra -fPIC -DPIC -ferror-limit=0 -Wno-return-type -Wno-unused-parameter -Wno-c++98-compat -Wno-c++98-compat-pedantic -DGLM_FORCE_INTRINSICS -mllvm -polly-omp-backend=LLVM -Wno-extra-qualification")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O3 -pipe -integrated-as -mllvm -polly -mllvm -polly-vectorizer=stripmine -mllvm -polly-invariant-load-hoisting -mllvm -polly-run-inliner -mllvm -polly-run-dce -mllvm -polly-invariant-load-hoisting -flto=auto -mllvm -polly-run-inliner -mllvm -polly-run-dce -mllvm -polly-parallel -mllvm -polly-scheduling=dynamic -fno-emulated-tls -fwhole-program-vtables -fdata-sections -ffunction-sections -fmerge-all-constants -mllvm -polly-detect-keep-going -mllvm -polly-ast-use-context -march=armv8-a+simd -fPIC -DPIC -Wall -Wextra -ferror-limit=0 -Wno-return-type -Wno-unused-parameter -Wno-c++98-compat -Wno-c++98-compat-pedantic -DGLM_FORCE_INTRINSICS -fexceptions -fno-rtti -mllvm -polly-omp-backend=LLVM -Wno-extra-qualification")
 
-#set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -w -g -std=gnu99 -funwind-tables -O3 -fvisibility=hidden")
-
-set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -static-libstdc++")
-
+set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -fuse-ld=lld -flto=auto -O3 -Wl,-plugin-opt=-emulated-tls=0 -Wl,--strip-all -fvisibility=hidden -Wl,-Bsymbolic -Wl,-O3 -Wl,--sort-common -Wl,--relax -Wl,--gc-sections -Wl,--as-needed")
 set(CMAKE_ANDROID_STL_TYPE c++_static)
 
 #set(CMAKE_BUILD_TYPE Release)
@@ -83,9 +85,6 @@ add_library(${CMAKE_PROJECT_NAME} SHARED
         # MG_UTIL/Program
         MG/MG_UTIL/Program/DebugTool.cpp
         MG/MG_UTIL/Program/GLSLTool.cpp
-        
-        # MG_RHI/GLES
-        MG/MG_RHI/GLES/Test/TestDrawing.cpp
 )
 
 target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE ./includes)
@@ -106,24 +105,24 @@ target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE
         ${CMAKE_SOURCE_DIR}/library/arm64-v8a/libSPIRV-Tools.a
         ${CMAKE_SOURCE_DIR}/library/arm64-v8a/libSPIRV.a
         ${CMAKE_SOURCE_DIR}/library/arm64-v8a/libSPVRemapper.a
+        ${CMAKE_SOURCE_DIR}/library/arm64-v8a/libDiligent-Common.a
+        ${CMAKE_SOURCE_DIR}/library/arm64-v8a/libGraphicsEngineVk.so
+        ${CMAKE_SOURCE_DIR}/library/arm64-v8a/libGraphicsEngineOpenGL.so
+        libomp.a
         android
         log
         EGL
-        vulkan
 )
 
-add_subdirectory(3rdparty/DiligentCore)
 
 target_include_directories(MobileGL PUBLIC
         ${CMAKE_SOURCE_DIR}/include
+        ${CMAKE_SOURCE_DIR}/3rdparty/DiligentCore/Graphics/GraphicsEngine/interface
+        ${CMAKE_SOURCE_DIR}/3rdparty/DiligentCore/Graphics/GraphicsEngineOpenGL/interface
+        ${CMAKE_SOURCE_DIR}/3rdparty/DiligentCore/Graphics/GraphicsEngineVulkan/interface
+        ${CMAKE_SOURCE_DIR}/3rdparty/DiligentCore/Common/interface
 )
 
-target_link_libraries(MobileGL
-        PRIVATE
-        Diligent-Common
-        Diligent-GraphicsEngineOpenGL-shared
-        Diligent-GraphicsEngineVk-shared
-)
 
 if (PROFILING)
         find_package(Threads)

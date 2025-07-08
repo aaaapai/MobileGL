@@ -117,6 +117,7 @@ void FramebufferState::UpdateCompleteness(FramebufferObject& fbo) {
     bool hasColor = false;
     bool hasDepth = false;
     bool hasStencil = false;
+    
     GLsizei width = 0, height = 0;
     for (const auto& [attach, att] : fbo.attachments) {
         GLsizei attWidth = 0, attHeight = 0;
