@@ -71,6 +71,7 @@ GLenum BufferState::CommitStorage(GLenum target, GLsizeiptr size, const void* da
     obj.usage = usage;
     obj.isDynamic = (usage == GL_DYNAMIC_DRAW || usage == GL_DYNAMIC_READ ||
                      usage == GL_DYNAMIC_COPY || usage == GL_STREAM_DRAW);
+    obj.data.reserve(std::bit_ceil((size_t)size));
     obj.data.resize(size);
     if (data) {
         memcpy(obj.data.data(), data, size);
