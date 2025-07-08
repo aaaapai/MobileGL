@@ -24,6 +24,14 @@ namespace MG_GL::GL {
         MG_Diligent::GLFramebufferInfo& fbInfo = it->second;
         auto& commonState = *MG_State_T::commonState;
 
+        MG_Util::Debug::LogD("Setting render targets: %zu color attachments", fbInfo.ColorRTVs.size());
+        MG_Diligent::g_pContext->SetRenderTargets(
+                static_cast<Diligent::Uint32>(fbInfo.ColorRTVs.size()),
+                fbInfo.ColorRTVs.data(),
+                fbInfo.pDepthStencilRTV,
+                ::Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION
+        );
+
 //        if (MG_Diligent::IsInRenderPass) {
 //            MG_Util::Debug::LogD("Ending render pass before clear operation");
 //            MG_Diligent::g_pContext->EndRenderPass();
