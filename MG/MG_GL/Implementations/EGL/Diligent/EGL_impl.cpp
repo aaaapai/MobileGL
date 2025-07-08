@@ -910,7 +910,7 @@ namespace MG_EGL::Diligent {
         MG_Diligent::g_pContext->Flush();
 
         MG_Util::Debug::LogD("Presenting swap chain");
-        MG_Diligent::g_pSwapChain->Present();
+        MG_Diligent::g_pSwapChain->Present(0);
         MG_GL::GL::UpdateDefaultFramebuffer();
 //        if (MG_Diligent::IsInRenderPass) {
 //            MG_Util::Debug::LogD("Ending current render pass.");
