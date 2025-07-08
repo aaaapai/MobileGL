@@ -521,6 +521,9 @@ namespace MG_GL::GL {
 //            MG_Diligent::IsInRenderPass = false;
 //            MG_Util::Debug::LogD("Current render pass ended.");
 //        }
+
+        // explicitly unbind the texture
+        MG_Diligent::g_pContext->SetRenderTargets(0, nullptr, nullptr, Diligent::RESOURCE_STATE_TRANSITION_MODE_NONE);
         
         GLuint readFB = MG_State_T::framebufferState->currentBindings_[GL_READ_FRAMEBUFFER];
         GLuint drawFB = MG_State_T::framebufferState->currentBindings_[GL_DRAW_FRAMEBUFFER];
