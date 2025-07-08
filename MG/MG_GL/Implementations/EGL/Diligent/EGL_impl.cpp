@@ -734,6 +734,7 @@ namespace MG_EGL::Diligent {
         MG_Diligent::g_pFactory = pFactoryVk;
         ::Diligent::EngineVkCreateInfo EngineCI;
         EngineCI.DynamicHeapSize = 512 << 20;
+        EngineCI.Features.NativeMultiDraw = DEVICE_FEATURE_STATE_OPTIONAL;
 
         MG_Util::Debug::LogD("Creating Vulkan device and contexts");
         pFactoryVk->CreateDeviceAndContextsVk(
@@ -757,7 +758,8 @@ namespace MG_EGL::Diligent {
                 default:
                     apiVersion = "<unknown>";
             }
-            MG_Util::Debug::LogD("Running on %s, %s", MG_Diligent::g_pDevice->GetAdapterInfo().Description, apiVersion.c_str());
+            MG_Util::Debug::LogI("Running on %s, %s", MG_Diligent::g_pDevice->GetAdapterInfo().Description, apiVersion.c_str());
+            MG_Util::Debug::LogI("NativeMultiDraw is%s supported.", (MG_Diligent::g_pDevice->GetDeviceInfo().Features.NativeMultiDraw != DEVICE_FEATURE_STATE_DISABLED) ? " " : " not");
         } else {
             MG_Util::Debug::LogE("Failed to create Vulkan device");
         }
@@ -908,7 +910,7 @@ namespace MG_EGL::Diligent {
         MG_Diligent::g_pContext->Flush();
 
         MG_Util::Debug::LogD("Presenting swap chain");
-        MG_Diligent::g_pSwapChain->Present();
+        MG_Diligent::g_pSwapChain->Present(0);
         MG_GL::GL::UpdateDefaultFramebuffer();
 //        if (MG_Diligent::IsInRenderPass) {
 //            MG_Util::Debug::LogD("Ending current render pass.");

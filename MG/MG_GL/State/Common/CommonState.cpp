@@ -10,7 +10,7 @@ CommonState::CommonState() {
 }
 
 GLenum CommonState::SetPixelStoreInt(GLenum pname, GLint param) {
-    if (MG_Constants::PixelStore::VALID_PARAM_NAMES.find(pname) == MG_Constants::PixelStore::VALID_PARAM_NAMES.end()) {
+    if (!MG_Constants::Common::Contains(pname, MG_Constants::PixelStore::VALID_PARAM_NAMES)) {
         return GL_INVALID_ENUM;
     }
 
@@ -61,7 +61,7 @@ GLint CommonState::QueryPixelStoreInt(GLenum pname) {
 }
 
 GLenum CommonState::Enable(GLenum cap) {
-    if (MG_Constants::CommonState::VALID_CAPS.find(cap) == MG_Constants::CommonState::VALID_CAPS.end()) {
+    if (!MG_Constants::Common::Contains(cap, MG_Constants::CommonState::VALID_CAPS)) {
         return GL_INVALID_ENUM;
     }
     capabilities[cap] = true;
@@ -69,7 +69,7 @@ GLenum CommonState::Enable(GLenum cap) {
 }
 
 GLenum CommonState::Disable(GLenum cap) {
-    if (MG_Constants::CommonState::VALID_CAPS.find(cap) == MG_Constants::CommonState::VALID_CAPS.end()) {
+    if (!MG_Constants::Common::Contains(cap, MG_Constants::CommonState::VALID_CAPS)) {
         return GL_INVALID_ENUM;
     }
     capabilities[cap] = false;
@@ -77,8 +77,8 @@ GLenum CommonState::Disable(GLenum cap) {
 }
 
 GLenum CommonState::BlendFunc(GLenum sfactor, GLenum dfactor) {
-    if (MG_Constants::Blend::VALID_FACTORS.find(sfactor) == MG_Constants::Blend::VALID_FACTORS.end() ||
-        MG_Constants::Blend::VALID_FACTORS.find(dfactor) == MG_Constants::Blend::VALID_FACTORS.end()) {
+    if (!MG_Constants::Common::Contains(sfactor, MG_Constants::Blend::VALID_FACTORS) ||
+        !MG_Constants::Common::Contains(dfactor, MG_Constants::Blend::VALID_FACTORS)) {
         return GL_INVALID_ENUM;
     }
 
@@ -89,10 +89,10 @@ GLenum CommonState::BlendFunc(GLenum sfactor, GLenum dfactor) {
 
 GLenum CommonState::BlendFuncSeparate(GLenum srcRGB, GLenum dstRGB,
                                       GLenum srcAlpha, GLenum dstAlpha) {
-    if (MG_Constants::Blend::VALID_FACTORS.find(srcRGB) == MG_Constants::Blend::VALID_FACTORS.end() ||
-        MG_Constants::Blend::VALID_FACTORS.find(dstRGB) == MG_Constants::Blend::VALID_FACTORS.end() ||
-        MG_Constants::Blend::VALID_FACTORS.find(srcAlpha) == MG_Constants::Blend::VALID_FACTORS.end() ||
-        MG_Constants::Blend::VALID_FACTORS.find(dstAlpha) == MG_Constants::Blend::VALID_FACTORS.end()) {
+    if (!MG_Constants::Common::Contains(srcRGB, MG_Constants::Blend::VALID_FACTORS) ||
+        !MG_Constants::Common::Contains(dstRGB, MG_Constants::Blend::VALID_FACTORS) ||
+        !MG_Constants::Common::Contains(srcAlpha, MG_Constants::Blend::VALID_FACTORS) ||
+        !MG_Constants::Common::Contains(dstAlpha, MG_Constants::Blend::VALID_FACTORS)) {
         return GL_INVALID_ENUM;
     }
     blendSrcRGB = srcRGB;
@@ -133,7 +133,7 @@ GLenum CommonState::ColorMask(GLboolean red, GLboolean green, GLboolean blue, GL
 }
 
 GLenum CommonState::DepthFunc(GLenum func) {
-    if (MG_Constants::Depth::VALID_FUNCS.find(func) == MG_Constants::Depth::VALID_FUNCS.end()) {
+    if (!MG_Constants::Common::Contains(func, MG_Constants::Depth::VALID_FUNCS)) {
         return GL_INVALID_ENUM;
     }
     depthFunc = func;

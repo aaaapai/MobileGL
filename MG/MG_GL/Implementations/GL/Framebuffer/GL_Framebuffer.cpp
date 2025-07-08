@@ -521,6 +521,9 @@ namespace MG_GL::GL {
 //            MG_Diligent::IsInRenderPass = false;
 //            MG_Util::Debug::LogD("Current render pass ended.");
 //        }
+
+        // explicitly unbind the texture
+        MG_Diligent::g_pContext->SetRenderTargets(0, nullptr, nullptr, Diligent::RESOURCE_STATE_TRANSITION_MODE_NONE);
         
         GLuint readFB = MG_State_T::framebufferState->currentBindings_[GL_READ_FRAMEBUFFER];
         GLuint drawFB = MG_State_T::framebufferState->currentBindings_[GL_DRAW_FRAMEBUFFER];
@@ -581,5 +584,23 @@ namespace MG_GL::GL {
 
             MG_Diligent::g_pContext->CopyTexture(CopyAttribs);
         }
+    }
+
+    void DrawBuffer(GLenum buf) {
+        MG_Util::Debug::LogD("glDrawBuffer, buf: %s", MG_Util::Debug::GLEnumToString(buf));
+    }
+
+    void DrawBuffers(GLsizei n, const GLenum *bufs) {
+        MG_Util::Debug::LogD("glDrawBuffers, n: %d, bufs: [", n);
+        for (int i = 0; i < n; ++i) {
+            MG_Util::Debug::LogD("%s,", MG_Util::Debug::GLEnumToString(bufs[i]));
+        }
+        MG_Util::Debug::LogD("]");
+
+    }
+
+    void ReadBuffer(GLenum buf) {
+        MG_Util::Debug::LogD("glReadBuffer, buf: %s", MG_Util::Debug::GLEnumToString(buf));
+
     }
 }

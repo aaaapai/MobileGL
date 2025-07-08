@@ -43,13 +43,16 @@ namespace MG_GL::GL {
             GLuint buffer = MG_State_T::bufferState->GetCurrentBinding(target);
             if (buffer == 0) return;
 
-            auto& bufferObj = *MG_State_T::bufferState->GetOrCreateBufferObject(buffer);
+            auto& bufferObj = *MG_State_T::bufferState->GetBufferObject(buffer);
             if (!bufferObj.isMapped) return;
 
             size_t start = static_cast<size_t>(offset);
             size_t end = start + static_cast<size_t>(length);
 
-            Diligent::IBuffer* pBuffer = MG_Diligent::g_BufferMap[buffer];
+            auto it = MG_Diligent::g_BufferMap.find(buffer);
+            if (it == MG_Diligent::g_BufferMap.end())
+                return;
+            Diligent::IBuffer* pBuffer = it->second;
             if (pBuffer && bufferObj.data.size() >= end) {
                 const auto& Desc = pBuffer->GetDesc();
                 if (Desc.Usage == Diligent::USAGE_STAGING || Desc.Usage == Diligent::USAGE_DYNAMIC || Desc.Usage == Diligent::USAGE_UNIFIED) {
@@ -92,9 +95,12 @@ namespace MG_GL::GL {
             GLuint dstBuffer = MG_State_T::bufferState->GetCurrentBinding(writeTarget);
 
             if (srcBuffer == 0 || dstBuffer == 0) return;
+            auto itsrc = MG_Diligent::g_BufferMap.find(srcBuffer);
+            auto itdst = MG_Diligent::g_BufferMap.find(dstBuffer);
+            if (itsrc == MG_Diligent::g_BufferMap.end() || itdst == MG_Diligent::g_BufferMap.end()) return;
 
-            Diligent::IBuffer* pSrcBuffer = MG_Diligent::g_BufferMap[srcBuffer];
-            Diligent::IBuffer* pDstBuffer = MG_Diligent::g_BufferMap[dstBuffer];
+            Diligent::IBuffer* pSrcBuffer = itsrc->second;
+            Diligent::IBuffer* pDstBuffer = itdst->second;
 
             if (pSrcBuffer && pDstBuffer) {
                 MG_Diligent::g_pContext->CopyBuffer(pSrcBuffer, static_cast<Diligent::Uint64>(readOffset), 
@@ -134,9 +140,12 @@ namespace MG_GL::GL {
         }
         
         GLuint buffer = MG_State_T::bufferState->currentBindings_[target];
-        auto& bufferObj = *MG_State_T::bufferState->GetOrCreateBufferObject(buffer);
+        auto& bufferObj = *MG_State_T::bufferState->GetBufferObject(buffer);
 
-        Diligent::IBuffer* pBuffer = MG_Diligent::g_BufferMap[buffer];
+        auto it = MG_Diligent::g_BufferMap.find(buffer);
+        if (it == MG_Diligent::g_BufferMap.end())
+            return GL_FALSE;
+        Diligent::IBuffer* pBuffer = it->second;
         if (pBuffer) {
             const auto& Desc = pBuffer->GetDesc();
             if (Desc.Usage == Diligent::USAGE_STAGING || Desc.Usage == Diligent::USAGE_DYNAMIC || Desc.Usage == Diligent::USAGE_UNIFIED) {
@@ -191,13 +200,17 @@ namespace MG_GL::GL {
         if (result == GL_NO_ERROR) {
             GLuint buffer = MG_State_T::bufferState->GetCurrentBinding(target);
             if (buffer == 0) return;
-            auto& bufferObj = *MG_State_T::bufferState->GetOrCreateBufferObject(buffer);
+            auto& bufferObj = *MG_State_T::bufferState->GetBufferObject(buffer);
             if (bufferObj.isDynamic) return; // Dynamic buffer should be created by glDraw*
             if (size <= 0) return; // ignore 0-sized reallocation
 
             bufferObj.dirty = false;
 
-            Diligent::IBuffer*& pBuffer = MG_Diligent::g_BufferMap[buffer];
+            auto it = MG_Diligent::g_BufferMap.find(buffer);
+            if (it == MG_Diligent::g_BufferMap.end())
+                return;
+
+            Diligent::IBuffer*& pBuffer = it->second;
 
             Diligent::BufferDesc BuffDesc;
             std::string name;
@@ -312,10 +325,13 @@ namespace MG_GL::GL {
         GLuint buffer = MG_State_T::bufferState->GetCurrentBinding(target);
         if (buffer == 0) return;
 
-        auto& bufferObj = *MG_State_T::bufferState->GetOrCreateBufferObject(buffer);
+        auto& bufferObj = *MG_State_T::bufferState->GetBufferObject(buffer);
         if (bufferObj.isDynamic) return; // Dynamic buffer should be created by glDraw*
 
-        Diligent::IBuffer* pBuffer = MG_Diligent::g_BufferMap[buffer];
+        auto it = MG_Diligent::g_BufferMap.find(buffer);
+        if (it == MG_Diligent::g_BufferMap.end())
+            return;
+        Diligent::IBuffer* pBuffer = it->second;
         if (pBuffer) {
             const auto& Desc = pBuffer->GetDesc();
             if (Desc.Usage == Diligent::USAGE_STAGING || Desc.Usage == Diligent::USAGE_DYNAMIC || Desc.Usage == Diligent::USAGE_UNIFIED) {
