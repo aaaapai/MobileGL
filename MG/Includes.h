@@ -96,6 +96,7 @@
 #include <map>
 #include <vector>
 #include <cctype>
+#include <set>
 #include <stdexcept>
 #include <atomic>
 #include <regex>
