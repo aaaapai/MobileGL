@@ -53,7 +53,7 @@ public:
     GLuint currentVao_ = 0;
     MG_Global::unordered_map<GLuint, VertexArrayObject> vaos_;
 private:
-    std::set<GLuint, std::less<GLuint>, std::allocator<GLuint>> freeIds_;
+    std::set<GLuint> freeIds_;
     GLuint lastId_ = 0;
 };
 
