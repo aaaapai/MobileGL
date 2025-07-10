@@ -15,7 +15,7 @@ jobs:
 
     - name: Configure CMake and Build
       run: |
-          git add .git submodule update --remote --recursive
+          git submodule update --remote --recursive
           git add .
           bash android_ci_build.bash
 
