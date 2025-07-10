@@ -87,7 +87,7 @@ add_library(${CMAKE_PROJECT_NAME} SHARED
 
 target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE ./includes)
 
-find_library(GLSLANG_LIB glslang PATHS ${CMAKE_SOURCE_DIR}/library/)
+find_library(GLSLANG_LIB glslang PATHS ${CMAKE_SOURCE_DIR}/library/arm64-v8a/)
 target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE
         ${CMAKE_SOURCE_DIR}/library/arm64-v8a/libglslang.a
         ${CMAKE_SOURCE_DIR}/library/arm64-v8a/libspirv-cross-c-shared.so
