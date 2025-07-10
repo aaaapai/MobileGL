@@ -2,7 +2,7 @@
 // Created by BZLZHH on 2025/5/3.
 //
 
-#include "DebugTool.h"
+#include "../../Includes.h"
 
 namespace MG_Util::Program {
     std::string GLTypeToString(GLenum type) {

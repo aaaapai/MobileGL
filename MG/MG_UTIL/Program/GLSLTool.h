@@ -5,8 +5,6 @@
 #ifndef MOBILEGL_GLSLTOOL_H
 #define MOBILEGL_GLSLTOOL_H
 
-#include "../../Includes.h"
-
 namespace MG_Util::Program {
     inline static TBuiltInResource InitResources()
     {

@@ -4,10 +4,6 @@
 
 #ifndef MOBILEGL_COMMONSTATE_H
 #define MOBILEGL_COMMONSTATE_H
-#define MOBILEGL_GLSTATE_H
-#define MOBILEGL_DILIGENT_EGL_IMPL_H
-
-#include "../../../Includes.h"
 
 class CommonState {
 public:

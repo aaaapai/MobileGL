@@ -4,3 +4,5 @@
 
 /build
 .cxx
+/.vs
+/out/build

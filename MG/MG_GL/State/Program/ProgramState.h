@@ -4,12 +4,6 @@
 
 #ifndef MOBILEGL_PROGRAMSTATE_H
 #define MOBILEGL_PROGRAMSTATE_H
-#define MOBILEGL_GLSTATE_H
-#define MOBILEGL_DILIGENT_EGL_IMPL_H
-#define MOBILEGL_PROGRAM_DEBUGTOOL_H
-#define MOBILEGL_GLSLTOOL_H
-
-#include "../../../Includes.h"
 
 struct ShaderObject {
     GLenum type;

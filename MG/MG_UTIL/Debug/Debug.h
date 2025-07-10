@@ -5,8 +5,6 @@
 #ifndef MOBILEGL_DEBUG_H
 #define MOBILEGL_DEBUG_H
 
-#include "../../Includes.h"
-
 #define FORCE_SYNC_WITH_LOG_FILE 0
 
 namespace MG_Util {

@@ -2,7 +2,7 @@
 // Created by BZLZHH on 2025/3/15.
 //
 
-#include "GLFuncsDefinitions.h"
+#include "../../../../Includes.h"
 
 #define DECLARE_GL_FUNCTION_STUB_HEAD(type,name,...)                        \
 MG_EXPORT type gl##name(__VA_ARGS__) {

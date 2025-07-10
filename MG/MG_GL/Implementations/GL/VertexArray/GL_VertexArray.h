@@ -5,8 +5,6 @@
 #ifndef MOBILEGL_GL_VERTEXARRAY_H
 #define MOBILEGL_GL_VERTEXARRAY_H
 
-#include "../../../../Includes.h"
-
 namespace MG_GL::GL {
     void GenVertexArrays(GLsizei n, GLuint* arrays);
     void BindVertexArray(GLuint array);

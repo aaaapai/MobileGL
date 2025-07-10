@@ -5,8 +5,6 @@
 #ifndef MOBILEGL_TESTDRAWING_H
 #define MOBILEGL_TESTDRAWING_H
 
-#include "../../../Includes.h"
-
 namespace MG_RHI::GLES::Test {
     void DrawAllTextures();
 }

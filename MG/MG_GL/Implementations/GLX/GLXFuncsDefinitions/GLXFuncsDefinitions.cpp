@@ -2,7 +2,7 @@
 // Created by Swung 0x48 on 2025/6/20.
 //
 
-#include "GLXFuncsDefinitions.h"
+#include "../../../../Includes.h"
 
 MG_EXPORT void* glXGetProcAddress(const char *name) {
     return MG_GL::GLX::GetProcAddress(name);

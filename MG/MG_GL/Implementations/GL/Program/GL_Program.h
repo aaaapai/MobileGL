@@ -5,8 +5,6 @@
 #ifndef MOBILEGL_GL_PROGRAM_H
 #define MOBILEGL_GL_PROGRAM_H
 
-#include "../../../../Includes.h"
-
 namespace MG_GL::GL {
     Diligent::VALUE_TYPE ConvertGLTypeToDiligent(GLenum type);
     

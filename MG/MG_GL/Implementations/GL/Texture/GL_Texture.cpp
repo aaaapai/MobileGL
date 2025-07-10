@@ -2,7 +2,7 @@
 // Created by BZLZHH on 2025/3/15.
 //
 
-#include "GL_Texture.h"
+#include "../../../../Includes.h"
 
 namespace MG_GL::GL {
   

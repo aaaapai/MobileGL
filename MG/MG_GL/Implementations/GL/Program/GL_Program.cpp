@@ -2,9 +2,6 @@
 // Created by BZLZHH on 2025/3/15.
 //
 
-#include "GL_Program.h"
-
-#undef MOBILEGL_GLSLTOOL_H
 #include "../../../../Includes.h"
 
 namespace MG_GL::GL {
@@ -306,6 +303,10 @@ namespace MG_GL::GL {
         }
 
         MG_Util::Program::GenerateDefaultUBOForGLSL_Multi(shaderSources, programInfo.uniformBufferNames);
+        MG_Util::Debug::LogD("LinkProgram: uniformBufferNames for %u:", program);
+        for (auto& name: programInfo.uniformBufferNames) {
+            MG_Util::Debug::LogD("    %s", name.c_str());
+        }
 
         for (GLuint shaderId : programObj.attachedShaders) {
             auto it = MG_State_T::programState->shaders_.find(shaderId);
@@ -377,6 +378,7 @@ namespace MG_GL::GL {
             if (MG_Diligent::g_ShaderMap.find(shaderId) == MG_Diligent::g_ShaderMap.end() || MG_Diligent::g_ShaderMap[shaderId] == nullptr) {
                 GLenum shaderType = shaderObj.type;
                 std::string sourceStr = finalShaderSources[shaderId];
+                MG_Util::Program::RenameGLSLBuiltinsForVulkan(sourceStr);
                 MG_Util::Debug::LogD("Shader ID: %u, type: %s\nConverted source:\n%s",
                                      shaderId, MG_Util::Debug::GLEnumToString(shaderType), sourceStr.c_str());
 

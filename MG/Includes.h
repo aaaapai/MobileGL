@@ -1,90 +1,9 @@
 //
 // Created by BZLZHH on 2025/3/15.
 //
+#pragma once
 
-#include "Constants.h"
 #define BACKEND_TYPE BACKEND_DILIGENT
-#include "Global.h"
-#ifndef MOBILEGL_GLES_LOADER_H
-#include "MG_GL/BackendLoader/GLES/Loader.h"
-#endif
-#ifndef MOBILEGL_GL_FRAMEBUFFER_H
-#include "MG_GL/Implementations/GL/Framebuffer/GL_Framebuffer.h"
-#endif
-#ifndef MOBILEGL_GL_GETTER_H
-#include "MG_GL/Implementations/GL/Getter/GL_Getter.h"
-#endif
-#ifndef MOBILEGL_BACKENDINFO_H
-#include "MG_GL/Implementations/GL/Getter/BackendInfo.h"
-#endif
-#ifndef MOBILEGL_GL_BUFFER_H
-#include "MG_GL/Implementations/GL/Buffer/GL_Buffer.h"
-#endif
-#ifndef MOBILEGL_GL_DRAWING_H
-#include "MG_GL/Implementations/GL/Drawing/GL_Drawing.h"
-#endif
-#ifndef MOBILEGL_GL_PROGRAM_H
-#include "MG_GL/Implementations/GL/Program/GL_Program.h"
-#endif
-#ifndef MOBILEGL_GL_TEXTURE_H
-#include "MG_GL/Implementations/GL/Texture/GL_Texture.h"
-#endif
-#ifndef MOBILEGL_GL_VERTEXARRAY_H
-#include "MG_GL/Implementations/GL/VertexArray/GL_VertexArray.h"
-#endif
-#ifndef MOBILEGL_DILIGENT_EGL_IMPL_H
-#include "MG_GL/Implementations/EGL/Diligent/EGL_impl.h"
-#endif
-#ifndef MOBILEGL_GLSTATE_H
-#include "MG_GL/State/Core/GLState.h"
-#endif
-#ifndef MOBILEGL_COMMONSTATE_H
-#include "MG_GL/State/Common/CommonState.h"
-#endif
-#ifndef MOBILEGL_TEXTURESTATE_H
-#include "MG_GL/State/Texture/TextureState.h"
-#endif
-#ifndef MOBILEGL_VERTEXARRAYSTATE_H
-#include "MG_GL/State/VertexArray/VertexArrayState.h"
-#endif
-#ifndef MOBILEGL_BUFFERSTATE_H
-#include "MG_GL/State/Buffer/BufferState.h"
-#endif
-#ifndef MOBILEGL_SHADEROBJECT_H
-#include "MG_GL/State/Program/ShaderObject.h"
-#endif
-#ifndef MOBILEGL_PROGRAMSTATE_H
-#include "MG_GL/State/Program/ProgramState.h"
-#endif
-#ifndef MOBILEGL_FRAMEBUFFERSTATE_H
-#include "MG_GL/State/Framebuffer/FramebufferState.h"
-#endif
-#ifndef MOBILEGL_LOOKUP_H
-#include "MG_GL/Implementations/GLX/LookUp/LookUp.h"
-#endif
-#ifndef MOBILEGL_DEBUG_H
-#include "MG_UTIL/Debug/Debug.h"
-#endif
-#ifndef MOBILEGL_GLSLTOOL_H
-#include "MG_UTIL/Program/GLSLTool.h"
-#endif
-#ifndef MOBILEGL_PROGRAM_DEBUGTOOL_H
-#include "MG_UTIL/Program/DebugTool.h"
-#endif
-#ifndef MOBILEGL_GL_COMMON_H
-#include "MG_GL/Implementations/GL/Common/GL_Common.h"
-#endif
-#ifndef MOBILEGL_EGL_VK_EMU_H
-#include "MG_GL/Implementations/EGL/VK/EGL_EMU.h"
-#endif
-#ifndef MOBILEGL_EGL_GLES_EGL_WRAP_H
-#include "MG_GL/Implementations/EGL/GLES/EGL_WRAP.h"
-#endif
-#ifndef MOBILEGL_TESTDRAWING_H
-#include "MG_RHI/GLES/Test/TestDrawing.h"
-#endif
-
-#include "MG_GL/Implementations/EGL/Diligent/DiligentConfig.h"
 
 #include <cstring>
 #include <iostream>
@@ -158,3 +77,34 @@
 #include "GraphicsTypes.h"
 #include "DeviceContext.h"
 #endif
+
+
+#include "Constants.h"
+#include "Global.h"
+#include "MG_GL/Implementations/EGL/Diligent/DiligentConfig.h"
+#include "MG_GL/BackendLoader/GLES/Loader.h"
+#include "MG_GL/Implementations/GL/Framebuffer/GL_Framebuffer.h"
+#include "MG_GL/Implementations/GL/Getter/GL_Getter.h"
+#include "MG_GL/Implementations/GL/Getter/BackendInfo.h"
+#include "MG_GL/Implementations/GL/Buffer/GL_Buffer.h"
+#include "MG_GL/Implementations/GL/Drawing/GL_Drawing.h"
+#include "MG_GL/Implementations/GL/Program/GL_Program.h"
+#include "MG_GL/Implementations/GL/Texture/GL_Texture.h"
+#include "MG_GL/Implementations/GL/VertexArray/GL_VertexArray.h"
+#include "MG_GL/State/Common/CommonState.h"
+#include "MG_GL/State/Texture/TextureState.h"
+#include "MG_GL/State/VertexArray/VertexArrayState.h"
+#include "MG_GL/State/Buffer/BufferState.h"
+#include "MG_GL/State/Program/ShaderObject.h"
+#include "MG_GL/State/Program/ProgramState.h"
+#include "MG_GL/State/Framebuffer/FramebufferState.h"
+#include "MG_GL/State/Core/GLState.h"
+#include "MG_GL/Implementations/EGL/Diligent/EGL_impl.h"
+#include "MG_GL/Implementations/GLX/LookUp/LookUp.h"
+#include "MG_UTIL/Debug/Debug.h"
+#include "MG_UTIL/Program/GLSLTool.h"
+#include "MG_UTIL/Program/DebugTool.h"
+#include "MG_GL/Implementations/GL/Common/GL_Common.h"
+#include "MG_GL/Implementations/EGL/VK/EGL_EMU.h"
+#include "MG_GL/Implementations/EGL/GLES/EGL_WRAP.h"
+#include "MG_RHI/GLES/Test/TestDrawing.h"

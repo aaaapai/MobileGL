@@ -4,11 +4,6 @@
 // TODO: Add more gl error check for buffer state manager.
 // TODO: Check if the state machine really meets up to OpenGL 3 standard.
 
-#include "ProgramState.h"
-
-// Re-Include Includes.h, cuz of the absence of Program/DebugTool.h and Program/GLSLTool.cpp.
-#undef MOBILEGL_GLSLTOOL_H
-#undef MOBILEGL_PROGRAM_DEBUGTOOL_H
 #include "../../../Includes.h"
 
 ProgramState::ProgramState() {

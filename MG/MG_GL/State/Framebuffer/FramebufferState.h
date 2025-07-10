@@ -4,10 +4,6 @@
 
 #ifndef MOBILEGL_FRAMEBUFFERSTATE_H
 #define MOBILEGL_FRAMEBUFFERSTATE_H
-#define MOBILEGL_GLSTATE_H
-#define MOBILEGL_DILIGENT_EGL_IMPL_H
-
-#include "../../../Includes.h"
 
 struct FramebufferAttachment {
     GLenum type = GL_NONE;

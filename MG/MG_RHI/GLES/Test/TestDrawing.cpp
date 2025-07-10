@@ -2,7 +2,7 @@
 // Created by BZLZHH on 2025/4/26.
 //
 
-#include "TestDrawing.h"
+#include "../../../Includes.h"
 
 namespace MG_RHI::GLES::Test {
     constexpr int DISPLAY_COLUMNS = 8;

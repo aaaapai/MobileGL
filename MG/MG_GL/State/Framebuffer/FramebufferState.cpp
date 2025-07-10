@@ -5,10 +5,6 @@
 // TODO: Add more gl error check for framebuffer state manager.
 // TODO: Check if the state machine really meets up to OpenGL 3 standard.
 
-#include "FramebufferState.h"
-
-// Re-Include Includes.h, cuz of the absence of GLState.h
-#undef MOBILEGL_GLSTATE_H
 #include "../../../Includes.h"
 
 GLenum FramebufferState::Create(GLuint* framebuffer) {

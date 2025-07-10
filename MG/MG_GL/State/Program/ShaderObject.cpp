@@ -2,11 +2,6 @@
 // Created by BZLZHH on 2025/5/3.
 //
 
-#include "ShaderObject.h"
-
-// Re-Include Includes.h, cuz of the absence of Program/DebugTool.h and Program/GLSLTool.cpp.
-#undef MOBILEGL_GLSLTOOL_H
-#undef MOBILEGL_PROGRAM_DEBUGTOOL_H
 #include "../../../Includes.h"
 
 GLenum ProgramState::CreateShader(GLenum type, GLuint* shader) {

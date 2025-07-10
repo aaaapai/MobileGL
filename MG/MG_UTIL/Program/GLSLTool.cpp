@@ -2,17 +2,26 @@
 // Created by BZLZHH on 2025/5/3.
 //
 
-#include "GLSLTool.h"
+#include "../../Includes.h"
 
 namespace MG_Util::Program {
     void RenameGLSLBuiltinsForVulkan(std::string &src) {
-        static const std::vector<std::pair<std::regex, std::string>> rules = {
-                { std::regex(R"(gl_VertexID)"),   "gl_VertexIndex"    },
-                { std::regex(R"(gl_InstanceID)"), "gl_InstanceIndex"  }
-        };
+//        static const std::vector<std::pair<std::regex, std::string>> rules = {
+//                { std::regex(R"(gl_VertexID)"),   "gl_VertexIndex"    },
+//                { std::regex(R"(gl_InstanceID)"), "gl_InstanceIndex"  }
+//        };
+//
+//        for (auto &rule : rules) {
+//            src = std::regex_replace(src, rule.first, rule.second);
+//        }
+        size_t pos = src.find("gl_VertexID");
+        if (pos != std::string::npos) {
+            src.replace(pos, strlen("gl_VertexID"), "gl_VertexIndex");
+        }
 
-        for (auto &rule : rules) {
-            src = std::regex_replace(src, rule.first, rule.second);
+        pos = src.find("gl_InstanceID");
+        if (pos != std::string::npos) {
+            src.replace(pos, strlen("gl_InstanceID"), "gl_InstanceIndex");
         }
     }
     
@@ -94,14 +103,13 @@ namespace MG_Util::Program {
         spvc_compiler_options_set_uint(options, SPVC_COMPILER_OPTION_GLSL_VERSION, 450);
         spvc_compiler_options_set_bool(options, SPVC_COMPILER_OPTION_GLSL_ES, SPVC_FALSE);
         spvc_compiler_options_set_bool(options, SPVC_COMPILER_OPTION_FLIP_VERTEX_Y, SPVC_TRUE);
-        spvc_compiler_options_set_bool(options, SPVC_COMPILER_OPTION_GLSL_VULKAN_SEMANTICS, SPVC_TRUE);
+//        spvc_compiler_options_set_bool(options, SPVC_COMPILER_OPTION_GLSL_VULKAN_SEMANTICS, SPVC_TRUE);
 
         spvc_compiler_install_compiler_options(compiler, options);
 
         if ((result = spvc_compiler_compile(compiler, &glsl_source)) != SPVC_SUCCESS) {
+            MG_Util::Debug::LogD("[SPIRV-Cross] Failed to compile to GLSL at BindInputLayoutLocation: %s", spvc_context_get_last_error_string(context));
             spvc_context_destroy(context);
-            MG_Util::Debug::LogE("[SPIRV-Cross] Failed to compile to GLSL: %s",
-                                 spvc_context_get_last_error_string(context));
             return {};
         }
 
@@ -572,6 +580,8 @@ namespace MG_Util::Program {
             uboBlock += "    " + memberDecl + ";\n";
         }
         uboBlock += "};\n";
+
+        MG_Util::Debug::LogD("UBO Generated:\n%s", uboBlock.c_str());
 
         for (auto& [id, source] : shaderSources) {
             size_t insertPos = 0, lastDirectivePos = 0;

@@ -2,10 +2,6 @@
 // Created by BZLZHH on 2025/4/4.
 //
 
-#include "TextureState.h"
-
-// Re-Include Includes.h, cuz of the absence of GLState.h
-#undef MOBILEGL_GLSTATE_H
 #include "../../../Includes.h"
 
 // TextureObject
