@@ -25,9 +25,10 @@ namespace MG_Util::Program {
         }
     }
     
-    std::string BindInputLayoutLocationsForGLSL(std::vector<uint32_t>& spirv,
-                                                MG_Global::unordered_map<std::string, GLint>&
-                                                        name_location_map) {
+    std::string BindInputLayoutLocationsForGLSL(
+        std::vector<uint32_t>& spirv,
+        MG_Global::unordered_map<std::string, GLint>& name_location_map)
+    {
         spvc_context context = nullptr;
         spvc_parsed_ir ir = nullptr;
         spvc_compiler compiler = nullptr;
@@ -36,30 +37,36 @@ namespace MG_Util::Program {
         const char* glsl_source = nullptr;
         std::string output_glsl;
 
-        if ((result = spvc_context_create(&context)) != SPVC_SUCCESS) {
+        if ((result = spvc_context_create(&context)) != SPVC_SUCCESS)
+        {
             MG_Util::Debug::LogE("[SPIRV-Cross] Failed to create context.");
             return {};
         }
 
-        if ((result = spvc_context_parse_spirv(context, spirv.data(), spirv.size(), &ir)) != SPVC_SUCCESS) {
+        if ((result = spvc_context_parse_spirv(context,
+            spirv.data(),
+            spirv.size(),
+            &ir)) != SPVC_SUCCESS)
+        {
             spvc_context_destroy(context);
             MG_Util::Debug::LogE("[SPIRV-Cross] Failed to parse SPIR-V.");
             return {};
         }
 
         if ((result = spvc_context_create_compiler(
-                context,
-                SPVC_BACKEND_GLSL,
-                ir,
-                SPVC_CAPTURE_MODE_TAKE_OWNERSHIP,
-                &compiler
-        )) != SPVC_SUCCESS) {
+            context,
+            SPVC_BACKEND_GLSL,
+            ir,
+            SPVC_CAPTURE_MODE_TAKE_OWNERSHIP,
+            &compiler)) != SPVC_SUCCESS)
+        {
             spvc_context_destroy(context);
             MG_Util::Debug::LogE("[SPIRV-Cross] Failed to create compiler.");
             return {};
         }
 
-        if ((result = spvc_compiler_create_shader_resources(compiler, &resources)) != SPVC_SUCCESS) {
+        if ((result = spvc_compiler_create_shader_resources(compiler, &resources)) != SPVC_SUCCESS)
+        {
             spvc_context_destroy(context);
             MG_Util::Debug::LogE("[SPIRV-Cross] Failed to create shader resources.");
             return {};
@@ -68,34 +75,77 @@ namespace MG_Util::Program {
         const spvc_reflected_resource* inputs = nullptr;
         size_t num_inputs = 0;
         if ((result = spvc_resources_get_resource_list_for_type(
-                resources,
-                SPVC_RESOURCE_TYPE_STAGE_INPUT,
-                &inputs,
-                &num_inputs
-        )) != SPVC_SUCCESS) {
+            resources,
+            SPVC_RESOURCE_TYPE_STAGE_INPUT,
+            &inputs,
+            &num_inputs)) != SPVC_SUCCESS)
+        {
             spvc_context_destroy(context);
             MG_Util::Debug::LogE("[SPIRV-Cross] Failed to get stage inputs.");
             return {};
         }
 
         std::unordered_map<std::string, spvc_variable_id> name_to_id;
-        for (size_t i = 0; i < num_inputs; i++) {
+        for (size_t i = 0; i < num_inputs; ++i)
+        {
             name_to_id[inputs[i].name] = inputs[i].id;
         }
-        
-        for (const auto& [name, location] : name_location_map) {
+
+        std::unordered_set<GLint> used_locations;
+
+        for (auto& kv : name_location_map)
+        {
+            const auto& name = kv.first;
+            GLint loc = kv.second;
             auto it = name_to_id.find(name);
-            if (it == name_to_id.end()) {
-                MG_Util::Debug::LogW("[SPIRV-Cross] Input name not found in shader: %s", name.c_str());
+            if (it == name_to_id.end())
+            {
+                MG_Util::Debug::LogW("[SPIRV-Cross] Input name not found: %s", name.c_str());
                 continue;
             }
 
             spvc_compiler_set_decoration(
-                    compiler,
-                    it->second,
-                    SpvDecorationLocation,
-                    location
-            );
+                compiler,
+                it->second,
+                SpvDecorationLocation,
+                loc);
+
+            used_locations.insert(loc);
+        }
+
+        GLint next_free_loc = 0;
+        for (size_t i = 0; i < num_inputs; ++i)
+        {
+            auto& res = inputs[i];
+            const auto& name = res.name;
+            auto var_id = res.id;
+
+            if (name_location_map.find(name) != name_location_map.end())
+                continue;
+
+            uint32_t curr_loc = 0;
+            bool has_loc = false;
+            curr_loc = spvc_compiler_get_decoration(compiler, var_id, SpvDecorationLocation);
+            if (spvc_compiler_has_decoration(compiler, var_id, SpvDecorationLocation))
+                has_loc = true;
+
+            if (has_loc && !used_locations.contains(curr_loc))
+            {
+                used_locations.insert((GLint)curr_loc);
+                continue;
+            }
+
+            while (used_locations.count(next_free_loc))
+                ++next_free_loc;
+
+            spvc_compiler_set_decoration(
+                compiler,
+                var_id,
+                SpvDecorationLocation,
+                next_free_loc);
+
+            MG_Util::Debug::LogI("[SPIRV-Cross] Auto assigned '%s' to location %d", name, next_free_loc);
+            used_locations.insert(next_free_loc);
         }
 
         spvc_compiler_options options = nullptr;
@@ -103,28 +153,32 @@ namespace MG_Util::Program {
         spvc_compiler_options_set_uint(options, SPVC_COMPILER_OPTION_GLSL_VERSION, 450);
         spvc_compiler_options_set_bool(options, SPVC_COMPILER_OPTION_GLSL_ES, SPVC_FALSE);
         spvc_compiler_options_set_bool(options, SPVC_COMPILER_OPTION_FLIP_VERTEX_Y, SPVC_TRUE);
-//        spvc_compiler_options_set_bool(options, SPVC_COMPILER_OPTION_GLSL_VULKAN_SEMANTICS, SPVC_TRUE);
-
         spvc_compiler_install_compiler_options(compiler, options);
 
-        if ((result = spvc_compiler_compile(compiler, &glsl_source)) != SPVC_SUCCESS) {
-            MG_Util::Debug::LogD("[SPIRV-Cross] Failed to compile to GLSL at BindInputLayoutLocation: %s", spvc_context_get_last_error_string(context));
+        if ((result = spvc_compiler_compile(compiler, &glsl_source)) != SPVC_SUCCESS)
+        {
+            MG_Util::Debug::LogE("[SPIRV-Cross] Failed to compile: %s",
+                spvc_context_get_last_error_string(context));
             spvc_context_destroy(context);
             return {};
         }
 
         output_glsl = glsl_source;
-
         spvc_context_destroy(context);
-        MG_Util::Debug::LogI("[SPIRV-Cross] Converted GLSL:\n%s", output_glsl.c_str());
-        
-        // TODO: Use other methods to implement clip space fixing.
+        MG_Util::Debug::LogI("[SPIRV-Cross] GLSL output:\n%s", output_glsl.c_str());
+
         size_t pos = output_glsl.find("\n    gl_Position.y = -gl_Position.y;\n}");
-        if (pos != std::string::npos) {
-            output_glsl.replace(pos, strlen("\n    gl_Position.y = -gl_Position.y;\n}"), "\n    gl_Position.y = -gl_Position.y;\n    gl_Position.z = (gl_Position.z + gl_Position.w) * 0.5;\n}");
+        if (pos != std::string::npos)
+        {
+            output_glsl.replace(
+                pos,
+                strlen("\n    gl_Position.y = -gl_Position.y;\n}"),
+                "\n    gl_Position.y = -gl_Position.y;\n    gl_Position.z = (gl_Position.z + gl_Position.w) * 0.5;\n}");
         }
+
         return output_glsl;
     }
+
     
     static std::vector<bool> buildCommentMask(const std::string &src) {
         enum State {
