@@ -27,7 +27,7 @@ namespace MG_Global {
     }
     
     namespace Common {
-        inline constexpr int LogLevel    = MG_Constants::Common::LOG_LEVEL_DEBUG;
+        inline constexpr int LogLevel    = MG_Constants::Common::LOG_LEVEL_ERROR;
         inline constexpr int LogTarget   = MG_Constants::Common::LOG_TARGET_ANDROID | MG_Constants::Common::LOG_TARGET_FILE;
         
 #ifdef __ANDROID__
