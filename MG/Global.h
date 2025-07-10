@@ -27,8 +27,8 @@ namespace MG_Global {
     }
     
     namespace Common {
-        inline constexpr int LogLevel    = MG_Constants::Common::LOG_LEVEL_FATAL;
-        inline constexpr int LogTarget   = MG_Constants::Common::LOG_TARGET_ALL;
+        inline constexpr int LogLevel    = MG_Constants::Common::LOG_LEVEL_DEBUG;
+        inline constexpr int LogTarget   = MG_Constants::Common::LOG_TARGET_ANDROID | MG_Constants::Common::LOG_TARGET_FILE;
         
 #ifdef __ANDROID__
         inline const char* LOG_FILE_PATH = "/sdcard/MG/latest.log";
