@@ -5,10 +5,6 @@
 #include "../../../../Includes.h"
 
 namespace MG_GL::GL {
-//    void CreateRenderPassAndFramebuffer(GLuint framebuffer,
-//                                        const FramebufferObject& fbo,
-//                                        MG_Diligent::GLFramebufferInfo& fbInfo);
-
     bool IsSamplerType(GLenum type) {
         switch (type) {
             case GL_SAMPLER_2D:
@@ -43,10 +39,6 @@ namespace MG_GL::GL {
             case GL_UNSIGNED_INT_VEC2: return 2 * sizeof(uint32_t);
             case GL_UNSIGNED_INT_VEC3: return 3 * sizeof(uint32_t);
             case GL_UNSIGNED_INT_VEC4: return 4 * sizeof(uint32_t);
-                // case GL_DOUBLE: return sizeof(double); // Not supported
-                // case GL_DOUBLE_VEC2: return 2 * sizeof(double); // Not supported
-                // case GL_DOUBLE_VEC3: return 3 * sizeof(double); // Not supported
-                // case GL_DOUBLE_VEC4: return 4 * sizeof(double); // Not supported
             default: return 0;
         }
     }
@@ -199,6 +191,68 @@ namespace MG_GL::GL {
         return stage;
     }
 
+
+    size_t HashPipelineResourceLayoutDesc(const Diligent::PipelineResourceLayoutDesc& desc)
+    {
+        size_t seed = 0;
+        auto hash_combine = [&](auto v) {
+            seed ^= std::hash<decltype(v)>()(v) + 0x9e3779b9 + (seed << 6) + (seed >> 2);
+            };
+
+        hash_combine(static_cast<uint32_t>(desc.DefaultVariableType));
+        hash_combine(static_cast<uint32_t>(desc.DefaultVariableMergeStages));
+        hash_combine(desc.NumVariables);
+        hash_combine(desc.NumImmutableSamplers);
+
+        for (Diligent::Uint32 i = 0; i < desc.NumVariables; ++i)
+        {
+            const auto& var = desc.Variables[i];
+            if (var.Name)
+                hash_combine(std::string_view(var.Name));
+            else
+                hash_combine(0);
+
+            hash_combine(static_cast<uint32_t>(var.ShaderStages));
+            hash_combine(static_cast<uint32_t>(var.Type));
+        }
+
+        for (Diligent::Uint32 i = 0; i < desc.NumImmutableSamplers; ++i)
+        {
+            const auto& sampler = desc.ImmutableSamplers[i];
+            if (sampler.SamplerOrTextureName)
+                hash_combine(std::string_view(sampler.SamplerOrTextureName));
+            else
+                hash_combine(0);
+
+            hash_combine(static_cast<uint32_t>(sampler.ShaderStages));
+
+            const auto& desc = sampler.Desc;
+
+            hash_combine(static_cast<uint32_t>(desc.MinFilter));
+            hash_combine(static_cast<uint32_t>(desc.MagFilter));
+            hash_combine(static_cast<uint32_t>(desc.MipFilter));
+
+            hash_combine(static_cast<uint32_t>(desc.AddressU));
+            hash_combine(static_cast<uint32_t>(desc.AddressV));
+            hash_combine(static_cast<uint32_t>(desc.AddressW));
+
+            hash_combine(desc.MipLODBias);
+            hash_combine(desc.MaxAnisotropy);
+            hash_combine(static_cast<uint32_t>(desc.ComparisonFunc));
+
+            hash_combine(desc.BorderColor[0]);
+            hash_combine(desc.BorderColor[1]);
+            hash_combine(desc.BorderColor[2]);
+            hash_combine(desc.BorderColor[3]);
+
+            hash_combine(desc.MinLOD);
+            hash_combine(desc.MaxLOD);
+            hash_combine(static_cast<uint32_t>(desc.UnnormalizedCoords));
+        }
+
+        return seed;
+    }
+
     void UpdateSamplerAndTextureUniforms(GLuint program, Diligent::IShaderResourceBinding& pSRB,
                                          Diligent::PipelineResourceLayoutDesc desc) {
         MG_Util::Debug::LogD("Updating sampler and texture uniforms for program %u", program);
@@ -227,7 +281,21 @@ namespace MG_GL::GL {
             }
 
             if (pTextureView) {
-                Diligent::SHADER_TYPE stage = GetShaderStageForUniform(program, name, desc);
+                static MG_Global::unordered_map<std::tuple<GLuint, std::string, size_t>, Diligent::SHADER_TYPE> g_UniformStageCache;
+                
+				size_t descKey = HashPipelineResourceLayoutDesc(desc);
+                auto key = std::make_tuple(program, name, descKey);
+
+                Diligent::SHADER_TYPE stage;
+                auto itStage = g_UniformStageCache.find(key);
+                if (itStage != g_UniformStageCache.end()) {
+                    stage = itStage->second;
+                }
+                else {
+                    stage = GetShaderStageForUniform(program, name, desc);
+                    g_UniformStageCache[key] = stage;
+                }
+
                 MG_Util::Debug::LogD("Setting texture view for sampler '%s' in stage %d.", name.c_str(), stage);
                 auto* pVar = pSRB.GetVariableByName(stage, name.c_str());
                 if (pVar) {
@@ -360,60 +428,6 @@ namespace MG_GL::GL {
         }
     }
 
-//    void EnsureRenderPassActive() {
-//        MG_Util::Debug::LogD("EnsureRenderPassActive called.");
-//        if (MG_Diligent::IsInRenderPass) {
-//            MG_Util::Debug::LogD("Render pass is already active.");
-//            return;
-//        }
-//
-//        MG_Util::Debug::LogD("Render pass is not active, attempting to begin one.");
-//        GLuint drawFB = MG_State_T::framebufferState->currentBindings_[GL_DRAW_FRAMEBUFFER];
-//        if (drawFB == 0) {
-//            MG_Util::Debug::LogD("drawFB is 0, using default framebuffer (0).");
-//            drawFB = 0;
-//        }
-//
-//        auto it = MG_Diligent::g_FramebufferMap.find(drawFB);
-//        if (it == MG_Diligent::g_FramebufferMap.end()) {
-//            MG_Util::Debug::LogE("Framebuffer %u not found in g_FramebufferMap.", drawFB);
-//            return;
-//        }
-//
-//        MG_Util::Debug::LogD("Found framebuffer %u in g_FramebufferMap.", drawFB);
-//        MG_Diligent::GLFramebufferInfo& fbInfo = it->second;
-//
-//        if (!fbInfo.pRenderPass || !fbInfo.pFramebuffer) {
-//            MG_Util::Debug::LogD("RenderPass or Framebuffer not yet created for FBO %u. Creating now.", drawFB);
-//            FramebufferObject* pFBO = MG_State_T::framebufferState->GetCurrentFBO(GL_DRAW_FRAMEBUFFER);
-//            if (!pFBO) {
-//                MG_Util::Debug::LogE("No current FBO found for GL_DRAW_FRAMEBUFFER when trying to create RenderPass/Framebuffer.");
-//                return;
-//            }
-//            CreateRenderPassAndFramebuffer(drawFB, *pFBO, fbInfo);
-//            if (!fbInfo.pRenderPass || !fbInfo.pFramebuffer) {
-//                MG_Util::Debug::LogE("Failed to create RenderPass or Framebuffer for FBO %u.", drawFB);
-//                return;
-//            }
-//            MG_Util::Debug::LogD("Successfully created RenderPass and Framebuffer for FBO %u.", drawFB);
-//        }
-//
-//        MG_Util::Debug::LogD("Proceeding to begin render pass for FBO %u.", drawFB);
-//        if (fbInfo.pRenderPass && fbInfo.pFramebuffer) {
-//            Diligent::BeginRenderPassAttribs beginRenderPassAttribs;
-//            beginRenderPassAttribs.pFramebuffer = fbInfo.pFramebuffer;
-//            beginRenderPassAttribs.pRenderPass = fbInfo.pRenderPass;
-//            beginRenderPassAttribs.StateTransitionMode = Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION;
-//            beginRenderPassAttribs.ClearValueCount = fbInfo.ClearValues.size();
-//            beginRenderPassAttribs.pClearValues = fbInfo.ClearValues.data();
-//
-//            MG_Diligent::g_pContext->BeginRenderPass(beginRenderPassAttribs);
-//            MG_Diligent::IsInRenderPass = true;
-//        } else {
-//            MG_Util::Debug::LogE("RenderPass or Framebuffer not yet created for FBO %u.", drawFB);
-//        }
-//    }
-    
     template<typename T>
     void generate_triangle_fan_indices(std::vector<uint8_t>& out_data, const void* in_indices, size_t count) {
         const auto* pIn = static_cast<const T*>(in_indices);
@@ -430,14 +444,6 @@ namespace MG_GL::GL {
     }
     
     void PrepareForDraw(GLenum mode, GLsizei* pCount, GLenum type, const void*& pIndices) {
-//        if (MG_Diligent::IsInRenderPass) {
-//            MG_Util::Debug::LogD("Ending current render pass.");
-//            MG_Diligent::g_pContext->EndRenderPass();
-//            MG_Diligent::IsInRenderPass = false;
-//            MG_Util::Debug::LogD("Current render pass ended.");
-//        } else {
-//            MG_Util::Debug::LogD("No active render pass to end.");
-//        }
         GLuint program = MG_State::GetCurrentProgram();
        
         if (program == 0) {
@@ -590,8 +596,7 @@ namespace MG_GL::GL {
                 }
                 MG_Diligent::g_pContext->SetIndexBuffer(MG_Diligent::g_TriangleFanIndexBuffer, 0, Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
             }
-        }
-        else if (pVAO->elementBuffer != 0) {
+        } else if (pVAO->elementBuffer != 0) {
             GLuint buffer = pVAO->elementBuffer;
             auto* pBufferObj = MG_State_T::bufferState->GetBufferObject(buffer);
             assert(pBufferObj != nullptr);
@@ -627,34 +632,37 @@ namespace MG_GL::GL {
         }
 
         // Update data for all dynamic buffers
-        for (auto& [bufferID, pBuffer] : MG_Diligent::g_BufferMap) {
-            MG_Util::Debug::LogD("g_BufferMap size: %d", MG_Diligent::g_BufferMap.size());
+        MG_Util::Debug::LogD("g_BufferMap size: %d", MG_Diligent::g_BufferMap.size());  // Moved out of loop
 
+        for (auto& [bufferID, pBuffer] : MG_Diligent::g_BufferMap) {
             auto* pBufferObject = MG_State_T::bufferState->GetBufferObject(bufferID);
-            if (!pBufferObject) {
-                MG_Util::Debug::LogW("Buffer ID %u not found in bufferState. Skipping update.", bufferID);
+            if (!pBufferObject || !pBuffer) {
+                if (!pBufferObject) {
+                    MG_Util::Debug::LogW("Buffer ID %u not found in bufferState. Skipping update.", bufferID);
+                }
                 continue;
             }
-            
-            auto& bufferObj = *pBufferObject;
-            if (pBuffer && bufferObj.isDynamic) {
-                void* pMappedData = nullptr;
-                MG_Util::Debug::LogD("Mapping dynamic buffer %u for data update.", bufferID);
-                MG_Diligent::g_pContext->MapBuffer(
-                        pBuffer,
-                        Diligent::MAP_WRITE,
-                        Diligent::MAP_FLAG_DISCARD,
-                        pMappedData);
 
-                if (pMappedData) {
-                    memcpy(pMappedData, bufferObj.data.data(), bufferObj.data.size());
-                    MG_Diligent::g_pContext->UnmapBuffer(pBuffer, Diligent::MAP_WRITE);
-                    bufferObj.dirty = false;
-                    MG_Util::Debug::LogD("Successfully updated data for dynamic buffer %u.", bufferID);
-                } else {
-                    MG_Util::Debug::LogE("Failed to map dynamic buffer %u for data update.", bufferID);
-                }
+            auto& bufferObj = *pBufferObject;
+            if (!bufferObj.isDynamic) continue;
+
+            MG_Util::Debug::LogD("Mapping dynamic buffer %u for data update.", bufferID);
+            void* pMappedData = nullptr;
+            MG_Diligent::g_pContext->MapBuffer(
+                pBuffer,
+                Diligent::MAP_WRITE,
+                Diligent::MAP_FLAG_DISCARD,
+                pMappedData);
+
+            if (!pMappedData) {
+                MG_Util::Debug::LogE("Failed to map dynamic buffer %u for data update.", bufferID);
+                continue;
             }
+
+            memcpy(pMappedData, bufferObj.data.data(), bufferObj.data.size());
+            MG_Diligent::g_pContext->UnmapBuffer(pBuffer, Diligent::MAP_WRITE);
+            bufferObj.dirty = false;
+            MG_Util::Debug::LogD("Successfully updated data for dynamic buffer %u.", bufferID);
         }
 
         std::vector<Diligent::IBuffer*> vertexBuffers;
@@ -779,10 +787,7 @@ namespace MG_GL::GL {
         MG_Util::Debug::LogD("  FirstIndexLocation: %u", drawAttrs.FirstIndexLocation);
         MG_Util::Debug::LogD("  FirstInstanceLocation: %u", drawAttrs.FirstInstanceLocation);
 
-//        EnsureRenderPassActive();
         MG_Diligent::g_pContext->DrawIndexed(drawAttrs);
-//        MG_Diligent::g_pContext->EndRenderPass();
-//        MG_Diligent::IsInRenderPass = false;
         MG_Util::Debug::LogD("DrawIndexed (BaseVertex) completed.");
     }
 
@@ -1008,10 +1013,7 @@ namespace MG_GL::GL {
             MG_Util::Debug::LogD("    BaseVertex: %d", item.BaseVertex);
         }
 
-//        EnsureRenderPassActive();
         MG_Diligent::g_pContext->MultiDrawIndexed(drawAttrs);
-//        MG_Diligent::g_pContext->EndRenderPass();
-//        MG_Diligent::IsInRenderPass = false;
         MG_Util::Debug::LogD("MultiDrawIndexed completed.");
     }
 }
