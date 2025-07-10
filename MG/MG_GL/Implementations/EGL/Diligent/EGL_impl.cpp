@@ -494,6 +494,10 @@ namespace MG_Diligent {
         }
 
         MG_Util::Program::GenerateDefaultUBOForGLSL_Multi(shaderSourcesMap, programInfo.uniformBufferNames);
+        MG_Util::Debug::LogD("ConfigureResourceLayout: uniformBufferNames for %u:", programInfo.id);
+        for (auto& name: programInfo.uniformBufferNames) {
+            MG_Util::Debug::LogD("    %s", name.c_str());
+        }
 
         for (auto shaderId : programInfo.AttachedShadersID) {
             auto shader = MG_Diligent::g_ShaderMap[shaderId];

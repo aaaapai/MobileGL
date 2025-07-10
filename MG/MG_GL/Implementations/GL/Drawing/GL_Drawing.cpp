@@ -268,6 +268,7 @@ namespace MG_GL::GL {
             auto* uboData = static_cast<uint8_t*>(mapped);
 
             for (auto& name: programInfo.uniformBufferNames) {
+                MG_Util::Debug::LogW("Attempting to update uniform '%s' for program %u", name.c_str(), program);
                 auto& uniform = programObj.uniformValues[name];
                 if (IsSamplerType(uniform.type)) continue;
 
@@ -330,6 +331,8 @@ namespace MG_GL::GL {
                                 break;
                         }
                     }
+                } else {
+                    MG_Util::Debug::LogW("Cannot update uniform '%s' for program %u, offset not found", name.c_str(), program);
                 }
             }
             MG_Util::Debug::LogD("Finished updating uniform values in UBO for program %u.", program);
