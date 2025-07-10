@@ -250,13 +250,15 @@ bool BufferState::ValidateGeneratedName(GLuint buffer) const {
 }
 
 void BufferState::Delete(GLuint buffer) {
-    bufferObjects_[buffer].reset();
+    MG_Util::Debug::LogD("MG_State: Buffer: Delete buffer %u", buffer);
+    if (bufferObjects_.size() > buffer)
+        bufferObjects_[buffer].reset();
     indexGenerator_.Delete(buffer);
 
     for (auto& [target, id] : currentBindings_) {
         if (id == buffer) id = 0;
     }
-    MG_Util::Debug::LogD("MG_State: Buffer: Delete buffer %u", buffer);
+    MG_Util::Debug::LogD("MG_State: Buffer: Delete buffer %u successfully", buffer);
 }
 
 GLenum BufferState::DeleteN(GLsizei n, const GLuint* buffers) {
