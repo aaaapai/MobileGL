@@ -443,7 +443,109 @@ namespace MG_GL::GL {
         memcpy(out_data.data(), new_indices.data(), out_data.size());
     }
     
-    void PrepareForDraw(GLenum mode, GLsizei* pCount, GLenum type, const void*& pIndices) {
+    static Diligent::IBuffer* g_ConvertedIndexBuffer = nullptr;
+    static std::vector<uint16_t> g_ConvertedIndices;
+
+    const void* ConvertUint8IndicesToUint16(const uint8_t* src, GLsizei count)
+    {
+        g_ConvertedIndices.resize(count);
+        for (GLsizei i = 0; i < count; ++i)
+        {
+            g_ConvertedIndices[i] = static_cast<uint16_t>(src[i]);
+        }
+        return g_ConvertedIndices.data();
+    }
+
+    static bool isConvertedIBO = false;
+    void PrepareForDraw(GLenum mode, GLsizei* pCount, GLenum& type, const void*& pIndices)
+    {
+        auto* pVAO = MG_State_T::vertexArrayState->GetCurrentVAO();
+        if (!pVAO)
+        {
+            MG_Util::Debug::LogE("No current VAO found. A VAO must be bound before drawing.");
+            return;
+        }
+
+        isConvertedIBO = false;
+
+        if (type == GL_UNSIGNED_BYTE)
+        {
+            isConvertedIBO = true;
+            GLsizei count = *pCount;
+            const uint8_t* src = nullptr;
+
+            if (pVAO->elementBuffer != 0)
+            {
+                auto* bufObj = MG_State_T::bufferState->GetBufferObject(pVAO->elementBuffer);
+                if (!bufObj)
+                {
+                    MG_Util::Debug::LogE("EBO not found for VAO");
+                    return;
+                }
+                size_t offset = reinterpret_cast<size_t>(pIndices);
+                if (offset + count > bufObj->data.size())
+                {
+                    MG_Util::Debug::LogE("Index offset out of bounds in EBO");
+                    return;
+                }
+                src = bufObj->data.data() + offset;
+            }
+            else
+            {
+                src = static_cast<const uint8_t*>(pIndices);
+            }
+
+            if (!src)
+            {
+                MG_Util::Debug::LogE("No valid index data for GL_UNSIGNED_BYTE indices");
+                return;
+            }
+
+            // 转换索引数据
+            const void* convertedIndices = ConvertUint8IndicesToUint16(src, count);
+            type = GL_UNSIGNED_SHORT;
+
+            if (!g_ConvertedIndexBuffer ||
+                g_ConvertedIndexBuffer->GetDesc().Size < g_ConvertedIndices.size() * sizeof(uint16_t))
+            {
+                if (g_ConvertedIndexBuffer) {
+                    g_ConvertedIndexBuffer->Release();
+                    g_ConvertedIndexBuffer = nullptr;
+                }
+
+                Diligent::BufferDesc BuffDesc;
+                BuffDesc.Name = "Converted U8 to U16 Temp Index Buffer";
+                BuffDesc.Size = g_ConvertedIndices.size() * sizeof(uint16_t);
+                BuffDesc.Usage = Diligent::USAGE_DYNAMIC;
+                BuffDesc.BindFlags = Diligent::BIND_INDEX_BUFFER;
+                //BuffDesc.CPUAccessFlags = Diligent::CPU_ACCESS_WRITE; // 添加CPU访问标志
+                MG_Diligent::g_pDevice->CreateBuffer(BuffDesc, nullptr, &g_ConvertedIndexBuffer);
+            }
+
+            if (g_ConvertedIndexBuffer) {
+                void* pMappedData = nullptr;
+                MG_Diligent::g_pContext->MapBuffer(g_ConvertedIndexBuffer, Diligent::MAP_WRITE,
+                    Diligent::MAP_FLAG_DISCARD, pMappedData);
+                if (pMappedData) {
+                    memcpy(pMappedData, g_ConvertedIndices.data(),
+                        g_ConvertedIndices.size() * sizeof(uint16_t));
+                    MG_Diligent::g_pContext->UnmapBuffer(g_ConvertedIndexBuffer, Diligent::MAP_WRITE);
+                }
+
+                // 关键修改：正确设置索引缓冲区
+                MG_Diligent::g_pContext->SetIndexBuffer(g_ConvertedIndexBuffer, 0,
+                    Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
+
+                // 设置 pIndices 为 nullptr 表示使用整个缓冲区
+                pIndices = nullptr;
+            }
+            else {
+                MG_Util::Debug::LogE("Failed to create converted index buffer for GL_UNSIGNED_BYTE indices");
+                // 设置 pIndices 为 nullptr 避免后续错误处理
+                pIndices = nullptr;
+            }
+        }
+
         GLuint program = MG_State::GetCurrentProgram();
        
         if (program == 0) {
@@ -491,12 +593,6 @@ namespace MG_GL::GL {
         }
 
         MG_Diligent::g_pContext->SetPipelineState(programInfo.pPipelineState);
-
-        auto* pVAO = MG_State_T::vertexArrayState->GetCurrentVAO();
-        if (!pVAO) {
-            MG_Util::Debug::LogE("No current VAO found. A VAO must be bound before drawing.");
-            return;
-        }
 
         for (uint32_t attribIndex = 0; attribIndex < MG_Constants::VertexArray::MAX_VERTEX_ATTRIBS; ++attribIndex) {
             const auto& attrib = pVAO->attribs[attribIndex];
@@ -625,7 +721,7 @@ namespace MG_GL::GL {
                     MG_Util::Debug::LogE("Failed to create dynamic index buffer %u", buffer);
                 }
             }
-            if (pBuffer)
+            if (pBuffer && !isConvertedIBO)
             {
                 MG_Diligent::g_pContext->SetIndexBuffer(pBuffer, 0, Diligent::RESOURCE_STATE_TRANSITION_MODE_TRANSITION);
             }
@@ -721,20 +817,24 @@ namespace MG_GL::GL {
     }
 
     void DrawElements(GLenum mode, GLsizei count, GLenum type, const void* indices) {
+        GLenum actualType = type;
         const void* pIndices = indices;
-        PrepareForDraw(mode, &count, type, pIndices);
+        PrepareForDraw(mode, &count, actualType, pIndices);
         
         Diligent::DrawIndexedAttribs drawAttrs;
         drawAttrs.NumIndices = count;
         drawAttrs.Flags = Diligent::DRAW_FLAG_VERIFY_ALL;
-        drawAttrs.IndexType = ConvertGLTypeToDiligent(type);
-
+        Diligent::VALUE_TYPE indexType = ConvertGLTypeToDiligent(actualType);
+		drawAttrs.IndexType = indexType;
         auto* pVAO = MG_State_T::vertexArrayState->GetCurrentVAO();
         if (pIndices != nullptr && pVAO != nullptr && pVAO->elementBuffer != 0) {
             size_t indexSize = 1;
             if (drawAttrs.IndexType == Diligent::VT_UINT16) indexSize = 2;
             else if (drawAttrs.IndexType == Diligent::VT_UINT32) indexSize = 4;
-            drawAttrs.FirstIndexLocation = static_cast<Diligent::Uint32>(reinterpret_cast<uintptr_t>(pIndices) / indexSize);
+            if (isConvertedIBO)
+                drawAttrs.FirstIndexLocation = 0;
+            else
+                drawAttrs.FirstIndexLocation = static_cast<Diligent::Uint32>(reinterpret_cast<uintptr_t>(pIndices) / indexSize);
         }
 
         MG_Util::Debug::LogD("DrawIndexedAttribs Dump:");
@@ -758,6 +858,10 @@ namespace MG_GL::GL {
     }
 
     void DrawElementsBaseVertex(GLenum mode, GLsizei count, GLenum type, const GLvoid *indices, GLint basevertex) {
+        GLenum actualType = type;
+        const void* pIndices = indices;
+        PrepareForDraw(mode, &count, actualType, pIndices);
+
         auto* pVAO = MG_State_T::vertexArrayState->GetCurrentVAO();
         if (pVAO->elementBuffer != 0) {
             GLuint buffer = pVAO->elementBuffer;
@@ -939,7 +1043,8 @@ namespace MG_GL::GL {
     }
 
     void MultiDrawElementsBaseVertex(GLenum mode, const GLsizei *count, GLenum type, const GLvoid *const *indices, GLsizei drawcount, const GLint *basevertex) {
-        PrepareForDraw(mode, (GLsizei *)count, type, (const void*&)indices[0]);
+		GLenum actualType = type;
+        PrepareForDraw(mode, (GLsizei *)count, actualType, (const void*&)indices[0]);
 
         auto* pVAO = MG_State_T::vertexArrayState->GetCurrentVAO();
         Diligent::IBuffer* pIndexBuffer = nullptr;
@@ -964,14 +1069,13 @@ namespace MG_GL::GL {
         std::vector<Diligent::MultiDrawIndexedItem> drawItems;
         drawItems.reserve(drawcount);
 
-        Diligent::VALUE_TYPE indexType = ConvertGLTypeToDiligent(type);
+        Diligent::VALUE_TYPE indexType = ConvertGLTypeToDiligent(actualType);
         Diligent::Uint32 indexSize = 0;
         switch (indexType) {
-            case Diligent::VT_UINT8:  indexSize = 1; break;
             case Diligent::VT_UINT16: indexSize = 2; break;
             case Diligent::VT_UINT32: indexSize = 4; break;
             default:
-                MG_Util::Debug::LogE("Unsupported index type for multi-draw: %d", type);
+                MG_Util::Debug::LogE("Unsupported index type for multi-draw: %d", actualType);
                 return;
         }
 
