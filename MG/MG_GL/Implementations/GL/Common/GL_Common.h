@@ -5,8 +5,6 @@
 #ifndef MOBILEGL_GL_COMMON_H
 #define MOBILEGL_GL_COMMON_H
 
-#include "../../../../Includes.h"
-
 namespace MG_GL::GL {
     void ClearDepth(GLdouble depth);
     void ClearColor(GLfloat red, GLfloat green, GLfloat blue, GLfloat alpha);

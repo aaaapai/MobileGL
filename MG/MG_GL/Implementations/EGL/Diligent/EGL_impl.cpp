@@ -2,10 +2,6 @@
 // Created by Swung 0x48 on 2025-05-18.
 //
 
-#include "EGL_impl.h"
-
-#undef MOBILEGL_GLSLTOOL_H
-#undef MOBILEGL_PROGRAM_DEBUGTOOL_H
 #include "../../../../Includes.h"
 
 typedef Diligent::IEngineFactoryVk* (*Diligent_GetEngineFactoryVk_t)();

@@ -5,8 +5,6 @@
 #ifndef MOBILEGL_DILIGENT_EGL_IMPL_H
 #define MOBILEGL_DILIGENT_EGL_IMPL_H
 
-#include "../../../../Includes.h"
-
 #if BACKEND_TYPE == BACKEND_DILIGENT
 
 namespace MG_Diligent {

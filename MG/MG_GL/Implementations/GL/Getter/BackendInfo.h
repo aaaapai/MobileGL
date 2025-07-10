@@ -5,8 +5,6 @@
 #ifndef MOBILEGL_BACKENDINFO_H
 #define MOBILEGL_BACKENDINFO_H
 
-#include "../../../../Includes.h"
-
 namespace MG_GL::Getter {
     const std::string GetGPUName();
     const std::string GetBackendName();

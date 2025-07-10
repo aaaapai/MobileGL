@@ -2,7 +2,7 @@
 // Created by BZLZHH on 2025/3/15.
 //
 
-#include "GL_Getter.h"
+#include "../../../../Includes.h"
 
 namespace MG_GL::GL {
     static std::string rendererString;

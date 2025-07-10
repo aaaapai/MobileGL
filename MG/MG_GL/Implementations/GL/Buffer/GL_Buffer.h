@@ -5,8 +5,6 @@
 #ifndef MOBILEGL_GL_BUFFER_H
 #define MOBILEGL_GL_BUFFER_H
 
-#include "../../../../Includes.h"
-
 namespace MG_GL::GL {
     void* MapBufferRange(GLenum target, GLintptr offset, GLsizeiptr length, GLbitfield access);
     void FlushMappedBufferRange(GLenum target, GLintptr offset, GLsizeiptr length);

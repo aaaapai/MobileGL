@@ -3,7 +3,6 @@
 //
 
 #pragma once
-#include "../../../../Includes.h"
 
 namespace MG_Diligent {
     inline const int DILIGENT_BACKEND_TYPE = MG_Constants::Backend::BACKEND_DILIGENT_VULKAN;

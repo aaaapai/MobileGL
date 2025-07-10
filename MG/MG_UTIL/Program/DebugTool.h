@@ -4,7 +4,6 @@
 
 #ifndef MOBILEGL_PROGRAM_DEBUGTOOL_H
 #define MOBILEGL_PROGRAM_DEBUGTOOL_H
-#include "../../Includes.h"
 
 namespace MG_Util::Program {
     std::string GLTypeToString(GLenum type);

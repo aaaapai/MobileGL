@@ -2,9 +2,6 @@
 // Created by BZLZHH on 2025/3/15.
 //
 
-#include "GL_Program.h"
-
-#undef MOBILEGL_GLSLTOOL_H
 #include "../../../../Includes.h"
 
 namespace MG_GL::GL {

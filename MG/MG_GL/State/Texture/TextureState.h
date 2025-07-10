@@ -4,10 +4,6 @@
 
 #ifndef MOBILEGL_TEXTURESTATE_H
 #define MOBILEGL_TEXTURESTATE_H
-#define MOBILEGL_GLSTATE_H
-#define MOBILEGL_DILIGENT_EGL_IMPL_H
-
-#include "../../../Includes.h"
 
 struct ComponentSizes {
     GLint red = 0;  

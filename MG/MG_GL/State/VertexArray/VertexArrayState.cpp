@@ -4,7 +4,7 @@
 
 // TODO: Add more gl error check for vertex array state manager.
 
-#include "VertexArrayState.h"
+#include "../../../Includes.h"
 
 VertexArrayState::VertexArrayState() {
     vaos_[0];

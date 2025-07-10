@@ -2,7 +2,7 @@
 // Created by BZLZHH on 2025/4/4.
 //
 
-#include "GLState.h"
+#include "../../../Includes.h"
 
 std::queue<GLenum> MG_State_T::glErrorQueue;
 TextureState* MG_State_T::textureState = nullptr;

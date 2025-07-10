@@ -4,7 +4,7 @@
 
 // TODO: Add more gl error check for buffer state manager.
 
-#include "BufferState.h"
+#include "../../../Includes.h"
 
 //GLenum BufferState::GenName(GLuint *buffer) {
 //    MG_Util::Debug::LogD("MG_State: Buffer: GenName");
