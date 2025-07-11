@@ -7,7 +7,7 @@
 #define MOBILEGL_LOG_ENABLE_ANDROID 1
 
 #ifdef __ANDROID__
-#define MOBILEGL_LOG_FILE_PATH "/sdcard/MG/mobilegl_log.txt"
+#define MOBILEGL_LOG_FILE_PATH "/sdcard/MG/latest.log"
 #elif
 #define MOBILEGL_LOG_FILE_PATH ""
 #endif
