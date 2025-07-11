@@ -1,0 +1,27 @@
+name: Build MobileGL
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@main
+      with:
+        submodules: recursive
+        fetch-depth: 1
+
+    - name: Configure CMake and Build
+      run: |
+          git submodule update --remote --recursive
+          git add .
+          bash android_ci_build.bash
+
+    - name: Upload build output
+      uses: actions/upload-artifact@main
+      with:
+        name: MG
+        path: build/*.so
+
