@@ -4,6 +4,18 @@
 #define __ANDROID_API__ 26 // fix pthread_getname_np not defined
 #endif
 
+#ifdef _WIN32
+#define MOBILEGL_EXPORT extern "C" __declspec(dllexport)
+#else
+#define MOBILEGL_EXPORT extern "C" __attribute__((visibility("default")))
+#endif
+
+#define MOBILEGL_API MOBILEGL_EXPORT
+
+#define MOBILEGL_GLX_API MOBILEGL_API
+#define MOBILEGL_GL_API  MOBILEGL_API
+#define MOBILEGL_EGL_API MOBILEGL_API
+
 #include <cstring>
 #include <iostream>
 #include <cstdio>
@@ -57,3 +69,4 @@
 
 #include "MG_Util/Debug/Log.h"
 #include "Config.h"
+#include "MG_Impl/GLXImpl/LookUp/LookUp.h"
