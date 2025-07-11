@@ -39,13 +39,12 @@
 #ifdef __ANDROID__
 #include <android/log.h>
 #include <pthread.h>
+#include <vulkan/vulkan.h>
 #include <vulkan/vulkan_android.h>
 #include <android/native_window.h>
 #include <dlfcn.h>
 #include <unistd.h>
-#include <vulkan/vulkan.h>
 #elif defined(_WIN32)
-#include <Windows.h>
 #include <windows.h>
 #include <processthreadsapi.h>
 #else
