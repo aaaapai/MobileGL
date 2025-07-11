@@ -1,6 +1,8 @@
 #include "../../../Includes.h"
 
 namespace MG_Impl::GLXImpl {
+	// TODO: Implement complete glx functionality
+
     void* GetProcAddress(const char* name) {
         MGLOG_D("glXGetProcAddress(\"%s\")", name);
         void* proc = dlsym(RTLD_DEFAULT, (const char*)name);

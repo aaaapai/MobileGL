@@ -1,0 +1,101 @@
+#include "../../../Includes.h"
+
+namespace MobileGL {
+    namespace MG_Impl::EGLImpl {
+		// TODO: Implement complete EGL functionality
+
+        EGLSurface CreateWindowSurface(EGLDisplay dpy, EGLConfig config, NativeWindowType window,
+            const EGLint* attrib_list) {
+            return (EGLSurface)1;
+        }
+
+        EGLBoolean ChooseConfig(EGLDisplay dpy, const EGLint* attrib_list, EGLConfig* configs,
+            EGLint config_size, EGLint* num_config) {
+            *num_config = 1;
+            return EGL_TRUE;
+        }
+
+        EGLContext CreateContext(EGLDisplay dpy, EGLConfig config, EGLContext shareCtx,
+            const EGLint* attrib_list) {
+            return (EGLContext)1;
+        }
+
+        EGLBoolean Initialize(EGLDisplay dpy, EGLint* major, EGLint* minor) {
+            if (major) *major = 1;
+            if (minor) *minor = 5;
+            return EGL_TRUE;
+        }
+
+        EGLDisplay GetDisplay(NativeDisplayType display) {
+            return (EGLDisplay)1;
+        }
+
+        EGLint GetError() {
+            return EGL_SUCCESS;
+        }
+
+        EGLBoolean MakeCurrent(EGLDisplay dpy, EGLSurface draw, EGLSurface read, EGLContext ctx) {
+            return EGL_TRUE;
+        }
+
+        EGLBoolean DestroyContext(EGLDisplay dpy, EGLContext ctx) {
+            return EGL_TRUE;
+        }
+
+        EGLBoolean DestroySurface(EGLDisplay dpy, EGLSurface surface) {
+            return EGL_TRUE;
+        }
+
+        EGLBoolean Terminate(EGLDisplay dpy) {
+            return EGL_TRUE;
+        }
+
+        EGLBoolean ReleaseThread(void) {
+            return EGL_TRUE;
+        }
+
+        EGLContext GetCurrentContext(void) {
+            return (EGLContext)1;
+        }
+
+        EGLBoolean GetConfigAttrib(EGLDisplay dpy, EGLConfig config, EGLint attribute, EGLint* value) {
+            if (attribute == EGL_NATIVE_VISUAL_ID)
+                *value = AHARDWAREBUFFER_FORMAT_R8G8B8A8_UNORM;
+            return EGL_TRUE;
+        }
+
+        EGLBoolean BindAPI(EGLenum api) {
+            return EGL_TRUE;
+        }
+
+        EGLSurface GetCurrentSurface(EGLint readdraw) {
+            return (EGLSurface)1;
+        }
+
+        EGLBoolean QuerySurface(EGLDisplay display, EGLSurface surface, EGLint attribute, EGLint* value) {
+            return EGL_TRUE;
+        }
+
+        EGLBoolean SwapInterval(EGLDisplay dpy, EGLint interval) {
+            return EGL_TRUE;
+        }
+
+        EGLBoolean SwapBuffers(EGLDisplay dpy, EGLSurface draw) {
+            return EGL_TRUE;
+        }
+
+        EGLSurface CreatePbufferSurface(EGLDisplay dpy, EGLConfig config, const EGLint* attrib_list) {
+            return (EGLSurface)1;
+        }
+
+        __eglMustCastToProperFunctionPointerType GetProcAddress(const char* name) {
+            MGLOG_D("eglGetProcAddress(%s)", name);
+            void* proc = dlsym(RTLD_DEFAULT, (const char*)name);
+            if (!proc) {
+                MGLOG_W("Failed to get function: %s", (const char*)name);
+                return nullptr;
+            }
+			return (__eglMustCastToProperFunctionPointerType)proc;
+		}
+    }
+}
