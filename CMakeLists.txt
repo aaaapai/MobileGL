@@ -17,7 +17,9 @@ find_library(GLSLANG_LIB glslang PATHS ${CMAKE_SOURCE_DIR}/libraries/arm64-v8a/)
 add_library(${CMAKE_PROJECT_NAME} SHARED 
     MobileGL/Init.cpp
 
-    MobileGL/MG_Util/Debug/Log.cpp 
+    MobileGL/MG_Util/Debug/Log.cpp
+
+    MobileGL/MG_Util/Converters/GLToStr/GLEnumConverter.cpp
 
     MobileGL/MG_Impl/GLXImpl/Exporting/Definitions.cpp
     MobileGL/MG_Impl/GLXImpl/LookUp/LookUp.cpp

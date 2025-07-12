@@ -68,6 +68,9 @@
 #include <GL/glext.h>
 
 #include "MG_Util/Debug/Log.h"
+#include "MG_Util/Converters/GLToStr/GLEnumConverter.h"
+
 #include "Config.h"
+
 #include "MG_Impl/GLXImpl/LookUp/LookUp.h"
 #include "MG_Impl/EGLImpl/Temporary/TemporaryEGLImpl.h"
