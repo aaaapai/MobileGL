@@ -23,6 +23,7 @@
 #include <chrono>
 #include <thread>
 #include <string>
+#include <string_view>
 #include <map>
 #include <vector>
 #include <cctype>
@@ -67,10 +68,17 @@
 #include <GL/gl.h>
 #include <GL/glext.h>
 
+#include "MG_Util/GLExtensions.h"
+#include "MG_Util/Types.h"
 #include "MG_Util/Debug/Log.h"
 #include "MG_Util/Converters/GLToStr/GLEnumConverter.h"
+#include "MG_Util/Converters/MGToStr/GLExtensionConverter.h"
+
+#include "MG_Backend/Backends.h"
 
 #include "Config.h"
 
 #include "MG_Impl/GLXImpl/LookUp/LookUp.h"
 #include "MG_Impl/EGLImpl/Temporary/TemporaryEGLImpl.h"
+
+#include "MG_Impl/GLImpl/Getter/GL_Getter.h"

@@ -20,12 +20,19 @@ add_library(${CMAKE_PROJECT_NAME} SHARED
     MobileGL/MG_Util/Debug/Log.cpp
 
     MobileGL/MG_Util/Converters/GLToStr/GLEnumConverter.cpp
+    MobileGL/MG_Util/Converters/MGToStr/GLExtensionConverter.cpp
 
     MobileGL/MG_Impl/GLXImpl/Exporting/Definitions.cpp
     MobileGL/MG_Impl/GLXImpl/LookUp/LookUp.cpp
 
     MobileGL/MG_Impl/EGLImpl/Exporting/Definitions.cpp
     MobileGL/MG_Impl/EGLImpl/Temporary/TemporaryEGLImpl.cpp
+    
+    MobileGL/MG_Impl/GLImpl/Exporting/Definitions.cpp
+    MobileGL/MG_Impl/GLImpl/Getter/GL_Getter.cpp
+
+    MobileGL/MG_Backend/Init.cpp 
+    
 )
 
 target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE

@@ -2,6 +2,6 @@
 
 namespace MobileGL {
 	namespace MG_Util {
-		String ConvertGLEnumToString(GLenum value);
+		String ConvertetGLExtToString(GLExtension extension);
 	}
 }

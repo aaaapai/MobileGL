@@ -4,6 +4,7 @@ namespace MobileGL {
     void MG_Initialize() {
         MG_Util::Debug::InitFile();
 		MGLOG_I("MobileGL Initializing...");
+        MG_Backend::Init();
     }
 
     void MG_Destroy() {

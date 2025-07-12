@@ -2,7 +2,7 @@
 
 namespace MobileGL {
 	namespace MG_Util {
-		std::string ConvertGLEnumToString(GLenum value) {
+        String ConvertGLEnumToString(GLenum value) {
             switch (value) {
 #define CASE(value) \
     case value: return #value;
