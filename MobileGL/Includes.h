@@ -39,11 +39,15 @@
 #include <queue>
 #include <format>
 #include <memory>
+#include <functional>
+
 #include <glslang/Public/ShaderLang.h>
 #include <glslang/Include/Types.h>
 #include <glslang/Public/ShaderLang.h>
 #include <spirv_cross/spirv_cross_c.h>
 #include <glslang/SPIRV/GlslangToSpv.h>
+#include <glslang/Include/intermediate.h>
+#include <glslang/MachineIndependent/localintermediate.h>
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/glm.hpp>
 #include <ankerl/unordered_dense.h>
@@ -82,3 +86,7 @@
 #include "MG_Impl/EGLImpl/Temporary/TemporaryEGLImpl.h"
 
 #include "MG_Impl/GLImpl/Getter/GL_Getter.h"
+
+#include "MG_Util/Pipelines/Pipeline.hpp"
+
+#include "MG_Util/Pipelines/Pipelines/Shader/GLSLtoSPIRVPipeline.h"

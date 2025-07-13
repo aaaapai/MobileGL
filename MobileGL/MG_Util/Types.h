@@ -47,6 +47,8 @@ namespace MobileGL {
 	using NulloptT = std::nullopt_t;
 	const NulloptT Nullopt = std::nullopt;
 
+    using std::format;
+
 	using Data = Vector<Uint8>;
 	struct DataPtr {
 		void* data;
