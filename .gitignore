@@ -6,3 +6,4 @@
 .cxx
 /.vs
 /out/build
+CMakeSettings.json
