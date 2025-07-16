@@ -2,6 +2,7 @@
 
 namespace MobileGL {
 	using String = std::string;
+	using StringStream = std::stringstream;
 	using Int8 = int8_t;
 	using Uint8 = uint8_t;
 	using Int16 = int16_t;
@@ -17,6 +18,8 @@ namespace MobileGL {
 	using Double = double;
 	template <typename T>
 	using Vector = std::vector<T>;
+	template <typename T, typename N>
+	using Pair = std::pair<T, N>;
 	template <typename T>
 	using SharedPtr = std::shared_ptr<T>;
 	template <typename T>
@@ -61,12 +64,11 @@ namespace MobileGL {
 		Int Patch;
 		Optional<String> Suffix;
 
-		String toString() const {
-			String versionStr = std::format("{}.{}.{}", Major, Minor, Patch);
-			if (Suffix.has_value()) {
-				versionStr += std::format("{}", Suffix.value());
-			}
-			return versionStr;
+		String toString(Pair<Bool, Bool> dots = { true, true }, Bool useSuffix = true) const {
+			StringStream result;
+			result << Major << (dots.first ? "." : "") << Minor << (dots.second ? "." : "") << Patch << 
+				(useSuffix && Suffix.has_value() ? *Suffix : "");
+			return result.str();
 		}
 	};
 

@@ -43,8 +43,9 @@ namespace MobileGL {
             case GL_SHADING_LANGUAGE_VERSION:
                 static String shadingLanguageVersion;
                 if (shadingLanguageVersion.empty()) {
-                    shadingLanguageVersion = std::format("{} MobileGL", 
-                        MG_Config::RendererInfoPtr->RendererGLInfo.TargetGLSLVersion.toString().c_str());
+                    shadingLanguageVersion = std::format("{} MobileGL",
+                        MG_Config::RendererInfoPtr->RendererGLInfo.TargetGLSLVersion.toString(
+                            { true, false }).c_str());
                 }
                 return (const GLubyte*)shadingLanguageVersion.c_str();
             case GL_EXTENSIONS:
