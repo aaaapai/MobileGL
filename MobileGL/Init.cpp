@@ -5,10 +5,12 @@ namespace MobileGL {
         MG_Util::Debug::InitFile();
 		MGLOG_I("MobileGL Initializing...");
         MG_Backend::Init();
+        glslang::InitializeProcess();
     }
 
     void MG_Destroy() {
         MGLOG_I("MobileGL Closing...");
+        glslang::FinalizeProcess();
         MG_Util::Debug::Close();
     }
 

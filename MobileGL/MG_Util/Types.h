@@ -126,3 +126,5 @@ namespace MobileGL {
 		BackendCap BackendCapability;
 	};
 }
+
+#include "Pipelines/Types.h"

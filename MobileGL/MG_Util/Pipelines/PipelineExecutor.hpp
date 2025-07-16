@@ -1,48 +1,48 @@
  #pragma once
 
-#ifndef MG_PIPELINE_HPP
-#define MG_PIPELINE_HPP
+#ifndef MG_PIPELINEEXECUTOR_HPP
+#define MG_PIPELINEEXECUTOR_HPP
 
 namespace MobileGL {
     namespace MG_Util {
         namespace Pipeline {
             using next_t = std::function<void()>;
-            using next_ptr_t = std::shared_ptr<next_t>;
+            using next_ptr_t = SharedPtr<next_t>;
 
             template<typename T>
             class Stage {
             protected:
-                using T_ptr = std::shared_ptr<T>;
+                using T_ptr = SharedPtr<T>;
                 using callback_t = std::function<void(T_ptr, next_ptr_t)>;
             public:
                 virtual callback_t handler() = 0;
             };
 
             template<typename T>
-            class Pipeline {
+            class PipelineExecutor {
             protected:
-                using T_ptr = std::shared_ptr<T>;
+                using T_ptr = SharedPtr<T>;
                 using callback_t = std::function<void(T_ptr, next_ptr_t)>;
-                using middleware_ptr_t = std::shared_ptr<Stage<T>>;
+                using middleware_ptr_t = SharedPtr<Stage<T>>;
             public:
-                explicit Pipeline(std::function<void(T &)> callback) :
+                explicit PipelineExecutor(std::function<void(T &)> callback) :
                         callback_(Move(callback)) {}
 
-                Pipeline &Register(callback_t middleware) {
+                PipelineExecutor &Register(callback_t middleware) {
                     middlewares_.emplace_back(Move(middleware));
                     return *this;
                 }
 
-                Pipeline &Register(middleware_ptr_t middleware) {
+                PipelineExecutor &Register(middleware_ptr_t middleware) {
                     middleware_storage_.emplace_back(middleware);
                     Register(middleware->handler());
                     return *this;
                 }
 
                 void Process(T_ptr payload) {
-                    auto it_ptr = std::make_shared<typename std::vector<callback_t>::iterator>(
+                    auto it_ptr = MakeShared<typename Vector<callback_t>::iterator>(
                             middlewares_.begin());
-                    auto next = std::make_shared<next_t>();
+                    auto next = MakeShared<next_t>();
                     auto weak_next = std::weak_ptr<next_t>(next);
 
                     // setup next callback
@@ -66,12 +66,12 @@ namespace MobileGL {
                 }
 
             private:
-                std::vector<callback_t> middlewares_;
-                std::vector<middleware_ptr_t> middleware_storage_;
+                Vector<callback_t> middlewares_;
+                Vector<middleware_ptr_t> middleware_storage_;
                 std::function<void(T &)> callback_;
             };
         }
     }
 }
 
-#endif //MG_PIPELINE_HPP
+#endif //MG_PIPELINEEXECUTOR_HPP
