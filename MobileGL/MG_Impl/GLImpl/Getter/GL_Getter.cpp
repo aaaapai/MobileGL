@@ -96,8 +96,11 @@ namespace MobileGL {
 
             switch (pname) {
                 // General
+            case GL_CONTEXT_FLAGS:
+                params[0] = 0;
             case GL_CONTEXT_PROFILE_MASK:
-                params[0] = GL_CONTEXT_CORE_PROFILE_BIT;
+                params[0] = MG_Config::RendererInfoPtr->RendererGLInfo.IsCompatibilityProfile ? 
+                    GL_CONTEXT_COMPATIBILITY_PROFILE_BIT : GL_CONTEXT_CORE_PROFILE_BIT;
                 break;
             case GL_NUM_EXTENSIONS:
                 params[0] = MG_Config::RendererInfoPtr->RendererGLInfo.Extensions.size();
