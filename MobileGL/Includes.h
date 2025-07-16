@@ -87,6 +87,6 @@
 
 #include "MG_Impl/GLImpl/Getter/GL_Getter.h"
 
-#include "MG_Util/Pipelines/Pipeline.hpp"
+#include "MG_Util/Pipelines/PipelineExecutor.hpp"
 
-#include "MG_Util/Pipelines/Shader/GLSLtoSPIRVPipeline.h"
+#include "MG_Util/Pipelines/ShaderCompilationPipeline.h"

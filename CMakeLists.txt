@@ -33,7 +33,8 @@ add_library(${CMAKE_PROJECT_NAME} SHARED
 
     MobileGL/MG_Backend/Init.cpp 
 
-    MobileGL/MG_Util/Pipelines/Shader/GLSLtoSPIRVPipeline.cpp
+    MobileGL/MG_Util/Pipelines/ShaderCompilationPipeline.cpp
+    MobileGL/MG_Util/Pipelines/ProgramLinkingPipeline.cpp
 )
 
 target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE
