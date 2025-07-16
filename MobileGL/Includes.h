@@ -72,6 +72,7 @@
 #include <GL/gl.h>
 #include <GL/glext.h>
 
+#include "MG_Util/Miscellany/IndexGenerator.h"
 #include "MG_Util/GLExtensions.h"
 #include "MG_Util/Types.h"
 #include "MG_Util/Debug/Log.h"
@@ -90,3 +91,7 @@
 #include "MG_Util/Pipelines/Pipeline.hpp"
 
 #include "MG_Util/Pipelines/Shader/GLSLtoSPIRVPipeline.h"
+
+#include "MG_State/GLState/BufferState/BufferObject.h"
+#include "MG_State/GLState/BufferState/BufferState.h"
+#include "MG_State/GLState/Core.h"

@@ -58,6 +58,41 @@ namespace MobileGL {
 		SizeT size;
 	};
 
+	enum class DataType {
+		Int8,
+		Uint8,
+		Int16,
+		Uint16,
+		Int32,
+		Uint32,
+		Float16,
+		Float32,
+		Float64,
+		Fixed32 
+	};
+
+	struct Range1D {
+		const SizeT maxEnd;
+		const SizeT minStart;
+		SizeT start;
+		SizeT end;
+
+		Range1D(SizeT minStart_, SizeT maxEnd_)
+			: minStart(minStart_), maxEnd(maxEnd_), start(minStart_), end(minStart_) {
+			if (minStart_ >= maxEnd_) {
+				throw RuntimeError("Invalid range: minStart must be less than maxEnd");
+			}
+		}
+
+		void Extend(SizeT newStart, SizeT newEnd) {
+			if (newStart < minStart || newEnd > maxEnd) {
+				throw RuntimeError("Range exceeds bounds");
+			}
+			start = std::min(start, newStart);
+			end = std::max(end, newEnd);
+		}
+	};
+
 	struct Version {
 		Int Major;
 		Int Minor;
