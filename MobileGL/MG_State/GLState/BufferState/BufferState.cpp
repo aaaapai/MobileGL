@@ -11,7 +11,7 @@ namespace MobileGL {
 				m_dirtyRange->Extend(0, m_size);
 			}
 
-			void* BufferObject::AquireMemory(Bool markMapped = true, Bool read, Bool write) {
+			void* BufferObject::AquireMemory(Bool markMapped, Bool read, Bool write) {
 				if (markMapped) {
 					m_isMapped = true;
 					m_mappingAccess = (read ? BufferMappingAccessBit::Read : BufferMappingAccessBit::Null) |

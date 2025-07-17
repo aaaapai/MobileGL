@@ -8,7 +8,7 @@
 
 #ifdef __ANDROID__
 #define MOBILEGL_LOG_FILE_PATH "/sdcard/MG/latest.log"
-#elif
+#else
 #define MOBILEGL_LOG_FILE_PATH ""
 #endif
 
