@@ -84,7 +84,7 @@ namespace MobileGL {
 			}
 		}
 
-		void Extend(SizeT newStart, SizeT newEnd) {
+		void UnionUpdate(SizeT newStart, SizeT newEnd) {
 			if (newStart < minStart || newEnd > maxEnd) {
 				throw RuntimeError("Range exceeds bounds");
 			}

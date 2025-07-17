@@ -71,8 +71,8 @@ namespace MobileGL {
 				SizeT GetSize() const;
 				BufferUsage GetUsage() const;
 				Range1D GetDirtyRange() const;
-				void* AquireMemory(Bool markMapped, Bool read, Bool write);
-				void* AquireMemoryRange(Range1D range, BufferMappingAccessBit access);
+				void* AcquireMemory(Bool markMapped, Bool read, Bool write);
+				void* AcquireMemoryRange(Range1D range, BufferMappingAccessBit access);
 				Bool IsMapped() const;
 
 			private:

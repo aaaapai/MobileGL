@@ -8,10 +8,10 @@ namespace MobileGL {
 				m_size = data.size;
 				memcpy(m_data.data(), data.data, data.size);
 				m_dirtyRange = MakeUnique<Range1D>(0, m_size);
-				m_dirtyRange->Extend(0, m_size);
+                m_dirtyRange->UnionUpdate(0, m_size);
 			}
 
-			void* BufferObject::AquireMemory(Bool markMapped, Bool read, Bool write) {
+			void* BufferObject::AcquireMemory(Bool markMapped, Bool read, Bool write) {
 				if (markMapped) {
 					m_isMapped = true;
 					m_mappingAccess = (read ? BufferMappingAccessBit::Read : BufferMappingAccessBit::Null) |
@@ -20,7 +20,7 @@ namespace MobileGL {
 				return m_data.data();
 			}
 
-			void* BufferObject::AquireMemoryRange(Range1D range, BufferMappingAccessBit access) {
+			void* BufferObject::AcquireMemoryRange(Range1D range, BufferMappingAccessBit access) {
 				m_isMapped = true;
 				m_mappingAccess = access;
 				return m_data.data() + range.start;
