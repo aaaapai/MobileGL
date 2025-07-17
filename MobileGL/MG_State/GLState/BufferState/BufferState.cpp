@@ -3,6 +3,7 @@
 namespace MobileGL {
 	namespace MG_State {
 		namespace GLState {
+			// BufferObject
 			void BufferObject::UploadData(DataPtr data) {
 				m_size = data.size;
 				memcpy(m_data.data(), data.data, data.size);
@@ -10,18 +11,19 @@ namespace MobileGL {
 				m_dirtyRange->Extend(0, m_size);
 			}
 
-			SharedPtr<Data> BufferObject::AquireMemory(Bool markMapped = true) {
+			void* BufferObject::AquireMemory(Bool markMapped = true, Bool read, Bool write) {
 				if (markMapped) {
 					m_isMapped = true;
-					m_mappingAccess = BufferMappingAccessBit::Read | BufferMappingAccessBit::Write;
+					m_mappingAccess = (read ? BufferMappingAccessBit::Read : BufferMappingAccessBit::Null) |
+						(write ? BufferMappingAccessBit::Write : BufferMappingAccessBit::Null);
 				}
-				return MakeShared<Data>(m_data);
+				return m_data.data();
 			}
 
-			SharedPtr<Data> BufferObject::AquireMemoryRange(Range1D range, BufferMappingAccessBit access) {
+			void* BufferObject::AquireMemoryRange(Range1D range, BufferMappingAccessBit access) {
 				m_isMapped = true;
 				m_mappingAccess = access;
-				return MakeShared<Data>(m_data);
+				return m_data.data() + range.start;
 			}
 
 			void BufferObject::SetUsage(BufferUsage usage) {
@@ -42,6 +44,37 @@ namespace MobileGL {
 
 			Bool BufferObject::IsMapped() const {
 				return m_isMapped;
+			}
+
+			// BufferState
+			SharedPtr<BufferObject> BufferState::GetBufferObject(Uint index) {
+				auto it = m_bufferObjects.find(index);
+				if (it != m_bufferObjects.end()) {
+					return it->second;
+				}
+				return nullptr;
+			}
+
+			Vector<Uint> BufferState::GenerateNames(Uint number) {
+				Vector<Uint> buffers(number);
+				m_indexGenerator.Generate(number, buffers.data());
+				return buffers;
+			}
+
+			SharedPtr<BufferObject> BufferState::CreateBufferObject(Uint index) {
+				auto bufferObject = MakeShared<BufferObject>();
+				m_bufferObjects[index] = bufferObject;
+				return bufferObject;
+			}
+
+			BindingSlot<BufferObject>& BufferState::GetBindingSlot(BufferTarget target) {
+				for (auto& slot : m_bindingSlots) {
+					if (slot.GetTarget() == target) {
+						return slot;
+					}
+				}
+				m_bindingSlots.emplace_back(target);
+				return m_bindingSlots.back();
 			}
 		}
 	}

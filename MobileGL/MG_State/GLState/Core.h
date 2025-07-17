@@ -8,16 +8,17 @@ namespace MobileGL {
 				GLContext() = default;
 
 				// Buffer
-				Vector<Uint> GenBuffersByNum(Uint number);
-				SharedPtr<BufferObject> GetBufferObjByIndex(Uint index);
-				SharedPtr<BufferObject> GetBufferObjByTarget(BufferTarget target);
-				SharedPtr<BufferObject> CreateBufferObject(Uint index);
-				void BindBufferTarget(BufferTarget target, SharedPtr<BufferObject> bufferObject);
+				Vector<Uint> GenBufferNames(Uint number);
+				SharedPtr<BufferObject> GetBufferObject(Uint index);
+				BindingSlot<BufferObject>& GetBufferBindingSort(BufferTarget target);
+				SharedPtr<BufferObject> CreateBufferObject(Uint index);	
 
 			private:
 				// Buffer
 				BufferState bufferState_;
 			};
 		}
+
+		extern GLState::GLContext* pGLContext;
 	}
 }

@@ -93,6 +93,32 @@ namespace MobileGL {
 		}
 	};
 
+	template<typename ObjectType>
+	class BindingSlot {
+	public:
+		using TargetEnum = ObjectType::TargetEnum;
+
+		explicit BindingSlot(TargetEnum target)
+			: m_target(target), m_boundObject(nullptr) {
+		}
+
+		void Bind(SharedPtr<ObjectType> object) {
+			m_boundObject = object;
+		}
+
+		SharedPtr<ObjectType> GetBoundObject() const {
+			return m_boundObject;
+		}
+
+		TargetEnum GetTarget() const {
+			return m_target;
+		}
+
+	private:
+		TargetEnum m_target;
+		SharedPtr<ObjectType> m_boundObject;
+	};
+
 	struct Version {
 		Int Major;
 		Int Minor;

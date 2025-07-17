@@ -33,6 +33,7 @@ namespace MobileGL {
 	};
 
 	enum class BufferMappingAccessBit : Uint {
+		Null = 0x00,
 		Read = 0x01,
 		Write = 0x02,
 		InvalidateRange = 0x04,
@@ -65,13 +66,15 @@ namespace MobileGL {
 		namespace GLState {
 			class BufferObject {
 			public:
+				using TargetEnum = BufferTarget;
+
 				void UploadData(DataPtr data);
 				void SetUsage(BufferUsage usage);
 				SizeT GetSize() const;
 				BufferUsage GetUsage() const;
 				Range1D GetDirtyRange() const;
-				SharedPtr<Data> AquireMemory(Bool markMapped);
-				SharedPtr<Data> AquireMemoryRange(Range1D range, BufferMappingAccessBit access);
+				void* AquireMemory(Bool markMapped, Bool read, Bool write);
+				void* AquireMemoryRange(Range1D range, BufferMappingAccessBit access);
 				Bool IsMapped() const;
 
 			private:
