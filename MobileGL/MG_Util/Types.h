@@ -96,7 +96,7 @@ namespace MobileGL {
 	template<typename ObjectType>
 	class BindingSlot {
 	public:
-		using TargetEnum = ObjectType::TargetEnum;
+		using TargetEnum = typename ObjectType::TargetEnum;
 
 		explicit BindingSlot(TargetEnum target)
 			: m_target(target), m_boundObject(nullptr) {
