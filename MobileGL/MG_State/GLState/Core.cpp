@@ -11,7 +11,7 @@ namespace MobileGL {
                 return bufferState_.GetBufferObject(index);
             }
 
-            BindingSlot<BufferObject>& GLContext::GetBufferBindingSort(BufferTarget target) {
+            BindingSlot<BufferObject>& GLContext::GetBufferBindingSlot(BufferTarget target) {
                 return bufferState_.GetBindingSlot(target);
             }
 

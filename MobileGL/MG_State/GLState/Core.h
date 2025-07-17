@@ -10,7 +10,7 @@ namespace MobileGL {
 				// Buffer
 				Vector<Uint> GenBufferNames(Uint number);
 				SharedPtr<BufferObject> GetBufferObject(Uint index);
-				BindingSlot<BufferObject>& GetBufferBindingSort(BufferTarget target);
+				BindingSlot<BufferObject>& GetBufferBindingSlot(BufferTarget target);
 				SharedPtr<BufferObject> CreateBufferObject(Uint index);	
 
 			private:
