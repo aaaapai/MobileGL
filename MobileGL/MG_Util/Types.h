@@ -91,6 +91,14 @@ namespace MobileGL {
 			start = std::min(start, newStart);
 			end = std::max(end, newEnd);
 		}
+
+		void IntersectionUpdate(SizeT newStart, SizeT newEnd) {
+			start = std::max(start, newStart);
+			end = std::min(end, newEnd);
+			if (start > end) {
+				throw RuntimeError("Invalid intersection: start must be less than end");
+			}
+		}
 	};
 
 	template<typename ObjectType>
