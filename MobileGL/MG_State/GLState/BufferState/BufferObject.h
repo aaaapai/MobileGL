@@ -5,8 +5,6 @@ namespace MobileGL {
 		Vertex,
 		Index,
 		Uniform,
-		Array,
-		ElementArray,
 		CopyRead,
 		CopyWrite,
 		PixelPack,
