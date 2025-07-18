@@ -32,3 +32,27 @@ TEST_F(BufferTest, Binding) {
     ASSERT_TRUE(arraySlot.GetBoundObject() == obj2);
     ASSERT_TRUE(indexSlot.GetBoundObject() == obj2);
 }
+
+TEST_F(BufferTest, PingPong) {
+    auto& readSlot = glContext.GetBufferBindingSlot(BufferTarget::CopyRead);
+    auto& writeSlot = glContext.GetBufferBindingSlot(BufferTarget::CopyWrite);
+    {
+        auto bufferNames = glContext.GenBufferNames(1);
+        auto bufObj = glContext.CreateBufferObject(bufferNames[0]);
+
+        writeSlot.Bind(bufObj);
+        readSlot.Bind(bufObj);
+    }
+
+    auto bufWrite = writeSlot.GetBoundObject();
+
+    Vector<Int> data { 1, 2, 3, 4, 5 };
+
+    bufWrite->Resize(data.size());
+    DataPtr ptr { .data = data.data(), .size = data.size() };
+    bufWrite->UploadData(ptr, 0);
+
+    auto bufRead = readSlot.GetBoundObject();
+    void* p = bufRead->AcquireMemory(true, true, false);
+    ASSERT_TRUE(memcmp(data.data(), p, data.size()) == 0);
+}

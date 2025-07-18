@@ -66,7 +66,8 @@ namespace MobileGL {
 			public:
 				using TargetEnum = BufferTarget;
 
-				void UploadData(DataPtr data);
+				void Resize(SizeT size);
+				void UploadData(DataPtr data, SizeT atOffset);
 				void SetUsage(BufferUsage usage);
 				SizeT GetSize() const;
 				BufferUsage GetUsage() const;
@@ -82,7 +83,8 @@ namespace MobileGL {
 				Data m_data;
 				Bool m_isMapped;
 				BufferMappingAccessBit m_mappingAccess;
-				UniquePtr<Range1D> m_dirtyRange;
+				// UniquePtr<Range1D> m_dirtyRange;
+				Range1D m_dirtyRange;
 			};
 		}
 	}

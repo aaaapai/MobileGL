@@ -4,11 +4,21 @@ namespace MobileGL {
 	namespace MG_State {
 		namespace GLState {
 			// BufferObject
-			void BufferObject::UploadData(DataPtr data) {
-				m_size = data.size;
-				memcpy(m_data.data(), data.data, data.size);
-				m_dirtyRange = MakeUnique<Range1D>(0, m_size);
-                m_dirtyRange->UnionUpdate(0, m_size);
+			void BufferObject::Resize(SizeT size) {
+				m_size = size;
+				// Always reserve to power-of-2 size to amortize reallocation cost
+				m_data.reserve(std::bit_ceil(size));
+				m_data.resize(size);
+				// no dirty range == discard all data
+				m_dirtyRange.Update(0, 0);
+			}
+
+			void BufferObject::UploadData(DataPtr data, SizeT atOffset) {
+				assert(atOffset + data.size <= m_size);
+				// m_size = data.size;
+				memcpy(m_data.data() + atOffset, data.data, data.size);
+				// m_dirtyRange = MakeUnique<Range1D>(0, m_size);
+                m_dirtyRange.UnionUpdate(atOffset, atOffset + data.size - 1);
 			}
 
 			void* BufferObject::AcquireMemory(Bool markMapped, Bool read, Bool write) {
@@ -39,7 +49,7 @@ namespace MobileGL {
 			}
 
 			Range1D BufferObject::GetDirtyRange() const {
-				return *m_dirtyRange;
+				return m_dirtyRange;
 			}
 
 			Bool BufferObject::IsMapped() const {

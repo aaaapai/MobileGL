@@ -71,33 +71,40 @@ namespace MobileGL {
 		Fixed32 
 	};
 
+	// represents a range of [start, end)
 	struct Range1D {
-		const SizeT maxEnd;
-		const SizeT minStart;
-		SizeT start;
-		SizeT end;
+		// const SizeT maxEnd;
+		// const SizeT minStart;
+		SizeT start = 0;
+		SizeT end = 0;
 
-		Range1D(SizeT minStart_, SizeT maxEnd_)
-			: minStart(minStart_), maxEnd(maxEnd_), start(minStart_), end(minStart_) {
-			if (minStart_ >= maxEnd_) {
-				throw RuntimeError("Invalid range: minStart must be less than maxEnd");
-			}
+		// Range1D(SizeT minStart_, SizeT maxEnd_)
+		// 	: minStart(minStart_), maxEnd(maxEnd_), start(minStart_), end(minStart_) {
+		// 	if (minStart_ >= maxEnd_) {
+		// 		throw RuntimeError("Invalid range: minStart must be less than maxEnd");
+		// 	}
+		// }
+
+		void Update(SizeT newStart, SizeT newEnd) {
+			assert(newStart <= newEnd);
+			start = newStart;
+			end = newEnd;
 		}
 
 		void UnionUpdate(SizeT newStart, SizeT newEnd) {
-			if (newStart < minStart || newEnd > maxEnd) {
-				throw RuntimeError("Range exceeds bounds");
-			}
+			// if (newStart < minStart || newEnd > maxEnd) {
+			// 	throw RuntimeError("Range exceeds bounds");
+			// }
+			assert(newStart <= newEnd);
 			start = std::min(start, newStart);
 			end = std::max(end, newEnd);
 		}
 
 		void IntersectionUpdate(SizeT newStart, SizeT newEnd) {
+			assert(newStart <= newEnd);
 			start = std::max(start, newStart);
 			end = std::min(end, newEnd);
-			if (start > end) {
-				throw RuntimeError("Invalid intersection: start must be less than end");
-			}
+			assert(start <= end);
 		}
 	};
 
