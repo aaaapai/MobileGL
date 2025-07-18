@@ -48,10 +48,12 @@ TEST_F(BufferTest, PingPong) {
 
     Vector<Int> data { 1, 2, 3, 4, 5 };
 
+    // Write data
     bufWrite->Resize(data.size());
     DataPtr ptr { .data = data.data(), .size = data.size() };
     bufWrite->UploadData(ptr, 0);
 
+    // Readback
     auto bufRead = readSlot.GetBoundObject();
     void* p = bufRead->AcquireMemory(true, true, false);
     ASSERT_TRUE(memcmp(data.data(), p, data.size()) == 0);
