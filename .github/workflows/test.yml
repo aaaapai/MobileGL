@@ -1,0 +1,31 @@
+name: Test
+
+on:
+  push:
+    branches: [ Feat/Rewriting ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    env:
+      TEST_ROOT: ${{github.workspace}}/MobileGL/MG_Test
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+        with:
+          submodules: true
+
+      - uses: lukka/get-cmake@latest
+
+      - name: Configure CMake
+        working-directory: ${{env.TEST_ROOT}}
+        run: cmake -S . -B build-test
+
+      - name: Build
+        working-directory: ${{env.TEST_ROOT}}/build-test
+        run: cmake --build . -j${nproc}
+
+      - name: Test
+        working-directory: ${{env.TEST_ROOT}}/build-test
+        run: ctest
