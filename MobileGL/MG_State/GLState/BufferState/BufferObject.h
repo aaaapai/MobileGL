@@ -66,16 +66,24 @@ namespace MobileGL {
 			class BufferObject {
 			public:
 				using TargetEnum = BufferTarget;
+				
+				BufferObject();
 
 				void Resize(SizeT size);
 				void UploadData(DataPtr data, SizeT atOffset);
 				void SetUsage(BufferUsage usage);
+				void* AcquireMemory(Bool markMapped, Bool read, Bool write);
+				void* AcquireMemoryRange(Range1D range, BufferMappingAccessBit access);
+				void ReleaseMemory();
+				void FlushMemoryRange(SizeT offset, SizeT length);
+				void UploadSubData(SizeT offset, SizeT size, const void* data);
+				void CopyDataFrom(const SharedPtr<BufferObject>& src, SizeT srcOffset, SizeT dstOffset, SizeT size);
+				void ClearDirty();
+				
+				Bool IsMapped() const;
 				SizeT GetSize() const;
 				BufferUsage GetUsage() const;
 				Range1D GetDirtyRange() const;
-				void* AcquireMemory(Bool markMapped, Bool read, Bool write);
-				void* AcquireMemoryRange(Range1D range, BufferMappingAccessBit access);
-				Bool IsMapped() const;
 
 			private:
 				Int m_id = 0;
@@ -84,8 +92,10 @@ namespace MobileGL {
 				Data m_data;
 				Bool m_isMapped;
 				BufferMappingAccessBit m_mappingAccess;
-				// UniquePtr<Range1D> m_dirtyRange;
 				Range1D m_dirtyRange;
+				Range1D m_mappedRange;
+				std::vector<Uint8> m_stagingData;
+				bool m_ownsStagingData;
 			};
 		}
 	}

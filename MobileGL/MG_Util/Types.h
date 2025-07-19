@@ -73,17 +73,8 @@ namespace MobileGL {
 
 	// represents a range of [start, end)
 	struct Range1D {
-		// const SizeT maxEnd;
-		// const SizeT minStart;
 		SizeT start = 0;
 		SizeT end = 0;
-
-		// Range1D(SizeT minStart_, SizeT maxEnd_)
-		// 	: minStart(minStart_), maxEnd(maxEnd_), start(minStart_), end(minStart_) {
-		// 	if (minStart_ >= maxEnd_) {
-		// 		throw RuntimeError("Invalid range: minStart must be less than maxEnd");
-		// 	}
-		// }
 
 		void Update(SizeT newStart, SizeT newEnd) {
 			assert(newStart <= newEnd);
@@ -92,10 +83,11 @@ namespace MobileGL {
 		}
 
 		void UnionUpdate(SizeT newStart, SizeT newEnd) {
-			// if (newStart < minStart || newEnd > maxEnd) {
-			// 	throw RuntimeError("Range exceeds bounds");
-			// }
 			assert(newStart <= newEnd);
+			if (start == end) {
+				Update(newStart, newEnd);
+				return;
+			}
 			start = std::min(start, newStart);
 			end = std::max(end, newEnd);
 		}
