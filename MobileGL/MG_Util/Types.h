@@ -113,6 +113,8 @@ namespace MobileGL {
 	public:
 		using TargetEnum = typename ObjectType::TargetEnum;
 
+        BindingSlot(): m_target((TargetEnum)0), m_boundObject(nullptr) {}
+
 		explicit BindingSlot(TargetEnum target)
 			: m_target(target), m_boundObject(nullptr) {
 		}

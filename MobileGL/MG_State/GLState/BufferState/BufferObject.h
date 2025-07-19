@@ -15,7 +15,8 @@ namespace MobileGL {
 		AtomicCounter,
 		DispatchIndirect,
 		DrawIndirect,
-		ShaderStorage
+		ShaderStorage,
+        BufferTargetCount
 	};
 
 	enum class BufferUsage {

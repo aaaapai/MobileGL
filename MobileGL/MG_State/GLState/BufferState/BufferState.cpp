@@ -18,7 +18,7 @@ namespace MobileGL {
 				// m_size = data.size;
 				memcpy(m_data.data() + atOffset, data.data, data.size);
 				// m_dirtyRange = MakeUnique<Range1D>(0, m_size);
-                m_dirtyRange.UnionUpdate(atOffset, atOffset + data.size - 1);
+                m_dirtyRange.UnionUpdate(atOffset, atOffset + data.size);
 			}
 
 			void* BufferObject::AcquireMemory(Bool markMapped, Bool read, Bool write) {
@@ -78,13 +78,7 @@ namespace MobileGL {
 			}
 
 			BindingSlot<BufferObject>& BufferState::GetBindingSlot(BufferTarget target) {
-				for (auto& slot : m_bindingSlots) {
-					if (slot.GetTarget() == target) {
-						return slot;
-					}
-				}
-				m_bindingSlots.emplace_back(target);
-				return m_bindingSlots.back();
+                return m_bindingSlots[(SizeT)target];
 			}
 		}
 	}
