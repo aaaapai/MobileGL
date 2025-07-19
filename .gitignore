@@ -7,3 +7,5 @@
 /.vs
 /out/build
 CMakeSettings.json
+MobileGL/MG_Test/out
+MobileGL/MG_Test/.vs
