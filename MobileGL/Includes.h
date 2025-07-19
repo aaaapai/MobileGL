@@ -16,6 +16,8 @@
 #define MOBILEGL_GL_API  MOBILEGL_API
 #define MOBILEGL_EGL_API MOBILEGL_API
 
+#define NOMINMAX // prevent Windows.h from defining min and max macros
+
 #include <cstring>
 #include <iostream>
 #include <cstdio>
