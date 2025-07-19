@@ -20,7 +20,7 @@ namespace Pipeline {
                 }
 
                 if (!program.link(EShMsgDefault)) {
-                    payload->log += "Error: [glslang] Cannot link the program:\n" + std::to_string(program.getInfoLog());
+                    payload->log += "Error: [glslang] Cannot link the program:\n" + std::string(program.getInfoLog());
                     payload->errc = -1;
 
                     return;

@@ -148,7 +148,7 @@ namespace Pipeline {
                                      /*forceDefaultVersionAndProfile: */false,
                                      /*forwardCompatible: */true, EShMsgDefault)) {
                     payload->log += "Error: [glslang] Cannot compile " + ConvertGLEnumToString(shaderType) + ":\n"
-                               + std::to_string(tshader->getInfoLog());
+                               + std::string(tshader->getInfoLog());
                     payload->errc = -2;
                     return;
                 }
