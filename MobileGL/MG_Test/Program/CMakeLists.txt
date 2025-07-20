@@ -11,16 +11,15 @@ if (${CMAKE_SYSTEM_NAME} MATCHES "Darwin")
     set(spirv_cross_hlsl_DIR $ENV{VULKAN_SDK}/macOS/lib/cmake/spirv_cross_hlsl/cmake)
     set(spirv_cross_msl_DIR $ENV{VULKAN_SDK}/macOS/lib/cmake/spirv_cross_msl/cmake)
     set(spirv_cross_c_DIR $ENV{VULKAN_SDK}/macOS/lib/cmake/spirv_cross_c/cmake)
-
-    find_package(spirv_cross_core CONFIG REQUIRED)
-    find_package(spirv_cross_glsl CONFIG REQUIRED)
-    find_package(spirv_cross_hlsl CONFIG REQUIRED)
-    find_package(spirv_cross_msl CONFIG REQUIRED)
-    find_package(spirv_cross_cpp CONFIG REQUIRED)
-    find_package(spirv_cross_reflect CONFIG REQUIRED)
 endif()
 
 find_package(glslang CONFIG REQUIRED)
+find_package(spirv_cross_core CONFIG REQUIRED)
+find_package(spirv_cross_glsl CONFIG REQUIRED)
+find_package(spirv_cross_hlsl CONFIG REQUIRED)
+find_package(spirv_cross_msl CONFIG REQUIRED)
+find_package(spirv_cross_cpp CONFIG REQUIRED)
+find_package(spirv_cross_reflect CONFIG REQUIRED)
 find_package(spirv_cross_c CONFIG REQUIRED)
 
 add_executable(
