@@ -41,7 +41,9 @@
 #include <queue>
 #include <format>
 #include <memory>
+#include <bit>
 #include <functional>
+#include <expected>
 
 #include <glslang/Public/ShaderLang.h>
 #include <glslang/Include/Types.h>
@@ -97,6 +99,7 @@ int __android_log_print(int prio, const char *tag,  const char *fmt, ...);
 #include "MG_Util/Debug/Log.h"
 #include "MG_Util/Converters/GLToStr/GLEnumConverter.h"
 #include "MG_Util/Converters/MGToStr/GLExtensionConverter.h"
+#include "MG_Util/Converters/GLToGlslang/GLShaderLangConverter.h"
 
 #include "MG_Backend/Backends.h"
 
@@ -107,9 +110,11 @@ int __android_log_print(int prio, const char *tag,  const char *fmt, ...);
 
 #include "MG_Impl/GLImpl/Getter/GL_Getter.h"
 
-#include "MG_Util/Pipelines/PipelineExecutor.hpp"
+//#include "MG_Util/Pipelines/PipelineExecutor.hpp"
 
-#include "MG_Util/Pipelines/ShaderCompilationPipeline.h"
+//#include "MG_Util/Pipelines/ShaderCompilationPipeline.h"
+
+#include "MG_Util/ShaderTranspiler/glslang/UniformTraverser.h"
 
 #include "MG_State/GLState/BufferState/BufferObject.h"
 #include "MG_State/GLState/BufferState/BufferState.h"

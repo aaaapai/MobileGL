@@ -12,8 +12,10 @@ add_executable(
         ProgramTest.cpp
 
         ${MGL_ROOT}/MobileGL/MG_Util/Converters/GLToStr/GLEnumConverter.cpp
-        ${MGL_ROOT}/MobileGL/MG_Util/Pipelines/ShaderCompilationPipeline.cpp
-        ${MGL_ROOT}/MobileGL/MG_Util/Pipelines/ProgramLinkingPipeline.cpp
+#        ${MGL_ROOT}/MobileGL/MG_Util/Pipelines/ShaderCompilationPipeline.cpp
+#        ${MGL_ROOT}/MobileGL/MG_Util/Pipelines/ProgramLinkingPipeline.cpp
+        ${MGL_ROOT}/MobileGL/MG_Util/Converters/GLToGlslang/GLShaderLangConverter.cpp
+        ${MGL_ROOT}/MobileGL/MG_Util/ShaderTranspiler/ShaderCompiler.cpp
 )
 
 target_include_directories(ProgramTest PRIVATE

@@ -4,7 +4,7 @@ project("MobileGL")
 
 enable_language(CXX)
 
-set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD 23)
 
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
@@ -21,6 +21,7 @@ add_library(${CMAKE_PROJECT_NAME} SHARED
 
     MobileGL/MG_Util/Converters/GLToStr/GLEnumConverter.cpp
     MobileGL/MG_Util/Converters/MGToStr/GLExtensionConverter.cpp
+    MobileGL/MG_Util/Converters/GLToGlslang/GLShaderLangConverter.cpp
 
     MobileGL/MG_Impl/GLXImpl/Exporting/Definitions.cpp
     MobileGL/MG_Impl/GLXImpl/LookUp/LookUp.cpp
@@ -35,7 +36,9 @@ add_library(${CMAKE_PROJECT_NAME} SHARED
 
     MobileGL/MG_Util/Pipelines/ShaderCompilationPipeline.cpp
     MobileGL/MG_Util/Pipelines/ProgramLinkingPipeline.cpp
-    
+
+    MobileGL/MG_Util/ShaderTranspiler/ShaderCompiler.cpp
+
     MobileGL/MG_State/GLState/Core.cpp
     MobileGL/MG_State/GLState/BufferState/BufferState.cpp
 )

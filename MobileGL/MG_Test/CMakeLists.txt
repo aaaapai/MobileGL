@@ -1,8 +1,7 @@
 cmake_minimum_required(VERSION 3.14)
 project(MobileGLTest)
 
-# GoogleTest requires at least C++17
-set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 include(FetchContent)
@@ -31,4 +30,4 @@ include(GoogleTest)
 gtest_discover_tests(SanityTest)
 
 add_subdirectory(Buffer)
-#add_subdirectory(Program)
+add_subdirectory(Program)
