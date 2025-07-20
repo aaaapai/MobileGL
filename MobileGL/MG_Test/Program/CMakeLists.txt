@@ -1,11 +1,27 @@
 cmake_minimum_required(VERSION 3.24)
 
-#set(glslang_DIR /Users/swung0x48/VulkanSDK/1.4.321.0/macOS/lib/cmake/glslang)
-#set(SPIRV-Tools_DIR /Users/swung0x48/VulkanSDK/1.4.321.0/macOS/lib/cmake/SPIRV-Tools)
-#set(SPIRV-Tools-opt_DIR /Users/swung0x48/VulkanSDK/1.4.321.0/macOS/lib/cmake/SPIRV-Tools-opt)
-#find_package(SPIRV-Tools CONFIG REQUIRED)
-#find_package(SPIRV-Tools-opt CONFIG REQUIRED)
+if (${CMAKE_SYSTEM_NAME} MATCHES "Darwin")
+    set(glslang_DIR $ENV{VULKAN_SDK}/macOS/lib/cmake/glslang)
+    set(SPIRV-Tools_DIR $ENV{VULKAN_SDK}/macOS/lib/cmake/SPIRV-Tools)
+    set(SPIRV-Tools-opt_DIR $ENV{VULKAN_SDK}/macOS/lib/cmake/SPIRV-Tools-opt)
+    set(spirv_cross_cpp_DIR $ENV{VULKAN_SDK}/macOS/lib/cmake/spirv_cross_cpp/cmake)
+    set(spirv_cross_reflect_DIR $ENV{VULKAN_SDK}/macOS/lib/cmake/spirv_cross_reflect/cmake)
+    set(spirv_cross_core_DIR $ENV{VULKAN_SDK}/macOS/lib/cmake/spirv_cross_core/cmake)
+    set(spirv_cross_glsl_DIR $ENV{VULKAN_SDK}/macOS/lib/cmake/spirv_cross_glsl/cmake)
+    set(spirv_cross_hlsl_DIR $ENV{VULKAN_SDK}/macOS/lib/cmake/spirv_cross_hlsl/cmake)
+    set(spirv_cross_msl_DIR $ENV{VULKAN_SDK}/macOS/lib/cmake/spirv_cross_msl/cmake)
+    set(spirv_cross_c_DIR $ENV{VULKAN_SDK}/macOS/lib/cmake/spirv_cross_c/cmake)
+
+    find_package(spirv_cross_core CONFIG REQUIRED)
+    find_package(spirv_cross_glsl CONFIG REQUIRED)
+    find_package(spirv_cross_hlsl CONFIG REQUIRED)
+    find_package(spirv_cross_msl CONFIG REQUIRED)
+    find_package(spirv_cross_cpp CONFIG REQUIRED)
+    find_package(spirv_cross_reflect CONFIG REQUIRED)
+endif()
+
 find_package(glslang CONFIG REQUIRED)
+find_package(spirv_cross_c CONFIG REQUIRED)
 
 add_executable(
         ProgramTest
@@ -27,6 +43,7 @@ target_link_libraries(
         ProgramTest
         GTest::gtest_main
         glslang::glslang
+        spirv-cross-c
 )
 
 include(GoogleTest)
