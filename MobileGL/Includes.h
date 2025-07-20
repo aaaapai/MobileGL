@@ -32,7 +32,6 @@
 #include <stdexcept>
 #include <atomic>
 #include <regex>
-#include <strstream>
 #include <algorithm>
 #include <array>
 #include <random>
