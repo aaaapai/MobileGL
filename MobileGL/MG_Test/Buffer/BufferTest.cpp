@@ -48,19 +48,21 @@ TEST_F(BufferTest, PingPong) {
 
     Vector<Int> data { 1, 2, 3, 4, 5 };
 
-    SizeT byte_size = data.size() * sizeof(Int);
+    SizeT byteSize = data.size() * sizeof(Int);
     // Write data
-    bufWrite->Resize(byte_size);
-    DataPtr ptr { .data = data.data(), .size = byte_size };
+    bufWrite->Resize(byteSize);
+    DataPtr ptr { .data = data.data(), .size = byteSize };
     bufWrite->UploadData(ptr, 0);
 
     // Readback
     auto bufRead = readSlot.GetBoundObject();
     void* p = bufRead->AcquireMemory(true, true, false);
-    ASSERT_TRUE(memcmp(data.data(), p, byte_size) == 0);
+    Vector<Int> bufdata(data.size());
+    memcpy(bufdata.data(), p, byteSize);
+    ASSERT_EQ(data, bufdata);
     auto range = bufRead->GetDirtyRange();
     ASSERT_EQ(range.start, 0);
-    ASSERT_EQ(range.end, byte_size);
+    ASSERT_EQ(range.end, byteSize);
 }
 
 TEST_F(BufferTest, GenerateManyNames_NoPrematureCreation) {
