@@ -91,9 +91,9 @@ int __android_log_print(int prio, const char *tag,  const char *fmt, ...);
 #include <GL/gl.h>
 #include <GL/glext.h>
 
-#include "MG_Util/Miscellany/IndexGenerator.h"
 #include "MG_Util/GLExtensions.h"
 #include "MG_Util/Types.h"
+#include "MG_Util/Miscellany/IndexGenerator.h"
 #include "MG_Util/Debug/Log.h"
 #include "MG_Util/Converters/GLToStr/GLEnumConverter.h"
 #include "MG_Util/Converters/MGToStr/GLExtensionConverter.h"

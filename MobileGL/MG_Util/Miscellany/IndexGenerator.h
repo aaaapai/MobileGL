@@ -52,7 +52,7 @@ namespace MobileGL {
     private:
         IndexType                next_index_ = 0;
         std::vector<IndexType>   freed_indices_;
-        std::vector<UInt8>     is_valid_;
+        std::vector<Uint8>     is_valid_;
     };
 
 }
