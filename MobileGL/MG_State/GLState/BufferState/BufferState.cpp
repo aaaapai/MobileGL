@@ -14,7 +14,7 @@ namespace MobileGL {
 				m_size = size;
 				m_data.reserve(std::bit_ceil(size)); // power-of-2 reserve
 				m_data.resize(size);
-				m_dirtyRange.Update(0, 0);
+				m_dirtyRange = { 0, 0 };
 			}
 
 			void BufferObject::UploadData(DataPtr data, SizeT atOffset) {
@@ -40,7 +40,6 @@ namespace MobileGL {
 					}
 
 					m_stagingData.clear();
-					m_stagingData.shrink_to_fit();
 				}
 
 				m_isMapped = false;
