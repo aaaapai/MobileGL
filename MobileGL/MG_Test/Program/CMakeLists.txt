@@ -2,17 +2,24 @@ cmake_minimum_required(VERSION 3.24)
 
 # Vulkan SDK's cmake config is fundamentally broken. Directly find libs instead
 if (${CMAKE_SYSTEM_NAME} MATCHES "Darwin")
-    set(glslang_DIR $ENV{VULKAN_SDK}/macOS/lib/cmake/glslang)
-    set(SPIRV-Tools_DIR $ENV{VULKAN_SDK}/macOS/lib/cmake/SPIRV-Tools)
-    set(SPIRV-Tools-opt_DIR $ENV{VULKAN_SDK}/macOS/lib/cmake/SPIRV-Tools-opt)
-    set(spirv_cross_cpp_DIR $ENV{VULKAN_SDK}/macOS/lib/cmake/spirv_cross_cpp/cmake)
-    set(spirv_cross_reflect_DIR $ENV{VULKAN_SDK}/macOS/lib/cmake/spirv_cross_reflect/cmake)
-    set(spirv_cross_core_DIR $ENV{VULKAN_SDK}/macOS/lib/cmake/spirv_cross_core/cmake)
-    set(spirv_cross_glsl_DIR $ENV{VULKAN_SDK}/macOS/lib/cmake/spirv_cross_glsl/cmake)
-    set(spirv_cross_hlsl_DIR $ENV{VULKAN_SDK}/macOS/lib/cmake/spirv_cross_hlsl/cmake)
-    set(spirv_cross_msl_DIR $ENV{VULKAN_SDK}/macOS/lib/cmake/spirv_cross_msl/cmake)
-    set(spirv_cross_c_DIR $ENV{VULKAN_SDK}/macOS/lib/cmake/spirv_cross_c/cmake)
-    set(LINK_LIBRARIES glslang::glslang spirv-cross-c)
+    find_package(Vulkan REQUIRED)
+    get_filename_component(VULKAN_LIB_DIR ${Vulkan_LIBRARY} PATH)
+
+    set(LINK_LIBRARIES
+            ${VULKAN_LIB_DIR}/libglslang.a
+            ${VULKAN_LIB_DIR}/libspirv-cross-c-shared.dylib
+            ${VULKAN_LIB_DIR}/libGenericCodeGen.a
+            ${VULKAN_LIB_DIR}/libglslang-default-resource-limits.a
+            ${VULKAN_LIB_DIR}/libMachineIndependent.a
+            ${VULKAN_LIB_DIR}/libOSDependent.a
+            ${VULKAN_LIB_DIR}/libSPIRV-Tools-diff.a
+            ${VULKAN_LIB_DIR}/libSPIRV-Tools-link.a
+            ${VULKAN_LIB_DIR}/libSPIRV-Tools-lint.a
+            ${VULKAN_LIB_DIR}/libSPIRV-Tools-opt.a
+            ${VULKAN_LIB_DIR}/libSPIRV-Tools-reduce.a
+            ${VULKAN_LIB_DIR}/libSPIRV-Tools.a
+            ${VULKAN_LIB_DIR}/libSPIRV.a
+            ${VULKAN_LIB_DIR}/libSPVRemapper.a)
 elseif (${CMAKE_SYSTEM_NAME} MATCHES "Windows")
     find_package(Vulkan REQUIRED)
     get_filename_component(VULKAN_LIB_DIR ${Vulkan_LIBRARY} PATH)
