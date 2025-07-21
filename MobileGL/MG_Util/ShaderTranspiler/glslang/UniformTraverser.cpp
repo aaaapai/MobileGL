@@ -16,7 +16,11 @@ namespace ShaderTranspiler {
             return;
 
         const auto &type = symbol->getType();
-        if (symbol->getQualifier().isUniform()) {
+        if (type.getBasicType() == glslang::EbtSampler) {
+            auto &uniform = samplers.emplace_back();
+            uniform.name = symbol->getName();
+            uniform.sampler = type.getSampler();
+        } else if (symbol->getQualifier().isUniform()) {
             auto& name = symbol->getName();
             auto qualifier = symbol->getQualifier();
 
@@ -26,11 +30,26 @@ namespace ShaderTranspiler {
             uniform.layoutLocation = qualifier.layoutLocation;
             uniform.layoutBinding = qualifier.layoutBinding;
             uniform.layoutPacking = qualifier.layoutPacking;
-        } else if (type.getBasicType() == glslang::EbtSampler) {
-            auto &uniform = samplers.emplace_back();
-            uniform.name = symbol->getName();
-            uniform.sampler = type.getSampler();
         }
+        // if (symbol->getQualifier().isUniformOrBuffer()) {
+        //     auto name = symbol->getName();
+        //     auto qualifier = symbol->getQualifier();
+        //
+        //     fprintf(stderr, "%s: %s\n", name.c_str(),
+        //             glslang::GetStorageQualifierString(qualifier.storage));
+        //
+        //     if (qualifier.hasLocation()) {
+        //         fprintf(stderr, "  loc: %d\n", qualifier.layoutLocation);
+        //     }
+        //     if (qualifier.hasBinding()) {
+        //         fprintf(stderr, "  binding: %d\n", qualifier.layoutBinding);
+        //     }
+        //     if (qualifier.hasPacking()) {
+        //         fprintf(stderr, "  packing: %s\n",
+        //                 glslang::TQualifier::getLayoutPackingString(
+        //                     qualifier.layoutPacking));
+        //     }
+        // }
     }
 }
 }

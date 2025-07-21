@@ -117,6 +117,7 @@ TEST_F(ProgramTest, ExtractPlainUniform) {
         root->traverse(&traverser);
 
         ASSERT_EQ(uniforms.size(), 2);
+        ASSERT_EQ(samplers.size(), 0);
 
         auto ProjMat_uniform_it = std::find_if(uniforms.begin(), uniforms.end(), [] (TUniform<TUniformType::Uniform>& uniform) {
            return uniform.name == "ProjMat";
@@ -129,6 +130,62 @@ TEST_F(ProgramTest, ExtractPlainUniform) {
         });
         ASSERT_TRUE(ModelViewMat_uniform_it != uniforms.end());
         ASSERT_EQ(ModelViewMat_uniform_it->storageQualifier, glslang::EvqUniform);
+    } else {
+        ASSERT_NE(res.error().errc, 0);
+        FAIL() << "errc: " << res.error().errc << "\nlog: " << res.error().log;
+    }
+}
+
+const char* fs_uniform = R"(#version 150
+
+uniform sampler2D DiffuseSampler;
+
+uniform vec4 ColorModulator;
+
+in vec2 texCoord;
+in vec4 vertexColor;
+
+out vec4 fragColor;
+
+void main() {
+    vec4 color = texture(DiffuseSampler, texCoord) * vertexColor;
+
+    // blit final output of compositor into displayed back buffer
+    fragColor = color * ColorModulator;
+})";
+
+TEST_F(ProgramTest, ExtractSampler) {
+    using namespace MG_Util::ShaderTranspiler;
+    ShaderAttrib attrib {
+        .shaderType = GL_FRAGMENT_SHADER,
+        .sourceStr = fs_uniform
+    };
+
+    Vector<TUniform<TUniformType::Uniform>> uniforms;
+    Vector<TUniform<TUniformType::Sampler>> samplers;
+
+    auto res = ShaderCompiler::CompileShader(attrib);
+    if (res) {
+        UniformTraverser traverser(uniforms, samplers);
+        auto root = res->TShader->getIntermediate()->getTreeRoot();
+        root->traverse(&traverser);
+
+        ASSERT_EQ(uniforms.size(), 1);
+        ASSERT_EQ(samplers.size(), 1);
+
+        auto ColorModulator_uniform_it = std::find_if(uniforms.begin(), uniforms.end(), [] (TUniform<TUniformType::Uniform>& uniform) {
+           return uniform.name == "ColorModulator";
+        });
+        ASSERT_TRUE(ColorModulator_uniform_it != uniforms.end());
+        ASSERT_EQ(ColorModulator_uniform_it->storageQualifier, glslang::EvqUniform);
+
+        auto DiffuseSampler_uniform_it = std::find_if(samplers.begin(), samplers.end(), [] (TUniform<TUniformType::Sampler>& uniform) {
+           return uniform.name == "DiffuseSampler";
+        });
+        ASSERT_TRUE(DiffuseSampler_uniform_it != samplers.end());
+        auto& sampler = DiffuseSampler_uniform_it->sampler;
+        ASSERT_EQ(sampler.type, glslang::EbtFloat);
+        ASSERT_EQ(sampler.dim, glslang::Esd2D);
     } else {
         ASSERT_NE(res.error().errc, 0);
         FAIL() << "errc: " << res.error().errc << "\nlog: " << res.error().log;
