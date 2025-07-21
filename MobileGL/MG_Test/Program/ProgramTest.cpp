@@ -238,4 +238,34 @@ TEST_F(ProgramTest, DecompProgram) {
     for (size_t i = 0; i < vs_outputs.size(); ++i) {
         EXPECT_EQ(vs_outputs[i].location, fs_inputs[i].location);
     }
+    
+    auto vs_uniforms = GetShaderInterface(spirvs[0], SPVC_RESOURCE_TYPE_GL_PLAIN_UNIFORM);
+    auto fs_uniforms = GetShaderInterface(spirvs[1], SPVC_RESOURCE_TYPE_GL_PLAIN_UNIFORM);
+
+    std::unordered_map<std::string, uint32_t> uniform_locations;
+    for (const auto& uniform : vs_uniforms) {
+        uniform_locations[uniform.name] = uniform.location;
+    }
+
+    for (const auto& uniform : fs_uniforms) {
+        auto it = uniform_locations.find(uniform.name);
+        if (it != uniform_locations.end()) {
+            EXPECT_EQ(it->second, uniform.location);
+        }
+    }
+
+    auto vs_samplers = GetShaderInterface(spirvs[0], SPVC_RESOURCE_TYPE_SAMPLED_IMAGE);
+    auto fs_samplers = GetShaderInterface(spirvs[1], SPVC_RESOURCE_TYPE_SAMPLED_IMAGE);
+
+    std::unordered_map<std::string, uint32_t> sampler_locations;
+    for (const auto& uniform : vs_uniforms) {
+        sampler_locations[uniform.name] = uniform.location;
+    }
+
+    for (const auto& uniform : fs_uniforms) {
+        auto it = sampler_locations.find(uniform.name);
+        if (it != sampler_locations.end()) {
+            EXPECT_EQ(it->second, uniform.location);
+        }
+    }
 }
