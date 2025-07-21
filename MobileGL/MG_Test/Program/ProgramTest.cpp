@@ -77,3 +77,60 @@ TEST_F(ProgramTest, CompileSimpleFragmentShader) {
         FAIL() << "errc: " << res.error().errc << "\nlog: " << res.error().log;
     }
 }
+
+const char* vs_uniform = R"(#version 150
+
+in vec3 Position;
+in vec2 UV;
+in vec4 Color;
+
+uniform mat4 ModelViewMat;
+uniform mat4 ProjMat;
+
+out vec2 texCoord;
+out vec4 vertexColor;
+
+void main() {
+    mat4 mat = ProjMat * ModelViewMat;
+    gl_Position = ProjMat * ModelViewMat * vec4(Position, 1.0);
+
+    texCoord = UV;
+    vertexColor = Color;
+})";
+
+
+
+TEST_F(ProgramTest, ExtractPlainUniform) {
+    using namespace MG_Util::ShaderTranspiler;
+    ShaderAttrib attrib {
+        .shaderType = GL_VERTEX_SHADER,
+        .sourceStr = vs_uniform
+    };
+
+    Vector<TUniform<TUniformType::Uniform>> uniforms;
+    Vector<TUniform<TUniformType::Sampler>> samplers;
+
+    auto res = ShaderCompiler::CompileShader(attrib);
+    if (res) {
+        UniformTraverser traverser(uniforms, samplers);
+        auto root = res->TShader->getIntermediate()->getTreeRoot();
+        root->traverse(&traverser);
+
+        ASSERT_EQ(uniforms.size(), 2);
+
+        auto ProjMat_uniform_it = std::find_if(uniforms.begin(), uniforms.end(), [] (TUniform<TUniformType::Uniform>& uniform) {
+           return uniform.name == "ProjMat";
+        });
+        ASSERT_TRUE(ProjMat_uniform_it != uniforms.end());
+        ASSERT_EQ(ProjMat_uniform_it->storageQualifier, glslang::EvqUniform);
+
+        auto ModelViewMat_uniform_it = std::find_if(uniforms.begin(), uniforms.end(), [] (TUniform<TUniformType::Uniform>& uniform) {
+           return uniform.name == "ModelViewMat";
+        });
+        ASSERT_TRUE(ModelViewMat_uniform_it != uniforms.end());
+        ASSERT_EQ(ModelViewMat_uniform_it->storageQualifier, glslang::EvqUniform);
+    } else {
+        ASSERT_NE(res.error().errc, 0);
+        FAIL() << "errc: " << res.error().errc << "\nlog: " << res.error().log;
+    }
+}

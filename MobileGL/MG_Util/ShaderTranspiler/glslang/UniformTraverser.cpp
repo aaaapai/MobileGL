@@ -8,9 +8,16 @@ namespace MobileGL {
 namespace MG_Util {
 namespace ShaderTranspiler {
     void UniformTraverser::visitSymbol(glslang::TIntermSymbol *symbol) {
+        auto parent = getParentNode();
+        if (!parent)
+            return;
+        auto parentAgg = parent->getAsAggregate();
+        if (!parentAgg || parentAgg->getOp() != glslang::EOpLinkerObjects)
+            return;
+
         const auto &type = symbol->getType();
         if (symbol->getQualifier().isUniform()) {
-            auto name = symbol->getName();
+            auto& name = symbol->getName();
             auto qualifier = symbol->getQualifier();
 
             auto &uniform = uniforms.emplace_back();
