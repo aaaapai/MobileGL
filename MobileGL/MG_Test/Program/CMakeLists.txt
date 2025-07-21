@@ -18,20 +18,20 @@ elseif (${CMAKE_SYSTEM_NAME} MATCHES "Windows")
     get_filename_component(VULKAN_LIB_DIR ${Vulkan_LIBRARY} PATH)
 
     set(LINK_LIBRARIES
-            ${VULKAN_LIB_DIR}/glslang.lib
-            ${VULKAN_LIB_DIR}/spirv-cross-c.lib
-            ${VULKAN_LIB_DIR}/GenericCodeGen.lib
-            ${VULKAN_LIB_DIR}/glslang-default-resource-limits.lib
-            ${VULKAN_LIB_DIR}/MachineIndependent.lib
-            ${VULKAN_LIB_DIR}/OSDependent.lib
-            ${VULKAN_LIB_DIR}/SPIRV-Tools-diff.lib
-            ${VULKAN_LIB_DIR}/SPIRV-Tools-link.lib
-            ${VULKAN_LIB_DIR}/SPIRV-Tools-lint.lib
-            ${VULKAN_LIB_DIR}/SPIRV-Tools-opt.lib
-            ${VULKAN_LIB_DIR}/SPIRV-Tools-reduce.lib
-            ${VULKAN_LIB_DIR}/SPIRV-Tools.lib
-            ${VULKAN_LIB_DIR}/SPIRV.lib
-            ${VULKAN_LIB_DIR}/SPVRemapper.lib)
+            ${VULKAN_LIB_DIR}/glslang$<$<CONFIG:Debug>:d>.lib
+            ${VULKAN_LIB_DIR}/spirv-cross-c$<$<CONFIG:Debug>:d>.lib
+            ${VULKAN_LIB_DIR}/GenericCodeGen$<$<CONFIG:Debug>:d>.lib
+            ${VULKAN_LIB_DIR}/glslang-default-resource-limits$<$<CONFIG:Debug>:d>.lib
+            ${VULKAN_LIB_DIR}/MachineIndependent$<$<CONFIG:Debug>:d>.lib
+            ${VULKAN_LIB_DIR}/OSDependent$<$<CONFIG:Debug>:d>.lib
+            ${VULKAN_LIB_DIR}/SPIRV-Tools-diff$<$<CONFIG:Debug>:d>.lib
+            ${VULKAN_LIB_DIR}/SPIRV-Tools-link$<$<CONFIG:Debug>:d>.lib
+            ${VULKAN_LIB_DIR}/SPIRV-Tools-lint$<$<CONFIG:Debug>:d>.lib
+            ${VULKAN_LIB_DIR}/SPIRV-Tools-opt$<$<CONFIG:Debug>:d>.lib
+            ${VULKAN_LIB_DIR}/SPIRV-Tools-reduce$<$<CONFIG:Debug>:d>.lib
+            ${VULKAN_LIB_DIR}/SPIRV-Tools$<$<CONFIG:Debug>:d>.lib
+            ${VULKAN_LIB_DIR}/SPIRV$<$<CONFIG:Debug>:d>.lib
+            ${VULKAN_LIB_DIR}/SPVRemapper$<$<CONFIG:Debug>:d>.lib)
 else ()
     find_package(glslang CONFIG REQUIRED)
     find_package(spirv_cross_core CONFIG REQUIRED)
@@ -54,6 +54,7 @@ add_executable(
 #        ${MGL_ROOT}/MobileGL/MG_Util/Pipelines/ProgramLinkingPipeline.cpp
         ${MGL_ROOT}/MobileGL/MG_Util/Converters/GLToGlslang/GLShaderLangConverter.cpp
         ${MGL_ROOT}/MobileGL/MG_Util/ShaderTranspiler/ShaderCompiler.cpp
+        ${MGL_ROOT}/MobileGL/MG_Util/ShaderTranspiler/glslang/UniformTraverser.cpp
 )
 
 target_include_directories(ProgramTest PRIVATE
