@@ -8,33 +8,6 @@
 namespace MobileGL {
     namespace MG_Util {
         namespace ShaderTranspiler {
-            enum class TUniformType {
-                Uniform,
-                Sampler
-            };
-
-            template <TUniformType T>
-            struct TUniform {
-                // static_assert(false, "TUniform<T> does not accept this enum");
-            };
-
-            template <>
-            struct TUniform<TUniformType::Uniform> {
-                String name;
-
-                // glslang::TType type;
-                Uint layoutLocation = 0;
-                Uint layoutBinding = 0;
-                glslang::TLayoutPacking layoutPacking;
-            };
-
-            template <>
-            struct TUniform<TUniformType::Sampler> {
-                String name;
-
-                glslang::TSampler sampler;
-            };
-
             struct EmptyType {};
 
             struct ShaderAttrib {
@@ -54,31 +27,6 @@ namespace MobileGL {
 
             template <typename T>
             using Result = std::expected<T, ResultInfo>;
-
-            struct ShaderPayload {
-                // In
-                GLenum shaderType;
-                String sourceStr;
-
-                // Out
-                UniquePtr<glslang::TShader> TShader;
-                Vector<TUniform<TUniformType::Uniform>> uniforms;
-                Vector<TUniform<TUniformType::Sampler>> samplers;
-                Int errc = 0;
-                String log;
-            };
-
-            struct ProgramPayload {
-                // In
-                Vector<GLenum> shaderTypes;
-                Vector<UniquePtr<glslang::TShader>> shadersToLink;
-
-                // Out
-                glslang::TProgram linkedProgram;
-                Vector<Vector<Uint>> programSpirv;
-                Int errc = 0;
-                String log;
-            };
 
             inline static EShLanguage GetEShLanguageByShaderType(GLenum shaderType) {
                 switch (shaderType) {

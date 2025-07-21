@@ -54,7 +54,7 @@ add_executable(
 #        ${MGL_ROOT}/MobileGL/MG_Util/Pipelines/ProgramLinkingPipeline.cpp
         ${MGL_ROOT}/MobileGL/MG_Util/Converters/GLToGlslang/GLShaderLangConverter.cpp
         ${MGL_ROOT}/MobileGL/MG_Util/ShaderTranspiler/ShaderCompiler.cpp
-        ${MGL_ROOT}/MobileGL/MG_Util/ShaderTranspiler/glslang/UniformTraverser.cpp
+#        ${MGL_ROOT}/MobileGL/MG_Util/ShaderTranspiler/glslang/UniformTraverser.cpp
 )
 
 target_include_directories(ProgramTest PRIVATE

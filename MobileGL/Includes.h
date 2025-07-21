@@ -113,7 +113,7 @@ int __android_log_print(int prio, const char *tag,  const char *fmt, ...);
 
 //#include "MG_Util/Pipelines/ShaderCompilationPipeline.h"
 
-#include "MG_Util/ShaderTranspiler/glslang/UniformTraverser.h"
+// #include "MG_Util/ShaderTranspiler/glslang/UniformTraverser.h"
 
 #include "MG_State/GLState/BufferState/BufferObject.h"
 #include "MG_State/GLState/BufferState/BufferState.h"
