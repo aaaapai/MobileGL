@@ -19,7 +19,7 @@ elseif (${CMAKE_SYSTEM_NAME} MATCHES "Windows")
 
     set(LINK_LIBRARIES
             ${VULKAN_LIB_DIR}/glslang$<$<CONFIG:Debug>:d>.lib
-            ${VULKAN_LIB_DIR}/spirv-cross-c$<$<CONFIG:Debug>:d>.lib
+            ${VULKAN_LIB_DIR}/spirv-cross-c-shared$<$<CONFIG:Debug>:d>.lib
             ${VULKAN_LIB_DIR}/GenericCodeGen$<$<CONFIG:Debug>:d>.lib
             ${VULKAN_LIB_DIR}/glslang-default-resource-limits$<$<CONFIG:Debug>:d>.lib
             ${VULKAN_LIB_DIR}/MachineIndependent$<$<CONFIG:Debug>:d>.lib

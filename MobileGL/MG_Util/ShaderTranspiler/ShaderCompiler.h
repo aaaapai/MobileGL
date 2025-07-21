@@ -12,6 +12,7 @@ namespace ShaderTranspiler {
     public:
         static Result<SharedPtr<glslang::TShader>> CompileShader(const ShaderAttrib& attrib);
         static Result<Vector<Vector<unsigned>>> LinkProgram(const ProgramAttrib& attrib);
+        static Result<String> DecompileShader(Vector<unsigned int> spirv);
     };
 }
 }
