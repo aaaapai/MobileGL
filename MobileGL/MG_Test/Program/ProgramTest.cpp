@@ -218,9 +218,14 @@ TEST_F(ProgramTest, DecompProgram) {
 
     auto spirvs = program_res.value();
 
+    Vector<SpvcSession> sessions(spirvs.size());
+    for (SizeT i = 0; i < spirvs.size(); ++i) {
+        sessions[i] = SpvcSession(spirvs[i]);
+    }
+
     for (SizeT i = 0; i < spirvs.size(); ++i) {
         std::cout << "Decompiling " << MG_Util::ConvertGLEnumToString(programAttrib.shaderTypes[i]) << std::endl;
-        auto src = ShaderCompiler::DecompileShader(spirvs[i]);
+        auto src = ShaderCompiler::DecompileShader(sessions[i]);
         if (!src) {
             ASSERT_NE(src.error().errc, 0);
             FAIL() << "errc: " << src.error().errc << "\nlog: " << src.error().log;

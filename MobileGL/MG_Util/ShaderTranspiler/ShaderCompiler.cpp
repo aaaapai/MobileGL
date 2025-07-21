@@ -197,8 +197,7 @@ namespace MobileGL {
                 return allSpirv;
             }
 
-            Result<String> ShaderCompiler::DecompileShader(Vector<unsigned int> spirv) {
-                SpvcSession session(spirv);
+            Result<String> ShaderCompiler::DecompileShader(SpvcSession& session) {
                 spvc_compiler_options options;
                 session.CreateOptions(&options);
 

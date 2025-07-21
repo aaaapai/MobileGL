@@ -28,14 +28,36 @@ namespace MobileGL {
             template <typename T>
             using Result = std::expected<T, ResultInfo>;
 
-            struct SpvcSession {
-                SpvcSession(Vector<unsigned int> spirv) {
+            class SpvcSession {
+            public:
+                SpvcSession() {}
+
+                explicit SpvcSession(Vector<unsigned int> spirv) {
                     const SpvId *p_spirv = spirv.data();
                     size_t word_count = spirv.size();
 
                     spvc_context_create(&context);
                     spvc_context_parse_spirv(context, p_spirv, word_count, &ir);
                     spvc_context_create_compiler(context, SPVC_BACKEND_GLSL, ir, SPVC_CAPTURE_MODE_TAKE_OWNERSHIP, &compiler);
+                }
+
+                SpvcSession(SpvcSession&) = delete;
+
+                SpvcSession(SpvcSession&& that) {
+                    std::swap(this->context, that.context);
+                    std::swap(this->compiler, that.compiler);
+                    std::swap(this->ir, that.ir);
+                    std::swap(this->compiler_options, that.compiler_options);
+                }
+
+                SpvcSession& operator=(SpvcSession& session) = delete;
+
+                SpvcSession& operator=(SpvcSession&& that) {
+                    std::swap(this->context, that.context);
+                    std::swap(this->compiler, that.compiler);
+                    std::swap(this->ir, that.ir);
+                    std::swap(this->compiler_options, that.compiler_options);
+                    return *this;
                 }
 
                 spvc_result CreateOptions(spvc_compiler_options *options) {
