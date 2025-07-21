@@ -28,6 +28,41 @@ namespace MobileGL {
             template <typename T>
             using Result = std::expected<T, ResultInfo>;
 
+            struct SpvcSession {
+                SpvcSession(Vector<unsigned int> spirv) {
+                    const SpvId *p_spirv = spirv.data();
+                    size_t word_count = spirv.size();
+
+                    spvc_context_create(&context);
+                    spvc_context_parse_spirv(context, p_spirv, word_count, &ir);
+                    spvc_context_create_compiler(context, SPVC_BACKEND_GLSL, ir, SPVC_CAPTURE_MODE_TAKE_OWNERSHIP, &compiler);
+                }
+
+                spvc_result CreateOptions(spvc_compiler_options *options) {
+                    return spvc_compiler_create_compiler_options(compiler, options);
+                }
+
+                spvc_result SetOptions(spvc_compiler_options options) {
+                    compiler_options = options;
+                    return spvc_compiler_install_compiler_options(compiler, options);
+                }
+
+                spvc_result Compile(const char** result) {
+                    return spvc_compiler_compile(compiler, result);
+                }
+
+                const char* GetLastErrorString() {
+                    return spvc_context_get_last_error_string(context);
+                }
+
+                ~SpvcSession() { spvc_context_destroy(context); }
+            private:
+                spvc_context context = nullptr;
+                spvc_parsed_ir ir = nullptr;
+                spvc_compiler compiler = nullptr;
+                spvc_compiler_options compiler_options = nullptr;
+            };
+
             inline static EShLanguage GetEShLanguageByShaderType(GLenum shaderType) {
                 switch (shaderType) {
                     case GL_VERTEX_SHADER:
