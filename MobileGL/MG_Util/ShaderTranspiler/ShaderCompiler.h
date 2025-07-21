@@ -10,7 +10,8 @@ namespace MG_Util {
 namespace ShaderTranspiler {
     class ShaderCompiler {
     public:
-        static CompilerResult CompileShader(const ShaderAttrib& attrib);
+        static Result<SharedPtr<glslang::TShader>> CompileShader(const ShaderAttrib& attrib);
+        static Result<Vector<Vector<unsigned>>> LinkProgram(const ProgramAttrib& attrib);
     };
 }
 }

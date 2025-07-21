@@ -18,19 +18,19 @@ TEST_F(ProgramTest, Sanity) {
 const char* vs = R"(#version 150
 
 in vec3 Position;
-in vec2 UV;
+in vec2 UV0;
 in vec4 Color;
 
 uniform mat4 ModelViewMat;
 uniform mat4 ProjMat;
 
-out vec2 texCoord;
+out vec2 texCoord0;
 out vec4 vertexColor;
 
 void main() {
     gl_Position = ProjMat * ModelViewMat * vec4(Position, 1.0);
 
-    texCoord = UV;
+    texCoord0 = UV0;
     vertexColor = Color;
 })";
 
@@ -49,19 +49,20 @@ TEST_F(ProgramTest, CompileSimpleVertexShader) {
 
 const char* fs = R"(#version 150
 
-uniform sampler2D DiffuseSampler;
+uniform sampler2D Sampler0;
 
 uniform vec4 ColorModulator;
 
-in vec2 texCoord;
+in vec2 texCoord0;
 in vec4 vertexColor;
 
 out vec4 fragColor;
 
 void main() {
-    vec4 color = texture(DiffuseSampler, texCoord) * vertexColor;
-
-    // blit final output of compositor into displayed back buffer
+    vec4 color = texture(Sampler0, texCoord0) * vertexColor;
+    if (color.a == 0.0) {
+        discard;
+    }
     fragColor = color * ColorModulator;
 })";
 
@@ -78,116 +79,36 @@ TEST_F(ProgramTest, CompileSimpleFragmentShader) {
     }
 }
 
-const char* vs_uniform = R"(#version 150
-
-in vec3 Position;
-in vec2 UV;
-in vec4 Color;
-
-uniform mat4 ModelViewMat;
-uniform mat4 ProjMat;
-
-out vec2 texCoord;
-out vec4 vertexColor;
-
-void main() {
-    mat4 mat = ProjMat * ModelViewMat;
-    gl_Position = ProjMat * ModelViewMat * vec4(Position, 1.0);
-
-    texCoord = UV;
-    vertexColor = Color;
-})";
-
-
-
-TEST_F(ProgramTest, ExtractPlainUniform) {
+TEST_F(ProgramTest, CompileAndLinkProgram) {
     using namespace MG_Util::ShaderTranspiler;
-    ShaderAttrib attrib {
+    ShaderAttrib vs_attrib {
         .shaderType = GL_VERTEX_SHADER,
-        .sourceStr = vs_uniform
+        .sourceStr = vs
     };
-
-    Vector<TUniform<TUniformType::Uniform>> uniforms;
-    Vector<TUniform<TUniformType::Sampler>> samplers;
-
-    auto res = ShaderCompiler::CompileShader(attrib);
-    if (res) {
-        UniformTraverser traverser(uniforms, samplers);
-        auto root = res->TShader->getIntermediate()->getTreeRoot();
-        root->traverse(&traverser);
-
-        ASSERT_EQ(uniforms.size(), 2);
-        ASSERT_EQ(samplers.size(), 0);
-
-        auto ProjMat_uniform_it = std::find_if(uniforms.begin(), uniforms.end(), [] (TUniform<TUniformType::Uniform>& uniform) {
-           return uniform.name == "ProjMat";
-        });
-        ASSERT_TRUE(ProjMat_uniform_it != uniforms.end());
-        ASSERT_EQ(ProjMat_uniform_it->storageQualifier, glslang::EvqUniform);
-
-        auto ModelViewMat_uniform_it = std::find_if(uniforms.begin(), uniforms.end(), [] (TUniform<TUniformType::Uniform>& uniform) {
-           return uniform.name == "ModelViewMat";
-        });
-        ASSERT_TRUE(ModelViewMat_uniform_it != uniforms.end());
-        ASSERT_EQ(ModelViewMat_uniform_it->storageQualifier, glslang::EvqUniform);
-    } else {
-        ASSERT_NE(res.error().errc, 0);
-        FAIL() << "errc: " << res.error().errc << "\nlog: " << res.error().log;
+    auto vs_res = ShaderCompiler::CompileShader(vs_attrib);
+    if (!vs_res) {
+        ASSERT_NE(vs_res.error().errc, 0);
+        FAIL() << "errc: " << vs_res.error().errc << "\nlog: " << vs_res.error().log;
     }
-}
 
-const char* fs_uniform = R"(#version 150
-
-uniform sampler2D DiffuseSampler;
-
-uniform vec4 ColorModulator;
-
-in vec2 texCoord;
-in vec4 vertexColor;
-
-out vec4 fragColor;
-
-void main() {
-    vec4 color = texture(DiffuseSampler, texCoord) * vertexColor;
-
-    // blit final output of compositor into displayed back buffer
-    fragColor = color * ColorModulator;
-})";
-
-TEST_F(ProgramTest, ExtractSampler) {
-    using namespace MG_Util::ShaderTranspiler;
-    ShaderAttrib attrib {
+    ShaderAttrib fs_attrib {
         .shaderType = GL_FRAGMENT_SHADER,
-        .sourceStr = fs_uniform
+        .sourceStr = fs
+};
+    auto fs_res = ShaderCompiler::CompileShader(fs_attrib);
+    if (!fs_res) {
+        ASSERT_NE(fs_res.error().errc, 0);
+        FAIL() << "errc: " << fs_res.error().errc << "\nlog: " << fs_res.error().log;
+    }
+
+    ProgramAttrib programAttrib {
+        .shaderTypes = { GL_VERTEX_SHADER, GL_FRAGMENT_SHADER },
+        .shaders = { vs_res.value(), fs_res.value() }
     };
 
-    Vector<TUniform<TUniformType::Uniform>> uniforms;
-    Vector<TUniform<TUniformType::Sampler>> samplers;
-
-    auto res = ShaderCompiler::CompileShader(attrib);
-    if (res) {
-        UniformTraverser traverser(uniforms, samplers);
-        auto root = res->TShader->getIntermediate()->getTreeRoot();
-        root->traverse(&traverser);
-
-        ASSERT_EQ(uniforms.size(), 1);
-        ASSERT_EQ(samplers.size(), 1);
-
-        auto ColorModulator_uniform_it = std::find_if(uniforms.begin(), uniforms.end(), [] (TUniform<TUniformType::Uniform>& uniform) {
-           return uniform.name == "ColorModulator";
-        });
-        ASSERT_TRUE(ColorModulator_uniform_it != uniforms.end());
-        ASSERT_EQ(ColorModulator_uniform_it->storageQualifier, glslang::EvqUniform);
-
-        auto DiffuseSampler_uniform_it = std::find_if(samplers.begin(), samplers.end(), [] (TUniform<TUniformType::Sampler>& uniform) {
-           return uniform.name == "DiffuseSampler";
-        });
-        ASSERT_TRUE(DiffuseSampler_uniform_it != samplers.end());
-        auto& sampler = DiffuseSampler_uniform_it->sampler;
-        ASSERT_EQ(sampler.type, glslang::EbtFloat);
-        ASSERT_EQ(sampler.dim, glslang::Esd2D);
-    } else {
-        ASSERT_NE(res.error().errc, 0);
-        FAIL() << "errc: " << res.error().errc << "\nlog: " << res.error().log;
+    auto program_res = ShaderCompiler::LinkProgram(programAttrib);
+    if (!program_res) {
+        ASSERT_NE(program_res.error().errc, 0);
+        FAIL() << "errc: " << program_res.error().errc << "\nlog: " << program_res.error().log;
     }
 }

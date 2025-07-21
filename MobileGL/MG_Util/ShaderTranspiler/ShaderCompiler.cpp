@@ -116,22 +116,22 @@ namespace MobileGL {
                 return Resources;
             }
 
-            CompilerResult ShaderCompiler::CompileShader(const ShaderAttrib& attrib) {
+            Result<SharedPtr<glslang::TShader>> ShaderCompiler::CompileShader(const ShaderAttrib& attrib) {
                 auto shaderType = attrib.shaderType;
                 auto sourceStr = attrib.sourceStr;
 
                 auto lang = GetEShLanguageByShaderType(shaderType);
                 if (lang == EShLanguage::EShLangCount) {
-                    ShaderCompileResult<false> r;
+                    ResultInfo r;
                     r.log += "Error: [Preprocess] Unsupported shader type: " +
                                     ConvertGLEnumToString(shaderType);
                     r.errc = -1;
                     return std::unexpected(r);
                 }
 
-                ShaderCompileResult<true> res;
-                auto& tshader = res.TShader;
-                tshader = MakeUnique<glslang::TShader>(lang);
+                SharedPtr<glslang::TShader> res;
+                auto& tshader = res;
+                tshader = MakeShared<glslang::TShader>(lang);
                 const char* src[] = { sourceStr.c_str() };
                 tshader->setStrings(src, 1);
                 tshader->setInvertY(true);
@@ -144,7 +144,7 @@ namespace MobileGL {
                 if (!tshader->parse(&GetTBuiltInResourceInstance(), 150, ECompatibilityProfile,
                         /*forceDefaultVersionAndProfile: */false,
                         /*forwardCompatible: */true, EShMsgDefault)) {
-                    ShaderCompileResult<false> r;
+                    ResultInfo r;
                     r.log += "Error: [glslang] Cannot compile " + ConvertGLEnumToString(shaderType) + ":\n"
                                     + std::string(tshader->getInfoLog());
                     r.errc = -2;
@@ -152,6 +152,49 @@ namespace MobileGL {
                 }
 
                 return res;
+            }
+
+            Result<Vector<Vector<unsigned>>> ShaderCompiler::LinkProgram(const ProgramAttrib& attrib) {
+                glslang::TProgram program;
+                for (auto& s : attrib.shaders) {
+                    program.addShader(s.get());
+                }
+
+                if (!program.link(EShMsgDefault)) {
+                    ResultInfo r;
+                    r.log = "Error: [glslang] Cannot link the program:\n" + std::string(program.getInfoLog());
+                    r.errc = -3;
+                    return std::unexpected(r);
+                }
+
+                UniquePtr<glslang::TIoMapResolver> resolver;
+                for (unsigned stage = 0; stage < EShLangCount; stage++) {
+                    auto* pResolver = program.getGlslIoResolver((EShLanguage)stage);
+                    if (pResolver) {
+                        resolver = UniquePtr<glslang::TIoMapResolver>(pResolver);
+                        break;
+                    }
+                }
+                auto ioMapper = UniquePtr<glslang::TIoMapper>(glslang::GetGlslIoMapper());
+
+                if (!program.mapIO(resolver.get(), ioMapper.get())) {
+                    ResultInfo r;
+                    r.log = "Error: [glslang] Cannot mapIO:\n" + std::string(program.getInfoLog());
+                    r.errc = -4;
+                    return std::unexpected(r);
+                }
+
+                glslang::SpvOptions spvOptions;
+                spvOptions.disableOptimizer = false;
+
+                Vector<Vector<unsigned>> allSpirv;
+                for (auto type : attrib.shaderTypes) {
+                    Vector<unsigned> spirv;
+                    GlslangToSpv(*program.getIntermediate(ConvertGLEnumToEShLanguage(type)), spirv, &spvOptions);
+                    allSpirv.push_back(spirv);
+                }
+
+                return allSpirv;
             }
         }
     }

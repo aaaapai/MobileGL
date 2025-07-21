@@ -22,7 +22,7 @@ namespace MobileGL {
             struct TUniform<TUniformType::Uniform> {
                 String name;
 
-                glslang::TStorageQualifier storageQualifier;
+                // glslang::TType type;
                 Uint layoutLocation = 0;
                 Uint layoutBinding = 0;
                 glslang::TLayoutPacking layoutPacking;
@@ -42,20 +42,18 @@ namespace MobileGL {
                 String sourceStr;
             };
 
-            struct CompiledTShader {
-                UniquePtr<glslang::TShader> TShader;
-                Vector<TUniform<TUniformType::Uniform>> uniforms;
-                Vector<TUniform<TUniformType::Sampler>> samplers;
+            struct ProgramAttrib {
+                Vector<GLenum> shaderTypes;
+                Vector<SharedPtr<glslang::TShader>> shaders;
             };
 
-            template <bool Succeeded>
-            struct ShaderCompileResult:
-                public std::conditional_t<Succeeded, CompiledTShader, EmptyType> {
+            struct ResultInfo {
                 Int errc = 0;
                 String log;
             };
 
-            using CompilerResult = std::expected<ShaderCompileResult<true>, ShaderCompileResult<false>>;
+            template <typename T>
+            using Result = std::expected<T, ResultInfo>;
 
             struct ShaderPayload {
                 // In
