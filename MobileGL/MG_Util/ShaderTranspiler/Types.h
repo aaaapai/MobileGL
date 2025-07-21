@@ -15,7 +15,7 @@ namespace MobileGL {
 
             template <TUniformType T>
             struct TUniform {
-                static_assert(false, "TUniform<T> does not accept this enum");
+                // static_assert(false, "TUniform<T> does not accept this enum");
             };
 
             template <>
