@@ -10,56 +10,6 @@ class ProgramTest : public ::testing::Test {
 protected:
 };
 
-struct InterfaceVariable {
-    std::string name;
-    uint32_t location;
-
-    bool operator<(const InterfaceVariable& other) const {
-        return location < other.location;
-    }
-
-    bool operator==(const InterfaceVariable& other) const {
-        return location == other.location && name == other.name;
-    }
-};
-
-static std::vector<InterfaceVariable> GetShaderInterface(const std::vector<unsigned int>& spirv, spvc_resource_type resource_type) {
-    spvc_context context = nullptr;
-    spvc_context_create(&context);
-
-    spvc_parsed_ir ir = nullptr;
-    spvc_context_parse_spirv(context, spirv.data(), spirv.size(), &ir);
-
-    spvc_compiler compiler = nullptr;
-    spvc_context_create_compiler(context, SPVC_BACKEND_NONE, ir, SPVC_CAPTURE_MODE_TAKE_OWNERSHIP, &compiler);
-
-    spvc_resources resources = nullptr;
-    spvc_compiler_create_shader_resources(compiler, &resources);
-
-    const spvc_reflected_resource *list = nullptr;
-    size_t count = 0;
-    spvc_resources_get_resource_list_for_type(resources, resource_type, &list, &count);
-
-    std::vector<InterfaceVariable> variables;
-    for (size_t i = 0; i < count; ++i) {
-        unsigned int builtin;
-        if (spvc_compiler_has_decoration(compiler, list[i].id, SpvDecorationBuiltIn)) {
-            continue;
-        }
-
-        InterfaceVariable var;
-        var.name = list[i].name;
-        var.location = spvc_compiler_get_decoration(compiler, list[i].id, SpvDecorationLocation);
-        variables.push_back(var);
-    }
-
-    spvc_context_destroy(context);
-
-    std::sort(variables.begin(), variables.end());
-
-    return variables;
-}
-
 TEST_F(ProgramTest, Sanity) {
     ASSERT_TRUE(true);
 }
@@ -235,8 +185,8 @@ TEST_F(ProgramTest, DecompProgram) {
     }
 
     // spirv link check
-    auto vs_outputs = GetShaderInterface(spirvs[0], SPVC_RESOURCE_TYPE_STAGE_OUTPUT);
-    auto fs_inputs = GetShaderInterface(spirvs[1], SPVC_RESOURCE_TYPE_STAGE_INPUT);
+    auto vs_outputs = sessions[0].GetShaderInterface(SPVC_RESOURCE_TYPE_STAGE_OUTPUT);
+    auto fs_inputs = sessions[1].GetShaderInterface(SPVC_RESOURCE_TYPE_STAGE_INPUT);
 
     ASSERT_EQ(vs_outputs.size(), fs_inputs.size());
 
@@ -244,8 +194,8 @@ TEST_F(ProgramTest, DecompProgram) {
         EXPECT_EQ(vs_outputs[i].location, fs_inputs[i].location);
     }
     
-    auto vs_uniforms = GetShaderInterface(spirvs[0], SPVC_RESOURCE_TYPE_GL_PLAIN_UNIFORM);
-    auto fs_uniforms = GetShaderInterface(spirvs[1], SPVC_RESOURCE_TYPE_GL_PLAIN_UNIFORM);
+    auto vs_uniforms = sessions[0].GetShaderInterface(SPVC_RESOURCE_TYPE_GL_PLAIN_UNIFORM);
+    auto fs_uniforms = sessions[1].GetShaderInterface(SPVC_RESOURCE_TYPE_GL_PLAIN_UNIFORM);
 
     std::unordered_map<std::string, uint32_t> uniform_locations;
     for (const auto& uniform : vs_uniforms) {
@@ -259,8 +209,8 @@ TEST_F(ProgramTest, DecompProgram) {
         }
     }
 
-    auto vs_samplers = GetShaderInterface(spirvs[0], SPVC_RESOURCE_TYPE_SAMPLED_IMAGE);
-    auto fs_samplers = GetShaderInterface(spirvs[1], SPVC_RESOURCE_TYPE_SAMPLED_IMAGE);
+    auto vs_samplers = sessions[0].GetShaderInterface(SPVC_RESOURCE_TYPE_SAMPLED_IMAGE);
+    auto fs_samplers = sessions[1].GetShaderInterface(SPVC_RESOURCE_TYPE_SAMPLED_IMAGE);
 
     std::unordered_map<std::string, uint32_t> sampler_locations;
     for (const auto& uniform : vs_uniforms) {

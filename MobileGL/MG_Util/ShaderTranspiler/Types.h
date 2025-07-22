@@ -28,17 +28,31 @@ namespace MobileGL {
             template <typename T>
             using Result = std::expected<T, ResultInfo>;
 
+            struct InterfaceVariable {
+                std::string name;
+                uint32_t location;
+
+                bool operator<(const InterfaceVariable& other) const {
+                    return location < other.location;
+                }
+
+                bool operator==(const InterfaceVariable& other) const {
+                    return location == other.location && name == other.name;
+                }
+            };
+
             class SpvcSession {
             public:
                 SpvcSession() {}
 
-                explicit SpvcSession(Vector<unsigned int> spirv) {
+                explicit SpvcSession(const Vector<unsigned int>& spirv) {
                     const SpvId *p_spirv = spirv.data();
                     size_t word_count = spirv.size();
 
                     spvc_context_create(&context);
                     spvc_context_parse_spirv(context, p_spirv, word_count, &ir);
                     spvc_context_create_compiler(context, SPVC_BACKEND_GLSL, ir, SPVC_CAPTURE_MODE_TAKE_OWNERSHIP, &compiler);
+                    spvc_compiler_create_shader_resources(compiler, &resources);
                 }
 
                 SpvcSession(SpvcSession&) = delete;
@@ -48,6 +62,7 @@ namespace MobileGL {
                     std::swap(this->compiler, that.compiler);
                     std::swap(this->ir, that.ir);
                     std::swap(this->compiler_options, that.compiler_options);
+                    std::swap(this->resources, that.resources);
                 }
 
                 SpvcSession& operator=(SpvcSession& session) = delete;
@@ -57,6 +72,7 @@ namespace MobileGL {
                     std::swap(this->compiler, that.compiler);
                     std::swap(this->ir, that.ir);
                     std::swap(this->compiler_options, that.compiler_options);
+                    std::swap(this->resources, that.resources);
                     return *this;
                 }
 
@@ -69,11 +85,31 @@ namespace MobileGL {
                     return spvc_compiler_install_compiler_options(compiler, options);
                 }
 
-                spvc_result Compile(const char** result) {
+                Vector<InterfaceVariable> GetShaderInterface(spvc_resource_type resource_type) const {
+                    const spvc_reflected_resource *list = nullptr;
+                    size_t count = 0;
+                    spvc_resources_get_resource_list_for_type(resources, resource_type, &list, &count);
+
+                    Vector<InterfaceVariable> variables;
+                    for (size_t i = 0; i < count; ++i) {
+                        if (spvc_compiler_has_decoration(compiler, list[i].id, SpvDecorationBuiltIn)) {
+                            continue;
+                        }
+
+                        InterfaceVariable var;
+                        var.name = list[i].name;
+                        var.location = spvc_compiler_get_decoration(compiler, list[i].id, SpvDecorationLocation);
+                        variables.push_back(var);
+                    }
+                    std::sort(variables.begin(), variables.end());
+                    return variables;
+                }
+
+                spvc_result Compile(const char** result) const {
                     return spvc_compiler_compile(compiler, result);
                 }
 
-                const char* GetLastErrorString() {
+                const char* GetLastErrorString() const {
                     return spvc_context_get_last_error_string(context);
                 }
 
@@ -83,6 +119,7 @@ namespace MobileGL {
                 spvc_parsed_ir ir = nullptr;
                 spvc_compiler compiler = nullptr;
                 spvc_compiler_options compiler_options = nullptr;
+                spvc_resources resources = nullptr;
             };
 
             inline static EShLanguage GetEShLanguageByShaderType(GLenum shaderType) {

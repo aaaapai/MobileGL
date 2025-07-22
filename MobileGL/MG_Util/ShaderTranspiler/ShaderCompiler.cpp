@@ -136,12 +136,13 @@ namespace MobileGL {
                 tshader->setStrings(src, 1);
                 tshader->setInvertY(true);
                 tshader->setEnvInput(glslang::EShSourceGlsl, lang, glslang::EShClientVulkan, 450);
-                tshader->setEnvClient(glslang::EShClientOpenGL, glslang::EShTargetOpenGL_450);
+                tshader->setEnvClient(glslang::EShClientVulkan, glslang::EShTargetVulkan_1_3);
                 tshader->setEnvTarget(glslang::EShTargetSpv, glslang::EShTargetSpv_1_6);
                 tshader->setAutoMapLocations(true);
                 tshader->setAutoMapBindings(true);
                 tshader->setEnvInputVulkanRulesRelaxed(); // using EXT_vulkan_glsl_relaxed for gl_VertexID and gl_InstanceID?
-                if (!tshader->parse(&GetTBuiltInResourceInstance(), 150, ECompatibilityProfile,
+                tshader->setGlobalUniformBlockName("MGL_GLOBAL_UBO");
+                if (!tshader->parse(&GetTBuiltInResourceInstance(), 150, ECoreProfile,
                         /*forceDefaultVersionAndProfile: */false,
                         /*forwardCompatible: */true, EShMsgDefault)) {
                     ResultInfo r;
