@@ -32,10 +32,7 @@ add_library(${CMAKE_PROJECT_NAME} SHARED
     MobileGL/MG_Impl/GLImpl/Exporting/Definitions.cpp
     MobileGL/MG_Impl/GLImpl/Getter/GL_Getter.cpp
 
-    MobileGL/MG_Backend/Init.cpp 
-
-    MobileGL/MG_Util/Pipelines/ShaderCompilationPipeline.cpp
-    MobileGL/MG_Util/Pipelines/ProgramLinkingPipeline.cpp
+    MobileGL/MG_Backend/Init.cpp
 
     MobileGL/MG_Util/ShaderTranspiler/ShaderCompiler.cpp
 
