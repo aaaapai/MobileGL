@@ -21,7 +21,11 @@ add_library(${CMAKE_PROJECT_NAME} SHARED
 
     MobileGL/MG_Util/Converters/GLToStr/GLEnumConverter.cpp
     MobileGL/MG_Util/Converters/MGToStr/GLExtensionConverter.cpp
+    MobileGL/MG_Util/Converters/MGToStr/BufferEnumConverter.cpp
     MobileGL/MG_Util/Converters/GLToGlslang/GLShaderLangConverter.cpp
+    MobileGL/MG_Util/Converters/MGToGL/ErrorCodeConverter.cpp
+    MobileGL/MG_Util/Converters/MGToGL/BufferEnumConverter.cpp
+    MobileGL/MG_Util/Converters/GLToMG/BufferEnumConverter.cpp
 
     MobileGL/MG_Impl/GLXImpl/Exporting/Definitions.cpp
     MobileGL/MG_Impl/GLXImpl/LookUp/LookUp.cpp
@@ -29,16 +33,20 @@ add_library(${CMAKE_PROJECT_NAME} SHARED
     MobileGL/MG_Impl/EGLImpl/Exporting/Definitions.cpp
     MobileGL/MG_Impl/EGLImpl/Temporary/TemporaryEGLImpl.cpp
     
+    # @INSERTION_POINT:SOURCE_FILE_GLIMPL@ #
     MobileGL/MG_Impl/GLImpl/Exporting/Definitions.cpp
     MobileGL/MG_Impl/GLImpl/Getter/GL_Getter.cpp
+    MobileGL/MG_Impl/GLImpl/Buffer/GL_Buffer.cpp
+    MobileGL/MG_Impl/GLImpl/Buffer/Validators.cpp
 
     MobileGL/MG_Backend/Init.cpp
 
     MobileGL/MG_Util/ShaderTranspiler/ShaderCompiler.cpp
 
     MobileGL/MG_State/GLState/Core.cpp
+    MobileGL/MG_State/GLState/ErrorState/Error.cpp
     MobileGL/MG_State/GLState/BufferState/BufferState.cpp
-)
+ )
 
 target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE
     ${CMAKE_SOURCE_DIR}/library/arm64-v8a/libglslang.a

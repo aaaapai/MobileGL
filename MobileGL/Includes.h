@@ -1,7 +1,7 @@
 #pragma once
 
 #ifdef __ANDROID__
-#define __ANDROID_API__ 26 // fix pthread_getname_np not defined
+#define __ANDROID_API__ 26 // force Android API level to 26 for compatibility
 #endif
 
 #ifdef _WIN32
@@ -41,6 +41,7 @@
 #include <format>
 #include <memory>
 #include <bit>
+#include <cstdarg>
 #include <functional>
 #include <expected>
 
@@ -55,6 +56,9 @@
 #include <glm/glm.hpp>
 #include <ankerl/unordered_dense.h>
 #include <GLES3/gl32.h>
+#include <EGL/egl.h>
+#include <GL/gl.h>
+#include <GL/glext.h>
 
 #ifdef __ANDROID__
 #include <android/log.h>
@@ -85,20 +89,16 @@
 
 typedef int android_LogPriority;
 
-int __android_log_print(int prio, const char *tag,  const char *fmt, ...);
+inline int __android_log_print(int prio, const char* tag, const char* fmt, ...) { }
 #endif
-
-#include <EGL/egl.h>
-#include <GL/gl.h>
-#include <GL/glext.h>
 
 #include "MG_Util/GLExtensions.h"
 #include "MG_Util/Types.h"
 #include "MG_Util/Miscellany/IndexGenerator.h"
 #include "MG_Util/Debug/Log.h"
-#include "MG_Util/Converters/GLToStr/GLEnumConverter.h"
-#include "MG_Util/Converters/MGToStr/GLExtensionConverter.h"
-#include "MG_Util/Converters/GLToGlslang/GLShaderLangConverter.h"
+#include "MG_State/GLState/ErrorState/ErrorCode.h"
+#include "MG_State/GLState/ErrorState/ErrorInfo.h"
+#include "MG_State/GLState/ErrorState/Error.h"
 
 #include "MG_Backend/Backends.h"
 
@@ -107,14 +107,20 @@ int __android_log_print(int prio, const char *tag,  const char *fmt, ...);
 #include "MG_Impl/GLXImpl/LookUp/LookUp.h"
 #include "MG_Impl/EGLImpl/Temporary/TemporaryEGLImpl.h"
 
-#include "MG_Impl/GLImpl/Getter/GL_Getter.h"
-
-//#include "MG_Util/Pipelines/PipelineExecutor.hpp"
-
-//#include "MG_Util/Pipelines/ShaderCompilationPipeline.h"
-
-// #include "MG_Util/ShaderTranspiler/glslang/UniformTraverser.h"
-
 #include "MG_State/GLState/BufferState/BufferObject.h"
 #include "MG_State/GLState/BufferState/BufferState.h"
+
+/* @INSERTION_POINT:HEADER_FILE_GLIMPL@ */
+#include "MG_Impl/GLImpl/Getter/GL_Getter.h"
+#include "MG_Impl/GLImpl/Buffer/GL_Buffer.h"
+#include "MG_Impl/GLImpl/Buffer/Validators.h"
+
 #include "MG_State/GLState/Core.h"
+
+#include "MG_Util/Converters/GLToMG/BufferEnumConverter.h"
+#include "MG_Util/Converters/MGToGL/BufferEnumConverter.h"
+#include "MG_Util/Converters/MGToGL/ErrorCodeConverter.h"
+#include "MG_Util/Converters/GLToStr/GLEnumConverter.h"
+#include "MG_Util/Converters/MGToStr/BufferEnumConverter.h"
+#include "MG_Util/Converters/MGToStr/GLExtensionConverter.h"
+#include "MG_Util/Converters/GLToGlslang/GLShaderLangConverter.h"

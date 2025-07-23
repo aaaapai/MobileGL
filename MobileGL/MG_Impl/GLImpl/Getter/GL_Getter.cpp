@@ -2,11 +2,16 @@
 
 namespace MobileGL {
 	namespace MG_Impl::GLImpl {
+        /* @INSERTION_POINT:FUNCTION_IMPLEMENTATION@ */
         const GLubyte* GetString(GLenum name) {
+            static String vendorString;
+            static String versionStr;
+            static String rendererString;
+            static String shadingLanguageVersion;
+            static String extensionsString;
             MGLOG_D("glGetString, name: %s", MG_Util::ConvertGLEnumToString(name).c_str());
             switch (name) {
             case GL_VENDOR:
-                static String vendorString;
                 if (vendorString.empty()) {
                     if (MG_Config::RendererInfoPtr->ExtraVendor.has_value()) {
                         vendorString = std::format("{}{}",
@@ -17,7 +22,6 @@ namespace MobileGL {
                 }
                 return (const GLubyte*)vendorString.c_str();
             case GL_VERSION: {
-                static String versionStr;
                 if (versionStr.empty()) {
                     versionStr = std::format("{} {}, {} Backend, Version {}",
                         MG_Config::RendererInfoPtr->RendererGLInfo.TargetGLVersion.toString().c_str(),
@@ -30,7 +34,6 @@ namespace MobileGL {
 
             case GL_RENDERER:
             {
-                static String rendererString;
                 if (rendererString.empty()) {
                     String deviceInfo;
                     rendererString = std::format("{} ({}) ({})",
@@ -41,7 +44,6 @@ namespace MobileGL {
                 return (const GLubyte*)rendererString.c_str();
             }
             case GL_SHADING_LANGUAGE_VERSION:
-                static String shadingLanguageVersion;
                 if (shadingLanguageVersion.empty()) {
                     shadingLanguageVersion = std::format("{} MobileGL",
                         MG_Config::RendererInfoPtr->RendererGLInfo.TargetGLSLVersion.toString(
@@ -49,7 +51,6 @@ namespace MobileGL {
                 }
                 return (const GLubyte*)shadingLanguageVersion.c_str();
             case GL_EXTENSIONS:
-                static String extensionsString;
                 if (extensionsString.empty()) {
                     for (auto& ext : MG_Config::RendererInfoPtr->RendererGLInfo.Extensions) {
                         extensionsString += MG_Util::ConvertetGLExtToString(ext);
@@ -123,6 +124,11 @@ namespace MobileGL {
 				// TODO: Report GL_INVALID_ENUM.
                 break;
             }
+        }
+
+        GLenum GetError() {
+			ErrorCode errorCode = MG_State::pGLContext->PopGLError().value_or(Error{ ErrorCode::NoError, nullptr }).code;
+            return MG_Util::ConvertErrorCodeToGLEnum(errorCode);
         }
 	}
 }

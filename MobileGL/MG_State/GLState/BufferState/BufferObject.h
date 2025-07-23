@@ -16,7 +16,8 @@ namespace MobileGL {
 		DispatchIndirect,
 		DrawIndirect,
 		ShaderStorage,
-        BufferTargetCount
+        BufferTargetCount,
+		Unknown = -1
 	};
 
 	enum class BufferUsage {
@@ -28,7 +29,8 @@ namespace MobileGL {
 		StaticCopy,
 		DynamicDraw,
 		DynamicRead,
-		DynamicCopy
+		DynamicCopy,
+		Unknown = -1
 	};
 
 	enum class BufferMappingAccessBit : Uint {
@@ -38,7 +40,9 @@ namespace MobileGL {
 		InvalidateRange = 0x04,
 		InvalidateBuffer = 0x08,
 		FlushExplicit = 0x10,
-		Unsynchronized = 0x20
+		Unsynchronized = 0x20,
+		Persistent = 0x40,
+		Coherent = 0x80
 	};
 
 	inline BufferMappingAccessBit operator|(BufferMappingAccessBit a, BufferMappingAccessBit b) {
@@ -56,7 +60,7 @@ namespace MobileGL {
 		return static_cast<BufferMappingAccessBit>(static_cast<T>(a) & static_cast<T>(b));
 	}
 
-	inline bool any(BufferMappingAccessBit a) {
+	inline bool Any(BufferMappingAccessBit a) {
 		using T = std::underlying_type_t<BufferMappingAccessBit>;
 		return static_cast<T>(a) != 0;
 	}
@@ -76,7 +80,7 @@ namespace MobileGL {
 				void* AcquireMemoryRange(Range1D range, BufferMappingAccessBit access);
 				void ReleaseMemory();
 				void FlushMemoryRange(SizeT offset, SizeT length);
-				void UploadSubData(SizeT offset, SizeT size, const void* data);
+				void UploadSubData(DataPtr data, SizeT atOffset);
 				void CopyDataFrom(const SharedPtr<BufferObject>& src, SizeT srcOffset, SizeT dstOffset, SizeT size);
 				void ClearDirty();
 				
@@ -84,7 +88,8 @@ namespace MobileGL {
 				SizeT GetSize() const;
 				BufferUsage GetUsage() const;
 				Range1D GetDirtyRange() const;
-
+				Range1D GetMappedRange() const;
+				BufferMappingAccessBit GetMappingAccess() const;
 			private:
 				Int m_id = 0;
 				SizeT m_size = 0;

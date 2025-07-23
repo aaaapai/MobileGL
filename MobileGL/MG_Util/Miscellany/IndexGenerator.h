@@ -7,8 +7,8 @@ namespace MobileGL {
     template <typename IndexType>
     class IndexGenerator {
     public:
-        explicit IndexGenerator(size_t initial_capacity = 1024)
-            : next_index_(0)
+        explicit IndexGenerator(size_t initial_capacity = 1024, IndexType first_index = 0)
+            : next_index_(first_index)
         {
             is_valid_.reserve(initial_capacity);
         }
@@ -50,9 +50,9 @@ namespace MobileGL {
         }
 
     private:
-        IndexType                next_index_ = 0;
-        std::vector<IndexType>   freed_indices_;
-        std::vector<Uint8>     is_valid_;
+        IndexType next_index_ = 0;
+        std::vector<IndexType>  freed_indices_;
+        std::vector<Uint8> is_valid_;
     };
 
 }

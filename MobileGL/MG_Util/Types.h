@@ -1,5 +1,7 @@
 #pragma once
 
+#define GL_UNKNOWN_MGL 0
+
 namespace MobileGL {
 	using String = std::string;
 	using StringStream = std::stringstream;
@@ -24,11 +26,11 @@ namespace MobileGL {
 	using SharedPtr = std::shared_ptr<T>;
 	template <typename T>
 	using UniquePtr = std::unique_ptr<T>;
-	template<typename T, typename... Args>
+	template <typename T, typename... Args>
 	inline SharedPtr<T> MakeShared(Args&&... args) {
 		return std::make_shared<T>(std::forward<Args>(args)...);
 	}
-	template<typename T, typename... Args>
+	template <typename T, typename... Args>
 	inline UniquePtr<T> MakeUnique(Args&&... args) {
 		return std::make_unique<T>(std::forward<Args>(args)...);
 	}
@@ -37,9 +39,13 @@ namespace MobileGL {
 	using Array = std::array<T, N>;
 	template <typename Key, typename Value>
 	using UnorderedMap = std::unordered_map<Key, Value>;
-	template<typename T>
+	template <typename T>
 	inline constexpr std::remove_reference_t<T>&& Move(T&& t) noexcept {
 		return static_cast<std::remove_reference_t<T>&&>(t);
+	}
+	template <typename T>
+	inline constexpr void Copy(const T* src, T* dest, SizeT count) {
+		std::copy(src, src + count, dest);
 	}
 	class RuntimeError : public std::runtime_error {
 	public:
@@ -100,7 +106,7 @@ namespace MobileGL {
 		}
 	};
 
-	template<typename ObjectType>
+	template <typename ObjectType>
 	class BindingSlot {
 	public:
 		using TargetEnum = typename ObjectType::TargetEnum;
@@ -162,4 +168,4 @@ namespace MobileGL {
 	};
 }
 
-#include "MG_Util/ShaderTranspiler/Types.h"
+#include "../MG_Util/ShaderTranspiler/Types.h"

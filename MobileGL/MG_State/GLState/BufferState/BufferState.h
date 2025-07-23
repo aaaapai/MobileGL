@@ -5,16 +5,15 @@ namespace MobileGL {
 		namespace GLState {
 			class BufferState {
 			public:
-                BufferState() {
-                    for (SizeT i = 0; i < (SizeT)BufferTarget::BufferTargetCount; ++i) {
-                        m_bindingSlots[i] = BindingSlot<BufferObject>((BufferTarget)i);
-                    }
-                }
+				BufferState();
 
 				SharedPtr<BufferObject> GetBufferObject(Uint index);
 				Vector<Uint> GenerateNames(Uint number);
 				SharedPtr<BufferObject> CreateBufferObject(Uint index);
 				BindingSlot<BufferObject>& GetBindingSlot(BufferTarget target);
+				void MarkBufferObjectForDeletion(Uint index);
+				bool ValidateName(Uint index) const;
+				bool ValidateBufferObject(Uint index) const;
 
 			private:
 				UnorderedMap<Uint, SharedPtr<BufferObject>> m_bufferObjects;

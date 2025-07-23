@@ -31,8 +31,8 @@ namespace MobileGL {
 			void BufferObject::ReleaseMemory() {
 				if (!m_isMapped) return;
 
-				if (any(m_mappingAccess & BufferMappingAccessBit::Write)) { // if we wrote to the buffer
-					if (!any(m_mappingAccess & BufferMappingAccessBit::FlushExplicit)) { // if we didn't flush explicitly
+				if (Any(m_mappingAccess & BufferMappingAccessBit::Write)) { // if we wrote to the buffer
+					if (!Any(m_mappingAccess & BufferMappingAccessBit::FlushExplicit)) { // if we didn't flush explicitly
 						memcpy(m_data.data() + m_mappedRange.start,
 							m_stagingData.data(),
 							m_mappedRange.end - m_mappedRange.start);
@@ -50,8 +50,8 @@ namespace MobileGL {
 
 			void BufferObject::FlushMemoryRange(SizeT offset, SizeT length) {
 				assert(m_isMapped);
-				assert(any(m_mappingAccess & BufferMappingAccessBit::FlushExplicit));
-				assert(any(m_mappingAccess & BufferMappingAccessBit::Write));
+				assert(Any(m_mappingAccess & BufferMappingAccessBit::FlushExplicit));
+				assert(Any(m_mappingAccess & BufferMappingAccessBit::Write));
 
 				SizeT start = m_mappedRange.start + offset;
 				SizeT end = start + length;
@@ -61,12 +61,12 @@ namespace MobileGL {
 				m_dirtyRange.UnionUpdate(start, end);
 			}
 
-			void BufferObject::UploadSubData(SizeT offset, SizeT size, const void* data) {
+			void BufferObject::UploadSubData(DataPtr data, SizeT atOffset) {
 				assert(!m_isMapped);
-				assert(offset + size <= m_size);
+				assert(atOffset + data.size <= m_size);
 
-				memcpy(m_data.data() + offset, data, size);
-				m_dirtyRange.UnionUpdate(offset, offset + size);
+				memcpy(m_data.data() + atOffset, data.data, data.size);
+				m_dirtyRange.UnionUpdate(atOffset, atOffset + data.size);
 			}
 
 			void BufferObject::CopyDataFrom(const SharedPtr<BufferObject>& src, SizeT srcOffset, SizeT dstOffset, SizeT size) {
@@ -88,11 +88,11 @@ namespace MobileGL {
 						(write ? BufferMappingAccessBit::Write : BufferMappingAccessBit::Null);
 					m_mappedRange = { 0, m_size };
 
-					if (any(m_mappingAccess & BufferMappingAccessBit::Write)) {
+					if (Any(m_mappingAccess & BufferMappingAccessBit::Write)) {
 						m_stagingData.resize(m_size);
 						m_ownsStagingData = true;
 
-						if (!any(m_mappingAccess & (BufferMappingAccessBit::InvalidateRange |
+						if (!Any(m_mappingAccess & (BufferMappingAccessBit::InvalidateRange |
 							BufferMappingAccessBit::InvalidateBuffer))) {
 							memcpy(m_stagingData.data(), m_data.data(), m_size);
 						}
@@ -110,11 +110,11 @@ namespace MobileGL {
 				m_mappingAccess = access;
 				m_mappedRange = range;
 
-				if (any(access & BufferMappingAccessBit::Write)) {
+				if (Any(access & BufferMappingAccessBit::Write)) {
 					m_stagingData.resize(range.end - range.start);
 					m_ownsStagingData = true;
 
-					if (!any(access & (BufferMappingAccessBit::InvalidateRange |
+					if (!Any(access & (BufferMappingAccessBit::InvalidateRange |
 						BufferMappingAccessBit::InvalidateBuffer))) {
 						memcpy(m_stagingData.data(), m_data.data() + range.start, m_stagingData.size());
 					}
@@ -147,7 +147,22 @@ namespace MobileGL {
 				return m_isMapped;
 			}
 
+			Range1D BufferObject::GetMappedRange() const {
+				return m_isMapped ? m_mappedRange : Range1D{ 0, 0 };
+			}
+
+			BufferMappingAccessBit BufferObject::GetMappingAccess() const {
+				return m_isMapped ? m_mappingAccess : BufferMappingAccessBit::Null;
+			}
+
 			// BufferState
+			BufferState::BufferState()
+				: m_indexGenerator(1024, 1) {
+				for (SizeT i = 0; i < (SizeT)BufferTarget::BufferTargetCount; ++i) {
+					m_bindingSlots[i] = BindingSlot<BufferObject>((BufferTarget)i);
+				}
+			}
+
 			SharedPtr<BufferObject> BufferState::GetBufferObject(Uint index) {
 				auto it = m_bufferObjects.find(index);
 				if (it != m_bufferObjects.end()) {
@@ -170,6 +185,29 @@ namespace MobileGL {
 
 			BindingSlot<BufferObject>& BufferState::GetBindingSlot(BufferTarget target) {
 				return m_bindingSlots[(SizeT)target];
+			}
+
+			void BufferState::MarkBufferObjectForDeletion(Uint index) {
+				if (m_indexGenerator.IsValid(index)) {
+					auto it = m_bufferObjects.find(index);
+					if (it != m_bufferObjects.end()) {
+						for (SizeT i = 0; i < (SizeT)BufferTarget::BufferTargetCount; ++i) {
+							if (m_bindingSlots[i].GetBoundObject() == it->second) {
+								m_bindingSlots[i].Bind(nullptr);
+							}
+						}
+						m_bufferObjects.erase(it);
+					}
+					m_indexGenerator.Delete(index);
+				}
+			}
+
+			bool BufferState::ValidateName(Uint index) const {
+				return m_indexGenerator.IsValid(index);
+			}
+
+			bool BufferState::ValidateBufferObject(Uint index) const {
+				return m_bufferObjects.find(index) != m_bufferObjects.end();
 			}
 		}
 	}

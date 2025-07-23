@@ -7,15 +7,15 @@ namespace MobileGL {
 
         constexpr char* GetOSName() {
 #if defined(_WIN32)
-            return "Windows";
+            return (char*)"Windows";
 #elif defined(__ANDROID__)
-            return "Android";
+            return (char*)"Android";
 #elif defined(__APPLE__)
-            return "macOS";
+            return (char*)"macOS";
 #elif defined(__linux__)
-            return "Linux";
+            return (char*)"Linux";
 #else
-            return "UnknownOS";
+            return (char*)"UnknownOS";
 #endif
         }
 

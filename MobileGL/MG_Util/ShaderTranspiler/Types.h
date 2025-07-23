@@ -1,9 +1,4 @@
-//
-// Created by Swung 0x48 on 2025/7/20.
-//
-
-#ifndef MG_UTIL_SHADERTRANSPILER_TYPES_H
-#define MG_UTIL_SHADERTRANSPILER_TYPES_H
+#pragma once
 
 namespace MobileGL {
     namespace MG_Util {
@@ -145,5 +140,3 @@ namespace MobileGL {
 }
 
 #include "ShaderCompiler.h"
-
-#endif //MG_UTIL_SHADERTRANSPILER_TYPES_H
