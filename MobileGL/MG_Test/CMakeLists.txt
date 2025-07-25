@@ -30,4 +30,5 @@ include(GoogleTest)
 gtest_discover_tests(SanityTest)
 
 add_subdirectory(Buffer)
+add_subdirectory(VertexArray)
 add_subdirectory(Program)
