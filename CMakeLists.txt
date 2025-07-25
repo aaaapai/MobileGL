@@ -47,6 +47,8 @@ add_library(${CMAKE_PROJECT_NAME} SHARED
     MobileGL/MG_State/GLState/ErrorState/Error.cpp
     MobileGL/MG_State/GLState/BufferState/BufferState.cpp
     MobileGL/MG_State/GLState/BufferState/BufferObject.cpp
+    MobileGL/MG_State/GLState/VertexArrayState/VertexArrayState.cpp
+    MobileGL/MG_State/GLState/VertexArrayState/VertexArrayObject.cpp
 )
 
 target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE

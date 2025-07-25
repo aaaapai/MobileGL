@@ -26,12 +26,25 @@ namespace MobileGL {
 				bool ValidateBufferName(Uint index) const;
 				bool ValidateBufferObject(Uint index) const;
 
+				// VertexArray
+				Vector<Uint> GenVertexArrayNames(Uint number);
+				SharedPtr<VertexArrayObject> GetVertexArrayObject(Uint index);
+				void BindVertexArray(Uint index);
+				SharedPtr<VertexArrayObject> CreateVertexArrayObject(Uint index);
+				void MarkVertexArrayForDeletion(Uint index);
+				bool ValidateVertexArrayName(Uint index) const;
+				bool ValidateVertexArrayObject(Uint index) const;
+				SharedPtr<VertexArrayObject> GetBoundVertexArray();
+
 			private:
 				// Error
 				ErrorState m_errorState;
 
 				// Buffer
 				BufferState m_bufferState;
+
+				// VertexArray
+				VertexArrayState m_vertexArrayState;
 			};
 		}
 

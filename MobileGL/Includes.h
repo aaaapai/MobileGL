@@ -109,6 +109,8 @@ inline int __android_log_print(int prio, const char* tag, const char* fmt, ...) 
 
 #include "MG_State/GLState/BufferState/BufferObject.h"
 #include "MG_State/GLState/BufferState/BufferState.h"
+#include "MG_State/GLState/VertexArrayState/VertexArrayObject.h"
+#include "MG_State/GLState/VertexArrayState/VertexArrayState.h"
 
 /* @INSERTION_POINT:HEADER_FILE_GLIMPL@ */
 #include "MG_Impl/GLImpl/Getter/GL_Getter.h"

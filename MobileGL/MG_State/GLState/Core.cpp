@@ -65,6 +65,38 @@ namespace MobileGL {
 				return m_bufferState.ValidateBufferObject(index);
             }
 
+            // VertexArray
+            Vector<Uint> GLContext::GenVertexArrayNames(Uint number) {
+                return m_vertexArrayState.GenerateNames(number);
+            }
+
+            SharedPtr<VertexArrayObject> GLContext::GetVertexArrayObject(Uint index) {
+                return m_vertexArrayState.GetVertexArrayObject(index);
+            }
+
+            void GLContext::BindVertexArray(Uint index) {
+                m_vertexArrayState.Bind(index);
+            }
+
+            SharedPtr<VertexArrayObject> GLContext::CreateVertexArrayObject(Uint index) {
+                return m_vertexArrayState.CreateVertexArrayObject(index);
+            }
+
+            void GLContext::MarkVertexArrayForDeletion(Uint index) {
+                m_vertexArrayState.MarkVertexArrayForDeletion(index);
+            }
+
+            bool GLContext::ValidateVertexArrayName(Uint index) const {
+                return m_vertexArrayState.ValidateName(index);
+            }
+
+            bool GLContext::ValidateVertexArrayObject(Uint index) const {
+                return m_vertexArrayState.ValidateVertexArrayObject(index);
+            }
+
+            SharedPtr<VertexArrayObject> GLContext::GetBoundVertexArray() {
+                return m_vertexArrayState.GetBoundVertexArray();
+            }
         }
 
         GLState::GLContext* pGLContext;
