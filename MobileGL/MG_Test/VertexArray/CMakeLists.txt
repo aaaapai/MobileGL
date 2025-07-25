@@ -18,6 +18,7 @@ add_executable(
         ${MGL_ROOT}/MobileGL/MG_Util/Converters/GLToStr/GLEnumConverter.cpp
         ${MGL_ROOT}/MobileGL/MG_Util/Converters/MGToStr/GLExtensionConverter.cpp
         ${MGL_ROOT}/MobileGL/MG_Util/Converters/MGToStr/BufferEnumConverter.cpp
+        ${MGL_ROOT}/MobileGL/MG_Util/Converters/MGToStr/DataTypeConverter.cpp
         ${MGL_ROOT}/MobileGL/MG_Util/Converters/GLToGlslang/GLShaderLangConverter.cpp
         ${MGL_ROOT}/MobileGL/MG_Util/Converters/MGToGL/ErrorCodeConverter.cpp
         ${MGL_ROOT}/MobileGL/MG_Util/Converters/MGToGL/BufferEnumConverter.cpp
