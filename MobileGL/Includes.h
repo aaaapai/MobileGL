@@ -89,7 +89,7 @@
 
 typedef int android_LogPriority;
 
-inline int __android_log_print(int prio, const char* tag, const char* fmt, ...) { }
+inline int __android_log_print(int prio, const char* tag, const char* fmt, ...) { return 0; }
 #endif
 
 #include "MG_Util/GLExtensions.h"
