@@ -7,6 +7,8 @@ add_executable(
         ${MGL_ROOT}/MobileGL/MG_State/GLState/Core.cpp
         ${MGL_ROOT}/MobileGL/MG_State/GLState/BufferState/BufferState.cpp
         ${MGL_ROOT}/MobileGL/MG_State/GLState/BufferState/BufferObject.cpp
+        ${MGL_ROOT}/MobileGL/MG_State/GLState/VertexArrayState/VertexArrayObject.cpp
+        ${MGL_ROOT}/MobileGL/MG_State/GLState/VertexArrayState/VertexArrayState.cpp
         ${MGL_ROOT}/MobileGL/MG_State/GLState/ErrorState/Error.cpp
         ${MGL_ROOT}/MobileGL/MG_Impl/GLImpl/Buffer/GL_Buffer.cpp
         ${MGL_ROOT}/MobileGL/MG_Impl/GLImpl/Getter/GL_Getter.cpp
