@@ -46,7 +46,8 @@ add_library(${CMAKE_PROJECT_NAME} SHARED
     MobileGL/MG_State/GLState/Core.cpp
     MobileGL/MG_State/GLState/ErrorState/Error.cpp
     MobileGL/MG_State/GLState/BufferState/BufferState.cpp
- )
+    MobileGL/MG_State/GLState/BufferState/BufferObject.cpp
+)
 
 target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE
     ${CMAKE_SOURCE_DIR}/library/arm64-v8a/libglslang.a
