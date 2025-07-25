@@ -31,7 +31,7 @@ namespace MobileGL {
             }
 
             void VertexArrayObject::SetAttributeFormat(Uint index, int size, DataType type,
-                bool normalized, int stride, SizeT offset) {
+                bool normalized, int stride, SizeT offset, bool isInteger) {
                 if (index >= MAX_VERTEX_ATTRIBS) return;
 
                 if (size < 1 || size > 4) {
@@ -44,6 +44,7 @@ namespace MobileGL {
                 attr.Normalized = normalized;
                 attr.Stride = stride;
                 attr.Offset = offset;
+				attr.IsInteger = isInteger;
             }
 
             void VertexArrayObject::BindAttributeBuffer(Uint index,

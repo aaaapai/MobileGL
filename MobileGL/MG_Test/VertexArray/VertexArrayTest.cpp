@@ -48,11 +48,11 @@ TEST_F(VertexArrayTest, VertexAttributeSetup) {
     auto vbo = CreateTestVBO();
 
     vao->EnableAttribute(0);
-    vao->SetAttributeFormat(0, 4, DataType::Float32, false, 8 * sizeof(float), 0);
+    vao->SetAttributeFormat(0, 4, DataType::Float32, false, 8 * sizeof(float), 0, false);
     vao->BindAttributeBuffer(0, vbo);
 
     vao->EnableAttribute(1);
-    vao->SetAttributeFormat(1, 4, DataType::Float32, false, 8 * sizeof(float), 4 * sizeof(float));
+    vao->SetAttributeFormat(1, 4, DataType::Float32, false, 8 * sizeof(float), 4 * sizeof(float), false);
     vao->BindAttributeBuffer(1, vbo);
 
     const auto& attr0 = vao->GetAttribute(0);
@@ -145,15 +145,15 @@ TEST_F(VertexArrayTest, MultipleAttributes) {
     vboNormal->UploadData(ptr, 0);
 
     vao->EnableAttribute(0);
-    vao->SetAttributeFormat(0, 3, DataType::Float32, false, 3 * sizeof(float), 0);
+    vao->SetAttributeFormat(0, 3, DataType::Float32, false, 3 * sizeof(float), 0, false);
     vao->BindAttributeBuffer(0, vboPos);
 
     vao->EnableAttribute(1);
-    vao->SetAttributeFormat(1, 3, DataType::Float32, true, 3 * sizeof(float), 0);
+    vao->SetAttributeFormat(1, 3, DataType::Float32, true, 3 * sizeof(float), 0, false);
     vao->BindAttributeBuffer(1, vboNormal);
 
     vao->EnableAttribute(2);
-    vao->SetAttributeFormat(2, 4, DataType::Uint8, true, 4 * sizeof(Uint8), 0);
+    vao->SetAttributeFormat(2, 4, DataType::Uint8, true, 4 * sizeof(Uint8), 0, false);
 
     const auto& attr0 = vao->GetAttribute(0);
     ASSERT_EQ(attr0.Size, 3);
@@ -181,12 +181,12 @@ TEST_F(VertexArrayTest, BoundVAOPreservesState) {
 
     glContext.BindVertexArray(vaoNames[0]);
     vao1->EnableAttribute(0);
-    vao1->SetAttributeFormat(0, 4, DataType::Float32, false, 0, 0);
+    vao1->SetAttributeFormat(0, 4, DataType::Float32, false, 0, 0, false);
     vao1->BindAttributeBuffer(0, vbo);
 
     glContext.BindVertexArray(vaoNames[1]);
     vao2->EnableAttribute(1);
-    vao2->SetAttributeFormat(1, 3, DataType::Float32, true, 0, 0);
+    vao2->SetAttributeFormat(1, 3, DataType::Float32, true, 0, 0, false);
 
     glContext.BindVertexArray(vaoNames[0]);
 

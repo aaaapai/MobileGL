@@ -10,6 +10,7 @@ namespace MobileGL {
                 bool Normalized = false;
                 int Stride = 0;
                 SizeT Offset = 0;
+                bool IsInteger = false;
                 SharedPtr<BufferObject> Buffer;
             };
 
@@ -23,7 +24,7 @@ namespace MobileGL {
                 void DisableAttribute(Uint index);
                 bool IsAttributeEnabled(Uint index) const;
 
-                void SetAttributeFormat(Uint index, int size, DataType type, bool normalized, int stride, SizeT offset);
+                void SetAttributeFormat(Uint index, int size, DataType type, bool normalized, int stride, SizeT offset, bool isInteger);
 
                 void BindAttributeBuffer(Uint index, const SharedPtr<BufferObject>& buffer);
 
