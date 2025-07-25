@@ -197,3 +197,251 @@ TEST_F(VertexArrayTest, BoundVAOPreservesState) {
 
     ASSERT_FALSE(vao2->IsAttributeEnabled(0));
 }
+
+
+using namespace MobileGL::MG_Impl::GLImpl;
+
+class GeneralVertexArrayTest : public ::testing::Test {
+protected:
+    void SetUp() override {
+        MG_State::pGLContext = new MG_State::GLState::GLContext();
+    }
+
+    void TearDown() override {
+        delete MG_State::pGLContext;
+        MG_State::pGLContext = nullptr;
+    }
+
+    GLuint CreateVAO() {
+        GLuint vao;
+        GenVertexArrays(1, &vao);
+        BindVertexArray(vao);
+        return vao;
+    }
+
+    GLuint CreateVBO(GLenum target, GLsizeiptr size, const void* data = nullptr) {
+        GLuint vbo;
+        GenBuffers(1, &vbo);
+        BindBuffer(target, vbo);
+        BufferData(target, size, data, GL_STATIC_DRAW);
+        return vbo;
+    }
+};
+
+TEST_F(GeneralVertexArrayTest, General_VAOLifecycle) {
+    GLuint vaos[3];
+
+    GenVertexArrays(3, vaos);
+    EXPECT_NE(vaos[0], 0);
+    EXPECT_NE(vaos[1], 0);
+    EXPECT_NE(vaos[2], 0);
+    EXPECT_NE(vaos[0], vaos[1]);
+
+    BindVertexArray(vaos[0]);
+    EXPECT_EQ(IsVertexArray(vaos[0]), GL_TRUE);
+
+    GLuint deleteVao = vaos[1];
+    DeleteVertexArrays(1, &deleteVao);
+
+    BindVertexArray(deleteVao);
+    EXPECT_EQ(GetError(), GL_INVALID_OPERATION);
+
+    DeleteVertexArrays(1, &vaos[0]);
+    DeleteVertexArrays(1, &vaos[2]);
+
+    EXPECT_EQ(GetError(), GL_NO_ERROR);
+}
+
+TEST_F(GeneralVertexArrayTest, General_VertexAttributeConfiguration) {
+    GLuint vao = CreateVAO();
+    GLuint vbo = CreateVBO(GL_ARRAY_BUFFER, 128);
+
+    VertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void*)0);
+    EnableVertexAttribArray(0);
+
+    VertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void*)(3 * sizeof(float)));
+    EnableVertexAttribArray(1);
+
+    auto vaoObj = MG_State::pGLContext->GetVertexArrayObject(vao);
+    ASSERT_NE(vaoObj, nullptr);
+
+    const auto& attr0 = vaoObj->GetAttribute(0);
+    EXPECT_TRUE(attr0.Enabled);
+    EXPECT_EQ(attr0.Size, 3);
+    EXPECT_EQ(attr0.Type, DataType::Float32);
+    EXPECT_EQ(attr0.Offset, 0);
+
+    const auto& attr1 = vaoObj->GetAttribute(1);
+    EXPECT_TRUE(attr1.Enabled);
+    EXPECT_EQ(attr1.Offset, 3 * sizeof(float));
+
+    DisableVertexAttribArray(1);
+    EXPECT_FALSE(vaoObj->GetAttribute(1).Enabled);
+
+    EXPECT_EQ(GetError(), GL_NO_ERROR);
+}
+
+TEST_F(GeneralVertexArrayTest, General_ElementBufferBinding) {
+    GLuint vao = CreateVAO();
+    GLuint ebo = CreateVBO(GL_ELEMENT_ARRAY_BUFFER, 256);
+
+    auto vaoObj = MG_State::pGLContext->GetVertexArrayObject(vao);
+    ASSERT_NE(vaoObj, nullptr);
+    ASSERT_NE(vaoObj->GetElementBuffer(), nullptr);
+
+    GLuint newEbo;
+    GenBuffers(1, &newEbo);
+    BindBuffer(GL_ELEMENT_ARRAY_BUFFER, newEbo);
+
+    EXPECT_EQ(vaoObj->GetElementBuffer(), MG_State::pGLContext->GetBufferObject(newEbo));
+
+    GLuint vao2 = CreateVAO();
+    GLuint ebo2 = CreateVBO(GL_ELEMENT_ARRAY_BUFFER, 128);
+
+    auto vaoObj2 = MG_State::pGLContext->GetVertexArrayObject(vao2);
+    EXPECT_NE(vaoObj->GetElementBuffer(), vaoObj2->GetElementBuffer());
+
+    EXPECT_EQ(GetError(), GL_NO_ERROR);
+}
+
+TEST_F(GeneralVertexArrayTest, General_IntegerAttributes) {
+    GLuint vao = CreateVAO();
+    GLuint vbo = CreateVBO(GL_ARRAY_BUFFER, 128);
+
+    VertexAttribIPointer(2, 4, GL_UNSIGNED_INT, sizeof(GLuint) * 8, (void*)(sizeof(GLuint) * 4));
+    EnableVertexAttribArray(2);
+
+    auto vaoObj = MG_State::pGLContext->GetVertexArrayObject(vao);
+    const auto& attr = vaoObj->GetAttribute(2);
+    EXPECT_TRUE(attr.Enabled);
+    EXPECT_EQ(attr.Size, 4);
+    EXPECT_EQ(attr.Type, DataType::Uint32);
+    EXPECT_EQ(attr.Offset, sizeof(GLuint) * 4);
+    EXPECT_TRUE(attr.IsInteger);
+    EXPECT_FALSE(attr.Normalized);
+
+    EXPECT_EQ(GetError(), GL_NO_ERROR);
+}
+
+TEST_F(GeneralVertexArrayTest, General_StatePreservation) {
+    GLuint vao1 = CreateVAO();
+    GLuint vbo1 = CreateVBO(GL_ARRAY_BUFFER, 64);
+
+    VertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 0, nullptr);
+    EnableVertexAttribArray(0);
+
+    GLuint vao2;
+    GenVertexArrays(1, &vao2);
+    BindVertexArray(vao2);
+    GLuint vbo2 = CreateVBO(GL_ARRAY_BUFFER, 128);
+    VertexAttribPointer(1, 3, GL_FLOAT, GL_TRUE, 0, nullptr);
+    EnableVertexAttribArray(1);
+
+    BindVertexArray(vao1);
+
+    auto vaoObj1 = MG_State::pGLContext->GetVertexArrayObject(vao1);
+    EXPECT_TRUE(vaoObj1->IsAttributeEnabled(0));
+    EXPECT_FALSE(vaoObj1->IsAttributeEnabled(1));
+
+    auto vaoObj2 = MG_State::pGLContext->GetVertexArrayObject(vao2);
+    EXPECT_TRUE(vaoObj2->IsAttributeEnabled(1));
+    EXPECT_FALSE(vaoObj2->IsAttributeEnabled(0));
+
+    EXPECT_EQ(GetError(), GL_NO_ERROR);
+}
+
+TEST_F(GeneralVertexArrayTest, General_ErrorConditions) {
+    VertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 0, nullptr);
+    EXPECT_EQ(GetError(), GL_INVALID_OPERATION);
+
+    GLuint vao = CreateVAO();
+    EnableVertexAttribArray(MG_State::GLState::VertexArrayObject::MAX_VERTEX_ATTRIBS);
+    EXPECT_EQ(GetError(), GL_INVALID_VALUE);
+
+    VertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 0, nullptr);
+    EXPECT_EQ(GetError(), GL_INVALID_OPERATION);
+
+    GLuint vbo = CreateVBO(GL_ARRAY_BUFFER, 64);
+    VertexAttribPointer(0, 3, 0xFFFFFFFF, GL_FALSE, 0, nullptr);
+    EXPECT_EQ(GetError(), GL_INVALID_ENUM);
+
+    VertexAttribPointer(0, 5, GL_FLOAT, GL_FALSE, 0, nullptr);
+    EXPECT_EQ(GetError(), GL_INVALID_VALUE);
+
+    EXPECT_EQ(GetError(), GL_NO_ERROR);
+}
+
+TEST_F(GeneralVertexArrayTest, General_ComplexUsage) {
+    GLuint vao1 = CreateVAO();
+    GLuint vboPos = CreateVBO(GL_ARRAY_BUFFER, 256);
+    GLuint vboColor = CreateVBO(GL_ARRAY_BUFFER, 128);
+    GLuint ebo1 = CreateVBO(GL_ELEMENT_ARRAY_BUFFER, 64);
+
+    VertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 0, nullptr);
+    EnableVertexAttribArray(0);
+
+    BindBuffer(GL_ARRAY_BUFFER, vboColor);
+    VertexAttribPointer(1, 4, GL_UNSIGNED_BYTE, GL_TRUE, 0, nullptr);
+    EnableVertexAttribArray(1);
+
+    GLuint vao2;
+    GenVertexArrays(1, &vao2);
+    BindVertexArray(vao2);
+    GLuint vboNormal = CreateVBO(GL_ARRAY_BUFFER, 192);
+    GLuint ebo2 = CreateVBO(GL_ELEMENT_ARRAY_BUFFER, 96);
+
+    VertexAttribPointer(2, 3, GL_FLOAT, GL_FALSE, 0, nullptr);
+    EnableVertexAttribArray(2);
+
+    BindVertexArray(vao1);
+
+    auto vaoObj1 = MG_State::pGLContext->GetVertexArrayObject(vao1);
+    EXPECT_TRUE(vaoObj1->IsAttributeEnabled(0));
+    EXPECT_TRUE(vaoObj1->IsAttributeEnabled(1));
+    EXPECT_FALSE(vaoObj1->IsAttributeEnabled(2));
+    EXPECT_NE(vaoObj1->GetElementBuffer(), nullptr);
+
+    auto vaoObj2 = MG_State::pGLContext->GetVertexArrayObject(vao2);
+    EXPECT_TRUE(vaoObj2->IsAttributeEnabled(2));
+    EXPECT_FALSE(vaoObj2->IsAttributeEnabled(0));
+    EXPECT_NE(vaoObj2->GetElementBuffer(), nullptr);
+
+    DeleteVertexArrays(1, &vao1);
+    DeleteVertexArrays(1, &vao2);
+    GLuint buffers[] = { vboPos, vboColor, ebo1, vboNormal, ebo2 };
+    DeleteBuffers(5, buffers);
+
+    EXPECT_EQ(GetError(), GL_NO_ERROR);
+}
+
+TEST_F(GeneralVertexArrayTest, General_BindWithoutCreation) {
+    GLuint vao = 1;
+
+    BindVertexArray(vao);
+    EXPECT_EQ(GetError(), GL_NO_ERROR);
+
+    EXPECT_NE(MG_State::pGLContext->GetVertexArrayObject(vao), nullptr);
+
+    GLuint vbo = CreateVBO(GL_ARRAY_BUFFER, 64);
+    VertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 0, nullptr);
+    EXPECT_EQ(GetError(), GL_NO_ERROR);
+
+    EXPECT_EQ(GetError(), GL_NO_ERROR);
+}
+
+TEST_F(GeneralVertexArrayTest, General_DeleteBoundVAO) {
+    GLuint vao = CreateVAO();
+    GLuint vbo = CreateVBO(GL_ARRAY_BUFFER, 64);
+    VertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 0, nullptr);
+    EnableVertexAttribArray(0);
+
+    DeleteVertexArrays(1, &vao);
+
+    EXPECT_EQ(MG_State::pGLContext->GetBoundVertexArray(), nullptr);
+    EXPECT_EQ(MG_State::pGLContext->GetVertexArrayObject(vao), nullptr);
+
+    VertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 0, nullptr);
+    EXPECT_EQ(GetError(), GL_INVALID_OPERATION);
+
+    EXPECT_EQ(GetError(), GL_NO_ERROR);
+}

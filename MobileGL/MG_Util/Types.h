@@ -74,7 +74,8 @@ namespace MobileGL {
 		Float16,
 		Float32,
 		Float64,
-		Fixed32 
+		Fixed32,
+		Unknown = -1
 	};
 
 	// represents a range of [start, end)

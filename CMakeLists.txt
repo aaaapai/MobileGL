@@ -20,12 +20,15 @@ add_library(${CMAKE_PROJECT_NAME} SHARED
     MobileGL/MG_Util/Debug/Log.cpp
 
     MobileGL/MG_Util/Converters/GLToStr/GLEnumConverter.cpp
+    MobileGL/MG_Util/Converters/MGToStr/DataTypeConverter.cpp
     MobileGL/MG_Util/Converters/MGToStr/GLExtensionConverter.cpp
     MobileGL/MG_Util/Converters/MGToStr/BufferEnumConverter.cpp
     MobileGL/MG_Util/Converters/GLToGlslang/GLShaderLangConverter.cpp
     MobileGL/MG_Util/Converters/MGToGL/ErrorCodeConverter.cpp
     MobileGL/MG_Util/Converters/MGToGL/BufferEnumConverter.cpp
+    MobileGL/MG_Util/Converters/MGToGL/DataTypeConverter.cpp
     MobileGL/MG_Util/Converters/GLToMG/BufferEnumConverter.cpp
+    MobileGL/MG_Util/Converters/GLToMG/DataTypeConverter.cpp
 
     MobileGL/MG_Impl/GLXImpl/Exporting/Definitions.cpp
     MobileGL/MG_Impl/GLXImpl/LookUp/LookUp.cpp
@@ -34,6 +37,8 @@ add_library(${CMAKE_PROJECT_NAME} SHARED
     MobileGL/MG_Impl/EGLImpl/Temporary/TemporaryEGLImpl.cpp
     
     # @INSERTION_POINT:SOURCE_FILE_GLIMPL@ #
+    MobileGL/MG_Impl/GLImpl/VertexArray/Validators.cpp
+    MobileGL/MG_Impl/GLImpl/VertexArray/GL_VertexArray.cpp
     MobileGL/MG_Impl/GLImpl/Exporting/Definitions.cpp
     MobileGL/MG_Impl/GLImpl/Getter/GL_Getter.cpp
     MobileGL/MG_Impl/GLImpl/Buffer/GL_Buffer.cpp

@@ -113,16 +113,21 @@ inline int __android_log_print(int prio, const char* tag, const char* fmt, ...) 
 #include "MG_State/GLState/VertexArrayState/VertexArrayState.h"
 
 /* @INSERTION_POINT:HEADER_FILE_GLIMPL@ */
+#include "MG_Impl/GLImpl/VertexArray/Validators.h"
+#include "MG_Impl/GLImpl/VertexArray/GL_VertexArray.h"
 #include "MG_Impl/GLImpl/Getter/GL_Getter.h"
 #include "MG_Impl/GLImpl/Buffer/GL_Buffer.h"
 #include "MG_Impl/GLImpl/Buffer/Validators.h"
 
 #include "MG_State/GLState/Core.h"
 
-#include "MG_Util/Converters/GLToMG/BufferEnumConverter.h"
 #include "MG_Util/Converters/MGToGL/BufferEnumConverter.h"
 #include "MG_Util/Converters/MGToGL/ErrorCodeConverter.h"
-#include "MG_Util/Converters/GLToStr/GLEnumConverter.h"
+#include "MG_Util/Converters/MGToGL/DataTypeConverter.h"
+#include "MG_Util/Converters/MGToStr/DataTypeConverter.h"
 #include "MG_Util/Converters/MGToStr/BufferEnumConverter.h"
 #include "MG_Util/Converters/MGToStr/GLExtensionConverter.h"
+#include "MG_Util/Converters/GLToMG/BufferEnumConverter.h"
+#include "MG_Util/Converters/GLToMG/DataTypeConverter.h"
+#include "MG_Util/Converters/GLToStr/GLEnumConverter.h"
 #include "MG_Util/Converters/GLToGlslang/GLShaderLangConverter.h"

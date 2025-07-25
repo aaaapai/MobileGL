@@ -384,6 +384,13 @@ namespace MobileGL {
 
 			auto& bindingSlot = MG_State::pGLContext->GetBufferBindingSlot(bufferTarget);
 			bindingSlot.Bind(bufferObject);
+
+			if (bufferTarget == BufferTarget::Index) {
+				auto currentVAO = MG_State::pGLContext->GetBoundVertexArray();
+				if (currentVAO) {
+					currentVAO->BindElementBuffer(bufferObject);
+				}
+			}
 		}
 		
 		void GenBuffers_State(GLsizei n, GLuint* buffers) {
@@ -396,7 +403,23 @@ namespace MobileGL {
 			Copy(bufferNames.data(), buffers, bufferNames.size());
 		}
 
+		GLboolean IsBuffer_State(GLuint buffer) {
+			if (buffer == 0) {
+				MG_State::pGLContext->RecordError(ErrorCode::InvalidValue,
+					MakeShared<GenericErrorInfo>("MG_Impl/GLImpl", "IsBuffer_State",
+						"Buffer name 0 is not a valid buffer object."));
+				return GL_FALSE;
+			}
+
+			if (!BufferImpl::ValidateBufferName(buffer)) return GL_FALSE;
+			return MG_State::pGLContext->ValidateBufferObject(buffer) ? GL_TRUE : GL_FALSE;
+		}
+
 		/* @INSERTION_POINT:FUNCTION_IMPLEMENTATION@ */
+		GLboolean IsBuffer(GLuint buffer) {
+			return IsBuffer_State(buffer);
+		}
+		
 		void DeleteBuffers(GLsizei n, const GLuint* buffers) {
 			DeleteBuffers_State(n, buffers);
 		}

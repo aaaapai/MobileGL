@@ -3,6 +3,7 @@
 namespace MobileGL {
 	namespace MG_Impl::GLImpl {
 		/* @INSERTION_POINT:FUNCTION_DECLARATION@ */
+		GLboolean IsBuffer(GLuint buffer);
 		void DeleteBuffers(GLsizei n, const GLuint* buffers);
 		void FlushMappedBufferRange(GLenum target, GLintptr offset, GLsizeiptr length);
 		GLboolean UnmapBuffer(GLenum target);
