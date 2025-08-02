@@ -148,7 +148,7 @@ TEST_F(ProgramTest, DecompProgram) {
     ShaderAttrib fs_attrib {
         .shaderType = GL_FRAGMENT_SHADER,
         .sourceStr = fs
-    };
+};
     auto fs_res = ShaderCompiler::CompileShader(fs_attrib);
     if (!fs_res) {
         ASSERT_NE(fs_res.error().errc, 0);
@@ -168,10 +168,14 @@ TEST_F(ProgramTest, DecompProgram) {
 
     auto spirvs = program_res.value();
 
+    Vector<SpvcSession> sessions(spirvs.size());
+    for (SizeT i = 0; i < spirvs.size(); ++i) {
+        sessions[i] = SpvcSession(spirvs[i]);
+    }
+
     for (SizeT i = 0; i < spirvs.size(); ++i) {
         std::cout << "Decompiling " << MG_Util::ConvertGLEnumToString(programAttrib.shaderTypes[i]) << std::endl;
-        spirv_cross::CompilerGLSL compiler(spirvs[i]);
-        auto src = ShaderCompiler::DecompileShader(compiler);
+        auto src = ShaderCompiler::DecompileShader(sessions[i]);
         if (!src) {
             ASSERT_NE(src.error().errc, 0);
             FAIL() << "errc: " << src.error().errc << "\nlog: " << src.error().log;
@@ -181,42 +185,42 @@ TEST_F(ProgramTest, DecompProgram) {
     }
 
     // spirv link check
-//    auto vs_outputs = sessions[0].GetShaderInterface(SPVC_RESOURCE_TYPE_STAGE_OUTPUT);
-//    auto fs_inputs = sessions[1].GetShaderInterface(SPVC_RESOURCE_TYPE_STAGE_INPUT);
-//
-//    ASSERT_EQ(vs_outputs.size(), fs_inputs.size());
-//
-//    for (size_t i = 0; i < vs_outputs.size(); ++i) {
-//        EXPECT_EQ(vs_outputs[i].location, fs_inputs[i].location);
-//    }
-//
-//    auto vs_uniforms = sessions[0].GetShaderInterface(SPVC_RESOURCE_TYPE_GL_PLAIN_UNIFORM);
-//    auto fs_uniforms = sessions[1].GetShaderInterface(SPVC_RESOURCE_TYPE_GL_PLAIN_UNIFORM);
-//
-//    std::unordered_map<std::string, uint32_t> uniform_locations;
-//    for (const auto& uniform : vs_uniforms) {
-//        uniform_locations[uniform.name] = uniform.location;
-//    }
-//
-//    for (const auto& uniform : fs_uniforms) {
-//        auto it = uniform_locations.find(uniform.name);
-//        if (it != uniform_locations.end()) {
-//            EXPECT_EQ(it->second, uniform.location);
-//        }
-//    }
-//
-//    auto vs_samplers = sessions[0].GetShaderInterface(SPVC_RESOURCE_TYPE_SAMPLED_IMAGE);
-//    auto fs_samplers = sessions[1].GetShaderInterface(SPVC_RESOURCE_TYPE_SAMPLED_IMAGE);
-//
-//    std::unordered_map<std::string, uint32_t> sampler_locations;
-//    for (const auto& uniform : vs_uniforms) {
-//        sampler_locations[uniform.name] = uniform.location;
-//    }
-//
-//    for (const auto& uniform : fs_uniforms) {
-//        auto it = sampler_locations.find(uniform.name);
-//        if (it != sampler_locations.end()) {
-//            EXPECT_EQ(it->second, uniform.location);
-//        }
-//    }
+    auto vs_outputs = sessions[0].GetShaderInterface(SPVC_RESOURCE_TYPE_STAGE_OUTPUT);
+    auto fs_inputs = sessions[1].GetShaderInterface(SPVC_RESOURCE_TYPE_STAGE_INPUT);
+
+    ASSERT_EQ(vs_outputs.size(), fs_inputs.size());
+
+    for (size_t i = 0; i < vs_outputs.size(); ++i) {
+        EXPECT_EQ(vs_outputs[i].location, fs_inputs[i].location);
+    }
+    
+    auto vs_uniforms = sessions[0].GetShaderInterface(SPVC_RESOURCE_TYPE_GL_PLAIN_UNIFORM);
+    auto fs_uniforms = sessions[1].GetShaderInterface(SPVC_RESOURCE_TYPE_GL_PLAIN_UNIFORM);
+
+    std::unordered_map<std::string, uint32_t> uniform_locations;
+    for (const auto& uniform : vs_uniforms) {
+        uniform_locations[uniform.name] = uniform.location;
+    }
+
+    for (const auto& uniform : fs_uniforms) {
+        auto it = uniform_locations.find(uniform.name);
+        if (it != uniform_locations.end()) {
+            EXPECT_EQ(it->second, uniform.location);
+        }
+    }
+
+    auto vs_samplers = sessions[0].GetShaderInterface(SPVC_RESOURCE_TYPE_SAMPLED_IMAGE);
+    auto fs_samplers = sessions[1].GetShaderInterface(SPVC_RESOURCE_TYPE_SAMPLED_IMAGE);
+
+    std::unordered_map<std::string, uint32_t> sampler_locations;
+    for (const auto& uniform : vs_uniforms) {
+        sampler_locations[uniform.name] = uniform.location;
+    }
+
+    for (const auto& uniform : fs_uniforms) {
+        auto it = sampler_locations.find(uniform.name);
+        if (it != sampler_locations.end()) {
+            EXPECT_EQ(it->second, uniform.location);
+        }
+    }
 }

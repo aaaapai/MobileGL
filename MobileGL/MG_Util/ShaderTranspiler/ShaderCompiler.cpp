@@ -207,36 +207,17 @@ namespace MobileGL {
                 const char *result = nullptr;
                 session.Compile(&result);
 
-//                if (!result) {
-//                    ResultInfo r;
-//                    r.log += "Failed to compile the shader to GLSL: \n";
-//                    r.log += session.GetLastErrorString();
-//                    r.errc = -5;
-//                    return std::unexpected(r);
-//                }
+                if (!result) {
+                    ResultInfo r;
+                    r.log += "Failed to compile the shader to GLSL: \n";
+                    r.log += session.GetLastErrorString();
+                    r.errc = -5;
+                    return std::unexpected(r);
+                }
 
                 std::string glsl = result;
 
                 return glsl;
-            }
-
-            Result<String> ShaderCompiler::DecompileShader(spirv_cross::CompilerGLSL& compiler) {
-                try {
-                    spirv_cross::CompilerGLSL::Options options;
-                    options.version = 450;
-                    options.es = false;
-                    options.vulkan_semantics = true;
-                    compiler.set_common_options(options);
-
-                    auto result = compiler.compile();
-                    return result;
-                } catch (const spirv_cross::CompilerError& e) {
-                    ResultInfo r;
-                    r.log += "Failed to compile the shader to GLSL: \n";
-                    r.log += e.what();
-                    r.errc = -5;
-                    return std::unexpected(r);
-                }
             }
         }
     }
