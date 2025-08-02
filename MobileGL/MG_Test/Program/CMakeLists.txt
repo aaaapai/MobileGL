@@ -7,7 +7,6 @@ if (${CMAKE_SYSTEM_NAME} MATCHES "Darwin")
 
     set(LINK_LIBRARIES
             ${VULKAN_LIB_DIR}/libglslang.a
-            ${VULKAN_LIB_DIR}/libspirv-cross-c-shared.dylib
             ${VULKAN_LIB_DIR}/libGenericCodeGen.a
             ${VULKAN_LIB_DIR}/libglslang-default-resource-limits.a
             ${VULKAN_LIB_DIR}/libMachineIndependent.a
@@ -19,7 +18,18 @@ if (${CMAKE_SYSTEM_NAME} MATCHES "Darwin")
             ${VULKAN_LIB_DIR}/libSPIRV-Tools-reduce.a
             ${VULKAN_LIB_DIR}/libSPIRV-Tools.a
             ${VULKAN_LIB_DIR}/libSPIRV.a
-            ${VULKAN_LIB_DIR}/libSPVRemapper.a)
+            ${VULKAN_LIB_DIR}/libSPVRemapper.a
+
+            ${VULKAN_LIB_DIR}/libspirv-cross-c-shared.dylib
+            ${VULKAN_LIB_DIR}/libspirv-cross-core.a
+            ${VULKAN_LIB_DIR}/libspirv-cross-cpp.a
+            ${VULKAN_LIB_DIR}/libspirv-cross-glsl.a
+            ${VULKAN_LIB_DIR}/libspirv-cross-hlsl.a
+            ${VULKAN_LIB_DIR}/libspirv-cross-msl.a
+            ${VULKAN_LIB_DIR}/libspirv-cross-reflect.a
+            ${VULKAN_LIB_DIR}/libspirv-cross-util.a
+
+    )
 elseif (${CMAKE_SYSTEM_NAME} MATCHES "Windows")
     find_package(Vulkan REQUIRED)
     get_filename_component(VULKAN_LIB_DIR ${Vulkan_LIBRARY} PATH)
