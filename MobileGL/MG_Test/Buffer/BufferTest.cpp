@@ -15,7 +15,7 @@ protected:
 TEST_F(BufferTest, Binding) {
     auto bufferNames = glContext.GenBufferNames(3);
     auto& arraySlot = glContext.GetBufferBindingSlot(BufferTarget::Vertex);
-    auto& indexSlot = glContext.GetBufferBindingSlot(BufferTarget::Index);
+    auto& indexSlot = glContext.GetBufferBindingSlot(BufferTarget::Uniform);
 
     auto obj0 = glContext.CreateBufferObject(bufferNames[0]);
     auto obj1 = glContext.CreateBufferObject(bufferNames[1]);
@@ -73,7 +73,7 @@ TEST_F(BufferTest, GenerateManyNames_NoPrematureCreation) {
     for (SizeT idx : indices) {
         GLuint name = names[idx];
         auto bufObj = glContext.CreateBufferObject(name);
-        auto& slot = glContext.GetBufferBindingSlot(BufferTarget::Index);
+        auto& slot = glContext.GetBufferBindingSlot(BufferTarget::Uniform);
         slot.Bind(bufObj);
 
         Vector<Int> data = { static_cast<Int>(idx + 1), static_cast<Int>(idx + 2) };
@@ -483,12 +483,12 @@ TEST_F(GeneralBufferTest, General_GeneralTest_1) {
     const float vertexData[] = { 0.1f, 0.2f, 0.3f, 1.0f };
     BufferSubData(GL_ARRAY_BUFFER, 0, sizeof(vertexData), vertexData);
 
-    BindBuffer(GL_ELEMENT_ARRAY_BUFFER, ibo);
+    BindBuffer(GL_UNIFORM_BUFFER, ibo);
     const uint16_t indexData[] = { 0, 1, 2, 3, 0 };
-    BufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(indexData), indexData, GL_STATIC_DRAW);
+    BufferData(GL_UNIFORM_BUFFER, sizeof(indexData), indexData, GL_STATIC_DRAW);
 
     const uint16_t newIndices[] = { 4, 5 };
-    BufferSubData(GL_ELEMENT_ARRAY_BUFFER, 2 * sizeof(uint16_t),
+    BufferSubData(GL_UNIFORM_BUFFER, 2 * sizeof(uint16_t),
         sizeof(newIndices), newIndices);
 
     BindBuffer(GL_COPY_READ_BUFFER, staging);
@@ -498,14 +498,14 @@ TEST_F(GeneralBufferTest, General_GeneralTest_1) {
     CopyBufferSubData(GL_COPY_READ_BUFFER, GL_ARRAY_BUFFER,
         0, 40, sizeof(stagingData));
 
-    BindBuffer(GL_ELEMENT_ARRAY_BUFFER, ibo);
-    void* fullMap = MapBuffer(GL_ELEMENT_ARRAY_BUFFER, GL_READ_WRITE);
+    BindBuffer(GL_UNIFORM_BUFFER, ibo);
+    void* fullMap = MapBuffer(GL_UNIFORM_BUFFER, GL_READ_WRITE);
     ASSERT_NE(fullMap, nullptr);
 
     uint16_t* indices = static_cast<uint16_t*>(fullMap);
     indices[0] = 10; 
 
-    EXPECT_TRUE(UnmapBuffer(GL_ELEMENT_ARRAY_BUFFER));
+    EXPECT_TRUE(UnmapBuffer(GL_UNIFORM_BUFFER));
 
     BindBuffer(GL_ARRAY_BUFFER, vbo);
     void* partialMap = MapBufferRange(GL_ARRAY_BUFFER, 20, 8,
@@ -535,12 +535,12 @@ TEST_F(GeneralBufferTest, General_GeneralTest_1) {
 
     EXPECT_TRUE(UnmapBuffer(GL_ARRAY_BUFFER));
 
-    BindBuffer(GL_ELEMENT_ARRAY_BUFFER, ibo);
-    void* iboMap = MapBuffer(GL_ELEMENT_ARRAY_BUFFER, GL_READ_ONLY);
+    BindBuffer(GL_UNIFORM_BUFFER, ibo);
+    void* iboMap = MapBuffer(GL_UNIFORM_BUFFER, GL_READ_ONLY);
     const uint16_t* finalIndices = static_cast<const uint16_t*>(iboMap);
     EXPECT_EQ(finalIndices[0], 10);
     EXPECT_EQ(finalIndices[2], 4);
-    EXPECT_TRUE(UnmapBuffer(GL_ELEMENT_ARRAY_BUFFER));
+    EXPECT_TRUE(UnmapBuffer(GL_UNIFORM_BUFFER));
 
     DeleteBuffers(1, &staging);
 

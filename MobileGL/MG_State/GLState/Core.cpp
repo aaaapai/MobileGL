@@ -46,6 +46,10 @@ namespace MobileGL {
             }
 
             BindingSlot<BufferObject>& GLContext::GetBufferBindingSlot(BufferTarget target) {
+                if (target == BufferTarget::Index) {
+					return m_vertexArrayState.GetBoundVertexArray()->GetIndexBufferBindingSlot();
+                }
+                
                 return m_bufferState.GetBindingSlot(target);
             }
 
@@ -54,6 +58,21 @@ namespace MobileGL {
             }
 
             void GLContext::MarkBufferObjectForDeletion(Uint index) {
+                if (ValidateBufferObject(index)) {
+					auto bufferObject = m_bufferState.GetBufferObject(index);
+                    for (SizeT i = 0; i < m_vertexArrayState.GetAllVertexArrays().size(); ++i) {
+                        auto vao = m_vertexArrayState.GetAllVertexArrays()[i];
+                        if (vao->GetIndexBufferBindingSlot().GetBoundObject() == bufferObject) {
+                            vao->GetIndexBufferBindingSlot().Bind(nullptr);
+                        }
+                        for (SizeT j = 0; j < VertexArrayObject::MAX_VERTEX_ATTRIBS; ++j) {
+                            if (vao->GetAttribute(j).Buffer == bufferObject) {
+                                vao->BindAttributeBuffer(j, nullptr);
+                            }
+                        }
+                    }
+                }
+
                 m_bufferState.MarkBufferObjectForDeletion(index);
             }
 

@@ -3,17 +3,25 @@
 namespace MobileGL::MG_Impl::GLImpl {
 	namespace BufferImpl {
 		bool ValidateBufferTarget(BufferTarget target) {
-			if (target != BufferTarget::Unknown)
-				return true;
+			if (target == BufferTarget::Unknown) {
+				using namespace MG_Util;
+				String bufferTargetStr = ConvertBufferTargetToString(target);
+				String glTargetStr = ConvertGLEnumToString(ConvertBufferTargetToGLEnum(target));
+				MG_State::pGLContext->RecordError(ErrorCode::InvalidEnum,
+					MakeShared<GenericErrorInfo>("MG_Impl/GLImpl/BufferImpl", "ValidateBufferTarget",
+						std::format("Target {} ({}) is not valid.",
+							bufferTargetStr, glTargetStr)));
+				return false;
+			}
+			
+			if (target == BufferTarget::Index && MG_State::pGLContext->GetBoundVertexArray() == nullptr) {
+				MG_State::pGLContext->RecordError(ErrorCode::InvalidOperation,
+					MakeShared<GenericErrorInfo>("MG_Impl/GLImpl/BufferImpl", "ValidateBufferTarget",
+						"No vertex array object is bound."));
+				return false;
+			}
 
-			using namespace MG_Util;
-			String bufferTargetStr = ConvertBufferTargetToString(target);
-			String glTargetStr = ConvertGLEnumToString(ConvertBufferTargetToGLEnum(target));
-			MG_State::pGLContext->RecordError(ErrorCode::InvalidEnum,
-				MakeShared<GenericErrorInfo>("MG_Impl/GLImpl/BufferImpl", "ValidateBufferTarget",
-					std::format("Target {} ({}) is not valid.", 
-						bufferTargetStr, glTargetStr)));
-			return false;
+			return true;
 		}
 
 		bool ValidateBufferName(Uint index) {

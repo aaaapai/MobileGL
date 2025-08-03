@@ -16,6 +16,7 @@ namespace MobileGL::MG_Impl::GLImpl {
                 MG_State::pGLContext->RecordError(ErrorCode::InvalidOperation,
                     MakeShared<GenericErrorInfo>("MG_Impl/GLImpl", "ValidateVertexArrayName",
                         std::format("Vertex array name {} is not valid.", index)));
+                return false;
             }
 			return true;
         }

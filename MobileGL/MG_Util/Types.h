@@ -47,6 +47,11 @@ namespace MobileGL {
 	inline constexpr void Copy(const T* src, T* dest, SizeT count) {
 		std::copy(src, src + count, dest);
 	}
+	template<typename... Ts>
+	constexpr auto ToArray(Ts&&... elems) {
+		using E = std::common_type_t<Ts...>;
+		return std::array<E, sizeof...(Ts)>{ { std::forward<Ts>(elems)... } };
+	}
 	class RuntimeError : public std::runtime_error {
 	public:
 		using std::runtime_error::runtime_error;

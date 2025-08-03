@@ -53,12 +53,8 @@ namespace MobileGL {
                 m_attributes[index].Buffer = buffer;
             }
 
-            void VertexArrayObject::BindElementBuffer(const SharedPtr<BufferObject>& buffer) {
-                m_elementBuffer = buffer;
-            }
-
-            SharedPtr<BufferObject> VertexArrayObject::GetElementBuffer() const {
-                return m_elementBuffer;
+            BindingSlot<BufferObject>& VertexArrayObject::GetIndexBufferBindingSlot() {
+				return m_indexBufferBindingSlot;
             }
 
             const VertexAttribute& VertexArrayObject::GetAttribute(Uint index) const {

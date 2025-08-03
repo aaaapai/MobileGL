@@ -28,14 +28,13 @@ namespace MobileGL {
 
                 void BindAttributeBuffer(Uint index, const SharedPtr<BufferObject>& buffer);
 
-                void BindElementBuffer(const SharedPtr<BufferObject>& buffer);
-                SharedPtr<BufferObject> GetElementBuffer() const;
+                BindingSlot<BufferObject>& GetIndexBufferBindingSlot();
 
                 const VertexAttribute& GetAttribute(Uint index) const;
 
             private:
                 Array<VertexAttribute, MAX_VERTEX_ATTRIBS> m_attributes;
-                SharedPtr<BufferObject> m_elementBuffer;
+                BindingSlot<BufferObject> m_indexBufferBindingSlot;
             };
         }
     }

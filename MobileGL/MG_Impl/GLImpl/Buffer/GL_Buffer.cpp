@@ -384,13 +384,6 @@ namespace MobileGL {
 
 			auto& bindingSlot = MG_State::pGLContext->GetBufferBindingSlot(bufferTarget);
 			bindingSlot.Bind(bufferObject);
-
-			if (bufferTarget == BufferTarget::Index) {
-				auto currentVAO = MG_State::pGLContext->GetBoundVertexArray();
-				if (currentVAO) {
-					currentVAO->BindElementBuffer(bufferObject);
-				}
-			}
 		}
 		
 		void GenBuffers_State(GLsizei n, GLuint* buffers) {

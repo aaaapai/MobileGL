@@ -65,6 +65,15 @@ namespace MobileGL {
             SharedPtr<VertexArrayObject> VertexArrayState::GetBoundVertexArray() {
                 return m_boundVertexArray;
             }
+
+            Vector<SharedPtr<VertexArrayObject>> VertexArrayState::GetAllVertexArrays() {
+                Vector<SharedPtr<VertexArrayObject>> arrays;
+                arrays.reserve(m_vertexArrays.size());
+                for (const auto& pair : m_vertexArrays) {
+                    arrays.push_back(pair.second);
+                }
+				return arrays;
+            }
         }
     }
 }

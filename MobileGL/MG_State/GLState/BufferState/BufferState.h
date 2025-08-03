@@ -3,6 +3,21 @@
 namespace MobileGL {
 	namespace MG_State {
 		namespace GLState {
+			constexpr const auto GlobalBufferTargets = ToArray(
+				BufferTarget::Vertex,
+				BufferTarget::Uniform,
+				BufferTarget::CopyRead,
+				BufferTarget::CopyWrite,
+				BufferTarget::PixelPack,
+				BufferTarget::PixelUnpack,
+				BufferTarget::Query,
+				BufferTarget::Texture,
+				BufferTarget::TransformFeedback,
+				BufferTarget::AtomicCounter,
+				BufferTarget::DispatchIndirect,
+				BufferTarget::DrawIndirect,
+				BufferTarget::ShaderStorage);
+
 			class BufferState {
 			public:
 				BufferState();
@@ -18,7 +33,7 @@ namespace MobileGL {
 			private:
 				UnorderedMap<Uint, SharedPtr<BufferObject>> m_bufferObjects;
 				IndexGenerator<Uint> m_indexGenerator;
-				Array<BindingSlot<BufferObject>, (SizeT)BufferTarget::BufferTargetCount> m_bindingSlots;
+				Array<BindingSlot<BufferObject>, GlobalBufferTargets.size()> m_bindingSlots;
 			};
 		}
 	}

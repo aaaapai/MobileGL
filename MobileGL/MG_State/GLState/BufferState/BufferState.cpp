@@ -5,8 +5,8 @@ namespace MobileGL {
 		namespace GLState {
 			BufferState::BufferState()
 				: m_indexGenerator(1024, 1) {
-				for (SizeT i = 0; i < (SizeT)BufferTarget::BufferTargetCount; ++i) {
-					m_bindingSlots[i] = BindingSlot<BufferObject>((BufferTarget)i);
+				for (SizeT i = 0; i < m_bindingSlots.size(); ++i) {
+					m_bindingSlots[i] = BindingSlot<BufferObject>(GlobalBufferTargets[i]);
 				}
 			}
 
@@ -31,14 +31,18 @@ namespace MobileGL {
 			}
 
 			BindingSlot<BufferObject>& BufferState::GetBindingSlot(BufferTarget target) {
-				return m_bindingSlots[(SizeT)target];
+				for (SizeT i = 0; i < m_bindingSlots.size(); ++i) {
+					if (m_bindingSlots[i].GetTarget() == target) {
+						return m_bindingSlots[i];
+					}
+				}
 			}
 
 			void BufferState::MarkBufferObjectForDeletion(Uint index) {
 				if (m_indexGenerator.IsValid(index)) {
 					auto it = m_bufferObjects.find(index);
 					if (it != m_bufferObjects.end()) {
-						for (SizeT i = 0; i < (SizeT)BufferTarget::BufferTargetCount; ++i) {
+						for (SizeT i = 0; i < m_bindingSlots.size(); ++i) {
 							if (m_bindingSlots[i].GetBoundObject() == it->second) {
 								m_bindingSlots[i].Bind(nullptr);
 							}
