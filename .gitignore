@@ -12,3 +12,4 @@ MobileGL/MG_Test/.vs
 MobileGLCodeManager.*
 MobileGLCodeManager
 .vscode
+.clangd
