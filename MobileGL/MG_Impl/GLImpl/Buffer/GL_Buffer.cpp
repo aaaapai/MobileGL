@@ -271,11 +271,12 @@ namespace MobileGL {
 
 			if (readBufferObject == writeBufferObject) {
 				if ((readOffset <= writeOffset && readOffset + size > writeOffset) ||
-					(writeOffset <= readOffset && writeOffset + size > readOffset))
-				MG_State::pGLContext->RecordError(ErrorCode::InvalidValue,
+					(writeOffset <= readOffset && writeOffset + size > readOffset)) {
+					MG_State::pGLContext->RecordError(ErrorCode::InvalidValue,
 					MakeShared<GenericErrorInfo>("MG_Impl/GLImpl", "CopyBufferSubData_State",
 						"Source and destination buffers overlap in the specified ranges."));
-				return;
+					return;
+				}
 			}
 
 			auto isIllegallyMapped = [](const SharedPtr<MG_State::GLState::BufferObject>& buffer) {
