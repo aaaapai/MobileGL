@@ -15,11 +15,13 @@ FetchContent_MakeAvailable(benchmark)
 
 set(MGL_ROOT ${CMAKE_CURRENT_LIST_DIR}/../..)
 
-add_executable(
-  SanityBench
+add_executable(SanityBench
   SanityBench.cpp
 )
-target_link_libraries(
-  SanityBench
-  benchmark::benchmark
+target_link_libraries(SanityBench 
+  PRIVATE benchmark::benchmark
 )
+
+enable_testing()
+
+add_test(NAME SanityBench COMMAND SanityBench)
