@@ -36,6 +36,7 @@ namespace MobileGL {
 						return m_bindingSlots[i];
 					}
 				}
+				assert(false);
 			}
 
 			void BufferState::MarkBufferObjectForDeletion(Uint index) {

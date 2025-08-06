@@ -15,10 +15,10 @@ namespace MobileGL {
                 bool ValidateName(Uint index) const;
                 bool ValidateVertexArrayObject(Uint index) const;
                 SharedPtr<VertexArrayObject> GetBoundVertexArray();
-                Vector<SharedPtr<VertexArrayObject>> GetAllVertexArrays();
+                Vector<SharedPtr<VertexArrayObject>>& GetAllVertexArrays();
 
             private:
-                UnorderedMap<Uint, SharedPtr<VertexArrayObject>> m_vertexArrays;
+                Vector<SharedPtr<VertexArrayObject>> m_vertexArrays;
                 IndexGenerator<Uint> m_indexGenerator;
                 SharedPtr<VertexArrayObject> m_boundVertexArray;
             };
