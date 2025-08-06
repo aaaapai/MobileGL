@@ -36,6 +36,7 @@ namespace MobileGL {
 						return m_bindingSlots[i];
 					}
 				}
+				return m_bindingSlots[0]; // Fallback to the first slot if not found
 			}
 
 			void BufferState::MarkBufferObjectForDeletion(Uint index) {
