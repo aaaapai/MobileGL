@@ -1,5 +1,6 @@
 #include <benchmark/benchmark.h>
 #include <vector>
+#include <cstring>
 
 static void Sanity_VectorResize(benchmark::State& state) {
     for (auto _ : state) {
