@@ -8,11 +8,11 @@ namespace MobileGL {
             }
 
             SharedPtr<VertexArrayObject> VertexArrayState::GetVertexArrayObject(Uint index) {
-                auto it = m_vertexArrays.find(index);
-                if (it != m_vertexArrays.end()) {
-                    return it->second;
-                }
-                return nullptr;
+                if (index >= m_vertexArrays.size())
+                    // FIXME: report a GL error here
+                    return nullptr;
+
+                return m_vertexArrays[index];
             }
 
             Vector<Uint> VertexArrayState::GenerateNames(Uint number) {
@@ -23,35 +23,37 @@ namespace MobileGL {
 
             void VertexArrayState::Bind(Uint index) {
                 if (index == 0) {
+                    // FIXME: should we make a dummy VAO at index 0?
                     m_boundVertexArray = nullptr;
                     return;
                 }
 
-                auto it = m_vertexArrays.find(index);
-                if (it != m_vertexArrays.end()) {
-                    m_boundVertexArray = it->second;
-                }
-                else {
-                    m_boundVertexArray = nullptr;
-                }
+                m_boundVertexArray = GetVertexArrayObject(index);
             }
 
             SharedPtr<VertexArrayObject> VertexArrayState::CreateVertexArrayObject(Uint index) {
-                auto vao = MakeShared<VertexArrayObject>();
-                m_vertexArrays[index] = vao;
+                if (index >= m_vertexArrays.size()) {
+                    // power-of-2 reallocation
+                    m_vertexArrays.reserve(std::bit_ceil(index + 1));
+                    m_vertexArrays.resize(index + 1, nullptr);
+                }
+                auto vao = m_vertexArrays[index] = MakeShared<VertexArrayObject>();
                 return vao;
             }
 
             void VertexArrayState::MarkVertexArrayForDeletion(Uint index) {
                 if (m_indexGenerator.IsValid(index)) {
-                    if (m_boundVertexArray && m_vertexArrays.find(index) != m_vertexArrays.end() &&
-                        m_vertexArrays[index] == m_boundVertexArray) {
+                    if (m_boundVertexArray) {
                         m_boundVertexArray = nullptr;
                     }
 
-                    m_vertexArrays.erase(index);
+                    if (ValidateVertexArrayObject(index)) {
+                        m_vertexArrays[index] = nullptr;
+                    }
+
                     m_indexGenerator.Delete(index);
                 }
+                // FIXME: report GL error here?
             }
 
             bool VertexArrayState::ValidateName(Uint index) const {
@@ -59,20 +61,15 @@ namespace MobileGL {
             }
 
             bool VertexArrayState::ValidateVertexArrayObject(Uint index) const {
-                return m_vertexArrays.find(index) != m_vertexArrays.end();
+                return index < m_vertexArrays.size() && m_vertexArrays[index] != nullptr;
             }
 
             SharedPtr<VertexArrayObject> VertexArrayState::GetBoundVertexArray() {
                 return m_boundVertexArray;
             }
 
-            Vector<SharedPtr<VertexArrayObject>> VertexArrayState::GetAllVertexArrays() {
-                Vector<SharedPtr<VertexArrayObject>> arrays;
-                arrays.reserve(m_vertexArrays.size());
-                for (const auto& pair : m_vertexArrays) {
-                    arrays.push_back(pair.second);
-                }
-				return arrays;
+            Vector<SharedPtr<VertexArrayObject>>& VertexArrayState::GetAllVertexArrays() {
+                return m_vertexArrays;
             }
         }
     }

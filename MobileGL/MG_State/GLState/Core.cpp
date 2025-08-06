@@ -60,8 +60,12 @@ namespace MobileGL {
             void GLContext::MarkBufferObjectForDeletion(Uint index) {
                 if (ValidateBufferObject(index)) {
 					auto bufferObject = m_bufferState.GetBufferObject(index);
-                    for (SizeT i = 0; i < m_vertexArrayState.GetAllVertexArrays().size(); ++i) {
-                        auto vao = m_vertexArrayState.GetAllVertexArrays()[i];
+                    auto& vaos = m_vertexArrayState.GetAllVertexArrays();
+                    for (SizeT i = 0; i < vaos.size(); ++i) {
+                        auto vao = vaos[i];
+                        if (vao == nullptr)
+                            continue;
+
                         if (vao->GetIndexBufferBindingSlot().GetBoundObject() == bufferObject) {
                             vao->GetIndexBufferBindingSlot().Bind(nullptr);
                         }
