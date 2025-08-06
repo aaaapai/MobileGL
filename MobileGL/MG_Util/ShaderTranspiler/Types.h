@@ -1,4 +1,5 @@
 #pragma once
+#include "MG_Util/Debug/Log.h"
 
 namespace MobileGL {
     namespace MG_Util {
@@ -95,6 +96,22 @@ namespace MobileGL {
                         var.name = list[i].name;
                         var.location = spvc_compiler_get_decoration(compiler, list[i].id, SpvDecorationLocation);
                         variables.push_back(var);
+
+                        if (resource_type == SPVC_RESOURCE_TYPE_UNIFORM_BUFFER) {
+                            spvc_type type = spvc_compiler_get_type_handle(compiler, list[i].base_type_id);
+                            size_t num_members = spvc_type_get_num_member_types(type);
+                            printf("uniform %s {\n", var.name.c_str());
+                            for (size_t j = 0; j < num_members; ++j) {
+                                const char *memberName = spvc_compiler_get_member_name(compiler, list[i].base_type_id, j);
+                                // auto memberTypeId = spvc_type_get_member_type(type, j);
+                                // auto memberType = spvc_compiler_get_type_handle(compiler, memberTypeId);
+
+                                unsigned memberOffset = 0;
+                                spvc_compiler_type_struct_member_offset(compiler, type, j, &memberOffset);
+                                printf("\b%s; // %u\n", memberName, memberOffset);
+                            }
+                            printf("}\n");
+                        }
                     }
                     std::sort(variables.begin(), variables.end());
                     return variables;

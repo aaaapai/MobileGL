@@ -223,4 +223,7 @@ TEST_F(ProgramTest, DecompProgram) {
             EXPECT_EQ(it->second, uniform.location);
         }
     }
+
+    auto ubo0 = sessions[0].GetShaderInterface(SPVC_RESOURCE_TYPE_UNIFORM_BUFFER);
+    auto ubo1 = sessions[1].GetShaderInterface(SPVC_RESOURCE_TYPE_UNIFORM_BUFFER);
 }
