@@ -131,3 +131,6 @@ inline int __android_log_print(int prio, const char* tag, const char* fmt, ...) 
 #include "MG_Util/Converters/GLToMG/DataTypeConverter.h"
 #include "MG_Util/Converters/GLToStr/GLEnumConverter.h"
 #include "MG_Util/Converters/GLToGlslang/GLShaderLangConverter.h"
+
+#include "MG_Util/ShaderTranspiler/SpvcSession.h"
+#include "MG_Util/ShaderTranspiler/ShaderCompiler.h"
