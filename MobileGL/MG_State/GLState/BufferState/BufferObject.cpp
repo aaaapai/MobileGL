@@ -30,8 +30,8 @@ namespace MobileGL {
 			void BufferObject::ReleaseMemory() {
 				if (!m_isMapped) return;
 
-				if (Any(m_mappingAccess & BufferMappingAccessBit::Write)) { // if we wrote to the buffer
-					if (!Any(m_mappingAccess & BufferMappingAccessBit::FlushExplicit)) { // if we didn't flush explicitly
+				if (m_mappingAccess & BufferMappingAccessBit::Write) { // if we wrote to the buffer
+					if (!(m_mappingAccess & BufferMappingAccessBit::FlushExplicit)) { // if we didn't flush explicitly
 						memcpy(m_data.data() + m_mappedRange.start,
 							m_stagingData.data(),
 							m_mappedRange.end - m_mappedRange.start);
@@ -49,8 +49,8 @@ namespace MobileGL {
 
 			void BufferObject::FlushMemoryRange(SizeT offset, SizeT length) {
 				assert(m_isMapped);
-				assert(Any(m_mappingAccess & BufferMappingAccessBit::FlushExplicit));
-				assert(Any(m_mappingAccess & BufferMappingAccessBit::Write));
+				assert((m_mappingAccess & BufferMappingAccessBit::FlushExplicit));
+				assert((m_mappingAccess & BufferMappingAccessBit::Write));
 
 				SizeT start = m_mappedRange.start + offset;
 				SizeT end = start + length;
@@ -82,16 +82,17 @@ namespace MobileGL {
 			void* BufferObject::AcquireMemory(Bool markMapped, Bool read, Bool write) {
 				if (markMapped) {
 					m_isMapped = true;
+					auto a = BufferMappingAccessBit::Coherent | BufferMappingAccessBit::Read;
 					m_mappingAccess =
 						(read ? BufferMappingAccessBit::Read : BufferMappingAccessBit::Null) |
 						(write ? BufferMappingAccessBit::Write : BufferMappingAccessBit::Null);
 					m_mappedRange = { 0, m_size };
 
-					if (Any(m_mappingAccess & BufferMappingAccessBit::Write)) {
+					if (m_mappingAccess & BufferMappingAccessBit::Write) {
 						m_stagingData.resize(m_size);
 						m_ownsStagingData = true;
 
-						if (!Any(m_mappingAccess & (BufferMappingAccessBit::InvalidateRange |
+						if (!(m_mappingAccess & (BufferMappingAccessBit::InvalidateRange |
 							BufferMappingAccessBit::InvalidateBuffer))) {
 							memcpy(m_stagingData.data(), m_data.data(), m_size);
 						}
@@ -103,17 +104,17 @@ namespace MobileGL {
 				return m_data.data();
 			}
 
-			void* BufferObject::AcquireMemoryRange(Range1D range, BufferMappingAccessBit access) {
+			void* BufferObject::AcquireMemoryRange(Range1D range, Flags<BufferMappingAccessBit> access) {
 				assert(range.end <= m_size && range.start <= range.end);
 				m_isMapped = true;
 				m_mappingAccess = access;
 				m_mappedRange = range;
 
-				if (Any(access & BufferMappingAccessBit::Write)) {
+				if (access & BufferMappingAccessBit::Write) {
 					m_stagingData.resize(range.end - range.start);
 					m_ownsStagingData = true;
 
-					if (!Any(access & (BufferMappingAccessBit::InvalidateRange |
+					if (!(access & (BufferMappingAccessBit::InvalidateRange |
 						BufferMappingAccessBit::InvalidateBuffer))) {
 						memcpy(m_stagingData.data(), m_data.data() + range.start, m_stagingData.size());
 					}
@@ -150,7 +151,7 @@ namespace MobileGL {
 				return m_isMapped ? m_mappedRange : Range1D{ 0, 0 };
 			}
 
-			BufferMappingAccessBit BufferObject::GetMappingAccess() const {
+			Flags<BufferMappingAccessBit> BufferObject::GetMappingAccess() const {
 				return m_isMapped ? m_mappingAccess : BufferMappingAccessBit::Null;
 			}
 		}

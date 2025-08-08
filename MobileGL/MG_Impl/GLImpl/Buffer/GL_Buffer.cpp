@@ -61,8 +61,8 @@ namespace MobileGL {
 				return;
 			}
 
-			BufferMappingAccessBit mappingAccess = bufferObject->GetMappingAccess();
-			if(!Any(mappingAccess & BufferMappingAccessBit::FlushExplicit)) {
+			auto mappingAccess = bufferObject->GetMappingAccess();
+			if(!(mappingAccess & BufferMappingAccessBit::FlushExplicit)) {
 				MG_State::pGLContext->RecordError(ErrorCode::InvalidOperation,
 					MakeShared<GenericErrorInfo>("MG_Impl/GLImpl", "FlushMappedBufferRange_State",
 						"Cannot flush a buffer object that is not mapped with GL_MAP_FLUSH_EXPLICIT_BIT."));
@@ -134,19 +134,19 @@ namespace MobileGL {
 			auto accessBits = MG_Util::ConvertGLEnumToBufferMappingAccess(access);
 			if (!BufferImpl::ValidateBufferMappingAccess(accessBits)) return nullptr;
 
-			if (!Any(accessBits & (BufferMappingAccessBit::Read | BufferMappingAccessBit::Write))) {
+			if (!(accessBits & (BufferMappingAccessBit::Read | BufferMappingAccessBit::Write))) {
 				MG_State::pGLContext->RecordError(ErrorCode::InvalidOperation,
 					MakeShared<GenericErrorInfo>("MG_Impl/GLImpl", "MapBufferRange_State",
 						"At least one of GL_MAP_READ_BIT or GL_MAP_WRITE_BIT must be set."));
 				return nullptr;
 			}
 
-			if (Any(accessBits & BufferMappingAccessBit::Read)) {
+			if (accessBits & BufferMappingAccessBit::Read) {
 				const auto invalidFlags = BufferMappingAccessBit::InvalidateRange |
 					BufferMappingAccessBit::InvalidateBuffer |
 					BufferMappingAccessBit::Unsynchronized;
 
-				if (Any(accessBits & invalidFlags)) {
+				if (accessBits & invalidFlags) {
 					MG_State::pGLContext->RecordError(ErrorCode::InvalidOperation,
 						MakeShared<GenericErrorInfo>("MG_Impl/GLImpl", "MapBufferRange_State",
 							"GL_MAP_READ_BIT cannot be combined with invalidation or unsynchronized flags."));
@@ -154,8 +154,8 @@ namespace MobileGL {
 				}
 			}
 
-			if (Any(accessBits & BufferMappingAccessBit::FlushExplicit)) {
-				if (!(Any(accessBits & BufferMappingAccessBit::Write))) {
+			if (accessBits & BufferMappingAccessBit::FlushExplicit) {
+				if (!(accessBits & BufferMappingAccessBit::Write)) {
 					MG_State::pGLContext->RecordError(ErrorCode::InvalidOperation,
 						MakeShared<GenericErrorInfo>("MG_Impl/GLImpl", "MapBufferRange_State",
 							"GL_MAP_FLUSH_EXPLICIT_BIT requires GL_MAP_WRITE_BIT."));
@@ -163,10 +163,10 @@ namespace MobileGL {
 				}
 			}
 
-			const BufferMappingAccessBit storageFlags =
+			const auto storageFlags =
 				BufferMappingAccessBit::Persistent | BufferMappingAccessBit::Coherent;
-			BufferMappingAccessBit requiredFlags = accessBits & storageFlags;
-			if (Any(requiredFlags)) {
+			auto requiredFlags = accessBits & storageFlags;
+			if (requiredFlags) {
 				// TODO: check if the buffer data is created by BufferStorage and its flags after its implementation
 				MG_State::pGLContext->RecordError(ErrorCode::InvalidOperation,
 					MakeShared<GenericErrorInfo>("MG_Impl/GLImpl", "MapBufferRange_State",
@@ -178,7 +178,7 @@ namespace MobileGL {
 				const auto invalidateFlags = BufferMappingAccessBit::InvalidateRange |
 					BufferMappingAccessBit::InvalidateBuffer;
 
-				if (!Any(accessBits & invalidateFlags)) {
+				if (!(accessBits & invalidateFlags)) {
 					MG_State::pGLContext->RecordError(ErrorCode::InvalidOperation,
 						MakeShared<GenericErrorInfo>("MG_Impl/GLImpl", "MapBufferRange_State",
 							"Cannot map a buffer object that is already mapped."));
@@ -280,7 +280,7 @@ namespace MobileGL {
 			}
 
 			auto isIllegallyMapped = [](const SharedPtr<MG_State::GLState::BufferObject>& buffer) {
-				return buffer->IsMapped() && !Any(buffer->GetMappingAccess() & BufferMappingAccessBit::Persistent);
+				return buffer->IsMapped() && !(buffer->GetMappingAccess() & BufferMappingAccessBit::Persistent);
 				};
 			if (isIllegallyMapped(readBufferObject) || isIllegallyMapped(writeBufferObject)) {
 				MG_State::pGLContext->RecordError(ErrorCode::InvalidOperation,
@@ -328,8 +328,8 @@ namespace MobileGL {
 				return;
 			}
 
-			BufferMappingAccessBit mappingAccess = bufferObject->GetMappingAccess();
-			if (bufferObject->IsMapped() && !Any(mappingAccess & BufferMappingAccessBit::Persistent)) {
+			auto mappingAccess = bufferObject->GetMappingAccess();
+			if (bufferObject->IsMapped() && !(mappingAccess & BufferMappingAccessBit::Persistent)) {
 				Range1D mappedRange = bufferObject->GetMappedRange();
 				if (offset + size >= mappedRange.start) {
 					MG_State::pGLContext->RecordError(ErrorCode::InvalidOperation,

@@ -38,16 +38,16 @@ namespace MobileGL {
 			}
 		}
 
-		String ConvertBufferMappingAccessToString(BufferMappingAccessBit access) {
+		String ConvertBufferMappingAccessToString(Flags<BufferMappingAccessBit> access) {
 			String result = "[";
-			if (Any(access & BufferMappingAccessBit::Read)) result += "Read, ";
-			if (Any(access & BufferMappingAccessBit::Write)) result += "Write, ";
-			if (Any(access & BufferMappingAccessBit::InvalidateRange)) result += "InvalidateRange, ";
-			if (Any(access & BufferMappingAccessBit::InvalidateBuffer)) result += "InvalidateBuffer, ";
-			if (Any(access & BufferMappingAccessBit::FlushExplicit)) result += "FlushExplicit, ";
-			if (Any(access & BufferMappingAccessBit::Unsynchronized)) result += "Unsynchronized, ";
-			if (Any(access & BufferMappingAccessBit::Persistent)) result += "Persistent, ";
-			if (Any(access & BufferMappingAccessBit::Coherent)) result += "Coherent, ";
+			if (access & BufferMappingAccessBit::Read) result += "Read, ";
+			if (access & BufferMappingAccessBit::Write) result += "Write, ";
+			if (access & BufferMappingAccessBit::InvalidateRange) result += "InvalidateRange, ";
+			if (access & BufferMappingAccessBit::InvalidateBuffer) result += "InvalidateBuffer, ";
+			if (access & BufferMappingAccessBit::FlushExplicit) result += "FlushExplicit, ";
+			if (access & BufferMappingAccessBit::Unsynchronized) result += "Unsynchronized, ";
+			if (access & BufferMappingAccessBit::Persistent) result += "Persistent, ";
+			if (access & BufferMappingAccessBit::Coherent) result += "Coherent, ";
 			result.pop_back();
 			result.pop_back();
 			result += "]";

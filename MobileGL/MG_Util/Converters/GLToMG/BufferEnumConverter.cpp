@@ -38,8 +38,8 @@ namespace MobileGL {
 			}
 		}
 
-		BufferMappingAccessBit ConvertGLEnumToBufferMappingAccess(GLbitfield access) {
-			BufferMappingAccessBit result = BufferMappingAccessBit::Null;
+		Flags<BufferMappingAccessBit> ConvertGLEnumToBufferMappingAccess(GLbitfield access) {
+			Flags result = BufferMappingAccessBit::Null;
 			if (access & GL_MAP_READ_BIT) result |= BufferMappingAccessBit::Read;
 			if (access & GL_MAP_WRITE_BIT) result |= BufferMappingAccessBit::Write;
 			if (access & GL_MAP_INVALIDATE_RANGE_BIT) result |= BufferMappingAccessBit::InvalidateRange;

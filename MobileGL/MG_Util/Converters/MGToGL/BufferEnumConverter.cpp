@@ -40,14 +40,14 @@ namespace MobileGL {
 
 		GLbitfield ConvertBufferMappingAccessToGLEnum(BufferMappingAccessBit access) {
 			GLbitfield result = 0;
-			if (Any(access & BufferMappingAccessBit::Read)) result |= GL_MAP_READ_BIT;
-			if (Any(access & BufferMappingAccessBit::Write)) result |= GL_MAP_WRITE_BIT;
-			if (Any(access & BufferMappingAccessBit::InvalidateRange)) result |= GL_MAP_INVALIDATE_RANGE_BIT;
-			if (Any(access & BufferMappingAccessBit::InvalidateBuffer)) result |= GL_MAP_INVALIDATE_BUFFER_BIT;
-			if (Any(access & BufferMappingAccessBit::FlushExplicit)) result |= GL_MAP_FLUSH_EXPLICIT_BIT;
-			if (Any(access & BufferMappingAccessBit::Unsynchronized)) result |= GL_MAP_UNSYNCHRONIZED_BIT;
-			if (Any(access & BufferMappingAccessBit::Persistent)) result |= GL_MAP_PERSISTENT_BIT;
-			if (Any(access & BufferMappingAccessBit::Coherent)) result |= GL_MAP_COHERENT_BIT;
+			if (access & BufferMappingAccessBit::Read) result |= GL_MAP_READ_BIT;
+			if (access & BufferMappingAccessBit::Write) result |= GL_MAP_WRITE_BIT;
+			if (access & BufferMappingAccessBit::InvalidateRange) result |= GL_MAP_INVALIDATE_RANGE_BIT;
+			if (access & BufferMappingAccessBit::InvalidateBuffer) result |= GL_MAP_INVALIDATE_BUFFER_BIT;
+			if (access & BufferMappingAccessBit::FlushExplicit) result |= GL_MAP_FLUSH_EXPLICIT_BIT;
+			if (access & BufferMappingAccessBit::Unsynchronized) result |= GL_MAP_UNSYNCHRONIZED_BIT;
+			if (access & BufferMappingAccessBit::Persistent) result |= GL_MAP_PERSISTENT_BIT;
+			if (access & BufferMappingAccessBit::Coherent) result |= GL_MAP_COHERENT_BIT;
 			return result;
 		}
 	}

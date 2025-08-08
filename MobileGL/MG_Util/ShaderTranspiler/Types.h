@@ -8,9 +8,15 @@ namespace MobileGL {
 
             struct EmptyType {};
 
+            enum class ShaderCompileBits : Uint {
+                EmitDiscardAsDemote = 1 << 0,
+
+            };
+
             struct ShaderAttrib {
                 GLenum shaderType;
                 String sourceStr;
+                Flags<ShaderCompileBits> flags;
             };
 
             struct ProgramAttrib {

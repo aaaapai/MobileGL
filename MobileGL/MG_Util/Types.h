@@ -172,6 +172,93 @@ namespace MobileGL {
 		GLInfo RendererGLInfo;
 		BackendCap BackendCapability;
 	};
+
+	template <typename Bit, typename Underlying =
+			std::enable_if<std::is_scoped_enum_v<Bit>, std::underlying_type_t<Bit>>
+	>
+	class Flags {
+	public:
+		Flags() = default;
+
+		Flags(Bit b): flags(static_cast<typename Underlying::type>(b)) {}
+
+		Flags(typename Underlying::type b): flags(b) {}
+
+		// Flags - Bit
+		Flags operator|(const Bit b) const {
+			return Flags(flags | static_cast<typename Underlying::type>(b));
+		}
+
+		Flags operator&(const Bit b) const {
+			return Flags(flags & static_cast<typename Underlying::type>(b));
+		}
+
+		Flags& operator|=(const Bit b) {
+			flags |= static_cast<typename Underlying::type>(b);
+			return *this;
+		}
+
+		Flags& operator&=(const Bit b) {
+			flags &= static_cast<typename Underlying::type>(b);
+			return *this;
+		}
+
+		bool operator==(const Bit b) const {
+			return flags == static_cast<typename Underlying::type>(b);
+		}
+
+		bool operator!=(const Bit b) const {
+			return !(*this == b);
+		}
+
+		// Flags - Flags
+		Flags operator|(const Flags b) const {
+			return Flags(flags | b.flags);
+		}
+
+		Flags operator&(const Flags b) const {
+			return Flags(flags & b.flags);
+		}
+
+		Flags& operator|=(Flags b) {
+			flags |= b.flags;
+			return *this;
+		}
+
+		Flags& operator&=(Flags b) {
+			flags &= b.flags;
+			return *this;
+		}
+
+		bool operator==(const Flags b) const {
+			return flags == b.flags;
+		}
+
+		bool operator!=(const Flags b) const {
+			return !(*this == b);
+		}
+
+		operator bool() const {
+			return Any();
+		}
+
+	private:
+		bool Any() const {
+			return static_cast<typename Underlying::type>(flags) != 0;
+		}
+
+		typename Underlying::type flags = 0;
+	};
+
+	template<typename Bit, typename = std::enable_if_t<std::is_scoped_enum_v<Bit>>>
+	Flags<Bit> operator|(const Bit lhs, const Bit rhs) {
+		return Flags<Bit>(lhs) | rhs;
+	}
+
+	template<typename Bit, typename = std::enable_if_t<std::is_scoped_enum_v<Bit>>>
+	Flags<Bit> operator&(const Bit lhs, const Bit rhs) {
+		return Flags<Bit>(lhs) & rhs;
+	}
 }
 
 #include "../MG_Util/ShaderTranspiler/Types.h"

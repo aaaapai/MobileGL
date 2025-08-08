@@ -1,4 +1,5 @@
 #pragma once
+#include "MG_Util/Types.h"
 
 namespace MobileGL {
 	enum class BufferTarget {
@@ -45,25 +46,23 @@ namespace MobileGL {
 		Coherent = 0x80
 	};
 
-	inline BufferMappingAccessBit operator|(BufferMappingAccessBit a, BufferMappingAccessBit b) {
-		using T = std::underlying_type_t<BufferMappingAccessBit>;
-		return static_cast<BufferMappingAccessBit>(static_cast<T>(a) | static_cast<T>(b));
-	}
+	// inline Flags<BufferMappingAccessBit> operator|(BufferMappingAccessBit a, const BufferMappingAccessBit b) {
+		// return Flags(a) | b;
+	// }
+	//
+	// inline BufferMappingAccessBit& operator|=(BufferMappingAccessBit& a, BufferMappingAccessBit b) {
+	// 	a = a | b;
+	// 	return a;
+	// }
 
-	inline BufferMappingAccessBit& operator|=(BufferMappingAccessBit& a, BufferMappingAccessBit b) {
-		a = a | b;
-		return a;
-	}
+	// inline Flags<BufferMappingAccessBit> operator&(const BufferMappingAccessBit a, const BufferMappingAccessBit b) {
+	// 	return Flags(a) & b;
+	// }
 
-	inline BufferMappingAccessBit operator&(BufferMappingAccessBit a, BufferMappingAccessBit b) {
-		using T = std::underlying_type_t<BufferMappingAccessBit>;
-		return static_cast<BufferMappingAccessBit>(static_cast<T>(a) & static_cast<T>(b));
-	}
-
-	inline bool Any(BufferMappingAccessBit a) {
-		using T = std::underlying_type_t<BufferMappingAccessBit>;
-		return static_cast<T>(a) != 0;
-	}
+	// inline bool Any(BufferMappingAccessBit a) {
+	// 	using T = std::underlying_type_t<BufferMappingAccessBit>;
+	// 	return static_cast<T>(a) != 0;
+	// }
 
 	namespace MG_State {
 		namespace GLState {
@@ -77,7 +76,7 @@ namespace MobileGL {
 				void UploadData(DataPtr data, SizeT atOffset);
 				void SetUsage(BufferUsage usage);
 				void* AcquireMemory(Bool markMapped, Bool read, Bool write);
-				void* AcquireMemoryRange(Range1D range, BufferMappingAccessBit access);
+				void* AcquireMemoryRange(Range1D range, Flags<BufferMappingAccessBit> access);
 				void ReleaseMemory();
 				void FlushMemoryRange(SizeT offset, SizeT length);
 				void UploadSubData(DataPtr data, SizeT atOffset);
@@ -89,14 +88,14 @@ namespace MobileGL {
 				BufferUsage GetUsage() const;
 				Range1D GetDirtyRange() const;
 				Range1D GetMappedRange() const;
-				BufferMappingAccessBit GetMappingAccess() const;
+				Flags<BufferMappingAccessBit> GetMappingAccess() const;
 			private:
 				Int m_id = 0;
 				SizeT m_size = 0;
 				BufferUsage m_usage = BufferUsage::StaticDraw;
 				Data m_data;
 				Bool m_isMapped;
-				BufferMappingAccessBit m_mappingAccess;
+				Flags<BufferMappingAccessBit> m_mappingAccess;
 				Range1D m_dirtyRange;
 				Range1D m_mappedRange;
 				std::vector<Uint8> m_stagingData;

@@ -48,7 +48,7 @@ namespace MobileGL::MG_Impl::GLImpl {
 			return false;
 		}
 
-		bool ValidateBufferMappingAccess(BufferMappingAccessBit accessBits) {
+		bool ValidateBufferMappingAccess(Flags<BufferMappingAccessBit> accessBits) {
 			if (accessBits == BufferMappingAccessBit::Null) {
 				MG_State::pGLContext->RecordError(ErrorCode::InvalidEnum,
 					MakeShared<GenericErrorInfo>("MG_Impl/GLImpl/BufferImpl", "ValidateBufferMappingAccess",
@@ -56,7 +56,7 @@ namespace MobileGL::MG_Impl::GLImpl {
 				return false;
 			}
 
-			const BufferMappingAccessBit validBits =
+			const auto validBits =
 				BufferMappingAccessBit::Read | 
 				BufferMappingAccessBit::Write | 
 				BufferMappingAccessBit::InvalidateRange | 

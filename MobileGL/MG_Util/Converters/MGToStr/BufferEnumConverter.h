@@ -4,6 +4,6 @@ namespace MobileGL {
 	namespace MG_Util {
 		String ConvertBufferTargetToString(BufferTarget bufferTarget);
 		String ConvertBufferUsageToString(BufferUsage usage);
-		String ConvertBufferMappingAccessToString(BufferMappingAccessBit access);
+		String ConvertBufferMappingAccessToString(Flags<BufferMappingAccessBit> access);
 	}
 }
