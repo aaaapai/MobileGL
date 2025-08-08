@@ -99,6 +99,69 @@ TEST_F(ProgramTest, CompileSimpleFragmentShader) {
     }
 }
 
+const char* position_color_fsh = R"(#version 150
+
+in vec4 vertexColor;
+
+uniform vec4 ColorModulator;
+
+out vec4 fragColor;
+
+void main() {
+    vec4 color = vertexColor;
+    if (color.a == 0.0) {
+        discard;
+    }
+    fragColor = color * ColorModulator;
+})";
+
+TEST_F(ProgramTest, CompileFragmentShaderWithDiscard) {
+    using namespace MG_Util::ShaderTranspiler;
+    ShaderAttrib attrib {
+        .shaderType = GL_FRAGMENT_SHADER,
+        .sourceStr = position_color_fsh
+};
+    auto res = ShaderCompiler::CompileShader(attrib);
+    if (!res) {
+        ASSERT_NE(res.error().errc, 0);
+        FAIL() << "errc: " << res.error().errc << "\nlog: " << res.error().log;
+    }
+
+    ProgramAttrib programAttrib {
+        .shaderTypes = { GL_FRAGMENT_SHADER },
+        .shaders = { res.value() }
+    };
+
+    auto program_res = ShaderCompiler::LinkProgram(programAttrib);
+    if (!program_res) {
+        ASSERT_NE(program_res.error().errc, 0);
+        FAIL() << "errc: " << program_res.error().errc << "\nlog: " << program_res.error().log;
+    }
+
+
+    auto spirvs = program_res.value();
+
+    Vector<SpvcSession> sessions(spirvs.size());
+    for (SizeT i = 0; i < spirvs.size(); ++i) {
+        sessions[i] = SpvcSession(spirvs[i]);
+    }
+
+    for (SizeT i = 0; i < spirvs.size(); ++i) {
+        std::cout << "Decompiling " << MG_Util::ConvertGLEnumToString(programAttrib.shaderTypes[i]) << std::endl;
+        auto src = ShaderCompiler::DecompileShader(sessions[i]);
+        if (!src) {
+            ASSERT_NE(src.error().errc, 0);
+            FAIL() << "errc: " << src.error().errc << "\nlog: " << src.error().log;
+        } else {
+            std::cout << src.value() << std::endl;
+        }
+
+        if (src.value().find("demote") != std::string::npos) {
+            FAIL() << "Found unsupported demote!";
+        }
+    }
+}
+
 TEST_F(ProgramTest, CompileAndLinkProgram) {
     using namespace MG_Util::ShaderTranspiler;
     ShaderAttrib vs_attrib {

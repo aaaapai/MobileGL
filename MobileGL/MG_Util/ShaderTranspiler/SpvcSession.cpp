@@ -79,6 +79,8 @@ namespace ShaderTranspiler {
         return spvc_compiler_compile(compiler, result);
     }
 
+
+
     const char* SpvcSession::GetLastErrorString() const {
         return spvc_context_get_last_error_string(context);
     }
