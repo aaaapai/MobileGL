@@ -4,6 +4,8 @@
 namespace MobileGL {
     namespace MG_Util {
         namespace ShaderTranspiler {
+            inline const char* GLOBAL_UBO_NAME = "MGL_GLOBAL_UBO";
+
             struct EmptyType {};
 
             struct ShaderAttrib {

@@ -54,32 +54,52 @@ namespace ShaderTranspiler {
             var.name = list[i].name;
             var.location = spvc_compiler_get_decoration(compiler, list[i].id, SpvDecorationLocation);
             variables.push_back(var);
-
-            if (resource_type == SPVC_RESOURCE_TYPE_UNIFORM_BUFFER) {
-                spvc_type type = spvc_compiler_get_type_handle(compiler, list[i].base_type_id);
-                size_t num_members = spvc_type_get_num_member_types(type);
-                printf("uniform %s {\n", var.name.c_str());
-                for (size_t j = 0; j < num_members; ++j) {
-                    const char *memberName = spvc_compiler_get_member_name(compiler, list[i].base_type_id, j);
-                    // auto memberTypeId = spvc_type_get_member_type(type, j);
-                    // auto memberType = spvc_compiler_get_type_handle(compiler, memberTypeId);
-
-                    unsigned memberOffset = 0;
-                    spvc_compiler_type_struct_member_offset(compiler, type, j, &memberOffset);
-                    printf("\b%s; // %u\n", memberName, memberOffset);
-                }
-                printf("}\n");
-            }
         }
         std::sort(variables.begin(), variables.end());
         return variables;
     }
 
-    spvc_result SpvcSession::Compile(const char** result) const {
-        return spvc_compiler_compile(compiler, result);
+    spvc_result SpvcSession::Compile(const char** result) {
+        SPVC_CHK_INIT
+        SPVC_CHK_RESULT(spvc_compiler_compile(compiler, result));
+        SPVC_CHK_RESULT(ParseMetaData());
+        SPVC_CHK_RETURN
     }
 
+    spvc_result SpvcSession::ParseMetaData() {
+        SPVC_CHK_INIT
 
+        metadata = SpvcMetadata();
+
+        const spvc_reflected_resource *list = nullptr;
+        size_t count = 0;
+
+        SPVC_CHK_RESULT(
+            spvc_resources_get_resource_list_for_type(resources, SPVC_RESOURCE_TYPE_UNIFORM_BUFFER, &list, &count);
+        )
+        for (size_t i = 0; i < count; ++i) {
+            if (spvc_compiler_has_decoration(compiler, list[i].id, SpvDecorationBuiltIn)) {
+                continue;
+            }
+
+            if (strcmp(list[i].name, GLOBAL_UBO_NAME) == 0) {
+                spvc_type type = spvc_compiler_get_type_handle(compiler, list[i].base_type_id);
+                size_t num_members = spvc_type_get_num_member_types(type);
+                for (size_t j = 0; j < num_members; ++j) {
+                    const char *memberName = spvc_compiler_get_member_name(compiler, list[i].base_type_id, j);
+
+                    unsigned memberOffset = 0;
+                    SPVC_CHK_RESULT(spvc_compiler_type_struct_member_offset(compiler, type, j, &memberOffset);)
+                    metadata.plainUniformOffsetsInUBO[memberName] = memberOffset;
+                }
+            }
+        }
+        SPVC_CHK_RETURN
+    }
+
+    const SpvcMetadata& SpvcSession::GetMetadata() const {
+        return metadata;
+    }
 
     const char* SpvcSession::GetLastErrorString() const {
         return spvc_context_get_last_error_string(context);

@@ -287,6 +287,21 @@ TEST_F(ProgramTest, DecompProgram) {
         }
     }
 
-    auto ubo0 = sessions[0].GetShaderInterface(SPVC_RESOURCE_TYPE_UNIFORM_BUFFER);
-    auto ubo1 = sessions[1].GetShaderInterface(SPVC_RESOURCE_TYPE_UNIFORM_BUFFER);
+    auto& meta0 = sessions[0].GetMetadata();
+    auto& meta1 = sessions[1].GetMetadata();
+
+    for (auto& [name, offset] : meta0.plainUniformOffsetsInUBO) {
+        printf("%s: \t%u\n", name.c_str(), offset);
+    }
+
+    printf("\n");
+
+    for (auto& [name, offset] : meta1.plainUniformOffsetsInUBO) {
+        printf("%s: \t%u\n", name.c_str(), offset);
+    }
+
+    EXPECT_EQ(meta0.plainUniformOffsetsInUBO.size(), meta1.plainUniformOffsetsInUBO.size());
+    for (auto& [name, offset] : meta0.plainUniformOffsetsInUBO) {
+        EXPECT_EQ(offset, meta1.plainUniformOffsetsInUBO.at(name));
+    }
 }

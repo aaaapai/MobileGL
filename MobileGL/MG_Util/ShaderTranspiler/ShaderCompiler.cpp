@@ -137,7 +137,7 @@ namespace MobileGL {
                 tshader->setAutoMapLocations(true);
                 tshader->setAutoMapBindings(true);
                 tshader->setEnvInputVulkanRulesRelaxed(); // using EXT_vulkan_glsl_relaxed for gl_VertexID and gl_InstanceID?
-                tshader->setGlobalUniformBlockName("MGL_GLOBAL_UBO");
+                tshader->setGlobalUniformBlockName(GLOBAL_UBO_NAME);
                 if (!tshader->parse(&GetTBuiltInResourceInstance(), 150, ECoreProfile,
                         /*forceDefaultVersionAndProfile: */false,
                         /*forwardCompatible: */true, EShMsgDefault)) {
