@@ -114,7 +114,7 @@ namespace MobileGL {
 
             Result<SharedPtr<glslang::TShader>> ShaderCompiler::CompileShader(const ShaderAttrib& attrib) {
                 auto shaderType = attrib.shaderType;
-                auto sourceStr = attrib.sourceStr;
+                auto& sourceStr = attrib.sourceStr;
 
                 auto lang = GetEShLanguageByShaderType(shaderType);
                 if (lang == EShLanguage::EShLangCount) {
@@ -128,7 +128,7 @@ namespace MobileGL {
                 SharedPtr<glslang::TShader> res;
                 auto& tshader = res;
                 tshader = MakeShared<glslang::TShader>(lang);
-                const char* src[] = { sourceStr.c_str() };
+                const char* src[] = { sourceStr.data() };
                 tshader->setStrings(src, 1);
                 tshader->setInvertY(true);
                 tshader->setEnvInput(glslang::EShSourceGlsl, lang, glslang::EShClientVulkan, 450);

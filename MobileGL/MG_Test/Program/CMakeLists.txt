@@ -53,8 +53,8 @@ endif()
 
 
 add_executable(
-        ProgramTest
-        ProgramTest.cpp
+        ProgramUtilTest
+        ProgramUtilTest.cpp
 
         ${MGL_ROOT}/MobileGL/MG_Util/Converters/GLToStr/GLEnumConverter.cpp
         ${MGL_ROOT}/MobileGL/MG_Util/Converters/GLToGlslang/GLShaderLangConverter.cpp
@@ -62,16 +62,16 @@ add_executable(
         ${MGL_ROOT}/MobileGL/MG_Util/ShaderTranspiler/SpvcSession.cpp
 )
 
-target_include_directories(ProgramTest PRIVATE
+target_include_directories(ProgramUtilTest PRIVATE
         ${MGL_ROOT}/include
         ${MGL_ROOT}/MobileGL
 )
 
 target_link_libraries(
-        ProgramTest
+        ProgramUtilTest
         GTest::gtest_main
         ${LINK_LIBRARIES}
 )
 
 include(GoogleTest)
-gtest_discover_tests(ProgramTest)
+gtest_discover_tests(ProgramUtilTest)

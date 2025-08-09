@@ -15,7 +15,7 @@ namespace MobileGL {
 
             struct ShaderAttrib {
                 GLenum shaderType;
-                String sourceStr;
+                StringView sourceStr;
                 Flags<ShaderCompileBits> flags;
             };
 

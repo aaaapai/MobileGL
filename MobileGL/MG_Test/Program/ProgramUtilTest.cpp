@@ -6,11 +6,11 @@
 #include "Includes.h"
 using namespace MobileGL;
 
-class ProgramTest : public ::testing::Test {
+class ProgramUtilTest : public ::testing::Test {
 protected:
 };
 
-TEST_F(ProgramTest, Sanity) {
+TEST_F(ProgramUtilTest, Sanity) {
     ASSERT_TRUE(true);
 }
 
@@ -34,7 +34,7 @@ void main(){
     texCoord = Position.xy / OutSize;
 })";
 
-TEST_F(ProgramTest, CompileSimpleVertexShader) {
+TEST_F(ProgramUtilTest, CompileSimpleVertexShader) {
     using namespace MG_Util::ShaderTranspiler;
     ShaderAttrib attrib {
         .shaderType = GL_VERTEX_SHADER,
@@ -86,7 +86,7 @@ void main() {
     fragColor = vec4(OutColor, 1.0);
 })";
 
-TEST_F(ProgramTest, CompileSimpleFragmentShader) {
+TEST_F(ProgramUtilTest, CompileSimpleFragmentShader) {
     using namespace MG_Util::ShaderTranspiler;
     ShaderAttrib attrib {
             .shaderType = GL_FRAGMENT_SHADER,
@@ -115,7 +115,7 @@ void main() {
     fragColor = color * ColorModulator;
 })";
 
-TEST_F(ProgramTest, CompileFragmentShaderWithDiscard) {
+TEST_F(ProgramUtilTest, CompileFragmentShaderWithDiscard) {
     using namespace MG_Util::ShaderTranspiler;
     ShaderAttrib attrib {
         .shaderType = GL_FRAGMENT_SHADER,
@@ -162,7 +162,7 @@ TEST_F(ProgramTest, CompileFragmentShaderWithDiscard) {
     }
 }
 
-TEST_F(ProgramTest, CompileAndLinkProgram) {
+TEST_F(ProgramUtilTest, CompileAndLinkProgram) {
     using namespace MG_Util::ShaderTranspiler;
     ShaderAttrib vs_attrib {
         .shaderType = GL_VERTEX_SHADER,
@@ -196,7 +196,7 @@ TEST_F(ProgramTest, CompileAndLinkProgram) {
     }
 }
 
-TEST_F(ProgramTest, DecompProgram) {
+TEST_F(ProgramUtilTest, DecompProgram) {
     using namespace MG_Util::ShaderTranspiler;
     ShaderAttrib vs_attrib {
         .shaderType = GL_VERTEX_SHADER,

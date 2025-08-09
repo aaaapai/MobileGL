@@ -2,6 +2,12 @@
 
 #define GL_UNKNOWN_MGL 0
 
+#define THROW_EXCEPTION(msg) \
+	throw std::runtime_error(msg);
+
+#define THROW_UNIMPL_EXCEPTION \
+	THROW_EXCEPTION("Unimplemented function called!")
+
 namespace MobileGL {
 	using String = std::string;
 	using StringStream = std::stringstream;
@@ -18,6 +24,7 @@ namespace MobileGL {
 	using Bool = bool;
 	using Float = float;
 	using Double = double;
+	using StringView = std::string_view;
 	template <typename T>
 	using Vector = std::vector<T>;
 	template <typename T, typename N>
