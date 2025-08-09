@@ -1,4 +1,7 @@
 #pragma once
+#include <Includes.h>
+#include "VertexArrayObject.h"
+#include <MG_Util/Miscellany/IndexGenerator.h>
 
 namespace MobileGL {
     namespace MG_State {
@@ -22,6 +25,6 @@ namespace MobileGL {
                 IndexGenerator<Uint> m_indexGenerator;
                 SharedPtr<VertexArrayObject> m_boundVertexArray;
             };
-        }
-    }
-}
+        } // namespace GLState
+    } // namespace MG_State
+} // namespace MobileGL

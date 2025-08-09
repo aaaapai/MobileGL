@@ -1,4 +1,4 @@
-#include "../../Includes.h"
+#include "Core.h"
 
 namespace MobileGL {
     namespace MG_State {
@@ -36,7 +36,7 @@ namespace MobileGL {
                 m_errorState.Clear();
             }
 
-			// Buffer
+            // Buffer
             Vector<Uint> GLContext::GenBufferNames(Uint number) {
                 return m_bufferState.GenerateNames(number);
             }
@@ -47,9 +47,9 @@ namespace MobileGL {
 
             BindingSlot<BufferObject>& GLContext::GetBufferBindingSlot(BufferTarget target) {
                 if (target == BufferTarget::Index) {
-					return m_vertexArrayState.GetBoundVertexArray()->GetIndexBufferBindingSlot();
+                    return m_vertexArrayState.GetBoundVertexArray()->GetIndexBufferBindingSlot();
                 }
-                
+
                 return m_bufferState.GetBindingSlot(target);
             }
 
@@ -59,12 +59,11 @@ namespace MobileGL {
 
             void GLContext::MarkBufferObjectForDeletion(Uint index) {
                 if (ValidateBufferObject(index)) {
-					auto bufferObject = m_bufferState.GetBufferObject(index);
+                    auto bufferObject = m_bufferState.GetBufferObject(index);
                     auto& vaos = m_vertexArrayState.GetAllVertexArrays();
                     for (SizeT i = 0; i < vaos.size(); ++i) {
                         auto vao = vaos[i];
-                        if (vao == nullptr)
-                            continue;
+                        if (vao == nullptr) continue;
 
                         if (vao->GetIndexBufferBindingSlot().GetBoundObject() == bufferObject) {
                             vao->GetIndexBufferBindingSlot().Bind(nullptr);
@@ -81,11 +80,11 @@ namespace MobileGL {
             }
 
             bool GLContext::ValidateBufferName(Uint index) const {
-				return m_bufferState.ValidateName(index);
+                return m_bufferState.ValidateName(index);
             }
 
             bool GLContext::ValidateBufferObject(Uint index) const {
-				return m_bufferState.ValidateBufferObject(index);
+                return m_bufferState.ValidateBufferObject(index);
             }
 
             // VertexArray
@@ -120,8 +119,8 @@ namespace MobileGL {
             SharedPtr<VertexArrayObject> GLContext::GetBoundVertexArray() {
                 return m_vertexArrayState.GetBoundVertexArray();
             }
-        }
+        } // namespace GLState
 
         GLState::GLContext* pGLContext;
-    }
-}
+    } // namespace MG_State
+} // namespace MobileGL

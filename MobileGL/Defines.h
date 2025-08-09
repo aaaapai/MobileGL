@@ -1,0 +1,41 @@
+#pragma once
+
+// ============== Platform-specific definitions and macros ============== //
+#ifdef __ANDROID__
+#define __ANDROID_API__ 26 // force Android API level to 26 for compatibility
+#endif
+
+#ifdef _WIN32
+#define NOMINMAX // prevent Windows.h from defining min and max macros
+#endif
+
+// ================== MobileGL definitions and macros =================== //
+#ifdef _WIN32
+#define MOBILEGL_EXPORT extern "C" __declspec(dllexport)
+#else
+#define MOBILEGL_EXPORT extern "C" __attribute__((visibility("default")))
+#endif
+
+#define MOBILEGL_API MOBILEGL_EXPORT
+
+#define MOBILEGL_GLX_API MOBILEGL_API
+#define MOBILEGL_GL_API MOBILEGL_API
+#define MOBILEGL_EGL_API MOBILEGL_API
+
+#define MOBILEGL_BACKEND_TYPE_UNKNOWN 0
+#define MOBILEGL_BACKEND_TYPE_DILIGENT 1
+#define MOBILEGL_BACKEND_TYPE_MRHI 2
+#define MOBILEGL_BACKEND_TYPE_DIRECT 3
+
+// ====================== MobileGL configurations ======================= //
+#define MOBILEGL_LOG_ACTIVE_LEVEL MOBILEGL_LOG_LEVEL_DEBUG
+
+#define MOBILEGL_LOG_ENABLE_CONSOLE 0
+#define MOBILEGL_LOG_ENABLE_FILE 1
+#define MOBILEGL_LOG_ENABLE_ANDROID 1
+
+#ifdef __ANDROID__
+#define MOBILEGL_LOG_FILE_PATH "/sdcard/MG/latest.log"
+#else
+#define MOBILEGL_LOG_FILE_PATH ""
+#endif

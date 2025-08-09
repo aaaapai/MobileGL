@@ -1,4 +1,6 @@
 #pragma once
+#include <Includes.h>
+#include "../BufferState/BufferObject.h"
 
 namespace MobileGL {
     namespace MG_State {
@@ -24,7 +26,8 @@ namespace MobileGL {
                 void DisableAttribute(Uint index);
                 bool IsAttributeEnabled(Uint index) const;
 
-                void SetAttributeFormat(Uint index, int size, DataType type, bool normalized, int stride, SizeT offset, bool isInteger);
+                void SetAttributeFormat(Uint index, int size, DataType type, bool normalized, int stride, SizeT offset,
+                                        bool isInteger);
 
                 void BindAttributeBuffer(Uint index, const SharedPtr<BufferObject>& buffer);
 
@@ -36,6 +39,6 @@ namespace MobileGL {
                 Array<VertexAttribute, MAX_VERTEX_ATTRIBS> m_attributes;
                 BindingSlot<BufferObject> m_indexBufferBindingSlot;
             };
-        }
-    }
-}
+        } // namespace GLState
+    } // namespace MG_State
+} // namespace MobileGL

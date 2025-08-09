@@ -1,4 +1,5 @@
-#include "../../../Includes.h"
+#include "ShaderObject.h"
+#include <MG_Util/ShaderTranspiler/ShaderCompiler.h>
 
 namespace MobileGL {
     namespace MG_State {
@@ -9,11 +10,8 @@ namespace MobileGL {
 
             void ShaderObject::Compile() {
                 using namespace MG_Util::ShaderTranspiler;
-                ShaderAttrib attrib {
-                    .sourceStr =  m_source,
-                    .shaderType = GetGLShaderTypeByMGLShaderStage(m_stage),
-                    .flags = 0
-                };
+                ShaderAttrib attrib{
+                    .sourceStr = m_source, .shaderType = GetGLShaderTypeByMGLShaderStage(m_stage), .flags = 0};
 
                 auto result = ShaderCompiler::CompileShader(attrib);
                 if (result) {
@@ -23,12 +21,11 @@ namespace MobileGL {
                     m_compileStatus = false;
                     m_infoLog = result.error().log;
 
-                    const std::string e =
-                        std::format("Shader compilation failed: \nerrc: {}\nmsg: {}\n",
-                            result.error().errc, result.error().log);
+                    const std::string e = std::format("Shader compilation failed: \nerrc: {}\nmsg: {}\n",
+                                                      result.error().errc, result.error().log);
                     THROW_EXCEPTION(e);
                 }
             }
-        }
-    }
-}
+        } // namespace GLState
+    } // namespace MG_State
+} // namespace MobileGL

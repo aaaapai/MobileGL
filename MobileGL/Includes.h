@@ -1,137 +1,82 @@
 #pragma once
 
-#ifdef __ANDROID__
-#define __ANDROID_API__ 26 // force Android API level to 26 for compatibility
-#endif
+// Include significant project headers
+#include "Defines.h"
+#include "MG_Util/PlatformStubs.h"
 
-#ifdef _WIN32
-#define MOBILEGL_EXPORT extern "C" __declspec(dllexport)
-#else
-#define MOBILEGL_EXPORT extern "C" __attribute__((visibility("default")))
-#endif
-
-#define MOBILEGL_API MOBILEGL_EXPORT
-
-#define MOBILEGL_GLX_API MOBILEGL_API
-#define MOBILEGL_GL_API  MOBILEGL_API
-#define MOBILEGL_EGL_API MOBILEGL_API
-
-#define NOMINMAX // prevent Windows.h from defining min and max macros
-
-#include <cstring>
-#include <iostream>
-#include <cstdio>
-#include <ctime>
-#include <chrono>
-#include <thread>
-#include <string>
-#include <string_view>
+// Include necessary standard headers
+#include <bit>
 #include <map>
-#include <vector>
-#include <cctype>
-#include <stdexcept>
-#include <atomic>
-#include <regex>
-#include <algorithm>
 #include <array>
-#include <random>
-#include <optional>
-#include <unordered_map>
+#include <ctime>
 #include <queue>
+#include <regex>
+#include <atomic>
+#include <cctype>
+#include <chrono>
+#include <cstdio>
 #include <format>
 #include <memory>
-#include <bit>
+#include <random>
+#include <string>
+#include <thread>
+#include <vector>
 #include <cstdarg>
-#include <functional>
+#include <cstring>
 #include <expected>
+#include <iostream>
+#include <optional>
+#include <algorithm>
+#include <stdexcept>
+#include <functional>
+#include <string_view>
+#include <unordered_map>
 
-#include <glslang/Public/ShaderLang.h>
+// Include ankerl::unordered_dense
+#include <ankerl/unordered_dense.h>
+
+// Include spirv_cross
+#include <spirv_cross/spirv_cross_c.h>
+
+// Include glm
+#include <glm/glm.hpp>
+#include <glm/gtc/matrix_transform.hpp>
+
+// Include OpenGL and EGL headers
+#include <GL/gl.h>
+#include <EGL/egl.h>
+#include <GL/glext.h>
+#include <GLES3/gl32.h>
+
+// Include glslang headers
 #include <glslang/Include/Types.h>
 #include <glslang/Public/ShaderLang.h>
-#include <spirv_cross/spirv_cross_c.h>
+#include <glslang/Public/ShaderLang.h>
 #include <glslang/SPIRV/GlslangToSpv.h>
 #include <glslang/Include/intermediate.h>
 #include <glslang/MachineIndependent/localintermediate.h>
-#include <glm/gtc/matrix_transform.hpp>
-#include <glm/glm.hpp>
-#include <ankerl/unordered_dense.h>
-#include <GLES3/gl32.h>
-#include <EGL/egl.h>
-#include <GL/gl.h>
-#include <GL/glext.h>
 
-#ifdef __ANDROID__
-#include <android/log.h>
-#include <pthread.h>
-#include <vulkan/vulkan.h>
-#include <vulkan/vulkan_android.h>
-#include <android/native_window.h>
+// Include headers for platform-specific functionality
+#ifdef __linux__
 #include <dlfcn.h>
-#include <unistd.h>
-#elif defined(_WIN32)
+#include <pthread.h>
+#endif
+
+#ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #include <processthreadsapi.h>
-#else
+#endif
+
+#ifdef __ANDROID__
+#include <unistd.h>
 #include <pthread.h>
+#include <android/log.h>
+#include <vulkan/vulkan.h>
+#include <android/native_window.h>
+#include <vulkan/vulkan_android.h>
 #endif
 
-#ifndef __ANDROID__
-// Define a stub for __android_log_print if not on Android
-#define ANDROID_LOG_UNKNOWN 0
-#define ANDROID_LOG_DEFAULT 1
-#define ANDROID_LOG_VERBOSE 2
-#define ANDROID_LOG_DEBUG 3
-#define ANDROID_LOG_INFO 4
-#define ANDROID_LOG_WARN 5
-#define ANDROID_LOG_ERROR 6
-#define ANDROID_LOG_FATAL 7
-#define ANDROID_LOG_SILENT 8
-
-typedef int android_LogPriority;
-
-inline int __android_log_print(int prio, const char* tag, const char* fmt, ...) { return 0; }
-#endif
-
-#include "MG_Util/GLExtensions.h"
+// Post-includes for significant project headers
 #include "MG_Util/Types.h"
-#include "MG_Util/Miscellany/IndexGenerator.h"
 #include "MG_Util/Debug/Log.h"
-#include "MG_State/GLState/ErrorState/ErrorCode.h"
-#include "MG_State/GLState/ErrorState/ErrorInfo.h"
-#include "MG_State/GLState/ErrorState/Error.h"
-
-#include "MG_Backend/Backends.h"
-
-#include "Config.h"
-
-#include "MG_Impl/GLXImpl/LookUp/LookUp.h"
-#include "MG_Impl/EGLImpl/Temporary/TemporaryEGLImpl.h"
-
-#include "MG_State/GLState/BufferState/BufferObject.h"
-#include "MG_State/GLState/BufferState/BufferState.h"
-#include "MG_State/GLState/VertexArrayState/VertexArrayObject.h"
-#include "MG_State/GLState/VertexArrayState/VertexArrayState.h"
-
-/* @INSERTION_POINT:HEADER_FILE_GLIMPL@ */
-#include "MG_Impl/GLImpl/VertexArray/Validators.h"
-#include "MG_Impl/GLImpl/VertexArray/GL_VertexArray.h"
-#include "MG_Impl/GLImpl/Getter/GL_Getter.h"
-#include "MG_Impl/GLImpl/Buffer/GL_Buffer.h"
-#include "MG_Impl/GLImpl/Buffer/Validators.h"
-
-#include "MG_State/GLState/Core.h"
-
-#include "MG_Util/Converters/MGToGL/BufferEnumConverter.h"
-#include "MG_Util/Converters/MGToGL/ErrorCodeConverter.h"
-#include "MG_Util/Converters/MGToGL/DataTypeConverter.h"
-#include "MG_Util/Converters/MGToStr/DataTypeConverter.h"
-#include "MG_Util/Converters/MGToStr/BufferEnumConverter.h"
-#include "MG_Util/Converters/MGToStr/GLExtensionConverter.h"
-#include "MG_Util/Converters/GLToMG/BufferEnumConverter.h"
-#include "MG_Util/Converters/GLToMG/DataTypeConverter.h"
-#include "MG_Util/Converters/GLToStr/GLEnumConverter.h"
-#include "MG_Util/Converters/GLToGlslang/GLShaderLangConverter.h"
-
-#include "MG_Util/ShaderTranspiler/SpvcSession.h"
-#include "MG_Util/ShaderTranspiler/ShaderCompiler.h"

@@ -1,11 +1,9 @@
-#include "../../../Includes.h"
+#include "VertexArrayState.h"
 
 namespace MobileGL {
     namespace MG_State {
         namespace GLState {
-            VertexArrayState::VertexArrayState()
-                : m_indexGenerator(1024, 1) {
-            }
+            VertexArrayState::VertexArrayState() : m_indexGenerator(1024, 1) {}
 
             SharedPtr<VertexArrayObject> VertexArrayState::GetVertexArrayObject(Uint index) {
                 if (index >= m_vertexArrays.size())
@@ -71,6 +69,6 @@ namespace MobileGL {
             Vector<SharedPtr<VertexArrayObject>>& VertexArrayState::GetAllVertexArrays() {
                 return m_vertexArrays;
             }
-        }
-    }
-}
+        } // namespace GLState
+    } // namespace MG_State
+} // namespace MobileGL

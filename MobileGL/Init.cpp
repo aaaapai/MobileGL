@@ -1,9 +1,10 @@
 #include "Includes.h"
+#include <MG_Backend/Backends.h>
 
 namespace MobileGL {
     void MG_Initialize() {
         MG_Util::Debug::InitFile();
-		MGLOG_I("MobileGL Initializing...");
+        MGLOG_I("MobileGL Initializing...");
         MG_Backend::Init();
         glslang::InitializeProcess();
     }
@@ -25,12 +26,8 @@ namespace MobileGL {
 #endif
 
 #ifdef _WIN32
-    BOOL WINAPI DllMain(HMODULE hModule,
-        DWORD  ul_reason_for_call,
-        LPVOID lpReserved)
-    {
-        switch (ul_reason_for_call)
-        {
+    BOOL WINAPI DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserved) {
+        switch (ul_reason_for_call) {
         case DLL_PROCESS_ATTACH:
             MG_Initialize();
             break;
@@ -42,4 +39,4 @@ namespace MobileGL {
         return TRUE;
     }
 #endif
-}
+} // namespace MobileGL

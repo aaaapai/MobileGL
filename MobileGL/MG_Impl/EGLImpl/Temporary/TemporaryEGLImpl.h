@@ -1,13 +1,13 @@
 #pragma once
+#include <Includes.h>
 
 namespace MobileGL {
     namespace MG_Impl::EGLImpl {
         EGLSurface CreateWindowSurface(EGLDisplay dpy, EGLConfig config, NativeWindowType window,
-            const EGLint* attrib_list);
-        EGLBoolean ChooseConfig(EGLDisplay dpy, const EGLint* attrib_list, EGLConfig* configs,
-            EGLint config_size, EGLint* num_config);
-        EGLContext CreateContext(EGLDisplay dpy, EGLConfig config, EGLContext shareCtx,
-            const EGLint* attrib_list);
+                                       const EGLint* attrib_list);
+        EGLBoolean ChooseConfig(EGLDisplay dpy, const EGLint* attrib_list, EGLConfig* configs, EGLint config_size,
+                                EGLint* num_config);
+        EGLContext CreateContext(EGLDisplay dpy, EGLConfig config, EGLContext shareCtx, const EGLint* attrib_list);
         EGLBoolean Initialize(EGLDisplay dpy, EGLint* major, EGLint* minor);
         EGLDisplay GetDisplay(NativeDisplayType display);
         EGLint GetError();
@@ -25,5 +25,5 @@ namespace MobileGL {
         EGLBoolean SwapBuffers(EGLDisplay dpy, EGLSurface draw);
         EGLSurface CreatePbufferSurface(EGLDisplay dpy, EGLConfig config, const EGLint* attrib_list);
         __eglMustCastToProperFunctionPointerType GetProcAddress(const char* name);
-    }
-}
+    } // namespace MG_Impl::EGLImpl
+} // namespace MobileGL

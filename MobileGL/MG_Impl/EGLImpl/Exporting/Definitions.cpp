@@ -1,17 +1,18 @@
-#include "../../../Includes.h"
+#include <Includes.h>
+#include "../Temporary/TemporaryEGLImpl.h"
 
 MOBILEGL_EGL_API EGLSurface eglCreateWindowSurface(EGLDisplay dpy, EGLConfig config, NativeWindowType window,
-    const EGLint* attrib_list) {
+                                                   const EGLint* attrib_list) {
     return MobileGL::MG_Impl::EGLImpl::CreateWindowSurface(dpy, config, window, attrib_list);
 }
 
 MOBILEGL_EGL_API EGLBoolean eglChooseConfig(EGLDisplay dpy, const EGLint* attrib_list, EGLConfig* configs,
-    EGLint config_size, EGLint* num_config) {
+                                            EGLint config_size, EGLint* num_config) {
     return MobileGL::MG_Impl::EGLImpl::ChooseConfig(dpy, attrib_list, configs, config_size, num_config);
 }
 
 MOBILEGL_EGL_API EGLContext eglCreateContext(EGLDisplay dpy, EGLConfig config, EGLContext shareCtx,
-    const EGLint* attrib_list) {
+                                             const EGLint* attrib_list) {
     return MobileGL::MG_Impl::EGLImpl::CreateContext(dpy, config, shareCtx, attrib_list);
 }
 
@@ -82,4 +83,3 @@ MOBILEGL_EGL_API EGLSurface eglCreatePbufferSurface(EGLDisplay dpy, EGLConfig co
 MOBILEGL_EGL_API __eglMustCastToProperFunctionPointerType eglGetProcAddress(const char* name) {
     return MobileGL::MG_Impl::EGLImpl::GetProcAddress(name);
 }
-

@@ -1,4 +1,5 @@
-#include "../../../Includes.h"
+#include <Includes.h>
+#include "../LookUp/LookUp.h"
 
 MOBILEGL_GLX_API void* glXGetProcAddress(const char* name) {
     return MG_Impl::GLXImpl::GetProcAddress(name);

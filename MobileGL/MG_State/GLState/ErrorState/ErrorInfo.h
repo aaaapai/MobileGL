@@ -1,4 +1,5 @@
 #pragma once
+#include <Includes.h>
 
 namespace MobileGL {
     class ErrorInfo {
@@ -10,9 +11,11 @@ namespace MobileGL {
     class GenericErrorInfo : public ErrorInfo {
     public:
         explicit GenericErrorInfo(String message) : m_message(Move(message)) {}
-        explicit GenericErrorInfo(String m_prefix, String message) : m_message(Move(message)), m_prefix(Move(m_prefix)) {}
-        explicit GenericErrorInfo(String m_prefix, String m_prefix_2, String message) : m_message(Move(message)), m_prefix(Move(m_prefix)), m_prefix_2(Move(m_prefix_2)) {}
-        
+        explicit GenericErrorInfo(String m_prefix, String message)
+            : m_message(Move(message)), m_prefix(Move(m_prefix)) {}
+        explicit GenericErrorInfo(String m_prefix, String m_prefix_2, String message)
+            : m_message(Move(message)), m_prefix(Move(m_prefix)), m_prefix_2(Move(m_prefix_2)) {}
+
         String ToString() const override {
             StringStream ss;
             if (m_prefix.has_value()) {
@@ -22,11 +25,12 @@ namespace MobileGL {
                 ss << "[" << m_prefix_2.value() << "] ";
             }
             ss << m_message;
-			return ss.str();
+            return ss.str();
         }
+
     private:
         String m_message;
-		Optional<String> m_prefix;
-		Optional<String> m_prefix_2;
+        Optional<String> m_prefix;
+        Optional<String> m_prefix_2;
     };
-}
+} // namespace MobileGL

@@ -1,7 +1,7 @@
-#include "../../../Includes.h"
+#include "LookUp.h"
 
 namespace MG_Impl::GLXImpl {
-	// TODO: Implement complete glx functionality
+    // TODO: Implement complete GLX functionality
 
     void* GetProcAddress(const char* name) {
         MGLOG_D("glXGetProcAddress(\"%s\")", name);
@@ -18,4 +18,4 @@ namespace MG_Impl::GLXImpl {
     void* GetProcAddressARB(const char* name) {
         return GetProcAddress(name);
     }
-}
+} // namespace MG_Impl::GLXImpl

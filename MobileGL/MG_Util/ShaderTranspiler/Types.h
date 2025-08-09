@@ -1,5 +1,5 @@
 #pragma once
-#include "MG_Util/Debug/Log.h"
+#include <Includes.h>
 
 namespace MobileGL {
     namespace MG_Util {
@@ -10,7 +10,6 @@ namespace MobileGL {
 
             enum class ShaderCompileBits : Uint {
                 EmitDiscardAsDemote = 1 << 0,
-
             };
 
             struct ShaderAttrib {
@@ -36,9 +35,7 @@ namespace MobileGL {
                 std::string name;
                 uint32_t location;
 
-                bool operator<(const InterfaceVariable& other) const {
-                    return location < other.location;
-                }
+                bool operator<(const InterfaceVariable& other) const { return location < other.location; }
 
                 bool operator==(const InterfaceVariable& other) const {
                     return location == other.location && name == other.name;
@@ -55,8 +52,8 @@ namespace MobileGL {
             //
             //         spvc_context_create(&context);
             //         spvc_context_parse_spirv(context, p_spirv, word_count, &ir);
-            //         spvc_context_create_compiler(context, SPVC_BACKEND_GLSL, ir, SPVC_CAPTURE_MODE_TAKE_OWNERSHIP, &compiler);
-            //         spvc_compiler_create_shader_resources(compiler, &resources);
+            //         spvc_context_create_compiler(context, SPVC_BACKEND_GLSL, ir, SPVC_CAPTURE_MODE_TAKE_OWNERSHIP,
+            //         &compiler); spvc_compiler_create_shader_resources(compiler, &resources);
             //     }
             //
             //     SpvcSession(SpvcSession&) = delete;
@@ -110,7 +107,8 @@ namespace MobileGL {
             //                 size_t num_members = spvc_type_get_num_member_types(type);
             //                 printf("uniform %s {\n", var.name.c_str());
             //                 for (size_t j = 0; j < num_members; ++j) {
-            //                     const char *memberName = spvc_compiler_get_member_name(compiler, list[i].base_type_id, j);
+            //                     const char *memberName = spvc_compiler_get_member_name(compiler,
+            //                     list[i].base_type_id, j);
             //                     // auto memberTypeId = spvc_type_get_member_type(type, j);
             //                     // auto memberType = spvc_compiler_get_type_handle(compiler, memberTypeId);
             //
@@ -144,22 +142,22 @@ namespace MobileGL {
 
             inline static EShLanguage GetEShLanguageByShaderType(GLenum shaderType) {
                 switch (shaderType) {
-                    case GL_VERTEX_SHADER:
-                        return EShLanguage::EShLangVertex;
-                    case GL_FRAGMENT_SHADER:
-                        return EShLanguage::EShLangFragment;
-                    case GL_COMPUTE_SHADER:
-                        return EShLanguage::EShLangCompute;
-                    case GL_TESS_CONTROL_SHADER:
-                        return EShLanguage::EShLangTessControl;
-                    case GL_TESS_EVALUATION_SHADER:
-                        return EShLanguage::EShLangTessEvaluation;
-                    case GL_GEOMETRY_SHADER:
-                        return EShLanguage::EShLangGeometry;
-                    default:
-                        return EShLanguage::EShLangCount;
+                case GL_VERTEX_SHADER:
+                    return EShLanguage::EShLangVertex;
+                case GL_FRAGMENT_SHADER:
+                    return EShLanguage::EShLangFragment;
+                case GL_COMPUTE_SHADER:
+                    return EShLanguage::EShLangCompute;
+                case GL_TESS_CONTROL_SHADER:
+                    return EShLanguage::EShLangTessControl;
+                case GL_TESS_EVALUATION_SHADER:
+                    return EShLanguage::EShLangTessEvaluation;
+                case GL_GEOMETRY_SHADER:
+                    return EShLanguage::EShLangGeometry;
+                default:
+                    return EShLanguage::EShLangCount;
                 }
             }
-        }
-    }
-}
+        } // namespace ShaderTranspiler
+    } // namespace MG_Util
+} // namespace MobileGL

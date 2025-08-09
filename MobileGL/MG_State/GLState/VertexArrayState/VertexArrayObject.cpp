@@ -1,4 +1,4 @@
-#include "../../../Includes.h"
+#include "VertexArrayObject.h"
 
 namespace MobileGL {
     namespace MG_State {
@@ -30,8 +30,8 @@ namespace MobileGL {
                 return m_attributes[index].Enabled;
             }
 
-            void VertexArrayObject::SetAttributeFormat(Uint index, int size, DataType type,
-                bool normalized, int stride, SizeT offset, bool isInteger) {
+            void VertexArrayObject::SetAttributeFormat(Uint index, int size, DataType type, bool normalized, int stride,
+                                                       SizeT offset, bool isInteger) {
                 if (index >= MAX_VERTEX_ATTRIBS) return;
 
                 if (size < 1 || size > 4) {
@@ -44,17 +44,16 @@ namespace MobileGL {
                 attr.Normalized = normalized;
                 attr.Stride = stride;
                 attr.Offset = offset;
-				attr.IsInteger = isInteger;
+                attr.IsInteger = isInteger;
             }
 
-            void VertexArrayObject::BindAttributeBuffer(Uint index,
-                const SharedPtr<BufferObject>& buffer) {
+            void VertexArrayObject::BindAttributeBuffer(Uint index, const SharedPtr<BufferObject>& buffer) {
                 if (index >= MAX_VERTEX_ATTRIBS) return;
                 m_attributes[index].Buffer = buffer;
             }
 
             BindingSlot<BufferObject>& VertexArrayObject::GetIndexBufferBindingSlot() {
-				return m_indexBufferBindingSlot;
+                return m_indexBufferBindingSlot;
             }
 
             const VertexAttribute& VertexArrayObject::GetAttribute(Uint index) const {
@@ -62,6 +61,6 @@ namespace MobileGL {
                 if (index >= MAX_VERTEX_ATTRIBS) return emptyAttr;
                 return m_attributes[index];
             }
-        }
-    }
-}
+        } // namespace GLState
+    } // namespace MG_State
+} // namespace MobileGL

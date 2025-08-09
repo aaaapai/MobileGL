@@ -1,4 +1,4 @@
-#include "../../../Includes.h"
+#include "ProgramState.h"
 
 namespace MobileGL {
     namespace MG_State {
@@ -12,16 +12,14 @@ namespace MobileGL {
             }
 
             SharedPtr<ProgramObject> ProgramState::GetProgramObject(Uint id) {
-                if (!CheckIndexAvail(id))
-                    return nullptr; // FIXME: add error reporting here
+                if (!CheckIndexAvail(id)) return nullptr; // FIXME: add error reporting here
                 return m_programObjects[id];
             }
 
             void ProgramState::DeleteProgram(Uint id) {
-                if (!CheckIndexAvail(id))
-                    return; // FIXME: add error reporting here
+                if (!CheckIndexAvail(id)) return; // FIXME: add error reporting here
                 m_programObjects[id].reset();
             }
-        }
-    }
-}
+        } // namespace GLState
+    } // namespace MG_State
+} // namespace MobileGL

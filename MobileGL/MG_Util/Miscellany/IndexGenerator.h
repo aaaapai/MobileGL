@@ -1,39 +1,38 @@
 #pragma once
+#include <Includes.h>
 
 namespace MobileGL {
     template <typename IndexType>
     class IndexGenerator {
     public:
-        explicit IndexGenerator(size_t initial_capacity = 1024, IndexType first_index = 0)
-            : next_index_(first_index)
-        {
-            const size_t words_needed = (initial_capacity + 63) / 64;
+        explicit IndexGenerator(SizeT initial_capacity = 1024, IndexType first_index = 0) : next_index_(first_index) {
+            const SizeT words_needed = (initial_capacity + 63) / 64;
             is_valid_.resize(words_needed, ~0ull);
             freed_indices_.reserve(initial_capacity);
         }
 
-        void Generate(size_t n, IndexType* indices) {
+        void Generate(SizeT n, IndexType* indices) {
             if (n == 0) return;
 
-            size_t from_freed = std::min(n, freed_indices_.size());
+            SizeT from_freed = std::min(n, freed_indices_.size());
             if (from_freed > 0) {
                 std::copy_n(freed_indices_.end() - from_freed, from_freed, indices);
                 freed_indices_.resize(freed_indices_.size() - from_freed);
 
-                for (size_t i = 0; i < from_freed; ++i) {
+                for (SizeT i = 0; i < from_freed; ++i) {
                     SetValid(indices[i], true);
                 }
             }
 
-            size_t need_new = n - from_freed;
+            SizeT need_new = n - from_freed;
             if (need_new > 0) {
-                size_t required_index = next_index_ + need_new;
-                size_t required_words = (required_index + 63) / 64;
+                SizeT required_index = next_index_ + need_new;
+                SizeT required_words = (required_index + 63) / 64;
                 if (required_words > is_valid_.size()) {
                     is_valid_.resize(required_words, ~0ull);
                 }
 
-                for (size_t i = 0; i < need_new; ++i) {
+                for (SizeT i = 0; i < need_new; ++i) {
                     indices[from_freed + i] = next_index_++;
                 }
             }
@@ -48,25 +47,24 @@ namespace MobileGL {
         }
 
         bool IsValid(IndexType index) const {
-            size_t word = index >> 6;
-            size_t bit = index & 0x3F;
+            SizeT word = index >> 6;
+            SizeT bit = index & 0x3F;
             return word < is_valid_.size() && (is_valid_[word] & (1ull << bit));
         }
 
-        size_t FreeListSize() const { return freed_indices_.size(); }
-        size_t ActiveCount() const { return next_index_ - freed_indices_.size(); }
+        SizeT FreeListSize() const { return freed_indices_.size(); }
+        SizeT ActiveCount() const { return next_index_ - freed_indices_.size(); }
 
     private:
         inline void SetValid(IndexType index, bool valid) {
-            size_t word = index >> 6;
+            SizeT word = index >> 6;
             uint64_t mask = 1ull << (index & 0x3F);
 
             if (word >= is_valid_.size()) return;
 
             if (valid) {
                 is_valid_[word] |= mask;
-            }
-            else {
+            } else {
                 is_valid_[word] &= ~mask;
             }
         }
@@ -82,4 +80,4 @@ namespace MobileGL {
         std::vector<IndexType> freed_indices_;
         std::vector<Uint64> is_valid_;
     };
-}
+} // namespace MobileGL

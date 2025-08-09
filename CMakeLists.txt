@@ -10,11 +10,11 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -w -fvisibility=hidden -funwind-tables -g -D_THREAD_SAFE -fPIC -stdlib=libc++")
 
-set(PROFILING OFF)
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 find_library(GLSLANG_LIB glslang PATHS ${CMAKE_SOURCE_DIR}/libraries/arm64-v8a/)
 
-add_library(${CMAKE_PROJECT_NAME} SHARED 
+set(SOURCE_FILES
     MobileGL/Init.cpp
 
     MobileGL/MG_Util/Debug/Log.cpp
@@ -54,6 +54,10 @@ add_library(${CMAKE_PROJECT_NAME} SHARED
     MobileGL/MG_State/GLState/BufferState/BufferObject.cpp
     MobileGL/MG_State/GLState/VertexArrayState/VertexArrayState.cpp
     MobileGL/MG_State/GLState/VertexArrayState/VertexArrayObject.cpp
+    )
+
+add_library(${CMAKE_PROJECT_NAME} SHARED 
+    ${SOURCE_FILES}
 )
 
 target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE
@@ -79,8 +83,9 @@ target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE
 
 # add_subdirectory(3rdparty/DiligentCore)
 
-target_include_directories(MobileGL PUBLIC
+target_include_directories(${CMAKE_PROJECT_NAME} PUBLIC
     ${CMAKE_SOURCE_DIR}/include
+    ${CMAKE_SOURCE_DIR}/MobileGL
 )
 
 target_link_libraries(MobileGL

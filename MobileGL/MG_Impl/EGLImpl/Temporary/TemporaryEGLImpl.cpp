@@ -1,22 +1,21 @@
-#include "../../../Includes.h"
+#include "TemporaryEGLImpl.h"
 
 namespace MobileGL {
     namespace MG_Impl::EGLImpl {
-		// TODO: Implement complete EGL functionality
+        // TODO: Implement complete EGL functionality
 
         EGLSurface CreateWindowSurface(EGLDisplay dpy, EGLConfig config, NativeWindowType window,
-            const EGLint* attrib_list) {
+                                       const EGLint* attrib_list) {
             return (EGLSurface)1;
         }
 
-        EGLBoolean ChooseConfig(EGLDisplay dpy, const EGLint* attrib_list, EGLConfig* configs,
-            EGLint config_size, EGLint* num_config) {
+        EGLBoolean ChooseConfig(EGLDisplay dpy, const EGLint* attrib_list, EGLConfig* configs, EGLint config_size,
+                                EGLint* num_config) {
             *num_config = 1;
             return EGL_TRUE;
         }
 
-        EGLContext CreateContext(EGLDisplay dpy, EGLConfig config, EGLContext shareCtx,
-            const EGLint* attrib_list) {
+        EGLContext CreateContext(EGLDisplay dpy, EGLConfig config, EGLContext shareCtx, const EGLint* attrib_list) {
             return (EGLContext)1;
         }
 
@@ -59,8 +58,21 @@ namespace MobileGL {
         }
 
         EGLBoolean GetConfigAttrib(EGLDisplay dpy, EGLConfig config, EGLint attribute, EGLint* value) {
-            if (attribute == EGL_NATIVE_VISUAL_ID)
+            if (attribute == EGL_NATIVE_VISUAL_ID) {
+#if defined(ANDROID)
                 *value = AHARDWAREBUFFER_FORMAT_R8G8B8A8_UNORM;
+                return EGL_TRUE;
+#elif defined(__linux__)
+                *value = 0;
+                return EGL_TRUE;
+#elif defined(_WIN32)
+                *value = 0;
+                return EGL_TRUE;
+#else
+                *value = 0;
+                return EGL_FALSE;
+#endif
+            }
             return EGL_TRUE;
         }
 
@@ -95,7 +107,7 @@ namespace MobileGL {
                 MGLOG_W("Failed to get function: %s", (const char*)name);
                 return nullptr;
             }
-			return (__eglMustCastToProperFunctionPointerType)proc;
-		}
-    }
-}
+            return (__eglMustCastToProperFunctionPointerType)proc;
+        }
+    } // namespace MG_Impl::EGLImpl
+} // namespace MobileGL

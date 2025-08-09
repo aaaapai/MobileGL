@@ -1,4 +1,7 @@
 #pragma once
+#include <Includes.h>
+#include "ErrorCode.h"
+#include "ErrorInfo.h"
 
 namespace MobileGL {
     struct Error {
@@ -23,6 +26,6 @@ namespace MobileGL {
                 Vector<Error> m_errors;
                 Vector<Error> m_nonGLErrors;
             };
-        }
-    }
-}
+        } // namespace GLState
+    } // namespace MG_State
+} // namespace MobileGL

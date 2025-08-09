@@ -1,5 +1,5 @@
 #pragma once
-#include "MG_Util/Types.h"
+#include <Includes.h>
 
 namespace MobileGL {
     namespace MG_State {
@@ -15,27 +15,27 @@ namespace MobileGL {
 
             inline static GLenum GetGLShaderTypeByMGLShaderStage(ShaderStage stage) {
                 switch (stage) {
-                    case ShaderStage::Vertex:
-                        return GL_VERTEX_SHADER;
-                    case ShaderStage::TessControl:
-                        return GL_TESS_CONTROL_SHADER;
-                    case ShaderStage::TessEval:
-                        return GL_TESS_EVALUATION_SHADER;
-                    case ShaderStage::Geometry:
-                        return GL_GEOMETRY_SHADER;
-                    case ShaderStage::Fragment:
-                        return GL_FRAGMENT_SHADER;
-                    case ShaderStage::Compute:
-                        return GL_COMPUTE_SHADER;
-                    default:
-                        assert(false);
-                        return 0;
+                case ShaderStage::Vertex:
+                    return GL_VERTEX_SHADER;
+                case ShaderStage::TessControl:
+                    return GL_TESS_CONTROL_SHADER;
+                case ShaderStage::TessEval:
+                    return GL_TESS_EVALUATION_SHADER;
+                case ShaderStage::Geometry:
+                    return GL_GEOMETRY_SHADER;
+                case ShaderStage::Fragment:
+                    return GL_FRAGMENT_SHADER;
+                case ShaderStage::Compute:
+                    return GL_COMPUTE_SHADER;
+                default:
+                    assert(false);
+                    return 0;
                 }
             }
 
             class ShaderObject {
             public:
-                ShaderObject(const ShaderStage stage): m_stage(stage) {}
+                ShaderObject(const ShaderStage stage) : m_stage(stage) {}
                 void SetShaderSource(const std::string& source);
                 void Compile();
 
@@ -47,6 +47,6 @@ namespace MobileGL {
                 bool m_deleteStatus = false;
                 bool m_compileStatus = false;
             };
-        }
-    }
-}
+        } // namespace GLState
+    } // namespace MG_State
+} // namespace MobileGL

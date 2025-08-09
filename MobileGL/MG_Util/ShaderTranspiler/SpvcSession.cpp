@@ -1,111 +1,113 @@
-#include "../../Includes.h"
+#include "SpvcSession.h"
 
 namespace MobileGL {
-namespace MG_Util {
-namespace ShaderTranspiler {
-    SpvcSession::SpvcSession(const Vector<unsigned int>& spirv) {
-        const SpvId *p_spirv = spirv.data();
-        size_t word_count = spirv.size();
+    namespace MG_Util {
+        namespace ShaderTranspiler {
+            SpvcSession::SpvcSession(const Vector<unsigned int>& spirv) {
+                const SpvId* p_spirv = spirv.data();
+                size_t word_count = spirv.size();
 
-        spvc_context_create(&context);
-        spvc_context_parse_spirv(context, p_spirv, word_count, &ir);
-        spvc_context_create_compiler(context, SPVC_BACKEND_GLSL, ir, SPVC_CAPTURE_MODE_TAKE_OWNERSHIP, &compiler);
-        spvc_compiler_create_shader_resources(compiler, &resources);
-    }
-
-    SpvcSession::SpvcSession(SpvcSession&& that) {
-        std::swap(this->context, that.context);
-        std::swap(this->compiler, that.compiler);
-        std::swap(this->ir, that.ir);
-        std::swap(this->compiler_options, that.compiler_options);
-        std::swap(this->resources, that.resources);
-    }
-
-    SpvcSession& SpvcSession::operator=(SpvcSession&& that) {
-        std::swap(this->context, that.context);
-        std::swap(this->compiler, that.compiler);
-        std::swap(this->ir, that.ir);
-        std::swap(this->compiler_options, that.compiler_options);
-        std::swap(this->resources, that.resources);
-        return *this;
-    }
-
-    spvc_result SpvcSession::CreateOptions(spvc_compiler_options *options) {
-        return spvc_compiler_create_compiler_options(compiler, options);
-    }
-
-    spvc_result SpvcSession::SetOptions(spvc_compiler_options options) {
-        compiler_options = options;
-        return spvc_compiler_install_compiler_options(compiler, options);
-    }
-
-    Vector<InterfaceVariable> SpvcSession::GetShaderInterface(spvc_resource_type resource_type) const {
-        const spvc_reflected_resource *list = nullptr;
-        size_t count = 0;
-        spvc_resources_get_resource_list_for_type(resources, resource_type, &list, &count);
-
-        Vector<InterfaceVariable> variables;
-        for (size_t i = 0; i < count; ++i) {
-            if (spvc_compiler_has_decoration(compiler, list[i].id, SpvDecorationBuiltIn)) {
-                continue;
+                spvc_context_create(&context);
+                spvc_context_parse_spirv(context, p_spirv, word_count, &ir);
+                spvc_context_create_compiler(context, SPVC_BACKEND_GLSL, ir, SPVC_CAPTURE_MODE_TAKE_OWNERSHIP,
+                                             &compiler);
+                spvc_compiler_create_shader_resources(compiler, &resources);
             }
 
-            InterfaceVariable var;
-            var.name = list[i].name;
-            var.location = spvc_compiler_get_decoration(compiler, list[i].id, SpvDecorationLocation);
-            variables.push_back(var);
-        }
-        std::sort(variables.begin(), variables.end());
-        return variables;
-    }
-
-    spvc_result SpvcSession::Compile(const char** result) {
-        SPVC_CHK_INIT
-        SPVC_CHK_RESULT(spvc_compiler_compile(compiler, result));
-        SPVC_CHK_RESULT(ParseMetaData());
-        SPVC_CHK_RETURN
-    }
-
-    spvc_result SpvcSession::ParseMetaData() {
-        SPVC_CHK_INIT
-
-        metadata = SpvcMetadata();
-
-        const spvc_reflected_resource *list = nullptr;
-        size_t count = 0;
-
-        SPVC_CHK_RESULT(
-            spvc_resources_get_resource_list_for_type(resources, SPVC_RESOURCE_TYPE_UNIFORM_BUFFER, &list, &count);
-        )
-        for (size_t i = 0; i < count; ++i) {
-            if (spvc_compiler_has_decoration(compiler, list[i].id, SpvDecorationBuiltIn)) {
-                continue;
+            SpvcSession::SpvcSession(SpvcSession&& that) {
+                std::swap(this->context, that.context);
+                std::swap(this->compiler, that.compiler);
+                std::swap(this->ir, that.ir);
+                std::swap(this->compiler_options, that.compiler_options);
+                std::swap(this->resources, that.resources);
             }
 
-            if (strcmp(list[i].name, GLOBAL_UBO_NAME) == 0) {
-                spvc_type type = spvc_compiler_get_type_handle(compiler, list[i].base_type_id);
-                size_t num_members = spvc_type_get_num_member_types(type);
-                for (size_t j = 0; j < num_members; ++j) {
-                    const char *memberName = spvc_compiler_get_member_name(compiler, list[i].base_type_id, j);
+            SpvcSession& SpvcSession::operator=(SpvcSession&& that) {
+                std::swap(this->context, that.context);
+                std::swap(this->compiler, that.compiler);
+                std::swap(this->ir, that.ir);
+                std::swap(this->compiler_options, that.compiler_options);
+                std::swap(this->resources, that.resources);
+                return *this;
+            }
 
-                    unsigned memberOffset = 0;
-                    SPVC_CHK_RESULT(spvc_compiler_type_struct_member_offset(compiler, type, j, &memberOffset);)
-                    metadata.plainUniformOffsetsInUBO[memberName] = memberOffset;
+            spvc_result SpvcSession::CreateOptions(spvc_compiler_options* options) {
+                return spvc_compiler_create_compiler_options(compiler, options);
+            }
+
+            spvc_result SpvcSession::SetOptions(spvc_compiler_options options) {
+                compiler_options = options;
+                return spvc_compiler_install_compiler_options(compiler, options);
+            }
+
+            Vector<InterfaceVariable> SpvcSession::GetShaderInterface(spvc_resource_type resource_type) const {
+                const spvc_reflected_resource* list = nullptr;
+                size_t count = 0;
+                spvc_resources_get_resource_list_for_type(resources, resource_type, &list, &count);
+
+                Vector<InterfaceVariable> variables;
+                for (size_t i = 0; i < count; ++i) {
+                    if (spvc_compiler_has_decoration(compiler, list[i].id, SpvDecorationBuiltIn)) {
+                        continue;
+                    }
+
+                    InterfaceVariable var;
+                    var.name = list[i].name;
+                    var.location = spvc_compiler_get_decoration(compiler, list[i].id, SpvDecorationLocation);
+                    variables.push_back(var);
                 }
+                std::sort(variables.begin(), variables.end());
+                return variables;
             }
-        }
-        SPVC_CHK_RETURN
-    }
 
-    const SpvcMetadata& SpvcSession::GetMetadata() const {
-        return metadata;
-    }
+            spvc_result SpvcSession::Compile(const char** result) {
+                SPVC_CHK_INIT
+                SPVC_CHK_RESULT(spvc_compiler_compile(compiler, result));
+                SPVC_CHK_RESULT(ParseMetaData());
+                SPVC_CHK_RETURN
+            }
 
-    const char* SpvcSession::GetLastErrorString() const {
-        return spvc_context_get_last_error_string(context);
-    }
+            spvc_result SpvcSession::ParseMetaData() {
+                SPVC_CHK_INIT
 
-    SpvcSession::~SpvcSession() { spvc_context_destroy(context); }
-}
-}
-}
+                metadata = SpvcMetadata();
+
+                const spvc_reflected_resource* list = nullptr;
+                size_t count = 0;
+
+                SPVC_CHK_RESULT(spvc_resources_get_resource_list_for_type(resources, SPVC_RESOURCE_TYPE_UNIFORM_BUFFER,
+                                                                          &list, &count);)
+                for (size_t i = 0; i < count; ++i) {
+                    if (spvc_compiler_has_decoration(compiler, list[i].id, SpvDecorationBuiltIn)) {
+                        continue;
+                    }
+
+                    if (strcmp(list[i].name, GLOBAL_UBO_NAME) == 0) {
+                        spvc_type type = spvc_compiler_get_type_handle(compiler, list[i].base_type_id);
+                        size_t num_members = spvc_type_get_num_member_types(type);
+                        for (size_t j = 0; j < num_members; ++j) {
+                            const char* memberName = spvc_compiler_get_member_name(compiler, list[i].base_type_id, j);
+
+                            unsigned memberOffset = 0;
+                            SPVC_CHK_RESULT(spvc_compiler_type_struct_member_offset(compiler, type, j, &memberOffset);)
+                            metadata.plainUniformOffsetsInUBO[memberName] = memberOffset;
+                        }
+                    }
+                }
+                SPVC_CHK_RETURN
+            }
+
+            const SpvcMetadata& SpvcSession::GetMetadata() const {
+                return metadata;
+            }
+
+            const char* SpvcSession::GetLastErrorString() const {
+                return spvc_context_get_last_error_string(context);
+            }
+
+            SpvcSession::~SpvcSession() {
+                spvc_context_destroy(context);
+            }
+        } // namespace ShaderTranspiler
+    } // namespace MG_Util
+} // namespace MobileGL

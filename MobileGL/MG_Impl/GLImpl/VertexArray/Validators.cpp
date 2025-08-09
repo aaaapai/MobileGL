@@ -1,31 +1,37 @@
-#include "../../../Includes.h"
+#include "Validators.h"
+#include <MG_State/GLState/Core.h>
+#include <MG_State/GLState/ErrorState/Error.h>
+#include <MG_Util/Converters/MGToGL/DataTypeConverter.h>
+#include <MG_Util/Converters/MGToStr/DataTypeConverter.h>
 
 namespace MobileGL::MG_Impl::GLImpl {
-	namespace VertexArrayImpl {
+    namespace VertexArrayImpl {
 
         bool ValidateVertexArrayName(Uint index) {
             if (index == 0) {
-                MG_State::pGLContext->RecordError(ErrorCode::InvalidValue,
-                    MakeShared<GenericErrorInfo>("MG_Impl/GLImpl", "ValidateVertexArrayName",
-                        "Vertex array name 0 is not supported."));
+                MG_State::pGLContext->RecordError(
+                    ErrorCode::InvalidValue, MakeShared<GenericErrorInfo>("MG_Impl/GLImpl", "ValidateVertexArrayName",
+                                                                          "Vertex array name 0 is not supported."));
                 return false;
             }
-            
+
             bool isValid = MG_State::pGLContext->ValidateVertexArrayName(index);
-			if (!isValid) {
-                MG_State::pGLContext->RecordError(ErrorCode::InvalidOperation,
+            if (!isValid) {
+                MG_State::pGLContext->RecordError(
+                    ErrorCode::InvalidOperation,
                     MakeShared<GenericErrorInfo>("MG_Impl/GLImpl", "ValidateVertexArrayName",
-                        std::format("Vertex array name {} is not valid.", index)));
+                                                 std::format("Vertex array name {} is not valid.", index)));
                 return false;
             }
-			return true;
+            return true;
         }
 
         bool ValidateVertexArrayObject(Uint index) {
             if (!MG_State::pGLContext->ValidateVertexArrayObject(index)) {
-                MG_State::pGLContext->RecordError(ErrorCode::InvalidOperation,
+                MG_State::pGLContext->RecordError(
+                    ErrorCode::InvalidOperation,
                     MakeShared<GenericErrorInfo>("MG_Impl/GLImpl", "ValidateVertexArrayObject",
-                        std::format("Vertex array object {} does not exist.", index)));
+                                                 std::format("Vertex array object {} does not exist.", index)));
                 return false;
             }
             return true;
@@ -33,10 +39,12 @@ namespace MobileGL::MG_Impl::GLImpl {
 
         bool ValidateVertexAttributeIndex(Uint index) {
             if (index >= MG_State::GLState::VertexArrayObject::MAX_VERTEX_ATTRIBS) {
-                MG_State::pGLContext->RecordError(ErrorCode::InvalidValue,
-                    MakeShared<GenericErrorInfo>("MG_Impl/GLImpl", "ValidateVertexAttributeIndex",
-                        std::format("Attribute index {} exceeds maximum of {}.",
-                            index, MG_State::GLState::VertexArrayObject::MAX_VERTEX_ATTRIBS - 1)));
+                MG_State::pGLContext->RecordError(
+                    ErrorCode::InvalidValue,
+                    MakeShared<GenericErrorInfo>(
+                        "MG_Impl/GLImpl", "ValidateVertexAttributeIndex",
+                        std::format("Attribute index {} exceeds maximum of {}.", index,
+                                    MG_State::GLState::VertexArrayObject::MAX_VERTEX_ATTRIBS - 1)));
                 return false;
             }
             return true;
@@ -44,27 +52,33 @@ namespace MobileGL::MG_Impl::GLImpl {
 
         bool ValidateVertexAttribPointerParams(Uint index, SizeT size, DataType type, Int stride) {
             if (size < 1 || size > 4) {
-                MG_State::pGLContext->RecordError(ErrorCode::InvalidValue,
-                    MakeShared<GenericErrorInfo>("MG_Impl/GLImpl", "ValidateVertexAttribPointerParams",
+                MG_State::pGLContext->RecordError(
+                    ErrorCode::InvalidValue,
+                    MakeShared<GenericErrorInfo>(
+                        "MG_Impl/GLImpl", "ValidateVertexAttribPointerParams",
                         std::format("Invalid size {} for attribute {}. Must be 1-4.", size, index)));
                 return false;
             }
 
             if (type == DataType::Unknown) {
-                MG_State::pGLContext->RecordError(ErrorCode::InvalidEnum,
+                MG_State::pGLContext->RecordError(
+                    ErrorCode::InvalidEnum,
                     MakeShared<GenericErrorInfo>("MG_Impl/GLImpl", "ValidateVertexAttribPointerParams",
-                        std::format("Invalid type {} for attribute {}.", MG_Util::ConvertDataTypeToString(type).c_str(), index)));
+                                                 std::format("Invalid type {} for attribute {}.",
+                                                             MG_Util::ConvertDataTypeToString(type).c_str(), index)));
                 return false;
             }
 
             if (stride < 0) {
-                MG_State::pGLContext->RecordError(ErrorCode::InvalidValue,
-                    MakeShared<GenericErrorInfo>("MG_Impl/GLImpl", "ValidateVertexAttribPointerParams",
+                MG_State::pGLContext->RecordError(
+                    ErrorCode::InvalidValue,
+                    MakeShared<GenericErrorInfo>(
+                        "MG_Impl/GLImpl", "ValidateVertexAttribPointerParams",
                         std::format("Negative stride {} is not allowed for attribute {}.", stride, index)));
                 return false;
             }
 
             return true;
-        }   
-	}
-}
+        }
+    } // namespace VertexArrayImpl
+} // namespace MobileGL::MG_Impl::GLImpl

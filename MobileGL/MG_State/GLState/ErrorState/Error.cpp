@@ -1,19 +1,19 @@
-#include "../../../Includes.h"
+#include "Error.h"
+#include <MG_Util/Converters/GLToStr/GLEnumConverter.h>
+#include <MG_Util/Converters/MGToGL/ErrorCodeConverter.h>
 
 namespace MobileGL {
-	namespace MG_State {
+    namespace MG_State {
         namespace GLState {
             void ErrorState::RecordError(ErrorCode code, SharedPtr<ErrorInfo> info) {
                 if (code == ErrorCode::NoError) {
-                    MGLOG_E("Recording Non-OpenGL error:\n%s",
-                        info->ToString().c_str());
-                    m_nonGLErrors.push_back(Error{ code, info });
-                }
-                else {
-					MGLOG_E("Recording OpenGL error (%s):\n%s", 
-                        MG_Util::ConvertGLEnumToString(MG_Util::ConvertErrorCodeToGLEnum(code)).c_str(),
-                        info->ToString().c_str());
-                    m_errors.push_back(Error{ code, info });
+                    MGLOG_E("Recording Non-OpenGL error:\n%s", info->ToString().c_str());
+                    m_nonGLErrors.push_back(Error{code, info});
+                } else {
+                    MGLOG_E("Recording OpenGL error (%s):\n%s",
+                            MG_Util::ConvertGLEnumToString(MG_Util::ConvertErrorCodeToGLEnum(code)).c_str(),
+                            info->ToString().c_str());
+                    m_errors.push_back(Error{code, info});
                 }
             }
 
@@ -22,15 +22,15 @@ namespace MobileGL {
             }
 
             Optional<const Error> ErrorState::PeekNonGLError() const {
-                if (m_nonGLErrors.empty()) return Optional<const Error>{ };
+                if (m_nonGLErrors.empty()) return Optional<const Error>{};
                 return Optional<const Error>{m_nonGLErrors.front()};
             }
 
             Optional<Error> ErrorState::PopNonGLError() {
-                if (m_nonGLErrors.empty()) return Optional<const Error>{ };
+                if (m_nonGLErrors.empty()) return Optional<const Error>{};
                 auto error = Move(m_nonGLErrors.front());
                 m_nonGLErrors.erase(m_nonGLErrors.begin());
-                return Optional<const Error>{ error };
+                return Optional<const Error>{error};
             }
 
             bool ErrorState::HasGLError() const {
@@ -38,21 +38,21 @@ namespace MobileGL {
             }
 
             Optional<const Error> ErrorState::PeekGLError() const {
-                if (m_errors.empty()) return Optional<const Error>{ };
+                if (m_errors.empty()) return Optional<const Error>{};
                 return Optional<const Error>{m_errors.front()};
             }
 
             Optional<Error> ErrorState::PopGLError() {
-                if (m_errors.empty()) return Optional<const Error>{ };
+                if (m_errors.empty()) return Optional<const Error>{};
                 auto error = Move(m_errors.front());
                 m_errors.erase(m_errors.begin());
-                return Optional<const Error>{ error };
+                return Optional<const Error>{error};
             }
 
             void ErrorState::Clear() {
                 m_errors.clear();
                 m_nonGLErrors.clear();
             }
-		}
-	}
-}
+        } // namespace GLState
+    } // namespace MG_State
+} // namespace MobileGL
