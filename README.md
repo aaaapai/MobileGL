@@ -1,7 +1,7 @@
 # MobileGL
 
 > [!NOTE]
-> **Important Note**: The project in this fork is undergoing a complete redesign and rewrite. The previous implementations have been removed or replaced.
+> **Important Note**: The project is undergoing a complete redesign and rewrite. The previous implementations have been removed or replaced.
 
 ## Third party components
 
