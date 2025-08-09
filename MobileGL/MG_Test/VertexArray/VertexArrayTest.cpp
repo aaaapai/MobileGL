@@ -1,5 +1,9 @@
 #include <gtest/gtest.h>
 #include "Includes.h"
+#include <MG_Impl/GLImpl/Buffer/GL_Buffer.h>
+#include <MG_Impl/GLImpl/Getter/GL_Getter.h>
+#include <MG_Impl/GLImpl/VertexArray/GL_VertexArray.h>
+#include <MG_State/GLState/Core.h>
 
 using namespace MobileGL;
 
