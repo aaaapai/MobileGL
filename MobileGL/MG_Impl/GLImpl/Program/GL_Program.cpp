@@ -1,0 +1,260 @@
+#include "../../../Includes.h"
+
+namespace MobileGL {
+    namespace MG_Impl::GLImpl {
+        void AttachShader_State(GLuint program, GLuint shader) {
+            THROW_UNIMPL_EXCEPTION
+        }
+
+        void BindAttribLocation_State(GLuint program, GLuint index, const GLchar *name) {
+            THROW_UNIMPL_EXCEPTION
+        }
+
+        void CompileShader_State(GLuint shader) {
+            THROW_UNIMPL_EXCEPTION
+        }
+
+        GLuint CreateProgram_State(void) {
+            THROW_UNIMPL_EXCEPTION
+        }
+
+        GLuint CreateShader_State(GLenum type) {
+            THROW_UNIMPL_EXCEPTION
+        }
+
+        void DeleteProgram_State(GLuint program) {
+            THROW_UNIMPL_EXCEPTION
+        }
+
+        void DeleteShader_State(GLuint shader) {
+            THROW_UNIMPL_EXCEPTION
+        }
+
+        void DetachShader_State(GLuint program, GLuint shader) {
+            THROW_UNIMPL_EXCEPTION
+        }
+
+        void GetActiveAttrib_State(GLuint program, GLuint index, GLsizei bufSize, GLsizei *length, GLint *size, GLenum *type, GLchar *name) {
+            THROW_UNIMPL_EXCEPTION
+        }
+
+        void GetActiveUniform_State(GLuint program, GLuint index, GLsizei bufSize, GLsizei *length, GLint *size, GLenum *type, GLchar *name) {
+            THROW_UNIMPL_EXCEPTION
+        }
+
+        void GetAttachedShaders_State(GLuint program, GLsizei maxCount, GLsizei *count, GLuint *shaders) {
+            THROW_UNIMPL_EXCEPTION
+        }
+
+        GLint GetAttribLocation_State(GLuint program, const GLchar *name) {
+            THROW_UNIMPL_EXCEPTION
+        }
+
+        void GetProgramiv_State(GLuint program, GLenum pname, GLint *params) {
+            THROW_UNIMPL_EXCEPTION
+        }
+
+        void GetProgramInfoLog_State(GLuint program, GLsizei bufSize, GLsizei *length, GLchar *infoLog) {
+            THROW_UNIMPL_EXCEPTION
+        }
+
+        void GetShaderiv_State(GLuint shader, GLenum pname, GLint *params) {
+            THROW_UNIMPL_EXCEPTION
+        }
+
+        void GetShaderInfoLog_State(GLuint shader, GLsizei bufSize, GLsizei *length, GLchar *infoLog) {
+            THROW_UNIMPL_EXCEPTION
+        }
+
+        void GetShaderSource_State(GLuint shader, GLsizei bufSize, GLsizei *length, GLchar *source) {
+            THROW_UNIMPL_EXCEPTION
+        }
+
+        GLint GetUniformLocation_State(GLuint program, const GLchar *name) {
+            THROW_UNIMPL_EXCEPTION
+        }
+
+        void GetUniformfv_State(GLuint program, GLint location, GLfloat *params) {
+            THROW_UNIMPL_EXCEPTION
+        }
+
+        void GetUniformiv_State(GLuint program, GLint location, GLint *params) {
+            THROW_UNIMPL_EXCEPTION
+        }
+
+        GLboolean IsProgram_State(GLuint program) {
+            THROW_UNIMPL_EXCEPTION
+        }
+
+        GLboolean IsShader_State(GLuint shader) {
+            THROW_UNIMPL_EXCEPTION
+        }
+
+        void LinkProgram_State(GLuint program) {
+            THROW_UNIMPL_EXCEPTION
+        }
+
+        void ShaderSource_State(GLuint shader, GLsizei count, const GLchar *const*string, const GLint *length) {
+            THROW_UNIMPL_EXCEPTION
+        }
+
+        void UseProgram_State(GLuint program) {
+            THROW_UNIMPL_EXCEPTION
+        }
+
+        void Uniform1f_State(GLint location, GLfloat v0) {
+            THROW_UNIMPL_EXCEPTION
+        }
+
+        void Uniform2f_State(GLint location, GLfloat v0, GLfloat v1) {
+            THROW_UNIMPL_EXCEPTION
+        }
+
+        void Uniform3f_State(GLint location, GLfloat v0, GLfloat v1, GLfloat v2) {
+            THROW_UNIMPL_EXCEPTION
+        }
+
+        void Uniform4f_State(GLint location, GLfloat v0, GLfloat v1, GLfloat v2, GLfloat v3) {
+            THROW_UNIMPL_EXCEPTION
+        }
+
+        void Uniform1i_State(GLint location, GLint v0) {
+            THROW_UNIMPL_EXCEPTION
+        }
+
+        void Uniform2i_State(GLint location, GLint v0, GLint v1) {
+            THROW_UNIMPL_EXCEPTION
+        }
+
+        void Uniform3i_State(GLint location, GLint v0, GLint v1, GLint v2) {
+            THROW_UNIMPL_EXCEPTION
+        }
+
+        void Uniform4i_State(GLint location, GLint v0, GLint v1, GLint v2, GLint v3) {
+            THROW_UNIMPL_EXCEPTION
+        }
+
+        void Uniform1fv_State(GLint location, GLsizei count, const GLfloat *value) {
+            THROW_UNIMPL_EXCEPTION
+        }
+
+        void Uniform2fv_State(GLint location, GLsizei count, const GLfloat *value) {
+            THROW_UNIMPL_EXCEPTION
+        }
+
+        void Uniform3fv_State(GLint location, GLsizei count, const GLfloat *value) {
+            THROW_UNIMPL_EXCEPTION
+        }
+
+        void Uniform4fv_State(GLint location, GLsizei count, const GLfloat *value) {
+            THROW_UNIMPL_EXCEPTION
+        }
+
+        void Uniform1iv_State(GLint location, GLsizei count, const GLint *value) {
+            THROW_UNIMPL_EXCEPTION
+        }
+
+        void Uniform2iv_State(GLint location, GLsizei count, const GLint *value) {
+            THROW_UNIMPL_EXCEPTION
+        }
+
+        void Uniform3iv_State(GLint location, GLsizei count, const GLint *value) {
+            THROW_UNIMPL_EXCEPTION
+        }
+
+        void Uniform4iv_State(GLint location, GLsizei count, const GLint *value) {
+            THROW_UNIMPL_EXCEPTION
+        }
+
+        void UniformMatrix2fv_State(GLint location, GLsizei count, GLboolean transpose, const GLfloat *value) {
+            THROW_UNIMPL_EXCEPTION
+        }
+
+        void UniformMatrix3fv_State(GLint location, GLsizei count, GLboolean transpose, const GLfloat *value) {
+            THROW_UNIMPL_EXCEPTION
+        }
+
+        void UniformMatrix4fv_State(GLint location, GLsizei count, GLboolean transpose, const GLfloat *value) {
+            THROW_UNIMPL_EXCEPTION
+        }
+
+        void ValidateProgram_State(GLuint program) {
+            THROW_UNIMPL_EXCEPTION
+        }
+
+
+        void AttachShader(GLuint program, GLuint shader) { AttachShader_State(program, shader); }
+        void BindAttribLocation(GLuint program, GLuint index, const GLchar *name) {
+            BindAttribLocation_State(program, index, name);
+        }
+        void CompileShader(GLuint shader) { CompileShader_State(shader); }
+        GLuint CreateProgram(void) { return CreateProgram_State(); }
+        GLuint CreateShader(GLenum type) { return CreateShader_State(type); }
+        void DeleteProgram(GLuint program) { DeleteProgram_State(program); }
+        void DeleteShader(GLuint shader) { DeleteShader_State(shader); }
+        void DetachShader(GLuint program, GLuint shader) { DetachShader_State(program, shader); }
+        void GetActiveAttrib(GLuint program, GLuint index, GLsizei bufSize, GLsizei *length, GLint *size, GLenum *type, GLchar *name) {
+            GetActiveAttrib_State(program, index, bufSize, length, size, type, name);
+        }
+        void GetActiveUniform(GLuint program, GLuint index, GLsizei bufSize, GLsizei *length, GLint *size, GLenum *type, GLchar *name) {
+            GetActiveUniform_State(program, index, bufSize, length, size, type, name);
+        }
+        void GetAttachedShaders(GLuint program, GLsizei maxCount, GLsizei *count, GLuint *shaders) {
+            GetAttachedShaders_State(program, maxCount, count, shaders);
+        }
+        GLint GetAttribLocation(GLuint program, const GLchar *name) {
+            GetAttribLocation_State(program, name);
+        }
+        void GetProgramiv(GLuint program, GLenum pname, GLint *params) {
+            GetProgramiv_State(program, pname, params);
+        }
+        void GetProgramInfoLog(GLuint program, GLsizei bufSize, GLsizei *length, GLchar *infoLog) {
+            GetProgramInfoLog_State(program, bufSize, length, infoLog);
+        }
+        void GetShaderiv(GLuint shader, GLenum pname, GLint *params) {
+            GetShaderiv_State(shader, pname, params);
+        }
+        void GetShaderInfoLog(GLuint shader, GLsizei bufSize, GLsizei *length, GLchar *infoLog) {
+            GetShaderInfoLog_State(shader, bufSize, length, infoLog);
+        }
+        void GetShaderSource(GLuint shader, GLsizei bufSize, GLsizei *length, GLchar *source) {
+            GetShaderSource_State(shader, bufSize, length, source);
+        }
+        GLint GetUniformLocation(GLuint program, const GLchar *name) {
+            GetUniformLocation_State(program, name);
+        }
+        void GetUniformfv(GLuint program, GLint location, GLfloat *params) {
+            GetUniformfv_State(program, location, params);
+        }
+        void GetUniformiv(GLuint program, GLint location, GLint *params) {
+            GetUniformiv_State(program, location, params);
+        }
+        GLboolean IsProgram(GLuint program) { return IsProgram_State(program); }
+        GLboolean IsShader(GLuint shader) { return IsShader_State(shader); }
+        void LinkProgram(GLuint program) { LinkProgram_State(program); }
+        void ShaderSource(GLuint shader, GLsizei count, const GLchar *const*string, const GLint *length) {
+            ShaderSource_State(shader, count, string, length);
+        }
+        void UseProgram(GLuint program) { UseProgram_State(program); }
+        void Uniform1f(GLint location, GLfloat v0) { Uniform1f_State(location, v0); }
+        void Uniform2f(GLint location, GLfloat v0, GLfloat v1) { Uniform2f_State(location, v0, v1); }
+        void Uniform3f(GLint location, GLfloat v0, GLfloat v1, GLfloat v2) { Uniform3f_State(location, v0, v1, v2); }
+        void Uniform4f(GLint location, GLfloat v0, GLfloat v1, GLfloat v2, GLfloat v3);
+        void Uniform1i(GLint location, GLint v0) { Uniform1i_State(location, v0); }
+        void Uniform2i(GLint location, GLint v0, GLint v1) { Uniform2i_State(location, v0, v1); }
+        void Uniform3i(GLint location, GLint v0, GLint v1, GLint v2) { Uniform3i_State(location, v0, v1, v2); }
+        void Uniform4i(GLint location, GLint v0, GLint v1, GLint v2, GLint v3) { Uniform4i_State(location, v0, v1, v2, v3); }
+        void Uniform1fv(GLint location, GLsizei count, const GLfloat *value) { Uniform1fv_State(location, count, value); }
+        void Uniform2fv(GLint location, GLsizei count, const GLfloat *value) { Uniform2fv_State(location, count, value); }
+        void Uniform3fv(GLint location, GLsizei count, const GLfloat *value) { Uniform3fv_State(location, count, value); }
+        void Uniform4fv(GLint location, GLsizei count, const GLfloat *value) { Uniform4fv_State(location, count, value); }
+        void Uniform1iv(GLint location, GLsizei count, const GLint *value) { Uniform1iv_State(location, count, value); }
+        void Uniform2iv(GLint location, GLsizei count, const GLint *value) { Uniform2iv_State(location, count, value); }
+        void Uniform3iv(GLint location, GLsizei count, const GLint *value) { Uniform3iv_State(location, count, value); }
+        void Uniform4iv(GLint location, GLsizei count, const GLint *value) { Uniform4iv_State(location, count, value); }
+        void UniformMatrix2fv(GLint location, GLsizei count, GLboolean transpose, const GLfloat *value) { UniformMatrix2fv_State(location, count, transpose, value); }
+        void UniformMatrix3fv(GLint location, GLsizei count, GLboolean transpose, const GLfloat *value) { UniformMatrix3fv_State(location, count, transpose, value); }
+        void UniformMatrix4fv(GLint location, GLsizei count, GLboolean transpose, const GLfloat *value) { UniformMatrix4fv_State(location, count, transpose, value); }
+        void ValidateProgram(GLuint program) { ValidateProgram_State(program); }
+    }
+}
