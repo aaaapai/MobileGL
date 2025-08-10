@@ -54,6 +54,9 @@ set(SOURCE_FILES
     MobileGL/MG_State/GLState/BufferState/BufferObject.cpp
     MobileGL/MG_State/GLState/VertexArrayState/VertexArrayState.cpp
     MobileGL/MG_State/GLState/VertexArrayState/VertexArrayObject.cpp
+    MobileGL/MG_State/GLState/TextureState/TextureObject.cpp
+    MobileGL/MG_State/GLState/TextureState/TextureUnit.cpp
+    MobileGL/MG_State/GLState/TextureState/TextureState.cpp
     )
 
 add_library(${CMAKE_PROJECT_NAME} SHARED 

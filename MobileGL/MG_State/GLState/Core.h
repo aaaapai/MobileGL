@@ -1,9 +1,11 @@
 #pragma once
 #include <Includes.h>
 #include "BufferState/BufferState.h"
+#include "MG_Util/Types.h"
 #include "VertexArrayState/VertexArrayState.h"
 #include "ErrorState/Error.h"
 #include "ProgramState/ProgramState.h"
+#include "TextureState/TextureState.h"
 
 namespace MobileGL {
     namespace MG_State {
@@ -14,10 +16,10 @@ namespace MobileGL {
 
                 // Error
                 void RecordError(ErrorCode code, SharedPtr<ErrorInfo> info = nullptr);
-                bool HasGLError() const;
+                Bool HasGLError() const;
                 Optional<const Error> PeekGLError() const;
                 Optional<Error> PopGLError();
-                bool HasNonGLError() const;
+                Bool HasNonGLError() const;
                 Optional<const Error> PeekNonGLError() const;
                 Optional<Error> PopNonGLError();
                 void ClearErrors();
@@ -28,8 +30,8 @@ namespace MobileGL {
                 BindingSlot<BufferObject>& GetBufferBindingSlot(BufferTarget target);
                 SharedPtr<BufferObject> CreateBufferObject(Uint index);
                 void MarkBufferObjectForDeletion(Uint index);
-                bool ValidateBufferName(Uint index) const;
-                bool ValidateBufferObject(Uint index) const;
+                Bool ValidateBufferName(Uint index) const;
+                Bool ValidateBufferObject(Uint index) const;
 
                 // VertexArray
                 Vector<Uint> GenVertexArrayNames(Uint number);
@@ -37,9 +39,20 @@ namespace MobileGL {
                 void BindVertexArray(Uint index);
                 SharedPtr<VertexArrayObject> CreateVertexArrayObject(Uint index);
                 void MarkVertexArrayForDeletion(Uint index);
-                bool ValidateVertexArrayName(Uint index) const;
-                bool ValidateVertexArrayObject(Uint index) const;
+                Bool ValidateVertexArrayName(Uint index) const;
+                Bool ValidateVertexArrayObject(Uint index) const;
                 SharedPtr<VertexArrayObject> GetBoundVertexArray();
+
+                // Texture
+                Vector<Uint> GenTextureNames(Uint number);
+                SharedPtr<ITextureObject> GetTextureObject(Uint index);
+                SharedPtr<ITextureObject> CreateTextureObject(Uint index, TextureTarget target);
+                void MarkTextureObjectForDeletion(Uint index);
+                TextureUnit& GetTextureUnitObject();
+                Bool ValidateTextureName(Uint index) const;
+                Bool ValidateTextureObject(Uint index) const;
+                Int GetActiveTextureUnit() const;
+                void SetActiveTextureUnit(Int unit);
 
             private:
                 // Error
@@ -50,6 +63,9 @@ namespace MobileGL {
 
                 // VertexArray
                 VertexArrayState m_vertexArrayState;
+
+                // Texture
+                TextureState m_textureState;
             };
         } // namespace GLState
 

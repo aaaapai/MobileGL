@@ -8,7 +8,7 @@ namespace MobileGL {
                 m_errorState.RecordError(code, info);
             }
 
-            bool GLContext::HasGLError() const {
+            Bool GLContext::HasGLError() const {
                 return m_errorState.HasGLError();
             }
 
@@ -20,7 +20,7 @@ namespace MobileGL {
                 return m_errorState.PopGLError();
             }
 
-            bool GLContext::HasNonGLError() const {
+            Bool GLContext::HasNonGLError() const {
                 return m_errorState.HasNonGLError();
             }
 
@@ -79,11 +79,11 @@ namespace MobileGL {
                 m_bufferState.MarkBufferObjectForDeletion(index);
             }
 
-            bool GLContext::ValidateBufferName(Uint index) const {
+            Bool GLContext::ValidateBufferName(Uint index) const {
                 return m_bufferState.ValidateName(index);
             }
 
-            bool GLContext::ValidateBufferObject(Uint index) const {
+            Bool GLContext::ValidateBufferObject(Uint index) const {
                 return m_bufferState.ValidateBufferObject(index);
             }
 
@@ -108,17 +108,54 @@ namespace MobileGL {
                 m_vertexArrayState.MarkVertexArrayForDeletion(index);
             }
 
-            bool GLContext::ValidateVertexArrayName(Uint index) const {
+            Bool GLContext::ValidateVertexArrayName(Uint index) const {
                 return m_vertexArrayState.ValidateName(index);
             }
 
-            bool GLContext::ValidateVertexArrayObject(Uint index) const {
+            Bool GLContext::ValidateVertexArrayObject(Uint index) const {
                 return m_vertexArrayState.ValidateVertexArrayObject(index);
             }
 
             SharedPtr<VertexArrayObject> GLContext::GetBoundVertexArray() {
                 return m_vertexArrayState.GetBoundVertexArray();
             }
+            // Texture
+            Vector<Uint> GLContext::GenTextureNames(Uint number) {
+                return m_textureState.GenerateNames(number);
+            }
+
+            SharedPtr<ITextureObject> GLContext::GetTextureObject(Uint index) {
+                return m_textureState.GetTextureObject(index);
+            }
+
+            SharedPtr<ITextureObject> GLContext::CreateTextureObject(Uint index, TextureTarget target) {
+                return m_textureState.CreateTextureObject(index, target);
+            }
+
+            void GLContext::MarkTextureObjectForDeletion(Uint index) {
+                m_textureState.MarkTextureObjectForDeletion(index);
+            }
+
+            TextureUnit& GLContext::GetTextureUnitObject() {
+                return m_textureState.GetUnitObject();
+            }
+
+            Bool GLContext::ValidateTextureName(Uint index) const {
+                return m_textureState.ValidateName(index);
+            }
+
+            Bool GLContext::ValidateTextureObject(Uint index) const {
+                return m_textureState.ValidateTextureObject(index);
+            }
+
+            Int GLContext::GetActiveTextureUnit() const {
+                return m_textureState.GetActiveTextureUnit();
+            }
+
+            void GLContext::SetActiveTextureUnit(Int unit) {
+                m_textureState.SetActiveTextureUnit(unit);
+            }
+
         } // namespace GLState
 
         GLState::GLContext* pGLContext;
