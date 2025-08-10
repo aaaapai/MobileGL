@@ -1,7 +1,7 @@
 #include "LookUp.h"
 
 namespace MG_Impl::GLXImpl {
-    // TODO: Implement complete GLX functionality
+    // TODO: implement complete GLX functionality
 
     void* GetProcAddress(const char* name) {
         MGLOG_D("glXGetProcAddress(\"%s\")", name);

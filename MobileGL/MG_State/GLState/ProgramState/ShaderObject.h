@@ -44,8 +44,8 @@ namespace MobileGL {
                 SharedPtr<glslang::TShader> m_shader;
                 std::string m_infoLog;
 
-                bool m_deleteStatus = false;
-                bool m_compileStatus = false;
+                Bool m_deleteStatus = false;
+                Bool m_compileStatus = false;
             };
         } // namespace GLState
     } // namespace MG_State

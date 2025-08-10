@@ -16,9 +16,9 @@ namespace MobileGL {
                 // basically this contains SPIR-V in binary format
                 Vector<Vector<Uint>> m_programBinary;
                 String m_infoLog;
-                bool m_deleteStatus = false;
-                bool m_linkStatus = true;
-                bool m_validateStatus = true;
+                Bool m_deleteStatus = false;
+                Bool m_linkStatus = true;
+                Bool m_validateStatus = true;
             };
         } // namespace GLState
     } // namespace MG_State

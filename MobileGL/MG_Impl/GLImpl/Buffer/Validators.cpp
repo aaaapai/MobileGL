@@ -7,7 +7,7 @@
 
 namespace MobileGL::MG_Impl::GLImpl {
     namespace BufferImpl {
-        bool ValidateBufferTarget(BufferTarget target) {
+        Bool ValidateBufferTarget(BufferTarget target) {
             if (target == BufferTarget::Unknown) {
                 using namespace MG_Util;
                 String bufferTargetStr = ConvertBufferTargetToString(target);
@@ -31,8 +31,8 @@ namespace MobileGL::MG_Impl::GLImpl {
             return true;
         }
 
-        bool ValidateBufferName(Uint index) {
-            bool isValid = MG_State::pGLContext->ValidateBufferName(index);
+        Bool ValidateBufferName(Uint index) {
+            Bool isValid = MG_State::pGLContext->ValidateBufferName(index);
             if (isValid) return true;
             MG_State::pGLContext->RecordError(
                 ErrorCode::InvalidOperation,
@@ -41,7 +41,7 @@ namespace MobileGL::MG_Impl::GLImpl {
             return false;
         }
 
-        bool ValidateBufferUsage(BufferUsage usage) {
+        Bool ValidateBufferUsage(BufferUsage usage) {
             if (usage != BufferUsage::Unknown) {
                 return true;
             }
@@ -56,7 +56,7 @@ namespace MobileGL::MG_Impl::GLImpl {
             return false;
         }
 
-        bool ValidateBufferMappingAccess(Flags<BufferMappingAccessBit> accessBits) {
+        Bool ValidateBufferMappingAccess(Flags<BufferMappingAccessBit> accessBits) {
             if (accessBits == BufferMappingAccessBit::Null) {
                 MG_State::pGLContext->RecordError(ErrorCode::InvalidEnum,
                                                   MakeShared<GenericErrorInfo>("MG_Impl/GLImpl/BufferImpl",

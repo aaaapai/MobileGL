@@ -4,9 +4,9 @@
 
 namespace MobileGL::MG_Impl::GLImpl {
     namespace VertexArrayImpl {
-        bool ValidateVertexArrayName(Uint index);
-        bool ValidateVertexArrayObject(Uint index);
-        bool ValidateVertexAttributeIndex(Uint index);
-        bool ValidateVertexAttribPointerParams(Uint index, SizeT size, DataType type, Int stride);
+        Bool ValidateVertexArrayName(Uint index);
+        Bool ValidateVertexArrayObject(Uint index);
+        Bool ValidateVertexAttributeIndex(Uint index);
+        Bool ValidateVertexAttribPointerParams(Uint index, SizeT size, DataType type, Int stride);
     } // namespace VertexArrayImpl
 } // namespace MobileGL::MG_Impl::GLImpl

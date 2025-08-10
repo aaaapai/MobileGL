@@ -216,8 +216,8 @@ namespace MobileGL {
         }
 
         void* MapBuffer_State(GLenum target, GLenum access) {
-            bool readable = access == GL_READ_ONLY || access == GL_READ_WRITE;
-            bool writable = access == GL_WRITE_ONLY || access == GL_READ_WRITE;
+            Bool readable = access == GL_READ_ONLY || access == GL_READ_WRITE;
+            Bool writable = access == GL_WRITE_ONLY || access == GL_READ_WRITE;
             if (access != GL_READ_ONLY && access != GL_WRITE_ONLY && access != GL_READ_WRITE) {
                 MG_State::pGLContext->RecordError(
                     ErrorCode::InvalidEnum,

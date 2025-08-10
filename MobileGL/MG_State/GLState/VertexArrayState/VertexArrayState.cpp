@@ -54,11 +54,11 @@ namespace MobileGL {
                 // FIXME: report GL error here?
             }
 
-            bool VertexArrayState::ValidateName(Uint index) const {
+            Bool VertexArrayState::ValidateName(Uint index) const {
                 return m_indexGenerator.IsValid(index);
             }
 
-            bool VertexArrayState::ValidateVertexArrayObject(Uint index) const {
+            Bool VertexArrayState::ValidateVertexArrayObject(Uint index) const {
                 return index < m_vertexArrays.size() && m_vertexArrays[index] != nullptr;
             }
 

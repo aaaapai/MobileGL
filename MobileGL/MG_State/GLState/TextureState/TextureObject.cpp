@@ -65,7 +65,7 @@ namespace MobileGL {
                 }
             }
 
-            // TODO: Add other texture types as needed
+            // TODO: add other texture types as needed
 
         } // namespace GLState
     } // namespace MG_State

@@ -15,8 +15,8 @@ namespace MobileGL {
                 void Bind(Uint index);
                 SharedPtr<VertexArrayObject> CreateVertexArrayObject(Uint index);
                 void MarkVertexArrayForDeletion(Uint index);
-                bool ValidateName(Uint index) const;
-                bool ValidateVertexArrayObject(Uint index) const;
+                Bool ValidateName(Uint index) const;
+                Bool ValidateVertexArrayObject(Uint index) const;
                 SharedPtr<VertexArrayObject> GetBoundVertexArray();
                 Vector<SharedPtr<VertexArrayObject>>& GetAllVertexArrays();
 

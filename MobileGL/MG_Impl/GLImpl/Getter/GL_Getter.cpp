@@ -78,7 +78,7 @@ namespace MobileGL {
             }
 
             static Vector<String> extStrings;
-            static bool initialized = false;
+            static Bool initialized = false;
             if (!initialized) {
                 extStrings.reserve(exts.size());
                 for (const auto& ext : exts) {
@@ -93,7 +93,7 @@ namespace MobileGL {
         void GetIntegerv(GLenum pname, GLint* params) {
             MGLOG_D("glGetIntegerv, pname: %s", MG_Util::ConvertGLEnumToString(pname).c_str());
             if (!params) {
-                // TODO: Report GL_INVALID_VALUE.
+                // TODO: report GL_INVALID_VALUE.
                 return;
             }
 
@@ -122,7 +122,7 @@ namespace MobileGL {
                 // Others...
             default:
                 MGLOG_E("glGetIntegerv: Invalid enum %s (0x%X)", MG_Util::ConvertGLEnumToString(pname).c_str(), pname);
-                // TODO: Report GL_INVALID_ENUM.
+                // TODO: report GL_INVALID_ENUM.
                 break;
             }
         }

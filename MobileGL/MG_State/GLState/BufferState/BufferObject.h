@@ -82,7 +82,7 @@ namespace MobileGL {
                 Range1D m_dirtyRange;
                 Range1D m_mappedRange;
                 std::vector<Uint8> m_stagingData;
-                bool m_ownsStagingData;
+                Bool m_ownsStagingData;
             };
         } // namespace GLState
     } // namespace MG_State

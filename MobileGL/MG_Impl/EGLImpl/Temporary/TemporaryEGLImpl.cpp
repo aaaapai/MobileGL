@@ -2,7 +2,7 @@
 
 namespace MobileGL {
     namespace MG_Impl::EGLImpl {
-        // TODO: Implement complete EGL functionality
+        // TODO: implement complete EGL functionality
 
         EGLSurface CreateWindowSurface(EGLDisplay dpy, EGLConfig config, NativeWindowType window,
                                        const EGLint* attrib_list) {

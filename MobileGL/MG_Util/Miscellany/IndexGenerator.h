@@ -46,7 +46,7 @@ namespace MobileGL {
             }
         }
 
-        bool IsValid(IndexType index) const {
+        Bool IsValid(IndexType index) const {
             SizeT word = index >> 6;
             SizeT bit = index & 0x3F;
             return word < is_valid_.size() && (is_valid_[word] & (1ull << bit));
@@ -56,7 +56,7 @@ namespace MobileGL {
         SizeT ActiveCount() const { return next_index_ - freed_indices_.size(); }
 
     private:
-        inline void SetValid(IndexType index, bool valid) {
+        inline void SetValid(IndexType index, Bool valid) {
             SizeT word = index >> 6;
             uint64_t mask = 1ull << (index & 0x3F);
 

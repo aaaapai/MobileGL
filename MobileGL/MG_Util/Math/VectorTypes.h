@@ -29,8 +29,8 @@ namespace MobileGL {
             return data[index];
         }
 
-        bool operator==(const VecBase& rhs) const { return data == rhs.data; }
-        bool operator!=(const VecBase& rhs) const { return !(*this == rhs); }
+        Bool operator==(const VecBase& rhs) const { return data == rhs.data; }
+        Bool operator!=(const VecBase& rhs) const { return !(*this == rhs); }
 
         Derived operator+(const VecBase& rhs) const {
             Derived result;

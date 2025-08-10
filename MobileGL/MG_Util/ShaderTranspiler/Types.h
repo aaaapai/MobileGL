@@ -35,9 +35,9 @@ namespace MobileGL {
                 std::string name;
                 uint32_t location;
 
-                bool operator<(const InterfaceVariable& other) const { return location < other.location; }
+                Bool operator<(const InterfaceVariable& other) const { return location < other.location; }
 
-                bool operator==(const InterfaceVariable& other) const {
+                Bool operator==(const InterfaceVariable& other) const {
                     return location == other.location && name == other.name;
                 }
             };

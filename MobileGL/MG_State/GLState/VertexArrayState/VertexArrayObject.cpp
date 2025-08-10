@@ -25,13 +25,13 @@ namespace MobileGL {
                 m_attributes[index].Enabled = false;
             }
 
-            bool VertexArrayObject::IsAttributeEnabled(Uint index) const {
+            Bool VertexArrayObject::IsAttributeEnabled(Uint index) const {
                 if (index >= MAX_VERTEX_ATTRIBS) return false;
                 return m_attributes[index].Enabled;
             }
 
-            void VertexArrayObject::SetAttributeFormat(Uint index, int size, DataType type, bool normalized, int stride,
-                                                       SizeT offset, bool isInteger) {
+            void VertexArrayObject::SetAttributeFormat(Uint index, int size, DataType type, Bool normalized, int stride,
+                                                       SizeT offset, Bool isInteger) {
                 if (index >= MAX_VERTEX_ATTRIBS) return;
 
                 if (size < 1 || size > 4) {

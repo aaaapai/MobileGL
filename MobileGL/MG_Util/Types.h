@@ -22,7 +22,7 @@ namespace MobileGL {
     using Uint = Uint32;
     using Int64 = int64_t;
     using Uint64 = uint64_t;
-    using Bool = bool;
+    using Bool = Bool;
     using Float = float;
     using Double = double;
     using StringView = std::string_view;
@@ -46,7 +46,7 @@ namespace MobileGL {
     template <typename T, SizeT N>
     using Array = std::array<T, N>;
     template <typename Key, typename Value>
-    using UnorderedMap = std::unordered_map<Key, Value>;
+    using UnorderedMap = ankerl::unordered_dense::map<Key, Value>;
     template <typename T>
     inline constexpr std::remove_reference_t<T>&& Move(T&& t) noexcept {
         return static_cast<std::remove_reference_t<T>&&>(t);
@@ -196,9 +196,9 @@ namespace MobileGL {
             return *this;
         }
 
-        bool operator==(const Bit b) const { return flags == static_cast<typename Underlying::type>(b); }
+        Bool operator==(const Bit b) const { return flags == static_cast<typename Underlying::type>(b); }
 
-        bool operator!=(const Bit b) const { return !(*this == b); }
+        Bool operator!=(const Bit b) const { return !(*this == b); }
 
         // Flags - Flags
         Flags operator|(const Flags b) const { return Flags(flags | b.flags); }
@@ -215,14 +215,14 @@ namespace MobileGL {
             return *this;
         }
 
-        bool operator==(const Flags b) const { return flags == b.flags; }
+        Bool operator==(const Flags b) const { return flags == b.flags; }
 
-        bool operator!=(const Flags b) const { return !(*this == b); }
+        Bool operator!=(const Flags b) const { return !(*this == b); }
 
-        operator bool() const { return Any(); }
+        operator Bool() const { return Any(); }
 
     private:
-        bool Any() const { return static_cast<typename Underlying::type>(flags) != 0; }
+        Bool Any() const { return static_cast<typename Underlying::type>(flags) != 0; }
 
         typename Underlying::type flags = 0;
     };

@@ -4,9 +4,9 @@
 
 namespace MobileGL::MG_Impl::GLImpl {
     namespace BufferImpl {
-        bool ValidateBufferTarget(BufferTarget target);
-        bool ValidateBufferName(Uint index);
-        bool ValidateBufferUsage(BufferUsage usage);
-        bool ValidateBufferMappingAccess(Flags<BufferMappingAccessBit> accessBits);
+        Bool ValidateBufferTarget(BufferTarget target);
+        Bool ValidateBufferName(Uint index);
+        Bool ValidateBufferUsage(BufferUsage usage);
+        Bool ValidateBufferMappingAccess(Flags<BufferMappingAccessBit> accessBits);
     } // namespace BufferImpl
 } // namespace MobileGL::MG_Impl::GLImpl

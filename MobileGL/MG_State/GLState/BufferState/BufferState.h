@@ -1,7 +1,7 @@
 #pragma once
 #include <Includes.h>
-#include "BufferObject.h"
 #include <MG_Util/Miscellany/IndexGenerator.h>
+#include "BufferObject.h"
 
 namespace MobileGL {
     namespace MG_State {
@@ -21,8 +21,8 @@ namespace MobileGL {
                 SharedPtr<BufferObject> CreateBufferObject(Uint index);
                 BindingSlot<BufferObject>& GetBindingSlot(BufferTarget target);
                 void MarkBufferObjectForDeletion(Uint index);
-                bool ValidateName(Uint index) const;
-                bool ValidateBufferObject(Uint index) const;
+                Bool ValidateName(Uint index) const;
+                Bool ValidateBufferObject(Uint index) const;
 
             private:
                 UnorderedMap<Uint, SharedPtr<BufferObject>> m_bufferObjects;

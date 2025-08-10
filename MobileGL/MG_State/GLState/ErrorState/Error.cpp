@@ -17,7 +17,7 @@ namespace MobileGL {
                 }
             }
 
-            bool ErrorState::HasNonGLError() const {
+            Bool ErrorState::HasNonGLError() const {
                 return !m_nonGLErrors.empty();
             }
 
@@ -33,7 +33,7 @@ namespace MobileGL {
                 return Optional<const Error>{error};
             }
 
-            bool ErrorState::HasGLError() const {
+            Bool ErrorState::HasGLError() const {
                 return !m_errors.empty();
             }
 

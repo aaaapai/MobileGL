@@ -53,11 +53,11 @@ namespace MobileGL {
                 }
             }
 
-            bool BufferState::ValidateName(Uint index) const {
+            Bool BufferState::ValidateName(Uint index) const {
                 return m_indexGenerator.IsValid(index);
             }
 
-            bool BufferState::ValidateBufferObject(Uint index) const {
+            Bool BufferState::ValidateBufferObject(Uint index) const {
                 return m_bufferObjects.find(index) != m_bufferObjects.end();
             }
         } // namespace GLState

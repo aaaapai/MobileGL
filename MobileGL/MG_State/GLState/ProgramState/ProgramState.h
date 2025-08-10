@@ -15,7 +15,7 @@ namespace MobileGL {
                 void DeleteProgram(Uint program);
 
             private:
-                bool CheckIndexAvail(SizeT idx) { return idx < m_programObjects.size(); }
+                Bool CheckIndexAvail(SizeT idx) { return idx < m_programObjects.size(); }
 
                 void EnsureIndexAvail(SizeT idx) {
                     if (CheckIndexAvail(idx)) return;

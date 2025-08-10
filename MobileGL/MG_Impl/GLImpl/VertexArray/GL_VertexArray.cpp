@@ -36,7 +36,7 @@ namespace MobileGL {
             vao->EnableAttribute(index);
         }
 
-        // TODO: Implement GL_BGRA support
+        // TODO: implement GL_BGRA support
         void VertexAttribIPointer_State(GLuint index, GLint size, GLenum type, GLsizei stride, const void* pointer) {
             if (!VertexArrayImpl::ValidateVertexAttributeIndex(index)) return;
 
@@ -68,7 +68,7 @@ namespace MobileGL {
             vao->BindAttributeBuffer(index, vbo);
         }
 
-        // TODO: Implement GL_BGRA support
+        // TODO: implement GL_BGRA support
         void VertexAttribPointer_State(GLuint index, GLint size, GLenum type, GLboolean normalized, GLsizei stride,
                                        const void* pointer) {
             if (!VertexArrayImpl::ValidateVertexAttributeIndex(index)) return;

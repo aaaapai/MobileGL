@@ -6,13 +6,13 @@ namespace MobileGL {
     namespace MG_State {
         namespace GLState {
             struct VertexAttribute {
-                bool Enabled = false;
+                Bool Enabled = false;
                 int Size = 4;
                 DataType Type = DataType::Float32;
-                bool Normalized = false;
+                Bool Normalized = false;
                 int Stride = 0;
                 SizeT Offset = 0;
-                bool IsInteger = false;
+                Bool IsInteger = false;
                 SharedPtr<BufferObject> Buffer;
             };
 
@@ -24,10 +24,10 @@ namespace MobileGL {
 
                 void EnableAttribute(Uint index);
                 void DisableAttribute(Uint index);
-                bool IsAttributeEnabled(Uint index) const;
+                Bool IsAttributeEnabled(Uint index) const;
 
-                void SetAttributeFormat(Uint index, int size, DataType type, bool normalized, int stride, SizeT offset,
-                                        bool isInteger);
+                void SetAttributeFormat(Uint index, int size, DataType type, Bool normalized, int stride, SizeT offset,
+                                        Bool isInteger);
 
                 void BindAttributeBuffer(Uint index, const SharedPtr<BufferObject>& buffer);
 

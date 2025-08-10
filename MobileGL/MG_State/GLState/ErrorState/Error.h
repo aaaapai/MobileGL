@@ -14,10 +14,10 @@ namespace MobileGL {
             class ErrorState {
             public:
                 void RecordError(ErrorCode code, SharedPtr<ErrorInfo> info = nullptr);
-                bool HasNonGLError() const;
+                Bool HasNonGLError() const;
                 Optional<const Error> PeekNonGLError() const;
                 Optional<Error> PopNonGLError();
-                bool HasGLError() const;
+                Bool HasGLError() const;
                 Optional<const Error> PeekGLError() const;
                 Optional<Error> PopGLError();
                 void Clear();
