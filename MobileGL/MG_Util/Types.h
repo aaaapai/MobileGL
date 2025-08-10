@@ -22,7 +22,7 @@ namespace MobileGL {
     using Uint = Uint32;
     using Int64 = int64_t;
     using Uint64 = uint64_t;
-    using Bool = Bool;
+    using Bool = bool;
     using Float = float;
     using Double = double;
     using StringView = std::string_view;
