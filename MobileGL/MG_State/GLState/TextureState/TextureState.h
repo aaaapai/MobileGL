@@ -8,7 +8,6 @@
 namespace MobileGL {
     namespace MG_State {
         namespace GLState {
-
             class TextureState {
             public:
                 static constexpr int MAX_TEXTURE_IMAGE_UNITS = 32;
