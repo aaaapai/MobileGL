@@ -4,6 +4,9 @@
 #include <gtest/gtest.h>
 
 #include "Includes.h"
+#include <MG_Util/Converters/GLToStr/GLEnumConverter.h>
+#include <MG_Util/ShaderTranspiler/ShaderCompiler.h>
+#include <MG_Util/ShaderTranspiler/Types.h>
 using namespace MobileGL;
 
 class ProgramUtilTest : public ::testing::Test {

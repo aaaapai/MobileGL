@@ -6,7 +6,9 @@
 #endif
 
 #ifdef _WIN32
-#define NOMINMAX // prevent Windows.h from defining min and max macros
+# ifndef NOMINMAX
+#define NOMINMAX 1 // prevent Windows.h from defining min and max macros
+#endif
 #endif
 
 // ================== MobileGL definitions and macros =================== //

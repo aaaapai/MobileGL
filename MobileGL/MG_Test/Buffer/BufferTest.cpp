@@ -4,6 +4,10 @@
 #include <gtest/gtest.h>
 
 #include "Includes.h"
+#include <MG_State/GLState/Core.h>
+
+#include <MG_Impl/GLImpl/Buffer/GL_Buffer.h>
+#include <MG_Impl/GLImpl/Getter/GL_Getter.h>
 
 using namespace MobileGL;
 
