@@ -63,6 +63,7 @@ namespace MobileGL {
                 Bool ValidateShaderName(Uint index) const;
                 SharedPtr<ProgramObject> GetProgramObject(Uint index);
                 SharedPtr<ShaderObject> GetShaderObject(Uint index);
+                void UseProgram(Uint program);
             private:
                 // Error
                 ErrorState m_errorState;

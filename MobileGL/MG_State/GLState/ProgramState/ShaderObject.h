@@ -58,6 +58,7 @@ namespace MobileGL {
             public:
                 ShaderObject(const ShaderStage stage) : m_stage(stage) {}
                 void SetShaderSource(const std::string& source);
+                void SetShaderSource(std::string&& source);
                 void Compile();
                 void MarkAsDeleted();
 

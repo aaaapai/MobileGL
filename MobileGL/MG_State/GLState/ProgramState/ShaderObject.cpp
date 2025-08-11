@@ -8,6 +8,10 @@ namespace MobileGL {
                 m_source = source;
             }
 
+            void ShaderObject::SetShaderSource(std::string &&source) {
+                m_source = Move(source);
+            }
+
             void ShaderObject::Compile() {
                 using namespace MG_Util::ShaderTranspiler;
                 ShaderAttrib attrib{
