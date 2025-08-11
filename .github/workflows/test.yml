@@ -11,6 +11,11 @@ jobs:
       TEST_ROOT: ${{github.workspace}}/MobileGL/MG_Test
 
     steps:
+      - name: Set Swap Space
+        uses: pierotofy/set-swap-space@master
+        with:
+          swap-size-gb: 32
+
       - name: Checkout repo
         uses: actions/checkout@v4
         with:
