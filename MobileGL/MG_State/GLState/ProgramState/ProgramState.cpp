@@ -7,7 +7,7 @@ namespace MobileGL {
                 Uint programId = 0;
                 m_programIndexGenerator.Generate(1, &programId);
                 EnsureIndexAvail(programId, m_programObjects);
-                auto programObject = MakeShared<ProgramObject>(programId);
+                auto programObject = MakeShared<ProgramObject>();
                 if (programObject == nullptr)
                     return 0;
                 m_programObjects[programId] = programObject;
