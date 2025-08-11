@@ -13,6 +13,10 @@ add_executable(
         ${MGL_ROOT}/MobileGL/MG_State/GLState/TextureState/TextureUnit.cpp
         ${MGL_ROOT}/MobileGL/MG_State/GLState/TextureState/TextureState.cpp
         ${MGL_ROOT}/MobileGL/MG_State/GLState/ErrorState/Error.cpp
+        ${MGL_ROOT}/MobileGL/MG_State/GLState/ProgramState/ProgramObject.cpp
+        ${MGL_ROOT}/MobileGL/MG_State/GLState/ProgramState/ShaderObject.cpp
+        ${MGL_ROOT}/MobileGL/MG_State/GLState/ProgramState/ProgramState.cpp
+        ${MGL_ROOT}/MobileGL/MG_Impl/GLImpl/Program/GL_Program.cpp
         ${MGL_ROOT}/MobileGL/MG_Impl/GLImpl/Buffer/GL_Buffer.cpp
         ${MGL_ROOT}/MobileGL/MG_Impl/GLImpl/Getter/GL_Getter.cpp
         ${MGL_ROOT}/MobileGL/MG_Impl/GLImpl/Buffer/Validators.cpp
@@ -28,6 +32,8 @@ add_executable(
         ${MGL_ROOT}/MobileGL/MG_Util/Converters/MGToGL/DataTypeConverter.cpp
         ${MGL_ROOT}/MobileGL/MG_Util/Converters/GLToMG/BufferEnumConverter.cpp
         ${MGL_ROOT}/MobileGL/MG_Util/Converters/GLToMG/DataTypeConverter.cpp
+        ${MGL_ROOT}/MobileGL/MG_Util/ShaderTranspiler/ShaderCompiler.cpp
+        ${MGL_ROOT}/MobileGL/MG_Util/ShaderTranspiler/SpvcSession.cpp
         ${MGL_ROOT}/MobileGL/MG_Backend/Init.cpp
         ${MGL_ROOT}/MobileGL/MG_Util/Debug/Log.cpp
 )
@@ -40,6 +46,7 @@ target_include_directories(BufferTest PRIVATE
 target_link_libraries(
         BufferTest
         GTest::gtest_main
+        ${LINK_LIBRARIES}
 )
 
 include(GoogleTest)
