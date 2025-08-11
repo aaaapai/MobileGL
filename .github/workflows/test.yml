@@ -44,7 +44,7 @@ jobs:
 
       - name: Build
         working-directory: ${{env.TEST_ROOT}}/build-test
-        run: cmake --build . --parallel 1
+        run: cmake --build . --parallel 4
 
       - name: Test
         working-directory: ${{env.TEST_ROOT}}/build-test
