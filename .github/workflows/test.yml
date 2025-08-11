@@ -44,7 +44,7 @@ jobs:
 
       - name: Build
         working-directory: ${{env.TEST_ROOT}}/build-test
-        run: cmake --build . -j${nproc}
+        run: cmake --build . --parallel 1
 
       - name: Test
         working-directory: ${{env.TEST_ROOT}}/build-test
