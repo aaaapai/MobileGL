@@ -11,7 +11,10 @@ namespace MobileGL {
             void ShaderObject::Compile() {
                 using namespace MG_Util::ShaderTranspiler;
                 ShaderAttrib attrib{
-                    .sourceStr = m_source, .shaderType = GetGLShaderTypeByMGLShaderStage(m_stage), .flags = 0};
+                    .shaderType = GetGLShaderTypeByMGLShaderStage(m_stage),
+                    .sourceStr = m_source,
+                    .flags = 0
+                };
 
                 auto result = ShaderCompiler::CompileShader(attrib);
                 if (result) {

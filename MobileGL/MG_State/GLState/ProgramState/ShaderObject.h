@@ -10,7 +10,8 @@ namespace MobileGL {
                 TessEval,
                 Geometry,
                 Fragment,
-                Compute
+                Compute,
+                Unknown = -1
             };
 
             inline static GLenum GetGLShaderTypeByMGLShaderStage(ShaderStage stage) {
@@ -29,7 +30,27 @@ namespace MobileGL {
                     return GL_COMPUTE_SHADER;
                 default:
                     assert(false);
-                    return 0;
+                    return GL_FALSE;
+                }
+            }
+
+            inline static ShaderStage GetMGLShaderStageByGLShaderType(GLenum type) {
+                switch (type) {
+                    case GL_VERTEX_SHADER:
+                        return ShaderStage::Vertex;
+                    case GL_TESS_CONTROL_SHADER:
+                        return ShaderStage::TessControl;
+                    case GL_TESS_EVALUATION_SHADER:
+                        return ShaderStage::TessEval;
+                    case GL_GEOMETRY_SHADER:
+                        return ShaderStage::Geometry;
+                    case GL_FRAGMENT_SHADER:
+                        return ShaderStage::Fragment;
+                    case GL_COMPUTE_SHADER:
+                        return ShaderStage::Compute;
+                    default:
+                        assert(false);
+                        return ShaderStage::Unknown;
                 }
             }
 
