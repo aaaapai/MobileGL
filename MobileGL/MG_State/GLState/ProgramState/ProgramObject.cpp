@@ -59,6 +59,10 @@ namespace MobileGL {
             void ProgramObject::MarkAsDeleted() {
                 m_deleteStatus = true;
             }
+
+            Vector<SharedPtr<ShaderObject>>& ProgramObject::GetAttachedShaders() {
+                return m_shaders;
+            }
         } // namespace GLState
     } // namespace MG_State
 } // namespace MobileGL

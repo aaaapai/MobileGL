@@ -140,7 +140,23 @@ namespace MobileGL {
         }
 
         void GetAttachedShaders_State(GLuint program, GLsizei maxCount, GLsizei* count, GLuint* shaders) {
-            THROW_UNIMPL_EXCEPTION;
+            if (maxCount < 0) {
+                MG_State::pGLContext->RecordError(
+                        ErrorCode::InvalidValue,
+                        MakeShared<GenericErrorInfo>("MG_Impl/GLImpl", __func__,
+                                                     "`maxCount` is less than 0."));
+                return;
+            }
+            auto programObject = TryToGetProgramObject(program);
+            if (!programObject)
+                return;
+            const auto& s = programObject->GetAttachedShaders();
+            GLsizei c = std::min((GLsizei)s.size(), maxCount);
+            if (count)
+                *count = c;
+            for (GLsizei i = 0; i < c; ++i) {
+                shaders[i] = s[i]->GetId();
+            }
         }
 
         GLint GetAttribLocation_State(GLuint program, const GLchar* name) {

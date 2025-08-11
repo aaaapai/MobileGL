@@ -7,7 +7,7 @@ namespace MobileGL {
                 Uint programId = 0;
                 m_programIndexGenerator.Generate(1, &programId);
                 EnsureIndexAvail(programId, m_programObjects);
-                auto programObject = MakeShared<ProgramObject>();
+                auto programObject = MakeShared<ProgramObject>(programId);
                 if (programObject == nullptr)
                     return 0;
                 m_programObjects[programId] = programObject;
@@ -45,7 +45,7 @@ namespace MobileGL {
                 Uint shaderId = 0;
                 m_shaderIndexGenerator.Generate(1, &shaderId);
                 EnsureIndexAvail(shaderId, m_shaderObjects);
-                auto shaderObject = MakeShared<ShaderObject>(stage);
+                auto shaderObject = MakeShared<ShaderObject>(stage, shaderId);
                 if (shaderObject == nullptr)
                     return 0;
                 m_shaderObjects[shaderId] = shaderObject;
