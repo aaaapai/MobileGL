@@ -4,26 +4,37 @@
 namespace MobileGL {
     namespace MG_State {
         namespace GLState {
-            void ProgramObject::AttachShader(SharedPtr<ShaderObject> shader) {
-                m_shaders.emplace_back(shader);
+            bool ProgramObject::ShaderIsAttached(SharedPtr<ShaderObject> shader) {
+                auto it = std::find_if(m_shaders.begin(), m_shaders.end(),
+                    [shader](const SharedPtr<ShaderObject>& s) {
+                        return s.get() == shader.get();
+                    });
+                return it != m_shaders.end();
             }
 
-            void ProgramObject::DetachShader(SharedPtr<ShaderObject> shader) {
-                auto count = std::erase_if(
-                    m_shaders, [shader](const SharedPtr<ShaderObject>& s) { return s.get() == shader.get(); });
+            bool ProgramObject::AttachShader(SharedPtr<ShaderObject> shader) {
+                if (ShaderIsAttached(shader))
+                    return false;
+                m_shaders.emplace_back(shader);
+                return true;
+            }
 
-                if (count == 0) {
-                    // FIXME: handle error here
-                    THROW_EXCEPTION("Program object does not have such shader object attached");
-                }
+            SizeT ProgramObject::DetachShader(SharedPtr<ShaderObject> shader) {
+                auto count = std::erase_if(
+                    m_shaders,
+                    [shader](const SharedPtr<ShaderObject>& s) {
+                        return s.get() == shader.get();
+                    });
+
+                return count;
             }
 
             void ProgramObject::Link() {
                 Vector<GLenum> shaderTypes(m_shaders.size());
                 Vector<SharedPtr<glslang::TShader>> shaders(m_shaders.size());
                 for (SizeT i = 0; i < m_shaders.size(); i++) {
-                    shaderTypes[i] = GetGLShaderTypeByMGLShaderStage(m_shaders[i]->m_stage);
-                    shaders[i] = m_shaders[i]->m_shader;
+                    shaderTypes[i] = GetGLShaderTypeByMGLShaderStage(m_shaders[i]->GetShaderStage());
+                    shaders[i] = m_shaders[i]->GetCompiledShader();
                 }
 
                 MG_Util::ShaderTranspiler::ProgramAttrib attrib{
@@ -43,6 +54,10 @@ namespace MobileGL {
                                                       result.error().log);
                     THROW_EXCEPTION(e);
                 }
+            }
+
+            void ProgramObject::MarkAsDeleted() {
+                m_deleteStatus = true;
             }
         } // namespace GLState
     } // namespace MG_State

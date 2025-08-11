@@ -59,7 +59,12 @@ namespace MobileGL {
                 ShaderObject(const ShaderStage stage) : m_stage(stage) {}
                 void SetShaderSource(const std::string& source);
                 void Compile();
+                void MarkAsDeleted();
 
+                ShaderStage GetShaderStage() const { return m_stage; }
+                const std::string& GetShaderSource() const { return m_source; }
+                SharedPtr<glslang::TShader> GetCompiledShader() const { return m_shader; }
+            private:
                 const ShaderStage m_stage;
                 std::string m_source;
                 SharedPtr<glslang::TShader> m_shader;
