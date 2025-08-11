@@ -156,6 +156,37 @@ namespace MobileGL {
                 m_textureState.SetActiveTextureUnit(unit);
             }
 
+            Uint GLContext::CreateProgram() {
+                return m_programState.CreateProgram();
+            }
+
+            Uint GLContext::CreateShader(const ShaderStage stage) {
+                return m_programState.CreateShader(stage);
+            }
+
+            void GLContext::MarkProgramForDeletion(const Uint index) {
+                return m_programState.MarkProgramObjectForDeletion(index);
+            }
+
+            void GLContext::MarkShaderForDeletion(const Uint index) {
+                return m_programState.MarkShaderObjectForDeletion(index);
+            }
+
+            Bool GLContext::ValidateProgramName(const Uint index) const {
+                return m_programState.ValidateProgramObject(index);
+            }
+
+            Bool GLContext::ValidateShaderName(const Uint index) const {
+                return m_programState.ValidateShaderObject(index);
+            }
+
+            SharedPtr<ProgramObject> GLContext::GetProgramObject(const Uint index) {
+                return m_programState.GetProgramObject(index);
+            }
+
+            SharedPtr<ShaderObject> GLContext::GetShaderObject(const Uint index) {
+                return m_programState.GetShaderObject(index);
+            }
         } // namespace GLState
 
         GLState::GLContext* pGLContext;

@@ -26,8 +26,11 @@ namespace MobileGL {
 
                     const std::string e = std::format("Shader compilation failed: \nerrc: {}\nmsg: {}\n",
                                                       result.error().errc, result.error().log);
-                    THROW_EXCEPTION(e);
                 }
+            }
+
+            void ShaderObject::MarkAsDeleted() {
+                m_deleteStatus = true;
             }
         } // namespace GLState
     } // namespace MG_State

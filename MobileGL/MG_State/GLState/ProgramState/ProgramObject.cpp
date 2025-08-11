@@ -8,22 +8,22 @@ namespace MobileGL {
                 m_shaders.emplace_back(shader);
             }
 
-            void ProgramObject::DetachShader(SharedPtr<ShaderObject> shader) {
+            SizeT ProgramObject::DetachShader(SharedPtr<ShaderObject> shader) {
                 auto count = std::erase_if(
-                    m_shaders, [shader](const SharedPtr<ShaderObject>& s) { return s.get() == shader.get(); });
+                    m_shaders,
+                    [shader](const SharedPtr<ShaderObject>& s) {
+                        return s.get() == shader.get();
+                    });
 
-                if (count == 0) {
-                    // FIXME: handle error here
-                    THROW_EXCEPTION("Program object does not have such shader object attached");
-                }
+                return count;
             }
 
             void ProgramObject::Link() {
                 Vector<GLenum> shaderTypes(m_shaders.size());
                 Vector<SharedPtr<glslang::TShader>> shaders(m_shaders.size());
                 for (SizeT i = 0; i < m_shaders.size(); i++) {
-                    shaderTypes[i] = GetGLShaderTypeByMGLShaderStage(m_shaders[i]->m_stage);
-                    shaders[i] = m_shaders[i]->m_shader;
+                    shaderTypes[i] = GetGLShaderTypeByMGLShaderStage(m_shaders[i]->GetShaderStage());
+                    shaders[i] = m_shaders[i]->GetCompiledShader();
                 }
 
                 MG_Util::ShaderTranspiler::ProgramAttrib attrib{
@@ -43,6 +43,10 @@ namespace MobileGL {
                                                       result.error().log);
                     THROW_EXCEPTION(e);
                 }
+            }
+
+            void ProgramObject::MarkAsDeleted() {
+                m_deleteStatus = true;
             }
         } // namespace GLState
     } // namespace MG_State

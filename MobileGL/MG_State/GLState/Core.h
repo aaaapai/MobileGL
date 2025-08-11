@@ -54,6 +54,15 @@ namespace MobileGL {
                 Int GetActiveTextureUnit() const;
                 void SetActiveTextureUnit(Int unit);
 
+                // Program
+                Uint CreateProgram();
+                Uint CreateShader(ShaderStage stage);
+                void MarkProgramForDeletion(Uint index);
+                void MarkShaderForDeletion(Uint index);
+                Bool ValidateProgramName(Uint index) const;
+                Bool ValidateShaderName(Uint index) const;
+                SharedPtr<ProgramObject> GetProgramObject(Uint index);
+                SharedPtr<ShaderObject> GetShaderObject(Uint index);
             private:
                 // Error
                 ErrorState m_errorState;
@@ -66,6 +75,9 @@ namespace MobileGL {
 
                 // Texture
                 TextureState m_textureState;
+
+                // Program
+                ProgramState m_programState;
             };
         } // namespace GLState
 

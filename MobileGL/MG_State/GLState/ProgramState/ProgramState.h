@@ -12,20 +12,32 @@ namespace MobileGL {
                 // To retrieve created program object, use GetProgramObject()
                 Uint CreateProgram();
                 SharedPtr<ProgramObject> GetProgramObject(Uint id);
-                void DeleteProgram(Uint program);
+                void MarkProgramObjectForDeletion(Uint program);
+                Bool ValidateProgramObject(Uint program) const;
 
+                Uint CreateShader(ShaderStage stage);
+                SharedPtr<ShaderObject> GetShaderObject(Uint shader);
+                void MarkShaderObjectForDeletion(Uint shader);
+                Bool ValidateShaderObject(Uint shader) const;
             private:
-                Bool CheckIndexAvail(SizeT idx) { return idx < m_programObjects.size(); }
-
-                void EnsureIndexAvail(SizeT idx) {
-                    if (CheckIndexAvail(idx)) return;
-
-                    m_programObjects.reserve(std::bit_ceil(idx));
-                    m_programObjects.resize(idx + 1);
+                template <typename T>
+                static Bool CheckIndexAvail(const SizeT idx, const Vector<T>& vec) {
+                    return idx < vec.size();
                 }
 
-                IndexGenerator<Uint> m_indexGenerator;
+                template <typename T>
+                static void EnsureIndexAvail(const SizeT idx, Vector<T>& vec) {
+                    if (CheckIndexAvail(idx, vec)) return;
+
+                    vec.reserve(std::bit_ceil(idx));
+                    vec.resize(idx + 1);
+                }
+
+                IndexGenerator<Uint> m_programIndexGenerator;
                 Vector<SharedPtr<ProgramObject>> m_programObjects;
+
+                IndexGenerator<Uint> m_shaderIndexGenerator;
+                Vector<SharedPtr<ShaderObject>> m_shaderObjects;
             };
         } // namespace GLState
     } // namespace MG_State

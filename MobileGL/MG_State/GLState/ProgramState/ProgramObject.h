@@ -8,9 +8,9 @@ namespace MobileGL {
             class ProgramObject {
             public:
                 void AttachShader(SharedPtr<ShaderObject> shader);
-                void DetachShader(SharedPtr<ShaderObject> shader);
+                SizeT DetachShader(SharedPtr<ShaderObject> shader);
                 void Link();
-
+                void MarkAsDeleted();
             private:
                 Vector<SharedPtr<ShaderObject>> m_shaders;
                 // basically this contains SPIR-V in binary format
