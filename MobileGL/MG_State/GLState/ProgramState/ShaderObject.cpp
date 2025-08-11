@@ -4,11 +4,11 @@
 namespace MobileGL {
     namespace MG_State {
         namespace GLState {
-            void ShaderObject::SetShaderSource(const std::string& source) {
+            void ShaderObject::SetShaderSource(const String& source) {
                 m_source = source;
             }
 
-            void ShaderObject::SetShaderSource(std::string &&source) {
+            void ShaderObject::SetShaderSource(String &&source) {
                 m_source = Move(source);
             }
 

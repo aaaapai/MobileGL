@@ -56,6 +56,14 @@ namespace MobileGL {
             return programObject;
         }
 
+        void CopyStr(GLsizei bufSize, GLsizei *length, GLchar *dst, const char* src, GLsizei srcLength) {
+            auto sz = std::min(bufSize - 1, srcLength);
+            if (length)
+                *length = sz;
+            memcpy(dst, src, sz);
+            dst[sz] = '\0';
+        }
+
         void AttachShader_State(GLuint program, GLuint shader) {
             auto programObject = TryToGetProgramObject(program);
             if (!programObject)
@@ -168,7 +176,12 @@ namespace MobileGL {
         }
 
         void GetProgramInfoLog_State(GLuint program, GLsizei bufSize, GLsizei* length, GLchar* infoLog) {
-            THROW_UNIMPL_EXCEPTION;
+            auto programObject = TryToGetProgramObject(program);
+            if (!programObject)
+                return;
+
+            const auto& log = programObject->GetInfoLog();
+            CopyStr(bufSize, length, infoLog, log.c_str(), log.length());
         }
 
         void GetShaderiv_State(GLuint shader, GLenum pname, GLint* params) {
@@ -176,7 +189,12 @@ namespace MobileGL {
         }
 
         void GetShaderInfoLog_State(GLuint shader, GLsizei bufSize, GLsizei* length, GLchar* infoLog) {
-            THROW_UNIMPL_EXCEPTION;
+            auto shaderObject = TryToGetShaderObject(shader);
+            if (!shaderObject)
+                return;
+
+            const auto& log = shaderObject->GetInfoLog();
+            CopyStr(bufSize, length, infoLog, log.c_str(), log.length());
         }
 
         void GetShaderSource_State(GLuint shader, GLsizei bufSize, GLsizei* length, GLchar* source) {
@@ -192,12 +210,10 @@ namespace MobileGL {
                 return;
 
             auto& src = shaderObject->GetShaderSource();
-            auto sz = std::min(bufSize - 1, (GLsizei)src.length());
-            if (length)
-                *length = sz;
-            memcpy(source, src.c_str(), sz);
-            source[sz] = '\0';
+            CopyStr(bufSize, length, source, src.c_str(), src.length());
         }
+
+
 
         GLint GetUniformLocation_State(GLuint program, const GLchar* name) {
             THROW_UNIMPL_EXCEPTION;

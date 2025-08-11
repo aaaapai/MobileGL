@@ -14,6 +14,7 @@ namespace MobileGL {
                 void Link();
                 void MarkAsDeleted();
                 Vector<SharedPtr<ShaderObject>>& GetAttachedShaders();
+                const String& GetInfoLog() const { return m_infoLog; }
             private:
                 const Uint m_id = 0;
                 Vector<SharedPtr<ShaderObject>> m_shaders;
