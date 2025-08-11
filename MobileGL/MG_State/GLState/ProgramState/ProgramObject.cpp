@@ -4,8 +4,19 @@
 namespace MobileGL {
     namespace MG_State {
         namespace GLState {
-            void ProgramObject::AttachShader(SharedPtr<ShaderObject> shader) {
+            bool ProgramObject::ShaderIsAttached(SharedPtr<ShaderObject> shader) {
+                auto it = std::find_if(m_shaders.begin(), m_shaders.end(),
+                    [shader](const SharedPtr<ShaderObject>& s) {
+                        return s.get() == shader.get();
+                    });
+                return it != m_shaders.end();
+            }
+
+            bool ProgramObject::AttachShader(SharedPtr<ShaderObject> shader) {
+                if (ShaderIsAttached(shader))
+                    return false;
                 m_shaders.emplace_back(shader);
+                return true;
             }
 
             SizeT ProgramObject::DetachShader(SharedPtr<ShaderObject> shader) {

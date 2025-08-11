@@ -7,7 +7,8 @@ namespace MobileGL {
         namespace GLState {
             class ProgramObject {
             public:
-                void AttachShader(SharedPtr<ShaderObject> shader);
+                bool ShaderIsAttached(SharedPtr<ShaderObject> shader);
+                bool AttachShader(SharedPtr<ShaderObject> shader);
                 SizeT DetachShader(SharedPtr<ShaderObject> shader);
                 void Link();
                 void MarkAsDeleted();

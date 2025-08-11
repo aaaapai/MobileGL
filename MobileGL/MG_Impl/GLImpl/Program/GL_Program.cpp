@@ -57,7 +57,19 @@ namespace MobileGL {
         }
 
         void AttachShader_State(GLuint program, GLuint shader) {
-            THROW_UNIMPL_EXCEPTION;
+            auto programObject = TryToGetProgramObject(program);
+            if (!programObject)
+                return;
+            auto shaderObject = TryToGetShaderObject(shader);
+            if (!shaderObject)
+                return;
+            if (!programObject->AttachShader(shaderObject)) {
+                MG_State::pGLContext->RecordError(
+                    ErrorCode::InvalidOperation,
+                    MakeShared<GenericErrorInfo>("MG_Impl/GLImpl", __func__,
+                                                 "`shader` is already attached to `program`."));
+                return;
+            }
         }
 
         void BindAttribLocation_State(GLuint program, GLuint index, const GLchar* name) {
