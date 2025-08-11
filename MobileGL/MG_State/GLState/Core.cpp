@@ -187,6 +187,10 @@ namespace MobileGL {
             SharedPtr<ShaderObject> GLContext::GetShaderObject(const Uint index) {
                 return m_programState.GetShaderObject(index);
             }
+
+            void GLContext::UseProgram(Uint program) {
+                return m_programState.UseProgram(program);
+            }
         } // namespace GLState
 
         GLState::GLContext* pGLContext;

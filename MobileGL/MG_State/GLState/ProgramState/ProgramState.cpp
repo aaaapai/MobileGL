@@ -33,11 +33,19 @@ namespace MobileGL {
                 return CheckIndexAvail(program, m_programObjects) && m_programObjects[program] != nullptr;
             }
 
+            void ProgramState::UseProgram(Uint program) {
+                if (program == 0)
+                    m_currentProgram.reset();
+
+                if (!CheckIndexAvail(program, m_programObjects)) return;
+                m_currentProgram = m_programObjects[program];
+            }
+
             Uint ProgramState::CreateShader(ShaderStage stage) {
                 Uint shaderId = 0;
                 m_shaderIndexGenerator.Generate(1, &shaderId);
                 EnsureIndexAvail(shaderId, m_shaderObjects);
-                auto shaderObject = MakeShared<ShaderObject>(stage);
+                auto shaderObject = MakeShared<ShaderObject>(stage, shaderId);
                 if (shaderObject == nullptr)
                     return 0;
                 m_shaderObjects[shaderId] = shaderObject;

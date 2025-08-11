@@ -15,6 +15,8 @@ namespace MobileGL {
                 void MarkProgramObjectForDeletion(Uint program);
                 Bool ValidateProgramObject(Uint program) const;
 
+                void UseProgram(Uint program);
+
                 Uint CreateShader(ShaderStage stage);
                 SharedPtr<ShaderObject> GetShaderObject(Uint shader);
                 void MarkShaderObjectForDeletion(Uint shader);
@@ -38,6 +40,8 @@ namespace MobileGL {
 
                 IndexGenerator<Uint> m_shaderIndexGenerator;
                 Vector<SharedPtr<ShaderObject>> m_shaderObjects;
+
+                SharedPtr<ProgramObject> m_currentProgram;
             };
         } // namespace GLState
     } // namespace MG_State

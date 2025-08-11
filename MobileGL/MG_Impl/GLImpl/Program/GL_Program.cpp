@@ -140,7 +140,23 @@ namespace MobileGL {
         }
 
         void GetAttachedShaders_State(GLuint program, GLsizei maxCount, GLsizei* count, GLuint* shaders) {
-            THROW_UNIMPL_EXCEPTION;
+            if (maxCount < 0) {
+                MG_State::pGLContext->RecordError(
+                        ErrorCode::InvalidValue,
+                        MakeShared<GenericErrorInfo>("MG_Impl/GLImpl", __func__,
+                                                     "`maxCount` is less than 0."));
+                return;
+            }
+            auto programObject = TryToGetProgramObject(program);
+            if (!programObject)
+                return;
+            const auto& s = programObject->GetAttachedShaders();
+            GLsizei c = std::min((GLsizei)s.size(), maxCount);
+            if (count)
+                *count = c;
+            for (GLsizei i = 0; i < c; ++i) {
+                shaders[i] = s[i]->GetId();
+            }
         }
 
         GLint GetAttribLocation_State(GLuint program, const GLchar* name) {
@@ -164,7 +180,23 @@ namespace MobileGL {
         }
 
         void GetShaderSource_State(GLuint shader, GLsizei bufSize, GLsizei* length, GLchar* source) {
-            THROW_UNIMPL_EXCEPTION;
+            if (bufSize < 0) {
+                MG_State::pGLContext->RecordError(
+                        ErrorCode::InvalidValue,
+                        MakeShared<GenericErrorInfo>("MG_Impl/GLImpl", __func__,
+                                                     "`bufSize` is less than 0."));
+            }
+
+            auto shaderObject = TryToGetShaderObject(shader);
+            if (!shaderObject)
+                return;
+
+            auto& src = shaderObject->GetShaderSource();
+            auto sz = std::min(bufSize - 1, (GLsizei)src.length());
+            if (length)
+                *length = sz;
+            memcpy(source, src.c_str(), sz);
+            source[sz] = '\0';
         }
 
         GLint GetUniformLocation_State(GLuint program, const GLchar* name) {
@@ -203,11 +235,36 @@ namespace MobileGL {
         }
 
         void ShaderSource_State(GLuint shader, GLsizei count, const GLchar* const* string, const GLint* length) {
-            THROW_UNIMPL_EXCEPTION;
+            if (count < 0) {
+                MG_State::pGLContext->RecordError(
+                    ErrorCode::InvalidValue,
+                    MakeShared<GenericErrorInfo>("MG_Impl/GLImpl", __func__,
+                                             "`count` is less than 0."));
+            }
+
+            auto shaderObject = TryToGetShaderObject(shader);
+            if (!shaderObject)
+                return;
+
+            std::string src;
+            for (GLsizei i = 0; i < count; i++) {
+                src +=
+                    (length[i] <= 0) ? string[i] : std::string(string[i], length[i]);
+            }
+            shaderObject->SetShaderSource(Move(src));
         }
 
         void UseProgram_State(GLuint program) {
-            THROW_UNIMPL_EXCEPTION;
+            if (program == 0) {
+                MG_State::pGLContext->UseProgram(0);
+                return;
+            }
+
+            auto programObject = TryToGetProgramObject(program);
+            if (!programObject)
+                return;
+            MG_State::pGLContext->UseProgram(program);
+
         }
 
         void Uniform1f_State(GLint location, GLfloat v0) {
