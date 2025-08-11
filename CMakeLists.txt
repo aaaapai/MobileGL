@@ -37,6 +37,7 @@ set(SOURCE_FILES
     MobileGL/MG_Impl/EGLImpl/Temporary/TemporaryEGLImpl.cpp
     
     # @INSERTION_POINT:SOURCE_FILE_GLIMPL@ #
+    MobileGL/MG_Impl/GLImpl/Texture/GL_Texture.cpp
     MobileGL/MG_Impl/GLImpl/VertexArray/Validators.cpp
     MobileGL/MG_Impl/GLImpl/VertexArray/GL_VertexArray.cpp
     MobileGL/MG_Impl/GLImpl/Exporting/Definitions.cpp
