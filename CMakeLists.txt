@@ -12,8 +12,6 @@ set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fvisibility=hidden")
 
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-find_library(GLSLANG_LIB glslang PATHS ${CMAKE_SOURCE_DIR}/libraries/arm64-v8a/)
-
 set(SOURCE_FILES
     MobileGL/Init.cpp
 
@@ -37,6 +35,7 @@ set(SOURCE_FILES
     MobileGL/MG_Impl/EGLImpl/Temporary/TemporaryEGLImpl.cpp
     
     # @INSERTION_POINT:SOURCE_FILE_GLIMPL@ #
+    MobileGL/MG_Impl/GLImpl/Program/GL_Program.cpp
     MobileGL/MG_Impl/GLImpl/Texture/GL_Texture.cpp
     MobileGL/MG_Impl/GLImpl/VertexArray/Validators.cpp
     MobileGL/MG_Impl/GLImpl/VertexArray/GL_VertexArray.cpp
@@ -48,6 +47,7 @@ set(SOURCE_FILES
     MobileGL/MG_Backend/Init.cpp
 
     MobileGL/MG_Util/ShaderTranspiler/ShaderCompiler.cpp
+    MobileGL/MG_Util/ShaderTranspiler/SpvcSession.cpp
 
     MobileGL/MG_State/GLState/Core.cpp
     MobileGL/MG_State/GLState/ErrorState/Error.cpp
@@ -58,32 +58,85 @@ set(SOURCE_FILES
     MobileGL/MG_State/GLState/TextureState/TextureObject.cpp
     MobileGL/MG_State/GLState/TextureState/TextureUnit.cpp
     MobileGL/MG_State/GLState/TextureState/TextureState.cpp
+    MobileGL/MG_State/GLState/ProgramState/ProgramObject.cpp
+    MobileGL/MG_State/GLState/ProgramState/ShaderObject.cpp
+    MobileGL/MG_State/GLState/ProgramState/ProgramState.cpp
 )
 
 add_library(${CMAKE_PROJECT_NAME} SHARED 
     ${SOURCE_FILES}
 )
 
-target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE
-    ${CMAKE_SOURCE_DIR}/library/arm64-v8a/libglslang.a
-    ${CMAKE_SOURCE_DIR}/library/arm64-v8a/libspirv-cross-c-shared.so
-    ${CMAKE_SOURCE_DIR}/library/arm64-v8a/libGenericCodeGen.a
-    ${CMAKE_SOURCE_DIR}/library/arm64-v8a/libglslang-default-resource-limits.a
-    ${CMAKE_SOURCE_DIR}/library/arm64-v8a/libMachineIndependent.a
-    ${CMAKE_SOURCE_DIR}/library/arm64-v8a/libOSDependent.a
-    ${CMAKE_SOURCE_DIR}/library/arm64-v8a/libSPIRV-Tools-diff.a
-    ${CMAKE_SOURCE_DIR}/library/arm64-v8a/libSPIRV-Tools-link.a
-    ${CMAKE_SOURCE_DIR}/library/arm64-v8a/libSPIRV-Tools-lint.a
-    ${CMAKE_SOURCE_DIR}/library/arm64-v8a/libSPIRV-Tools-opt.a
-    ${CMAKE_SOURCE_DIR}/library/arm64-v8a/libSPIRV-Tools-reduce.a
-    ${CMAKE_SOURCE_DIR}/library/arm64-v8a/libSPIRV-Tools.a
-    ${CMAKE_SOURCE_DIR}/library/arm64-v8a/libSPIRV.a
-    ${CMAKE_SOURCE_DIR}/library/arm64-v8a/libSPVRemapper.a
-    android
-    log
-    EGL
-    vulkan
-)
+if(MACOS)
+    # iOS
+    set(iOS_LIB_DIR ${CMAKE_SOURCE_DIR}/library/ios)
+    target_link_libraries(${CMAKE_PROJECT_NAME}
+        ${iOS_LIB_DIR}/libglslang.a
+        ${iOS_LIB_DIR}/libspirv-cross-c-shared.dylib
+        ${iOS_LIB_DIR}/libGenericCodeGen.a
+        ${iOS_LIB_DIR}/libglslang-default-resource-limits.a
+        ${iOS_LIB_DIR}/libMachineIndependent.a
+        ${iOS_LIB_DIR}/libOSDependent.a
+        ${iOS_LIB_DIR}/libSPIRV-Tools-diff.a
+        ${iOS_LIB_DIR}/libSPIRV-Tools-link.a
+        ${iOS_LIB_DIR}/libSPIRV-Tools-lint.a
+        ${iOS_LIB_DIR}/libSPIRV-Tools-opt.a
+        ${iOS_LIB_DIR}/libSPIRV-Tools-reduce.a
+        ${iOS_LIB_DIR}/libSPIRV-Tools.a
+        ${iOS_LIB_DIR}/libSPIRV.a
+        ${iOS_LIB_DIR}/libSPVRemapper.a
+        "-F${CMAKE_SOURCE_DIR}/external"
+        "-framework libEGL"
+        "-framework libGLESv2"
+        "-framework Metal"
+        "-framework Foundation"
+        "-framework QuartzCore"
+    )
+else()
+if(LINUX)
+    # Linux
+    # TODO: support more architectures.
+    find_library(GLSLANG_LIB glslang PATHS ${CMAKE_SOURCE_DIR}/library/linux/x86_64)
+    target_link_libraries(${CMAKE_PROJECT_NAME}
+        ${CMAKE_SOURCE_DIR}/library/linux/x86_64/libglslang.a
+        ${CMAKE_SOURCE_DIR}/library/linux/x86_64/libspirv-cross-c-shared.so
+        ${CMAKE_SOURCE_DIR}/library/linux/x86_64/libGenericCodeGen.a
+        ${CMAKE_SOURCE_DIR}/library/linux/x86_64/libglslang-default-resource-limits.a
+        ${CMAKE_SOURCE_DIR}/library/linux/x86_64/libMachineIndependent.a
+        ${CMAKE_SOURCE_DIR}/library/linux/x86_64/libOSDependent.a
+        ${CMAKE_SOURCE_DIR}/library/linux/x86_64/libSPIRV-Tools-diff.a
+        ${CMAKE_SOURCE_DIR}/library/linux/x86_64/libSPIRV-Tools-link.a
+        ${CMAKE_SOURCE_DIR}/library/linux/x86_64/libSPIRV-Tools-lint.a
+        ${CMAKE_SOURCE_DIR}/library/linux/x86_64/libSPIRV-Tools-opt.a
+        ${CMAKE_SOURCE_DIR}/library/linux/x86_64/libSPIRV-Tools-reduce.a
+        ${CMAKE_SOURCE_DIR}/library/linux/x86_64/libSPIRV-Tools.a
+        ${CMAKE_SOURCE_DIR}/library/linux/x86_64/libSPIRV.a
+        ${CMAKE_SOURCE_DIR}/library/linux/x86_64/libSPVRemapper.a
+    )
+else()
+    # Android
+    find_library(GLSLANG_LIB glslang PATHS ${CMAKE_SOURCE_DIR}/library/android/${ANDROID_ABI}/)
+    target_link_libraries(${CMAKE_PROJECT_NAME}
+        ${CMAKE_SOURCE_DIR}/library/android/${ANDROID_ABI}/libglslang.a
+        ${CMAKE_SOURCE_DIR}/library/android/${ANDROID_ABI}/libspirv-cross-c-shared.so
+        ${CMAKE_SOURCE_DIR}/library/android/${ANDROID_ABI}/libshaderconv.so
+        ${CMAKE_SOURCE_DIR}/library/android/${ANDROID_ABI}/libGenericCodeGen.a
+        ${CMAKE_SOURCE_DIR}/library/android/${ANDROID_ABI}/libglslang-default-resource-limits.a
+        ${CMAKE_SOURCE_DIR}/library/android/${ANDROID_ABI}/libMachineIndependent.a
+        ${CMAKE_SOURCE_DIR}/library/android/${ANDROID_ABI}/libOSDependent.a
+        ${CMAKE_SOURCE_DIR}/library/android/${ANDROID_ABI}/libSPIRV-Tools-diff.a
+        ${CMAKE_SOURCE_DIR}/library/android/${ANDROID_ABI}/libSPIRV-Tools-link.a
+        ${CMAKE_SOURCE_DIR}/library/android/${ANDROID_ABI}/libSPIRV-Tools-lint.a
+        ${CMAKE_SOURCE_DIR}/library/android/${ANDROID_ABI}/libSPIRV-Tools-opt.a
+        ${CMAKE_SOURCE_DIR}/library/android/${ANDROID_ABI}/libSPIRV-Tools-reduce.a
+        ${CMAKE_SOURCE_DIR}/library/android/${ANDROID_ABI}/libSPIRV-Tools.a
+        ${CMAKE_SOURCE_DIR}/library/android/${ANDROID_ABI}/libSPIRV.a
+        ${CMAKE_SOURCE_DIR}/library/android/${ANDROID_ABI}/libSPVRemapper.a
+        android
+        log
+    )
+endif()
+endif()
 
 # add_subdirectory(3rdparty/DiligentCore)
 
