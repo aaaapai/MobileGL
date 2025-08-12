@@ -18,6 +18,10 @@ namespace MobileGL {
                 GetAllBindingSlots() {
                 return m_slots;
             }
+
+            void TextureUnit::SetSamplerObject(SharedPtr<SamplerObject> sampler) {
+                m_sampler = sampler;
+            }
         } // namespace GLState
     } // namespace MG_State
 } // namespace MobileGL

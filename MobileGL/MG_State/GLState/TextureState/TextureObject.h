@@ -21,7 +21,7 @@ namespace MobileGL {
         Red,
         RG,
         RGB,
-        BFR,
+        BGR,
         RGBA,
         BGRA,
         RInteger,

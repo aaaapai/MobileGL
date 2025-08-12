@@ -64,11 +64,11 @@ namespace MobileGL {
                 }
             }
 
-            TextureUnit& TextureState::GetUnitObject() {
-                if (m_activeTextureUnit < 0 || m_activeTextureUnit >= MAX_TEXTURE_IMAGE_UNITS) {
+            TextureUnit& TextureState::GetUnitObject(Int unit) {
+                if (unit < 0 || unit >= MAX_TEXTURE_IMAGE_UNITS) {
                     THROW_EXCEPTION("Active texture unit is out of range");
                 }
-                return m_textureUnits[m_activeTextureUnit];
+                return m_textureUnits[unit];
             }
 
             Int TextureState::GetActiveTextureUnit() const {

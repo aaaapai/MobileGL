@@ -16,7 +16,7 @@ namespace MobileGL {
                 Vector<Uint> GenerateNames(Uint number);
                 SharedPtr<ITextureObject> CreateTextureObject(Uint index, TextureTarget target);
                 SharedPtr<ITextureObject> GetTextureObject(Uint index);
-                TextureUnit& GetUnitObject();
+                TextureUnit& GetUnitObject(Int unit);
                 Int GetActiveTextureUnit() const;
                 void SetActiveTextureUnit(Int unit);
                 void MarkTextureObjectForDeletion(Uint index);
