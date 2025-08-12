@@ -7,8 +7,10 @@
 namespace MobileGL::MG_Impl::GLImpl {
     namespace VertexArrayImpl {
 
-        Bool ValidateVertexArrayName(Uint index) {
+        Bool ValidateVertexArrayName(Uint index, Bool allowZero) {
             if (index == 0) {
+                if (allowZero) return true;
+
                 MG_State::pGLContext->RecordError(
                     ErrorCode::InvalidValue, MakeShared<GenericErrorInfo>("MG_Impl/GLImpl", "ValidateVertexArrayName",
                                                                           "Vertex array name 0 is not supported."));

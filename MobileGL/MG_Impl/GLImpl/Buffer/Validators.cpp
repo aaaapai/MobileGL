@@ -31,7 +31,16 @@ namespace MobileGL::MG_Impl::GLImpl {
             return true;
         }
 
-        Bool ValidateBufferName(Uint index) {
+        Bool ValidateBufferName(Uint index, Bool allowZero) {
+            if (index == 0) {
+                if (allowZero) return true;
+
+                MG_State::pGLContext->RecordError(ErrorCode::InvalidValue,
+                                                  MakeShared<GenericErrorInfo>("MG_Impl/GLImpl/BufferImpl",
+                                                                               "ValidateBufferName",
+                                                                               "Buffer name 0 is not valid."));
+                return false;
+            }
             Bool isValid = MG_State::pGLContext->ValidateBufferName(index);
             if (isValid) return true;
             MG_State::pGLContext->RecordError(
