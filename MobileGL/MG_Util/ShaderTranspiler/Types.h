@@ -9,7 +9,8 @@ namespace MobileGL {
             struct EmptyType {};
 
             enum class ShaderCompileBits : Uint {
-                EmitDiscardAsDemote = 1 << 0,
+                CompileForOpenGL = 1 << 0,
+                EmitDiscardAsDemote = 1 << 1,
             };
 
             struct ShaderAttrib {
