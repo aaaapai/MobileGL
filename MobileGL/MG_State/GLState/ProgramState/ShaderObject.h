@@ -73,7 +73,7 @@ namespace MobileGL {
                 const ShaderStage m_stage;
                 String m_source;
                 SharedPtr<glslang::TShader> m_shader;
-                Vector<String> m_uniforms;
+                UnorderedMap<String, Int> m_uniforms;
 
                 String m_infoLog;
                 Bool m_deleteStatus = false;

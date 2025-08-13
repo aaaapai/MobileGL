@@ -199,7 +199,7 @@ TEST_F(ProgramUtilTest, CompileVertexShaderWithLocation) {
         ASSERT_NE(res.error().errc, 0);
         FAIL() << "errc: " << res.error().errc << "\nlog: " << res.error().log;
     }
-    Vector<String> uniforms;
+    UnorderedMap<String, Int> uniforms;
 
     auto pShader = res.value();
     auto root = pShader->getIntermediate()->getTreeRoot();
@@ -207,17 +207,12 @@ TEST_F(ProgramUtilTest, CompileVertexShaderWithLocation) {
     root->traverse(&traverser);
     auto& symbols = traverser.GetCollectedSymbols();
     for (const auto& symbol : symbols) {
-        auto layoutLoc = symbol->getQualifier().layoutLocation;
-        if (layoutLoc >= uniforms.size()) {
-            uniforms.reserve(std::bit_ceil(layoutLoc));
-            uniforms.resize(layoutLoc + 1);
-        }
-        uniforms[layoutLoc] = symbol->getName().c_str();
+        uniforms[symbol->getName().c_str()] = symbol->getQualifier().layoutLocation;
     }
 
-    EXPECT_EQ(uniforms[1], "ProjMat");
-    EXPECT_EQ(uniforms[20], "InSize");
-    EXPECT_EQ(uniforms[4095], "OutSize");
+    EXPECT_EQ(uniforms["ProjMat"], 1);
+    EXPECT_EQ(uniforms["InSize"], 20);
+    EXPECT_EQ(uniforms["OutSize"], 4095);
 }
 
 TEST_F(ProgramUtilTest, CompileAndLinkProgram) {
