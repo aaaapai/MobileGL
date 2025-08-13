@@ -48,7 +48,7 @@ namespace MobileGL {
                 SharedPtr<ITextureObject> GetTextureObject(Uint index);
                 SharedPtr<ITextureObject> CreateTextureObject(Uint index, TextureTarget target);
                 void MarkTextureObjectForDeletion(Uint index);
-                TextureUnit& GetTextureUnitObject();
+                TextureUnit& GetTextureUnitObject(Int unit);
                 Bool ValidateTextureName(Uint index) const;
                 Bool ValidateTextureObject(Uint index) const;
                 Int GetActiveTextureUnit() const;
@@ -64,6 +64,7 @@ namespace MobileGL {
                 SharedPtr<ProgramObject> GetProgramObject(Uint index);
                 SharedPtr<ShaderObject> GetShaderObject(Uint index);
                 void UseProgram(Uint program);
+
             private:
                 // Error
                 ErrorState m_errorState;

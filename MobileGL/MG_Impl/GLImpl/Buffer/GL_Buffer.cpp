@@ -24,7 +24,7 @@ namespace MobileGL {
             for (SizeT i = 0; i < static_cast<SizeT>(n); ++i) {
                 Uint bufferName = buffers[i];
                 if (bufferName == 0) continue;
-                if (!BufferImpl::ValidateBufferName(bufferName)) continue;
+                if (!BufferImpl::ValidateBufferName(bufferName, true)) continue;
                 MG_State::pGLContext->MarkBufferObjectForDeletion(bufferName);
             }
         }
@@ -410,7 +410,7 @@ namespace MobileGL {
         }
 
         void BindBuffer_State(GLenum target, GLuint buffer) {
-            if (buffer != 0 && !BufferImpl::ValidateBufferName(buffer)) return;
+            if (!BufferImpl::ValidateBufferName(buffer, true)) return;
             BufferTarget bufferTarget = MG_Util::ConvertGLEnumToBufferTarget(target);
             if (!BufferImpl::ValidateBufferTarget(bufferTarget)) return;
 

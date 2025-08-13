@@ -136,8 +136,8 @@ namespace MobileGL {
                 m_textureState.MarkTextureObjectForDeletion(index);
             }
 
-            TextureUnit& GLContext::GetTextureUnitObject() {
-                return m_textureState.GetUnitObject();
+            TextureUnit& GLContext::GetTextureUnitObject(Int unit) {
+                return m_textureState.GetUnitObject(unit);
             }
 
             Bool GLContext::ValidateTextureName(Uint index) const {

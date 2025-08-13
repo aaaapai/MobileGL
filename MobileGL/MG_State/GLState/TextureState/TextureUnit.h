@@ -13,6 +13,7 @@ namespace MobileGL {
                 BindingSlot<ITextureObject>& GetBindingSlot(TextureTarget target);
                 SharedPtr<SamplerObject> GetSamplerObject() const;
                 Array<BindingSlot<ITextureObject>, (int)TextureTarget::TextureTargetCount>& GetAllBindingSlots();
+                void SetSamplerObject(SharedPtr<SamplerObject> sampler);
 
             private:
                 Array<BindingSlot<ITextureObject>, (int)TextureTarget::TextureTargetCount> m_slots;
