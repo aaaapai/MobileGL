@@ -173,7 +173,7 @@ in vec4 Position;
 
 layout(location = 1) uniform mat4 ProjMat;
 layout(location = 20) uniform vec2 InSize;
-layout(location = 0) uniform vec2 OutSize;
+uniform vec2 OutSize;
 
 out vec2 texCoord;
 out vec2 oneTexel;
@@ -212,7 +212,7 @@ TEST_F(ProgramUtilTest, CompileVertexShaderWithLocation) {
 
     EXPECT_EQ(uniforms["ProjMat"], 1);
     EXPECT_EQ(uniforms["InSize"], 20);
-    EXPECT_EQ(uniforms["OutSize"], 0);
+    EXPECT_EQ(uniforms["OutSize"], 4095);
 }
 
 TEST_F(ProgramUtilTest, CompileAndLinkProgram) {
