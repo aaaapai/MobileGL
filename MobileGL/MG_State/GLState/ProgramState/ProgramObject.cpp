@@ -63,6 +63,7 @@ namespace MobileGL {
             Vector<SharedPtr<ShaderObject>>& ProgramObject::GetAttachedShaders() {
                 return m_shaders;
             }
+
         } // namespace GLState
     } // namespace MG_State
 } // namespace MobileGL

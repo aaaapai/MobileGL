@@ -131,15 +131,22 @@ namespace MobileGL {
                 const char* src[] = {sourceStr.data()};
                 tshader->setStrings(src, 1);
                 tshader->setInvertY(true);
-                tshader->setEnvInput(glslang::EShSourceGlsl, lang, glslang::EShClientVulkan, 450);
-                tshader->setEnvClient(glslang::EShClientVulkan, glslang::EShTargetVulkan_1_3);
-                tshader->setEnvTarget(glslang::EShTargetSpv, glslang::EShTargetSpv_1_5);
+                if (attrib.flags & ShaderCompileBits::CompileForOpenGL) {
+                    tshader->setEnvInput(glslang::EShSourceGlsl, lang, glslang::EShClientOpenGL, 450);
+                    tshader->setEnvClient(glslang::EShClientOpenGL, glslang::EShTargetOpenGL_450);
+                    tshader->setEnvTarget(glslang::EShTargetSpv, glslang::EShTargetSpv_1_5);
+                } else {
+                    tshader->setEnvInput(glslang::EShSourceGlsl, lang, glslang::EShClientVulkan, 450);
+                    tshader->setEnvClient(glslang::EShClientVulkan, glslang::EShTargetVulkan_1_3);
+                    tshader->setEnvTarget(glslang::EShTargetSpv,
+                        ((attrib.flags & ShaderCompileBits::EmitDiscardAsDemote) ? glslang::EShTargetSpv_1_6 : glslang::EShTargetSpv_1_5));
+                }
                 tshader->setAutoMapLocations(true);
                 tshader->setAutoMapBindings(true);
                 tshader->setEnvInputVulkanRulesRelaxed(); // using EXT_vulkan_glsl_relaxed for gl_VertexID and
                                                           // gl_InstanceID?
                 tshader->setGlobalUniformBlockName(GLOBAL_UBO_NAME);
-                if (!tshader->parse(&GetTBuiltInResourceInstance(), 150, ECoreProfile,
+                if (!tshader->parse(&GetTBuiltInResourceInstance(), 460, ECoreProfile,
                                     /*forceDefaultVersionAndProfile: */ false,
                                     /*forwardCompatible: */ true, EShMsgDefault)) {
                     ResultInfo r;

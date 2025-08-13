@@ -36,6 +36,7 @@ add_executable(
         ${MGL_ROOT}/MobileGL/MG_Util/ShaderTranspiler/SpvcSession.cpp
         ${MGL_ROOT}/MobileGL/MG_Backend/Init.cpp
         ${MGL_ROOT}/MobileGL/MG_Util/Debug/Log.cpp
+        ${MGL_ROOT}/MobileGL/MG_Util/ShaderTranspiler/glslang/UniformTraverser.cpp
 )
 
 target_include_directories(VertexArrayTest PRIVATE
