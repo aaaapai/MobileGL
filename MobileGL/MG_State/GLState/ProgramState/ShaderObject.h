@@ -68,12 +68,14 @@ namespace MobileGL {
                 SharedPtr<glslang::TShader> GetCompiledShader() const { return m_shader; }
                 const String& GetInfoLog() const { return m_infoLog; }
             private:
+                bool DoReflection();
                 const Uint m_id = 0;
                 const ShaderStage m_stage;
                 String m_source;
                 SharedPtr<glslang::TShader> m_shader;
-                String m_infoLog;
+                UnorderedMap<String, Int> m_uniforms;
 
+                String m_infoLog;
                 Bool m_deleteStatus = false;
                 Bool m_compileStatus = false;
             };

@@ -7,6 +7,8 @@
 #include <MG_Util/Converters/GLToStr/GLEnumConverter.h>
 #include <MG_Util/ShaderTranspiler/ShaderCompiler.h>
 #include <MG_Util/ShaderTranspiler/Types.h>
+
+#include "MG_Util/ShaderTranspiler/glslang/UniformTraverser.h"
 using namespace MobileGL;
 
 class ProgramUtilTest : public ::testing::Test {
@@ -163,6 +165,54 @@ TEST_F(ProgramUtilTest, CompileFragmentShaderWithDiscard) {
             FAIL() << "Found unsupported demote!";
         }
     }
+}
+
+const char* vs_location = R"(#version 460
+
+in vec4 Position;
+
+layout(location = 1) uniform mat4 ProjMat;
+layout(location = 20) uniform vec2 InSize;
+layout(location = 0) uniform vec2 OutSize;
+
+out vec2 texCoord;
+out vec2 oneTexel;
+
+void main(){
+    vec4 outPos = ProjMat * vec4(Position.xy, 0.0, 1.0);
+    gl_Position = vec4(outPos.xy, 0.2, 1.0);
+
+    oneTexel = 1.0 / InSize;
+
+    texCoord = Position.xy / OutSize;
+})";
+
+TEST_F(ProgramUtilTest, CompileVertexShaderWithLocation) {
+    using namespace MG_Util::ShaderTranspiler;
+    ShaderAttrib attrib {
+        .shaderType = GL_VERTEX_SHADER,
+        .sourceStr = vs_location,
+        .flags = ShaderCompileBits::CompileForOpenGL
+    };
+    auto res = ShaderCompiler::CompileShader(attrib);
+    if (!res) {
+        ASSERT_NE(res.error().errc, 0);
+        FAIL() << "errc: " << res.error().errc << "\nlog: " << res.error().log;
+    }
+    UnorderedMap<String, Int> uniforms;
+
+    auto pShader = res.value();
+    auto root = pShader->getIntermediate()->getTreeRoot();
+    UniformTraverser traverser;
+    root->traverse(&traverser);
+    auto& symbols = traverser.GetCollectedSymbols();
+    for (const auto& symbol : symbols) {
+        uniforms[symbol->getName().c_str()] = symbol->getQualifier().layoutLocation;
+    }
+
+    EXPECT_EQ(uniforms["ProjMat"], 1);
+    EXPECT_EQ(uniforms["InSize"], 20);
+    EXPECT_EQ(uniforms["OutSize"], 0);
 }
 
 TEST_F(ProgramUtilTest, CompileAndLinkProgram) {
