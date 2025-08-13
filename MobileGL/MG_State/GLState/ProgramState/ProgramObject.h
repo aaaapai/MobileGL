@@ -15,6 +15,10 @@ namespace MobileGL {
                 void MarkAsDeleted();
                 Vector<SharedPtr<ShaderObject>>& GetAttachedShaders();
                 const String& GetInfoLog() const { return m_infoLog; }
+                Int GetUniformLocation(const String& name) {
+                    const auto it = m_uniforms.find(name);
+                    return (it == m_uniforms.end()) ? -1 : it->second;
+                }
             private:
                 void PreLink();
                 void PostLink();

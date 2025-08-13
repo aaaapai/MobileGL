@@ -5,7 +5,7 @@
 namespace MobileGL {
     namespace MG_Impl::GLImpl {
         static bool CheckShaderNameValidity(Uint shader) {
-            if (!MG_State::pGLContext->ValidateShaderName(shader)) {
+            if (shader == 0 || !MG_State::pGLContext->ValidateShaderName(shader)) {
                 MG_State::pGLContext->RecordError(
                     ErrorCode::InvalidValue,
                     MakeShared<GenericErrorInfo>("MG_Impl/GLImpl", __func__,
@@ -216,7 +216,10 @@ namespace MobileGL {
 
 
         GLint GetUniformLocation_State(GLuint program, const GLchar* name) {
-            THROW_UNIMPL_EXCEPTION;
+            auto programObject = TryToGetProgramObject(program);
+            if (!programObject)
+                return -1;
+            return programObject->GetUniformLocation(name);
         }
 
         void GetUniformfv_State(GLuint program, GLint location, GLfloat* params) {
