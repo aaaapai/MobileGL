@@ -67,7 +67,12 @@ namespace MobileGL {
                 root->traverse(&traverser);
                 auto& symbols = traverser.GetCollectedSymbols();
                 for (const auto& symbol : symbols) {
-                    m_uniforms[symbol->getName().c_str()] = symbol->getQualifier().layoutLocation;
+                    auto layoutLoc = symbol->getQualifier().layoutLocation;
+                    if (layoutLoc >= m_uniforms.size()) {
+                        m_uniforms.reserve(std::bit_ceil(layoutLoc));
+                        m_uniforms.resize(layoutLoc + 1);
+                    }
+                    m_uniforms[layoutLoc] = symbol->getName().c_str();
                 }
 
                 return true;
