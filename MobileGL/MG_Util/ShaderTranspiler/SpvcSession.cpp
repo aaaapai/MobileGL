@@ -84,6 +84,7 @@ namespace MobileGL {
 
                     if (strcmp(list[i].name, GLOBAL_UBO_NAME) == 0) {
                         spvc_type type = spvc_compiler_get_type_handle(compiler, list[i].base_type_id);
+                        spvc_compiler_get_declared_struct_size(compiler, type, &metadata.uboSize);
                         size_t num_members = spvc_type_get_num_member_types(type);
                         for (size_t j = 0; j < num_members; ++j) {
                             const char* memberName = spvc_compiler_get_member_name(compiler, list[i].base_type_id, j);

@@ -265,7 +265,7 @@ namespace MobileGL {
             std::string src;
             for (GLsizei i = 0; i < count; i++) {
                 src +=
-                    (length[i] <= 0) ? string[i] : std::string(string[i], length[i]);
+                    (length == nullptr || length[i] <= 0) ? string[i] : std::string(string[i], length[i]);
             }
             shaderObject->SetShaderSource(Move(src));
         }
@@ -377,6 +377,7 @@ namespace MobileGL {
         GLuint CreateProgram(void) {
             return CreateProgram_State();
         }
+
         GLuint CreateShader(GLenum type) {
             return CreateShader_State(type);
         }

@@ -23,6 +23,7 @@
 #include <vector>
 #include <cstdarg>
 #include <cstring>
+#include <numeric>
 #include <expected>
 #include <iostream>
 #include <optional>

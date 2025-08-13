@@ -17,6 +17,7 @@ namespace MobileGL {
         namespace ShaderTranspiler {
             struct SpvcMetadata {
                 UnorderedMap<String, unsigned> plainUniformOffsetsInUBO;
+                SizeT uboSize = 0;
             };
 
             class SpvcSession {

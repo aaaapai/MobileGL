@@ -5,10 +5,13 @@ namespace MobileGL {
     template <typename IndexType>
     class IndexGenerator {
     public:
-        explicit IndexGenerator(SizeT initial_capacity = 1024, IndexType first_index = 0) : next_index_(first_index) {
+        explicit IndexGenerator(SizeT initial_capacity = 1024, IndexType first_index = 1) {
             const SizeT words_needed = (initial_capacity + 63) / 64;
             is_valid_.resize(words_needed, ~0ull);
             freed_indices_.reserve(initial_capacity);
+            std::vector<IndexType> valuesBeforeFirst(first_index);
+            std::iota(valuesBeforeFirst.begin(), valuesBeforeFirst.end(), 0);
+            Generate(valuesBeforeFirst.size(), valuesBeforeFirst.data());
         }
 
         void Generate(SizeT n, IndexType* indices) {
