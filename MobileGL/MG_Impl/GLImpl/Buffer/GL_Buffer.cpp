@@ -436,14 +436,6 @@ namespace MobileGL {
         }
 
         GLboolean IsBuffer_State(GLuint buffer) {
-            if (buffer == 0) {
-                MG_State::pGLContext->RecordError(
-                    ErrorCode::InvalidValue,
-                    MakeShared<GenericErrorInfo>("MG_Impl/GLImpl", "IsBuffer_State",
-                                                 "Buffer name 0 is not a valid buffer object."));
-                return GL_FALSE;
-            }
-
             if (!BufferImpl::ValidateBufferName(buffer)) return GL_FALSE;
             return MG_State::pGLContext->ValidateBufferObject(buffer) ? GL_TRUE : GL_FALSE;
         }
