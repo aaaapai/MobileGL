@@ -105,4 +105,7 @@ TEST_F(ProgramTest, CompileAndLink) {
     AttachShader(program, vs);
     AttachShader(program, fs);
     LinkProgram(program);
+    EXPECT_EQ(GetUniformLocation(program, "ProjMat"), 0);
+    EXPECT_EQ(GetUniformLocation(program, "Gray"), 1);
+    EXPECT_EQ(GetUniformLocation(program, "Saturation"), 6);
 }
