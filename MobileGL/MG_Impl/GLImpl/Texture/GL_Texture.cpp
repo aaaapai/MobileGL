@@ -61,8 +61,8 @@ namespace MobileGL {
         }
 
         GLboolean IsTexture_State(GLuint texture) {
-            // TODO: implement
-            return GL_FALSE;
+            if (!TextureImpl::ValidateTextureName(texture)) return GL_FALSE;
+            return MG_State::pGLContext->ValidateTextureObject(texture) ? GL_TRUE : GL_FALSE;
         }
 
         void GetTexParameterIuiv_State(GLenum target, GLenum pname, GLuint* params) {
@@ -212,7 +212,16 @@ namespace MobileGL {
         }
 
         void ActiveTexture_State(GLenum texture) {
-            // TODO: implement
+            if (texture < GL_TEXTURE0 || texture > GL_TEXTURE31) {
+                MG_State::pGLContext->RecordError(
+                    ErrorCode::InvalidEnum,
+                    MakeShared<GenericErrorInfo>(
+                        "MG_Impl/GLImpl", "ActiveTexture_State",
+                        "Texture must be one of GL_TEXTUREi, where i is in the range 0 to 31."));
+                return;
+            }
+
+            MG_State::pGLContext->SetActiveTextureUnit(texture - GL_TEXTURE0);
         }
 
         /* @INSERTION_POINT:FUNCTION_IMPLEMENTATION@ */
