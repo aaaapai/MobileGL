@@ -241,5 +241,19 @@ namespace MobileGL::MG_Impl::GLImpl {
 
             return true;
         }
+
+        Bool ValidateTextureTargetUniformity(SharedPtr<MG_State::GLState::ITextureObject> textureObject,
+                                             TextureTarget target) {
+            if (!textureObject) return true; // should be created later
+            TextureTarget prevTarget = textureObject->GetTarget();
+            if (prevTarget != target) {
+                MG_State::pGLContext->RecordError(
+                    ErrorCode::InvalidOperation,
+                    MakeShared<GenericErrorInfo>("MG_Impl/GLImpl", "ValidateTextureTargetUniformity",
+                                                 "Texture target does not match the previously created texture"));
+                return false;
+            }
+            return true;
+        }
     } // namespace TextureImpl
 } // namespace MobileGL::MG_Impl::GLImpl

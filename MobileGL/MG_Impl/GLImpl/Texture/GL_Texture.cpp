@@ -52,14 +52,14 @@ namespace MobileGL {
 
         void TexImage2D_State(GLenum target, GLint level, GLint internalformat, GLsizei width, GLsizei height,
                               GLint border, GLenum format, GLenum type, const void* pixels) {
-            // ====================== Converting =================================
+            // ======================= Converting ================================
             TextureUploadTarget textureUploadingTarget = MG_Util::ConvertGLEnumToTextureUploadTarget(target);
             TextureTarget textureTarget = MG_Util::ConvertTextureUploadTargetToTextureTarget(textureUploadingTarget);
             TextureInputFormat textureInputFormat = MG_Util::ConvertGLEnumToTextureInputFormat(format);
             TexturePixelDataType texturePixelDataType = MG_Util::ConvertGLEnumToTexturePixelDataType(type);
             TextureInternalFormat textureInternalFormat = MG_Util::ConvertGLEnumToTextureInternalFormat(format);
 
-            // ==================== Error Checking ===============================
+            // ===================== Error Checking ==============================
             if (!TextureImpl::ValidateTexturePixelDataType(texturePixelDataType)) return;
             if (!TextureImpl::ValidateTextureInputFormat(textureInputFormat)) return;
             if (!TextureImpl::ValidateTextureUploadTarget(textureUploadingTarget)) return;
@@ -87,7 +87,7 @@ namespace MobileGL {
             auto& bindingSlot = activeUnit.GetBindingSlot(textureTarget);
             auto textureObject = bindingSlot.GetBoundObject();
 
-            // ==================== Error Checking ===============================
+            // ===================== Error Checking ==============================
             if (!TextureImpl::ValidateTextureObject(textureObject)) return;
 
             // ======================= Processing ================================
@@ -110,6 +110,7 @@ namespace MobileGL {
         }
 
         GLboolean IsTexture_State(GLuint texture) {
+            // ======================= Processing ================================
             if (!TextureImpl::ValidateTextureName(texture)) return GL_FALSE;
             return MG_State::pGLContext->ValidateTextureObject(texture) ? GL_TRUE : GL_FALSE;
         }
@@ -147,17 +148,21 @@ namespace MobileGL {
         }
 
         void GenTextures_State(GLsizei n, GLuint* textures) {
+            // ===================== Error Checking ==============================
             if (n < 0) {
                 MG_State::pGLContext->RecordError(
                     ErrorCode::InvalidValue,
                     MakeShared<GenericErrorInfo>("MG_Impl/GLImpl", "GenTextures_State", "n must be non-negative"));
                 return;
             }
+
+            // ======================= Processing ================================
             auto textureNames = MG_State::pGLContext->GenTextureNames(n);
             Copy(textureNames.data(), textures, textureNames.size());
         }
 
         void DeleteTextures_State(GLsizei n, const GLuint* textures) {
+            // ===================== Error Checking ==============================
             if (n < 0) {
                 MG_State::pGLContext->RecordError(
                     ErrorCode::InvalidValue,
@@ -172,6 +177,7 @@ namespace MobileGL {
                 return;
             }
 
+            // ======================= Processing ================================
             for (SizeT i = 0; i < static_cast<SizeT>(n); ++i) {
                 Uint textureName = textures[i];
                 if (textureName == 0) continue;
@@ -237,21 +243,22 @@ namespace MobileGL {
         }
 
         void BindTexture_State(GLenum target, GLuint texture) {
-            if (!TextureImpl::ValidateTextureName(texture, true)) return;
-
+            // ======================= Converting ================================
             TextureTarget textureTarget = MG_Util::ConvertGLEnumToTextureTarget(target);
+
+            // ===================== Error Checking ==============================
+            if (!TextureImpl::ValidateTextureName(texture, true)) return;
             if (!TextureImpl::ValidateTextureTarget(textureTarget)) return;
 
+            // ======================= Processing ================================
             auto textureObject = MG_State::pGLContext->GetTextureObject(texture);
 
+            // ===================== Error Checking ==============================
+            if (!TextureImpl::ValidateTextureTargetUniformity(textureObject, textureTarget)) return;
+
+            // ======================= Processing ================================
             if (!textureObject) {
                 textureObject = MG_State::pGLContext->CreateTextureObject(texture, textureTarget);
-            } else if (textureObject->GetTarget() != textureTarget) {
-                MG_State::pGLContext->RecordError(
-                    ErrorCode::InvalidOperation,
-                    MakeShared<GenericErrorInfo>("MG_Impl/GLImpl", "BindTexture_State",
-                                                 "Texture target does not match the previously created texture"));
-                return;
             }
 
             auto& currentUnit =
@@ -261,6 +268,7 @@ namespace MobileGL {
         }
 
         void ActiveTexture_State(GLenum texture) {
+            // ===================== Error Checking ==============================
             if (texture < GL_TEXTURE0 || texture > GL_TEXTURE31) {
                 MG_State::pGLContext->RecordError(
                     ErrorCode::InvalidEnum,
@@ -270,6 +278,7 @@ namespace MobileGL {
                 return;
             }
 
+            // ======================= Processing ================================
             MG_State::pGLContext->SetActiveTextureUnit(texture - GL_TEXTURE0);
         }
 

@@ -19,5 +19,7 @@ namespace MobileGL::MG_Impl::GLImpl {
                                            TexturePixelDataType type);
         Bool ValidateTextureLevelWithUploadTarget(TextureUploadTarget target, Int level);
         Bool ValidateTextureObject(SharedPtr<MG_State::GLState::ITextureObject> textureObject);
+        Bool ValidateTextureTargetUniformity(SharedPtr<MG_State::GLState::ITextureObject> textureObject,
+                                             TextureTarget target);
     } // namespace TextureImpl
 } // namespace MobileGL::MG_Impl::GLImpl
