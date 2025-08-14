@@ -16,7 +16,7 @@ namespace ShaderTranspiler {
             return;
 
         const auto &type = symbol->getType();
-        if (symbol->getQualifier().isUniform()) {
+        if (symbol->getQualifier().isUniform() && type.getBasicType() != glslang::EbtSampler) {
             m_collectedSymbols.emplace_back(symbol);
             // auto& name = symbol->getName();
             // auto qualifier = symbol->getQualifier();
@@ -28,11 +28,12 @@ namespace ShaderTranspiler {
             // uniform.layoutLocation = qualifier.layoutLocation;
             // uniform.layoutBinding = qualifier.layoutBinding;
             // uniform.layoutPacking = qualifier.layoutPacking;
-        } else if (type.getBasicType() == glslang::EbtSampler) {
+        }
+        // else if (type.getBasicType() == glslang::EbtSampler) {
             // auto &uniform = samplers.emplace_back();
             // uniform.name = symbol->getName();
             // uniform.sampler = type.getSampler();
-        }
+        // }
     }
 }
 }
