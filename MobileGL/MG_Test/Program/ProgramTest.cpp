@@ -112,7 +112,6 @@ TEST_F(ProgramTest, CompileAndLink) {
     printf("Linking program...\n");
     LinkProgram(program);
     printf("Program linked...\n");
-    return;
 
     EXPECT_EQ(GetUniformLocation(program, "ProjMat"), 0);
     EXPECT_EQ(GetUniformLocation(program, "Gray"), 1);

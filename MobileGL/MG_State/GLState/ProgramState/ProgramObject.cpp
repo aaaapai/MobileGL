@@ -154,9 +154,13 @@ namespace MobileGL {
                 }
                 m_uboScratch.resize(m_metadata.uboSize, 0);
 
-                m_uniformTypes.resize(uniformOffsets.size());
-                for (const auto& [name, type] : m_metadata.plainUniformMemberTypes) {
-                    m_uniformTypes[m_uniforms[name]] = MG_Util::ConvertSpvcTypeToGLEnum(type);
+                auto& types = m_metadata.plainUniformMemberTypes;
+                assert(types.size() == m_uniformOffsets.size());
+                m_uniformTypes.resize(m_uniformOffsets.size());
+                for (const auto& [name, type] : types) {
+                    auto gltype = MG_Util::ConvertSpvcTypeToGLEnum(type);
+                    auto location = m_uniforms[name];
+                    m_uniformTypes[location] = gltype;
                 }
             }
         } // namespace GLState

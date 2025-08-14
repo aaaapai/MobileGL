@@ -20,26 +20,26 @@ namespace MobileGL {
             if (matCol > 1) {
                 switch (baseType) {
                     case GL_FLOAT:
+                        if (vecSize == 4 && matCol == 4) return GL_FLOAT_MAT4;
+                        if (vecSize == 3 && matCol == 3) return GL_FLOAT_MAT3;
                         if (vecSize == 2 && matCol == 2) return GL_FLOAT_MAT2;
                         if (vecSize == 2 && matCol == 3) return GL_FLOAT_MAT3x2;
                         if (vecSize == 2 && matCol == 4) return GL_FLOAT_MAT4x2;
                         if (vecSize == 3 && matCol == 2) return GL_FLOAT_MAT2x3;
-                        if (vecSize == 3 && matCol == 3) return GL_FLOAT_MAT3;
                         if (vecSize == 3 && matCol == 4) return GL_FLOAT_MAT4x3;
                         if (vecSize == 4 && matCol == 2) return GL_FLOAT_MAT2x4;
                         if (vecSize == 4 && matCol == 3) return GL_FLOAT_MAT3x4;
-                        if (vecSize == 4 && matCol == 4) return GL_FLOAT_MAT4;
                         break;
                     case GL_DOUBLE:
+                        if (vecSize == 4 && matCol == 4) return GL_DOUBLE_MAT4;
+                        if (vecSize == 3 && matCol == 3) return GL_DOUBLE_MAT3;
                         if (vecSize == 2 && matCol == 2) return GL_DOUBLE_MAT2;
                         if (vecSize == 2 && matCol == 3) return GL_DOUBLE_MAT3x2;
                         if (vecSize == 2 && matCol == 4) return GL_DOUBLE_MAT4x2;
                         if (vecSize == 3 && matCol == 2) return GL_DOUBLE_MAT2x3;
-                        if (vecSize == 3 && matCol == 3) return GL_DOUBLE_MAT3;
                         if (vecSize == 3 && matCol == 4) return GL_DOUBLE_MAT4x3;
                         if (vecSize == 4 && matCol == 2) return GL_DOUBLE_MAT2x4;
                         if (vecSize == 4 && matCol == 3) return GL_DOUBLE_MAT3x4;
-                        if (vecSize == 4 && matCol == 4) return GL_DOUBLE_MAT4;
                         break;
                     default:
                         return GL_FALSE;
@@ -50,17 +50,17 @@ namespace MobileGL {
                 switch (baseType) {
                     case GL_BOOL:
                         switch (vecSize) {
-                            case 2: return GL_BOOL_VEC2;
-                            case 3: return GL_BOOL_VEC3;
                             case 4: return GL_BOOL_VEC4;
+                            case 3: return GL_BOOL_VEC3;
+                            case 2: return GL_BOOL_VEC2;
                         }
                     case GL_FLOAT:
                         return GL_FLOAT_VEC2 + (vecSize - 2); // GL_FLOAT_VEC* is contiguous
                     case GL_DOUBLE:
                          switch (vecSize) {
-                            case 2: return GL_DOUBLE_VEC2;
-                            case 3: return GL_DOUBLE_VEC3;
-                            case 4: return GL_DOUBLE_VEC4;
+                             case 4: return GL_DOUBLE_VEC4;
+                             case 3: return GL_DOUBLE_VEC3;
+                             case 2: return GL_DOUBLE_VEC2;
                          }
                          break;
                     case GL_INT:
