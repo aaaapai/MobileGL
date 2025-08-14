@@ -8,25 +8,19 @@ namespace MobileGL {
         namespace GLState {
             bool ProgramObject::ShaderIsAttached(SharedPtr<ShaderObject> shader) {
                 auto it = std::find_if(m_shaders.begin(), m_shaders.end(),
-                    [shader](const SharedPtr<ShaderObject>& s) {
-                        return s.get() == shader.get();
-                    });
+                                       [shader](const SharedPtr<ShaderObject>& s) { return s.get() == shader.get(); });
                 return it != m_shaders.end();
             }
 
             bool ProgramObject::AttachShader(SharedPtr<ShaderObject> shader) {
-                if (ShaderIsAttached(shader))
-                    return false;
+                if (ShaderIsAttached(shader)) return false;
                 m_shaders.emplace_back(shader);
                 return true;
             }
 
             SizeT ProgramObject::DetachShader(SharedPtr<ShaderObject> shader) {
                 auto count = std::erase_if(
-                    m_shaders,
-                    [shader](const SharedPtr<ShaderObject>& s) {
-                        return s.get() == shader.get();
-                    });
+                    m_shaders, [shader](const SharedPtr<ShaderObject>& s) { return s.get() == shader.get(); });
 
                 return count;
             }
@@ -120,8 +114,7 @@ namespace MobileGL {
 
                         // Find next empty location
                         for (nextLocation++; nextLocation < m_uniformOffsets.size(); nextLocation++) {
-                            if (m_uniformOffsets[nextLocation] == 0)
-                                break;
+                            if (m_uniformOffsets[nextLocation] == 0) break;
                         }
                     }
                 }
@@ -155,9 +148,6 @@ namespace MobileGL {
                 m_uboScratch.resize(m_metadata.uboSize, 0);
 
                 auto& types = m_metadata.plainUniformMemberTypes;
-                printf("types.size() = %u\n", types.size());
-                printf("m_uniformOffsets.size() = %u\n", m_uniformOffsets.size());
-                fflush(stdout);
 
                 assert(types.size() == m_uniformOffsets.size());
                 m_uniformTypes.resize(m_uniformOffsets.size());
