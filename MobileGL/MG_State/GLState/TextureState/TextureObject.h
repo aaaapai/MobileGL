@@ -10,10 +10,32 @@ namespace MobileGL {
         Texture2D,
         Texture3D,
         TextureCubeMap,
-        Texture2DArray,
+        TextureRectangle,
         Texture2DMultisample,
+        TextureBuffer,
+        Texture1DArray,
+        Texture2DArray,
         TextureCubeMapArray,
+        Texture2DMultisampleArray,
         TextureTargetCount,
+        Unknown = -1
+    };
+
+    enum class TextureUploadTarget {
+        Texture2D,
+        ProxyTexture2D,
+        Texture1DArray,
+        ProxyTexture1DArray,
+        TextureRectangle,
+        ProxyTextureRectangle,
+        CubeMapPositiveX,
+        CubeMapNegativeX,
+        CubeMapPositiveY,
+        CubeMapNegativeY,
+        CubeMapPositiveZ,
+        CubeMapNegativeZ,
+        ProxyCubeMap,
+        TextureUploadTargetCount,
         Unknown = -1
     };
 
