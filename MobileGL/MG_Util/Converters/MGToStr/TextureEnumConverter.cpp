@@ -62,130 +62,154 @@ namespace MobileGL {
             }
         }
 
-        String ConvertTextureSizedInternalFormatToString(TextureSizedInternalFormat format) {
+        String ConvertTextureInternalFormatToString(TextureInternalFormat format) {
             switch (format) {
-            case TextureSizedInternalFormat::R8:
+            case TextureInternalFormat::R8:
                 return "R8";
-            case TextureSizedInternalFormat::R8Snorm:
+            case TextureInternalFormat::R8Snorm:
                 return "R8Snorm";
-            case TextureSizedInternalFormat::R16:
+            case TextureInternalFormat::R16:
                 return "R16";
-            case TextureSizedInternalFormat::R16Snorm:
+            case TextureInternalFormat::R16Snorm:
                 return "R16Snorm";
-            case TextureSizedInternalFormat::RG8:
+            case TextureInternalFormat::RG8:
                 return "RG8";
-            case TextureSizedInternalFormat::RG8Snorm:
+            case TextureInternalFormat::RG8Snorm:
                 return "RG8Snorm";
-            case TextureSizedInternalFormat::RG16:
+            case TextureInternalFormat::RG16:
                 return "RG16";
-            case TextureSizedInternalFormat::RG16Snorm:
+            case TextureInternalFormat::RG16Snorm:
                 return "RG16Snorm";
-            case TextureSizedInternalFormat::R3G3B2:
+            case TextureInternalFormat::R3G3B2:
                 return "R3G3B2";
-            case TextureSizedInternalFormat::RGB4:
+            case TextureInternalFormat::RGB4:
                 return "RGB4";
-            case TextureSizedInternalFormat::RGB5:
+            case TextureInternalFormat::RGB5:
                 return "RGB5";
-            case TextureSizedInternalFormat::RGB8:
+            case TextureInternalFormat::RGB8:
                 return "RGB8";
-            case TextureSizedInternalFormat::RGB8Snorm:
+            case TextureInternalFormat::RGB8Snorm:
                 return "RGB8Snorm";
-            case TextureSizedInternalFormat::RGB10:
+            case TextureInternalFormat::RGB10:
                 return "RGB10";
-            case TextureSizedInternalFormat::RGB12:
+            case TextureInternalFormat::RGB12:
                 return "RGB12";
-            case TextureSizedInternalFormat::RGB16Snorm:
+            case TextureInternalFormat::RGB16Snorm:
                 return "RGB16Snorm";
-            case TextureSizedInternalFormat::RGBA2:
+            case TextureInternalFormat::RGBA2:
                 return "RGBA2";
-            case TextureSizedInternalFormat::RGBA4:
+            case TextureInternalFormat::RGBA4:
                 return "RGBA4";
-            case TextureSizedInternalFormat::RGB5A1:
+            case TextureInternalFormat::RGB5A1:
                 return "RGB5A1";
-            case TextureSizedInternalFormat::RGBA8:
+            case TextureInternalFormat::RGBA8:
                 return "RGBA8";
-            case TextureSizedInternalFormat::RGBA8Snorm:
+            case TextureInternalFormat::RGBA8Snorm:
                 return "RGBA8Snorm";
-            case TextureSizedInternalFormat::RGB10A2:
+            case TextureInternalFormat::RGB10A2:
                 return "RGB10A2";
-            case TextureSizedInternalFormat::RGB10A2UI:
+            case TextureInternalFormat::RGB10A2UI:
                 return "RGB10A2UI";
-            case TextureSizedInternalFormat::RGBA12:
+            case TextureInternalFormat::RGBA12:
                 return "RGBA12";
-            case TextureSizedInternalFormat::RGBA16:
+            case TextureInternalFormat::RGBA16:
                 return "RGBA16";
-            case TextureSizedInternalFormat::SRGB8:
+            case TextureInternalFormat::SRGB8:
                 return "SRGB8";
-            case TextureSizedInternalFormat::SRGB8Alpha8:
+            case TextureInternalFormat::SRGB8Alpha8:
                 return "SRGB8Alpha8";
-            case TextureSizedInternalFormat::R16F:
+            case TextureInternalFormat::R16F:
                 return "R16F";
-            case TextureSizedInternalFormat::RG16F:
+            case TextureInternalFormat::RG16F:
                 return "RG16F";
-            case TextureSizedInternalFormat::RGB16F:
+            case TextureInternalFormat::RGB16F:
                 return "RGB16F";
-            case TextureSizedInternalFormat::RGBA16F:
+            case TextureInternalFormat::RGBA16F:
                 return "RGBA16F";
-            case TextureSizedInternalFormat::R32F:
+            case TextureInternalFormat::R32F:
                 return "R32F";
-            case TextureSizedInternalFormat::RG32F:
+            case TextureInternalFormat::RG32F:
                 return "RG32F";
-            case TextureSizedInternalFormat::RGB32F:
+            case TextureInternalFormat::RGB32F:
                 return "RGB32F";
-            case TextureSizedInternalFormat::RGBA32F:
+            case TextureInternalFormat::RGBA32F:
                 return "RGBA32F";
-            case TextureSizedInternalFormat::R11FG11FB10F:
+            case TextureInternalFormat::R11FG11FB10F:
                 return "R11FG11FB10F";
-            case TextureSizedInternalFormat::RGB9E5:
+            case TextureInternalFormat::RGB9E5:
                 return "RGB9E5";
-            case TextureSizedInternalFormat::R8I:
+            case TextureInternalFormat::R8I:
                 return "R8I";
-            case TextureSizedInternalFormat::R8UI:
+            case TextureInternalFormat::R8UI:
                 return "R8UI";
-            case TextureSizedInternalFormat::R16I:
+            case TextureInternalFormat::R16I:
                 return "R16I";
-            case TextureSizedInternalFormat::R16UI:
+            case TextureInternalFormat::R16UI:
                 return "R16UI";
-            case TextureSizedInternalFormat::R32I:
+            case TextureInternalFormat::R32I:
                 return "R32I";
-            case TextureSizedInternalFormat::R32UI:
+            case TextureInternalFormat::R32UI:
                 return "R32UI";
-            case TextureSizedInternalFormat::RG8I:
+            case TextureInternalFormat::RG8I:
                 return "RG8I";
-            case TextureSizedInternalFormat::RG8UI:
+            case TextureInternalFormat::RG8UI:
                 return "RG8UI";
-            case TextureSizedInternalFormat::RG16I:
+            case TextureInternalFormat::RG16I:
                 return "RG16I";
-            case TextureSizedInternalFormat::RG16UI:
+            case TextureInternalFormat::RG16UI:
                 return "RG16UI";
-            case TextureSizedInternalFormat::RG32I:
+            case TextureInternalFormat::RG32I:
                 return "RG32I";
-            case TextureSizedInternalFormat::RG32UI:
+            case TextureInternalFormat::RG32UI:
                 return "RG32UI";
-            case TextureSizedInternalFormat::RGB8I:
+            case TextureInternalFormat::RGB8I:
                 return "RGB8I";
-            case TextureSizedInternalFormat::RGB8UI:
+            case TextureInternalFormat::RGB8UI:
                 return "RGB8UI";
-            case TextureSizedInternalFormat::RGB16I:
+            case TextureInternalFormat::RGB16I:
                 return "RGB16I";
-            case TextureSizedInternalFormat::RGB16UI:
+            case TextureInternalFormat::RGB16UI:
                 return "RGB16UI";
-            case TextureSizedInternalFormat::RGB32I:
+            case TextureInternalFormat::RGB32I:
                 return "RGB32I";
-            case TextureSizedInternalFormat::RGB32UI:
+            case TextureInternalFormat::RGB32UI:
                 return "RGB32UI";
-            case TextureSizedInternalFormat::RGBA8I:
+            case TextureInternalFormat::RGBA8I:
                 return "RGBA8I";
-            case TextureSizedInternalFormat::RGBA8UI:
+            case TextureInternalFormat::RGBA8UI:
                 return "RGBA8UI";
-            case TextureSizedInternalFormat::RGBA16I:
+            case TextureInternalFormat::RGBA16I:
                 return "RGBA16I";
-            case TextureSizedInternalFormat::RGBA16UI:
+            case TextureInternalFormat::RGBA16UI:
                 return "RGBA16UI";
-            case TextureSizedInternalFormat::RGBA32I:
+            case TextureInternalFormat::RGBA32I:
                 return "RGBA32I";
-            case TextureSizedInternalFormat::RGBA32UI:
+            case TextureInternalFormat::RGBA32UI:
                 return "RGBA32UI";
+            case TextureInternalFormat::DepthComponent:
+                return "DepthComponent";
+            case TextureInternalFormat::DepthComponent16:
+                return "DepthComponent16";
+            case TextureInternalFormat::DepthComponent24:
+                return "DepthComponent24";
+            case TextureInternalFormat::DepthComponent32:
+                return "DepthComponent32";
+            case TextureInternalFormat::DepthComponent32F:
+                return "DepthComponent32F";
+            case TextureInternalFormat::DepthStencil:
+                return "DepthStencil";
+            case TextureInternalFormat::Depth24Stencil8:
+                return "Depth24Stencil8";
+            case TextureInternalFormat::Depth32FStencil8:
+                return "Depth32FStencil8";
+            case TextureInternalFormat::Red:
+                return "Red";
+            case TextureInternalFormat::RG:
+                return "RG";
+            case TextureInternalFormat::RGB:
+                return "RGB";
+            case TextureInternalFormat::RGBA:
+                return "RGBA";
             default:
                 return "Unknown";
             }
@@ -223,6 +247,18 @@ namespace MobileGL {
                 return "UnsignedShort5551";
             case TexturePixelDataType::UnsignedShort1555Rev:
                 return "UnsignedShort1555Rev";
+            case TexturePixelDataType::UnsignedInt8888:
+                return "UnsignedInt8888";
+            case TexturePixelDataType::UnsignedInt8888Rev:
+                return "UnsignedInt8888Rev";
+            case TexturePixelDataType::UnsignedInt1010102:
+                return "UnsignedInt1010102";
+            case TexturePixelDataType::UnsignedInt2101010Rev:
+                return "UnsignedInt2101010Rev";
+            case TexturePixelDataType::UnsignedInt101111Rev:
+                return "UnsignedInt101111Rev";
+            case TexturePixelDataType::UnsignedInt5999Rev:
+                return "UnsignedInt5999Rev";
             default:
                 return "Unknown";
             }
@@ -256,6 +292,10 @@ namespace MobileGL {
                 return "CubeMapNegativeZ";
             case TextureUploadTarget::ProxyCubeMap:
                 return "ProxyCubeMap";
+            case TextureUploadTarget::Texture2DMultisample:
+                return "Texture2DMultisample";
+            case TextureUploadTarget::ProxyTexture2DMultisample:
+                return "ProxyTexture2DMultisample";
             default:
                 return "Unknown";
             }

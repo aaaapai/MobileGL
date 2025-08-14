@@ -11,7 +11,7 @@ namespace MobileGL {
                 SetMipmapImpl(level);
             }
 
-            TextureSizedInternalFormat TextureObjectBase::GetFormat() const {
+            TextureInternalFormat TextureObjectBase::GetFormat() const {
                 return m_internalFormat;
             }
 
@@ -34,7 +34,7 @@ namespace MobileGL {
                 return m_mipmaps;
             }
 
-            void TextureObjectBase::SetInternalFormat(TextureSizedInternalFormat format) {
+            void TextureObjectBase::SetInternalFormat(TextureInternalFormat format) {
                 m_internalFormat = format;
             }
 

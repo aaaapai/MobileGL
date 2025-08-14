@@ -35,6 +35,8 @@ namespace MobileGL {
         CubeMapPositiveZ,
         CubeMapNegativeZ,
         ProxyCubeMap,
+        Texture2DMultisample,
+        ProxyTexture2DMultisample,
         TextureUploadTargetCount,
         Unknown = -1
     };
@@ -60,7 +62,7 @@ namespace MobileGL {
         Unknown = -1
     };
 
-    enum class TextureSizedInternalFormat {
+    enum class TextureInternalFormat {
         R8,
         R8Snorm,
         R16,
@@ -122,8 +124,21 @@ namespace MobileGL {
         RGBA16UI,
         RGBA32I,
         RGBA32UI,
+        DepthComponent16,
+        DepthComponent24,
+        DepthComponent32, // not a standard format in OpenGL core profile
+        DepthComponent32F,
+        Depth24Stencil8,
+        Depth32FStencil8,
 
-        TextureSizedInternalFormatCount,
+        DepthComponent,
+        DepthStencil,
+        Red,
+        RG,
+        RGB,
+        RGBA,
+
+        TextureInternalFormatCount,
         Unknown = -1
     };
 
@@ -147,6 +162,8 @@ namespace MobileGL {
         UnsignedInt8888Rev,
         UnsignedInt1010102,
         UnsignedInt2101010Rev,
+        UnsignedInt101111Rev, // not a standard type in OpenGL core profile
+        UnsignedInt5999Rev,   // not a standard type in OpenGL core profile
 
         TypeCount,
         Unknown = -1
@@ -163,6 +180,9 @@ namespace MobileGL {
 
             struct MipmapLevelInput : MipmapLevelBase {
                 DataPtr inputData = {nullptr, 0};
+
+                MipmapLevelInput(IntVec3 size, Int level, Bool compressed, Int compressedSize, DataPtr data)
+                    : MipmapLevelBase{size, level, compressed, compressedSize}, inputData(data) {}
             };
 
             struct MipmapLevelInternal : MipmapLevelBase {
@@ -182,12 +202,12 @@ namespace MobileGL {
                 virtual ~ITextureObject() = default;
 
                 virtual void SetMipmapLevel(const MipmapLevelInput& level) = 0;
-                virtual TextureSizedInternalFormat GetFormat() const = 0;
+                virtual TextureInternalFormat GetFormat() const = 0;
                 virtual TextureTarget GetTarget() const = 0;
                 virtual IntVec3 GetBaseSize() const = 0;
                 virtual SharedPtr<SamplerObject> GetSamplerObject() const = 0;
                 virtual const Vector<MipmapLevelInternal>& GetMipmaps() const = 0;
-                virtual void SetInternalFormat(TextureSizedInternalFormat format) = 0;
+                virtual void SetInternalFormat(TextureInternalFormat format) = 0;
             };
 
             class TextureObjectBase : public ITextureObject {
@@ -196,18 +216,18 @@ namespace MobileGL {
                 virtual ~TextureObjectBase() = default;
 
                 void SetMipmapLevel(const MipmapLevelInput& level) override;
-                TextureSizedInternalFormat GetFormat() const override;
+                TextureInternalFormat GetFormat() const override;
                 TextureTarget GetTarget() const override;
                 IntVec3 GetBaseSize() const override;
                 SharedPtr<SamplerObject> GetSamplerObject() const override;
                 const Vector<MipmapLevelInternal>& GetMipmaps() const override;
-                void SetInternalFormat(TextureSizedInternalFormat format) override;
+                void SetInternalFormat(TextureInternalFormat format) override;
 
             protected:
                 virtual void SetMipmapImpl(const MipmapLevelInput& level) = 0;
 
                 const TextureTarget m_target = TextureTarget::Unknown;
-                TextureSizedInternalFormat m_internalFormat = TextureSizedInternalFormat::Unknown;
+                TextureInternalFormat m_internalFormat = TextureInternalFormat::Unknown;
                 Vector<MipmapLevelInternal> m_mipmaps = {};
                 SharedPtr<SamplerObject> m_sampler = nullptr;
             };

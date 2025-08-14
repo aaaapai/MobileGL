@@ -1,10 +1,14 @@
 #include "GL_Texture.h"
+#include "MG_State/GLState/TextureState/TextureObject.h"
+#include "MG_Util/Types.h"
 #include "Validators.h"
 #include <MG_State/GLState/Core.h>
+#include <MG_Util/Metrics/TextureMetrics.h>
 #include <MG_State/GLState/ErrorState/Error.h>
 #include <MG_Util/Converters/GLToMG/TextureEnumConverter.h>
 #include <MG_Util/Converters/MGToGL/TextureEnumConverter.h>
 #include <MG_Util/Converters/MGToStr/TextureEnumConverter.h>
+#include <MG_Util/Converters/MGToMG/TextureEnumConverter.h>
 
 namespace MobileGL {
     namespace MG_Impl::GLImpl {
@@ -48,7 +52,52 @@ namespace MobileGL {
 
         void TexImage2D_State(GLenum target, GLint level, GLint internalformat, GLsizei width, GLsizei height,
                               GLint border, GLenum format, GLenum type, const void* pixels) {
-            // TODO: implement
+            // ====================== Converting =================================
+            TextureUploadTarget textureUploadingTarget = MG_Util::ConvertGLEnumToTextureUploadTarget(target);
+            TextureTarget textureTarget = MG_Util::ConvertTextureUploadTargetToTextureTarget(textureUploadingTarget);
+            TextureInputFormat textureInputFormat = MG_Util::ConvertGLEnumToTextureInputFormat(format);
+            TexturePixelDataType texturePixelDataType = MG_Util::ConvertGLEnumToTexturePixelDataType(type);
+            TextureInternalFormat textureInternalFormat = MG_Util::ConvertGLEnumToTextureInternalFormat(format);
+
+            // ==================== Error Checking ===============================
+            if (!TextureImpl::ValidateTexturePixelDataType(texturePixelDataType)) return;
+            if (!TextureImpl::ValidateTextureInputFormat(textureInputFormat)) return;
+            if (!TextureImpl::ValidateTextureUploadTarget(textureUploadingTarget)) return;
+            if (!TextureImpl::ValidateTextureLevelNumber(level)) return;
+            if (!TextureImpl::ValidateTextureSizeWithTextureUploadTarget(textureUploadingTarget, width, height)) return;
+            if (!TextureImpl::ValidateTextureSizeRange(width, height)) return;
+            if (!TextureImpl::ValidateTextureInternalFormat(textureInternalFormat)) return;
+            if (!TextureImpl::ValidateTextureBorderNumber(border)) return;
+            if (!TextureImpl::ValidateTextureFormatWithType(textureInputFormat, textureInternalFormat,
+                                                            texturePixelDataType))
+                return;
+            if (!TextureImpl::ValidateTextureLevelWithUploadTarget(textureUploadingTarget, level)) return;
+
+            // TODO: GL_INVALID_OPERATION is generated if a non-zero buffer object name is bound to the
+            // GL_PIXEL_UNPACK_BUFFER target and the buffer object's data store is currently mapped.
+            // GL_INVALID_OPERATION is generated if a non-zero buffer object name is bound to the GL_PIXEL_UNPACK_BUFFER
+            // target and the data would be unpacked from the buffer object such that the memory reads required would
+            // exceed the data store size.
+            // GL_INVALID_OPERATION is generated if a non-zero buffer object name is bound to the GL_PIXEL_UNPACK_BUFFER
+            // target and data is not evenly divisible into the number of bytes needed to store in memory a datum
+            // indicated by type.
+
+            // ======================= Processing ================================
+            auto activeUnit = MG_State::pGLContext->GetTextureUnitObject(MG_State::pGLContext->GetActiveTextureUnit());
+            auto& bindingSlot = activeUnit.GetBindingSlot(textureTarget);
+            auto textureObject = bindingSlot.GetBoundObject();
+
+            // ==================== Error Checking ===============================
+            if (!TextureImpl::ValidateTextureObject(textureObject)) return;
+
+            // ======================= Processing ================================
+            SizeT imageSize =
+                MG_Util::CalculateTextureImageSize(textureInternalFormat, texturePixelDataType, {width, height, 1});
+
+            textureObject->SetInternalFormat(textureInternalFormat);
+            MG_State::GLState::MipmapLevelInput mipmap = MG_State::GLState::MipmapLevelInput(
+                {width, height, 1}, level, false, 0, {const_cast<void*>(pixels), imageSize});
+            textureObject->SetMipmapLevel(mipmap);
         }
 
         void TexImage1D_State(GLenum target, GLint level, GLint internalFormat, GLsizei width, GLint border,
@@ -216,7 +265,7 @@ namespace MobileGL {
                 MG_State::pGLContext->RecordError(
                     ErrorCode::InvalidEnum,
                     MakeShared<GenericErrorInfo>(
-                        "MG_Impl/GLImpl", "ActiveTexture_State",
+                        "MG_Impl/GLI mpl", "ActiveTexture_State",
                         "Texture must be one of GL_TEXTUREi, where i is in the range 0 to 31."));
                 return;
             }

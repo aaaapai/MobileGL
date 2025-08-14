@@ -17,6 +17,8 @@ set(SOURCE_FILES
 
     MobileGL/MG_Util/Debug/Log.cpp
 
+    MobileGL/MG_Util/Metrics/TextureMetrics.cpp
+
     MobileGL/MG_Util/Converters/GLToStr/GLEnumConverter.cpp
     MobileGL/MG_Util/Converters/MGToStr/DataTypeConverter.cpp
     MobileGL/MG_Util/Converters/MGToStr/GLExtensionConverter.cpp
@@ -30,6 +32,7 @@ set(SOURCE_FILES
     MobileGL/MG_Util/Converters/GLToMG/BufferEnumConverter.cpp
     MobileGL/MG_Util/Converters/GLToMG/TextureEnumConverter.cpp
     MobileGL/MG_Util/Converters/GLToMG/DataTypeConverter.cpp
+    MobileGL/MG_Util/Converters/MGToMG/TextureEnumConverter.cpp
 
     MobileGL/MG_Util/ShaderTranspiler/ShaderCompiler.cpp
     MobileGL/MG_Util/ShaderTranspiler/SpvcSession.cpp

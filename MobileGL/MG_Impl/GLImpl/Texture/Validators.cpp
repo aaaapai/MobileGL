@@ -1,4 +1,6 @@
 #include "Validators.h"
+#include "MG_State/GLState/TextureState/TextureObject.h"
+#include "MG_Util/Types.h"
 #include <MG_State/GLState/Core.h>
 #include <MG_State/GLState/ErrorState/Error.h>
 #include <MG_Util/Converters/GLToStr/GLEnumConverter.h>
@@ -18,7 +20,18 @@ namespace MobileGL::MG_Impl::GLImpl {
             return true;
         }
 
-        Bool ValidateTextureName(GLuint texture, Bool allowZero) {
+        Bool ValidateTextureUploadTarget(TextureUploadTarget textureUploadTarget) {
+            if (textureUploadTarget == TextureUploadTarget::Unknown) {
+                MG_State::pGLContext->RecordError(ErrorCode::InvalidEnum,
+                                                  MakeShared<GenericErrorInfo>("MG_Impl/GLImpl",
+                                                                               "ValidateTextureUploadTarget",
+                                                                               "Invalid texture upload target"));
+                return false;
+            }
+            return true;
+        }
+
+        Bool ValidateTextureName(Uint texture, Bool allowZero) {
             if (texture == 0) {
                 if (allowZero) return true;
 
@@ -34,6 +47,198 @@ namespace MobileGL::MG_Impl::GLImpl {
                     MakeShared<GenericErrorInfo>("MG_Impl/GLImpl", "ValidateTextureName", "Invalid texture name"));
                 return false;
             }
+            return true;
+        }
+
+        Bool ValidateTextureInputFormat(TextureInputFormat format) {
+            if (format == TextureInputFormat::Unknown) {
+                MG_State::pGLContext->RecordError(
+                    ErrorCode::InvalidEnum, MakeShared<GenericErrorInfo>("MG_Impl/GLImpl", "ValidateTextureInputFormat",
+                                                                         "Invalid texture input format"));
+                return false;
+            }
+            return true;
+        }
+
+        Bool ValidateTexturePixelDataType(TexturePixelDataType texturePixelDataType) {
+            if (texturePixelDataType == TexturePixelDataType::Unknown) {
+                MG_State::pGLContext->RecordError(ErrorCode::InvalidEnum,
+                                                  MakeShared<GenericErrorInfo>("MG_Impl/GLImpl",
+                                                                               "ValidateTexturePixelDataType",
+                                                                               "Invalid texture pixel data type"));
+                return false;
+            }
+            return true;
+        }
+
+        Bool ValidateTextureLevelNumber(GLint level) {
+            if (level < 0) {
+                MG_State::pGLContext->RecordError(ErrorCode::InvalidValue,
+                                                  MakeShared<GenericErrorInfo>("MG_Impl/GLImpl",
+                                                                               "ValidateTextureLevelNumber",
+                                                                               "Texture level must be non-negative"));
+                return false;
+            }
+
+            // TODO: GL_INVALID_VALUE may be generated if level is greater than log2(max), where max is the returned
+            // value of GL_MAX_TEXTURE_SIZE.
+
+            return true;
+        }
+
+        Bool ValidateTextureSizeWithTextureUploadTarget(TextureUploadTarget target, GLsizei width, GLsizei height) {
+            if (target == TextureUploadTarget::CubeMapPositiveX || target == TextureUploadTarget::CubeMapNegativeX ||
+                target == TextureUploadTarget::CubeMapPositiveY || target == TextureUploadTarget::CubeMapNegativeY ||
+                target == TextureUploadTarget::CubeMapPositiveZ || target == TextureUploadTarget::CubeMapNegativeZ) {
+                if (width != height) {
+                    MG_State::pGLContext->RecordError(
+                        ErrorCode::InvalidValue,
+                        MakeShared<GenericErrorInfo>("MG_Impl/GLImpl", "ValidateTextureSizeWithTarget",
+                                                     "Width and height must be equal for cube map textures"));
+                    return false;
+                }
+            }
+
+            if (!(target == TextureUploadTarget::Texture1DArray ||
+                  target == TextureUploadTarget::ProxyTexture1DArray)) {
+                if (height < 0) {
+                    MG_State::pGLContext->RecordError(
+                        ErrorCode::InvalidValue,
+                        MakeShared<GenericErrorInfo>("MG_Impl/GLImpl", "ValidateTextureSizeWithTarget",
+                                                     "Height must be greater than or equal to zero"));
+                    return false;
+                }
+                // TODO: GL_INVALID_VALUE is generated if target is not GL_TEXTURE_1D_ARRAY or GL_PROXY_TEXTURE_1D_ARRAY
+                // and height is greater than GL_MAX_TEXTURE_SIZE.
+            }
+
+            if (target == TextureUploadTarget::Texture1DArray || target == TextureUploadTarget::ProxyTexture1DArray) {
+                if (height < 0) {
+                    MG_State::pGLContext->RecordError(
+                        ErrorCode::InvalidValue,
+                        MakeShared<GenericErrorInfo>("MG_Impl/GLImpl", "ValidateTextureSizeWithTarget",
+                                                     "Height must be greater than or equal to zero"));
+                    return false;
+                }
+                // TODO: GL_INVALID_VALUE is generated if target is GL_TEXTURE_1D_ARRAY or GL_PROXY_TEXTURE_1D_ARRAY and
+                // height is greater than GL_MAX_ARRAY_TEXTURE_LAYERS.
+            }
+
+            return true;
+        }
+
+        Bool ValidateTextureSizeRange(SizeT width, SizeT height) {
+            if (width < 0 || height < 0) {
+                MG_State::pGLContext->RecordError(
+                    ErrorCode::InvalidValue,
+                    MakeShared<GenericErrorInfo>("MG_Impl/GLImpl", "ValidateTextureSizeRange",
+                                                 "Width and height must be greater than zero"));
+                return false;
+            }
+
+            // TODO: GL_INVALID_VALUE is generated if width is greater than GL_MAX_TEXTURE_SIZE.
+
+            return true;
+        }
+
+        Bool ValidateTextureInternalFormat(TextureInternalFormat format) {
+            if (format == TextureInternalFormat::Unknown) {
+                MG_State::pGLContext->RecordError(
+                    ErrorCode::InvalidEnum,
+                    MakeShared<GenericErrorInfo>("MG_Impl/GLImpl", "ValidateTextureInternalFormat",
+                                                 "Invalid texture sized internal format"));
+                return false;
+            }
+            return true;
+        }
+
+        Bool ValidateTextureBorderNumber(Int border) {
+            if (border != 0) {
+                MG_State::pGLContext->RecordError(ErrorCode::InvalidValue,
+                                                  MakeShared<GenericErrorInfo>("MG_Impl/GLImpl",
+                                                                               "ValidateTextureBorderNumber",
+                                                                               "Border must be zero"));
+                return false;
+            }
+            return true;
+        }
+        Bool ValidateTextureFormatWithType(TextureInputFormat format, TextureInternalFormat internalFormat,
+                                           TexturePixelDataType type) {
+            if (type == TexturePixelDataType::UnsignedByte332 || type == TexturePixelDataType::UnsignedByte233Rev ||
+                type == TexturePixelDataType::UnsignedShort565 || type == TexturePixelDataType::UnsignedShort565Rev ||
+                type == TexturePixelDataType::UnsignedInt101111Rev) {
+                if (format != TextureInputFormat::RGB) {
+                    MG_State::pGLContext->RecordError(
+                        ErrorCode::InvalidOperation,
+                        MakeShared<GenericErrorInfo>("MG_Impl/GLImpl", "ValidateTextureFormatWithType",
+                                                     "Invalid format for the given type"));
+                    return false;
+                }
+            }
+
+            if (type == TexturePixelDataType::UnsignedShort4444 || type == TexturePixelDataType::UnsignedShort4444Rev ||
+                type == TexturePixelDataType::UnsignedShort5551 || type == TexturePixelDataType::UnsignedShort1555Rev ||
+                type == TexturePixelDataType::UnsignedInt8888 || type == TexturePixelDataType::UnsignedInt8888Rev ||
+                type == TexturePixelDataType::UnsignedInt1010102 ||
+                type == TexturePixelDataType::UnsignedInt2101010Rev ||
+                type == TexturePixelDataType::UnsignedInt5999Rev) {
+                if (format != TextureInputFormat::RGBA && format != TextureInputFormat::BGRA) {
+                    MG_State::pGLContext->RecordError(
+                        ErrorCode::InvalidOperation,
+                        MakeShared<GenericErrorInfo>("MG_Impl/GLImpl", "ValidateTextureFormatWithType",
+                                                     "Invalid format for the given type"));
+                    return false;
+                }
+            }
+
+            if (internalFormat == TextureInternalFormat::DepthComponent ||
+                internalFormat == TextureInternalFormat::DepthComponent16 ||
+                internalFormat == TextureInternalFormat::DepthComponent24 ||
+                internalFormat == TextureInternalFormat::DepthComponent32F) {
+                if (format != TextureInputFormat::DepthComponent) {
+                    MG_State::pGLContext->RecordError(
+                        ErrorCode::InvalidOperation,
+                        MakeShared<GenericErrorInfo>("MG_Impl/GLImpl", "ValidateTextureFormatWithType",
+                                                     "Invalid format for depth component internal format"));
+                    return false;
+                }
+            }
+
+            if (format == TextureInputFormat::DepthComponent &&
+                (internalFormat != TextureInternalFormat::DepthComponent &&
+                 internalFormat != TextureInternalFormat::DepthComponent16 &&
+                 internalFormat != TextureInternalFormat::DepthComponent24 &&
+                 internalFormat != TextureInternalFormat::DepthComponent32F)) {
+                MG_State::pGLContext->RecordError(
+                    ErrorCode::InvalidOperation,
+                    MakeShared<GenericErrorInfo>("MG_Impl/GLImpl", "ValidateTextureFormatWithType",
+                                                 "Invalid internal format for depth component format"));
+                return false;
+            }
+            return true;
+        }
+
+        Bool ValidateTextureLevelWithUploadTarget(TextureUploadTarget target, Int level) {
+            if (target == TextureUploadTarget::TextureRectangle ||
+                target == TextureUploadTarget::ProxyTextureRectangle) {
+                if (level != 0) {
+                    MG_State::pGLContext->RecordError(
+                        ErrorCode::InvalidValue,
+                        MakeShared<GenericErrorInfo>("MG_Impl/GLImpl", "ValidateTextureLevelWithUploadTarget",
+                                                     "Level must be zero for rectangle textures"));
+                    return false;
+                }
+            }
+        }
+
+        Bool ValidateTextureObject(SharedPtr<MG_State::GLState::ITextureObject> textureObject) {
+            if (!textureObject) {
+                MG_State::pGLContext->RecordError(
+                    ErrorCode::InvalidOperation,
+                    MakeShared<GenericErrorInfo>("MG_Impl/GLImpl", "ValidateTextureObject", "Texture object is null"));
+                return false;
+            }
+
             return true;
         }
     } // namespace TextureImpl
