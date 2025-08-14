@@ -139,13 +139,12 @@ namespace MobileGL {
                     return;
                 }
                 MG_Util::ShaderTranspiler::SpvcSession session(m_programBinary[0]);
-                const char* src = nullptr; // we dont care the source atm
+                const char* src = nullptr; // we don't care the source atm
                 auto result = session.Compile(&src);
                 if (result != SPVC_SUCCESS) {
                     assert(false);
                     return;
                 }
-                return;
                 m_metadata = session.GetMetadata();
                 auto& uniformOffsets = m_metadata.plainUniformOffsetsInUBO;
                 for (const auto& [name, offset] : uniformOffsets) {
@@ -153,13 +152,14 @@ namespace MobileGL {
                     assert(m_uniforms[name] < m_uniformOffsets.size());
                     m_uniformOffsets[m_uniforms[name]] = offset;
                 }
+                m_uboScratch.resize(m_metadata.uboSize, 0);
+                return;
 
                 m_uniformTypes.resize(uniformOffsets.size());
                 for (const auto& [name, type] : m_metadata.plainUniformMemberTypes) {
                     m_uniformTypes[m_uniforms[name]] = MG_Util::ConvertSpvcTypeToGLEnum(type);
                 }
 
-                m_uboScratch.resize(m_metadata.uboSize, 0);
             }
         } // namespace GLState
     } // namespace MG_State
