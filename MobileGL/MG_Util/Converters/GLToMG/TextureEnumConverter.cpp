@@ -18,6 +18,14 @@ namespace MobileGL {
                 return TextureTarget::Texture2DMultisample;
             case GL_TEXTURE_CUBE_MAP_ARRAY:
                 return TextureTarget::TextureCubeMapArray;
+            case GL_TEXTURE_BUFFER:
+                return TextureTarget::TextureBuffer;
+            case GL_TEXTURE_1D_ARRAY:
+                return TextureTarget::Texture1DArray;
+            case GL_TEXTURE_RECTANGLE:
+                return TextureTarget::TextureRectangle;
+            case GL_TEXTURE_2D_MULTISAMPLE_ARRAY:
+                return TextureTarget::Texture2DMultisampleArray;
             default:
                 return TextureTarget::Unknown;
             }
@@ -231,6 +239,39 @@ namespace MobileGL {
                 return TexturePixelDataType::UnsignedInt2101010Rev;
             default:
                 return TexturePixelDataType::Unknown;
+            }
+        }
+
+        TextureUploadTarget ConvertGLEnumToTextureUploadTarget(GLenum target) {
+            switch (target) {
+            case GL_TEXTURE_2D:
+                return TextureUploadTarget::Texture2D;
+            case GL_PROXY_TEXTURE_2D:
+                return TextureUploadTarget::ProxyTexture2D;
+            case GL_TEXTURE_1D_ARRAY:
+                return TextureUploadTarget::Texture1DArray;
+            case GL_PROXY_TEXTURE_1D_ARRAY:
+                return TextureUploadTarget::ProxyTexture1DArray;
+            case GL_TEXTURE_RECTANGLE:
+                return TextureUploadTarget::TextureRectangle;
+            case GL_PROXY_TEXTURE_RECTANGLE:
+                return TextureUploadTarget::ProxyTextureRectangle;
+            case GL_TEXTURE_CUBE_MAP_POSITIVE_X:
+                return TextureUploadTarget::CubeMapPositiveX;
+            case GL_TEXTURE_CUBE_MAP_NEGATIVE_X:
+                return TextureUploadTarget::CubeMapNegativeX;
+            case GL_TEXTURE_CUBE_MAP_POSITIVE_Y:
+                return TextureUploadTarget::CubeMapPositiveY;
+            case GL_TEXTURE_CUBE_MAP_NEGATIVE_Y:
+                return TextureUploadTarget::CubeMapNegativeY;
+            case GL_TEXTURE_CUBE_MAP_POSITIVE_Z:
+                return TextureUploadTarget::CubeMapPositiveZ;
+            case GL_TEXTURE_CUBE_MAP_NEGATIVE_Z:
+                return TextureUploadTarget::CubeMapNegativeZ;
+            case GL_PROXY_TEXTURE_CUBE_MAP:
+                return TextureUploadTarget::ProxyCubeMap;
+            default:
+                return TextureUploadTarget::Unknown;
             }
         }
 

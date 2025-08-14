@@ -8,5 +8,6 @@ namespace MobileGL {
         String ConvertTextureInputFormatToString(TextureInputFormat format);
         String ConvertTextureSizedInternalFormatToString(TextureSizedInternalFormat internalformat);
         String ConvertTexturePixelDataTypeToString(TexturePixelDataType type);
+        String ConvertTextureUploadTargetToString(TextureUploadTarget target);
     } // namespace MG_Util
 } // namespace MobileGL
