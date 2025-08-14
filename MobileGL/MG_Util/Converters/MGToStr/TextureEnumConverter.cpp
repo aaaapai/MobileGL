@@ -1,4 +1,5 @@
 #include "TextureEnumConverter.h"
+#include "MG_State/GLState/TextureState/TextureObject.h"
 #include "MG_Util/Types.h"
 
 namespace MobileGL {
@@ -222,6 +223,39 @@ namespace MobileGL {
                 return "UnsignedShort5551";
             case TexturePixelDataType::UnsignedShort1555Rev:
                 return "UnsignedShort1555Rev";
+            default:
+                return "Unknown";
+            }
+        }
+
+        String ConvertTextureUploadTargetToString(TextureUploadTarget target) {
+            switch (target) {
+            case TextureUploadTarget::Texture2D:
+                return "Texture2D";
+            case TextureUploadTarget::ProxyTexture2D:
+                return "ProxyTexture2D";
+            case TextureUploadTarget::Texture1DArray:
+                return "Texture1DArray";
+            case TextureUploadTarget::ProxyTexture1DArray:
+                return "ProxyTexture1DArray";
+            case TextureUploadTarget::TextureRectangle:
+                return "TextureRectangle";
+            case TextureUploadTarget::ProxyTextureRectangle:
+                return "ProxyTextureRectangle";
+            case TextureUploadTarget::CubeMapPositiveX:
+                return "CubeMapPositiveX";
+            case TextureUploadTarget::CubeMapNegativeX:
+                return "CubeMapNegativeX";
+            case TextureUploadTarget::CubeMapPositiveY:
+                return "CubeMapPositiveY";
+            case TextureUploadTarget::CubeMapNegativeY:
+                return "CubeMapNegativeY";
+            case TextureUploadTarget::CubeMapPositiveZ:
+                return "CubeMapPositiveZ";
+            case TextureUploadTarget::CubeMapNegativeZ:
+                return "CubeMapNegativeZ";
+            case TextureUploadTarget::ProxyCubeMap:
+                return "ProxyCubeMap";
             default:
                 return "Unknown";
             }

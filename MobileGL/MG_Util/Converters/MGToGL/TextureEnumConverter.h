@@ -8,5 +8,6 @@ namespace MobileGL {
         GLenum ConvertTextureInputFormatToGLEnum(TextureInputFormat format);
         GLenum ConvertTextureSizedInternalFormatToGLEnum(TextureSizedInternalFormat internalformat);
         GLenum ConvertTexturePixelDataTypeToGLEnum(TexturePixelDataType type);
+        GLenum ConvertTextureUploadTargetToGLEnum(TextureUploadTarget target);
     } // namespace MG_Util
 } // namespace MobileGL
