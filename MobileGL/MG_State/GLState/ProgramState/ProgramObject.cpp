@@ -59,7 +59,7 @@ namespace MobileGL {
                     THROW_EXCEPTION(e);
                 }
 
-                PostLink();
+                // PostLink();
             }
 
             void ProgramObject::MarkAsDeleted() {
