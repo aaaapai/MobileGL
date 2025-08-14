@@ -40,7 +40,7 @@ jobs:
 
       - name: Configure CMake
         working-directory: ${{env.TEST_ROOT}}
-        run: cmake -S . -B build-test
+        run: cmake -S . -B build-test -DCMAKE_BUILD_TYPE=Debug
 
       - name: Build
         working-directory: ${{env.TEST_ROOT}}/build-test
