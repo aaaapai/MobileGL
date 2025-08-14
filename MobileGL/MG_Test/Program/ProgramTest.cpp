@@ -11,6 +11,10 @@ protected:
     void SetUp() override {
         MG_State::pGLContext = new MG_State::GLState::GLContext();
     }
+
+    void TearDown() override {
+        delete MG_State::pGLContext;
+    }
 };
 
 TEST_F(ProgramTest, Sanity) {
