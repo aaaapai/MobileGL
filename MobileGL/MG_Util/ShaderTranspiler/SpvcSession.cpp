@@ -92,6 +92,21 @@ namespace MobileGL {
                             unsigned memberOffset = 0;
                             SPVC_CHK_RESULT(spvc_compiler_type_struct_member_offset(compiler, type, j, &memberOffset);)
                             metadata.plainUniformOffsetsInUBO[memberName] = memberOffset;
+                            SizeT memberSize = 0;
+                            SPVC_CHK_RESULT(spvc_compiler_get_declared_struct_member_size(compiler, type, j, &memberSize);)
+                            metadata.plainUniformMemberSizesInBytes[memberName] = memberSize;
+
+                            auto memberTypeId = spvc_type_get_member_type(type, j);
+                            spvc_type memberType = spvc_compiler_get_type_handle(compiler, memberTypeId);
+                            spvc_basetype basetype = spvc_type_get_basetype(memberType);
+                            auto vectorSize = spvc_type_get_vector_size(memberType);
+                            auto matCol = spvc_type_get_columns(memberType);
+                            // auto dim = spvc_type_get_num_array_dimensions(type);
+                            metadata.plainUniformMemberTypes[memberName] = {
+                                .basetype = basetype,
+                                .vectorSize = vectorSize,
+                                .matCol = matCol,
+                            };
                         }
                     }
                 }
