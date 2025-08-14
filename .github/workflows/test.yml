@@ -48,4 +48,4 @@ jobs:
 
       - name: Test
         working-directory: ${{env.TEST_ROOT}}/build-test
-        run: ctest
+        run: ctest -V

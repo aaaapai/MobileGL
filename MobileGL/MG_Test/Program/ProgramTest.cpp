@@ -95,16 +95,23 @@ TEST_F(ProgramTest, CompileFragment) {
 TEST_F(ProgramTest, CompileAndLink) {
     GLuint vs = CreateShader(GL_VERTEX_SHADER);
     ShaderSource(vs, 1, &vsSrc, NULL);
+    printf("Compiling vertex shader: %s\n", vsSrc);
     CompileShader(vs);
+    printf("Compiled vertex shader.\n");
 
     GLuint fs = CreateShader(GL_FRAGMENT_SHADER);
     ShaderSource(fs, 1, &fsSrc, NULL);
+    printf("Compiling fragment shader: %s\n", fsSrc);
     CompileShader(fs);
+    printf("Compiled fragment shader.\n");
 
     GLuint program = CreateProgram();
     AttachShader(program, vs);
     AttachShader(program, fs);
+    printf("Linking program...\n");
     LinkProgram(program);
+    printf("Program linked...\n");
+
     EXPECT_EQ(GetUniformLocation(program, "ProjMat"), 0);
     EXPECT_EQ(GetUniformLocation(program, "Gray"), 1);
     EXPECT_EQ(GetUniformLocation(program, "Saturation"), 6);
