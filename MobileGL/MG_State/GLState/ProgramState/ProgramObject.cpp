@@ -1,6 +1,8 @@
 #include "ProgramObject.h"
 #include <MG_Util/ShaderTranspiler/ShaderCompiler.h>
 
+#include "MG_Util/Converters/SPIRVCrossToGL/SpvcTypeConverter.h"
+
 namespace MobileGL {
     namespace MG_State {
         namespace GLState {
@@ -75,7 +77,9 @@ namespace MobileGL {
                 for (const auto& shader : m_shaders) {
                     for (const auto& [name, loc] : shader->GetUniformLocations()) {
                         // collect all the names to map
-                        m_uniforms[name] = loc;
+                        if (loc != 4095 || m_uniforms.find(name) == m_uniforms.end()) {
+                            m_uniforms[name] = loc;
+                        }
 
                         // set a flag for those who have an explicit location
                         if (loc != 4095) {
@@ -121,6 +125,12 @@ namespace MobileGL {
                         }
                     }
                 }
+
+                m_uniformNames.resize(m_uniformOffsets.size());
+                for (auto& [name, loc] : m_uniforms) {
+                    m_uniformNames[loc] = name;
+                    m_uniformNameMaxLength = std::max(m_uniformNameMaxLength, (Int)name.length());
+                }
             }
 
             void ProgramObject::PostLink() {
@@ -135,14 +145,20 @@ namespace MobileGL {
                     assert(false);
                     return;
                 }
-                auto& metadata = session.GetMetadata();
-                auto& uniformOffsets = metadata.plainUniformOffsetsInUBO;
+                m_metadata = session.GetMetadata();
+                auto& uniformOffsets = m_metadata.plainUniformOffsetsInUBO;
                 for (const auto& [name, offset] : uniformOffsets) {
                     assert(m_uniforms.find(name) != m_uniforms.end());
                     assert(m_uniforms[name] < m_uniformOffsets.size());
                     m_uniformOffsets[m_uniforms[name]] = offset;
                 }
-                m_uboScratch.resize(metadata.uboSize);
+
+                m_uniformTypes.resize(uniformOffsets.size());
+                for (const auto& [name, type] : m_metadata.plainUniformMemberTypes) {
+                    m_uniformTypes[m_uniforms[name]] = MG_Util::ConvertSpvcTypeToGLEnum(type);
+                }
+
+                m_uboScratch.resize(m_metadata.uboSize, 0);
             }
         } // namespace GLState
     } // namespace MG_State

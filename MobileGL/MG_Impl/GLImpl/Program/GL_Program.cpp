@@ -1,6 +1,7 @@
 #include "GL_Program.h"
 
 #include "MG_State/GLState/Core.h"
+#include "MG_Util/Converters/SPIRVCrossToGL/SpvcTypeConverter.h"
 
 namespace MobileGL {
     namespace MG_Impl::GLImpl {
@@ -60,6 +61,9 @@ namespace MobileGL {
             auto sz = std::min(bufSize - 1, srcLength);
             if (length)
                 *length = sz;
+
+            if (bufSize == 0) return;
+
             memcpy(dst, src, sz);
             dst[sz] = '\0';
         }
@@ -144,7 +148,30 @@ namespace MobileGL {
 
         void GetActiveUniform_State(GLuint program, GLuint index, GLsizei bufSize, GLsizei* length, GLint* size,
                                     GLenum* type, GLchar* name) {
-            THROW_UNIMPL_EXCEPTION;
+            if (bufSize < 0) {
+                MG_State::pGLContext->RecordError(
+                        ErrorCode::InvalidValue,
+                        MakeShared<GenericErrorInfo>("MG_Impl/GLImpl", __func__,
+                                                     "`bufSize` is less than 0."));
+                return;
+            }
+            auto programObject = TryToGetProgramObject(program);
+            if (!programObject)
+                return;
+            auto uniformCount = programObject->GetUniformCount();
+            if (index >= uniformCount) {
+                MG_State::pGLContext->RecordError(
+                        ErrorCode::InvalidValue,
+                        MakeShared<GenericErrorInfo>("MG_Impl/GLImpl", __func__,
+                                "`index` is greater than or equal to the number of active uniform variables in `program`."));
+                return;
+            }
+
+            if (type != nullptr)
+                *type = programObject->GetUniformType(index);
+            if (bufSize == 0) return;
+            auto& uniformName = programObject->GetUniformName(index);
+            CopyStr(bufSize, length, name, uniformName.c_str(), uniformName.length());
         }
 
         void GetAttachedShaders_State(GLuint program, GLsizei maxCount, GLsizei* count, GLuint* shaders) {
@@ -212,8 +239,6 @@ namespace MobileGL {
             auto& src = shaderObject->GetShaderSource();
             CopyStr(bufSize, length, source, src.c_str(), src.length());
         }
-
-
 
         GLint GetUniformLocation_State(GLuint program, const GLchar* name) {
             auto programObject = TryToGetProgramObject(program);
@@ -283,7 +308,6 @@ namespace MobileGL {
             if (!programObject)
                 return;
             MG_State::pGLContext->UseProgram(program);
-
         }
 
         void Uniform1f_State(GLint location, GLfloat v0) {

@@ -37,6 +37,7 @@ add_executable(
         ${MGL_ROOT}/MobileGL/MG_Backend/Init.cpp
         ${MGL_ROOT}/MobileGL/MG_Util/Debug/Log.cpp
         ${MGL_ROOT}/MobileGL/MG_Util/ShaderTranspiler/glslang/UniformTraverser.cpp
+        ${MGL_ROOT}/MobileGL/MG_Util/Converters/SPIRVCrossToGL/SpvcTypeConverter.cpp
 )
 
 target_include_directories(BufferTest PRIVATE
