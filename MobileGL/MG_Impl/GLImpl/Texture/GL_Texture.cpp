@@ -265,7 +265,7 @@ namespace MobileGL {
                 MG_State::pGLContext->RecordError(
                     ErrorCode::InvalidEnum,
                     MakeShared<GenericErrorInfo>(
-                        "MG_Impl/GLI mpl", "ActiveTexture_State",
+                        "MG_Impl/GLImpl", "ActiveTexture_State",
                         "Texture must be one of GL_TEXTUREi, where i is in the range 0 to 31."));
                 return;
             }

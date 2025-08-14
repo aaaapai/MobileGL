@@ -310,38 +310,6 @@ namespace MobileGL {
             MG_State::pGLContext->UseProgram(program);
         }
 
-        void Uniform1f_State(GLint location, GLfloat v0) {
-            THROW_UNIMPL_EXCEPTION;
-        }
-
-        void Uniform2f_State(GLint location, GLfloat v0, GLfloat v1) {
-            THROW_UNIMPL_EXCEPTION;
-        }
-
-        void Uniform3f_State(GLint location, GLfloat v0, GLfloat v1, GLfloat v2) {
-            THROW_UNIMPL_EXCEPTION;
-        }
-
-        void Uniform4f_State(GLint location, GLfloat v0, GLfloat v1, GLfloat v2, GLfloat v3) {
-            THROW_UNIMPL_EXCEPTION;
-        }
-
-        void Uniform1i_State(GLint location, GLint v0) {
-            THROW_UNIMPL_EXCEPTION;
-        }
-
-        void Uniform2i_State(GLint location, GLint v0, GLint v1) {
-            THROW_UNIMPL_EXCEPTION;
-        }
-
-        void Uniform3i_State(GLint location, GLint v0, GLint v1, GLint v2) {
-            THROW_UNIMPL_EXCEPTION;
-        }
-
-        void Uniform4i_State(GLint location, GLint v0, GLint v1, GLint v2, GLint v3) {
-            THROW_UNIMPL_EXCEPTION;
-        }
-
         void Uniform1fv_State(GLint location, GLsizei count, const GLfloat* value) {
             THROW_UNIMPL_EXCEPTION;
         }
@@ -470,6 +438,7 @@ namespace MobileGL {
         void GetUniformiv(GLuint program, GLint location, GLint* params) {
             GetUniformiv_State(program, location, params);
         }
+        
         GLboolean IsProgram(GLuint program) {
             return IsProgram_State(program);
         }
@@ -490,35 +459,41 @@ namespace MobileGL {
         }
 
         void Uniform1f(GLint location, GLfloat v0) {
-            Uniform1f_State(location, v0);
+            Uniform1fv(location, 1, &v0);
         }
 
         void Uniform2f(GLint location, GLfloat v0, GLfloat v1) {
-            Uniform2f_State(location, v0, v1);
+            GLfloat v[] = {v0, v1};
+            Uniform2fv(location, 1, v);
         }
 
         void Uniform3f(GLint location, GLfloat v0, GLfloat v1, GLfloat v2) {
-            Uniform3f_State(location, v0, v1, v2);
+            GLfloat v[] = {v0, v1, v2};
+            Uniform3fv(location, 1, v);
         }
 
         void Uniform4f(GLint location, GLfloat v0, GLfloat v1, GLfloat v2, GLfloat v3) {
-            Uniform4f_State(location, v0, v1, v2, v3);
+            GLfloat v[] = {v0, v1, v2, v3};
+            Uniform4fv(location, 1, v);
         }
 
         void Uniform1i(GLint location, GLint v0) {
-            Uniform1i_State(location, v0);
+            Uniform1iv(location, 1, &v0);
         }
 
         void Uniform2i(GLint location, GLint v0, GLint v1) {
-            Uniform2i_State(location, v0, v1);
+            GLint v[] = {v0, v1};
+            Uniform2iv(location, 1, v);
         }
 
         void Uniform3i(GLint location, GLint v0, GLint v1, GLint v2) {
-            Uniform3i_State(location, v0, v1, v2);
+            GLint v[] = {v0, v1, v2};
+            Uniform3iv(location, 1, v);
         }
 
         void Uniform4i(GLint location, GLint v0, GLint v1, GLint v2, GLint v3) {
-            Uniform4i_State(location, v0, v1, v2, v3);
+            GLint v[] = {v0, v1, v2, v3};
+            Uniform4iv(location, 1, v);
         }
 
         void Uniform1fv(GLint location, GLsizei count, const GLfloat* value) {
