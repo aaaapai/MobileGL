@@ -8,12 +8,9 @@ using namespace MobileGL::MG_Impl::GLImpl;
 
 class ProgramTest : public ::testing::Test {
 protected:
-    ProgramTest() {
-        mGLContext = MakeUnique<MG_State::GLState::GLContext>();
-        MG_State::pGLContext = mGLContext.get();
+    void SetUp() override {
+        MG_State::pGLContext = new MG_State::GLState::GLContext();
     }
-private:
-    UniquePtr<MG_State::GLState::GLContext> mGLContext;
 };
 
 TEST_F(ProgramTest, Sanity) {
