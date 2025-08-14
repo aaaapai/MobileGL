@@ -155,6 +155,10 @@ namespace MobileGL {
                 m_uboScratch.resize(m_metadata.uboSize, 0);
 
                 auto& types = m_metadata.plainUniformMemberTypes;
+                printf("types.size() = %u\n", types.size());
+                printf("m_uniformOffsets.size() = %u\n", m_uniformOffsets.size());
+                fflush(stdout);
+
                 assert(types.size() == m_uniformOffsets.size());
                 m_uniformTypes.resize(m_uniformOffsets.size());
                 for (const auto& [name, type] : types) {
