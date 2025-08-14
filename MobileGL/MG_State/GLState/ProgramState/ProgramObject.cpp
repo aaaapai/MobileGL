@@ -59,7 +59,7 @@ namespace MobileGL {
                     THROW_EXCEPTION(e);
                 }
 
-                // PostLink();
+                PostLink();
             }
 
             void ProgramObject::MarkAsDeleted() {
@@ -145,6 +145,7 @@ namespace MobileGL {
                     assert(false);
                     return;
                 }
+                return;
                 m_metadata = session.GetMetadata();
                 auto& uniformOffsets = m_metadata.plainUniformOffsetsInUBO;
                 for (const auto& [name, offset] : uniformOffsets) {
