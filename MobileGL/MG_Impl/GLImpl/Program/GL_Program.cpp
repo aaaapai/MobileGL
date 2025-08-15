@@ -238,10 +238,15 @@ namespace MobileGL {
                 case GL_ACTIVE_UNIFORM_MAX_LENGTH:
                     *params = programObject->GetUniformMaxLength();
                     break;
-                case GL_PROGRAM_BINARY_LENGTH:
                 case GL_ACTIVE_UNIFORM_BLOCKS:                  // GL >= 3.1
+                    *params = programObject->GetActiveUniformBlocksCount();
+                    break;
                 case GL_ACTIVE_UNIFORM_BLOCK_MAX_NAME_LENGTH:   // ditto.
+                    *params = programObject->GetActiveUniformBlocksMaxLength();
+                    break;
                 case GL_COMPUTE_WORK_GROUP_SIZE:                // GL >= 4.3
+
+                case GL_PROGRAM_BINARY_LENGTH:
 
                 case GL_TRANSFORM_FEEDBACK_BUFFER_MODE:
                 case GL_TRANSFORM_FEEDBACK_VARYINGS:

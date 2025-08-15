@@ -35,7 +35,9 @@ namespace MobileGL {
                 Bool GetValidateStatus() const { return m_validateStatus; }
                 Int GetActiveAtomicCounterCount() const { return m_program->getNumAtomicCounters(); }
                 Int GetActiveAttributesCount() const { return m_program->getNumPipeInputs(); }
+                Int GetActiveUniformBlocksCount() const { return m_program->getNumUniformBlocks(); }
                 Int GetActiveAttributesMaxLength() const { return m_attribInNameMaxLength; }
+                Int GetActiveUniformBlocksMaxLength() const { return m_uniformBlockNameMaxLength; }
             private:
                 void DoReflection();
                 // void PreLink();
@@ -57,9 +59,10 @@ namespace MobileGL {
                 Vector<Uint> m_uniformOffsets;
                 Vector<Uint8> m_uboScratch;
 
-                Int m_uniformNameMaxLength = 0;
                 Uint m_maxUniformLocation = 0;
+                Int m_uniformNameMaxLength = 0;
                 Int m_attribInNameMaxLength = 0;
+                Int m_uniformBlockNameMaxLength = 0;
 
                 String m_infoLog;
                 Bool m_deleteStatus = false;

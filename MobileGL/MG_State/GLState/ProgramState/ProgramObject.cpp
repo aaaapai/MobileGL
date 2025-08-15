@@ -94,6 +94,12 @@ namespace MobileGL {
                     auto& inVar = m_program->getPipeInput(i);
                     m_attribInNameMaxLength = std::max(m_attribInNameMaxLength, (Int)inVar.name.length());
                 }
+
+                int uboCount = m_program->getNumUniformBlocks();
+                for (int i = 0; i < uboCount; i++) {
+                    auto& ubo = m_program->getUniformBlock(i);
+                    m_uniformBlockNameMaxLength = std::max(m_uniformBlockNameMaxLength, (Int)ubo.name.length());
+                }
             }
 
             // void ProgramObject::PreLink() {
