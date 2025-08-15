@@ -89,17 +89,53 @@ namespace MobileGL {
                     m_uniformTypes[location] = uniform.glDefineType;
                 }
 
+                // attributes (pipe in)
                 int inCount = m_program->getNumPipeInputs();
+                m_attribs.resize(inCount);
+
+                // Parse explicit location in shader
                 for (int i = 0; i < inCount; i++) {
                     auto& inVar = m_program->getPipeInput(i);
+                    auto location = inVar.layoutLocation();
                     m_attribInNameMaxLength = std::max(m_attribInNameMaxLength, (Int)inVar.name.length());
+                    // TODO: how to parse location specified in shader?
+                }
+                // Place explicitly set locations
+                for (int i = 0; i < inCount; i++) {
+                    auto& inVar = m_program->getPipeInput(i);
+
+                    auto it = m_explicitAttribLocations.find(inVar.name);
+                    if (it != m_explicitAttribLocations.end()) {
+                        m_attribs[it->second] = inVar.name;
+                    }
+                }
+                // Place yet placed attributes
+                int nextAvailLoc = 0;
+                for (int i = 0; i < inCount; i++) {
+                    auto& inVar = m_program->getPipeInput(i);
+                    auto it = m_explicitAttribLocations.find(inVar.name);
+                    if (it != m_explicitAttribLocations.end()) {
+                        continue;
+                    }
+                    while (nextAvailLoc < inCount && !m_attribs[nextAvailLoc].empty())
+                        ++nextAvailLoc;
+
+                    assert(nextAvailLoc < inCount);
+
+                    m_attribs[nextAvailLoc] = inVar.name;
                 }
 
+
+                // UBO
                 int uboCount = m_program->getNumUniformBlocks();
                 for (int i = 0; i < uboCount; i++) {
                     auto& ubo = m_program->getUniformBlock(i);
                     m_uniformBlockNameMaxLength = std::max(m_uniformBlockNameMaxLength, (Int)ubo.name.length());
                 }
+            }
+
+            void ProgramObject::SetExplicitAttribLocation(Uint index, const char *name) {
+                m_explicitAttribLocations[name] = index;
             }
 
             // void ProgramObject::PreLink() {

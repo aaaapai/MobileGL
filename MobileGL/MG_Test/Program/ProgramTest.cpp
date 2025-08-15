@@ -24,6 +24,7 @@ TEST_F(ProgramTest, Sanity) {
 const char* vsSrc = R"(#version 460
 
 in vec4 Position;
+in float fIn;
 
 layout(location = 0) uniform mat4 ProjMat;
 uniform vec2 InSize;
@@ -36,7 +37,7 @@ void main(){
     vec4 outPos = ProjMat * vec4(Position.xy, 0.0, 1.0);
     gl_Position = vec4(outPos.xy, 0.2, 1.0);
 
-    oneTexel = 1.0 / InSize;
+    oneTexel = (1.0 * fIn) / InSize;
 
     texCoord = Position.xy / OutSize;
 })";

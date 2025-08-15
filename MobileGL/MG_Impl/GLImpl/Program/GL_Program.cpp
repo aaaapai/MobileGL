@@ -85,7 +85,27 @@ namespace MobileGL {
         }
 
         void BindAttribLocation_State(GLuint program, GLuint index, const GLchar* name) {
-            THROW_UNIMPL_EXCEPTION;
+            if (index >= MG_State::GLState::VertexArrayObject::MAX_VERTEX_ATTRIBS) {
+                MG_State::pGLContext->RecordError(
+                        ErrorCode::InvalidValue,
+                        MakeShared<GenericErrorInfo>("MG_Impl/GLImpl", __func__,
+                                                     "`index` is greater than or equal to `GL_MAX_VERTEX_ATTRIBS`."));
+                return;
+            }
+
+            if (strncmp(name, "gl_", 3) == 0) {
+                MG_State::pGLContext->RecordError(
+                        ErrorCode::InvalidOperation,
+                        MakeShared<GenericErrorInfo>("MG_Impl/GLImpl", __func__,
+                                                     "`name` starts with the reserved prefix `gl_`."));
+                return;
+            }
+
+            auto programObject = TryToGetProgramObject(program);
+            if (!programObject)
+                return;
+
+            programObject->SetExplicitAttribLocation(index, name);
         }
 
         void CompileShader_State(GLuint shader) {

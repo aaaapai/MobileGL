@@ -14,6 +14,9 @@ namespace MobileGL {
                 SizeT DetachShader(SharedPtr<ShaderObject> shader);
                 void Link();
                 void MarkAsDeleted();
+
+                void SetExplicitAttribLocation(Uint index, const char* name);
+
                 Vector<SharedPtr<ShaderObject>>& GetAttachedShaders();
                 const String& GetInfoLog() const { return m_infoLog; }
                 Int GetUniformMaxLength() const { return m_uniformNameMaxLength; }
@@ -48,11 +51,18 @@ namespace MobileGL {
 
                 SharedPtr<glslang::TProgram> m_program;
 
+                // Attributes
+                UnorderedMap<String, Uint> m_explicitAttribLocations;
+                Vector<String> m_attribs;
+
                 // Uniforms
                 // MG_Util::ShaderTranspiler::SpvcMetadata m_metadata;
 
                 UnorderedMap<String, Uint> m_uniformLocations;
+                // Ordered by location,
+                // aka. m_uniformNames[loc] == "name at location `loc`"
                 Vector<String> m_uniformNames;
+                // ditto.
                 Vector<GLenum> m_uniformTypes;
 
                 // Need to be reflected after linking of SPIR-V binary
