@@ -100,7 +100,7 @@ namespace MobileGL {
         }
 
         GLuint CreateShader_State(GLenum type) {
-            auto shaderId = MG_State::pGLContext->CreateShader(MG_State::GLState::GetMGLShaderStageByGLShaderType(type));
+            auto shaderId = MG_State::pGLContext->CreateShader(MG_State::GLState::ConvertMGLShaderStageByGLShaderType(type));
             if (shaderId == 0) {
                 MG_State::pGLContext->RecordError(
                     ErrorCode::InvalidValue,
@@ -199,7 +199,68 @@ namespace MobileGL {
         }
 
         void GetProgramiv_State(GLuint program, GLenum pname, GLint* params) {
-            THROW_UNIMPL_EXCEPTION;
+            auto programObject = TryToGetProgramObject(program);
+            if (!programObject)
+                return;
+
+            switch (pname) {
+                case GL_DELETE_STATUS:
+                    *params = programObject->GetDeleteStatus();
+                    break;
+                case GL_LINK_STATUS:
+                    *params = programObject->GetLinkStatus();
+                    break;
+                case GL_VALIDATE_STATUS:
+                    *params = programObject->GetValidateStatus();
+                    break;
+                case GL_INFO_LOG_LENGTH: {
+                    const auto& log = programObject->GetInfoLog();
+                    *params = log.length();
+                    break;
+                }
+                case GL_ATTACHED_SHADERS: {
+                    const auto& attachedShaders = programObject->GetAttachedShaders();
+                    *params = attachedShaders.size();
+                    break;
+                }
+                case GL_ACTIVE_ATOMIC_COUNTER_BUFFERS:
+                    *params = programObject->GetActiveAtomicCounterCount();
+                    break;
+                case GL_ACTIVE_ATTRIBUTES:
+                    *params = programObject->GetActiveAttributesCount();
+                    break;
+                case GL_ACTIVE_ATTRIBUTE_MAX_LENGTH:
+                    *params = programObject->GetActiveAttributesMaxLength();
+                    break;
+                case GL_ACTIVE_UNIFORMS:
+                    *params = programObject->GetUniformCount();
+                    break;
+                case GL_ACTIVE_UNIFORM_MAX_LENGTH:
+                    *params = programObject->GetUniformMaxLength();
+                    break;
+                case GL_ACTIVE_UNIFORM_BLOCKS:                  // GL >= 3.1
+                    *params = programObject->GetActiveUniformBlocksCount();
+                    break;
+                case GL_ACTIVE_UNIFORM_BLOCK_MAX_NAME_LENGTH:   // ditto.
+                    *params = programObject->GetActiveUniformBlocksMaxLength();
+                    break;
+                case GL_COMPUTE_WORK_GROUP_SIZE:                // GL >= 4.3
+
+                case GL_PROGRAM_BINARY_LENGTH:
+
+                case GL_TRANSFORM_FEEDBACK_BUFFER_MODE:
+                case GL_TRANSFORM_FEEDBACK_VARYINGS:
+                case GL_TRANSFORM_FEEDBACK_VARYING_MAX_LENGTH:
+                case GL_GEOMETRY_VERTICES_OUT:
+                case GL_GEOMETRY_INPUT_TYPE:
+                case GL_GEOMETRY_OUTPUT_TYPE:
+                default:
+                    MG_State::pGLContext->RecordError(
+                        ErrorCode::InvalidEnum,
+                        MakeShared<GenericErrorInfo>("MG_Impl/GLImpl", __func__,
+                                "`pname` is not an accepted value."));
+                    return;
+            }
         }
 
         void GetProgramInfoLog_State(GLuint program, GLsizei bufSize, GLsizei* length, GLchar* infoLog) {
@@ -212,7 +273,33 @@ namespace MobileGL {
         }
 
         void GetShaderiv_State(GLuint shader, GLenum pname, GLint* params) {
-            THROW_UNIMPL_EXCEPTION;
+            auto shaderObject = TryToGetShaderObject(shader);
+            if (!shaderObject)
+                return;
+
+            switch (pname) {
+                case GL_SHADER_TYPE:
+                    *params = ConvertGLShaderTypeByMGLShaderStage(shaderObject->GetShaderStage());
+                    break;
+                case GL_DELETE_STATUS:
+                    *params = shaderObject->GetDeleteStatus();
+                    break;
+                case GL_COMPILE_STATUS:
+                    *params = shaderObject->GetCompileStatus();
+                    break;
+                case GL_INFO_LOG_LENGTH:
+                    *params = shaderObject->GetInfoLog().length();
+                    break;
+                case GL_SHADER_SOURCE_LENGTH:
+                    *params = shaderObject->GetShaderSource().length();
+                    break;
+                default:
+                    MG_State::pGLContext->RecordError(
+                        ErrorCode::InvalidEnum,
+                        MakeShared<GenericErrorInfo>("MG_Impl/GLImpl", __func__,
+                                "`pname` is not an accepted value."));
+                    return;
+            }
         }
 
         void GetShaderInfoLog_State(GLuint shader, GLsizei bufSize, GLsizei* length, GLchar* infoLog) {

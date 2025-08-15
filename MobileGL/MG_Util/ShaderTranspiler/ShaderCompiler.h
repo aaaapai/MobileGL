@@ -8,7 +8,8 @@ namespace MobileGL {
             class ShaderCompiler {
             public:
                 static Result<SharedPtr<glslang::TShader>> CompileShader(const ShaderAttrib& attrib);
-                static Result<Vector<Vector<unsigned>>> LinkProgram(const ProgramAttrib& attrib);
+                static Result<SharedPtr<glslang::TProgram>> LinkProgram(const ProgramAttrib& attrib);
+                static Result<Vector<Vector<unsigned>>> GetSpirvBinaryFromProgram(const ProgramBinaryAttrib& attrib);
                 static Result<String> DecompileShader(SpvcSession& session);
             };
         } // namespace ShaderTranspiler

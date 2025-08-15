@@ -24,6 +24,11 @@ namespace MobileGL {
                 Vector<SharedPtr<glslang::TShader>> shaders;
             };
 
+            struct ProgramBinaryAttrib {
+                Vector<GLenum> shaderTypes;
+                const glslang::TProgram& program;
+            };
+
             struct ResultInfo {
                 Int errc = 0;
                 String log;

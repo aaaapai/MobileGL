@@ -17,10 +17,10 @@ namespace MobileGL {
                 Vector<SharedPtr<ShaderObject>>& GetAttachedShaders();
                 const String& GetInfoLog() const { return m_infoLog; }
                 Int GetUniformMaxLength() const { return m_uniformNameMaxLength; }
-                Uint GetUniformCount() { return m_uniformOffsets.size(); }
+                Uint GetUniformCount() { return m_uniformNames.size(); }
                 Int GetUniformLocation(const String& name) {
-                    const auto it = m_uniforms.find(name);
-                    return (it == m_uniforms.end()) ? -1 : it->second;
+                    const auto it = m_uniformLocations.find(name);
+                    return (it == m_uniformLocations.end()) ? -1 : it->second;
                 }
                 GLenum GetUniformType(Uint index) const {
                     return m_uniformTypes[index];
@@ -29,28 +29,40 @@ namespace MobileGL {
                 const String& GetUniformName(Uint index) const {
                     return m_uniformNames[index];
                 }
+
+                Bool GetDeleteStatus() const { return m_deleteStatus; }
+                Bool GetLinkStatus() const { return m_linkStatus; }
+                Bool GetValidateStatus() const { return m_validateStatus; }
+                Int GetActiveAtomicCounterCount() const { return m_program->getNumAtomicCounters(); }
+                Int GetActiveAttributesCount() const { return m_program->getNumPipeInputs(); }
+                Int GetActiveUniformBlocksCount() const { return m_program->getNumUniformBlocks(); }
+                Int GetActiveAttributesMaxLength() const { return m_attribInNameMaxLength; }
+                Int GetActiveUniformBlocksMaxLength() const { return m_uniformBlockNameMaxLength; }
             private:
-                void PreLink();
-                void PostLink();
+                void DoReflection();
+                // void PreLink();
+                // void PostLink();
 
                 const Uint m_id = 0;
                 Vector<SharedPtr<ShaderObject>> m_shaders;
-                // basically this contains SPIR-V in binary format
-                Vector<Vector<Uint>> m_programBinary;
+
+                SharedPtr<glslang::TProgram> m_program;
 
                 // Uniforms
-                MG_Util::ShaderTranspiler::SpvcMetadata m_metadata;
+                // MG_Util::ShaderTranspiler::SpvcMetadata m_metadata;
 
-                UnorderedMap<String, Uint> m_uniforms;
-                // 0 or 1 for if the location is explicitly specified at PreLink stage,
-                // offsets into global ubo for PostLink
-                Vector<Uint> m_uniformOffsets;
+                UnorderedMap<String, Uint> m_uniformLocations;
                 Vector<String> m_uniformNames;
                 Vector<GLenum> m_uniformTypes;
 
+                // Need to be reflected after linking of SPIR-V binary
+                Vector<Uint> m_uniformOffsets;
                 Vector<Uint8> m_uboScratch;
 
+                Uint m_maxUniformLocation = 0;
                 Int m_uniformNameMaxLength = 0;
+                Int m_attribInNameMaxLength = 0;
+                Int m_uniformBlockNameMaxLength = 0;
 
                 String m_infoLog;
                 Bool m_deleteStatus = false;
