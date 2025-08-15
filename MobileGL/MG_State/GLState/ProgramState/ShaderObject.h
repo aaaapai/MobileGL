@@ -14,7 +14,7 @@ namespace MobileGL {
                 Unknown = -1
             };
 
-            inline static GLenum GetGLShaderTypeByMGLShaderStage(ShaderStage stage) {
+            inline static GLenum ConvertGLShaderTypeByMGLShaderStage(ShaderStage stage) {
                 switch (stage) {
                 case ShaderStage::Vertex:
                     return GL_VERTEX_SHADER;
@@ -34,7 +34,7 @@ namespace MobileGL {
                 }
             }
 
-            inline static ShaderStage GetMGLShaderStageByGLShaderType(GLenum type) {
+            inline static ShaderStage ConvertMGLShaderStageByGLShaderType(GLenum type) {
                 switch (type) {
                     case GL_VERTEX_SHADER:
                         return ShaderStage::Vertex;
@@ -68,6 +68,8 @@ namespace MobileGL {
                 SharedPtr<glslang::TShader> GetCompiledShader() const { return m_shader; }
                 const String& GetInfoLog() const { return m_infoLog; }
                 const UnorderedMap<String, Uint>& GetUniformLocations() const { return m_uniforms; }
+                Bool GetCompileStatus() const { return m_compileStatus; }
+                Bool GetDeleteStatus() const { return m_deleteStatus; }
             private:
                 // bool DoReflection();
                 const Uint m_id = 0;

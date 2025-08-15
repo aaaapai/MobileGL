@@ -31,7 +31,7 @@ namespace MobileGL {
                 Vector<GLenum> shaderTypes(m_shaders.size());
                 Vector<SharedPtr<glslang::TShader>> shaders(m_shaders.size());
                 for (SizeT i = 0; i < m_shaders.size(); i++) {
-                    shaderTypes[i] = GetGLShaderTypeByMGLShaderStage(m_shaders[i]->GetShaderStage());
+                    shaderTypes[i] = ConvertGLShaderTypeByMGLShaderStage(m_shaders[i]->GetShaderStage());
                     shaders[i] = m_shaders[i]->GetCompiledShader();
                 }
 

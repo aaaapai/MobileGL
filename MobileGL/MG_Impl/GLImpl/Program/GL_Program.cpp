@@ -100,7 +100,7 @@ namespace MobileGL {
         }
 
         GLuint CreateShader_State(GLenum type) {
-            auto shaderId = MG_State::pGLContext->CreateShader(MG_State::GLState::GetMGLShaderStageByGLShaderType(type));
+            auto shaderId = MG_State::pGLContext->CreateShader(MG_State::GLState::ConvertMGLShaderStageByGLShaderType(type));
             if (shaderId == 0) {
                 MG_State::pGLContext->RecordError(
                     ErrorCode::InvalidValue,
@@ -273,7 +273,33 @@ namespace MobileGL {
         }
 
         void GetShaderiv_State(GLuint shader, GLenum pname, GLint* params) {
-            THROW_UNIMPL_EXCEPTION;
+            auto shaderObject = TryToGetShaderObject(shader);
+            if (!shaderObject)
+                return;
+
+            switch (pname) {
+                case GL_SHADER_TYPE:
+                    *params = ConvertGLShaderTypeByMGLShaderStage(shaderObject->GetShaderStage());
+                    break;
+                case GL_DELETE_STATUS:
+                    *params = shaderObject->GetDeleteStatus();
+                    break;
+                case GL_COMPILE_STATUS:
+                    *params = shaderObject->GetCompileStatus();
+                    break;
+                case GL_INFO_LOG_LENGTH:
+                    *params = shaderObject->GetInfoLog().length();
+                    break;
+                case GL_SHADER_SOURCE_LENGTH:
+                    *params = shaderObject->GetShaderSource().length();
+                    break;
+                default:
+                    MG_State::pGLContext->RecordError(
+                        ErrorCode::InvalidEnum,
+                        MakeShared<GenericErrorInfo>("MG_Impl/GLImpl", __func__,
+                                "`pname` is not an accepted value."));
+                    return;
+            }
         }
 
         void GetShaderInfoLog_State(GLuint shader, GLsizei bufSize, GLsizei* length, GLchar* infoLog) {
