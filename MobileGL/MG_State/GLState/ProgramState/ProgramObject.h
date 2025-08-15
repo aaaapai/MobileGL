@@ -19,8 +19,8 @@ namespace MobileGL {
                 Int GetUniformMaxLength() const { return m_uniformNameMaxLength; }
                 Uint GetUniformCount() { return m_uniformOffsets.size(); }
                 Int GetUniformLocation(const String& name) {
-                    const auto it = m_uniforms.find(name);
-                    return (it == m_uniforms.end()) ? -1 : it->second;
+                    const auto it = m_uniformLocations.find(name);
+                    return (it == m_uniformLocations.end()) ? -1 : it->second;
                 }
                 GLenum GetUniformType(Uint index) const {
                     return m_uniformTypes[index];
@@ -30,8 +30,9 @@ namespace MobileGL {
                     return m_uniformNames[index];
                 }
             private:
-                void PreLink();
-                void PostLink();
+                void DoReflection();
+                // void PreLink();
+                // void PostLink();
 
                 const Uint m_id = 0;
                 Vector<SharedPtr<ShaderObject>> m_shaders;
@@ -41,16 +42,16 @@ namespace MobileGL {
                 // Uniforms
                 MG_Util::ShaderTranspiler::SpvcMetadata m_metadata;
 
-                UnorderedMap<String, Uint> m_uniforms;
-                // 0 or 1 for if the location is explicitly specified at PreLink stage,
-                // offsets into global ubo for PostLink
-                Vector<Uint> m_uniformOffsets;
+                UnorderedMap<String, Uint> m_uniformLocations;
                 Vector<String> m_uniformNames;
                 Vector<GLenum> m_uniformTypes;
 
+                // Need to be reflected after linking of SPIR-V binary
+                Vector<Uint> m_uniformOffsets;
                 Vector<Uint8> m_uboScratch;
 
                 Int m_uniformNameMaxLength = 0;
+                Uint m_maxUniformLocation = 0;
 
                 String m_infoLog;
                 Bool m_deleteStatus = false;

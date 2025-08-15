@@ -69,7 +69,7 @@ namespace MobileGL {
                 const String& GetInfoLog() const { return m_infoLog; }
                 const UnorderedMap<String, Uint>& GetUniformLocations() const { return m_uniforms; }
             private:
-                bool DoReflection();
+                // bool DoReflection();
                 const Uint m_id = 0;
                 const ShaderStage m_stage;
                 String m_source;
