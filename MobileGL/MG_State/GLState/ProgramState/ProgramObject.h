@@ -40,7 +40,7 @@ namespace MobileGL {
                 SharedPtr<glslang::TProgram> m_program;
 
                 // Uniforms
-                MG_Util::ShaderTranspiler::SpvcMetadata m_metadata;
+                // MG_Util::ShaderTranspiler::SpvcMetadata m_metadata;
 
                 UnorderedMap<String, Uint> m_uniformLocations;
                 Vector<String> m_uniformNames;
