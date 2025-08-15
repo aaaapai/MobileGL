@@ -26,7 +26,7 @@ namespace MobileGL {
             }
 
             void ProgramObject::Link() {
-                PreLink();
+                // PreLink();
 
                 Vector<GLenum> shaderTypes(m_shaders.size());
                 Vector<SharedPtr<glslang::TShader>> shaders(m_shaders.size());
@@ -43,7 +43,7 @@ namespace MobileGL {
                 auto result = MG_Util::ShaderTranspiler::ShaderCompiler::LinkProgram(attrib);
                 if (result) {
                     m_linkStatus = true;
-                    m_programBinary = Move(result.value());
+                    m_program = result.value();
                 } else {
                     m_linkStatus = false;
                     m_infoLog = result.error().log;
@@ -53,7 +53,7 @@ namespace MobileGL {
                     THROW_EXCEPTION(e);
                 }
 
-                PostLink();
+                // PostLink();
             }
 
             void ProgramObject::MarkAsDeleted() {
@@ -127,35 +127,35 @@ namespace MobileGL {
             }
 
             void ProgramObject::PostLink() {
-                if (m_programBinary.empty()) {
-                    assert(false);
-                    return;
-                }
-                MG_Util::ShaderTranspiler::SpvcSession session(m_programBinary[0]);
-                const char* src = nullptr; // we don't care the source atm
-                auto result = session.Compile(&src);
-                if (result != SPVC_SUCCESS) {
-                    assert(false);
-                    return;
-                }
-                m_metadata = session.GetMetadata();
-                auto& uniformOffsets = m_metadata.plainUniformOffsetsInUBO;
-                for (const auto& [name, offset] : uniformOffsets) {
-                    assert(m_uniforms.find(name) != m_uniforms.end());
-                    assert(m_uniforms[name] < m_uniformOffsets.size());
-                    m_uniformOffsets[m_uniforms[name]] = offset;
-                }
-                m_uboScratch.resize(m_metadata.uboSize, 0);
-
-                auto& types = m_metadata.plainUniformMemberTypes;
-
-                assert(types.size() == m_uniformOffsets.size());
-                m_uniformTypes.resize(m_uniformOffsets.size());
-                for (const auto& [name, type] : types) {
-                    auto gltype = MG_Util::ConvertSpvcTypeToGLEnum(type);
-                    auto location = m_uniforms[name];
-                    m_uniformTypes[location] = gltype;
-                }
+                // if (m_programBinary.empty()) {
+                //     assert(false);
+                //     return;
+                // }
+                // MG_Util::ShaderTranspiler::SpvcSession session(m_programBinary[0]);
+                // const char* src = nullptr; // we don't care the source atm
+                // auto result = session.Compile(&src);
+                // if (result != SPVC_SUCCESS) {
+                //     assert(false);
+                //     return;
+                // }
+                // m_metadata = session.GetMetadata();
+                // auto& uniformOffsets = m_metadata.plainUniformOffsetsInUBO;
+                // for (const auto& [name, offset] : uniformOffsets) {
+                //     assert(m_uniforms.find(name) != m_uniforms.end());
+                //     assert(m_uniforms[name] < m_uniformOffsets.size());
+                //     m_uniformOffsets[m_uniforms[name]] = offset;
+                // }
+                // m_uboScratch.resize(m_metadata.uboSize, 0);
+                //
+                // auto& types = m_metadata.plainUniformMemberTypes;
+                //
+                // assert(types.size() == m_uniformOffsets.size());
+                // m_uniformTypes.resize(m_uniformOffsets.size());
+                // for (const auto& [name, type] : types) {
+                //     auto gltype = MG_Util::ConvertSpvcTypeToGLEnum(type);
+                //     auto location = m_uniforms[name];
+                //     m_uniformTypes[location] = gltype;
+                // }
             }
         } // namespace GLState
     } // namespace MG_State

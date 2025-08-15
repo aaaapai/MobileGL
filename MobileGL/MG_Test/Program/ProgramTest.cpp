@@ -113,6 +113,9 @@ TEST_F(ProgramTest, CompileAndLink) {
     LinkProgram(program);
     printf("Program linked.\n");
 
+    // FIXME: fix these later, refactoring uniform location reflection stuff
+    FAIL() << "GetUniformLocation not implemented yet!";
+
     EXPECT_EQ(GetUniformLocation(program, "ProjMat"), 0);
     EXPECT_EQ(GetUniformLocation(program, "Gray"), 1);
     EXPECT_EQ(GetUniformLocation(program, "Saturation"), 6);

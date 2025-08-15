@@ -159,22 +159,22 @@ namespace MobileGL {
                 return res;
             }
 
-            Result<Vector<Vector<unsigned>>> ShaderCompiler::LinkProgram(const ProgramAttrib& attrib) {
-                glslang::TProgram program;
+            Result<SharedPtr<glslang::TProgram>> ShaderCompiler::LinkProgram(const ProgramAttrib& attrib) {
+                SharedPtr<glslang::TProgram> program = MakeShared<glslang::TProgram>();
                 for (auto& s : attrib.shaders) {
-                    program.addShader(s.get());
+                    program->addShader(s.get());
                 }
 
-                if (!program.link(EShMsgDefault)) {
+                if (!program->link(EShMsgDefault)) {
                     ResultInfo r;
-                    r.log = "Error: [glslang] Cannot link the program:\n" + std::string(program.getInfoLog());
+                    r.log = "Error: [glslang] Cannot link the program:\n" + std::string(program->getInfoLog());
                     r.errc = -3;
                     return std::unexpected(r);
                 }
 
                 UniquePtr<glslang::TIoMapResolver> resolver;
                 for (unsigned stage = 0; stage < EShLangCount; stage++) {
-                    auto* pResolver = program.getGlslIoResolver((EShLanguage)stage);
+                    auto* pResolver = program->getGlslIoResolver((EShLanguage)stage);
                     if (pResolver) {
                         resolver = UniquePtr<glslang::TIoMapResolver>(pResolver);
                         break;
@@ -182,20 +182,24 @@ namespace MobileGL {
                 }
                 auto ioMapper = UniquePtr<glslang::TIoMapper>(glslang::GetGlslIoMapper());
 
-                if (!program.mapIO(resolver.get(), ioMapper.get())) {
+                if (!program->mapIO(resolver.get(), ioMapper.get())) {
                     ResultInfo r;
-                    r.log = "Error: [glslang] Cannot mapIO:\n" + std::string(program.getInfoLog());
+                    r.log = "Error: [glslang] Cannot mapIO:\n" + std::string(program->getInfoLog());
                     r.errc = -4;
                     return std::unexpected(r);
                 }
 
+                return program;
+            }
+
+            Result<Vector<Vector<unsigned>>> ShaderCompiler::GetSpirvBinaryFromProgram(const ProgramBinaryAttrib &attrib) {
                 glslang::SpvOptions spvOptions;
                 spvOptions.disableOptimizer = false;
 
                 Vector<Vector<unsigned>> allSpirv;
                 for (auto type : attrib.shaderTypes) {
                     Vector<unsigned> spirv;
-                    GlslangToSpv(*program.getIntermediate(ConvertGLEnumToEShLanguage(type)), spirv, &spvOptions);
+                    GlslangToSpv(*attrib.program.getIntermediate(ConvertGLEnumToEShLanguage(type)), spirv, &spvOptions);
                     allSpirv.push_back(spirv);
                 }
 

@@ -35,8 +35,8 @@ namespace MobileGL {
 
                 const Uint m_id = 0;
                 Vector<SharedPtr<ShaderObject>> m_shaders;
-                // basically this contains SPIR-V in binary format
-                Vector<Vector<Uint>> m_programBinary;
+
+                SharedPtr<glslang::TProgram> m_program;
 
                 // Uniforms
                 MG_Util::ShaderTranspiler::SpvcMetadata m_metadata;

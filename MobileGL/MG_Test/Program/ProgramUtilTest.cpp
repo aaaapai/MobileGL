@@ -143,8 +143,15 @@ TEST_F(ProgramUtilTest, CompileFragmentShaderWithDiscard) {
         FAIL() << "errc: " << program_res.error().errc << "\nlog: " << program_res.error().log;
     }
 
+    auto program = program_res.value();
 
-    auto spirvs = program_res.value();
+    ProgramBinaryAttrib binaryAttrib {
+        .shaderTypes = { GL_FRAGMENT_SHADER },
+        .program = *program,
+    };
+    auto bin_res = ShaderCompiler::GetSpirvBinaryFromProgram(binaryAttrib);
+
+    auto spirvs = bin_res.value();
 
     Vector<SpvcSession> sessions(spirvs.size());
     for (SizeT i = 0; i < spirvs.size(); ++i) {
@@ -282,7 +289,13 @@ TEST_F(ProgramUtilTest, DecompProgram) {
         FAIL() << "errc: " << program_res.error().errc << "\nlog: " << program_res.error().log;
     }
 
-    auto spirvs = program_res.value();
+    ProgramBinaryAttrib binaryAttrib {
+        .shaderTypes = { GL_VERTEX_SHADER, GL_FRAGMENT_SHADER },
+        .program = *program_res.value(),
+    };
+    auto bin_res = ShaderCompiler::GetSpirvBinaryFromProgram(binaryAttrib);
+
+    auto spirvs = bin_res.value();
 
     Vector<SpvcSession> sessions(spirvs.size());
     for (SizeT i = 0; i < spirvs.size(); ++i) {
