@@ -442,9 +442,7 @@ namespace MobileGL {
         }
 
         void ValidateProgram_State(GLuint program) {
-            auto programObject = TryToGetProgramObject(program);
-            if (!programObject)
-                return;
+            THROW_UNIMPL_EXCEPTION;
         }
 
         void AttachShader(GLuint program, GLuint shader) {
