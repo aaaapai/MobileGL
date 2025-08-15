@@ -17,7 +17,7 @@ namespace MobileGL {
                 Vector<SharedPtr<ShaderObject>>& GetAttachedShaders();
                 const String& GetInfoLog() const { return m_infoLog; }
                 Int GetUniformMaxLength() const { return m_uniformNameMaxLength; }
-                Uint GetUniformCount() { return m_uniformOffsets.size(); }
+                Uint GetUniformCount() { return m_uniformNames.size(); }
                 Int GetUniformLocation(const String& name) {
                     const auto it = m_uniformLocations.find(name);
                     return (it == m_uniformLocations.end()) ? -1 : it->second;
@@ -29,6 +29,13 @@ namespace MobileGL {
                 const String& GetUniformName(Uint index) const {
                     return m_uniformNames[index];
                 }
+
+                Bool GetDeleteStatus() const { return m_deleteStatus; }
+                Bool GetLinkStatus() const { return m_linkStatus; }
+                Bool GetValidateStatus() const { return m_validateStatus; }
+                Int GetActiveAtomicCounterCount() const { return m_program->getNumAtomicCounters(); }
+                Int GetActiveAttributesCount() const { return m_program->getNumPipeInputs(); }
+                Int GetActiveAttributesMaxLength() const { return m_attribInNameMaxLength; }
             private:
                 void DoReflection();
                 // void PreLink();
@@ -52,6 +59,7 @@ namespace MobileGL {
 
                 Int m_uniformNameMaxLength = 0;
                 Uint m_maxUniformLocation = 0;
+                Int m_attribInNameMaxLength = 0;
 
                 String m_infoLog;
                 Bool m_deleteStatus = false;

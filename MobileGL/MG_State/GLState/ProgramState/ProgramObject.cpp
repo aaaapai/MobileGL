@@ -74,6 +74,7 @@ namespace MobileGL {
                     auto& uniform = m_program->getUniform(i);
                     auto location = uniform.layoutLocation();
                     m_maxUniformLocation = std::max(m_maxUniformLocation, location);
+                    m_uniformNameMaxLength = std::max(m_uniformNameMaxLength, (Int)uniform.name.length());
                     m_uniformLocations[uniform.name] = location;
                 }
 
@@ -86,6 +87,12 @@ namespace MobileGL {
                     auto location = uniform.layoutLocation();
                     m_uniformNames[location] = uniform.name;
                     m_uniformTypes[location] = uniform.glDefineType;
+                }
+
+                int inCount = m_program->getNumPipeInputs();
+                for (int i = 0; i < inCount; i++) {
+                    auto& inVar = m_program->getPipeInput(i);
+                    m_attribInNameMaxLength = std::max(m_attribInNameMaxLength, (Int)inVar.name.length());
                 }
             }
 

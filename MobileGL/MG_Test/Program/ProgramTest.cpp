@@ -52,11 +52,12 @@ uniform vec2 InSize;
 
 layout(location = 1) uniform vec3 Gray;
 uniform vec3 RedMatrix;
-uniform vec3 GreenMatrix;
+uniform vec3 GreenMatrix0;
 uniform vec3 BlueMatrix;
 uniform vec3 Offset;
 uniform vec3 ColorScale;
 layout(location = 6) uniform float Saturation;
+uniform int AQuickFoxJumpsOverALazyDog;
 
 out vec4 fragColor;
 
@@ -65,7 +66,7 @@ void main() {
 
     // Color Matrix
     float RedValue = dot(InTexel.rgb, RedMatrix);
-    float GreenValue = dot(InTexel.rgb, GreenMatrix);
+    float GreenValue = dot(InTexel.rgb, GreenMatrix0);
     float BlueValue = dot(InTexel.rgb, BlueMatrix);
     vec3 OutColor = vec3(RedValue, GreenValue, BlueValue);
 
@@ -116,4 +117,10 @@ TEST_F(ProgramTest, CompileAndLink) {
     EXPECT_EQ(GetUniformLocation(program, "ProjMat"), 0);
     EXPECT_EQ(GetUniformLocation(program, "Gray"), 1);
     EXPECT_EQ(GetUniformLocation(program, "Saturation"), 6);
+    GLint uniformCount = 0;
+    GetProgramiv(program, GL_ACTIVE_UNIFORMS, &uniformCount);
+    EXPECT_EQ(uniformCount, 11);
+    GLint uniformNameMaxLength = 0;
+    GetProgramiv(program, GL_ACTIVE_UNIFORM_MAX_LENGTH, &uniformNameMaxLength);
+    EXPECT_EQ(uniformNameMaxLength, 12);
 }
