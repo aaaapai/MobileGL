@@ -33,6 +33,11 @@ namespace MobileGL {
                     return m_uniformNames[index];
                 }
 
+                Int GetAttributeLocation(const String& name) {
+                    const auto it = std::find(m_attribs.begin(), m_attribs.end(), name);
+                    return (it == m_attribs.end()) ? -1 : std::distance(m_attribs.begin(), it);
+                }
+
                 Bool GetDeleteStatus() const { return m_deleteStatus; }
                 Bool GetLinkStatus() const { return m_linkStatus; }
                 Bool GetValidateStatus() const { return m_validateStatus; }
@@ -76,7 +81,7 @@ namespace MobileGL {
 
                 String m_infoLog;
                 Bool m_deleteStatus = false;
-                Bool m_linkStatus = true;
+                Bool m_linkStatus = false;
                 Bool m_validateStatus = true;
             };
         } // namespace GLState

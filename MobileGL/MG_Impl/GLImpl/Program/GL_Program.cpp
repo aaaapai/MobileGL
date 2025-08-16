@@ -215,7 +215,14 @@ namespace MobileGL {
         }
 
         GLint GetAttribLocation_State(GLuint program, const GLchar* name) {
-            THROW_UNIMPL_EXCEPTION;
+            auto programObject = TryToGetProgramObject(program);
+            if (!programObject)
+                return -1;
+            if (strncmp(name, "gl_", 3) == 0)
+                return -1;
+            if (!programObject->GetLinkStatus())
+                return -1;
+            return programObject->GetAttributeLocation(name);
         }
 
         void GetProgramiv_State(GLuint program, GLenum pname, GLint* params) {
