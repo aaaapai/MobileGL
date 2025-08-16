@@ -48,4 +48,9 @@ jobs:
 
       - name: Test
         working-directory: ${{env.TEST_ROOT}}/build-test
-        run: ctest -V
+        run: |
+          if [ "${{ secrets.ACTIONS_STEP_DEBUG }}" == "true" ]; then
+            ctest -V
+          else
+            ctest
+          fi
