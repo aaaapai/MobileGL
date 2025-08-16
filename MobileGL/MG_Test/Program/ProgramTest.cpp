@@ -23,8 +23,13 @@ TEST_F(ProgramTest, Sanity) {
 
 const char* vsSrc = R"(#version 460
 
-in vec4 Position;
-in float fIn;
+layout (location = 0) in vec4 Position;
+in float fIn4;
+in float fIn2;
+in float fIn5;
+in float fIn6;
+in float fIn1;
+in float fIn3;
 
 layout(location = 0) uniform mat4 ProjMat;
 uniform vec2 InSize;
@@ -37,7 +42,7 @@ void main(){
     vec4 outPos = ProjMat * vec4(Position.xy, 0.0, 1.0);
     gl_Position = vec4(outPos.xy, 0.2, 1.0);
 
-    oneTexel = (1.0 * fIn) / InSize;
+    oneTexel = (1.0 * (fIn1 * fIn2 * fIn3 * fIn4 * fIn5 * fIn6)) / InSize;
 
     texCoord = Position.xy / OutSize;
 })";
@@ -111,6 +116,10 @@ TEST_F(ProgramTest, CompileAndLink) {
     GLuint program = CreateProgram();
     AttachShader(program, vs);
     AttachShader(program, fs);
+
+    BindAttribLocation(program, 1, "fIn1");
+    BindAttribLocation(program, 3, "fIn3");
+    BindAttribLocation(program, 5, "fIn5");
     printf("Linking program...\n");
     LinkProgram(program);
     printf("Program linked.\n");
@@ -124,4 +133,9 @@ TEST_F(ProgramTest, CompileAndLink) {
     GLint uniformNameMaxLength = 0;
     GetProgramiv(program, GL_ACTIVE_UNIFORM_MAX_LENGTH, &uniformNameMaxLength);
     EXPECT_EQ(uniformNameMaxLength, 12);
+
+    EXPECT_EQ(GetAttribLocation(program, "Position"), 0);
+    EXPECT_EQ(GetAttribLocation(program, "fIn1"), 1);
+    EXPECT_EQ(GetAttribLocation(program, "fIn3"), 3);
+    EXPECT_EQ(GetAttribLocation(program, "fIn5"), 5);
 }
