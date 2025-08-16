@@ -93,38 +93,21 @@ namespace MobileGL {
                 int inCount = m_program->getNumPipeInputs();
                 m_attribs.resize(inCount);
 
-                // Parse explicit location in shader
+                // Get locations parsed in program
                 for (int i = 0; i < inCount; i++) {
                     auto& inVar = m_program->getPipeInput(i);
                     auto location = inVar.layoutLocation();
                     m_attribInNameMaxLength = std::max(m_attribInNameMaxLength, (Int)inVar.name.length());
-                    // TODO: how to parse location specified in shader?
+                    m_attribs[location] = inVar.name;
                 }
-                // Place explicitly set locations
-                for (int i = 0; i < inCount; i++) {
-                    auto& inVar = m_program->getPipeInput(i);
-
-                    auto it = m_explicitAttribLocations.find(inVar.name);
-                    if (it != m_explicitAttribLocations.end()) {
-                        m_attribs[it->second] = inVar.name;
+                // Implement glBindAttribLocation semantics
+                for (auto& [name, location]: m_explicitAttribLocations) {
+                    assert(location < m_attribs.size());
+                    if (m_attribs[location] != name) {
+                        auto it = std::find(m_attribs.begin(), m_attribs.end(), name);
+                        std::swap(m_attribs[location], m_attribs[std::distance(m_attribs.begin(), it)]);
                     }
                 }
-                // Place yet placed attributes
-                int nextAvailLoc = 0;
-                for (int i = 0; i < inCount; i++) {
-                    auto& inVar = m_program->getPipeInput(i);
-                    auto it = m_explicitAttribLocations.find(inVar.name);
-                    if (it != m_explicitAttribLocations.end()) {
-                        continue;
-                    }
-                    while (nextAvailLoc < inCount && !m_attribs[nextAvailLoc].empty())
-                        ++nextAvailLoc;
-
-                    assert(nextAvailLoc < inCount);
-
-                    m_attribs[nextAvailLoc] = inVar.name;
-                }
-
 
                 // UBO
                 int uboCount = m_program->getNumUniformBlocks();
