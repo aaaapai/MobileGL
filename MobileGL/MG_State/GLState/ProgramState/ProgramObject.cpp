@@ -105,6 +105,8 @@ namespace MobileGL {
                     assert(location < m_attribs.size());
                     if (m_attribs[location] != name) {
                         auto it = std::find(m_attribs.begin(), m_attribs.end(), name);
+                        if (it == m_attribs.end())
+                            continue;
                         std::swap(m_attribs[location], m_attribs[std::distance(m_attribs.begin(), it)]);
                     }
                 }
