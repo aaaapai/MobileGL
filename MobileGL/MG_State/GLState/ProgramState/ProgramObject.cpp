@@ -93,6 +93,7 @@ namespace MobileGL {
                 // attributes (pipe in)
                 int inCount = m_program->getNumPipeInputs();
                 m_attribs.resize(inCount);
+                m_attribTypes.resize(inCount);
 
                 // Get locations parsed in program
                 for (int i = 0; i < inCount; i++) {
@@ -100,6 +101,7 @@ namespace MobileGL {
                     auto location = inVar.layoutLocation();
                     m_attribInNameMaxLength = std::max(m_attribInNameMaxLength, (Int)inVar.name.length());
                     m_attribs[location] = inVar.name;
+                    m_attribTypes[location] = inVar.glDefineType;
                 }
                 // Implement glBindAttribLocation semantics
                 for (auto& [name, location]: m_explicitAttribLocations) {
@@ -109,6 +111,7 @@ namespace MobileGL {
                         if (it == m_attribs.end())
                             continue;
                         std::swap(m_attribs[location], m_attribs[std::distance(m_attribs.begin(), it)]);
+                        std::swap(m_attribTypes[location], m_attribTypes[std::distance(m_attribs.begin(), it)]);
                     }
                 }
 
@@ -169,6 +172,9 @@ namespace MobileGL {
                 assert(srcResult);
                 auto src = srcResult.value();
                 printf("decompiled src: \n%s", src.c_str());
+            }
+
+            void ProgramObject::WaitUntilGenerationCompleted() {
             }
 
             void ProgramObject::SetExplicitAttribLocation(Uint index, const char *name) {

@@ -37,6 +37,12 @@ namespace MobileGL {
                     const auto it = std::find(m_attribs.begin(), m_attribs.end(), name);
                     return (it == m_attribs.end()) ? -1 : std::distance(m_attribs.begin(), it);
                 }
+                GLenum GetAttribType(Uint index) const {
+                    return m_attribTypes[index];
+                }
+                const String& GetAttribName(Uint index) const {
+                    return m_attribs[index];
+                }
 
                 Bool GetDeleteStatus() const { return m_deleteStatus; }
                 Bool GetLinkStatus() const { return m_linkStatus; }
@@ -49,6 +55,7 @@ namespace MobileGL {
             private:
                 void DoReflection();
                 void GenerateBinary();
+                void WaitUntilGenerationCompleted();
                 // void PreLink();
                 // void PostLink();
 
@@ -62,6 +69,7 @@ namespace MobileGL {
                 // Attributes
                 UnorderedMap<String, Uint> m_explicitAttribLocations;
                 Vector<String> m_attribs;
+                Vector<GLenum> m_attribTypes;
 
                 // Uniforms
                 // MG_Util::ShaderTranspiler::SpvcMetadata m_metadata;

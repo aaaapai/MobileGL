@@ -163,7 +163,29 @@ namespace MobileGL {
 
         void GetActiveAttrib_State(GLuint program, GLuint index, GLsizei bufSize, GLsizei* length, GLint* size,
                                    GLenum* type, GLchar* name) {
-            THROW_UNIMPL_EXCEPTION;
+            if (bufSize < 0) {
+                MG_State::pGLContext->RecordError(
+                        ErrorCode::InvalidValue,
+                        MakeShared<GenericErrorInfo>("MG_Impl/GLImpl", __func__,
+                                                     "`bufSize` is less than 0."));
+                return;
+            }
+            auto programObject = TryToGetProgramObject(program);
+            if (!programObject)
+                return;
+            auto attribCount = programObject->GetActiveAttributesCount();
+            if (index >= attribCount) {
+                MG_State::pGLContext->RecordError(
+                        ErrorCode::InvalidValue,
+                        MakeShared<GenericErrorInfo>("MG_Impl/GLImpl", __func__,
+                                "`index` is greater than or equal to the number of active attribute variables in `program`."));
+                return;
+            }
+            if (type != nullptr)
+                *type = programObject->GetAttribType(index);
+            if (bufSize == 0) return;
+            auto& attribName = programObject->GetAttribName(index);
+            CopyStr(bufSize, length, name, attribName.c_str(), attribName.length());
         }
 
         void GetActiveUniform_State(GLuint program, GLuint index, GLsizei bufSize, GLsizei* length, GLint* size,
