@@ -20,7 +20,7 @@ namespace MobileGL {
             };
 
             struct ProgramAttrib {
-                Vector<GLenum> shaderTypes;
+                // Vector<GLenum> shaderTypes;
                 Vector<SharedPtr<glslang::TShader>> shaders;
             };
 

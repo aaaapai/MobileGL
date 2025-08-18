@@ -36,7 +36,7 @@ namespace MobileGL {
                 }
 
                 MG_Util::ShaderTranspiler::ProgramAttrib attrib{
-                    .shaderTypes = Move(shaderTypes),
+                    // .shaderTypes = Move(shaderTypes),
                     .shaders = Move(shaders),
                 };
 
