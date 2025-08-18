@@ -45,9 +45,10 @@ namespace MobileGL {
                 Int GetActiveAttributesCount() const { return m_program->getNumPipeInputs(); }
                 Int GetActiveUniformBlocksCount() const { return m_program->getNumUniformBlocks(); }
                 Int GetActiveAttributesMaxLength() const { return m_attribInNameMaxLength; }
-                Int GetActiveUniformBlocksMaxLength() const { return m_uniformBlockNameMaxLength; }
+                Int GetActiveUniformBlocksMaxNameLength() const { return m_uniformBlockNameMaxLength; }
             private:
                 void DoReflection();
+                void GenerateBinary();
                 // void PreLink();
                 // void PostLink();
 
@@ -55,6 +56,8 @@ namespace MobileGL {
                 Vector<SharedPtr<ShaderObject>> m_shaders;
 
                 SharedPtr<glslang::TProgram> m_program;
+
+                Vector<Vector<unsigned>> m_generatedSpirv;
 
                 // Attributes
                 UnorderedMap<String, Uint> m_explicitAttribLocations;

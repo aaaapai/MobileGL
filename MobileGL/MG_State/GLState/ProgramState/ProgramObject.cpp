@@ -52,6 +52,7 @@ namespace MobileGL {
                 // PostLink();
 
                 DoReflection();
+                GenerateBinary();
             }
 
             void ProgramObject::MarkAsDeleted() {
@@ -117,6 +118,57 @@ namespace MobileGL {
                     auto& ubo = m_program->getUniformBlock(i);
                     m_uniformBlockNameMaxLength = std::max(m_uniformBlockNameMaxLength, (Int)ubo.name.length());
                 }
+            }
+
+            void ProgramObject::GenerateBinary() {
+                /* As we passed first stage compilation/linking,
+                 * we'll assume all the operations here should
+                 * pass. We may be able to employ some optimizations
+                 * here without the burden of error reporting.
+                 */
+                using namespace MG_Util::ShaderTranspiler;
+                Vector<SharedPtr<glslang::TShader>> shaders(m_shaders.size());
+                Vector<GLenum> shaderTypes(m_shaders.size());
+                for (SizeT i = 0; i < m_shaders.size(); i++) {
+                    auto shaderType = ConvertGLShaderTypeByMGLShaderStage(m_shaders[i]->GetShaderStage());
+                    shaderTypes[i] = shaderType;
+                    ShaderAttrib attrib {
+                        .shaderType = shaderType,
+                        .sourceStr = m_shaders[i]->GetShaderSource(),
+                        .flags = 0
+                    };
+                    auto res = ShaderCompiler::CompileShader(attrib);
+                    assert(res);
+                    shaders[i] = res.value();
+                }
+
+                ProgramAttrib attrib {
+                    .shaders = Move(shaders),
+                };
+                auto programResult = ShaderCompiler::LinkProgram(attrib);
+                assert(programResult);
+                auto program = programResult.value();
+
+                ProgramBinaryAttrib binaryAttrib {
+                    .shaderTypes = shaderTypes,
+                    .program = *program,
+                };
+                auto binaryResult = ShaderCompiler::GetSpirvBinaryFromProgram(binaryAttrib);
+                assert(binaryResult);
+                m_generatedSpirv = Move(binaryResult.value());
+                SpvcSession session(m_generatedSpirv[0]);
+                auto& meta = session.GetMetadata();
+                auto size = meta.uboSize;
+                m_uboScratch.resize(size);
+                m_uniformOffsets.resize(meta.plainUniformOffsetsInUBO.size());
+                for (const auto& [name, offset] : meta.plainUniformOffsetsInUBO) {
+                    m_uniformOffsets[m_uniformLocations[name]] = offset;
+                }
+
+                auto srcResult = ShaderCompiler::DecompileShader(session);
+                assert(srcResult);
+                auto src = srcResult.value();
+                printf("decompiled src: \n%s", src.c_str());
             }
 
             void ProgramObject::SetExplicitAttribLocation(Uint index, const char *name) {

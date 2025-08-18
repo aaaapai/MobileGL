@@ -269,7 +269,7 @@ namespace MobileGL {
                     *params = programObject->GetActiveUniformBlocksCount();
                     break;
                 case GL_ACTIVE_UNIFORM_BLOCK_MAX_NAME_LENGTH:   // ditto.
-                    *params = programObject->GetActiveUniformBlocksMaxLength();
+                    *params = programObject->GetActiveUniformBlocksMaxNameLength();
                     break;
                 case GL_COMPUTE_WORK_GROUP_SIZE:                // GL >= 4.3
 
