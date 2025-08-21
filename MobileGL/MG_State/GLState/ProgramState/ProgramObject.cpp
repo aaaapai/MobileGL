@@ -81,13 +81,17 @@ namespace MobileGL {
 
                 m_uniformNames.resize(m_maxUniformLocation + 1);
                 m_uniformTypes.resize(m_maxUniformLocation + 1);
+                m_uniformIsOpaqueType.resize(m_maxUniformLocation + 1);
                 m_uniformOffsets.resize(m_maxUniformLocation + 1);
+                m_uniformArraySizes.resize(m_maxUniformLocation + 1);
 
                 for (int i = 0; i < uniformCount; i++) {
                     auto& uniform = m_program->getUniform(i);
                     auto location = uniform.layoutLocation();
                     m_uniformNames[location] = uniform.name;
                     m_uniformTypes[location] = uniform.glDefineType;
+                    m_uniformIsOpaqueType[location] =  uniform.getType()->isOpaque();
+                    m_uniformArraySizes[location] = uniform.size;
                 }
 
                 // attributes (pipe in)
@@ -159,7 +163,12 @@ namespace MobileGL {
                 auto binaryResult = ShaderCompiler::GetSpirvBinaryFromProgram(binaryAttrib);
                 assert(binaryResult);
                 m_generatedSpirv = Move(binaryResult.value());
+
                 SpvcSession session(m_generatedSpirv[0]);
+                auto srcResult = ShaderCompiler::DecompileShader(session);
+                assert(srcResult);
+                auto src = srcResult.value();
+
                 auto& meta = session.GetMetadata();
                 auto size = meta.uboSize;
                 m_uboScratch.resize(size);
@@ -167,11 +176,12 @@ namespace MobileGL {
                 for (const auto& [name, offset] : meta.plainUniformOffsetsInUBO) {
                     m_uniformOffsets[m_uniformLocations[name]] = offset;
                 }
-
-                auto srcResult = ShaderCompiler::DecompileShader(session);
-                assert(srcResult);
-                auto src = srcResult.value();
-                printf("decompiled src: \n%s", src.c_str());
+                m_uniformSizesInBytes.resize(meta.plainUniformMemberSizesInBytes.size());
+                for (const auto& [name, size] : meta.plainUniformMemberSizesInBytes) {
+                    m_uniformSizesInBytes[m_uniformLocations[name]] = size;
+                }
+                assert(m_uniformOffsets.size() == GetUniformCount());
+                assert(m_uniformSizesInBytes.size() == GetUniformCount());
             }
 
             void ProgramObject::WaitUntilGenerationCompleted() {

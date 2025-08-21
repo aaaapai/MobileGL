@@ -23,14 +23,24 @@ namespace MobileGL {
                 Uint GetUniformCount() { return m_uniformNames.size(); }
                 Int GetUniformLocation(const String& name) {
                     const auto it = m_uniformLocations.find(name);
-                    return (it == m_uniformLocations.end()) ? -1 : it->second;
+                    return (it == m_uniformLocations.end()) ? -1 : (Int)it->second;
                 }
                 GLenum GetUniformType(Uint index) const {
                     return m_uniformTypes[index];
                 }
 
+                Bool IsUniformOpaqueAtLocation(Uint location) const {
+                    return m_uniformIsOpaqueType[location];
+                }
+
                 const String& GetUniformName(Uint index) const {
                     return m_uniformNames[index];
+                }
+                Uint GetUniformOffset(Uint location) const {
+                    return m_uniformOffsets[location];
+                }
+                Uint GetUniformSizesInBytes(Uint location) const {
+                    return m_uniformSizesInBytes[location];
                 }
 
                 Int GetAttributeLocation(const String& name) {
@@ -42,6 +52,9 @@ namespace MobileGL {
                 }
                 const String& GetAttribName(Uint index) const {
                     return m_attribs[index];
+                }
+                void* MapUBO() {
+                    return m_uboScratch.data();
                 }
 
                 Bool GetDeleteStatus() const { return m_deleteStatus; }
@@ -80,9 +93,12 @@ namespace MobileGL {
                 Vector<String> m_uniformNames;
                 // ditto.
                 Vector<GLenum> m_uniformTypes;
+                Vector<Bool> m_uniformIsOpaqueType;
+                Vector<Int> m_uniformArraySizes;
 
                 // Need to be reflected after linking of SPIR-V binary
                 Vector<Uint> m_uniformOffsets;
+                Vector<Uint> m_uniformSizesInBytes;
                 Vector<Uint8> m_uboScratch;
 
                 Uint m_maxUniformLocation = 0;

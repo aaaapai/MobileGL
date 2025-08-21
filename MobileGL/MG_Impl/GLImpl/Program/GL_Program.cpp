@@ -383,12 +383,43 @@ namespace MobileGL {
             return programObject->GetUniformLocation(name);
         }
 
+        void GetUniform_State(GLuint program, GLint location, void* params) {
+            auto programObject = TryToGetProgramObject(program);
+            if (!programObject)
+                return;
+
+            if (!programObject->GetLinkStatus()) {
+                MG_State::pGLContext->RecordError(
+                        ErrorCode::InvalidOperation,
+                        MakeShared<GenericErrorInfo>("MG_Impl/GLImpl", __func__,
+                                                     "`program` has not been successfully linked."));
+                return;
+            }
+
+            if (location >= programObject->GetUniformCount() || programObject->GetUniformName(location).empty()) {
+                MG_State::pGLContext->RecordError(
+                        ErrorCode::InvalidOperation,
+                        MakeShared<GenericErrorInfo>("MG_Impl/GLImpl", __func__,
+                                                     "`location` does not correspond to a valid uniform variable location for the specified program object."));
+                return;
+            }
+            auto isOpaque = programObject->IsUniformOpaqueAtLocation(location);
+            if (!isOpaque) {
+                // TODO: probably handle int/float differences
+                auto offset = programObject->GetUniformOffset(location);
+                auto size = programObject->GetUniformSizesInBytes(location);
+                char* pUBO = (char*)programObject->MapUBO();
+                memcpy(params, pUBO + offset, size);
+            }
+            // TODO: handle 1i variant as texture unit
+        }
+
         void GetUniformfv_State(GLuint program, GLint location, GLfloat* params) {
-            THROW_UNIMPL_EXCEPTION;
+            GetUniform_State(program, location, params);
         }
 
         void GetUniformiv_State(GLuint program, GLint location, GLint* params) {
-            THROW_UNIMPL_EXCEPTION;
+            GetUniform_State(program, location, params);
         }
 
         GLboolean IsProgram_State(GLuint program) {
@@ -447,6 +478,7 @@ namespace MobileGL {
         }
 
         void Uniform1fv_State(GLint location, GLsizei count, const GLfloat* value) {
+
             THROW_UNIMPL_EXCEPTION;
         }
 
