@@ -292,84 +292,82 @@ TEST_F(ProgramTest, UniformMatrixTranspose) {
 
     // Test 2x2 matrix transpose
     auto locMat2 = GetUniformLocation(program, "TestMat2");
-    if (locMat2 != -1) {
-        // Test matrix (column-major as expected by OpenGL):
-        // [1  3]
-        // [2  4]
-        GLfloat matrix2x2[4] = {
-            1.0f, 2.0f,  // First column
-            3.0f, 4.0f   // Second column
-        };
-        
-        // Expected values when transpose = GL_FALSE (no transpose):
-        // [1  3]
-        // [2  4]
-        GLfloat expected2x2_no_transpose[4] = {1.0f, 2.0f, 3.0f, 4.0f};
-        
-        // Expected values when transpose = GL_TRUE (transposed):
-        // [1  2]
-        // [3  4]
-        // Stored in column-major order: [1, 3, 2, 4]
-        GLfloat expected2x2_transpose[4] = {1.0f, 3.0f, 2.0f, 4.0f};
-        
-        // Test with transpose = GL_FALSE
-        UniformMatrix2fv(locMat2, 1, GL_FALSE, matrix2x2);
-        GLfloat result2x2_no_transpose[4];
-        GetUniformfv(program, locMat2, result2x2_no_transpose);
-        for (int i = 0; i < 4; i++) {
-            EXPECT_FLOAT_EQ(result2x2_no_transpose[i], expected2x2_no_transpose[i]);
-        }
-        
-        // Test with transpose = GL_TRUE
-        UniformMatrix2fv(locMat2, 1, GL_TRUE, matrix2x2);
-        GLfloat result2x2_transpose[4];
-        GetUniformfv(program, locMat2, result2x2_transpose);
-        for (int i = 0; i < 4; i++) {
-            EXPECT_FLOAT_EQ(result2x2_transpose[i], expected2x2_transpose[i]);
-        }
+    ASSERT_NE(locMat2, -1);
+    // Test matrix (column-major as expected by OpenGL):
+    // [1  3]
+    // [2  4]
+    GLfloat matrix2x2[4] = {
+        1.0f, 2.0f,  // First column
+        3.0f, 4.0f   // Second column
+    };
+
+    // Expected values when transpose = GL_FALSE (no transpose):
+    // [1  3]
+    // [2  4]
+    GLfloat expected2x2_no_transpose[4] = {1.0f, 2.0f, 3.0f, 4.0f};
+
+    // Expected values when transpose = GL_TRUE (transposed):
+    // [1  2]
+    // [3  4]
+    // Stored in column-major order: [1, 3, 2, 4]
+    GLfloat expected2x2_transpose[4] = {1.0f, 3.0f, 2.0f, 4.0f};
+
+    // Test with transpose = GL_FALSE
+    UniformMatrix2fv(locMat2, 1, GL_FALSE, matrix2x2);
+    GLfloat result2x2_no_transpose[4];
+    GetUniformfv(program, locMat2, result2x2_no_transpose);
+    for (int i = 0; i < 4; i++) {
+        EXPECT_FLOAT_EQ(result2x2_no_transpose[i], expected2x2_no_transpose[i]);
+    }
+
+    // Test with transpose = GL_TRUE
+    UniformMatrix2fv(locMat2, 1, GL_TRUE, matrix2x2);
+    GLfloat result2x2_transpose[4];
+    GetUniformfv(program, locMat2, result2x2_transpose);
+    for (int i = 0; i < 4; i++) {
+        EXPECT_FLOAT_EQ(result2x2_transpose[i], expected2x2_transpose[i]);
     }
     
     // Test 3x3 matrix transpose
     auto locMat3 = GetUniformLocation(program, "TestMat3");
-    if (locMat3 != -1) {
-        // Test matrix (column-major as expected by OpenGL):
-        // [1  4  7]
-        // [2  5  8]
-        // [3  6  9]
-        GLfloat matrix3x3[9] = {
-            1.0f, 2.0f, 3.0f,  // First column
-            4.0f, 5.0f, 6.0f,  // Second column
-            7.0f, 8.0f, 9.0f   // Third column
-        };
-        
-        // Expected values when transpose = GL_FALSE (no transpose):
-        // [1  4  7]
-        // [2  5  8]
-        // [3  6  9]
-        GLfloat expected3x3_no_transpose[9] = {1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f, 7.0f, 8.0f, 9.0f};
-        
-        // Expected values when transpose = GL_TRUE (transposed):
-        // [1  2  3]
-        // [4  5  6]
-        // [7  8  9]
-        // Stored in column-major order: [1, 4, 7, 2, 5, 8, 3, 6, 9]
-        GLfloat expected3x3_transpose[9] = {1.0f, 4.0f, 7.0f, 2.0f, 5.0f, 8.0f, 3.0f, 6.0f, 9.0f};
-        
-        // Test with transpose = GL_FALSE
-        UniformMatrix3fv(locMat3, 1, GL_FALSE, matrix3x3);
-        GLfloat result3x3_no_transpose[9];
-        GetUniformfv(program, locMat3, result3x3_no_transpose);
-        for (int i = 0; i < 9; i++) {
-            EXPECT_FLOAT_EQ(result3x3_no_transpose[i], expected3x3_no_transpose[i]);
-        }
-        
-        // Test with transpose = GL_TRUE
-        UniformMatrix3fv(locMat3, 1, GL_TRUE, matrix3x3);
-        GLfloat result3x3_transpose[9];
-        GetUniformfv(program, locMat3, result3x3_transpose);
-        for (int i = 0; i < 9; i++) {
-            EXPECT_FLOAT_EQ(result3x3_transpose[i], expected3x3_transpose[i]);
-        }
+    ASSERT_NE(locMat3, -1);
+    // Test matrix (column-major as expected by OpenGL):
+    // [1  4  7]
+    // [2  5  8]
+    // [3  6  9]
+    GLfloat matrix3x3[9] = {
+        1.0f, 2.0f, 3.0f,  // First column
+        4.0f, 5.0f, 6.0f,  // Second column
+        7.0f, 8.0f, 9.0f   // Third column
+    };
+
+    // Expected values when transpose = GL_FALSE (no transpose):
+    // [1  4  7]
+    // [2  5  8]
+    // [3  6  9]
+    GLfloat expected3x3_no_transpose[9] = {1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f, 7.0f, 8.0f, 9.0f};
+
+    // Expected values when transpose = GL_TRUE (transposed):
+    // [1  2  3]
+    // [4  5  6]
+    // [7  8  9]
+    // Stored in column-major order: [1, 4, 7, 2, 5, 8, 3, 6, 9]
+    GLfloat expected3x3_transpose[9] = {1.0f, 4.0f, 7.0f, 2.0f, 5.0f, 8.0f, 3.0f, 6.0f, 9.0f};
+
+    // Test with transpose = GL_FALSE
+    UniformMatrix3fv(locMat3, 1, GL_FALSE, matrix3x3);
+    GLfloat result3x3_no_transpose[9];
+    GetUniformfv(program, locMat3, result3x3_no_transpose);
+    for (int i = 0; i < 9; i++) {
+        EXPECT_FLOAT_EQ(result3x3_no_transpose[i], expected3x3_no_transpose[i]);
+    }
+
+    // Test with transpose = GL_TRUE
+    UniformMatrix3fv(locMat3, 1, GL_TRUE, matrix3x3);
+    GLfloat result3x3_transpose[9];
+    GetUniformfv(program, locMat3, result3x3_transpose);
+    for (int i = 0; i < 9; i++) {
+        EXPECT_FLOAT_EQ(result3x3_transpose[i], expected3x3_transpose[i]);
     }
     
     // Test 4x4 matrix transpose
