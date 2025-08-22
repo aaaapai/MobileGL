@@ -410,3 +410,93 @@ TEST_F(ProgramTest, UniformMatrixTranspose) {
         EXPECT_FLOAT_EQ(result4x4_transpose[i], expected4x4_transpose[i]);
     }
 }
+
+TEST_F(ProgramTest, UniformLocationGaps) {
+    char infoLog[1024] = "";
+
+    GLuint vs = CreateShader(GL_VERTEX_SHADER);
+    ShaderSource(vs, 1, &vsSrc, NULL);
+    CompileShader(vs);
+    GLint vsStatus = GL_FALSE;
+    GetShaderiv(vs, GL_COMPILE_STATUS, &vsStatus);
+    GetShaderInfoLog(vs, 1024, nullptr, infoLog);
+    ASSERT_EQ(vsStatus, GL_TRUE) << infoLog;
+
+    GLuint fs = CreateShader(GL_FRAGMENT_SHADER);
+    ShaderSource(fs, 1, &fsSrc, NULL);
+    CompileShader(fs);
+    GLint fsStatus = GL_FALSE;
+    GetShaderiv(fs, GL_COMPILE_STATUS, &fsStatus);
+    GetShaderInfoLog(fs, 1024, nullptr, infoLog);
+    ASSERT_EQ(fsStatus, GL_TRUE) << infoLog;
+
+    GLuint program = CreateProgram();
+    AttachShader(program, vs);
+    AttachShader(program, fs);
+
+    BindAttribLocation(program, 1, "fIn1");
+    BindAttribLocation(program, 3, "fIn3");
+    BindAttribLocation(program, 5, "fIn5");
+    LinkProgram(program);
+
+    UseProgram(program);
+
+    // Test that uniform locations are correctly assigned even with gaps
+    // ProjMat is at location 0
+    ASSERT_EQ(GetUniformLocation(program, "ProjMat"), 0);
+    
+    // TestMat3 is at location 10 (gap from 1-9)
+    ASSERT_EQ(GetUniformLocation(program, "TestMat3"), 10);
+    
+    // TestMat2 is at location 20 (gap from 11-19)
+    ASSERT_EQ(GetUniformLocation(program, "TestMat2"), 20);
+    
+    // Gray is at location 1 (no gap)
+    ASSERT_EQ(GetUniformLocation(program, "Gray"), 1);
+    
+    // Saturation is at location 6 (gap from 2-5)
+    ASSERT_EQ(GetUniformLocation(program, "Saturation"), 6);
+    
+    // Verify that locations in gaps correctly return -1
+    ASSERT_EQ(GetUniformLocation(program, "NonExistentUniform"), -1);
+    
+    // Test uniform operations on locations with gaps
+    GLfloat matrix3[9] = {
+        1.0f, 0.0f, 0.0f,
+        0.0f, 1.0f, 0.0f,
+        0.0f, 0.0f, 1.0f
+    };
+    
+    // Test setting and getting uniform at location 10 (TestMat3)
+    UniformMatrix3fv(10, 1, GL_FALSE, matrix3);
+    GLfloat result[9];
+    GetUniformfv(program, 10, result);
+    for (int i = 0; i < 9; i++) {
+        EXPECT_FLOAT_EQ(result[i], matrix3[i]);
+    }
+    
+    // Test setting and getting uniform at location 20 (TestMat2)
+    GLfloat matrix2[4] = {
+        1.0f, 0.0f,
+        0.0f, 1.0f
+    };
+    UniformMatrix2fv(20, 1, GL_FALSE, matrix2);
+    GLfloat result2[4];
+    GetUniformfv(program, 20, result2);
+    for (int i = 0; i < 4; i++) {
+        EXPECT_FLOAT_EQ(result2[i], matrix2[i]);
+    }
+    
+    // Test that accessing a gap location (e.g., 5) doesn't cause issues
+    // This should not crash or cause undefined behavior
+    Uniform1i(5, 114514); // Just to make sure we don't crash
+
+    // Verify that we can still use uniforms with sequential locations
+    auto locRed = GetUniformLocation(program, "RedMatrix");
+    Uniform3f(locRed, 1.0, 3.0, 5.0);
+    float redVal[3];
+    GetUniformfv(program, locRed, redVal);
+    ASSERT_EQ(redVal[0], 1.0);
+    ASSERT_EQ(redVal[1], 3.0);
+    ASSERT_EQ(redVal[2], 5.0);
+}
