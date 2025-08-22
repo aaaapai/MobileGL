@@ -396,13 +396,25 @@ namespace MobileGL {
                 return;
             }
 
-            if (location >= programObject->GetUniformCount() || programObject->GetUniformName(location).empty()) {
+            // Check if location is valid
+            if (location < 0 || location > programObject->GetMaxUniformLocation()) {
                 MG_State::pGLContext->RecordError(
                         ErrorCode::InvalidOperation,
                         MakeShared<GenericErrorInfo>("MG_Impl/GLImpl", __func__,
                                                      "`location` does not correspond to a valid uniform variable location for the specified program object."));
                 return;
             }
+
+            // Check if the location corresponds to an active uniform
+            const auto& uniformName = programObject->GetUniformName(location);
+            if (uniformName.empty()) {
+                MG_State::pGLContext->RecordError(
+                        ErrorCode::InvalidOperation,
+                        MakeShared<GenericErrorInfo>("MG_Impl/GLImpl", __func__,
+                                                     "`location` does not correspond to a valid uniform variable location for the specified program object."));
+                return;
+            }
+
             auto isOpaque = programObject->IsUniformOpaqueAtLocation(location);
             if (!isOpaque) {
                 // TODO: probably handle int/float differences
@@ -513,6 +525,74 @@ namespace MobileGL {
             }
         }
 
+        // Helper function to transpose a 2x2 matrix
+        void TransposeMatrix2x2(const GLfloat* input, GLfloat* output) {
+            // Input matrix is in column-major order (OpenGL default)
+            // [0  2]
+            // [1  3]
+            // 
+            // Output matrix should be in row-major order if transpose is true
+            // [0  1]
+            // [2  3]
+            output[0] = input[0];  // 0,0 element stays the same
+            output[1] = input[2];  // 0,1 element becomes 1,0
+            output[2] = input[1];  // 1,0 element becomes 0,1
+            output[3] = input[3];  // 1,1 element stays the same
+        }
+
+        // Helper function to transpose a 3x3 matrix
+        void TransposeMatrix3x3(const GLfloat* input, GLfloat* output) {
+            // Input matrix is in column-major order (OpenGL default)
+            // [0  3  6]
+            // [1  4  7]
+            // [2  5  8]
+            // 
+            // Output matrix should be in row-major order if transpose is true
+            // [0  1  2]
+            // [3  4  5]
+            // [6  7  8]
+            output[0] = input[0];  // 0,0 element stays the same
+            output[1] = input[3];  // 0,1 element becomes 1,0
+            output[2] = input[6];  // 0,2 element becomes 2,0
+            output[3] = input[1];  // 1,0 element becomes 0,1
+            output[4] = input[4];  // 1,1 element stays the same
+            output[5] = input[7];  // 1,2 element becomes 2,1
+            output[6] = input[2];  // 2,0 element becomes 0,2
+            output[7] = input[5];  // 2,1 element becomes 1,2
+            output[8] = input[8];  // 2,2 element stays the same
+        }
+
+        // Helper function to transpose a 4x4 matrix
+        void TransposeMatrix4x4(const GLfloat* input, GLfloat* output) {
+            // Input matrix is in column-major order (OpenGL default)
+            // [0   4   8  12]
+            // [1   5   9  13]
+            // [2   6  10  14]
+            // [3   7  11  15]
+            // 
+            // Output matrix should be in row-major order if transpose is true
+            // [0   1   2   3]
+            // [4   5   6   7]
+            // [8   9  10  11]
+            // [12 13  14  15]
+            output[0] = input[0];   // 0,0 element stays the same
+            output[1] = input[4];   // 0,1 element becomes 1,0
+            output[2] = input[8];   // 0,2 element becomes 2,0
+            output[3] = input[12];  // 0,3 element becomes 3,0
+            output[4] = input[1];   // 1,0 element becomes 0,1
+            output[5] = input[5];   // 1,1 element stays the same
+            output[6] = input[9];   // 1,2 element becomes 2,1
+            output[7] = input[13];  // 1,3 element becomes 3,1
+            output[8] = input[2];   // 2,0 element becomes 0,2
+            output[9] = input[6];   // 2,1 element becomes 1,2
+            output[10] = input[10]; // 2,2 element stays the same
+            output[11] = input[14]; // 2,3 element becomes 3,2
+            output[12] = input[3];  // 3,0 element becomes 0,3
+            output[13] = input[7];  // 3,1 element becomes 1,3
+            output[14] = input[11]; // 3,2 element becomes 2,3
+            output[15] = input[15]; // 3,3 element stays the same
+        }
+
         void Uniform1fv_State(GLint location, GLsizei count, const GLfloat* value) {
             Uniformv_State<1>(location, count, value);
         }
@@ -560,7 +640,7 @@ namespace MobileGL {
                 return;
             }
 
-            if (location >= programObject->GetUniformCount() || location < -1) {
+            if (location > programObject->GetMaxUniformLocation() || location < -1) {
                 MG_State::pGLContext->RecordError(
                     ErrorCode::InvalidOperation,
                     MakeShared<GenericErrorInfo>("MG_Impl/GLImpl", __func__,
@@ -570,12 +650,15 @@ namespace MobileGL {
 
             // For matrix uniforms, we handle each matrix individually
             for (GLint i = 0; i < count; i++) {
-                // Note: In this implementation, we're not actually transposing the matrix data
-                // as we're directly copying to UBO. The transpose parameter is typically used
-                // in OpenGL to indicate whether the matrix should be transposed before being
-                // loaded into the uniform variable. In our case, we assume the shader compiler
-                // has handled the appropriate matrix layout.
-                Uniform_State<4>(*programObject, location + i, value + i * 4);
+                if (transpose == GL_TRUE) {
+                    // Transpose the matrix before uploading
+                    GLfloat transposedMatrix[4];
+                    TransposeMatrix2x2(value + i * 4, transposedMatrix);
+                    Uniform_State<4>(*programObject, location + i, transposedMatrix);
+                } else {
+                    // No transpose needed, directly copy the matrix data
+                    Uniform_State<4>(*programObject, location + i, value + i * 4);
+                }
             }
         }
 
@@ -594,7 +677,7 @@ namespace MobileGL {
                 return;
             }
 
-            if (location >= programObject->GetUniformCount() || location < -1) {
+            if (location > programObject->GetMaxUniformLocation() || location < -1) {
                 MG_State::pGLContext->RecordError(
                     ErrorCode::InvalidOperation,
                     MakeShared<GenericErrorInfo>("MG_Impl/GLImpl", __func__,
@@ -604,12 +687,15 @@ namespace MobileGL {
 
             // For matrix uniforms, we handle each matrix individually
             for (GLint i = 0; i < count; i++) {
-                // Note: In this implementation, we're not actually transposing the matrix data
-                // as we're directly copying to UBO. The transpose parameter is typically used
-                // in OpenGL to indicate whether the matrix should be transposed before being
-                // loaded into the uniform variable. In our case, we assume the shader compiler
-                // has handled the appropriate matrix layout.
-                Uniform_State<9>(*programObject, location + i, value + i * 9);
+                if (transpose == GL_TRUE) {
+                    // Transpose the matrix before uploading
+                    GLfloat transposedMatrix[9];
+                    TransposeMatrix3x3(value + i * 9, transposedMatrix);
+                    Uniform_State<9>(*programObject, location + i, transposedMatrix);
+                } else {
+                    // No transpose needed, directly copy the matrix data
+                    Uniform_State<9>(*programObject, location + i, value + i * 9);
+                }
             }
         }
 
@@ -628,7 +714,7 @@ namespace MobileGL {
                 return;
             }
 
-            if (location >= programObject->GetUniformCount() || location < -1) {
+            if (location > programObject->GetMaxUniformLocation() || location < -1) {
                 MG_State::pGLContext->RecordError(
                     ErrorCode::InvalidOperation,
                     MakeShared<GenericErrorInfo>("MG_Impl/GLImpl", __func__,
@@ -638,12 +724,15 @@ namespace MobileGL {
 
             // For matrix uniforms, we handle each matrix individually
             for (GLint i = 0; i < count; i++) {
-                // Note: In this implementation, we're not actually transposing the matrix data
-                // as we're directly copying to UBO. The transpose parameter is typically used
-                // in OpenGL to indicate whether the matrix should be transposed before being
-                // loaded into the uniform variable. In our case, we assume the shader compiler
-                // has handled the appropriate matrix layout.
-                Uniform_State<16>(*programObject, location + i, value + i * 16);
+                if (transpose == GL_TRUE) {
+                    // Transpose the matrix before uploading
+                    GLfloat transposedMatrix[16];
+                    TransposeMatrix4x4(value + i * 16, transposedMatrix);
+                    Uniform_State<16>(*programObject, location + i, transposedMatrix);
+                } else {
+                    // No transpose needed, directly copy the matrix data
+                    Uniform_State<16>(*programObject, location + i, value + i * 16);
+                }
             }
         }
 
