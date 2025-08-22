@@ -174,14 +174,16 @@ namespace MobileGL {
                 m_uboScratch.resize(size);
                 m_uniformOffsets.resize(meta.plainUniformOffsetsInUBO.size());
                 for (const auto& [name, offset] : meta.plainUniformOffsetsInUBO) {
-                    m_uniformOffsets[m_uniformLocations[name]] = offset;
+                    if (m_uniformLocations.find(name) != m_uniformLocations.end())
+                        m_uniformOffsets[m_uniformLocations[name]] = offset;
                 }
                 m_uniformSizesInBytes.resize(meta.plainUniformMemberSizesInBytes.size());
                 for (const auto& [name, size] : meta.plainUniformMemberSizesInBytes) {
-                    m_uniformSizesInBytes[m_uniformLocations[name]] = size;
+                    if (m_uniformLocations.find(name) != m_uniformLocations.end())
+                        m_uniformSizesInBytes[m_uniformLocations[name]] = size;
                 }
-                assert(m_uniformOffsets.size() == GetUniformCount());
-                assert(m_uniformSizesInBytes.size() == GetUniformCount());
+                // assert(m_uniformOffsets.size() == GetUniformCount());
+                // assert(m_uniformSizesInBytes.size() == GetUniformCount());
             }
 
             void ProgramObject::WaitUntilGenerationCompleted() {

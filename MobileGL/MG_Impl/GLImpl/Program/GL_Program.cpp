@@ -451,6 +451,7 @@ namespace MobileGL {
                     ErrorCode::InvalidValue,
                     MakeShared<GenericErrorInfo>("MG_Impl/GLImpl", __func__,
                                              "`count` is less than 0."));
+                return;
             }
 
             auto shaderObject = TryToGetShaderObject(shader);
@@ -465,7 +466,7 @@ namespace MobileGL {
             shaderObject->SetShaderSource(Move(src));
         }
 
-        void UseProgram_State(GLuint program) {
+        void UseProgram_State(GLint program) {
             if (program == 0) {
                 MG_State::pGLContext->UseProgram(0);
                 return;
@@ -477,37 +478,71 @@ namespace MobileGL {
             MG_State::pGLContext->UseProgram(program);
         }
 
-        void Uniform1fv_State(GLint location, GLsizei count, const GLfloat* value) {
+        template <GLsizei VecCount, typename T>
+        void Uniform_State(MG_State::GLState::ProgramObject& programObject, GLuint location, T* value) {
+            auto size = programObject.GetUniformSizesInBytes(location);
+            auto offset = programObject.GetUniformOffset(location);
+            assert(size >= VecCount * sizeof(T));
+            memcpy((char*)programObject.MapUBO() + offset, value, VecCount * sizeof(T));
+        }
 
-            THROW_UNIMPL_EXCEPTION;
+        template <GLsizei VecCount, typename T>
+        void Uniformv_State(GLint location, GLsizei count, T* value) {
+            if (location == -1)
+                return;
+
+            auto programObject = MG_State::pGLContext->GetCurrentProgram();
+            if (programObject == nullptr) {
+                MG_State::pGLContext->RecordError(
+                    ErrorCode::InvalidOperation,
+                    MakeShared<GenericErrorInfo>("MG_Impl/GLImpl", __func__,
+                                             "There is no current program object."));
+                return;
+            }
+
+            if (location >= programObject->GetUniformCount() || location < -1) {
+                MG_State::pGLContext->RecordError(
+                    ErrorCode::InvalidOperation,
+                    MakeShared<GenericErrorInfo>("MG_Impl/GLImpl", __func__,
+                                             "`location` is an invalid uniform location for the current program object and `location` is not equal to -1."));
+                return;
+            }
+
+            for (GLint offset = 0; offset < count; offset++) {
+                Uniform_State<VecCount>(*programObject, location + offset, value + offset * VecCount);
+            }
+        }
+
+        void Uniform1fv_State(GLint location, GLsizei count, const GLfloat* value) {
+            Uniformv_State<1>(location, count, value);
         }
 
         void Uniform2fv_State(GLint location, GLsizei count, const GLfloat* value) {
-            THROW_UNIMPL_EXCEPTION;
+            Uniformv_State<2>(location, count, value);
         }
 
         void Uniform3fv_State(GLint location, GLsizei count, const GLfloat* value) {
-            THROW_UNIMPL_EXCEPTION;
+            Uniformv_State<3>(location, count, value);
         }
 
         void Uniform4fv_State(GLint location, GLsizei count, const GLfloat* value) {
-            THROW_UNIMPL_EXCEPTION;
+            Uniformv_State<4>(location, count, value);
         }
 
         void Uniform1iv_State(GLint location, GLsizei count, const GLint* value) {
-            THROW_UNIMPL_EXCEPTION;
+            Uniformv_State<1>(location, count, value);
         }
 
         void Uniform2iv_State(GLint location, GLsizei count, const GLint* value) {
-            THROW_UNIMPL_EXCEPTION;
+            Uniformv_State<2>(location, count, value);
         }
 
         void Uniform3iv_State(GLint location, GLsizei count, const GLint* value) {
-            THROW_UNIMPL_EXCEPTION;
+            Uniformv_State<3>(location, count, value);
         }
 
         void Uniform4iv_State(GLint location, GLsizei count, const GLint* value) {
-            THROW_UNIMPL_EXCEPTION;
+            Uniformv_State<4>(location, count, value);
         }
 
         void UniformMatrix2fv_State(GLint location, GLsizei count, GLboolean transpose, const GLfloat* value) {
