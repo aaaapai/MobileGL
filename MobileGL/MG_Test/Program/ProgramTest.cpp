@@ -243,15 +243,6 @@ TEST_F(ProgramTest, UniformMatrixFunctions) {
     
     // Test with transpose = GL_TRUE
     UniformMatrix4fv(locProjMat, 1, GL_TRUE, nonIdentityMatrix);
-    
-    // Test UniformMatrix3fv with a 3x3 matrix
-    // We would need a 3x3 uniform in the shader for this test
-    
-    // Test UniformMatrix2fv with a 2x2 matrix
-    // We would need a 2x2 uniform in the shader for this test
-    
-    // Test with multiple matrices (count > 1)
-    // For this test, we would need uniforms that are arrays of matrices
 }
 
 TEST_F(ProgramTest, UniformMatrixTranspose) {
