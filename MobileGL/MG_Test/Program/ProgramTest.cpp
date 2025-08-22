@@ -169,3 +169,58 @@ TEST_F(ProgramTest, CompileAndLink) {
     GetUniformiv(program, locInt, &intVal);
     EXPECT_EQ(intVal, 114514);
 }
+
+TEST_F(ProgramTest, UniformMatrixFunctions) {
+    char infoLog[1024] = "";
+
+    GLuint vs = CreateShader(GL_VERTEX_SHADER);
+    ShaderSource(vs, 1, &vsSrc, NULL);
+    printf("Compiling vertex shader: %s\n", vsSrc);
+    CompileShader(vs);
+    GLint vsStatus = GL_FALSE;
+    GetShaderiv(vs, GL_COMPILE_STATUS, &vsStatus);
+    GetShaderInfoLog(vs, 1024, nullptr, infoLog);
+    ASSERT_EQ(vsStatus, GL_TRUE) << infoLog;
+    printf("Compiled vertex shader.\n");
+
+    GLuint fs = CreateShader(GL_FRAGMENT_SHADER);
+    ShaderSource(fs, 1, &fsSrc, NULL);
+    printf("Compiling fragment shader: %s\n", fsSrc);
+    CompileShader(fs);
+    GLint fsStatus = GL_FALSE;
+    GetShaderiv(fs, GL_COMPILE_STATUS, &fsStatus);
+    GetShaderInfoLog(fs, 1024, nullptr, infoLog);
+    ASSERT_EQ(fsStatus, GL_TRUE) << infoLog;
+    printf("Compiled fragment shader.\n");
+
+    GLuint program = CreateProgram();
+    AttachShader(program, vs);
+    AttachShader(program, fs);
+
+    BindAttribLocation(program, 1, "fIn1");
+    BindAttribLocation(program, 3, "fIn3");
+    BindAttribLocation(program, 5, "fIn5");
+    printf("Linking program...\n");
+    LinkProgram(program);
+    printf("Program linked.\n");
+
+    UseProgram(program);
+
+    // Test UniformMatrix2fv
+    auto locProjMat = GetUniformLocation(program, "ProjMat");
+    ASSERT_NE(locProjMat, -1);
+    
+    // 4x4 matrix (16 elements)
+    GLfloat matrix4x4[16] = {
+        1.0f, 0.0f, 0.0f, 0.0f,
+        0.0f, 1.0f, 0.0f, 0.0f,
+        0.0f, 0.0f, 1.0f, 0.0f,
+        0.0f, 0.0f, 0.0f, 1.0f
+    };
+    
+    // Test UniformMatrix4fv with count = 1
+    UniformMatrix4fv(locProjMat, 1, GL_FALSE, matrix4x4);
+    
+    // Test with multiple matrices (count > 1)
+    // For this test, we would need uniforms that are arrays of matrices
+}
