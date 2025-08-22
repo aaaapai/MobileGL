@@ -36,7 +36,7 @@ namespace MobileGL {
                 }
 
                 MG_Util::ShaderTranspiler::ProgramAttrib attrib{
-                    .shaderTypes = Move(shaderTypes),
+                    // .shaderTypes = Move(shaderTypes),
                     .shaders = Move(shaders),
                 };
 
@@ -52,6 +52,7 @@ namespace MobileGL {
                 // PostLink();
 
                 DoReflection();
+                GenerateBinary();
             }
 
             void ProgramObject::MarkAsDeleted() {
@@ -80,26 +81,116 @@ namespace MobileGL {
 
                 m_uniformNames.resize(m_maxUniformLocation + 1);
                 m_uniformTypes.resize(m_maxUniformLocation + 1);
+                m_uniformIsOpaqueType.resize(m_maxUniformLocation + 1);
                 m_uniformOffsets.resize(m_maxUniformLocation + 1);
+                m_uniformArraySizes.resize(m_maxUniformLocation + 1);
 
                 for (int i = 0; i < uniformCount; i++) {
                     auto& uniform = m_program->getUniform(i);
                     auto location = uniform.layoutLocation();
                     m_uniformNames[location] = uniform.name;
                     m_uniformTypes[location] = uniform.glDefineType;
+                    m_uniformIsOpaqueType[location] =  uniform.getType()->isOpaque();
+                    m_uniformArraySizes[location] = uniform.size;
                 }
 
+                // attributes (pipe in)
                 int inCount = m_program->getNumPipeInputs();
+                m_attribs.resize(inCount);
+                m_attribTypes.resize(inCount);
+
+                // Get locations parsed in program
                 for (int i = 0; i < inCount; i++) {
                     auto& inVar = m_program->getPipeInput(i);
+                    auto location = inVar.layoutLocation();
                     m_attribInNameMaxLength = std::max(m_attribInNameMaxLength, (Int)inVar.name.length());
+                    m_attribs[location] = inVar.name;
+                    m_attribTypes[location] = inVar.glDefineType;
+                }
+                // Implement glBindAttribLocation semantics
+                for (auto& [name, location]: m_explicitAttribLocations) {
+                    assert(location < m_attribs.size());
+                    if (m_attribs[location] != name) {
+                        auto it = std::find(m_attribs.begin(), m_attribs.end(), name);
+                        if (it == m_attribs.end())
+                            continue;
+                        std::swap(m_attribs[location], m_attribs[std::distance(m_attribs.begin(), it)]);
+                        std::swap(m_attribTypes[location], m_attribTypes[std::distance(m_attribs.begin(), it)]);
+                    }
                 }
 
+                // UBO
                 int uboCount = m_program->getNumUniformBlocks();
                 for (int i = 0; i < uboCount; i++) {
                     auto& ubo = m_program->getUniformBlock(i);
                     m_uniformBlockNameMaxLength = std::max(m_uniformBlockNameMaxLength, (Int)ubo.name.length());
                 }
+            }
+
+            void ProgramObject::GenerateBinary() {
+                /* As we passed first stage compilation/linking,
+                 * we'll assume all the operations here should
+                 * pass. We may be able to employ some optimizations
+                 * here without the burden of error reporting.
+                 */
+                using namespace MG_Util::ShaderTranspiler;
+                Vector<SharedPtr<glslang::TShader>> shaders(m_shaders.size());
+                Vector<GLenum> shaderTypes(m_shaders.size());
+                for (SizeT i = 0; i < m_shaders.size(); i++) {
+                    auto shaderType = ConvertGLShaderTypeByMGLShaderStage(m_shaders[i]->GetShaderStage());
+                    shaderTypes[i] = shaderType;
+                    ShaderAttrib attrib {
+                        .shaderType = shaderType,
+                        .sourceStr = m_shaders[i]->GetShaderSource(),
+                        .flags = 0
+                    };
+                    auto res = ShaderCompiler::CompileShader(attrib);
+                    assert(res);
+                    shaders[i] = res.value();
+                }
+
+                ProgramAttrib attrib {
+                    .shaders = Move(shaders),
+                };
+                auto programResult = ShaderCompiler::LinkProgram(attrib);
+                assert(programResult);
+                auto program = programResult.value();
+
+                ProgramBinaryAttrib binaryAttrib {
+                    .shaderTypes = shaderTypes,
+                    .program = *program,
+                };
+                auto binaryResult = ShaderCompiler::GetSpirvBinaryFromProgram(binaryAttrib);
+                assert(binaryResult);
+                m_generatedSpirv = Move(binaryResult.value());
+
+                SpvcSession session(m_generatedSpirv[0]);
+                auto srcResult = ShaderCompiler::DecompileShader(session);
+                assert(srcResult);
+                auto src = srcResult.value();
+
+                auto& meta = session.GetMetadata();
+                auto size = meta.uboSize;
+                m_uboScratch.resize(size);
+                m_uniformOffsets.resize(meta.plainUniformOffsetsInUBO.size());
+                for (const auto& [name, offset] : meta.plainUniformOffsetsInUBO) {
+                    if (m_uniformLocations.find(name) != m_uniformLocations.end())
+                        m_uniformOffsets[m_uniformLocations[name]] = offset;
+                }
+                m_uniformSizesInBytes.resize(meta.plainUniformMemberSizesInBytes.size());
+                for (const auto& [name, size] : meta.plainUniformMemberSizesInBytes) {
+                    if (m_uniformLocations.find(name) != m_uniformLocations.end())
+                        m_uniformSizesInBytes[m_uniformLocations[name]] = size;
+                }
+                // assert(m_uniformOffsets.size() == GetUniformCount());
+                // assert(m_uniformSizesInBytes.size() == GetUniformCount());
+            }
+
+            void ProgramObject::WaitUntilGenerationCompleted() {
+            }
+
+            void ProgramObject::SetExplicitAttribLocation(Uint index, const char *name) {
+                m_explicitAttribLocations[name] = index;
             }
 
             // void ProgramObject::PreLink() {

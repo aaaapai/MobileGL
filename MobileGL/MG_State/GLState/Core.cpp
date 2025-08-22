@@ -191,6 +191,10 @@ namespace MobileGL {
             void GLContext::UseProgram(Uint program) {
                 return m_programState.UseProgram(program);
             }
+
+            SharedPtr<ProgramObject> GLContext::GetCurrentProgram() {
+                return m_programState.GetCurrentProgram();
+            }
         } // namespace GLState
 
         GLState::GLContext* pGLContext;

@@ -23,7 +23,13 @@ TEST_F(ProgramTest, Sanity) {
 
 const char* vsSrc = R"(#version 460
 
-in vec4 Position;
+layout (location = 0) in vec4 Position;
+in float fIn4;
+in float fIn2;
+in float fIn5;
+in float fIn6;
+in float fIn1;
+in float fIn3;
 
 layout(location = 0) uniform mat4 ProjMat;
 uniform vec2 InSize;
@@ -36,7 +42,7 @@ void main(){
     vec4 outPos = ProjMat * vec4(Position.xy, 0.0, 1.0);
     gl_Position = vec4(outPos.xy, 0.2, 1.0);
 
-    oneTexel = 1.0 / InSize;
+    oneTexel = (1.0 * (fIn1 * fIn2 * fIn3 * fIn4 * fIn5 * fIn6)) / InSize;
 
     texCoord = Position.xy / OutSize;
 })";
@@ -58,6 +64,7 @@ uniform vec3 Offset;
 uniform vec3 ColorScale;
 layout(location = 6) uniform float Saturation;
 uniform int AQuickFoxJumpsOverALazyDog;
+uniform int intVal;
 
 out vec4 fragColor;
 
@@ -78,7 +85,7 @@ void main() {
     vec3 Chroma = OutColor - Luma;
     OutColor = (Chroma * Saturation) + Luma;
 
-    fragColor = vec4(OutColor, 1.0);
+    fragColor = vec4(OutColor, float(intVal));
 })";
 
 
@@ -95,32 +102,125 @@ TEST_F(ProgramTest, CompileFragment) {
 }
 
 TEST_F(ProgramTest, CompileAndLink) {
+    char infoLog[1024] = "";
+
     GLuint vs = CreateShader(GL_VERTEX_SHADER);
     ShaderSource(vs, 1, &vsSrc, NULL);
     printf("Compiling vertex shader: %s\n", vsSrc);
     CompileShader(vs);
+    GLint vsStatus = GL_FALSE;
+    GetShaderiv(vs, GL_COMPILE_STATUS, &vsStatus);
+    GetShaderInfoLog(vs, 1024, nullptr, infoLog);
+    ASSERT_EQ(vsStatus, GL_TRUE) << infoLog;
     printf("Compiled vertex shader.\n");
 
     GLuint fs = CreateShader(GL_FRAGMENT_SHADER);
     ShaderSource(fs, 1, &fsSrc, NULL);
     printf("Compiling fragment shader: %s\n", fsSrc);
     CompileShader(fs);
+    GLint fsStatus = GL_FALSE;
+    GetShaderiv(fs, GL_COMPILE_STATUS, &fsStatus);
+    GetShaderInfoLog(fs, 1024, nullptr, infoLog);
+    ASSERT_EQ(fsStatus, GL_TRUE) << infoLog;
     printf("Compiled fragment shader.\n");
 
     GLuint program = CreateProgram();
     AttachShader(program, vs);
     AttachShader(program, fs);
+
+    BindAttribLocation(program, 1, "fIn1");
+    BindAttribLocation(program, 3, "fIn3");
+    BindAttribLocation(program, 5, "fIn5");
     printf("Linking program...\n");
     LinkProgram(program);
     printf("Program linked.\n");
 
-    EXPECT_EQ(GetUniformLocation(program, "ProjMat"), 0);
-    EXPECT_EQ(GetUniformLocation(program, "Gray"), 1);
-    EXPECT_EQ(GetUniformLocation(program, "Saturation"), 6);
+    ASSERT_EQ(GetUniformLocation(program, "ProjMat"), 0);
+    ASSERT_EQ(GetUniformLocation(program, "Gray"), 1);
+    ASSERT_EQ(GetUniformLocation(program, "Saturation"), 6);
     GLint uniformCount = 0;
     GetProgramiv(program, GL_ACTIVE_UNIFORMS, &uniformCount);
-    EXPECT_EQ(uniformCount, 11);
+    ASSERT_EQ(uniformCount, 12);
     GLint uniformNameMaxLength = 0;
     GetProgramiv(program, GL_ACTIVE_UNIFORM_MAX_LENGTH, &uniformNameMaxLength);
-    EXPECT_EQ(uniformNameMaxLength, 12);
+    ASSERT_EQ(uniformNameMaxLength, 12);
+
+    ASSERT_EQ(GetAttribLocation(program, "Position"), 0);
+    ASSERT_EQ(GetAttribLocation(program, "fIn1"), 1);
+    ASSERT_EQ(GetAttribLocation(program, "fIn3"), 3);
+    ASSERT_EQ(GetAttribLocation(program, "fIn5"), 5);
+
+    UseProgram(program);
+
+    auto locRed = GetUniformLocation(program, "RedMatrix");
+    Uniform3f(locRed, 1.0, 3.0, 5.0);
+    float redVal[3];
+    GetUniformfv(program, locRed, redVal);
+    ASSERT_EQ(redVal[0], 1.0);
+    ASSERT_EQ(redVal[1], 3.0);
+    ASSERT_EQ(redVal[2], 5.0);
+
+    auto locAbc = GetUniformLocation(program, "AQuickFoxJumpsOverALazyDog");
+    ASSERT_EQ(locAbc, -1);
+
+    auto locInt = GetUniformLocation(program, "intVal");
+    Uniform1i(locInt, 114514);
+    int intVal;
+    GetUniformiv(program, locInt, &intVal);
+    EXPECT_EQ(intVal, 114514);
+}
+
+TEST_F(ProgramTest, UniformMatrixFunctions) {
+    char infoLog[1024] = "";
+
+    GLuint vs = CreateShader(GL_VERTEX_SHADER);
+    ShaderSource(vs, 1, &vsSrc, NULL);
+    printf("Compiling vertex shader: %s\n", vsSrc);
+    CompileShader(vs);
+    GLint vsStatus = GL_FALSE;
+    GetShaderiv(vs, GL_COMPILE_STATUS, &vsStatus);
+    GetShaderInfoLog(vs, 1024, nullptr, infoLog);
+    ASSERT_EQ(vsStatus, GL_TRUE) << infoLog;
+    printf("Compiled vertex shader.\n");
+
+    GLuint fs = CreateShader(GL_FRAGMENT_SHADER);
+    ShaderSource(fs, 1, &fsSrc, NULL);
+    printf("Compiling fragment shader: %s\n", fsSrc);
+    CompileShader(fs);
+    GLint fsStatus = GL_FALSE;
+    GetShaderiv(fs, GL_COMPILE_STATUS, &fsStatus);
+    GetShaderInfoLog(fs, 1024, nullptr, infoLog);
+    ASSERT_EQ(fsStatus, GL_TRUE) << infoLog;
+    printf("Compiled fragment shader.\n");
+
+    GLuint program = CreateProgram();
+    AttachShader(program, vs);
+    AttachShader(program, fs);
+
+    BindAttribLocation(program, 1, "fIn1");
+    BindAttribLocation(program, 3, "fIn3");
+    BindAttribLocation(program, 5, "fIn5");
+    printf("Linking program...\n");
+    LinkProgram(program);
+    printf("Program linked.\n");
+
+    UseProgram(program);
+
+    // Test UniformMatrix2fv
+    auto locProjMat = GetUniformLocation(program, "ProjMat");
+    ASSERT_NE(locProjMat, -1);
+    
+    // 4x4 matrix (16 elements)
+    GLfloat matrix4x4[16] = {
+        1.0f, 0.0f, 0.0f, 0.0f,
+        0.0f, 1.0f, 0.0f, 0.0f,
+        0.0f, 0.0f, 1.0f, 0.0f,
+        0.0f, 0.0f, 0.0f, 1.0f
+    };
+    
+    // Test UniformMatrix4fv with count = 1
+    UniformMatrix4fv(locProjMat, 1, GL_FALSE, matrix4x4);
+    
+    // Test with multiple matrices (count > 1)
+    // For this test, we would need uniforms that are arrays of matrices
 }

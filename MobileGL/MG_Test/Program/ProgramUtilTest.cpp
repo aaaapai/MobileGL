@@ -133,7 +133,7 @@ TEST_F(ProgramUtilTest, CompileFragmentShaderWithDiscard) {
     }
 
     ProgramAttrib programAttrib {
-        .shaderTypes = { GL_FRAGMENT_SHADER },
+        // .shaderTypes = { GL_FRAGMENT_SHADER },
         .shaders = { res.value() }
     };
 
@@ -159,7 +159,7 @@ TEST_F(ProgramUtilTest, CompileFragmentShaderWithDiscard) {
     }
 
     for (SizeT i = 0; i < spirvs.size(); ++i) {
-        std::cout << "Decompiling " << MG_Util::ConvertGLEnumToString(programAttrib.shaderTypes[i]) << std::endl;
+        std::cout << "Decompiling " << MG_Util::ConvertGLEnumToString(binaryAttrib.shaderTypes[i]) << std::endl;
         auto src = ShaderCompiler::DecompileShader(sessions[i]);
         if (!src) {
             ASSERT_NE(src.error().errc, 0);
@@ -245,7 +245,7 @@ TEST_F(ProgramUtilTest, CompileAndLinkProgram) {
     }
 
     ProgramAttrib programAttrib {
-        .shaderTypes = { GL_VERTEX_SHADER, GL_FRAGMENT_SHADER },
+        // .shaderTypes = { GL_VERTEX_SHADER, GL_FRAGMENT_SHADER },
         .shaders = { vs_res.value(), fs_res.value() }
     };
 
@@ -279,7 +279,7 @@ TEST_F(ProgramUtilTest, DecompProgram) {
     }
 
     ProgramAttrib programAttrib {
-        .shaderTypes = { GL_VERTEX_SHADER, GL_FRAGMENT_SHADER },
+        // .shaderTypes = { GL_VERTEX_SHADER, GL_FRAGMENT_SHADER },
         .shaders = { vs_res.value(), fs_res.value() }
     };
 
@@ -303,7 +303,7 @@ TEST_F(ProgramUtilTest, DecompProgram) {
     }
 
     for (SizeT i = 0; i < spirvs.size(); ++i) {
-        std::cout << "Decompiling " << MG_Util::ConvertGLEnumToString(programAttrib.shaderTypes[i]) << std::endl;
+        std::cout << "Decompiling " << MG_Util::ConvertGLEnumToString(binaryAttrib.shaderTypes[i]) << std::endl;
         auto src = ShaderCompiler::DecompileShader(sessions[i]);
         if (!src) {
             ASSERT_NE(src.error().errc, 0);

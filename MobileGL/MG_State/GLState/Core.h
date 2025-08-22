@@ -64,7 +64,7 @@ namespace MobileGL {
                 SharedPtr<ProgramObject> GetProgramObject(Uint index);
                 SharedPtr<ShaderObject> GetShaderObject(Uint index);
                 void UseProgram(Uint program);
-
+                SharedPtr<ProgramObject> GetCurrentProgram();
             private:
                 // Error
                 ErrorState m_errorState;
