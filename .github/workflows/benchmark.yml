@@ -48,4 +48,4 @@ jobs:
 
       - name: Benchmark
         working-directory: ${{env.BENCH_ROOT}}/build-bench
-        run: ctest -V
+        run: ctest -V -C Release

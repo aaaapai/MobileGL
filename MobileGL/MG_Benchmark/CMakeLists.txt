@@ -1,9 +1,13 @@
 cmake_minimum_required(VERSION 3.14)
-project(MobileGLTest)
+project(MobileGLBenchmark)
 
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+# Enable downloading dependencies
+set(BENCHMARK_DOWNLOAD_DEPENDENCIES ON CACHE BOOL "Allow downloading benchmark dependencies")
+set(BENCHMARK_ENABLE_GTEST_TESTS OFF CACHE BOOL "Disable GTest tests")
+set(BENCHMARK_ENABLE_TESTING OFF CACHE BOOL "Disable testing")
 
 include(FetchContent)
 FetchContent_Declare(
@@ -14,15 +18,18 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(benchmark)
 
+enable_testing()
+
 set(MGL_ROOT ${CMAKE_CURRENT_LIST_DIR}/../..)
 
 add_executable(SanityBench
   SanityBench.cpp
 )
+
 target_link_libraries(SanityBench 
   PRIVATE benchmark::benchmark
 )
 
-enable_testing()
+add_test(NAME SanityBench COMMAND SanityBench --benchmark_counters_tabular=true)
 
-add_test(NAME SanityBench COMMAND SanityBench)
+add_subdirectory(Program)
