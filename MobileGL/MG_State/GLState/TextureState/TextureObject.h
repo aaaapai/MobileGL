@@ -187,6 +187,7 @@ namespace MobileGL {
 
             struct MipmapLevelInternal : MipmapLevelBase {
                 Data data;
+                Bool dirty = false;
 
                 MipmapLevelInternal(const MipmapLevelInput& input) : MipmapLevelBase(input) {
                     if (input.inputData.data && input.inputData.size > 0) {
@@ -207,6 +208,7 @@ namespace MobileGL {
                 virtual IntVec3 GetBaseSize() const = 0;
                 virtual SharedPtr<SamplerObject> GetSamplerObject() const = 0;
                 virtual const Vector<MipmapLevelInternal>& GetMipmaps() const = 0;
+                virtual MipmapLevelInternal& GetMipmap(Int index) = 0;
                 virtual void SetInternalFormat(TextureInternalFormat format) = 0;
             };
 
@@ -221,6 +223,7 @@ namespace MobileGL {
                 IntVec3 GetBaseSize() const override;
                 SharedPtr<SamplerObject> GetSamplerObject() const override;
                 const Vector<MipmapLevelInternal>& GetMipmaps() const override;
+                MipmapLevelInternal& GetMipmap(Int index) override;
                 void SetInternalFormat(TextureInternalFormat format) override;
 
             protected:
