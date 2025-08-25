@@ -5,8 +5,11 @@ namespace MG_Impl::GLXImpl {
 
     void* GetProcAddress(const char* name) {
         MGLOG_D("glXGetProcAddress(\"%s\")", name);
+#ifndef WIN32
         void* proc = dlsym(RTLD_DEFAULT, (const char*)name);
-
+#else
+        void* proc = NULL;
+#endif
         if (!proc) {
             MGLOG_W("Failed to get function: %s", (const char*)name);
             return nullptr;
