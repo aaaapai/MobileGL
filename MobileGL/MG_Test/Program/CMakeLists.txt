@@ -63,6 +63,7 @@ add_executable(
         ${MGL_ROOT}/MobileGL/MG_Util/Converters/MGToGL/DataTypeConverter.cpp
         ${MGL_ROOT}/MobileGL/MG_Util/Converters/GLToMG/BufferEnumConverter.cpp
         ${MGL_ROOT}/MobileGL/MG_Util/Converters/GLToMG/DataTypeConverter.cpp
+        ${MGL_ROOT}/MobileGL/MG_Util/Metrics/BufferMetrics.cpp
         ${MGL_ROOT}/MobileGL/MG_Backend/Init.cpp
         ${MGL_ROOT}/MobileGL/MG_Util/Debug/Log.cpp
 )

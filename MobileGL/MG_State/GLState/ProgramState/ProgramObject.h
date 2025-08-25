@@ -1,6 +1,7 @@
 #pragma once
 #include <Includes.h>
 #include "ShaderObject.h"
+#include "MG_Util/Metrics/BufferMetrics.h"
 #include "MG_Util/ShaderTranspiler/SpvcSession.h"
 
 namespace MobileGL {
@@ -20,7 +21,8 @@ namespace MobileGL {
                 Vector<SharedPtr<ShaderObject>>& GetAttachedShaders();
                 const String& GetInfoLog() const { return m_infoLog; }
                 Int GetUniformMaxLength() const { return m_uniformNameMaxLength; }
-                Uint GetUniformCount() { return m_uniformNames.size(); }
+                Uint GetUniformCount() { return m_activeUniformCount; }
+                Uint GetMaxUniformLocation() const { return m_maxUniformLocation; }
                 Int GetUniformLocation(const String& name) {
                     const auto it = m_uniformLocations.find(name);
                     return (it == m_uniformLocations.end()) ? -1 : (Int)it->second;
@@ -40,7 +42,7 @@ namespace MobileGL {
                     return m_uniformOffsets[location];
                 }
                 Uint GetUniformSizesInBytes(Uint location) const {
-                    return m_uniformSizesInBytes[location];
+                    return MG_Util::GetGLTypeSize(m_uniformTypes[location]);
                 }
 
                 Int GetAttributeLocation(const String& name) {
@@ -101,6 +103,7 @@ namespace MobileGL {
                 Vector<Uint> m_uniformSizesInBytes;
                 Vector<Uint8> m_uboScratch;
 
+                Uint m_activeUniformCount = 0;
                 Uint m_maxUniformLocation = 0;
                 Int m_uniformNameMaxLength = 0;
                 Int m_attribInNameMaxLength = 0;

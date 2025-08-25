@@ -70,8 +70,8 @@ namespace MobileGL {
                     return;
                 }
 
-                auto uniformCount = m_program->getNumUniformVariables();
-                for (int i = 0; i < uniformCount; i++) {
+                m_activeUniformCount = m_program->getNumUniformVariables();
+                for (int i = 0; i < m_activeUniformCount; i++) {
                     auto& uniform = m_program->getUniform(i);
                     auto location = uniform.layoutLocation();
                     m_maxUniformLocation = std::max(m_maxUniformLocation, location);
@@ -85,7 +85,7 @@ namespace MobileGL {
                 m_uniformOffsets.resize(m_maxUniformLocation + 1);
                 m_uniformArraySizes.resize(m_maxUniformLocation + 1);
 
-                for (int i = 0; i < uniformCount; i++) {
+                for (int i = 0; i < m_activeUniformCount; i++) {
                     auto& uniform = m_program->getUniform(i);
                     auto location = uniform.layoutLocation();
                     m_uniformNames[location] = uniform.name;
@@ -167,17 +167,18 @@ namespace MobileGL {
                 SpvcSession session(m_generatedSpirv[0]);
                 auto srcResult = ShaderCompiler::DecompileShader(session);
                 assert(srcResult);
-                auto src = srcResult.value();
+                // auto src = srcResult.value();
+                // printf("decompiled src: \n%s\n", src.c_str());
 
                 auto& meta = session.GetMetadata();
                 auto size = meta.uboSize;
                 m_uboScratch.resize(size);
-                m_uniformOffsets.resize(meta.plainUniformOffsetsInUBO.size());
+                m_uniformOffsets.resize(m_maxUniformLocation + 1);
                 for (const auto& [name, offset] : meta.plainUniformOffsetsInUBO) {
                     if (m_uniformLocations.find(name) != m_uniformLocations.end())
                         m_uniformOffsets[m_uniformLocations[name]] = offset;
                 }
-                m_uniformSizesInBytes.resize(meta.plainUniformMemberSizesInBytes.size());
+                m_uniformSizesInBytes.resize(m_maxUniformLocation + 1);
                 for (const auto& [name, size] : meta.plainUniformMemberSizesInBytes) {
                     if (m_uniformLocations.find(name) != m_uniformLocations.end())
                         m_uniformSizesInBytes[m_uniformLocations[name]] = size;
