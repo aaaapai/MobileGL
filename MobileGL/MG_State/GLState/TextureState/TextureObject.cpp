@@ -34,6 +34,14 @@ namespace MobileGL {
                 return m_mipmaps;
             }
 
+            MipmapLevelInternal& TextureObjectBase::GetMipmap(Int index) {
+                if (index > m_mipmaps.size()) {
+                    // fallback to the last mipmap
+                    index = static_cast<Int>(m_mipmaps.size() - 1);
+                }
+                return m_mipmaps[index];
+            }
+
             void TextureObjectBase::SetInternalFormat(TextureInternalFormat format) {
                 m_internalFormat = format;
             }
