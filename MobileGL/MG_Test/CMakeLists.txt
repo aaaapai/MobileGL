@@ -4,8 +4,10 @@ project(MobileGLTest)
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+set(MGL_ROOT ${CMAKE_CURRENT_LIST_DIR}/../..)
+
 # Add the directory containing our custom Find modules
-list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_LIST_DIR}/../../buildsystem/cmake")
+list(APPEND CMAKE_MODULE_PATH "${MGL_ROOT}/buildsystem/cmake")
 
 include(FetchContent)
 FetchContent_Declare(
@@ -18,8 +20,6 @@ set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(googletest)
 
 enable_testing()
-
-set(MGL_ROOT ${CMAKE_CURRENT_LIST_DIR}/../..)
 
 # Find the required libraries using our custom Find modules
 find_package(glslang REQUIRED)

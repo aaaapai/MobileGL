@@ -1,54 +1,25 @@
 cmake_minimum_required(VERSION 3.24)
 
-# Vulkan SDK's cmake config is fundamentally broken. Directly find libs instead
-if (${CMAKE_SYSTEM_NAME} MATCHES "Darwin")
-    find_package(Vulkan REQUIRED)
-    get_filename_component(VULKAN_LIB_DIR ${Vulkan_LIBRARY} PATH)
+# Add the directory containing our custom Find modules
+list(APPEND CMAKE_MODULE_PATH "${MGL_ROOT}/buildsystem/cmake")
 
-    set(LINK_LIBRARIES
-            ${VULKAN_LIB_DIR}/libglslang.a
-            ${VULKAN_LIB_DIR}/libspirv-cross-c-shared.dylib
-            ${VULKAN_LIB_DIR}/libGenericCodeGen.a
-            ${VULKAN_LIB_DIR}/libglslang-default-resource-limits.a
-            ${VULKAN_LIB_DIR}/libMachineIndependent.a
-            ${VULKAN_LIB_DIR}/libOSDependent.a
-            ${VULKAN_LIB_DIR}/libSPIRV-Tools-diff.a
-            ${VULKAN_LIB_DIR}/libSPIRV-Tools-link.a
-            ${VULKAN_LIB_DIR}/libSPIRV-Tools-lint.a
-            ${VULKAN_LIB_DIR}/libSPIRV-Tools-opt.a
-            ${VULKAN_LIB_DIR}/libSPIRV-Tools-reduce.a
-            ${VULKAN_LIB_DIR}/libSPIRV-Tools.a
-            ${VULKAN_LIB_DIR}/libSPIRV.a
-            ${VULKAN_LIB_DIR}/libSPVRemapper.a)
-elseif (${CMAKE_SYSTEM_NAME} MATCHES "Windows")
-    find_package(Vulkan REQUIRED)
-    get_filename_component(VULKAN_LIB_DIR ${Vulkan_LIBRARY} PATH)
+# Find the required libraries using our custom Find modules
+find_package(glslang REQUIRED)
+find_package(SPIRVCross REQUIRED)
+find_package(SPIRVTools)
 
-    set(LINK_LIBRARIES
-            ${VULKAN_LIB_DIR}/glslang$<$<CONFIG:Debug>:d>.lib
-            ${VULKAN_LIB_DIR}/spirv-cross-c-shared$<$<CONFIG:Debug>:d>.lib
-            ${VULKAN_LIB_DIR}/GenericCodeGen$<$<CONFIG:Debug>:d>.lib
-            ${VULKAN_LIB_DIR}/glslang-default-resource-limits$<$<CONFIG:Debug>:d>.lib
-            ${VULKAN_LIB_DIR}/MachineIndependent$<$<CONFIG:Debug>:d>.lib
-            ${VULKAN_LIB_DIR}/OSDependent$<$<CONFIG:Debug>:d>.lib
-            ${VULKAN_LIB_DIR}/SPIRV-Tools-diff$<$<CONFIG:Debug>:d>.lib
-            ${VULKAN_LIB_DIR}/SPIRV-Tools-link$<$<CONFIG:Debug>:d>.lib
-            ${VULKAN_LIB_DIR}/SPIRV-Tools-lint$<$<CONFIG:Debug>:d>.lib
-            ${VULKAN_LIB_DIR}/SPIRV-Tools-opt$<$<CONFIG:Debug>:d>.lib
-            ${VULKAN_LIB_DIR}/SPIRV-Tools-reduce$<$<CONFIG:Debug>:d>.lib
-            ${VULKAN_LIB_DIR}/SPIRV-Tools$<$<CONFIG:Debug>:d>.lib
-            ${VULKAN_LIB_DIR}/SPIRV$<$<CONFIG:Debug>:d>.lib
-            ${VULKAN_LIB_DIR}/SPVRemapper$<$<CONFIG:Debug>:d>.lib)
-else ()
-    find_package(glslang CONFIG REQUIRED)
-    find_package(spirv_cross_core CONFIG REQUIRED)
-    find_package(spirv_cross_glsl CONFIG REQUIRED)
-    find_package(spirv_cross_hlsl CONFIG REQUIRED)
-    find_package(spirv_cross_msl CONFIG REQUIRED)
-    find_package(spirv_cross_cpp CONFIG REQUIRED)
-    find_package(spirv_cross_reflect CONFIG REQUIRED)
-    find_package(spirv_cross_c CONFIG REQUIRED)
-    set(LINK_LIBRARIES glslang::glslang spirv-cross-c)
+message(STATUS "glslang_LIBRARIES: ${glslang_LIBRARIES}")
+message(STATUS "SPIRVTools_LIBRARIES: ${SPIRVTools_LIBRARIES}")
+message(STATUS "SPIRVCross_LIBRARIES: ${SPIRVCross_LIBRARIES}")
+
+# Set the libraries to link against
+set(LINK_LIBRARIES 
+    ${glslang_LIBRARIES}
+    ${SPIRVCross_LIBRARIES}
+)
+
+if (SPIRVTools_FOUND)
+  list(APPEND LINK_LIBRARIES ${SPIRVTools_LIBRARIES})
 endif()
 
 add_executable(
