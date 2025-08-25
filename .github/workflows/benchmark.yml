@@ -26,7 +26,7 @@ jobs:
         uses: lukka/get-cmake@latest
 
       - name: Update glslang external sources
-        working-directory: ${{env.TEST_ROOT}}/3rdparty/glslang
+        working-directory: ${{env.BENCH_ROOT}}/3rdparty/glslang
         run: python update_glslang_sources.py
 
       - name: Configure CMake
