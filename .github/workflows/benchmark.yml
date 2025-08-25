@@ -8,7 +8,8 @@ jobs:
   benchmark:
     runs-on: ubuntu-latest
     env:
-      BENCH_ROOT: ${{github.workspace}}/MobileGL/MG_Benchmark
+      # BENCH_ROOT: ${{github.workspace}}/MobileGL/MG_Benchmark
+      BENCH_ROOT: ${{github.workspace}}
 
     steps:
       - name: Set Swap Space
@@ -24,28 +25,18 @@ jobs:
       - name: Get CMake
         uses: lukka/get-cmake@latest
 
-      - name: Prepare Vulkan SDK
-        uses: humbletim/setup-vulkan-sdk@v1.2.1
-        with:
-          vulkan-query-version: 1.4.304.1
-          vulkan-components: Glslang, SPIRV-Cross, SPIRV-Tools, SPIRV-Reflect, SPIRV-Headers
-          vulkan-use-cache: true
-
-      - name: Test Vulkan SDK Install
-        run: |
-          echo "Vulkan SDK Version=='$VULKAN_SDK_VERSION'"
-          echo "VULKAN_SDK=='$VULKAN_SDK'"
-          test -n "$VULKAN_SDK_VERSION" || exit 4
-          ls $VULKAN_SDK/lib
+      - name: Update glslang external sources
+        working-directory: ${{env.BENCH_ROOT}}/3rdparty/glslang
+        run: python update_glslang_sources.py
 
       - name: Configure CMake
         working-directory: ${{env.BENCH_ROOT}}
-        run: cmake -S . -B build-bench -DCMAKE_BUILD_TYPE=Release -DBENCHMARK_DOWNLOAD_DEPENDENCIES=ON -DBENCHMARK_ENABLE_TESTING=OFF
+        run: cmake -S . -B build-bench -DCMAKE_BUILD_TYPE=Release -DBENCHMARK_DOWNLOAD_DEPENDENCIES=ON -DBENCHMARK_ENABLE_TESTING=OFF -DBUILD_TEST=OFF -DBUILD_BENCHMARK=ON -DCMAKE_POLICY_VERSION_MINIMUM=3.5
 
       - name: Build
         working-directory: ${{env.BENCH_ROOT}}/build-bench
         run: cmake --build . --parallel 4
 
       - name: Benchmark
-        working-directory: ${{env.BENCH_ROOT}}/build-bench
+        working-directory: ${{env.BENCH_ROOT}}/build-bench/MobileGL/MG_Benchmark
         run: ctest -V -C Release
