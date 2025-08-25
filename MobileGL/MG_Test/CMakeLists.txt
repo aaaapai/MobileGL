@@ -23,8 +23,8 @@ set(MGL_ROOT ${CMAKE_CURRENT_LIST_DIR}/../..)
 
 # Find the required libraries using our custom Find modules
 find_package(glslang REQUIRED)
-find_package(SPIRVTools REQUIRED)
 find_package(SPIRVCross REQUIRED)
+find_package(SPIRVTools)
 
 add_executable(
   SanityTest
@@ -42,9 +42,12 @@ message(STATUS "SPIRVCross_LIBRARIES: ${SPIRVCross_LIBRARIES}")
 # Set the libraries to link against
 set(LINK_LIBRARIES 
     ${glslang_LIBRARIES}
-    ${SPIRVTools_LIBRARIES}
     ${SPIRVCross_LIBRARIES}
 )
+
+if (SPIRVTools_FOUND)
+  list(APPEND LINK_LIBRARIES ${SPIRVTools_LIBRARIES})
+endif()
 
 include(GoogleTest)
 gtest_discover_tests(SanityTest)

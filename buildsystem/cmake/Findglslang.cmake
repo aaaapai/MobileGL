@@ -16,8 +16,7 @@ if (NOT glslang_FOUND)
     find_package(glslang CONFIG QUIET)
     if (glslang_FOUND)
         message(STATUS "Found glslang via CONFIG mode: ${glslang_DIR}")
-        set(glslang_INCLUDE_DIRS ${glslang_INCLUDE_DIRS} ${glslang_INCLUDE_DIR})
-        set(glslang_LIBRARIES ${glslang_LIBRARIES} ${glslang_LIBRARY})
+        set(glslang_LIBRARY glslang::glslang)
     endif()
 endif()
 
@@ -223,7 +222,7 @@ set(glslang_LIBRARIES
 
 include(FindPackageHandleStandardArgs)
 find_package_handle_standard_args(glslang 
-    REQUIRED_VARS glslang_INCLUDE_DIR glslang_LIBRARY
+    REQUIRED_VARS glslang_LIBRARIES
 )
 
 mark_as_advanced(

@@ -35,9 +35,6 @@ if (NOT SPIRVCross_FOUND)
             spirv-cross-c
         )
         
-        # Set the include directories
-        set(SPIRVCross_INCLUDE_DIRS ${spirv_cross_core_INCLUDE_DIRS})
-        
         # Mark as found
         set(SPIRVCross_FOUND TRUE)
     endif()
@@ -288,10 +285,17 @@ endif()
 
 include(FindPackageHandleStandardArgs)
 find_package_handle_standard_args(SPIRVCross 
-    REQUIRED_VARS SPIRVCross_INCLUDE_DIR SPIRVCross_LIBRARIES
+    REQUIRED_VARS SPIRVCross_LIBRARIES
 )
 
 mark_as_advanced(
     SPIRVCross_INCLUDE_DIR
-    SPIRVCross_LIBRARIES
+    SPIRVCross_LIBRARY
+    SPIRVCross_c_LIBRARY
+    SPIRVCross_cpp_LIBRARY
+    SPIRVCross_core_LIBRARY
+    SPIRVCross_reflect_LIBRARY
+    SPIRVCross_glsl_LIBRARY
+    SPIRVCross_hlsl_LIBRARY
+    SPIRVCross_msl_LIBRARY
 )

@@ -142,7 +142,7 @@ set(SPIRVTools_LIBRARIES
 
 include(FindPackageHandleStandardArgs)
 find_package_handle_standard_args(SPIRVTools 
-    REQUIRED_VARS SPIRVTools_INCLUDE_DIR SPIRVTools_LIBRARY
+    REQUIRED_VARS SPIRVTools_LIBRARY
 )
 
 mark_as_advanced(
