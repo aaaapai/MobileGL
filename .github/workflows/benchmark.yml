@@ -31,7 +31,7 @@ jobs:
 
       - name: Configure CMake
         working-directory: ${{env.BENCH_ROOT}}
-        run: cmake -S . -B build-bench -DCMAKE_BUILD_TYPE=Release -DBENCHMARK_DOWNLOAD_DEPENDENCIES=ON -DBENCHMARK_ENABLE_TESTING=OFF -DBUILD_TEST=OFF -DBUILD_BENCHMARK=ON
+        run: cmake -S . -B build-bench -DCMAKE_BUILD_TYPE=Release -DBENCHMARK_DOWNLOAD_DEPENDENCIES=ON -DBENCHMARK_ENABLE_TESTING=OFF -DBUILD_TEST=OFF -DBUILD_BENCHMARK=ON -DCMAKE_POLICY_VERSION_MINIMUM=3.5
 
       - name: Build
         working-directory: ${{env.BENCH_ROOT}}/build-bench

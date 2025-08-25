@@ -33,9 +33,9 @@ jobs:
         working-directory: ${{env.TEST_ROOT}}
         run: |
           if [ "${{ secrets.ACTIONS_STEP_DEBUG }}" == "true" ]; then
-            cmake -S . -B build-test -DCMAKE_BUILD_TYPE=Debug -DBUILD_TEST=ON -DBUILD_BENCHMARK=OFF
+            cmake -S . -B build-test -DCMAKE_BUILD_TYPE=Debug -DBUILD_TEST=ON -DBUILD_BENCHMARK=OFF -DCMAKE_POLICY_VERSION_MINIMUM=3.5
           else
-            cmake -S . -B build-test -DCMAKE_BUILD_TYPE=Release -DBUILD_TEST=ON -DBUILD_BENCHMARK=OFF
+            cmake -S . -B build-test -DCMAKE_BUILD_TYPE=Release -DBUILD_TEST=ON -DBUILD_BENCHMARK=OFF -DCMAKE_POLICY_VERSION_MINIMUM=3.5
           fi
           
       - name: Build
