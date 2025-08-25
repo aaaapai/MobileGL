@@ -187,6 +187,7 @@ namespace MobileGL {
 
             struct MipmapLevelInternal : MipmapLevelBase {
                 Data data;
+                Bool dirty = false;
 
                 MipmapLevelInternal(const MipmapLevelInput& input) : MipmapLevelBase(input) {
                     if (input.inputData.data && input.inputData.size > 0) {
