@@ -1,4 +1,6 @@
+#include <cstring>
 #include <benchmark/benchmark.h>
+
 #include "MG_Impl/GLImpl/Program/GL_Program.h"
 #include "MG_State/GLState/Core.h"
 
@@ -82,7 +84,9 @@ void main() {
 static void BM_CompileVertexShader(benchmark::State& state) {
     // Initialize GL context
     MG_State::pGLContext = new MG_State::GLState::GLContext();
-    
+
+    SizeT vsLen = strlen(vsSrc);
+
     for (auto _ : state) {
         // Create and compile vertex shader
         GLuint vs = CreateShader(GL_VERTEX_SHADER);
@@ -95,6 +99,7 @@ static void BM_CompileVertexShader(benchmark::State& state) {
     
     // Set the counter for Compiles/Second
     state.counters["VS_Compiles/Second"] = state.iterations();
+    state.counters["VS_Bytes/Second"] = state.iterations() * vsLen;
 
     // Cleanup GL context
     delete MG_State::pGLContext;
@@ -104,7 +109,9 @@ BENCHMARK(BM_CompileVertexShader)->Unit(benchmark::kMillisecond);
 static void BM_CompileFragmentShader(benchmark::State& state) {
     // Initialize GL context
     MG_State::pGLContext = new MG_State::GLState::GLContext();
-    
+
+    SizeT fsLen = strlen(fsSrc);
+
     for (auto _ : state) {
         // Create and compile fragment shader
         GLuint fs = CreateShader(GL_FRAGMENT_SHADER);
@@ -117,7 +124,8 @@ static void BM_CompileFragmentShader(benchmark::State& state) {
     
     // Set the counter for Compiles/Second
     state.counters["FS_Compiles/Second"] = state.iterations();
-    
+    state.counters["FS_Bytes/Second"] = state.iterations() * fsLen;
+
     // Cleanup GL context
     delete MG_State::pGLContext;
 }
@@ -126,7 +134,9 @@ BENCHMARK(BM_CompileFragmentShader)->Unit(benchmark::kMillisecond);
 static void BM_CompileBothShaders(benchmark::State& state) {
     // Initialize GL context
     MG_State::pGLContext = new MG_State::GLState::GLContext();
-    
+    SizeT vsLen = strlen(vsSrc);
+    SizeT fsLen = strlen(fsSrc);
+
     for (auto _ : state) {
         // Create and compile vertex shader
         GLuint vs = CreateShader(GL_VERTEX_SHADER);
@@ -146,10 +156,89 @@ static void BM_CompileBothShaders(benchmark::State& state) {
     // Set the counter for Compiles/Second
     state.counters["VS_Compiles/Second"] = state.iterations();
     state.counters["FS_Compiles/Second"] = state.iterations();
+    state.counters["VS_Bytes/Second"] = state.iterations() * vsLen;
+    state.counters["FS_Bytes/Second"] = state.iterations() * fsLen;
 
     // Cleanup GL context
     delete MG_State::pGLContext;
 }
 BENCHMARK(BM_CompileBothShaders)->Unit(benchmark::kMillisecond);
+
+static void BM_LinkProgram(benchmark::State& state) {
+    // Initialize GL context
+    MG_State::pGLContext = new MG_State::GLState::GLContext();
+
+    // Create and compile vertex shader
+    GLuint vs = CreateShader(GL_VERTEX_SHADER);
+    ShaderSource(vs, 1, &vsSrc, NULL);
+    CompileShader(vs);
+
+    // Create and compile fragment shader
+    GLuint fs = CreateShader(GL_FRAGMENT_SHADER);
+    ShaderSource(fs, 1, &fsSrc, NULL);
+    CompileShader(fs);
+
+    for (auto _ : state) {
+        GLuint program = CreateProgram();
+        AttachShader(program, vs);
+        AttachShader(program, fs);
+        LinkProgram(program);
+        DeleteProgram(program);
+    }
+
+    // Cleanup
+    DeleteShader(vs);
+    DeleteShader(fs);
+
+    // Set the counter for Compiles/Second
+    state.counters["Links/Second"] = state.iterations();
+
+    // Cleanup GL context
+    delete MG_State::pGLContext;
+}
+BENCHMARK(BM_LinkProgram)->Unit(benchmark::kMillisecond);
+
+static void BM_CompileAndLink(benchmark::State& state) {
+    // Initialize GL context
+    MG_State::pGLContext = new MG_State::GLState::GLContext();
+
+    SizeT vsLen = strlen(vsSrc);
+    SizeT fsLen = strlen(fsSrc);
+
+    for (auto _ : state) {
+        // Create and compile vertex shader
+        GLuint vs = CreateShader(GL_VERTEX_SHADER);
+        ShaderSource(vs, 1, &vsSrc, NULL);
+        CompileShader(vs);
+
+        // Create and compile fragment shader
+        GLuint fs = CreateShader(GL_FRAGMENT_SHADER);
+        ShaderSource(fs, 1, &fsSrc, NULL);
+        CompileShader(fs);
+
+        GLuint program = CreateProgram();
+        AttachShader(program, vs);
+        AttachShader(program, fs);
+        LinkProgram(program);
+        DeleteProgram(program);
+
+        // Cleanup
+        DeleteShader(vs);
+        DeleteShader(fs);
+    }
+
+
+    // Set the counter for Compiles/Second
+    state.counters["VS_Compiles/Second"] = state.iterations();
+    state.counters["FS_Compiles/Second"] = state.iterations();
+    state.counters["VS_Bytes/Second"] = state.iterations() * vsLen;
+    state.counters["FS_Bytes/Second"] = state.iterations() * fsLen;
+    state.counters["Links/Second"] = state.iterations();
+
+    // Cleanup GL context
+    delete MG_State::pGLContext;
+}
+
+BENCHMARK(BM_CompileAndLink)->Unit(benchmark::kMillisecond);
 
 BENCHMARK_MAIN();
