@@ -12,10 +12,10 @@ jobs:
       BENCH_ROOT: ${{github.workspace}}
 
     steps:
-      - name: Set Swap Space
-        uses: pierotofy/set-swap-space@master
-        with:
-          swap-size-gb: 32
+      # - name: Set Swap Space
+      #   uses: pierotofy/set-swap-space@master
+      #   with:
+      #     swap-size-gb: 32
 
       - name: Checkout repo
         uses: actions/checkout@v4
