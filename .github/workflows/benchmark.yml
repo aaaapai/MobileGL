@@ -35,7 +35,7 @@ jobs:
 
       - name: Build
         working-directory: ${{env.BENCH_ROOT}}/build-bench
-        run: cmake --build . --parallel 4
+        run: cmake --build . --parallel ${nproc}
 
       - name: Benchmark
         working-directory: ${{env.BENCH_ROOT}}/build-bench
