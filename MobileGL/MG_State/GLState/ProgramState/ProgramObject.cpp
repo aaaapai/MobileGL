@@ -167,8 +167,8 @@ namespace MobileGL {
                 SpvcSession session(m_generatedSpirv[0]);
                 auto srcResult = ShaderCompiler::DecompileShader(session);
                 assert(srcResult);
-                auto src = srcResult.value();
-                printf("decompiled src: \n%s\n", src.c_str());
+                // auto src = srcResult.value();
+                // printf("decompiled src: \n%s\n", src.c_str());
 
                 auto& meta = session.GetMetadata();
                 auto size = meta.uboSize;
