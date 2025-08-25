@@ -229,6 +229,7 @@ namespace MobileGL::MG_Impl::GLImpl {
                     return false;
                 }
             }
+            return true;
         }
 
         Bool ValidateTextureObject(SharedPtr<MG_State::GLState::ITextureObject> textureObject) {
@@ -238,7 +239,6 @@ namespace MobileGL::MG_Impl::GLImpl {
                     MakeShared<GenericErrorInfo>("MG_Impl/GLImpl", "ValidateTextureObject", "Texture object is null"));
                 return false;
             }
-
             return true;
         }
 
@@ -251,6 +251,40 @@ namespace MobileGL::MG_Impl::GLImpl {
                     ErrorCode::InvalidOperation,
                     MakeShared<GenericErrorInfo>("MG_Impl/GLImpl", "ValidateTextureTargetUniformity",
                                                  "Texture target does not match the previously created texture"));
+                return false;
+            }
+            return true;
+        }
+
+        Bool ValidateTextureSubImageOffsets(SharedPtr<MG_State::GLState::ITextureObject> textureObject, Int xoffset,
+                                            Int width, Int yoffset, Int height, Int zoffset, Int depth) {
+            auto baseSize = textureObject->GetBaseSize();
+            if (xoffset < 0 || (xoffset + width) > baseSize.x()) {
+                MG_State::pGLContext->RecordError(
+                    ErrorCode::InvalidValue,
+                    MakeShared<GenericErrorInfo>("MG_Impl/GLImpl", "ValidateTextureSubImageOffsets",
+                                                 "xoffset must be non-negative and (xoffset + width) must not exceed "
+                                                 "the texture width."));
+                return false;
+            }
+            if (baseSize.y() == 0) return true;
+
+            if (yoffset < 0 || (yoffset + height) > baseSize.y()) {
+                MG_State::pGLContext->RecordError(
+                    ErrorCode::InvalidValue,
+                    MakeShared<GenericErrorInfo>("MG_Impl/GLImpl", "ValidateTextureSubImageOffsets",
+                                                 "yoffset must be non-negative and (yoffset + height) must not exceed "
+                                                 "the texture height."));
+                return false;
+            }
+            if (baseSize.z() == 0) return true;
+
+            if (zoffset < 0 || (zoffset + depth) > baseSize.z()) {
+                MG_State::pGLContext->RecordError(
+                    ErrorCode::InvalidValue,
+                    MakeShared<GenericErrorInfo>("MG_Impl/GLImpl", "ValidateTextureSubImageOffsets",
+                                                 "zoffset must be non-negative and (zoffset + depth) must not exceed "
+                                                 "the texture depth."));
                 return false;
             }
             return true;

@@ -21,5 +21,7 @@ namespace MobileGL::MG_Impl::GLImpl {
         Bool ValidateTextureObject(SharedPtr<MG_State::GLState::ITextureObject> textureObject);
         Bool ValidateTextureTargetUniformity(SharedPtr<MG_State::GLState::ITextureObject> textureObject,
                                              TextureTarget target);
+        Bool ValidateTextureSubImageOffsets(SharedPtr<MG_State::GLState::ITextureObject> textureObject, Int xoffset,
+                                            Int width, Int yoffset = 0, Int height = 0, Int zoffset = 0, Int depth = 0);
     } // namespace TextureImpl
 } // namespace MobileGL::MG_Impl::GLImpl
