@@ -8,7 +8,8 @@ jobs:
   benchmark:
     runs-on: ubuntu-latest
     env:
-      BENCH_ROOT: ${{github.workspace}}/MobileGL/MG_Benchmark
+      # BENCH_ROOT: ${{github.workspace}}/MobileGL/MG_Benchmark
+      BENCH_ROOT: ${{github.workspace}}
 
     steps:
       - name: Set Swap Space
@@ -40,7 +41,7 @@ jobs:
 
       - name: Configure CMake
         working-directory: ${{env.BENCH_ROOT}}
-        run: cmake -S . -B build-bench -DCMAKE_BUILD_TYPE=Release -DBENCHMARK_DOWNLOAD_DEPENDENCIES=ON -DBENCHMARK_ENABLE_TESTING=OFF
+        run: cmake -S . -B build-bench -DCMAKE_BUILD_TYPE=Release -DBENCHMARK_DOWNLOAD_DEPENDENCIES=ON -DBENCHMARK_ENABLE_TESTING=OFF -DBUILD_TEST=OFF -DBUILD_BENCHMARK=ON
 
       - name: Build
         working-directory: ${{env.BENCH_ROOT}}/build-bench

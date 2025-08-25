@@ -10,6 +10,13 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
+set(SPIRV_CROSS_STATIC ON CACHE BOOL "Build SPIRV-Cross as static library")
+set(SPIRV_CROSS_CLI OFF CACHE BOOL "Build SPIRV-Cross command line tool")
+
+# add_subdirectory(3rdparty/DiligentCore)
+add_subdirectory(3rdparty/glslang)
+add_subdirectory(3rdparty/SPIRV-Cross)
+
 set(SOURCE_FILES
     MobileGL/Init.cpp
 
@@ -79,28 +86,55 @@ set_target_properties(${CMAKE_PROJECT_NAME} PROPERTIES
     VISIBILITY_INLINES_HIDDEN ON
 )
 
-# add_subdirectory(3rdparty/DiligentCore)
-
 target_include_directories(${CMAKE_PROJECT_NAME} PUBLIC
     ${CMAKE_SOURCE_DIR}/include
     ${CMAKE_SOURCE_DIR}/MobileGL
 )
 
-target_link_libraries(MobileGL
+target_link_libraries(${CMAKE_PROJECT_NAME}
     PRIVATE
     # Diligent-Common
     # Diligent-GraphicsEngineOpenGL-shared
     # Diligent-GraphicsEngineVk-shared
 )
 
-set(SPIRV_CROSS_STATIC ON CACHE BOOL "Build SPIRV-Cross as static library")
-set(SPIRV_CROSS_CLI OFF CACHE BOOL "Build SPIRV-Cross command line tool")
-
-add_subdirectory(3rdparty/glslang)
-add_subdirectory(3rdparty/SPIRV-Cross)
-
-target_link_libraries(MobileGL
+target_link_libraries(${CMAKE_PROJECT_NAME}
     PRIVATE
     glslang::glslang
     spirv-cross-c
 )
+
+add_library(${CMAKE_PROJECT_NAME}_s STATIC 
+    ${SOURCE_FILES}
+)
+
+set_target_properties(${CMAKE_PROJECT_NAME}_s PROPERTIES
+    C_VISIBILITY_PRESET hidden
+    CXX_VISIBILITY_PRESET hidden
+    VISIBILITY_INLINES_HIDDEN ON
+)
+
+target_include_directories(${CMAKE_PROJECT_NAME}_s PUBLIC
+    ${CMAKE_SOURCE_DIR}/include
+    ${CMAKE_SOURCE_DIR}/MobileGL
+)
+
+target_link_libraries(${CMAKE_PROJECT_NAME}_s
+    PRIVATE
+    # Diligent-Common
+    # Diligent-GraphicsEngineOpenGL-shared
+    # Diligent-GraphicsEngineVk-shared
+)
+
+target_link_libraries(${CMAKE_PROJECT_NAME}_s
+    PRIVATE
+    glslang::glslang
+    spirv-cross-c
+)
+
+
+set(BUILD_TEST ON CACHE BOOL "Build the tests")
+set(BUILD_BENCHMARK ON CACHE BOOL "Build the benchmarks")
+
+add_subdirectory(MobileGL/MG_Test)
+add_subdirectory(MobileGL/MG_Benchmark)
