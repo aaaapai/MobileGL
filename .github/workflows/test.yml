@@ -25,19 +25,9 @@ jobs:
       - name: Get CMake
         uses: lukka/get-cmake@latest
 
-      - name: Prepare Vulkan SDK
-        uses: humbletim/setup-vulkan-sdk@v1.2.1
-        with:
-          vulkan-query-version: 1.4.321.1
-          vulkan-components: Glslang, SPIRV-Cross, SPIRV-Tools, SPIRV-Reflect, SPIRV-Headers
-          vulkan-use-cache: true
-
-      - name: Test Vulkan SDK Install
-        run: |
-          echo "Vulkan SDK Version=='$VULKAN_SDK_VERSION'"
-          echo "VULKAN_SDK=='$VULKAN_SDK'"
-          test -n "$VULKAN_SDK_VERSION" || exit 4
-          ls $VULKAN_SDK/lib
+      - name: Update glslang external sources
+        working-directory: ${{env.TEST_ROOT}}/3rdparty/glslang
+        run: python update_glslang_sources.py
 
       - name: Configure CMake
         working-directory: ${{env.TEST_ROOT}}
