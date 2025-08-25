@@ -12,10 +12,10 @@ jobs:
       TEST_ROOT: ${{github.workspace}}
 
     steps:
-      # - name: Set Swap Space
-      #   uses: pierotofy/set-swap-space@master
-      #   with:
-      #     swap-size-gb: 32
+      - name: Set Swap Space
+        uses: pierotofy/set-swap-space@master
+        with:
+          swap-size-gb: 32
 
       - name: Checkout repo
         uses: actions/checkout@v4
@@ -40,7 +40,7 @@ jobs:
           
       - name: Build
         working-directory: ${{env.TEST_ROOT}}/build-test
-        run: cmake --build . --parallel ${nproc}
+        run: cmake --build . --parallel 4
 
       - name: Test
         working-directory: ${{env.TEST_ROOT}}/build-test
