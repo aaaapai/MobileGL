@@ -102,7 +102,7 @@ namespace MobileGL {
 
         __eglMustCastToProperFunctionPointerType GetProcAddress(const char* name) {
             MGLOG_D("eglGetProcAddress(%s)", name);
-#ifndef WIN32
+#if !defined(WIN32) && !defined(__APPLE__)
             void* proc = dlsym(RTLD_DEFAULT, (const char*)name);
 #else
             void* proc = NULL;
