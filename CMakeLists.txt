@@ -12,6 +12,10 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
+if (MSVC)
+    set(CMAKE_CXX_FLAGS "/EHsc ${CMAKE_CXX_FLAGS}")
+endif()
+
 set(SPIRV_CROSS_STATIC ON CACHE BOOL "Build SPIRV-Cross as static library")
 set(SPIRV_CROSS_CLI OFF CACHE BOOL "Build SPIRV-Cross command line tool")
 
@@ -134,6 +138,15 @@ target_link_libraries(${CMAKE_PROJECT_NAME}_s
     spirv-cross-c
 )
 
+if (ANDROID)
+    target_link_libraries(${CMAKE_PROJECT_NAME} PUBLIC
+        android
+        log
+    )
+    target_link_libraries(${CMAKE_PROJECT_NAME}_s PUBLIC
+        android
+        log)
+endif()
 
 set(BUILD_TEST ON CACHE BOOL "Build the tests")
 set(BUILD_BENCHMARK ON CACHE BOOL "Build the benchmarks")
