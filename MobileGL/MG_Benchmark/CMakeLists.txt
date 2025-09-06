@@ -40,3 +40,4 @@ target_link_libraries(
 add_test(NAME SanityBench COMMAND SanityBench --benchmark_counters_tabular=true)
 
 add_subdirectory(Program)
+add_subdirectory(Buffer)
