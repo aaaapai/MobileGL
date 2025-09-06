@@ -89,6 +89,11 @@ namespace MobileGL {
         const T& x() const { return (*this)[0]; }
         const T& y() const { return (*this)[1]; }
 
+        T& r() { return (*this)[0]; }
+        T& g() { return (*this)[1]; }
+        const T& r() const { return (*this)[0]; }
+        const T& g() const { return (*this)[1]; }
+
         T Cross(const Vec2& rhs) const { return x() * rhs.y() - y() * rhs.x(); }
 
         Vec2 Rotated(T angle) const {
@@ -113,9 +118,20 @@ namespace MobileGL {
         const T& y() const { return (*this)[1]; }
         const T& z() const { return (*this)[2]; }
 
+        T& r() { return (*this)[0]; }
+        T& g() { return (*this)[1]; }
+        T& b() { return (*this)[2]; }
+        const T& r() const { return (*this)[0]; }
+        const T& g() const { return (*this)[1]; }
+        const T& b() const { return (*this)[2]; }
+
         Vec2<T> xy() const { return {x(), y()}; }
         Vec2<T> xz() const { return {x(), z()}; }
         Vec2<T> yz() const { return {y(), z()}; }
+
+        Vec2<T> rg() const { return {x(), y()}; }
+        Vec2<T> rb() const { return {x(), z()}; }
+        Vec2<T> gb() const { return {y(), z()}; }
 
         Vec3 Cross(const Vec3& rhs) const {
             return {y() * rhs.z() - z() * rhs.y(), z() * rhs.x() - x() * rhs.z(), x() * rhs.y() - y() * rhs.x()};
@@ -134,12 +150,44 @@ namespace MobileGL {
         T& y() { return (*this)[1]; }
         T& z() { return (*this)[2]; }
         T& w() { return (*this)[3]; }
+
+        Vec2<T> xy() const { return {x(), y()}; }
+        Vec2<T> xz() const { return {x(), z()}; }
+        Vec2<T> xw() const { return {x(), w()}; }
+        Vec2<T> yz() const { return {y(), z()}; }
+        Vec2<T> yw() const { return {y(), w()}; }
+        Vec2<T> zw() const { return {z(), w()}; }
+        Vec3<T> xyz() const { return {x(), y(), z()}; }
+        Vec3<T> xyw() const { return {x(), y(), w()}; }
+        Vec3<T> xzw() const { return {x(), z(), w()}; }
+        Vec3<T> yzw() const { return {y(), z(), w()}; }
+
+        T& r() { return (*this)[0]; }
+        T& g() { return (*this)[1]; }
+        T& b() { return (*this)[2]; }
+        T& a() { return (*this)[3]; }
+
+        Vec2<T> rg() const { return {x(), y()}; }
+        Vec2<T> rb() const { return {x(), z()}; }
+        Vec2<T> ra() const { return {x(), w()}; }
+        Vec2<T> gb() const { return {y(), z()}; }
+        Vec2<T> ga() const { return {y(), w()}; }
+        Vec2<T> ba() const { return {z(), w()}; }
+        Vec3<T> rgb() const { return {x(), y(), z()}; }
+        Vec3<T> rga() const { return {x(), y(), w()}; }
+        Vec3<T> rba() const { return {x(), z(), w()}; }
+        Vec3<T> gba() const { return {y(), z(), w()}; }
+
         const T& x() const { return (*this)[0]; }
         const T& y() const { return (*this)[1]; }
         const T& z() const { return (*this)[2]; }
         const T& w() const { return (*this)[3]; }
 
-        Vec3<T> xyz() const { return {x(), y(), z()}; }
+        const T& r() const { return (*this)[0]; }
+        const T& g() const { return (*this)[1]; }
+        const T& b() const { return (*this)[2]; }
+        const T& a() const { return (*this)[3]; }
+
         Vec3<T> Homogenized() const { return (w() != 0) ? xyz() / w() : xyz(); }
     };
 
@@ -152,6 +200,9 @@ namespace MobileGL {
     using FloatVec2 = Vec2<Float>;
     using FloatVec3 = Vec3<Float>;
     using FloatVec4 = Vec4<Float>;
+    using BoolVec2 = Vec2<Bool>;
+    using BoolVec3 = Vec3<Bool>;
+    using BoolVec4 = Vec4<Bool>;
 
     using Size2D = IntVec2;
     using Size3D = IntVec3;
