@@ -119,6 +119,7 @@ namespace MobileGL {
             SharedPtr<VertexArrayObject> GLContext::GetBoundVertexArray() {
                 return m_vertexArrayState.GetBoundVertexArray();
             }
+
             // Texture
             Vector<Uint> GLContext::GenTextureNames(Uint number) {
                 return m_textureState.GenerateNames(number);
@@ -156,6 +157,7 @@ namespace MobileGL {
                 m_textureState.SetActiveTextureUnit(unit);
             }
 
+            // Program
             Uint GLContext::CreateProgram() {
                 return m_programState.CreateProgram();
             }
@@ -195,6 +197,98 @@ namespace MobileGL {
             SharedPtr<ProgramObject> GLContext::GetCurrentProgram() {
                 return m_programState.GetCurrentProgram();
             }
+
+            // RenderState
+            void GLContext::SetViewport(IntVec4 viewport) {
+                m_renderState.SetViewport(viewport);
+            }
+
+            const IntVec4& GLContext::GetViewport() const {
+                return m_renderState.GetViewport();
+            }
+
+            void GLContext::SetCapability(CapabilityInput cap, Bool enabled) {
+                m_renderState.SetCapability(cap, enabled);
+            }
+
+            Bool GLContext::IsCapabilityEnabled(CapabilityInput cap) const {
+                return m_renderState.IsCapabilityEnabled(cap);
+            }
+
+            void GLContext::SetBlendFunc(BlendFactor srcRGB, BlendFactor dstRGB, BlendFactor srcAlpha,
+                                         BlendFactor dstAlpha) {
+                m_renderState.SetBlendFunc(srcRGB, dstRGB, srcAlpha, dstAlpha);
+            }
+
+            void GLContext::GetBlendFunc(BlendFactor& srcRGB, BlendFactor& dstRGB, BlendFactor& srcAlpha,
+                                         BlendFactor& dstAlpha) const {
+                m_renderState.GetBlendFunc(srcRGB, dstRGB, srcAlpha, dstAlpha);
+            }
+
+            void GLContext::SetDepthFunc(DepthFunc func) {
+                m_renderState.SetDepthFunc(func);
+            }
+
+            DepthFunc GLContext::GetDepthFunc() const {
+                return m_renderState.GetDepthFunc();
+            }
+
+            void GLContext::SetDepthMask(Bool flag) {
+                m_renderState.SetDepthMask(flag);
+            }
+
+            Bool GLContext::GetDepthMask() const {
+                return m_renderState.GetDepthMask();
+            }
+
+            void GLContext::SetColorMask(BoolVec4 mask) {
+                m_renderState.SetColorMask(mask);
+            }
+
+            const BoolVec4 GLContext::GetColorMask() const {
+                return m_renderState.GetColorMask();
+            }
+
+            void GLContext::SetClearColor(FloatVec4 color) {
+                m_renderState.SetClearColor(color);
+            }
+
+            const FloatVec4& GLContext::GetClearColor() const {
+                return m_renderState.GetClearColor();
+            }
+
+            void GLContext::SetClearDepth(Float depth) {
+                m_renderState.SetClearDepth(depth);
+            }
+
+            Float GLContext::GetClearDepth() const {
+                return m_renderState.GetClearDepth();
+            }
+
+            void GLContext::SetPixelStoreParam(PixelStoreParam param, Int value) {
+                m_renderState.SetPixelStoreParam(param, value);
+            }
+
+            Int GLContext::GetPixelStoreParam(PixelStoreParam param) const {
+                return m_renderState.GetPixelStoreParam(param);
+            }
+
+            void GLContext::SetCullFaceMode(CullFaceMode mode) {
+                m_renderState.SetCullFaceMode(mode);
+            }
+
+            CullFaceMode GLContext::GetCullFaceMode() const {
+                return m_renderState.GetCullFaceMode();
+            }
+
+            void GLContext::SetCullFaceEnabled(Bool enabled) {
+                m_renderState.SetCullFaceEnabled(enabled);
+            }
+
+            Bool GLContext::IsCullFaceEnabled() const {
+                return m_renderState.IsCullFaceEnabled();
+            }
+
         } // namespace GLState
 
         GLState::GLContext* pGLContext;

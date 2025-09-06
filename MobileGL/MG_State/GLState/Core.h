@@ -1,11 +1,12 @@
 #pragma once
 #include <Includes.h>
-#include "BufferState/BufferState.h"
 #include "MG_Util/Types.h"
-#include "VertexArrayState/VertexArrayState.h"
 #include "ErrorState/Error.h"
+#include "BufferState/BufferState.h"
 #include "ProgramState/ProgramState.h"
 #include "TextureState/TextureState.h"
+#include "VertexArrayState/VertexArrayState.h"
+#include "MG_State/GLState/RenderState/RenderState.h"
 
 namespace MobileGL {
     namespace MG_State {
@@ -65,6 +66,32 @@ namespace MobileGL {
                 SharedPtr<ShaderObject> GetShaderObject(Uint index);
                 void UseProgram(Uint program);
                 SharedPtr<ProgramObject> GetCurrentProgram();
+
+                // RenderState
+                void SetViewport(IntVec4 viewport); // x, y, width, height
+                const IntVec4& GetViewport() const; // x, y, width, height
+                void SetCapability(CapabilityInput cap, Bool enabled);
+                Bool IsCapabilityEnabled(CapabilityInput cap) const;
+                void SetBlendFunc(BlendFactor srcRGB, BlendFactor dstRGB, BlendFactor srcAlpha, BlendFactor dstAlpha);
+                void GetBlendFunc(BlendFactor& srcRGB, BlendFactor& dstRGB, BlendFactor& srcAlpha,
+                                  BlendFactor& dstAlpha) const;
+                void SetDepthFunc(DepthFunc func);
+                DepthFunc GetDepthFunc() const;
+                void SetDepthMask(Bool flag);
+                Bool GetDepthMask() const;
+                void SetColorMask(BoolVec4 mask);
+                const BoolVec4 GetColorMask() const;
+                void SetClearColor(FloatVec4 color);
+                const FloatVec4& GetClearColor() const;
+                void SetClearDepth(Float depth);
+                Float GetClearDepth() const;
+                void SetPixelStoreParam(PixelStoreParam param, Int value);
+                Int GetPixelStoreParam(PixelStoreParam param) const;
+                void SetCullFaceMode(CullFaceMode mode);
+                CullFaceMode GetCullFaceMode() const;
+                void SetCullFaceEnabled(Bool enabled);
+                Bool IsCullFaceEnabled() const;
+
             private:
                 // Error
                 ErrorState m_errorState;
@@ -80,6 +107,9 @@ namespace MobileGL {
 
                 // Program
                 ProgramState m_programState;
+
+                // RenderState
+                RenderState m_renderState;
             };
         } // namespace GLState
 

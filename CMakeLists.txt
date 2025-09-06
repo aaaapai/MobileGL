@@ -80,6 +80,7 @@ set(SOURCE_FILES
     MobileGL/MG_State/GLState/ProgramState/ProgramObject.cpp
     MobileGL/MG_State/GLState/ProgramState/ShaderObject.cpp
     MobileGL/MG_State/GLState/ProgramState/ProgramState.cpp
+    MobileGL/MG_State/GLState/RenderState/RenderState.cpp
 )
 
 add_library(${CMAKE_PROJECT_NAME} SHARED 
