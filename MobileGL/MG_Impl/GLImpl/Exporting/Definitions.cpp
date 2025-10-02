@@ -1,9 +1,10 @@
 #include <Includes.h>
 #include "../Buffer/GL_Buffer.h"
-#include "../VertexArray/GL_VertexArray.h"
 #include "../Getter/GL_Getter.h"
 #include "../Program/GL_Program.h"
 #include "../Texture/GL_Texture.h"
+#include "../Framebuffer/GL_Framebuffer.h"
+#include "../VertexArray/GL_VertexArray.h"
 
 #define DECLARE_GL_FUNCTION_STUB_HEAD(type,name,...)                        \
 MOBILEGL_GL_API type gl##name(__VA_ARGS__) {
