@@ -210,6 +210,7 @@ namespace MobileGL {
                 virtual const Vector<MipmapLevelInternal>& GetMipmaps() const = 0;
                 virtual MipmapLevelInternal& GetMipmap(Int index) = 0;
                 virtual void SetInternalFormat(TextureInternalFormat format) = 0;
+                virtual Bool IsComplete() const = 0;
             };
 
             class TextureObjectBase : public ITextureObject {
@@ -225,6 +226,7 @@ namespace MobileGL {
                 const Vector<MipmapLevelInternal>& GetMipmaps() const override;
                 MipmapLevelInternal& GetMipmap(Int index) override;
                 void SetInternalFormat(TextureInternalFormat format) override;
+                Bool IsComplete() const override;
 
             protected:
                 virtual void SetMipmapImpl(const MipmapLevelInput& level) = 0;

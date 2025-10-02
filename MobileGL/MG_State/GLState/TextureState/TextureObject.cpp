@@ -34,6 +34,22 @@ namespace MobileGL {
                 return m_mipmaps;
             }
 
+            Bool TextureObjectBase::IsComplete() const {
+                if (m_internalFormat == TextureInternalFormat::Unknown) {
+                    return false;
+                }
+                if (m_mipmaps.empty()) {
+                    return false;
+                }
+                for (const auto& level : m_mipmaps) {
+                    if (level.size.x() <= 0 || level.size.y() <= 0 || level.size.z() <= 0) {
+                        return false;
+                    }
+                }
+                // TODO: add more completeness checks based on texture type and mipmap levels
+                return true;
+            }
+
             MipmapLevelInternal& TextureObjectBase::GetMipmap(Int index) {
                 if (index > m_mipmaps.size()) {
                     // fallback to the last mipmap
