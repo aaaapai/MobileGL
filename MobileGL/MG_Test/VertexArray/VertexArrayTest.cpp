@@ -16,13 +16,10 @@ protected:
         auto vbo = glContext.CreateBufferObject(bufferNames[0]);
         glContext.GetBufferBindingSlot(BufferTarget::Vertex).Bind(vbo);
 
-        Vector<float> vertexData = {
-            0.0f, 0.0f, 0.0f, 1.0f,
-            1.0f, 0.0f, 0.0f, 1.0f
-        };
+        Vector<float> vertexData = {0.0f, 0.0f, 0.0f, 1.0f, 1.0f, 0.0f, 0.0f, 1.0f};
         SizeT byteSize = vertexData.size() * sizeof(float);
         vbo->Resize(byteSize);
-        DataPtr ptr{ .data = vertexData.data(), .size = byteSize };
+        DataPtr ptr{.data = vertexData.data(), .size = byteSize};
         vbo->UploadData(ptr, 0);
 
         return vbo;
@@ -84,13 +81,13 @@ TEST_F(VertexArrayTest, IndexBufferBinding) {
     auto ebo = glContext.CreateBufferObject(bufferNames[0]);
     glContext.GetBufferBindingSlot(BufferTarget::Index).Bind(ebo);
 
-    Vector<Uint> indices = { 0, 1, 2 };
+    Vector<Uint> indices = {0, 1, 2};
     SizeT byteSize = indices.size() * sizeof(Uint);
     ebo->Resize(byteSize);
-    DataPtr ptr{ .data = indices.data(), .size = byteSize };
+    DataPtr ptr{.data = indices.data(), .size = byteSize};
     ebo->UploadData(ptr, 0);
 
-	glContext.GetBufferBindingSlot(BufferTarget::Index).Bind(ebo);
+    glContext.GetBufferBindingSlot(BufferTarget::Index).Bind(ebo);
     ASSERT_EQ(glContext.GetBufferBindingSlot(BufferTarget::Index).GetBoundObject(), ebo);
 
     auto newEboNames = glContext.GenBufferNames(1);
@@ -145,7 +142,7 @@ TEST_F(VertexArrayTest, MultipleAttributes) {
     Vector<float> normals(12, 0.5f);
     SizeT byteSize = normals.size() * sizeof(float);
     vboNormal->Resize(byteSize);
-    DataPtr ptr{ .data = normals.data(), .size = byteSize };
+    DataPtr ptr{.data = normals.data(), .size = byteSize};
     vboNormal->UploadData(ptr, 0);
 
     vao->EnableAttribute(0);
@@ -202,14 +199,11 @@ TEST_F(VertexArrayTest, BoundVAOPreservesState) {
     ASSERT_FALSE(vao2->IsAttributeEnabled(0));
 }
 
-
 using namespace MobileGL::MG_Impl::GLImpl;
 
 class GeneralVertexArrayTest : public ::testing::Test {
 protected:
-    void SetUp() override {
-        MG_State::pGLContext = new MG_State::GLState::GLContext();
-    }
+    void SetUp() override { MG_State::pGLContext = new MG_State::GLState::GLContext(); }
 
     void TearDown() override {
         delete MG_State::pGLContext;
@@ -291,12 +285,13 @@ TEST_F(GeneralVertexArrayTest, General_IndexBufferBinding) {
 
     auto vaoObj = MG_State::pGLContext->GetVertexArrayObject(vao);
     ASSERT_NE(vaoObj, nullptr);
-    
+
     GLuint newEbo;
     GenBuffers(1, &newEbo);
     BindBuffer(GL_ELEMENT_ARRAY_BUFFER, newEbo);
 
-    EXPECT_EQ(MG_State::pGLContext->GetBufferBindingSlot(BufferTarget::Index).GetBoundObject(), MG_State::pGLContext->GetBufferObject(newEbo));
+    EXPECT_EQ(MG_State::pGLContext->GetBufferBindingSlot(BufferTarget::Index).GetBoundObject(),
+              MG_State::pGLContext->GetBufferObject(newEbo));
 
     EXPECT_EQ(GetError(), GL_NO_ERROR);
 }
@@ -405,7 +400,7 @@ TEST_F(GeneralVertexArrayTest, General_ComplexUsage) {
 
     DeleteVertexArrays(1, &vao1);
     DeleteVertexArrays(1, &vao2);
-    GLuint buffers[] = { vboPos, vboColor, ebo1, vboNormal, ebo2 };
+    GLuint buffers[] = {vboPos, vboColor, ebo1, vboNormal, ebo2};
     DeleteBuffers(5, buffers);
 
     EXPECT_EQ(GetError(), GL_NO_ERROR);
@@ -415,13 +410,13 @@ TEST_F(GeneralVertexArrayTest, General_BindWithoutCreation) {
     GLuint vao = 1;
 
     BindVertexArray(vao);
-    EXPECT_EQ(GetError(), GL_NO_ERROR);
+    EXPECT_EQ(GetError(), GL_INVALID_OPERATION);
 
-    EXPECT_NE(MG_State::pGLContext->GetVertexArrayObject(vao), nullptr);
+    EXPECT_EQ(MG_State::pGLContext->GetVertexArrayObject(vao), nullptr);
 
     GLuint vbo = CreateVBO(GL_ARRAY_BUFFER, 64);
     VertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 0, nullptr);
-    EXPECT_EQ(GetError(), GL_NO_ERROR);
+    EXPECT_EQ(GetError(), GL_INVALID_OPERATION);
 
     EXPECT_EQ(GetError(), GL_NO_ERROR);
 }
@@ -469,11 +464,11 @@ TEST_F(GeneralVertexArrayTest, General_ElementBufferBindingPoint) {
     BindBuffer(GL_ELEMENT_ARRAY_BUFFER, ebo2);
 
     EXPECT_EQ(MG_State::pGLContext->GetBufferBindingSlot(BufferTarget::Index).GetBoundObject(),
-        MG_State::pGLContext->GetBufferObject(ebo2));
+              MG_State::pGLContext->GetBufferObject(ebo2));
 
     BindVertexArray(vao2);
     EXPECT_EQ(MG_State::pGLContext->GetBufferBindingSlot(BufferTarget::Index).GetBoundObject(),
-        MG_State::pGLContext->GetBufferObject(ebo2));
+              MG_State::pGLContext->GetBufferObject(ebo2));
 
     BindVertexArray(0);
     BindBuffer(GL_ELEMENT_ARRAY_BUFFER, ebo1);
@@ -504,5 +499,5 @@ TEST_F(GeneralVertexArrayTest, General_ElementBufferBindingPoint) {
     DeleteBuffers(1, &ebo1);
     DeleteBuffers(1, &ebo3);
 
-	EXPECT_EQ(GetError(), GL_NO_ERROR);
+    EXPECT_EQ(GetError(), GL_NO_ERROR);
 }
