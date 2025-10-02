@@ -5,9 +5,9 @@
 #include "BufferMetrics.h"
 
 namespace MobileGL {
-namespace MG_Util {
-    SizeT GetGLTypeSize(GLenum type) {
-        switch (type) {
+    namespace MG_Util {
+        SizeT GetGLTypeSize(GLenum type) {
+            switch (type) {
             // Scalars
             case GL_BYTE:
             case GL_UNSIGNED_BYTE:
@@ -30,10 +30,10 @@ namespace MG_Util {
             case GL_UNSIGNED_INT_5_9_9_9_REV:
                 return 4;
             case GL_DOUBLE:
-    #ifdef GL_ARB_gpu_shader_int64
+#ifdef GL_ARB_gpu_shader_int64
             case GL_UNSIGNED_INT64_ARB:
             case GL_INT64_ARB:
-    #endif
+#endif
                 return 8;
 
             // ---- Vector Types ----
@@ -72,7 +72,7 @@ namespace MG_Util {
                 return 3 * 3 * sizeof(GLfloat);
             case GL_FLOAT_MAT4:
                 return 4 * 4 * sizeof(GLfloat);
-            
+
             // Float non-square
             case GL_FLOAT_MAT2x3:
                 return 2 * 3 * sizeof(GLfloat);
@@ -111,7 +111,7 @@ namespace MG_Util {
 
             default:
                 return -1;
+            }
         }
-    }
-}
-}
+    } // namespace MG_Util
+} // namespace MobileGL

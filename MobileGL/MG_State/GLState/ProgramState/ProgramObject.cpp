@@ -90,7 +90,7 @@ namespace MobileGL {
                     auto location = uniform.layoutLocation();
                     m_uniformNames[location] = uniform.name;
                     m_uniformTypes[location] = uniform.glDefineType;
-                    m_uniformIsOpaqueType[location] =  uniform.getType()->isOpaque();
+                    m_uniformIsOpaqueType[location] = uniform.getType()->isOpaque();
                     m_uniformArraySizes[location] = uniform.size;
                 }
 
@@ -108,12 +108,11 @@ namespace MobileGL {
                     m_attribTypes[location] = inVar.glDefineType;
                 }
                 // Implement glBindAttribLocation semantics
-                for (auto& [name, location]: m_explicitAttribLocations) {
+                for (auto& [name, location] : m_explicitAttribLocations) {
                     assert(location < m_attribs.size());
                     if (m_attribs[location] != name) {
                         auto it = std::find(m_attribs.begin(), m_attribs.end(), name);
-                        if (it == m_attribs.end())
-                            continue;
+                        if (it == m_attribs.end()) continue;
                         std::swap(m_attribs[location], m_attribs[std::distance(m_attribs.begin(), it)]);
                         std::swap(m_attribTypes[location], m_attribTypes[std::distance(m_attribs.begin(), it)]);
                     }
@@ -139,24 +138,21 @@ namespace MobileGL {
                 for (SizeT i = 0; i < m_shaders.size(); i++) {
                     auto shaderType = ConvertGLShaderTypeByMGLShaderStage(m_shaders[i]->GetShaderStage());
                     shaderTypes[i] = shaderType;
-                    ShaderAttrib attrib {
-                        .shaderType = shaderType,
-                        .sourceStr = m_shaders[i]->GetShaderSource(),
-                        .flags = 0
-                    };
+                    ShaderAttrib attrib{
+                        .shaderType = shaderType, .sourceStr = m_shaders[i]->GetShaderSource(), .flags = 0};
                     auto res = ShaderCompiler::CompileShader(attrib);
                     assert(res);
                     shaders[i] = res.value();
                 }
 
-                ProgramAttrib attrib {
+                ProgramAttrib attrib{
                     .shaders = Move(shaders),
                 };
                 auto programResult = ShaderCompiler::LinkProgram(attrib);
                 assert(programResult);
                 auto program = programResult.value();
 
-                ProgramBinaryAttrib binaryAttrib {
+                ProgramBinaryAttrib binaryAttrib{
                     .shaderTypes = shaderTypes,
                     .program = *program,
                 };
@@ -187,10 +183,9 @@ namespace MobileGL {
                 // assert(m_uniformSizesInBytes.size() == GetUniformCount());
             }
 
-            void ProgramObject::WaitUntilGenerationCompleted() {
-            }
+            void ProgramObject::WaitUntilGenerationCompleted() {}
 
-            void ProgramObject::SetExplicitAttribLocation(Uint index, const char *name) {
+            void ProgramObject::SetExplicitAttribLocation(Uint index, const char* name) {
                 m_explicitAttribLocations[name] = index;
             }
 
@@ -257,35 +252,35 @@ namespace MobileGL {
             // }
             //
             // void ProgramObject::PostLink() {
-                // if (m_programBinary.empty()) {
-                //     assert(false);
-                //     return;
-                // }
-                // MG_Util::ShaderTranspiler::SpvcSession session(m_programBinary[0]);
-                // const char* src = nullptr; // we don't care the source atm
-                // auto result = session.Compile(&src);
-                // if (result != SPVC_SUCCESS) {
-                //     assert(false);
-                //     return;
-                // }
-                // m_metadata = session.GetMetadata();
-                // auto& uniformOffsets = m_metadata.plainUniformOffsetsInUBO;
-                // for (const auto& [name, offset] : uniformOffsets) {
-                //     assert(m_uniforms.find(name) != m_uniforms.end());
-                //     assert(m_uniforms[name] < m_uniformOffsets.size());
-                //     m_uniformOffsets[m_uniforms[name]] = offset;
-                // }
-                // m_uboScratch.resize(m_metadata.uboSize, 0);
-                //
-                // auto& types = m_metadata.plainUniformMemberTypes;
-                //
-                // assert(types.size() == m_uniformOffsets.size());
-                // m_uniformTypes.resize(m_uniformOffsets.size());
-                // for (const auto& [name, type] : types) {
-                //     auto gltype = MG_Util::ConvertSpvcTypeToGLEnum(type);
-                //     auto location = m_uniforms[name];
-                //     m_uniformTypes[location] = gltype;
-                // }
+            // if (m_programBinary.empty()) {
+            //     assert(false);
+            //     return;
+            // }
+            // MG_Util::ShaderTranspiler::SpvcSession session(m_programBinary[0]);
+            // const char* src = nullptr; // we don't care the source atm
+            // auto result = session.Compile(&src);
+            // if (result != SPVC_SUCCESS) {
+            //     assert(false);
+            //     return;
+            // }
+            // m_metadata = session.GetMetadata();
+            // auto& uniformOffsets = m_metadata.plainUniformOffsetsInUBO;
+            // for (const auto& [name, offset] : uniformOffsets) {
+            //     assert(m_uniforms.find(name) != m_uniforms.end());
+            //     assert(m_uniforms[name] < m_uniformOffsets.size());
+            //     m_uniformOffsets[m_uniforms[name]] = offset;
+            // }
+            // m_uboScratch.resize(m_metadata.uboSize, 0);
+            //
+            // auto& types = m_metadata.plainUniformMemberTypes;
+            //
+            // assert(types.size() == m_uniformOffsets.size());
+            // m_uniformTypes.resize(m_uniformOffsets.size());
+            // for (const auto& [name, type] : types) {
+            //     auto gltype = MG_Util::ConvertSpvcTypeToGLEnum(type);
+            //     auto location = m_uniforms[name];
+            //     m_uniformTypes[location] = gltype;
+            // }
             // }
         } // namespace GLState
     } // namespace MG_State

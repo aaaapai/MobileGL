@@ -9,7 +9,7 @@ namespace MobileGL {
         namespace GLState {
             class ProgramObject {
             public:
-                ProgramObject(const Uint id): m_id(id) {}
+                ProgramObject(const Uint id) : m_id(id) {}
                 bool ShaderIsAttached(SharedPtr<ShaderObject> shader);
                 bool AttachShader(SharedPtr<ShaderObject> shader);
                 SizeT DetachShader(SharedPtr<ShaderObject> shader);
@@ -27,20 +27,12 @@ namespace MobileGL {
                     const auto it = m_uniformLocations.find(name);
                     return (it == m_uniformLocations.end()) ? -1 : (Int)it->second;
                 }
-                GLenum GetUniformType(Uint index) const {
-                    return m_uniformTypes[index];
-                }
+                GLenum GetUniformType(Uint index) const { return m_uniformTypes[index]; }
 
-                Bool IsUniformOpaqueAtLocation(Uint location) const {
-                    return m_uniformIsOpaqueType[location];
-                }
+                Bool IsUniformOpaqueAtLocation(Uint location) const { return m_uniformIsOpaqueType[location]; }
 
-                const String& GetUniformName(Uint index) const {
-                    return m_uniformNames[index];
-                }
-                Uint GetUniformOffset(Uint location) const {
-                    return m_uniformOffsets[location];
-                }
+                const String& GetUniformName(Uint index) const { return m_uniformNames[index]; }
+                Uint GetUniformOffset(Uint location) const { return m_uniformOffsets[location]; }
                 Uint GetUniformSizesInBytes(Uint location) const {
                     return MG_Util::GetGLTypeSize(m_uniformTypes[location]);
                 }
@@ -49,15 +41,9 @@ namespace MobileGL {
                     const auto it = std::find(m_attribs.begin(), m_attribs.end(), name);
                     return (it == m_attribs.end()) ? -1 : std::distance(m_attribs.begin(), it);
                 }
-                GLenum GetAttribType(Uint index) const {
-                    return m_attribTypes[index];
-                }
-                const String& GetAttribName(Uint index) const {
-                    return m_attribs[index];
-                }
-                void* MapUBO() {
-                    return m_uboScratch.data();
-                }
+                GLenum GetAttribType(Uint index) const { return m_attribTypes[index]; }
+                const String& GetAttribName(Uint index) const { return m_attribs[index]; }
+                void* MapUBO() { return m_uboScratch.data(); }
 
                 Bool GetDeleteStatus() const { return m_deleteStatus; }
                 Bool GetLinkStatus() const { return m_linkStatus; }
@@ -67,6 +53,7 @@ namespace MobileGL {
                 Int GetActiveUniformBlocksCount() const { return m_program->getNumUniformBlocks(); }
                 Int GetActiveAttributesMaxLength() const { return m_attribInNameMaxLength; }
                 Int GetActiveUniformBlocksMaxNameLength() const { return m_uniformBlockNameMaxLength; }
+
             private:
                 void DoReflection();
                 void GenerateBinary();

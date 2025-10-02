@@ -92,11 +92,11 @@ static void BM_CompileVertexShader(benchmark::State& state) {
         GLuint vs = CreateShader(GL_VERTEX_SHADER);
         ShaderSource(vs, 1, &vsSrc, NULL);
         CompileShader(vs);
-        
+
         // Cleanup
         DeleteShader(vs);
     }
-    
+
     // Set the counter for Compiles/Second
     state.counters["VS_Compiles/Second"] = state.iterations();
     state.counters["VS_Bytes/Second"] = state.iterations() * vsLen;
@@ -117,11 +117,11 @@ static void BM_CompileFragmentShader(benchmark::State& state) {
         GLuint fs = CreateShader(GL_FRAGMENT_SHADER);
         ShaderSource(fs, 1, &fsSrc, NULL);
         CompileShader(fs);
-        
+
         // Cleanup
         DeleteShader(fs);
     }
-    
+
     // Set the counter for Compiles/Second
     state.counters["FS_Compiles/Second"] = state.iterations();
     state.counters["FS_Bytes/Second"] = state.iterations() * fsLen;
@@ -142,17 +142,17 @@ static void BM_CompileBothShaders(benchmark::State& state) {
         GLuint vs = CreateShader(GL_VERTEX_SHADER);
         ShaderSource(vs, 1, &vsSrc, NULL);
         CompileShader(vs);
-        
+
         // Create and compile fragment shader
         GLuint fs = CreateShader(GL_FRAGMENT_SHADER);
         ShaderSource(fs, 1, &fsSrc, NULL);
         CompileShader(fs);
-        
+
         // Cleanup
         DeleteShader(vs);
         DeleteShader(fs);
     }
-    
+
     // Set the counter for Compiles/Second
     state.counters["VS_Compiles/Second"] = state.iterations();
     state.counters["FS_Compiles/Second"] = state.iterations();
@@ -226,7 +226,6 @@ static void BM_CompileAndLink(benchmark::State& state) {
         DeleteShader(vs);
         DeleteShader(fs);
     }
-
 
     // Set the counter for Compiles/Second
     state.counters["VS_Compiles/Second"] = state.iterations();

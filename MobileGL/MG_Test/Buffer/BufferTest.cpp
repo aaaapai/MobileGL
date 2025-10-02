@@ -50,12 +50,12 @@ TEST_F(BufferTest, PingPong) {
 
     auto bufWrite = writeSlot.GetBoundObject();
 
-    Vector<Int> data { 1, 2, 3, 4, 5 };
+    Vector<Int> data{1, 2, 3, 4, 5};
 
     SizeT byteSize = data.size() * sizeof(Int);
     // Write data
     bufWrite->Resize(byteSize);
-    DataPtr ptr { .data = data.data(), .size = byteSize };
+    DataPtr ptr{.data = data.data(), .size = byteSize};
     bufWrite->UploadData(ptr, 0);
 
     // Readback
@@ -70,20 +70,20 @@ TEST_F(BufferTest, PingPong) {
 }
 
 TEST_F(BufferTest, GenerateManyNames_NoPrematureCreation) {
-	const SizeT largeCount = 100000; // generate tons of buffer names
+    const SizeT largeCount = 100000; // generate tons of buffer names
     auto names = glContext.GenBufferNames(largeCount);
-    
-	std::vector<SizeT> indices = { 0, 600, 5000, 32768, 99999 }; // only create a few buffer objects
+
+    std::vector<SizeT> indices = {0, 600, 5000, 32768, 99999}; // only create a few buffer objects
     for (SizeT idx : indices) {
         GLuint name = names[idx];
         auto bufObj = glContext.CreateBufferObject(name);
         auto& slot = glContext.GetBufferBindingSlot(BufferTarget::Uniform);
         slot.Bind(bufObj);
 
-        Vector<Int> data = { static_cast<Int>(idx + 1), static_cast<Int>(idx + 2) };
+        Vector<Int> data = {static_cast<Int>(idx + 1), static_cast<Int>(idx + 2)};
         SizeT byteSize = data.size() * sizeof(Int);
         bufObj->Resize(byteSize);
-        DataPtr ptr{ .data = data.data(), .size = byteSize };
+        DataPtr ptr{.data = data.data(), .size = byteSize};
         bufObj->UploadData(ptr, 0);
 
         Vector<Int> actual(data.size());
@@ -98,10 +98,10 @@ TEST_F(BufferTest, AcquireMemory) {
     auto bufferNames = glContext.GenBufferNames(1);
     auto bufObj = glContext.CreateBufferObject(bufferNames[0]);
     slot.Bind(bufObj);
-    Vector<Int> initData{ 10, 20, 30, 40, 50 };
+    Vector<Int> initData{10, 20, 30, 40, 50};
     SizeT byteSize = initData.size() * sizeof(Int);
     bufObj->Resize(byteSize);
-    DataPtr ptr{ .data = initData.data(), .size = byteSize };
+    DataPtr ptr{.data = initData.data(), .size = byteSize};
     bufObj->UploadData(ptr, 0);
     bufObj->ClearDirty();
     Int* mappedPtr = static_cast<Int*>(bufObj->AcquireMemory(true, true, true));
@@ -109,7 +109,7 @@ TEST_F(BufferTest, AcquireMemory) {
     mappedPtr[1] = 200;
     mappedPtr[2] = 300;
     bufObj->ReleaseMemory();
-    Vector<Int> expected{ 100, 200, 300, 40, 50 };
+    Vector<Int> expected{100, 200, 300, 40, 50};
     Vector<Int> actual(5);
     void* p = bufObj->AcquireMemory(false, true, false);
     memcpy(actual.data(), p, byteSize);
@@ -117,7 +117,7 @@ TEST_F(BufferTest, AcquireMemory) {
     auto dirty = bufObj->GetDirtyRange();
 
     ASSERT_EQ(dirty.start, 0);
-	ASSERT_EQ(dirty.end, sizeof(Int) * 5);
+    ASSERT_EQ(dirty.end, sizeof(Int) * 5);
 }
 
 TEST_F(BufferTest, AcquireMemoryRangeWithoutExplicit) {
@@ -125,32 +125,26 @@ TEST_F(BufferTest, AcquireMemoryRangeWithoutExplicit) {
     auto bufferNames = glContext.GenBufferNames(1);
     auto bufObj = glContext.CreateBufferObject(bufferNames[0]);
     slot.Bind(bufObj);
-    Vector<Int> initData{ 10, 20, 30, 40, 50 };
+    Vector<Int> initData{10, 20, 30, 40, 50};
     SizeT byteSize = initData.size() * sizeof(Int);
     bufObj->Resize(byteSize);
-    DataPtr ptr{ .data = initData.data(), .size = byteSize };
+    DataPtr ptr{.data = initData.data(), .size = byteSize};
     bufObj->UploadData(ptr, 0);
     bufObj->ClearDirty();
 
-    Range1D mapRange{
-        .start = sizeof(Int),
-		.end = sizeof(Int) * 4
-    };
-    Int* mappedPtr = static_cast<Int*>(bufObj->AcquireMemoryRange(
-        mapRange,
-        BufferMappingAccessBit::Write
-    ));
+    Range1D mapRange{.start = sizeof(Int), .end = sizeof(Int) * 4};
+    Int* mappedPtr = static_cast<Int*>(bufObj->AcquireMemoryRange(mapRange, BufferMappingAccessBit::Write));
     mappedPtr[0] = 200;
     mappedPtr[1] = 300;
     bufObj->ReleaseMemory();
-    Vector<Int> expected{ 10, 200, 300, 40, 50 };
+    Vector<Int> expected{10, 200, 300, 40, 50};
     Vector<Int> actual(5);
     void* p = bufObj->AcquireMemory(false, true, false);
     memcpy(actual.data(), p, byteSize);
     ASSERT_EQ(actual, expected);
     auto dirty = bufObj->GetDirtyRange();
     ASSERT_EQ(dirty.start, sizeof(Int));
-	ASSERT_EQ(dirty.end, sizeof(Int) * 4);
+    ASSERT_EQ(dirty.end, sizeof(Int) * 4);
 }
 
 TEST_F(BufferTest, AcquireMemoryRangeWithExplicit) {
@@ -159,30 +153,25 @@ TEST_F(BufferTest, AcquireMemoryRangeWithExplicit) {
     auto bufObj = glContext.CreateBufferObject(bufferNames[0]);
     slot.Bind(bufObj);
 
-    Vector<Int> initData{ 10, 20, 30, 40, 50 };
+    Vector<Int> initData{10, 20, 30, 40, 50};
     SizeT byteSize = initData.size() * sizeof(Int);
     bufObj->Resize(byteSize);
-    DataPtr ptr{ .data = initData.data(), .size = byteSize };
+    DataPtr ptr{.data = initData.data(), .size = byteSize};
     bufObj->UploadData(ptr, 0);
 
     bufObj->ClearDirty();
 
-    Range1D mapRange{
-        .start = sizeof(Int),
-        .end = sizeof(Int) * 4
-    };
-    Int* mappedPtr = static_cast<Int*>(bufObj->AcquireMemoryRange(
-        mapRange,
-        BufferMappingAccessBit::Write | BufferMappingAccessBit::FlushExplicit
-    ));
+    Range1D mapRange{.start = sizeof(Int), .end = sizeof(Int) * 4};
+    Int* mappedPtr = static_cast<Int*>(
+        bufObj->AcquireMemoryRange(mapRange, BufferMappingAccessBit::Write | BufferMappingAccessBit::FlushExplicit));
 
     mappedPtr[0] = 200;
     mappedPtr[1] = 300;
 
     bufObj->FlushMemoryRange(0, sizeof(Int));
     auto dirty = bufObj->GetDirtyRange();
-	ASSERT_EQ(dirty.start, sizeof(Int));
-	ASSERT_EQ(dirty.end, sizeof(Int) * 2);
+    ASSERT_EQ(dirty.start, sizeof(Int));
+    ASSERT_EQ(dirty.end, sizeof(Int) * 2);
 
     bufObj->ReleaseMemory();
 
@@ -190,7 +179,7 @@ TEST_F(BufferTest, AcquireMemoryRangeWithExplicit) {
     ASSERT_EQ(dirty.start, sizeof(Int));
     ASSERT_EQ(dirty.end, sizeof(Int) * 2);
 
-    Vector<Int> expected{ 10, 200, 30, 40, 50 };
+    Vector<Int> expected{10, 200, 30, 40, 50};
     Vector<Int> actual(5);
     void* p = bufObj->AcquireMemory(false, true, false);
     memcpy(actual.data(), p, byteSize);
@@ -198,7 +187,7 @@ TEST_F(BufferTest, AcquireMemoryRangeWithExplicit) {
 
     dirty = bufObj->GetDirtyRange();
     ASSERT_EQ(dirty.start, sizeof(Int));
-    ASSERT_EQ(dirty.end, sizeof(Int) * 2); 
+    ASSERT_EQ(dirty.end, sizeof(Int) * 2);
 }
 
 TEST_F(BufferTest, CopyBufferSubData) {
@@ -209,10 +198,10 @@ TEST_F(BufferTest, CopyBufferSubData) {
     auto srcObj = glContext.CreateBufferObject(srcNames[0]);
     srcSlot.Bind(srcObj);
 
-    Vector<Int> srcData{ 1, 2, 3, 4, 5, 6, 7, 8, 9, 10 };
+    Vector<Int> srcData{1, 2, 3, 4, 5, 6, 7, 8, 9, 10};
     SizeT srcSize = srcData.size() * sizeof(Int);
     srcObj->Resize(srcSize);
-    DataPtr srcPtr{ .data = srcData.data(), .size = srcSize };
+    DataPtr srcPtr{.data = srcData.data(), .size = srcSize};
     srcObj->UploadData(srcPtr, 0);
 
     auto dstNames = glContext.GenBufferNames(1);
@@ -222,22 +211,15 @@ TEST_F(BufferTest, CopyBufferSubData) {
     Vector<Int> dstData(15, 0);
     SizeT dstSize = dstData.size() * sizeof(Int);
     dstObj->Resize(dstSize);
-    DataPtr dstPtr{ .data = dstData.data(), .size = dstSize };
+    DataPtr dstPtr{.data = dstData.data(), .size = dstSize};
     dstObj->UploadData(dstPtr, 0);
 
     srcObj->ClearDirty();
     dstObj->ClearDirty();
 
-    dstObj->CopyDataFrom(srcObj,
-        2 * sizeof(Int),
-        5 * sizeof(Int),
-        4 * sizeof(Int));
+    dstObj->CopyDataFrom(srcObj, 2 * sizeof(Int), 5 * sizeof(Int), 4 * sizeof(Int));
 
-    Vector<Int> expected{
-        0, 0, 0, 0, 0,
-        3, 4, 5, 6,
-        0, 0, 0, 0, 0, 0 
-    };
+    Vector<Int> expected{0, 0, 0, 0, 0, 3, 4, 5, 6, 0, 0, 0, 0, 0, 0};
 
     Vector<Int> actual(15);
     void* p = dstObj->AcquireMemory(false, true, false);
@@ -268,7 +250,7 @@ TEST_F(BufferTest, WriteWhileMapped) {
 
     bufObj->ReleaseMemory();
 
-    Vector<Int> expected{ 0, 10, 20, 30, 40, 50, 60, 70, 80, 90 };
+    Vector<Int> expected{0, 10, 20, 30, 40, 50, 60, 70, 80, 90};
     Vector<Int> actual(10);
     void* p = bufObj->AcquireMemory(false, true, false);
     memcpy(actual.data(), p, byteSize);
@@ -286,20 +268,17 @@ TEST_F(BufferTest, PartialUpdate) {
     auto bufObj = glContext.CreateBufferObject(bufferNames[0]);
     slot.Bind(bufObj);
 
-    Vector<Int> initData{ 100, 200, 300, 400, 500 };
+    Vector<Int> initData{100, 200, 300, 400, 500};
     SizeT byteSize = initData.size() * sizeof(Int);
     bufObj->Resize(byteSize);
-    DataPtr ptr{ .data = initData.data(), .size = byteSize };
+    DataPtr ptr{.data = initData.data(), .size = byteSize};
     bufObj->UploadData(ptr, 0);
-	bufObj->ClearDirty();
+    bufObj->ClearDirty();
 
-    Vector<Int> update{ 999, 888 };
-    bufObj->UploadSubData(
-        { (void*)(update.data()), (SizeT)(update.size() * sizeof(Int)) },
-        sizeof(Int)
-    );
+    Vector<Int> update{999, 888};
+    bufObj->UploadSubData({(void*)(update.data()), (SizeT)(update.size() * sizeof(Int))}, sizeof(Int));
 
-    Vector<Int> expected{ 100, 999, 888, 400, 500 };
+    Vector<Int> expected{100, 999, 888, 400, 500};
     Vector<Int> actual(5);
     void* p = bufObj->AcquireMemory(false, true, false);
     memcpy(actual.data(), p, byteSize);
@@ -326,9 +305,7 @@ using namespace MobileGL::MG_Impl::GLImpl;
 
 class GeneralBufferTest : public ::testing::Test {
 protected:
-    void SetUp() override {
-		MG_State::pGLContext = new MG_State::GLState::GLContext();
-    }
+    void SetUp() override { MG_State::pGLContext = new MG_State::GLState::GLContext(); }
 
     GLuint CreateBoundBuffer(GLenum target, GLsizeiptr size, GLenum usage) {
         GLuint buffer;
@@ -361,7 +338,7 @@ TEST_F(GeneralBufferTest, General_BufferLifecycle) {
 TEST_F(GeneralBufferTest, General_BufferDataOperations) {
     GLuint buffer = CreateBoundBuffer(GL_ARRAY_BUFFER, 100, GL_STATIC_DRAW);
 
-    const char initData[100] = { 0 };
+    const char initData[100] = {0};
     char readBack[100];
     void* mapped = MapBuffer(GL_ARRAY_BUFFER, GL_READ_ONLY);
     ASSERT_NE(mapped, nullptr);
@@ -414,16 +391,14 @@ TEST_F(GeneralBufferTest, General_BufferMapping) {
     strcpy((char*)fullMap, "   Full mapping test");
     EXPECT_TRUE(UnmapBuffer(GL_ARRAY_BUFFER));
 
-    void* partialMap = MapBufferRange(GL_ARRAY_BUFFER, 0, 30,
-        GL_MAP_WRITE_BIT | GL_MAP_FLUSH_EXPLICIT_BIT);
+    void* partialMap = MapBufferRange(GL_ARRAY_BUFFER, 0, 30, GL_MAP_WRITE_BIT | GL_MAP_FLUSH_EXPLICIT_BIT);
     ASSERT_NE(partialMap, nullptr);
     strcpy((char*)partialMap, "Partial (not valid value)");
 
     FlushMappedBufferRange(GL_ARRAY_BUFFER, 0, 7);
     EXPECT_TRUE(UnmapBuffer(GL_ARRAY_BUFFER));
 
-    partialMap = MapBufferRange(GL_ARRAY_BUFFER, 20, 40,
-        GL_MAP_WRITE_BIT | GL_MAP_FLUSH_EXPLICIT_BIT);
+    partialMap = MapBufferRange(GL_ARRAY_BUFFER, 20, 40, GL_MAP_WRITE_BIT | GL_MAP_FLUSH_EXPLICIT_BIT);
     ASSERT_NE(partialMap, nullptr);
     strcpy((char*)partialMap, ": modified data (not valid value)");
 
@@ -465,8 +440,7 @@ TEST_F(GeneralBufferTest, General_MapFlags) {
 
     EXPECT_TRUE(UnmapBuffer(GL_ARRAY_BUFFER));
 
-    void* nosyncMap = MapBufferRange(GL_ARRAY_BUFFER, 0, 100,
-        GL_MAP_WRITE_BIT | GL_MAP_UNSYNCHRONIZED_BIT);
+    void* nosyncMap = MapBufferRange(GL_ARRAY_BUFFER, 0, 100, GL_MAP_WRITE_BIT | GL_MAP_UNSYNCHRONIZED_BIT);
     ASSERT_NE(nosyncMap, nullptr);
     memset(nosyncMap, 0xAA, 100);
     EXPECT_TRUE(UnmapBuffer(GL_ARRAY_BUFFER));
@@ -484,37 +458,33 @@ TEST_F(GeneralBufferTest, General_GeneralTest_1) {
     BindBuffer(GL_ARRAY_BUFFER, vbo);
     BufferData(GL_ARRAY_BUFFER, 64, nullptr, GL_STATIC_DRAW);
 
-    const float vertexData[] = { 0.1f, 0.2f, 0.3f, 1.0f };
+    const float vertexData[] = {0.1f, 0.2f, 0.3f, 1.0f};
     BufferSubData(GL_ARRAY_BUFFER, 0, sizeof(vertexData), vertexData);
 
     BindBuffer(GL_UNIFORM_BUFFER, ibo);
-    const uint16_t indexData[] = { 0, 1, 2, 3, 0 };
+    const uint16_t indexData[] = {0, 1, 2, 3, 0};
     BufferData(GL_UNIFORM_BUFFER, sizeof(indexData), indexData, GL_STATIC_DRAW);
 
-    const uint16_t newIndices[] = { 4, 5 };
-    BufferSubData(GL_UNIFORM_BUFFER, 2 * sizeof(uint16_t),
-        sizeof(newIndices), newIndices);
+    const uint16_t newIndices[] = {4, 5};
+    BufferSubData(GL_UNIFORM_BUFFER, 2 * sizeof(uint16_t), sizeof(newIndices), newIndices);
 
     BindBuffer(GL_COPY_READ_BUFFER, staging);
     const char stagingData[] = "StagingBufferData";
     BufferData(GL_COPY_READ_BUFFER, sizeof(stagingData), stagingData, GL_STREAM_COPY);
 
-    CopyBufferSubData(GL_COPY_READ_BUFFER, GL_ARRAY_BUFFER,
-        0, 40, sizeof(stagingData));
+    CopyBufferSubData(GL_COPY_READ_BUFFER, GL_ARRAY_BUFFER, 0, 40, sizeof(stagingData));
 
     BindBuffer(GL_UNIFORM_BUFFER, ibo);
     void* fullMap = MapBuffer(GL_UNIFORM_BUFFER, GL_READ_WRITE);
     ASSERT_NE(fullMap, nullptr);
 
     uint16_t* indices = static_cast<uint16_t*>(fullMap);
-    indices[0] = 10; 
+    indices[0] = 10;
 
     EXPECT_TRUE(UnmapBuffer(GL_UNIFORM_BUFFER));
 
     BindBuffer(GL_ARRAY_BUFFER, vbo);
-    void* partialMap = MapBufferRange(GL_ARRAY_BUFFER, 20, 8,
-        GL_MAP_WRITE_BIT |
-        GL_MAP_FLUSH_EXPLICIT_BIT);
+    void* partialMap = MapBufferRange(GL_ARRAY_BUFFER, 20, 8, GL_MAP_WRITE_BIT | GL_MAP_FLUSH_EXPLICIT_BIT);
     ASSERT_NE(partialMap, nullptr);
 
     const char partialWriteData[] = "PARTIAL"; // 7 chars + '\0' = 8 bytes
@@ -552,8 +522,8 @@ TEST_F(GeneralBufferTest, General_GeneralTest_1) {
     GLenum err = GetError();
     EXPECT_EQ(err, GL_INVALID_OPERATION);
 
-    GLuint toDelete[] = { vbo, ibo };
-    DeleteBuffers(2, toDelete); 
+    GLuint toDelete[] = {vbo, ibo};
+    DeleteBuffers(2, toDelete);
 
     EXPECT_EQ(GetError(), GL_NO_ERROR);
 }

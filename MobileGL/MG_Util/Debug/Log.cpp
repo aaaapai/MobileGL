@@ -20,7 +20,7 @@ namespace MobileGL {
         }
 
         std::string GetThreadName() {
-            char buffer[64] = { 0 };
+            char buffer[64] = {0};
 #if defined(_WIN32) && !defined(__MINGW32__)
             PWSTR desc = nullptr;
             if (SUCCEEDED(GetThreadDescription(GetCurrentThread(), &desc))) {
@@ -37,7 +37,7 @@ namespace MobileGL {
             using namespace std::chrono;
             auto now = system_clock::now();
             std::time_t tt = system_clock::to_time_t(now);
-            struct tm tm {};
+            struct tm tm{};
 #if defined(_WIN32)
             localtime_s(&tm, &tt);
 #else
@@ -69,7 +69,8 @@ namespace MobileGL {
         void Log(const char* levelTag, android_LogPriority androidLogLevel, const char* fmt, ...) {
             std::lock_guard<std::mutex> lock(s_mutex);
 
-            std::string header = "[" + GetCurrentTime() + "] [" + GetOSName() + " " + GetThreadName() + "/" + levelTag + "]: ";
+            std::string header =
+                "[" + GetCurrentTime() + "] [" + GetOSName() + " " + GetThreadName() + "/" + levelTag + "]: ";
 
             char buffer[1024];
             va_list args;
@@ -98,5 +99,5 @@ namespace MobileGL {
             }
 #endif
         }
-    }
-}
+    } // namespace MG_Util::Debug
+} // namespace MobileGL

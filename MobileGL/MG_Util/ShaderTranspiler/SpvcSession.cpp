@@ -93,7 +93,8 @@ namespace MobileGL {
                             SPVC_CHK_RESULT(spvc_compiler_type_struct_member_offset(compiler, type, j, &memberOffset);)
                             metadata.plainUniformOffsetsInUBO[memberName] = memberOffset;
                             SizeT memberSize = 0;
-                            SPVC_CHK_RESULT(spvc_compiler_get_declared_struct_member_size(compiler, type, j, &memberSize);)
+                            SPVC_CHK_RESULT(
+                                spvc_compiler_get_declared_struct_member_size(compiler, type, j, &memberSize);)
                             metadata.plainUniformMemberSizesInBytes[memberName] = memberSize;
 
                             auto memberTypeId = spvc_type_get_member_type(type, j);

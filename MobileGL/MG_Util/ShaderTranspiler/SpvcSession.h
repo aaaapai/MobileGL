@@ -26,26 +26,25 @@ namespace MobileGL {
 
                 static Uint32 getByteSizeOfBaseType(const spvc_basetype type) {
                     switch (type) {
-                        case SPVC_BASETYPE_INT8:
-                        case SPVC_BASETYPE_UINT8:
-                            return 1;
-                        case SPVC_BASETYPE_INT16:
-                        case SPVC_BASETYPE_UINT16:
-                        case SPVC_BASETYPE_FP16:
-                            return 2;
-                        case SPVC_BASETYPE_INT32:
-                        case SPVC_BASETYPE_UINT32:
-                        case SPVC_BASETYPE_FP32:
-                            return 4;
-                        case SPVC_BASETYPE_INT64:
-                        case SPVC_BASETYPE_UINT64:
-                        case SPVC_BASETYPE_FP64:
-                            return 8;
-                        default:
-                            return 0;
+                    case SPVC_BASETYPE_INT8:
+                    case SPVC_BASETYPE_UINT8:
+                        return 1;
+                    case SPVC_BASETYPE_INT16:
+                    case SPVC_BASETYPE_UINT16:
+                    case SPVC_BASETYPE_FP16:
+                        return 2;
+                    case SPVC_BASETYPE_INT32:
+                    case SPVC_BASETYPE_UINT32:
+                    case SPVC_BASETYPE_FP32:
+                        return 4;
+                    case SPVC_BASETYPE_INT64:
+                    case SPVC_BASETYPE_UINT64:
+                    case SPVC_BASETYPE_FP64:
+                        return 8;
+                    default:
+                        return 0;
                     }
                 }
-
             };
 
             struct SpvcMetadata {

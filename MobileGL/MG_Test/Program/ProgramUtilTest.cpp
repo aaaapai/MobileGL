@@ -41,10 +41,7 @@ void main(){
 
 TEST_F(ProgramUtilTest, CompileSimpleVertexShader) {
     using namespace MG_Util::ShaderTranspiler;
-    ShaderAttrib attrib {
-        .shaderType = GL_VERTEX_SHADER,
-        .sourceStr = vs
-    };
+    ShaderAttrib attrib{.shaderType = GL_VERTEX_SHADER, .sourceStr = vs};
     auto res = ShaderCompiler::CompileShader(attrib);
     if (!res) {
         ASSERT_NE(res.error().errc, 0);
@@ -93,10 +90,7 @@ void main() {
 
 TEST_F(ProgramUtilTest, CompileSimpleFragmentShader) {
     using namespace MG_Util::ShaderTranspiler;
-    ShaderAttrib attrib {
-            .shaderType = GL_FRAGMENT_SHADER,
-            .sourceStr = fs
-    };
+    ShaderAttrib attrib{.shaderType = GL_FRAGMENT_SHADER, .sourceStr = fs};
     auto res = ShaderCompiler::CompileShader(attrib);
     if (!res) {
         ASSERT_NE(res.error().errc, 0);
@@ -122,20 +116,15 @@ void main() {
 
 TEST_F(ProgramUtilTest, CompileFragmentShaderWithDiscard) {
     using namespace MG_Util::ShaderTranspiler;
-    ShaderAttrib attrib {
-        .shaderType = GL_FRAGMENT_SHADER,
-        .sourceStr = position_color_fsh
-};
+    ShaderAttrib attrib{.shaderType = GL_FRAGMENT_SHADER, .sourceStr = position_color_fsh};
     auto res = ShaderCompiler::CompileShader(attrib);
     if (!res) {
         ASSERT_NE(res.error().errc, 0);
         FAIL() << "errc: " << res.error().errc << "\nlog: " << res.error().log;
     }
 
-    ProgramAttrib programAttrib {
-        // .shaderTypes = { GL_FRAGMENT_SHADER },
-        .shaders = { res.value() }
-    };
+    ProgramAttrib programAttrib{// .shaderTypes = { GL_FRAGMENT_SHADER },
+                                .shaders = {res.value()}};
 
     auto program_res = ShaderCompiler::LinkProgram(programAttrib);
     if (!program_res) {
@@ -145,8 +134,8 @@ TEST_F(ProgramUtilTest, CompileFragmentShaderWithDiscard) {
 
     auto program = program_res.value();
 
-    ProgramBinaryAttrib binaryAttrib {
-        .shaderTypes = { GL_FRAGMENT_SHADER },
+    ProgramBinaryAttrib binaryAttrib{
+        .shaderTypes = {GL_FRAGMENT_SHADER},
         .program = *program,
     };
     auto bin_res = ShaderCompiler::GetSpirvBinaryFromProgram(binaryAttrib);
@@ -196,11 +185,8 @@ void main(){
 
 TEST_F(ProgramUtilTest, CompileVertexShaderWithLocation) {
     using namespace MG_Util::ShaderTranspiler;
-    ShaderAttrib attrib {
-        .shaderType = GL_VERTEX_SHADER,
-        .sourceStr = vs_location,
-        .flags = ShaderCompileBits::CompileForOpenGL
-    };
+    ShaderAttrib attrib{
+        .shaderType = GL_VERTEX_SHADER, .sourceStr = vs_location, .flags = ShaderCompileBits::CompileForOpenGL};
     auto res = ShaderCompiler::CompileShader(attrib);
     if (!res) {
         ASSERT_NE(res.error().errc, 0);
@@ -224,30 +210,22 @@ TEST_F(ProgramUtilTest, CompileVertexShaderWithLocation) {
 
 TEST_F(ProgramUtilTest, CompileAndLinkProgram) {
     using namespace MG_Util::ShaderTranspiler;
-    ShaderAttrib vs_attrib {
-        .shaderType = GL_VERTEX_SHADER,
-        .sourceStr = vs
-    };
+    ShaderAttrib vs_attrib{.shaderType = GL_VERTEX_SHADER, .sourceStr = vs};
     auto vs_res = ShaderCompiler::CompileShader(vs_attrib);
     if (!vs_res) {
         ASSERT_NE(vs_res.error().errc, 0);
         FAIL() << "errc: " << vs_res.error().errc << "\nlog: " << vs_res.error().log;
     }
 
-    ShaderAttrib fs_attrib {
-        .shaderType = GL_FRAGMENT_SHADER,
-        .sourceStr = fs
-};
+    ShaderAttrib fs_attrib{.shaderType = GL_FRAGMENT_SHADER, .sourceStr = fs};
     auto fs_res = ShaderCompiler::CompileShader(fs_attrib);
     if (!fs_res) {
         ASSERT_NE(fs_res.error().errc, 0);
         FAIL() << "errc: " << fs_res.error().errc << "\nlog: " << fs_res.error().log;
     }
 
-    ProgramAttrib programAttrib {
-        // .shaderTypes = { GL_VERTEX_SHADER, GL_FRAGMENT_SHADER },
-        .shaders = { vs_res.value(), fs_res.value() }
-    };
+    ProgramAttrib programAttrib{// .shaderTypes = { GL_VERTEX_SHADER, GL_FRAGMENT_SHADER },
+                                .shaders = {vs_res.value(), fs_res.value()}};
 
     auto program_res = ShaderCompiler::LinkProgram(programAttrib);
     if (!program_res) {
@@ -258,30 +236,22 @@ TEST_F(ProgramUtilTest, CompileAndLinkProgram) {
 
 TEST_F(ProgramUtilTest, DecompProgram) {
     using namespace MG_Util::ShaderTranspiler;
-    ShaderAttrib vs_attrib {
-        .shaderType = GL_VERTEX_SHADER,
-        .sourceStr = vs
-    };
+    ShaderAttrib vs_attrib{.shaderType = GL_VERTEX_SHADER, .sourceStr = vs};
     auto vs_res = ShaderCompiler::CompileShader(vs_attrib);
     if (!vs_res) {
         ASSERT_NE(vs_res.error().errc, 0);
         FAIL() << "errc: " << vs_res.error().errc << "\nlog: " << vs_res.error().log;
     }
 
-    ShaderAttrib fs_attrib {
-        .shaderType = GL_FRAGMENT_SHADER,
-        .sourceStr = fs
-};
+    ShaderAttrib fs_attrib{.shaderType = GL_FRAGMENT_SHADER, .sourceStr = fs};
     auto fs_res = ShaderCompiler::CompileShader(fs_attrib);
     if (!fs_res) {
         ASSERT_NE(fs_res.error().errc, 0);
         FAIL() << "errc: " << fs_res.error().errc << "\nlog: " << fs_res.error().log;
     }
 
-    ProgramAttrib programAttrib {
-        // .shaderTypes = { GL_VERTEX_SHADER, GL_FRAGMENT_SHADER },
-        .shaders = { vs_res.value(), fs_res.value() }
-    };
+    ProgramAttrib programAttrib{// .shaderTypes = { GL_VERTEX_SHADER, GL_FRAGMENT_SHADER },
+                                .shaders = {vs_res.value(), fs_res.value()}};
 
     auto program_res = ShaderCompiler::LinkProgram(programAttrib);
     if (!program_res) {
@@ -289,8 +259,8 @@ TEST_F(ProgramUtilTest, DecompProgram) {
         FAIL() << "errc: " << program_res.error().errc << "\nlog: " << program_res.error().log;
     }
 
-    ProgramBinaryAttrib binaryAttrib {
-        .shaderTypes = { GL_VERTEX_SHADER, GL_FRAGMENT_SHADER },
+    ProgramBinaryAttrib binaryAttrib{
+        .shaderTypes = {GL_VERTEX_SHADER, GL_FRAGMENT_SHADER},
         .program = *program_res.value(),
     };
     auto bin_res = ShaderCompiler::GetSpirvBinaryFromProgram(binaryAttrib);
@@ -322,7 +292,7 @@ TEST_F(ProgramUtilTest, DecompProgram) {
     for (size_t i = 0; i < vs_outputs.size(); ++i) {
         EXPECT_EQ(vs_outputs[i].location, fs_inputs[i].location);
     }
-    
+
     auto vs_uniforms = sessions[0].GetShaderInterface(SPVC_RESOURCE_TYPE_GL_PLAIN_UNIFORM);
     auto fs_uniforms = sessions[1].GetShaderInterface(SPVC_RESOURCE_TYPE_GL_PLAIN_UNIFORM);
 

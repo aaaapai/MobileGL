@@ -8,9 +8,9 @@
 #include <Includes.h>
 
 namespace MobileGL {
-namespace MG_Util {
-    SizeT GetGLTypeSize(GLenum type);
-}
-}
+    namespace MG_Util {
+        SizeT GetGLTypeSize(GLenum type);
+    }
+} // namespace MobileGL
 
-#endif //BUFFERMETRICS_H
+#endif // BUFFERMETRICS_H

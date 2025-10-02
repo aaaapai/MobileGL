@@ -139,7 +139,9 @@ namespace MobileGL {
                     tshader->setEnvInput(glslang::EShSourceGlsl, lang, glslang::EShClientVulkan, 450);
                     tshader->setEnvClient(glslang::EShClientVulkan, glslang::EShTargetVulkan_1_3);
                     tshader->setEnvTarget(glslang::EShTargetSpv,
-                        ((attrib.flags & ShaderCompileBits::EmitDiscardAsDemote) ? glslang::EShTargetSpv_1_6 : glslang::EShTargetSpv_1_5));
+                                          ((attrib.flags & ShaderCompileBits::EmitDiscardAsDemote)
+                                               ? glslang::EShTargetSpv_1_6
+                                               : glslang::EShTargetSpv_1_5));
                 }
                 tshader->setAutoMapLocations(true);
                 tshader->setAutoMapBindings(true);
@@ -192,7 +194,8 @@ namespace MobileGL {
                 return program;
             }
 
-            Result<Vector<Vector<unsigned>>> ShaderCompiler::GetSpirvBinaryFromProgram(const ProgramBinaryAttrib &attrib) {
+            Result<Vector<Vector<unsigned>>> ShaderCompiler::GetSpirvBinaryFromProgram(
+                const ProgramBinaryAttrib& attrib) {
                 glslang::SpvOptions spvOptions;
                 spvOptions.disableOptimizer = false;
 

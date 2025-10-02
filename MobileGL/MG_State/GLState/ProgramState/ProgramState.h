@@ -22,9 +22,8 @@ namespace MobileGL {
                 void MarkShaderObjectForDeletion(Uint shader);
                 Bool ValidateShaderObject(Uint shader) const;
 
-                SharedPtr<ProgramObject> GetCurrentProgram() const {
-                    return m_currentProgram;
-                }
+                SharedPtr<ProgramObject> GetCurrentProgram() const { return m_currentProgram; }
+
             private:
                 template <typename T>
                 static Bool CheckIndexAvail(const SizeT idx, const Vector<T>& vec) {

@@ -11,4 +11,4 @@ namespace MobileGL {
         StackUnderflow,
         StackOverflow
     };
-}
+} // namespace MobileGL

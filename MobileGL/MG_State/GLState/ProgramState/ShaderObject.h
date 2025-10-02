@@ -36,21 +36,21 @@ namespace MobileGL {
 
             inline static ShaderStage ConvertMGLShaderStageByGLShaderType(GLenum type) {
                 switch (type) {
-                    case GL_VERTEX_SHADER:
-                        return ShaderStage::Vertex;
-                    case GL_TESS_CONTROL_SHADER:
-                        return ShaderStage::TessControl;
-                    case GL_TESS_EVALUATION_SHADER:
-                        return ShaderStage::TessEval;
-                    case GL_GEOMETRY_SHADER:
-                        return ShaderStage::Geometry;
-                    case GL_FRAGMENT_SHADER:
-                        return ShaderStage::Fragment;
-                    case GL_COMPUTE_SHADER:
-                        return ShaderStage::Compute;
-                    default:
-                        assert(false);
-                        return ShaderStage::Unknown;
+                case GL_VERTEX_SHADER:
+                    return ShaderStage::Vertex;
+                case GL_TESS_CONTROL_SHADER:
+                    return ShaderStage::TessControl;
+                case GL_TESS_EVALUATION_SHADER:
+                    return ShaderStage::TessEval;
+                case GL_GEOMETRY_SHADER:
+                    return ShaderStage::Geometry;
+                case GL_FRAGMENT_SHADER:
+                    return ShaderStage::Fragment;
+                case GL_COMPUTE_SHADER:
+                    return ShaderStage::Compute;
+                default:
+                    assert(false);
+                    return ShaderStage::Unknown;
                 }
             }
 
@@ -70,6 +70,7 @@ namespace MobileGL {
                 const UnorderedMap<String, Uint>& GetUniformLocations() const { return m_uniforms; }
                 Bool GetCompileStatus() const { return m_compileStatus; }
                 Bool GetDeleteStatus() const { return m_deleteStatus; }
+
             private:
                 // bool DoReflection();
                 const Uint m_id = 0;

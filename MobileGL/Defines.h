@@ -6,7 +6,7 @@
 #endif
 
 #ifdef _WIN32
-# ifndef NOMINMAX
+#ifndef NOMINMAX
 #define NOMINMAX 1 // prevent Windows.h from defining min and max macros
 #endif
 #endif
