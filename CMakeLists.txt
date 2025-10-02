@@ -35,13 +35,16 @@ set(SOURCE_FILES
     MobileGL/MG_Util/Converters/MGToStr/DataTypeConverter.cpp
     MobileGL/MG_Util/Converters/MGToStr/GLExtensionConverter.cpp
     MobileGL/MG_Util/Converters/MGToStr/BufferEnumConverter.cpp
+    MobileGL/MG_Util/Converters/MGToStr/FramebufferEnumConverter.cpp
     MobileGL/MG_Util/Converters/MGToStr/TextureEnumConverter.cpp
     MobileGL/MG_Util/Converters/GLToGlslang/GLShaderLangConverter.cpp
     MobileGL/MG_Util/Converters/MGToGL/ErrorCodeConverter.cpp
     MobileGL/MG_Util/Converters/MGToGL/BufferEnumConverter.cpp
+    MobileGL/MG_Util/Converters/MGToGL/FramebufferEnumConverter.cpp
     MobileGL/MG_Util/Converters/MGToGL/TextureEnumConverter.cpp
     MobileGL/MG_Util/Converters/MGToGL/DataTypeConverter.cpp
     MobileGL/MG_Util/Converters/GLToMG/BufferEnumConverter.cpp
+    MobileGL/MG_Util/Converters/GLToMG/FramebufferEnumConverter.cpp
     MobileGL/MG_Util/Converters/GLToMG/TextureEnumConverter.cpp
     MobileGL/MG_Util/Converters/GLToMG/DataTypeConverter.cpp
     MobileGL/MG_Util/Converters/MGToMG/TextureEnumConverter.cpp
@@ -56,6 +59,7 @@ set(SOURCE_FILES
     MobileGL/MG_Impl/EGLImpl/Temporary/TemporaryEGLImpl.cpp
     
     # @INSERTION_POINT:SOURCE_FILE_GLIMPL@ #
+    #MobileGL/MG_Impl/GLImpl/Framebuffer/GL_Framebuffer.cpp
     MobileGL/MG_Impl/GLImpl/Program/GL_Program.cpp
     MobileGL/MG_Impl/GLImpl/Texture/GL_Texture.cpp
     MobileGL/MG_Impl/GLImpl/Texture/Validators.cpp

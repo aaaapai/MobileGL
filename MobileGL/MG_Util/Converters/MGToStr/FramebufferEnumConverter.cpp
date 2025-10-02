@@ -1,0 +1,36 @@
+#include "FramebufferEnumConverter.h"
+
+namespace MobileGL {
+    namespace MG_Util {
+        String ConvertFramebufferTargetToString(FramebufferTarget bufferTarget) {
+            switch (bufferTarget) {
+            case FramebufferTarget::Draw:
+                return "Draw";
+            case FramebufferTarget::Read:
+                return "Read";
+            case FramebufferTarget::Unknown:
+            default:
+                return "Unknown";
+            }
+        }
+
+        String ConvertFramebufferAttachmentTypeToString(FramebufferAttachmentType attachment) {
+            if (attachment >= FramebufferAttachmentType::Color0 && attachment <= FramebufferAttachmentType::Color31) {
+                return "Color" + std::to_string(static_cast<SizeT>(attachment) -
+                                                static_cast<SizeT>(FramebufferAttachmentType::Color0));
+            }
+
+            switch (attachment) {
+            case FramebufferAttachmentType::Depth:
+                return "Depth";
+            case FramebufferAttachmentType::Stencil:
+                return "Stencil";
+            case FramebufferAttachmentType::DepthStencil:
+                return "DepthStencil";
+            case FramebufferAttachmentType::Unknown:
+            default:
+                return "Unknown";
+            }
+        }
+    } // namespace MG_Util
+} // namespace MobileGL
