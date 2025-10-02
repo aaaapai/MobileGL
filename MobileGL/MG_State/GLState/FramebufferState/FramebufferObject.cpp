@@ -11,6 +11,7 @@ namespace MobileGL {
                 : m_renderbuffer(renderbuffer) {}
             FramebufferAttachment::FramebufferAttachment(std::nullptr_t)
                 : m_texture(nullptr), m_renderbuffer(nullptr) {}
+            FramebufferAttachment::FramebufferAttachment() : m_texture(nullptr), m_renderbuffer(nullptr) {}
 
             Bool FramebufferAttachment::IsTexture() const {
                 return m_texture != nullptr;
@@ -55,6 +56,10 @@ namespace MobileGL {
             }
 
             // FramebufferObject
+            FramebufferObject::FramebufferObject() {
+                m_attachments.fill(FramebufferAttachment(nullptr));
+            }
+
             void FramebufferObject::AttachTexture(FramebufferAttachmentType type, SharedPtr<ITextureObject> texture,
                                                   int level) {
                 m_attachments[static_cast<SizeT>(type)] = FramebufferAttachment(std::move(texture), level);

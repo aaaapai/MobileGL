@@ -61,6 +61,7 @@ namespace MobileGL {
                 explicit FramebufferAttachment(SharedPtr<MG_State::GLState::ITextureObject> texture, Int level = 0);
                 explicit FramebufferAttachment(SharedPtr<RenderbufferObjectStub> renderbuffer);
                 explicit FramebufferAttachment(std::nullptr_t);
+                explicit FramebufferAttachment();
 
                 Bool IsTexture() const;
                 Bool IsRenderbuffer() const;
@@ -72,8 +73,8 @@ namespace MobileGL {
                 IntVec3 GetSize() const;
 
             private:
-                SharedPtr<MG_State::GLState::ITextureObject> m_texture;
-                SharedPtr<RenderbufferObjectStub> m_renderbuffer;
+                SharedPtr<MG_State::GLState::ITextureObject> m_texture = nullptr;
+                SharedPtr<RenderbufferObjectStub> m_renderbuffer = nullptr;
                 Int m_textureLevel = 0;
             };
 
