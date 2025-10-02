@@ -5,82 +5,74 @@ namespace MobileGL {
     template <typename IndexType>
     class IndexGenerator {
     public:
-        explicit IndexGenerator(SizeT initial_capacity = 1024, IndexType first_index = 1) {
-            const SizeT words_needed = (initial_capacity + 63) / 64;
-            is_valid_.resize(words_needed, ~0ull);
-            freed_indices_.reserve(initial_capacity);
-            std::vector<IndexType> valuesBeforeFirst(first_index);
-            std::iota(valuesBeforeFirst.begin(), valuesBeforeFirst.end(), 0);
-            Generate(valuesBeforeFirst.size(), valuesBeforeFirst.data());
+        static_assert(std::is_integral<IndexType>::value && std::is_unsigned<IndexType>::value,
+                      "IndexType must be an unsigned integral type.");
+
+        using SizeT = size_t;
+
+        explicit IndexGenerator(SizeT initial_capacity = 1024, IndexType first_index = 1)
+            : m_first_index(first_index), m_next_index(first_index), m_active_count(0) {
+
+            m_free_list.reserve(initial_capacity);
+
+            SizeT initial_bits_size = std::max(static_cast<SizeT>(first_index), initial_capacity);
+            m_valid_bits.resize(initial_bits_size, false);
         }
 
-        void Generate(SizeT n, IndexType* indices) {
+        void Generate(SizeT n, IndexType* indices) noexcept {
             if (n == 0) return;
 
-            SizeT from_freed = std::min(n, freed_indices_.size());
-            if (from_freed > 0) {
-                std::copy_n(freed_indices_.end() - from_freed, from_freed, indices);
-                freed_indices_.resize(freed_indices_.size() - from_freed);
+            const SizeT from_free_list_count = std::min(n, m_free_list.size());
+            if (from_free_list_count > 0) {
+                const auto free_list_start = m_free_list.end() - from_free_list_count;
+                std::copy(free_list_start, m_free_list.end(), indices);
+                m_free_list.erase(free_list_start, m_free_list.end());
 
-                for (SizeT i = 0; i < from_freed; ++i) {
-                    SetValid(indices[i], true);
+                for (SizeT i = 0; i < from_free_list_count; ++i) {
+                    m_valid_bits[indices[i]] = true;
                 }
             }
 
-            SizeT need_new = n - from_freed;
-            if (need_new > 0) {
-                SizeT required_index = next_index_ + need_new;
-                SizeT required_words = (required_index + 63) / 64;
-                if (required_words > is_valid_.size()) {
-                    is_valid_.resize(required_words, ~0ull);
+            const SizeT new_indices_count = n - from_free_list_count;
+            if (new_indices_count > 0) {
+                const IndexType required_size = m_next_index + new_indices_count;
+                if (required_size > m_valid_bits.size()) {
+                    m_valid_bits.resize(std::max(required_size, static_cast<IndexType>(m_valid_bits.size() * 1.5)));
                 }
 
-                for (SizeT i = 0; i < need_new; ++i) {
-                    indices[from_freed + i] = next_index_++;
+                IndexType* new_indices_ptr = indices + from_free_list_count;
+                for (SizeT i = 0; i < new_indices_count; ++i) {
+                    const IndexType new_index = m_next_index++;
+                    new_indices_ptr[i] = new_index;
+                    m_valid_bits[new_index] = true;
                 }
             }
+
+            m_active_count += n;
         }
 
-        void Delete(IndexType index) {
-            SetValid(index, false);
-            freed_indices_.push_back(index);
-            if (freed_indices_.size() > 1024 && freed_indices_.size() > next_index_ / 2) {
-                CompactFreeList();
+        void Delete(IndexType index) noexcept {
+            if (!IsValid(index)) {
+                return;
             }
+
+            m_valid_bits[index] = false;
+            m_free_list.push_back(index);
+            m_active_count--;
         }
 
-        Bool IsValid(IndexType index) const {
-            SizeT word = index >> 6;
-            SizeT bit = index & 0x3F;
-            return word < is_valid_.size() && (is_valid_[word] & (1ull << bit));
-        }
+        bool IsValid(IndexType index) const noexcept { return index < m_valid_bits.size() && m_valid_bits[index]; }
 
-        SizeT FreeListSize() const { return freed_indices_.size(); }
-        SizeT ActiveCount() const { return next_index_ - freed_indices_.size(); }
+        SizeT FreeListSize() const noexcept { return m_free_list.size(); }
+
+        SizeT ActiveCount() const noexcept { return m_active_count; }
 
     private:
-        inline void SetValid(IndexType index, Bool valid) {
-            SizeT word = index >> 6;
-            uint64_t mask = 1ull << (index & 0x3F);
-
-            if (word >= is_valid_.size()) return;
-
-            if (valid) {
-                is_valid_[word] |= mask;
-            } else {
-                is_valid_[word] &= ~mask;
-            }
-        }
-
-        void CompactFreeList() {
-            std::sort(freed_indices_.begin(), freed_indices_.end());
-            auto last = std::unique(freed_indices_.begin(), freed_indices_.end());
-            freed_indices_.erase(last, freed_indices_.end());
-        }
-
-    private:
-        IndexType next_index_ = 0;
-        std::vector<IndexType> freed_indices_;
-        std::vector<Uint64> is_valid_;
+        IndexType m_first_index;
+        IndexType m_next_index;
+        SizeT m_active_count;
+        std::vector<IndexType> m_free_list;
+        std::vector<bool> m_valid_bits;
     };
+
 } // namespace MobileGL
