@@ -289,6 +289,35 @@ namespace MobileGL {
                 return m_renderState.IsCullFaceEnabled();
             }
 
+            // Framebuffer
+            Vector<Uint> GLContext::GenFramebufferNames(Uint number) {
+                return m_framebufferState.GenerateNames(number);
+            }
+
+            SharedPtr<FramebufferObject> GLContext::GetFramebufferObject(Uint index) {
+                return m_framebufferState.GetFramebufferObject(index);
+            }
+
+            BindingSlot<FramebufferObject>& GLContext::GetFramebufferBindingSlot(FramebufferTarget target) {
+                return m_framebufferState.GetBindingSlot(target);
+            }
+
+            SharedPtr<FramebufferObject> GLContext::CreateFramebufferObject(Uint index) {
+                return m_framebufferState.CreateFramebufferObject(index);
+            }
+
+            void GLContext::MarkFramebufferObjectForDeletion(Uint index) {
+                m_framebufferState.MarkFramebufferObjectForDeletion(index);
+            }
+
+            Bool GLContext::ValidateFramebufferName(Uint index) const {
+                return m_framebufferState.ValidateName(index);
+            }
+
+            Bool GLContext::ValidateFramebufferObject(Uint index) const {
+                return m_framebufferState.ValidateFramebufferObject(index);
+            }
+
         } // namespace GLState
 
         GLState::GLContext* pGLContext;

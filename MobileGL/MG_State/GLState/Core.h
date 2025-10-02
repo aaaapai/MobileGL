@@ -5,6 +5,7 @@
 #include "BufferState/BufferState.h"
 #include "ProgramState/ProgramState.h"
 #include "TextureState/TextureState.h"
+#include "FramebufferState/FramebufferState.h"
 #include "VertexArrayState/VertexArrayState.h"
 #include "MG_State/GLState/RenderState/RenderState.h"
 
@@ -92,6 +93,15 @@ namespace MobileGL {
                 void SetCullFaceEnabled(Bool enabled);
                 Bool IsCullFaceEnabled() const;
 
+                // Framebuffer
+                Vector<Uint> GenFramebufferNames(Uint number);
+                SharedPtr<FramebufferObject> GetFramebufferObject(Uint index);
+                BindingSlot<FramebufferObject>& GetFramebufferBindingSlot(FramebufferTarget target);
+                SharedPtr<FramebufferObject> CreateFramebufferObject(Uint index);
+                void MarkFramebufferObjectForDeletion(Uint index);
+                Bool ValidateFramebufferName(Uint index) const;
+                Bool ValidateFramebufferObject(Uint index) const;
+
             private:
                 // Error
                 ErrorState m_errorState;
@@ -110,6 +120,9 @@ namespace MobileGL {
 
                 // RenderState
                 RenderState m_renderState;
+
+                // Framebuffer
+                FramebufferState m_framebufferState;
             };
         } // namespace GLState
 
