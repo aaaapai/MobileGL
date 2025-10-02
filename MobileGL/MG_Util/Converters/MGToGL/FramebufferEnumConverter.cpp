@@ -2,36 +2,35 @@
 
 namespace MobileGL {
     namespace MG_Util {
-        FramebufferTarget ConvertGLEnumToFramebufferTarget(GLenum framebufferTarget) {
-            switch (framebufferTarget) {
-            case GL_FRAMEBUFFER:
-            case GL_DRAW_FRAMEBUFFER:
-                return FramebufferTarget::Draw;
-            case GL_READ_FRAMEBUFFER:
-                return FramebufferTarget::Read;
-            case GL_UNKNOWN_MGL:
+        GLenum ConvertFramebufferTargetToGLEnum(FramebufferTarget target) {
+            switch (target) {
+            case FramebufferTarget::Draw:
+                return GL_DRAW_FRAMEBUFFER;
+            case FramebufferTarget::Read:
+                return GL_READ_FRAMEBUFFER;
             default:
-                return FramebufferTarget::Unknown;
+                return GL_DRAW_FRAMEBUFFER;
             }
         }
 
-        FramebufferAttachmentType ConvertGLEnumToFramebufferAttachmentType(GLenum attachment) {
-            if (attachment >= GL_COLOR_ATTACHMENT0 && attachment <= GL_COLOR_ATTACHMENT31) {
-                return static_cast<FramebufferAttachmentType>(static_cast<SizeT>(FramebufferAttachmentType::Color0) +
-                                                              (attachment - GL_COLOR_ATTACHMENT0));
+        GLenum ConvertFramebufferAttachmentTypeToGLEnum(FramebufferAttachmentType type) {
+            if (static_cast<Int>(type) >= static_cast<Int>(FramebufferAttachmentType::Color0) &&
+                static_cast<Int>(type) <= static_cast<Int>(FramebufferAttachmentType::Color31)) {
+                return GL_COLOR_ATTACHMENT0 +
+                       (static_cast<GLenum>(type) - static_cast<GLenum>(FramebufferAttachmentType::Color0));
             }
 
-            switch (attachment) {
-            case GL_DEPTH_ATTACHMENT:
-                return FramebufferAttachmentType::Depth;
-            case GL_STENCIL_ATTACHMENT:
-                return FramebufferAttachmentType::Stencil;
-            case GL_DEPTH_STENCIL_ATTACHMENT:
-                return FramebufferAttachmentType::DepthStencil;
-            case GL_UNKNOWN_MGL:
+            switch (type) {
+            case FramebufferAttachmentType::Depth:
+                return GL_DEPTH_ATTACHMENT;
+            case FramebufferAttachmentType::Stencil:
+                return GL_STENCIL_ATTACHMENT;
+            case FramebufferAttachmentType::DepthStencil:
+                return GL_DEPTH_STENCIL_ATTACHMENT;
             default:
-                return FramebufferAttachmentType::Unknown;
+                return GL_COLOR_ATTACHMENT0;
             }
         }
+
     } // namespace MG_Util
 } // namespace MobileGL
