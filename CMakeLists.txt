@@ -59,7 +59,8 @@ set(SOURCE_FILES
     MobileGL/MG_Impl/EGLImpl/Temporary/TemporaryEGLImpl.cpp
     
     # @INSERTION_POINT:SOURCE_FILE_GLIMPL@ #
-    #MobileGL/MG_Impl/GLImpl/Framebuffer/GL_Framebuffer.cpp
+    MobileGL/MG_Impl/GLImpl/Framebuffer/Validators.cpp
+    MobileGL/MG_Impl/GLImpl/Framebuffer/GL_Framebuffer.cpp
     MobileGL/MG_Impl/GLImpl/Program/GL_Program.cpp
     MobileGL/MG_Impl/GLImpl/Texture/GL_Texture.cpp
     MobileGL/MG_Impl/GLImpl/Texture/Validators.cpp

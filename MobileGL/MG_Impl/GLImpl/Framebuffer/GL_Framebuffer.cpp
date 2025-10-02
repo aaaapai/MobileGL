@@ -1,0 +1,291 @@
+#include "GL_Framebuffer.h"
+#include "GL/glext.h"
+#include "Validators.h"
+#include <MG_State/GLState/Core.h>
+#include <MG_State/GLState/ErrorState/Error.h>
+#include <MG_Util/Converters/GLToMG/FramebufferEnumConverter.h>
+
+namespace MobileGL {
+    namespace MG_Impl::GLImpl {
+        void BlitFramebuffer_Backend(GLint srcX0, GLint srcY0, GLint srcX1, GLint srcY1, GLint dstX0, GLint dstY0,
+                                     GLint dstX1, GLint dstY1, GLbitfield mask, GLenum filter) {
+            // TODO: implement
+        }
+
+        void SampleMaski_State(GLuint maskNumber, GLbitfield mask) {
+            // TODO: implement
+        }
+
+        void RenderbufferStorageMultisample_State(GLenum target, GLsizei samples, GLenum internalformat, GLsizei width,
+                                                  GLsizei height) {
+            // TODO: implement
+        }
+
+        void RenderbufferStorage_State(GLenum target, GLenum internalformat, GLsizei width, GLsizei height) {
+            // TODO: implement
+        }
+
+        GLboolean IsRenderbuffer_State(GLuint renderbuffer) {
+            // TODO: implement
+            return GL_FALSE;
+        }
+
+        GLboolean IsFramebuffer_State(GLuint framebuffer) {
+            // TODO: implement
+            return GL_FALSE;
+        }
+
+        void GetFramebufferAttachmentParameteriv_State(GLenum target, GLenum attachment, GLenum pname, GLint* params) {
+            // TODO: implement
+        }
+
+        void GenerateMipmap_State(GLenum target) {
+            // TODO: implement
+        }
+
+        void GenRenderbuffers_State(GLsizei n, GLuint* renderbuffers) {
+            // TODO: implement
+        }
+
+        void GenFramebuffers_State(GLsizei n, GLuint* framebuffers) {
+            if (n < 0) {
+                MG_State::pGLContext->RecordError(
+                    ErrorCode::InvalidValue,
+                    MakeShared<GenericErrorInfo>("MG_Impl/GLImpl", "GenFramebuffers_State", "n must be non-negative"));
+                return;
+            }
+            auto framebuffersNames = MG_State::pGLContext->GenFramebufferNames(n);
+            Copy(framebuffersNames.data(), framebuffers, framebuffersNames.size());
+        }
+
+        void FramebufferTextureLayer_State(GLenum target, GLenum attachment, GLuint texture, GLint level, GLint layer) {
+            // TODO: implement
+        }
+
+        void FramebufferTexture3D_State(GLenum target, GLenum attachment, GLenum textarget, GLuint texture, GLint level,
+                                        GLint zoffset) {
+            // TODO: implement
+        }
+
+        void FramebufferTexture2D_State(GLenum target, GLenum attachment, GLenum textarget, GLuint texture,
+                                        GLint level) {
+            if (target == GL_FRAMEBUFFER) {
+                FramebufferTexture2D_State(GL_DRAW_FRAMEBUFFER, attachment, textarget, texture, level);
+                FramebufferTexture2D_State(GL_READ_FRAMEBUFFER, attachment, textarget, texture, level);
+                return;
+            }
+
+            FramebufferAttachmentType attachmentType = MG_Util::ConvertGLEnumToFramebufferAttachmentType(attachment);
+            if (!FramebufferImpl::ValidateFramebufferAttachmentType(attachmentType)) return;
+
+            if (!FramebufferImpl::ValidateFramebufferName(texture, true)) return;
+            FramebufferTarget framebufferTarget = MG_Util::ConvertGLEnumToFramebufferTarget(target);
+            if (!FramebufferImpl::ValidateFramebufferTarget(framebufferTarget)) return;
+
+            auto& bindingSlot = MG_State::pGLContext->GetFramebufferBindingSlot(framebufferTarget);
+            auto framebufferObject = bindingSlot.GetBoundObject();
+            if (!framebufferObject) {
+                MG_State::pGLContext->RecordError(
+                    ErrorCode::InvalidOperation,
+                    MakeShared<GenericErrorInfo>("MG_Impl/GLImpl", "FramebufferTexture2D_State",
+                                                 "Framebuffer target is bound to no framebuffer object."));
+                return;
+            }
+
+            auto textureObject = MG_State::pGLContext->GetTextureObject(texture);
+            if (!textureObject) {
+                MG_State::pGLContext->RecordError(
+                    ErrorCode::InvalidOperation,
+                    MakeShared<GenericErrorInfo>("MG_Impl/GLImpl", "FramebufferTexture2D_State",
+                                                 std::format("Texture object {} is not valid.", texture)));
+                return;
+            }
+
+            framebufferObject->AttachTexture(attachmentType, textureObject, level);
+        }
+
+        void FramebufferTexture1D_State(GLenum target, GLenum attachment, GLenum textarget, GLuint texture,
+                                        GLint level) {
+            // TODO: implement
+        }
+
+        void FramebufferTexture_State(GLenum target, GLenum attachment, GLuint texture, GLint level) {
+            // TODO: implement
+        }
+
+        void FramebufferRenderbuffer_State(GLenum target, GLenum attachment, GLenum renderbuffertarget,
+                                           GLuint renderbuffer) {
+            // TODO: implement
+        }
+
+        void DrawBuffers_State(GLsizei n, const GLenum* bufs) {
+            // TODO: implement
+        }
+
+        void DeleteRenderbuffers_State(GLsizei n, const GLuint* renderbuffers) {
+            // TODO: implement
+        }
+
+        void DeleteFramebuffers_State(GLsizei n, const GLuint* framebuffers) {
+            if (n < 0) {
+                MG_State::pGLContext->RecordError(
+                    ErrorCode::InvalidValue, MakeShared<GenericErrorInfo>("MG_Impl/GLImpl", "DeleteFramebuffers_State",
+                                                                          "n must be non-negative."));
+                return;
+            }
+
+            if (!framebuffers) {
+                MG_State::pGLContext->RecordError(
+                    ErrorCode::InvalidValue, MakeShared<GenericErrorInfo>("MG_Impl/GLImpl", "DeleteFramebuffers_State",
+                                                                          "Framebuffer names array cannot be null."));
+                return;
+            }
+
+            for (SizeT i = 0; i < static_cast<SizeT>(n); ++i) {
+                Uint bufferName = framebuffers[i];
+                if (bufferName == 0) continue;
+                if (!FramebufferImpl::ValidateFramebufferName(bufferName)) continue;
+                MG_State::pGLContext->MarkFramebufferObjectForDeletion(bufferName);
+            }
+        }
+
+        GLenum CheckFramebufferStatus_State(GLenum target) {
+            FramebufferTarget framebufferTarget = MG_Util::ConvertGLEnumToFramebufferTarget(target);
+            if (!FramebufferImpl::ValidateFramebufferTarget(framebufferTarget)) return GL_FRAMEBUFFER_UNDEFINED;
+
+            auto& bindingSlot = MG_State::pGLContext->GetFramebufferBindingSlot(framebufferTarget);
+            auto framebufferObject = bindingSlot.GetBoundObject();
+            if (!framebufferObject) {
+                MG_State::pGLContext->RecordError(
+                    ErrorCode::InvalidOperation,
+                    MakeShared<GenericErrorInfo>("MG_Impl/GLImpl", "CheckFramebufferStatus_State",
+                                                 "Framebuffer target is bound to no framebuffer object."));
+                return GL_FRAMEBUFFER_UNDEFINED;
+            }
+
+            // TODO: distinguish GL_FRAMEBUFFER_INCOMPLETE_ATTACHMENT and GL_FRAMEBUFFER_INCOMPLETE_MISSING_ATTACHMENT
+            // TODO: GL_FRAMEBUFFER_INCOMPLETE_DRAW_BUFFER, GL_FRAMEBUFFER_INCOMPLETE_READ_BUFFER,
+            //       GL_FRAMEBUFFER_UNSUPPORTED, GL_FRAMEBUFFER_INCOMPLETE_MULTISAMPLE,
+            //       GL_FRAMEBUFFER_INCOMPLETE_LAYER_TARGETS
+            return framebufferObject->CheckCompleteness() ? GL_FRAMEBUFFER_COMPLETE
+                                                          : GL_FRAMEBUFFER_INCOMPLETE_MISSING_ATTACHMENT;
+        }
+
+        void BindRenderbuffer_State(GLenum target, GLuint renderbuffer) {
+            // TODO: implement
+        }
+
+        void BindFramebuffer_State(GLenum target, GLuint framebuffer) {
+            if (target == GL_FRAMEBUFFER) {
+                BindFramebuffer_State(GL_DRAW_FRAMEBUFFER, framebuffer);
+                BindFramebuffer_State(GL_READ_FRAMEBUFFER, framebuffer);
+                return;
+            }
+
+            if (!FramebufferImpl::ValidateFramebufferName(framebuffer)) return;
+            FramebufferTarget framebufferTarget = MG_Util::ConvertGLEnumToFramebufferTarget(target);
+            if (!FramebufferImpl::ValidateFramebufferTarget(framebufferTarget)) return;
+
+            auto framebufferObject = MG_State::pGLContext->GetFramebufferObject(framebuffer);
+            if (!framebufferObject) {
+                MG_State::pGLContext->CreateFramebufferObject(framebuffer);
+                framebufferObject = MG_State::pGLContext->GetFramebufferObject(framebuffer);
+            }
+
+            auto& bindingSlot = MG_State::pGLContext->GetFramebufferBindingSlot(framebufferTarget);
+            bindingSlot.Bind(framebufferObject);
+        }
+
+        /* @INSERTION_POINT:FUNCTION_IMPLEMENTATION@ */
+        void SampleMaski(GLuint maskNumber, GLbitfield mask) {
+            SampleMaski_State(maskNumber, mask);
+        }
+
+        void RenderbufferStorageMultisample(GLenum target, GLsizei samples, GLenum internalformat, GLsizei width,
+                                            GLsizei height) {
+            RenderbufferStorageMultisample_State(target, samples, internalformat, width, height);
+        }
+
+        void RenderbufferStorage(GLenum target, GLenum internalformat, GLsizei width, GLsizei height) {
+            RenderbufferStorage_State(target, internalformat, width, height);
+        }
+
+        GLboolean IsRenderbuffer(GLuint renderbuffer) {
+            return IsRenderbuffer_State(renderbuffer);
+        }
+
+        GLboolean IsFramebuffer(GLuint framebuffer) {
+            return IsFramebuffer_State(framebuffer);
+        }
+
+        void GetFramebufferAttachmentParameteriv(GLenum target, GLenum attachment, GLenum pname, GLint* params) {
+            GetFramebufferAttachmentParameteriv_State(target, attachment, pname, params);
+        }
+
+        void GenerateMipmap(GLenum target) {
+            GenerateMipmap_State(target);
+        }
+
+        void GenRenderbuffers(GLsizei n, GLuint* renderbuffers) {
+            GenRenderbuffers_State(n, renderbuffers);
+        }
+
+        void GenFramebuffers(GLsizei n, GLuint* framebuffers) {
+            GenFramebuffers_State(n, framebuffers);
+        }
+
+        void FramebufferTextureLayer(GLenum target, GLenum attachment, GLuint texture, GLint level, GLint layer) {
+            FramebufferTextureLayer_State(target, attachment, texture, level, layer);
+        }
+
+        void FramebufferTexture3D(GLenum target, GLenum attachment, GLenum textarget, GLuint texture, GLint level,
+                                  GLint zoffset) {
+            FramebufferTexture3D_State(target, attachment, textarget, texture, level, zoffset);
+        }
+
+        void FramebufferTexture2D(GLenum target, GLenum attachment, GLenum textarget, GLuint texture, GLint level) {
+            FramebufferTexture2D_State(target, attachment, textarget, texture, level);
+        }
+
+        void FramebufferTexture1D(GLenum target, GLenum attachment, GLenum textarget, GLuint texture, GLint level) {
+            FramebufferTexture1D_State(target, attachment, textarget, texture, level);
+        }
+
+        void FramebufferTexture(GLenum target, GLenum attachment, GLuint texture, GLint level) {
+            FramebufferTexture_State(target, attachment, texture, level);
+        }
+
+        void FramebufferRenderbuffer(GLenum target, GLenum attachment, GLenum renderbuffertarget, GLuint renderbuffer) {
+            FramebufferRenderbuffer_State(target, attachment, renderbuffertarget, renderbuffer);
+        }
+
+        void DrawBuffers(GLsizei n, const GLenum* bufs) {
+            DrawBuffers_State(n, bufs);
+        }
+
+        void DeleteRenderbuffers(GLsizei n, const GLuint* renderbuffers) {
+            DeleteRenderbuffers_State(n, renderbuffers);
+        }
+
+        void DeleteFramebuffers(GLsizei n, const GLuint* framebuffers) {
+            DeleteFramebuffers_State(n, framebuffers);
+        }
+
+        GLenum CheckFramebufferStatus(GLenum target) {
+            return CheckFramebufferStatus_State(target);
+        }
+
+        void BlitFramebuffer(GLint srcX0, GLint srcY0, GLint srcX1, GLint srcY1, GLint dstX0, GLint dstY0, GLint dstX1,
+                             GLint dstY1, GLbitfield mask, GLenum filter) {
+            BlitFramebuffer_Backend(srcX0, srcY0, srcX1, srcY1, dstX0, dstY0, dstX1, dstY1, mask, filter);
+        }
+
+        void BindRenderbuffer(GLenum target, GLuint renderbuffer) {
+            BindRenderbuffer_State(target, renderbuffer);
+        }
+
+        void BindFramebuffer(GLenum target, GLuint framebuffer) {
+            BindFramebuffer_State(target, framebuffer);
+        }
+    } // namespace MG_Impl::GLImpl
+} // namespace MobileGL

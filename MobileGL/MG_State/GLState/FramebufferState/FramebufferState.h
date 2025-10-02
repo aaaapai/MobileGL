@@ -10,6 +10,7 @@ namespace MobileGL {
             public:
                 FramebufferState();
 
+                // FBO 0 should be created by MG_Backend when initializing the context
                 SharedPtr<FramebufferObject> GetFramebufferObject(Uint index);
                 Vector<Uint> GenerateNames(Uint number);
                 SharedPtr<FramebufferObject> CreateFramebufferObject(Uint index);
