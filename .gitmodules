@@ -7,3 +7,6 @@
 [submodule "3rdparty/SPIRV-Cross"]
 	path = 3rdparty/SPIRV-Cross
 	url = https://github.com/KhronosGroup/SPIRV-Cross.git
+[submodule "include/FastSTL"]
+	path = include/FastSTL
+	url = https://github.com/MobileGL-Dev/FastSTL.git
