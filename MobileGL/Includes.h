@@ -33,6 +33,9 @@
 #include <string_view>
 #include <unordered_map>
 
+// Include FastSTL
+#include <FastSTL/UnorderedMap.h>
+
 // Include ankerl::unordered_dense
 #include <ankerl/unordered_dense.h>
 

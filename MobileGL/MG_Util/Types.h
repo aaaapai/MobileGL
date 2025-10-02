@@ -45,8 +45,9 @@ namespace MobileGL {
     using SizeT = std::size_t;
     template <typename T, SizeT N>
     using Array = std::array<T, N>;
-    template <typename Key, typename Value>
-    using UnorderedMap = ankerl::unordered_dense::map<Key, Value>;
+    template <typename Key, typename T, class Hash = std::hash<Key>, class KeyEqual = std::equal_to<Key>,
+              class Allocator = std::allocator<std::pair<const Key, T>>>
+    using UnorderedMap = FastSTL::unordered_map<Key, T, Hash, KeyEqual, Allocator>;
     template <typename T>
     inline constexpr std::remove_reference_t<T>&& Move(T&& t) noexcept {
         return static_cast<std::remove_reference_t<T>&&>(t);
