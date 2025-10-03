@@ -90,8 +90,6 @@ namespace MobileGL {
                 Int GetPixelStoreParam(PixelStoreParam param) const;
                 void SetCullFaceMode(CullFaceMode mode);
                 CullFaceMode GetCullFaceMode() const;
-                void SetCullFaceEnabled(Bool enabled);
-                Bool IsCullFaceEnabled() const;
 
                 // Framebuffer
                 Vector<Uint> GenFramebufferNames(Uint number);

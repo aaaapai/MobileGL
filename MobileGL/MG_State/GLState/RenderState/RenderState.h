@@ -150,8 +150,6 @@ namespace MobileGL {
                 // Cull Face
                 void SetCullFaceMode(CullFaceMode mode);
                 CullFaceMode GetCullFaceMode() const;
-                void SetCullFaceEnabled(Bool enabled);
-                Bool IsCullFaceEnabled() const;
 
             private:
                 // Rasterization

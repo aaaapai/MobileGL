@@ -281,14 +281,6 @@ namespace MobileGL {
                 return m_renderState.GetCullFaceMode();
             }
 
-            void GLContext::SetCullFaceEnabled(Bool enabled) {
-                m_renderState.SetCullFaceEnabled(enabled);
-            }
-
-            Bool GLContext::IsCullFaceEnabled() const {
-                return m_renderState.IsCullFaceEnabled();
-            }
-
             // Framebuffer
             Vector<Uint> GLContext::GenFramebufferNames(Uint number) {
                 return m_framebufferState.GenerateNames(number);

@@ -50,6 +50,8 @@ namespace MobileGL {
                     return m_blendEnabled;
                 case CapabilityInput::DepthTest:
                     return m_depthTestEnabled;
+                case CapabilityInput::CullFace:
+                    return m_cullFaceEnabled;
                 default:
                     return false;
                 }
@@ -131,14 +133,6 @@ namespace MobileGL {
 
             CullFaceMode RenderState::GetCullFaceMode() const {
                 return m_cullFaceMode;
-            }
-
-            void RenderState::SetCullFaceEnabled(Bool enabled) {
-                m_cullFaceEnabled = enabled;
-            }
-
-            Bool RenderState::IsCullFaceEnabled() const {
-                return m_cullFaceEnabled;
             }
         } // namespace GLState
     } // namespace MG_State
