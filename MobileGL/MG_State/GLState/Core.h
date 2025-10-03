@@ -76,8 +76,8 @@ namespace MobileGL {
                 void SetBlendFunc(BlendFactor srcRGB, BlendFactor dstRGB, BlendFactor srcAlpha, BlendFactor dstAlpha);
                 void GetBlendFunc(BlendFactor& srcRGB, BlendFactor& dstRGB, BlendFactor& srcAlpha,
                                   BlendFactor& dstAlpha) const;
-                void SetDepthFunc(DepthFunc func);
-                DepthFunc GetDepthFunc() const;
+                void SetDepthFunc(DepthTestFunc func);
+                DepthTestFunc GetDepthFunc() const;
                 void SetDepthMask(Bool flag);
                 Bool GetDepthMask() const;
                 void SetColorMask(BoolVec4 mask);

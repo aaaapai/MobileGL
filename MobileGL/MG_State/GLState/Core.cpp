@@ -225,11 +225,11 @@ namespace MobileGL {
                 m_renderState.GetBlendFunc(srcRGB, dstRGB, srcAlpha, dstAlpha);
             }
 
-            void GLContext::SetDepthFunc(DepthFunc func) {
+            void GLContext::SetDepthFunc(DepthTestFunc func) {
                 m_renderState.SetDepthFunc(func);
             }
 
-            DepthFunc GLContext::GetDepthFunc() const {
+            DepthTestFunc GLContext::GetDepthFunc() const {
                 return m_renderState.GetDepthFunc();
             }
 

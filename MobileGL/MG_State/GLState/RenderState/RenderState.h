@@ -22,7 +22,7 @@ namespace MobileGL {
         Unknown = -1
     };
 
-    enum class DepthFunc {
+    enum class DepthTestFunc {
         Never,
         Less,
         Equal,
@@ -31,7 +31,7 @@ namespace MobileGL {
         NotEqual,
         GreaterEqual,
         Always,
-        DepthFuncCount,
+        DepthTestFuncCount,
         Unknown = -1
     };
 
@@ -128,8 +128,8 @@ namespace MobileGL {
                                   BlendFactor& dstAlpha) const;
 
                 // Depth
-                void SetDepthFunc(DepthFunc func);
-                DepthFunc GetDepthFunc() const;
+                void SetDepthFunc(DepthTestFunc func);
+                DepthTestFunc GetDepthFunc() const;
                 void SetDepthMask(Bool flag);
                 Bool GetDepthMask() const;
 
@@ -164,7 +164,7 @@ namespace MobileGL {
 
                 // Depth
                 Bool m_depthTestEnabled = false;
-                DepthFunc m_depthFunc = DepthFunc::Less;
+                DepthTestFunc m_depthFunc = DepthTestFunc::Less;
                 Bool m_depthMask = true;
 
                 // Color Mask

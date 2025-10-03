@@ -38,23 +38,23 @@ namespace MobileGL {
             }
         }
 
-        GLenum ConvertDepthFuncToGLEnum(DepthFunc v) {
+        GLenum ConvertDepthTestFuncToGLEnum(DepthTestFunc v) {
             switch (v) {
-            case DepthFunc::Never:
+            case DepthTestFunc::Never:
                 return GL_NEVER;
-            case DepthFunc::Less:
+            case DepthTestFunc::Less:
                 return GL_LESS;
-            case DepthFunc::Equal:
+            case DepthTestFunc::Equal:
                 return GL_EQUAL;
-            case DepthFunc::LessEqual:
+            case DepthTestFunc::LessEqual:
                 return GL_LEQUAL;
-            case DepthFunc::Greater:
+            case DepthTestFunc::Greater:
                 return GL_GREATER;
-            case DepthFunc::NotEqual:
+            case DepthTestFunc::NotEqual:
                 return GL_NOTEQUAL;
-            case DepthFunc::GreaterEqual:
+            case DepthTestFunc::GreaterEqual:
                 return GL_GEQUAL;
-            case DepthFunc::Always:
+            case DepthTestFunc::Always:
                 return GL_ALWAYS;
             default:
                 return GL_UNKNOWN_MGL;

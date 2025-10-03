@@ -5,7 +5,7 @@
 namespace MobileGL {
     namespace MG_Util {
         GLenum ConvertBlendFactorToGLEnum(BlendFactor value);
-        GLenum ConvertDepthFuncToGLEnum(DepthFunc value);
+        GLenum ConvertDepthTestFuncToGLEnum(DepthTestFunc value);
         GLenum ConvertPixelStoreParamToGLEnum(PixelStoreParam value);
         GLenum ConvertCullFaceModeToGLEnum(CullFaceMode value);
         GLenum ConvertCapabilityInputToGLEnum(CapabilityInput value);

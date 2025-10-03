@@ -75,11 +75,11 @@ namespace MobileGL {
             }
 
             // -------------------- Depth --------------------
-            void RenderState::SetDepthFunc(DepthFunc func) {
+            void RenderState::SetDepthFunc(DepthTestFunc func) {
                 m_depthFunc = func;
             }
 
-            DepthFunc RenderState::GetDepthFunc() const {
+            DepthTestFunc RenderState::GetDepthFunc() const {
                 return m_depthFunc;
             }
 

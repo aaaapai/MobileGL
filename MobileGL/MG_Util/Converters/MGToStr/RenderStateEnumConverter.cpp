@@ -37,23 +37,23 @@ namespace MobileGL {
             }
         }
 
-        String ConvertDepthFuncToString(DepthFunc v) {
+        String ConvertDepthTestFuncToString(DepthTestFunc v) {
             switch (v) {
-            case DepthFunc::Never:
+            case DepthTestFunc::Never:
                 return "Never";
-            case DepthFunc::Less:
+            case DepthTestFunc::Less:
                 return "Less";
-            case DepthFunc::Equal:
+            case DepthTestFunc::Equal:
                 return "Equal";
-            case DepthFunc::LessEqual:
+            case DepthTestFunc::LessEqual:
                 return "LessEqual";
-            case DepthFunc::Greater:
+            case DepthTestFunc::Greater:
                 return "Greater";
-            case DepthFunc::NotEqual:
+            case DepthTestFunc::NotEqual:
                 return "NotEqual";
-            case DepthFunc::GreaterEqual:
+            case DepthTestFunc::GreaterEqual:
                 return "GreaterEqual";
-            case DepthFunc::Always:
+            case DepthTestFunc::Always:
                 return "Always";
             default:
                 return "Unknown";

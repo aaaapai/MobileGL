@@ -37,26 +37,26 @@ namespace MobileGL {
             }
         }
 
-        DepthFunc ConvertGLEnumToDepthFunc(GLenum v) {
+        DepthTestFunc ConvertGLEnumToDepthTestFunc(GLenum v) {
             switch (v) {
             case GL_NEVER:
-                return DepthFunc::Never;
+                return DepthTestFunc::Never;
             case GL_LESS:
-                return DepthFunc::Less;
+                return DepthTestFunc::Less;
             case GL_EQUAL:
-                return DepthFunc::Equal;
+                return DepthTestFunc::Equal;
             case GL_LEQUAL:
-                return DepthFunc::LessEqual;
+                return DepthTestFunc::LessEqual;
             case GL_GREATER:
-                return DepthFunc::Greater;
+                return DepthTestFunc::Greater;
             case GL_NOTEQUAL:
-                return DepthFunc::NotEqual;
+                return DepthTestFunc::NotEqual;
             case GL_GEQUAL:
-                return DepthFunc::GreaterEqual;
+                return DepthTestFunc::GreaterEqual;
             case GL_ALWAYS:
-                return DepthFunc::Always;
+                return DepthTestFunc::Always;
             default:
-                return DepthFunc::Unknown;
+                return DepthTestFunc::Unknown;
             }
         }
 
