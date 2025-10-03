@@ -3,113 +3,113 @@
 #include <Includes.h>
 
 namespace MobileGL {
+    enum class BlendFactor {
+        Zero,
+        One,
+        SrcColor,
+        OneMinusSrcColor,
+        DstColor,
+        OneMinusDstColor,
+        SrcAlpha,
+        OneMinusSrcAlpha,
+        DstAlpha,
+        OneMinusDstAlpha,
+        ConstantColor,
+        OneMinusConstantColor,
+        ConstantAlpha,
+        OneMinusConstantAlpha,
+        BlendFactorCount,
+        Unknown = -1
+    };
+
+    enum class DepthFunc {
+        Never,
+        Less,
+        Equal,
+        LessEqual,
+        Greater,
+        NotEqual,
+        GreaterEqual,
+        Always,
+        DepthFuncCount,
+        Unknown = -1
+    };
+
+    enum class PixelStoreParam {
+        // Pack Parameters
+        PackAlignment,
+        PackRowLength,
+        PackImageHeight,
+        PackSkipRows,
+        PackSkipPixels,
+        PackSkipImages,
+        PackSwapBytes,
+        PackLsbFirst,
+
+        // Unpack Parameters
+        UnpackAlignment,
+        UnpackRowLength,
+        UnpackImageHeight,
+        UnpackSkipRows,
+        UnpackSkipPixels,
+        UnpackSkipImages,
+        UnpackSwapBytes,
+        UnpackLsbFirst,
+
+        PixelStoreParamCount,
+        Unknown = -1
+    };
+
+    enum class CullFaceMode {
+        Front,
+        Back,
+        FrontAndBack,
+        CullFaceModeCount,
+        Unknown = -1
+    };
+
+    enum class CapabilityInput {
+        Blend,
+        ClipDistance0,
+        ClipDistance1,
+        ClipDistance2,
+        ClipDistance3,
+        ClipDistance4,
+        ClipDistance5,
+        ClipDistance6,
+        ClipDistance7,
+        ColorLogicOp,
+        CullFace,
+        DebugOutput,
+        DebugOutputSynchronous,
+        DepthClamp,
+        DepthTest,
+        Dither,
+        FramebufferSrgb,
+        LineSmooth,
+        Multisample,
+        PolygonOffsetFill,
+        PolygonOffsetLine,
+        PolygonOffsetPoint,
+        PolygonSmooth,
+        PrimitiveRestart,
+        PrimitiveRestartFixedIndex,
+        RasterizerDiscard,
+        SampleAlphaToCoverage,
+        SampleAlphaToOne,
+        SampleCoverage,
+        SampleShading,
+        SampleMask,
+        ScissorTest,
+        StencilTest,
+        TextureCubeMapSeamless,
+        ProgramPointSize,
+        CapabilityInputCount,
+        Unknown = -1
+    };
+
     namespace MG_State {
         namespace GLState {
-            enum class BlendFactor {
-                Zero,
-                One,
-                SrcColor,
-                OneMinusSrcColor,
-                DstColor,
-                OneMinusDstColor,
-                SrcAlpha,
-                OneMinusSrcAlpha,
-                DstAlpha,
-                OneMinusDstAlpha,
-                ConstantColor,
-                OneMinusConstantColor,
-                ConstantAlpha,
-                OneMinusConstantAlpha,
-                BlendFactorCount,
-                Unknown = -1
-            };
-
-            enum class DepthFunc {
-                Never,
-                Less,
-                Equal,
-                LessEqual,
-                Greater,
-                NotEqual,
-                GreaterEqual,
-                Always,
-                DepthFuncCount,
-                Unknown = -1
-            };
-
-            enum class PixelStoreParam {
-                // Pack Parameters
-                PackAlignment,
-                PackRowLength,
-                PackImageHeight,
-                PackSkipRows,
-                PackSkipPixels,
-                PackSkipImages,
-                PackSwapBytes,
-                PackLsbFirst,
-
-                // Unpack Parameters
-                UnpackAlignment,
-                UnpackRowLength,
-                UnpackImageHeight,
-                UnpackSkipRows,
-                UnpackSkipPixels,
-                UnpackSkipImages,
-                UnpackSwapBytes,
-                UnpackLsbFirst,
-
-                PixelStoreParamCount,
-                Unknown = -1
-            };
-
-            enum class CullFaceMode {
-                Front,
-                Back,
-                FrontAndBack,
-                CullFaceModeCount,
-                Unknown = -1
-            };
-
-            enum class CapabilityInput {
-                Blend,
-                ClipDistance0,
-                ClipDistance1,
-                ClipDistance2,
-                ClipDistance3,
-                ClipDistance4,
-                ClipDistance5,
-                ClipDistance6,
-                ClipDistance7,
-                ColorLogicOp,
-                CullFace,
-                DebugOutput,
-                DebugOutputSynchronous,
-                DepthClamp,
-                DepthTest,
-                Dither,
-                FramebufferSrgb,
-                LineSmooth,
-                Multisample,
-                PolygonOffsetFill,
-                PolygonOffsetLine,
-                PolygonOffsetPoint,
-                PolygonSmooth,
-                PrimitiveRestart,
-                PrimitiveRestartFixedIndex,
-                RasterizerDiscard,
-                SampleAlphaToCoverage,
-                SampleAlphaToOne,
-                SampleCoverage,
-                SampleShading,
-                SampleMask,
-                ScissorTest,
-                StencilTest,
-                TextureCubeMapSeamless,
-                ProgramPointSize,
-                CapabilityInputCount,
-                Unknown = -1
-            };
-
             class RenderState {
             public:
                 RenderState();

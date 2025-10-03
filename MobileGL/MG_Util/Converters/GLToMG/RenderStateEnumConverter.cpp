@@ -1,0 +1,192 @@
+#include "RenderStateEnumConverter.h"
+
+namespace MobileGL {
+    namespace MG_Util {
+        BlendFactor ConvertGLEnumToBlendFactor(GLenum v) {
+            switch (v) {
+            case GL_ZERO:
+                return BlendFactor::Zero;
+            case GL_ONE:
+                return BlendFactor::One;
+            case GL_SRC_COLOR:
+                return BlendFactor::SrcColor;
+            case GL_ONE_MINUS_SRC_COLOR:
+                return BlendFactor::OneMinusSrcColor;
+            case GL_DST_COLOR:
+                return BlendFactor::DstColor;
+            case GL_ONE_MINUS_DST_COLOR:
+                return BlendFactor::OneMinusDstColor;
+            case GL_SRC_ALPHA:
+                return BlendFactor::SrcAlpha;
+            case GL_ONE_MINUS_SRC_ALPHA:
+                return BlendFactor::OneMinusSrcAlpha;
+            case GL_DST_ALPHA:
+                return BlendFactor::DstAlpha;
+            case GL_ONE_MINUS_DST_ALPHA:
+                return BlendFactor::OneMinusDstAlpha;
+            case GL_CONSTANT_COLOR:
+                return BlendFactor::ConstantColor;
+            case GL_ONE_MINUS_CONSTANT_COLOR:
+                return BlendFactor::OneMinusConstantColor;
+            case GL_CONSTANT_ALPHA:
+                return BlendFactor::ConstantAlpha;
+            case GL_ONE_MINUS_CONSTANT_ALPHA:
+                return BlendFactor::OneMinusConstantAlpha;
+            default:
+                return BlendFactor::Unknown;
+            }
+        }
+
+        DepthFunc ConvertGLEnumToDepthFunc(GLenum v) {
+            switch (v) {
+            case GL_NEVER:
+                return DepthFunc::Never;
+            case GL_LESS:
+                return DepthFunc::Less;
+            case GL_EQUAL:
+                return DepthFunc::Equal;
+            case GL_LEQUAL:
+                return DepthFunc::LessEqual;
+            case GL_GREATER:
+                return DepthFunc::Greater;
+            case GL_NOTEQUAL:
+                return DepthFunc::NotEqual;
+            case GL_GEQUAL:
+                return DepthFunc::GreaterEqual;
+            case GL_ALWAYS:
+                return DepthFunc::Always;
+            default:
+                return DepthFunc::Unknown;
+            }
+        }
+
+        PixelStoreParam ConvertGLEnumToPixelStoreParam(GLenum v) {
+            switch (v) {
+            case GL_PACK_ALIGNMENT:
+                return PixelStoreParam::PackAlignment;
+            case GL_PACK_ROW_LENGTH:
+                return PixelStoreParam::PackRowLength;
+            case GL_PACK_IMAGE_HEIGHT:
+                return PixelStoreParam::PackImageHeight;
+            case GL_PACK_SKIP_ROWS:
+                return PixelStoreParam::PackSkipRows;
+            case GL_PACK_SKIP_PIXELS:
+                return PixelStoreParam::PackSkipPixels;
+            case GL_PACK_SKIP_IMAGES:
+                return PixelStoreParam::PackSkipImages;
+            case GL_PACK_SWAP_BYTES:
+                return PixelStoreParam::PackSwapBytes;
+            case GL_PACK_LSB_FIRST:
+                return PixelStoreParam::PackLsbFirst;
+            case GL_UNPACK_ALIGNMENT:
+                return PixelStoreParam::UnpackAlignment;
+            case GL_UNPACK_ROW_LENGTH:
+                return PixelStoreParam::UnpackRowLength;
+            case GL_UNPACK_IMAGE_HEIGHT:
+                return PixelStoreParam::UnpackImageHeight;
+            case GL_UNPACK_SKIP_ROWS:
+                return PixelStoreParam::UnpackSkipRows;
+            case GL_UNPACK_SKIP_PIXELS:
+                return PixelStoreParam::UnpackSkipPixels;
+            case GL_UNPACK_SKIP_IMAGES:
+                return PixelStoreParam::UnpackSkipImages;
+            case GL_UNPACK_SWAP_BYTES:
+                return PixelStoreParam::UnpackSwapBytes;
+            case GL_UNPACK_LSB_FIRST:
+                return PixelStoreParam::UnpackLsbFirst;
+            default:
+                return PixelStoreParam::Unknown;
+            }
+        }
+
+        CullFaceMode ConvertGLEnumToCullFaceMode(GLenum v) {
+            switch (v) {
+            case GL_FRONT:
+                return CullFaceMode::Front;
+            case GL_BACK:
+                return CullFaceMode::Back;
+            case GL_FRONT_AND_BACK:
+                return CullFaceMode::FrontAndBack;
+            default:
+                return CullFaceMode::Unknown;
+            }
+        }
+
+        CapabilityInput ConvertGLEnumToCapabilityInput(GLenum v) {
+            switch (v) {
+            case GL_BLEND:
+                return CapabilityInput::Blend;
+            case GL_CLIP_DISTANCE0:
+                return CapabilityInput::ClipDistance0;
+            case GL_CLIP_DISTANCE1:
+                return CapabilityInput::ClipDistance1;
+            case GL_CLIP_DISTANCE2:
+                return CapabilityInput::ClipDistance2;
+            case GL_CLIP_DISTANCE3:
+                return CapabilityInput::ClipDistance3;
+            case GL_CLIP_DISTANCE4:
+                return CapabilityInput::ClipDistance4;
+            case GL_CLIP_DISTANCE5:
+                return CapabilityInput::ClipDistance5;
+            case GL_CLIP_DISTANCE6:
+                return CapabilityInput::ClipDistance6;
+            case GL_CLIP_DISTANCE7:
+                return CapabilityInput::ClipDistance7;
+            case GL_COLOR_LOGIC_OP:
+                return CapabilityInput::ColorLogicOp;
+            case GL_CULL_FACE:
+                return CapabilityInput::CullFace;
+            case GL_DEBUG_OUTPUT:
+                return CapabilityInput::DebugOutput;
+            case GL_DEBUG_OUTPUT_SYNCHRONOUS:
+                return CapabilityInput::DebugOutputSynchronous;
+            case GL_DEPTH_CLAMP:
+                return CapabilityInput::DepthClamp;
+            case GL_DEPTH_TEST:
+                return CapabilityInput::DepthTest;
+            case GL_DITHER:
+                return CapabilityInput::Dither;
+            case GL_FRAMEBUFFER_SRGB:
+                return CapabilityInput::FramebufferSrgb;
+            case GL_LINE_SMOOTH:
+                return CapabilityInput::LineSmooth;
+            case GL_MULTISAMPLE:
+                return CapabilityInput::Multisample;
+            case GL_POLYGON_OFFSET_FILL:
+                return CapabilityInput::PolygonOffsetFill;
+            case GL_POLYGON_OFFSET_LINE:
+                return CapabilityInput::PolygonOffsetLine;
+            case GL_POLYGON_OFFSET_POINT:
+                return CapabilityInput::PolygonOffsetPoint;
+            case GL_POLYGON_SMOOTH:
+                return CapabilityInput::PolygonSmooth;
+            case GL_PRIMITIVE_RESTART:
+                return CapabilityInput::PrimitiveRestart;
+            case GL_PRIMITIVE_RESTART_FIXED_INDEX:
+                return CapabilityInput::PrimitiveRestartFixedIndex;
+            case GL_RASTERIZER_DISCARD:
+                return CapabilityInput::RasterizerDiscard;
+            case GL_SAMPLE_ALPHA_TO_COVERAGE:
+                return CapabilityInput::SampleAlphaToCoverage;
+            case GL_SAMPLE_ALPHA_TO_ONE:
+                return CapabilityInput::SampleAlphaToOne;
+            case GL_SAMPLE_COVERAGE:
+                return CapabilityInput::SampleCoverage;
+            case GL_SAMPLE_SHADING:
+                return CapabilityInput::SampleShading;
+            case GL_SAMPLE_MASK:
+                return CapabilityInput::SampleMask;
+            case GL_SCISSOR_TEST:
+                return CapabilityInput::ScissorTest;
+            case GL_STENCIL_TEST:
+                return CapabilityInput::StencilTest;
+            case GL_TEXTURE_CUBE_MAP_SEAMLESS:
+                return CapabilityInput::TextureCubeMapSeamless;
+            case GL_PROGRAM_POINT_SIZE:
+                return CapabilityInput::ProgramPointSize;
+            default:
+                return CapabilityInput::Unknown;
+            }
+        }
+    } // namespace MG_Util
+} // namespace MobileGL
