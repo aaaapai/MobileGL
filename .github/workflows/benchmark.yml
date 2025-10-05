@@ -2,7 +2,9 @@ name: Benchmark
 
 on:
   push:
-    branches: [ dev ]
+    branches: 
+      - dev
+      - Feat/Backend-Direct-GLES
 
 jobs:
   benchmark:
