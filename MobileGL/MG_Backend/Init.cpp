@@ -21,6 +21,8 @@ namespace MobileGL {
             default:
                 throw RuntimeError("Unsupported renderer type");
             }
+#elif MOBILEGL_BACKEND == MOBILEGL_BACKEND_TYPE_DIRECT_GLES
+            MG_Config::RendererInfoPtr = (RendererInfo*)&MG_Backend::DirectGLES::RendererInfo;
 #else
             MG_Config::RendererInfoPtr = (RendererInfo*)&RendererInfoUnknown;
 #endif

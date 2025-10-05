@@ -11,7 +11,7 @@ namespace MobileGL {
         extern RendererInfo* RendererInfoPtr;
 
         namespace Backend {
-#define MOBILEGL_BACKEND MOBILEGL_BACKEND_UNKNOWN
+#define MOBILEGL_BACKEND MOBILEGL_BACKEND_TYPE_DIRECT_GLES
 
             namespace Diligent {
                 inline const MG_Backend::Diligent::SpecificBackendType SpecificBackend =

@@ -28,7 +28,7 @@ namespace MobileGL {
             };
 
             const RendererInfo RendererInfoVulkan = {
-                "MobileGlued-vk",           // Renderer Name
+                "MG-DE-Vulkan",             // Renderer Name
                 "Diligent Engine (Vulkan)", // Backend Name
                 Nullopt,                    // Extra vendor
                 {
@@ -43,7 +43,7 @@ namespace MobileGL {
             };
 
             const RendererInfo RendererInfoMetal = {
-                "MobileGlued-mtl",         // Renderer Name
+                "MG-DE-Metal",             // Renderer Name
                 "Diligent Engine (Metal)", // Backend Name
                 Nullopt,                   // Extra vendor
                 {
@@ -57,6 +57,23 @@ namespace MobileGL {
                 {} // Backend Capability
             };
         } // namespace Diligent
+
+        namespace DirectGLES {
+            const RendererInfo RendererInfo = {
+                "MG-Dir-GLES",        // Renderer Name
+                "Direct (OpenGL ES)", // Backend Name
+                Nullopt,              // Extra vendor
+                {
+                    // OpenGL Info
+                    {3, 3, 0},                           //   Target OpenGL Version
+                    {4, 6, 0},                           //   Target Shading Language Version
+                    {V_OpenGL30, V_OpenGL31, V_OpenGL32, //   OpenGL Extensions
+                     V_OpenGL33},
+                    false //   Is Compatibility Profile
+                },
+                {} // Backend Capability
+            };
+        } // namespace DirectGLES
 
         void Init();
     } // namespace MG_Backend
