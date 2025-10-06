@@ -2,6 +2,7 @@
 
 // ============== Platform-specific definitions and macros ============== //
 #ifdef __ANDROID__
+#undef __ANDROID_API__
 #define __ANDROID_API__ 26 // force Android API level to 26 for compatibility
 #endif
 

@@ -6,7 +6,7 @@
 namespace MobileGL {
     namespace MG_Backend {
         namespace Unknown {
-            const RendererInfo RendererInfoUnknown = {
+            inline RendererInfo RendererInfoUnknown = {
                 .RendererName = "<unknown renderer of MobileGL>", // Renderer Name
                 .BackendName = "<unknown backend>",               // Backend Name
                 .ExtraVendor = ", <unknown>",                     // Extra vendor
@@ -28,7 +28,7 @@ namespace MobileGL {
                 Metal
             };
 
-            const RendererInfo RendererInfoVulkan = {
+            inline RendererInfo RendererInfoVulkan = {
                 .RendererName = "MG-DE-Vulkan",            // Renderer Name
                 .BackendName = "Diligent Engine (Vulkan)", // Backend Name
                 .ExtraVendor = Nullopt,                    // Extra vendor
@@ -44,7 +44,7 @@ namespace MobileGL {
                 .BackendCapability = {} // Backend Capability
             };
 
-            const RendererInfo RendererInfoMetal = {
+            inline RendererInfo RendererInfoMetal = {
                 .RendererName = "MG-DE-Metal",            // Renderer Name
                 .BackendName = "Diligent Engine (Metal)", // Backend Name
                 .ExtraVendor = Nullopt,                   // Extra vendor
@@ -62,7 +62,7 @@ namespace MobileGL {
         } // namespace Diligent
 
         namespace DirectGLES {
-            const RendererInfo RendererInfo = {
+            inline RendererInfo RendererInfo = {
                 .RendererName = "Espryt",            // Renderer Name
                 .BackendName = "Direct (OpenGL ES)", // Backend Name
                 .ExtraVendor = Nullopt,              // Extra vendor

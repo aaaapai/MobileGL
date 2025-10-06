@@ -1,5 +1,7 @@
 #include "Backends.h"
 #include <Config.h>
+#include <MG_Util/BackendLoaders/OpenGL/Loader.h>
+#include <MG_Util/Converters/MGToStr/GLExtensionConverter.h>
 
 namespace MobileGL {
     namespace MG_Config {
@@ -7,25 +9,68 @@ namespace MobileGL {
     }
 
     namespace MG_Backend {
+        static RendererInfo RendererInfo;
+
+        void LogBackendInfo() {
+            if (MG_Config::RendererInfoPtr) {
+                MGLOG_I("MobileGL Backend Info:");
+                MGLOG_I("  Renderer Name: %s", MG_Config::RendererInfoPtr->RendererName.c_str());
+                MGLOG_I("  Backend Name: %s", MG_Config::RendererInfoPtr->BackendName.c_str());
+                if (MG_Config::RendererInfoPtr->ExtraVendor) {
+                    MGLOG_I("  Extra Vendor Info: %s", MG_Config::RendererInfoPtr->ExtraVendor->c_str());
+                }
+                MGLOG_I("  Target OpenGL Version: %d.%d",
+                        MG_Config::RendererInfoPtr->RendererGLInfo.TargetGLVersion.Major,
+                        MG_Config::RendererInfoPtr->RendererGLInfo.TargetGLVersion.Minor);
+                MGLOG_I("  Target GLSL Version: %d.%d",
+                        MG_Config::RendererInfoPtr->RendererGLInfo.TargetGLSLVersion.Major,
+                        MG_Config::RendererInfoPtr->RendererGLInfo.TargetGLSLVersion.Minor);
+                MGLOG_I("  OpenGL Extensions:");
+                for (const auto& ext : MG_Config::RendererInfoPtr->RendererGLInfo.Extensions) {
+                    MGLOG_I("    - %s", MG_Util::ConvertetGLExtToString(ext).c_str());
+                }
+            } else {
+                MGLOG_W("  No renderer info available");
+            }
+        }
+
+        void InitSpecificBackendLibs() {
+#if MOBILEGL_BACKEND == MOBILEGL_BACKEND_DILIGENT
+            // Nothing to do
+            MGLOG_D("Diligent Engine backend loaded");
+#elif MOBILEGL_BACKEND == MOBILEGL_BACKEND_TYPE_DIRECT_GLES
+            MG_Util::BackendLoader::GLES::Init();
+            MGLOG_D("DirectGLES backend loaded, GLES version: %d.%d", MG_External::GLES::Caps::GLESVersion.Major,
+                    MG_External::GLES::Caps::GLESVersion.Minor);
+#else
+            MGLOG_W("Unknown backend, skipping backend initialization");
+#endif
+        }
+
         void Init() {
             MGLOG_D("Initializing MobileGL Backend...");
 
 #if MOBILEGL_BACKEND == MOBILEGL_BACKEND_DILIGENT
             switch (MG_Config::Backend::Diligent::SpecificBackend) {
             case MG_Backend::Diligent::SpecificBackendType::Vulkan:
-                MG_Config::RendererInfoPtr = (RendererInfo*)&MG_Backend::Diligent::RendererInfoVulkan;
+                RendererInfo = MG_Backend::Diligent::RendererInfoVulkan;
                 break;
             case MG_Backend::Diligent::SpecificBackendType::Metal:
-                MG_Config::RendererInfoPtr = (RendererInfo*)&MG_Backend::Diligent::RendererInfoMetal;
+                RendererInfo = MG_Backend::Diligent::RendererInfoMetal;
                 break;
             default:
                 throw RuntimeError("Unsupported renderer type");
             }
 #elif MOBILEGL_BACKEND == MOBILEGL_BACKEND_TYPE_DIRECT_GLES
-            MG_Config::RendererInfoPtr = (RendererInfo*)&MG_Backend::DirectGLES::RendererInfo;
+            RendererInfo = MG_Backend::DirectGLES::RendererInfo;
 #else
-            MG_Config::RendererInfoPtr = (RendererInfo*)&RendererInfoUnknown;
+            RendererInfo = RendererInfoUnknown;
 #endif
+
+            MG_Config::RendererInfoPtr = &RendererInfo;
+
+            InitSpecificBackendLibs();
+            LogBackendInfo();
         }
     } // namespace MG_Backend
 } // namespace MobileGL

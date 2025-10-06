@@ -2,6 +2,11 @@
 
 namespace MobileGL {
     namespace MG_State {
+        void Init() {
+            MGLOG_D("Initializing MobileGL State...");
+            pGLContext = new MG_State::GLState::GLContext();
+        }
+
         namespace GLState {
             // Error
             void GLContext::RecordError(ErrorCode code, SharedPtr<ErrorInfo> info) {

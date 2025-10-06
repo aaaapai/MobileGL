@@ -55,6 +55,8 @@ set(SOURCE_FILES
     MobileGL/MG_Util/ShaderTranspiler/ShaderCompiler.cpp
     MobileGL/MG_Util/ShaderTranspiler/SpvcSession.cpp
 
+    MobileGL/MG_Util/BackendLoaders/OpenGL/Loader.cpp
+
     MobileGL/MG_Impl/GLXImpl/Exporting/Definitions.cpp
     MobileGL/MG_Impl/GLXImpl/LookUp/LookUp.cpp
 
@@ -160,8 +162,12 @@ if (ANDROID)
         log)
 endif()
 
+if (NOT ANDROID)
+
 set(BUILD_TEST ON CACHE BOOL "Build the tests")
 set(BUILD_BENCHMARK ON CACHE BOOL "Build the benchmarks")
 
 add_subdirectory(MobileGL/MG_Test)
 add_subdirectory(MobileGL/MG_Benchmark)
+
+endif()

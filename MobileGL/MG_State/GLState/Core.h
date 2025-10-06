@@ -11,6 +11,8 @@
 
 namespace MobileGL {
     namespace MG_State {
+        void Init();
+
         namespace GLState {
             class GLContext {
             public:

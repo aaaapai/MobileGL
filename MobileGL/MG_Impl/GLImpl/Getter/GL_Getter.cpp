@@ -1,8 +1,8 @@
 #include "GL_Getter.h"
 #include <Config.h>
 #include <MG_State/GLState/Core.h>
-#include <MG_Util/Converters/MGToGL/ErrorCodeConverter.h>
 #include <MG_Util/Converters/GLToStr/GLEnumConverter.h>
+#include <MG_Util/Converters/MGToGL/ErrorCodeConverter.h>
 #include <MG_Util/Converters/MGToStr/GLExtensionConverter.h>
 
 namespace MobileGL {

@@ -1,6 +1,7 @@
 #include "Loader.h"
 
 #define GL_FUNC_DECL(name) name##_PTR name;
+#define EGL_FUNC_DECL(name) name##_PTR name;
 
 namespace MobileGL {
     namespace MG_External {
@@ -379,21 +380,61 @@ namespace MobileGL {
 
             GL_FUNC_DECL(glBruh)
         } // namespace GLES
+
+        namespace EGL {
+            EGL_FUNC_DECL(eglBindAPI)
+            EGL_FUNC_DECL(eglBindTexImage)
+            EGL_FUNC_DECL(eglChooseConfig)
+            EGL_FUNC_DECL(eglCopyBuffers)
+            EGL_FUNC_DECL(eglCreateContext)
+            EGL_FUNC_DECL(eglCreatePbufferFromClientBuffer)
+            EGL_FUNC_DECL(eglCreatePbufferSurface)
+            EGL_FUNC_DECL(eglCreatePixmapSurface)
+            EGL_FUNC_DECL(eglCreatePlatformWindowSurface)
+            EGL_FUNC_DECL(eglCreateWindowSurface)
+            EGL_FUNC_DECL(eglDestroyContext)
+            EGL_FUNC_DECL(eglDestroySurface)
+            EGL_FUNC_DECL(eglGetConfigAttrib)
+            EGL_FUNC_DECL(eglGetConfigs)
+            EGL_FUNC_DECL(eglGetCurrentContext)
+            EGL_FUNC_DECL(eglGetCurrentDisplay)
+            EGL_FUNC_DECL(eglGetCurrentSurface)
+            EGL_FUNC_DECL(eglGetDisplay)
+            EGL_FUNC_DECL(eglGetPlatformDisplay)
+            EGL_FUNC_DECL(eglGetError)
+            EGL_FUNC_DECL(eglGetProcAddress)
+            EGL_FUNC_DECL(eglInitialize)
+            EGL_FUNC_DECL(eglMakeCurrent)
+            EGL_FUNC_DECL(eglQueryAPI)
+            EGL_FUNC_DECL(eglQueryContext)
+            EGL_FUNC_DECL(eglQueryString)
+            EGL_FUNC_DECL(eglQuerySurface)
+            EGL_FUNC_DECL(eglReleaseTexImage)
+            EGL_FUNC_DECL(eglReleaseThread)
+            EGL_FUNC_DECL(eglSurfaceAttrib)
+            EGL_FUNC_DECL(eglSwapBuffers)
+            EGL_FUNC_DECL(eglSwapBuffersWithDamageEXT)
+            EGL_FUNC_DECL(eglSwapInterval)
+            EGL_FUNC_DECL(eglTerminate)
+            EGL_FUNC_DECL(eglUnlockSurfaceKHR)
+            EGL_FUNC_DECL(eglWaitClient)
+            EGL_FUNC_DECL(eglWaitGL)
+            EGL_FUNC_DECL(eglWaitNative)
+        } // namespace EGL
     } // namespace MG_External
 
 #undef GL_FUNC_DECL
+#undef EGL_FUNC_DECL
 
     namespace MG_Util {
-        namespace BackendLoader {
-            void Init() {
-                GLES::LoadLibs();
-                GLES::InitEGL();
-                GLES::InitGLES();
-                GLES::DestroyTempEGLCtx();
-            }
-        } // namespace BackendLoader
-
         namespace BackendLoader::GLES {
+            void Init() {
+                LoadLibs();
+                InitEGL();
+                InitGLES();
+                DestroyTempEGLCtx();
+            }
+
             void *libGLES = nullptr, *libEGL = nullptr;
 
             static const char* LibPathPrefixes[] = {"", "/opt/vc/lib/", "/usr/local/lib/", "/usr/lib/", nullptr};
@@ -818,25 +859,25 @@ namespace MobileGL {
             static EGLSurface eglSurface = EGL_NO_SURFACE;
             static EGLContext eglContext = EGL_NO_CONTEXT;
 
-#define LOAD_EGL(name)                                                                                                 \
+#define INIT_EGL_FUNC(name)                                                                                            \
     if (libEGL != NULL) {                                                                                              \
         MG_External::EGL::name = (MG_External::EGL::name##_PTR)ProcAddress(libEGL, #name);                             \
     }
 
             void InitEGL() {
-                LOAD_EGL(eglGetProcAddress)
-                LOAD_EGL(eglBindAPI)
-                LOAD_EGL(eglInitialize)
-                LOAD_EGL(eglGetDisplay)
-                LOAD_EGL(eglCreatePbufferSurface)
-                LOAD_EGL(eglDestroySurface)
-                LOAD_EGL(eglDestroyContext)
-                LOAD_EGL(eglMakeCurrent)
-                LOAD_EGL(eglChooseConfig)
-                LOAD_EGL(eglCreateContext)
-                LOAD_EGL(eglQueryString)
-                LOAD_EGL(eglTerminate)
-                LOAD_EGL(eglGetError)
+                INIT_EGL_FUNC(eglGetProcAddress)
+                INIT_EGL_FUNC(eglBindAPI)
+                INIT_EGL_FUNC(eglInitialize)
+                INIT_EGL_FUNC(eglGetDisplay)
+                INIT_EGL_FUNC(eglCreatePbufferSurface)
+                INIT_EGL_FUNC(eglDestroySurface)
+                INIT_EGL_FUNC(eglDestroyContext)
+                INIT_EGL_FUNC(eglMakeCurrent)
+                INIT_EGL_FUNC(eglChooseConfig)
+                INIT_EGL_FUNC(eglCreateContext)
+                INIT_EGL_FUNC(eglQueryString)
+                INIT_EGL_FUNC(eglTerminate)
+                INIT_EGL_FUNC(eglGetError)
 
                 EGLint configAttribs[] = {EGL_RED_SIZE,
                                           8,
@@ -917,10 +958,10 @@ namespace MobileGL {
             }
 
             void DestroyTempEGLCtx() {
-                LOAD_EGL(eglDestroySurface)
-                LOAD_EGL(eglDestroyContext)
-                LOAD_EGL(eglMakeCurrent)
-                LOAD_EGL(eglTerminate)
+                INIT_EGL_FUNC(eglDestroySurface)
+                INIT_EGL_FUNC(eglDestroyContext)
+                INIT_EGL_FUNC(eglMakeCurrent)
+                INIT_EGL_FUNC(eglTerminate)
 
                 MG_External::EGL::eglMakeCurrent(eglDisplay, 0, 0, EGL_NO_CONTEXT);
                 MG_External::EGL::eglDestroySurface(eglDisplay, eglSurface);
