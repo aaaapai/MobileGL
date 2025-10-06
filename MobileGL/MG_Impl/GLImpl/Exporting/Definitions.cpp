@@ -3,6 +3,7 @@
 #include "../Getter/GL_Getter.h"
 #include "../Program/GL_Program.h"
 #include "../Texture/GL_Texture.h"
+#include "../Drawing/GL_Drawing.h"
 #include "../RenderState/GL_RenderState.h"
 #include "../Framebuffer/GL_Framebuffer.h"
 #include "../VertexArray/GL_VertexArray.h"
@@ -51,7 +52,7 @@ DECLARE_GL_FUNCTION_HEAD(void, BlendFuncSeparate, GLenum sfactorRGB, GLenum dfac
 DECLARE_GL_FUNCTION_HEAD(void, BufferData, GLenum target, GLsizeiptr size, const void* data, GLenum usage) DECLARE_GL_FUNCTION_END_NO_RETURN(void, BufferData, target, size, data, usage)
 DECLARE_GL_FUNCTION_HEAD(void, BufferSubData, GLenum target, GLintptr offset, GLsizeiptr size, const void* data) DECLARE_GL_FUNCTION_END_NO_RETURN(void, BufferSubData, target, offset, size, data)
 DECLARE_GL_FUNCTION_HEAD(GLenum, CheckFramebufferStatus, GLenum target) DECLARE_GL_FUNCTION_END(GLenum, CheckFramebufferStatus, target)
-DECLARE_GL_FUNCTION_STUB_HEAD(void, Clear, GLbitfield mask) DECLARE_GL_FUNCTION_STUB_END_NO_RETURN(void, Clear, mask)
+DECLARE_GL_FUNCTION_HEAD(void, Clear, GLbitfield mask) DECLARE_GL_FUNCTION_END_NO_RETURN(void, Clear, mask)
 DECLARE_GL_FUNCTION_HEAD(void, ClearColor, GLfloat red, GLfloat green, GLfloat blue, GLfloat alpha) DECLARE_GL_FUNCTION_END_NO_RETURN(void, ClearColor, red, green, blue, alpha)
 DECLARE_GL_FUNCTION_STUB_HEAD(void, ClearDepthf, GLfloat d) DECLARE_GL_FUNCTION_STUB_END_NO_RETURN(void, ClearDepthf, d)
 DECLARE_GL_FUNCTION_HEAD(void, ClearStencil, GLint s) DECLARE_GL_FUNCTION_END_NO_RETURN(void, ClearStencil, s)
@@ -77,7 +78,7 @@ DECLARE_GL_FUNCTION_HEAD(void, DetachShader, GLuint program, GLuint shader) DECL
 DECLARE_GL_FUNCTION_HEAD(void, Disable, GLenum cap) DECLARE_GL_FUNCTION_END_NO_RETURN(void, Disable, cap)
 DECLARE_GL_FUNCTION_HEAD(void, DisableVertexAttribArray, GLuint index) DECLARE_GL_FUNCTION_END_NO_RETURN(void, DisableVertexAttribArray, index)
 DECLARE_GL_FUNCTION_STUB_HEAD(void, DrawArrays, GLenum mode, GLint first, GLsizei count) DECLARE_GL_FUNCTION_STUB_END_NO_RETURN(void, DrawArrays, mode, first, count)
-DECLARE_GL_FUNCTION_STUB_HEAD(void, DrawElements, GLenum mode, GLsizei count, GLenum type, const void* indices) DECLARE_GL_FUNCTION_STUB_END_NO_RETURN(void, DrawElements, mode, count, type, indices)
+DECLARE_GL_FUNCTION_HEAD(void, DrawElements, GLenum mode, GLsizei count, GLenum type, const void* indices) DECLARE_GL_FUNCTION_END_NO_RETURN(void, DrawElements, mode, count, type, indices)
 DECLARE_GL_FUNCTION_HEAD(void, Enable, GLenum cap) DECLARE_GL_FUNCTION_END_NO_RETURN(void, Enable, cap)
 DECLARE_GL_FUNCTION_HEAD(void, EnableVertexAttribArray, GLuint index) DECLARE_GL_FUNCTION_END_NO_RETURN(void, EnableVertexAttribArray, index)
 DECLARE_GL_FUNCTION_STUB_HEAD(void, Finish) DECLARE_GL_FUNCTION_STUB_END_NO_RETURN(void, Finish)

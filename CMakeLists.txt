@@ -65,6 +65,7 @@ set(SOURCE_FILES
     MobileGL/MG_Impl/EGLImpl/EGLWrapper/EGLWrapper.cpp
     
     # @INSERTION_POINT:SOURCE_FILE_GLIMPL@ #
+    MobileGL/MG_Impl/GLImpl/Drawing/GL_Drawing.cpp
     MobileGL/MG_Impl/GLImpl/RenderState/GL_RenderState.cpp
     MobileGL/MG_Impl/GLImpl/Framebuffer/Validators.cpp
     MobileGL/MG_Impl/GLImpl/Framebuffer/GL_Framebuffer.cpp
