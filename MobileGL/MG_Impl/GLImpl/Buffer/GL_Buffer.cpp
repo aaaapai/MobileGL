@@ -3,9 +3,62 @@
 #include <MG_State/GLState/Core.h>
 #include <MG_State/GLState/ErrorState/Error.h>
 #include <MG_Util/Converters/GLToMG/BufferEnumConverter.h>
+#include <MG_Util/Converters/MGToGL/BufferEnumConverter.h>
 
 namespace MobileGL {
     namespace MG_Impl::GLImpl {
+        void GetBufferParameteriv_State(GLenum target, GLenum pname, GLint* params) {
+            if (!params) {
+                MG_State::pGLContext->RecordError(ErrorCode::InvalidValue,
+                                                  MakeShared<GenericErrorInfo>("MG_Impl/GLImpl",
+                                                                               "GetBufferParameteriv_State",
+                                                                               "Params pointer cannot be null."));
+                return;
+            }
+
+            BufferTarget bufferTarget = MG_Util::ConvertGLEnumToBufferTarget(target);
+            if (!BufferImpl::ValidateBufferTarget(bufferTarget)) return;
+
+            auto& bindingSlot = MG_State::pGLContext->GetBufferBindingSlot(bufferTarget);
+
+            auto bufferObject = bindingSlot.GetBoundObject();
+            if (!bufferObject) {
+                MG_State::pGLContext->RecordError(
+                    ErrorCode::InvalidOperation,
+                    MakeShared<GenericErrorInfo>("MG_Impl/GLImpl", "GetBufferParameteriv_State",
+                                                 "Buffer target is bound to no buffer object."));
+                return;
+            }
+
+            switch (pname) {
+            case GL_BUFFER_SIZE:
+                *params = static_cast<GLint>(bufferObject->GetSize());
+                break;
+            case GL_BUFFER_USAGE:
+                *params = MG_Util::ConvertBufferUsageToGLEnum(bufferObject->GetUsage());
+                break;
+            case GL_BUFFER_ACCESS:
+                if (bufferObject->IsMapped()) {
+                    auto access = bufferObject->GetMappingAccess();
+                    if (access & BufferMappingAccessBit::Read && access & BufferMappingAccessBit::Write) {
+                        *params = GL_READ_WRITE;
+                    } else if (access & BufferMappingAccessBit::Read) {
+                        *params = GL_READ_ONLY;
+                    } else if (access & BufferMappingAccessBit::Write) {
+                        *params = GL_WRITE_ONLY;
+                    } else {
+                        *params = 0;
+                    }
+                } else {
+                    *params = 0;
+                }
+                break;
+            case GL_BUFFER_MAPPED:
+                *params = bufferObject->IsMapped() ? GL_TRUE : GL_FALSE;
+                break;
+            }
+        }
+
         void DeleteBuffers_State(GLsizei n, const GLuint* buffers) {
             if (n < 0) {
                 MG_State::pGLContext->RecordError(
@@ -182,7 +235,8 @@ namespace MobileGL {
             const auto storageFlags = BufferMappingAccessBit::Persistent | BufferMappingAccessBit::Coherent;
             auto requiredFlags = accessBits & storageFlags;
             if (requiredFlags) {
-                // TODO: check if the buffer data is created by BufferStorage and its flags after its implementation
+                // TODO: check if the buffer data is created by BufferStorage and its flags after its
+                // implementation
                 MG_State::pGLContext->RecordError(
                     ErrorCode::InvalidOperation,
                     MakeShared<GenericErrorInfo>("MG_Impl/GLImpl", "MapBufferRange_State",
@@ -368,9 +422,9 @@ namespace MobileGL {
                 if (offset + size >= mappedRange.start) {
                     MG_State::pGLContext->RecordError(
                         ErrorCode::InvalidOperation,
-                        MakeShared<GenericErrorInfo>(
-                            "MG_Impl/GLImpl", "BufferSubData_State",
-                            "Cannot modify a mapped buffer object unless it was mapped with GL_MAP_PERSISTENT_BIT."));
+                        MakeShared<GenericErrorInfo>("MG_Impl/GLImpl", "BufferSubData_State",
+                                                     "Cannot modify a mapped buffer object unless it was "
+                                                     "mapped with GL_MAP_PERSISTENT_BIT."));
                     return;
                 }
             }
@@ -441,6 +495,10 @@ namespace MobileGL {
         }
 
         /* @INSERTION_POINT:FUNCTION_IMPLEMENTATION@ */
+        void GetBufferParameteriv(GLenum target, GLenum pname, GLint* params) {
+            GetBufferParameteriv_State(target, pname, params);
+        }
+
         GLboolean IsBuffer(GLuint buffer) {
             return IsBuffer_State(buffer);
         }

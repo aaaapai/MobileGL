@@ -9,5 +9,10 @@ namespace MobileGL {
         String ConvertTextureInternalFormatToString(TextureInternalFormat internalformat);
         String ConvertTexturePixelDataTypeToString(TexturePixelDataType type);
         String ConvertTextureUploadTargetToString(TextureUploadTarget target);
+        String ConvertSamplerFilterModeToString(SamplerFilterMode value);
+        String ConvertSamplerMipmapModeToString(SamplerMipmapMode value);
+        String ConvertSamplerWrapModeToString(SamplerWrapMode value);
+        String ConvertSamplerCompareModeToString(SamplerCompareMode value);
+        String ConvertSamplerCompareFuncToString(SamplerCompareFunc value);
     } // namespace MG_Util
 } // namespace MobileGL

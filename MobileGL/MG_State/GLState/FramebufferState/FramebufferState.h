@@ -20,7 +20,7 @@ namespace MobileGL {
                 Bool ValidateFramebufferObject(Uint index) const;
 
             private:
-                UnorderedMap<Uint, SharedPtr<FramebufferObject>> m_bufferObjects;
+                UnorderedMap<Uint, SharedPtr<FramebufferObject>> m_framebufferObjects;
                 IndexGenerator<Uint> m_indexGenerator;
                 Array<BindingSlot<FramebufferObject>, static_cast<SizeT>(FramebufferTarget::FramebufferTargetCount)>
                     m_bindingSlots;

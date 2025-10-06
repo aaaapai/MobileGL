@@ -5,7 +5,9 @@ namespace MobileGL {
     namespace MG_State {
         namespace GLState {
             // TextureObjectBase implementations
-            TextureObjectBase::TextureObjectBase(TextureTarget target) : m_target(target), m_sampler(nullptr) {}
+            TextureObjectBase::TextureObjectBase(TextureTarget target) : m_target(target) {
+                m_sampler = MakeShared<SamplerObject>();
+            }
 
             void TextureObjectBase::SetMipmapLevel(const MipmapLevelInput& level) {
                 SetMipmapImpl(level);
@@ -38,14 +40,18 @@ namespace MobileGL {
                 if (m_internalFormat == TextureInternalFormat::Unknown) {
                     return false;
                 }
+
                 if (m_mipmaps.empty()) {
                     return false;
                 }
-                for (const auto& level : m_mipmaps) {
+
+                for (size_t i = 0; i < m_mipmaps.size(); ++i) {
+                    const auto& level = m_mipmaps[i];
                     if (level.size.x() <= 0 || level.size.y() <= 0 || level.size.z() <= 0) {
                         return false;
                     }
                 }
+
                 // TODO: add more completeness checks based on texture type and mipmap levels
                 return true;
             }

@@ -1,103 +1,88 @@
 #include "EGLWrapper.h"
+#include <Config.h>
+#include <MG_Util/BackendLoaders/OpenGL/Loader.h>
 
+#if MOBILEGL_BACKEND == MOBILEGL_BACKEND_TYPE_DIRECT_GLES
 namespace MobileGL {
     namespace MG_Impl::EGLImpl {
         // TODO: implement complete EGL functionality
 
         EGLSurface CreateWindowSurface(EGLDisplay dpy, EGLConfig config, NativeWindowType window,
                                        const EGLint* attrib_list) {
-            return (EGLSurface)1;
+            return MG_External::EGL::eglCreateWindowSurface(dpy, config, window, attrib_list);
         }
 
         EGLBoolean ChooseConfig(EGLDisplay dpy, const EGLint* attrib_list, EGLConfig* configs, EGLint config_size,
                                 EGLint* num_config) {
-            *num_config = 1;
-            return EGL_TRUE;
+            return MG_External::EGL::eglChooseConfig(dpy, attrib_list, configs, config_size, num_config);
         }
 
         EGLContext CreateContext(EGLDisplay dpy, EGLConfig config, EGLContext shareCtx, const EGLint* attrib_list) {
-            return (EGLContext)1;
+            return MG_External::EGL::eglCreateContext(dpy, config, shareCtx, attrib_list);
         }
 
         EGLBoolean Initialize(EGLDisplay dpy, EGLint* major, EGLint* minor) {
-            if (major) *major = 1;
-            if (minor) *minor = 5;
-            return EGL_TRUE;
+            return MG_External::EGL::eglInitialize(dpy, major, minor);
         }
 
         EGLDisplay GetDisplay(NativeDisplayType display) {
-            return (EGLDisplay)1;
+            return MG_External::EGL::eglGetDisplay(display);
         }
 
         EGLint GetError() {
-            return EGL_SUCCESS;
+            return MG_External::EGL::eglGetError();
         }
 
         EGLBoolean MakeCurrent(EGLDisplay dpy, EGLSurface draw, EGLSurface read, EGLContext ctx) {
-            return EGL_TRUE;
+            return MG_External::EGL::eglMakeCurrent(dpy, draw, read, ctx);
         }
 
         EGLBoolean DestroyContext(EGLDisplay dpy, EGLContext ctx) {
-            return EGL_TRUE;
+            return MG_External::EGL::eglDestroyContext(dpy, ctx);
         }
 
         EGLBoolean DestroySurface(EGLDisplay dpy, EGLSurface surface) {
-            return EGL_TRUE;
+            return MG_External::EGL::eglDestroySurface(dpy, surface);
         }
 
         EGLBoolean Terminate(EGLDisplay dpy) {
-            return EGL_TRUE;
+            return MG_External::EGL::eglTerminate(dpy);
         }
 
         EGLBoolean ReleaseThread(void) {
-            return EGL_TRUE;
+            return MG_External::EGL::eglReleaseThread();
         }
 
         EGLContext GetCurrentContext(void) {
-            return (EGLContext)1;
+            return MG_External::EGL::eglGetCurrentContext();
         }
 
         EGLBoolean GetConfigAttrib(EGLDisplay dpy, EGLConfig config, EGLint attribute, EGLint* value) {
-            if (attribute == EGL_NATIVE_VISUAL_ID) {
-#if defined(ANDROID)
-                *value = AHARDWAREBUFFER_FORMAT_R8G8B8A8_UNORM;
-                return EGL_TRUE;
-#elif defined(__linux__)
-                *value = 0;
-                return EGL_TRUE;
-#elif defined(_WIN32)
-                *value = 0;
-                return EGL_TRUE;
-#else
-                *value = 0;
-                return EGL_FALSE;
-#endif
-            }
-            return EGL_TRUE;
+            return MG_External::EGL::eglGetConfigAttrib(dpy, config, attribute, value);
         }
 
         EGLBoolean BindAPI(EGLenum api) {
-            return EGL_TRUE;
+            return MG_External::EGL::eglBindAPI(api);
         }
 
         EGLSurface GetCurrentSurface(EGLint readdraw) {
-            return (EGLSurface)1;
+            return MG_External::EGL::eglGetCurrentSurface(readdraw);
         }
 
         EGLBoolean QuerySurface(EGLDisplay display, EGLSurface surface, EGLint attribute, EGLint* value) {
-            return EGL_TRUE;
+            return MG_External::EGL::eglQuerySurface(display, surface, attribute, value);
         }
 
         EGLBoolean SwapInterval(EGLDisplay dpy, EGLint interval) {
-            return EGL_TRUE;
+            return MG_External::EGL::eglSwapInterval(dpy, interval);
         }
 
         EGLBoolean SwapBuffers(EGLDisplay dpy, EGLSurface draw) {
-            return EGL_TRUE;
+            return MG_External::EGL::eglSwapBuffers(dpy, draw);
         }
 
         EGLSurface CreatePbufferSurface(EGLDisplay dpy, EGLConfig config, const EGLint* attrib_list) {
-            return (EGLSurface)1;
+            return MG_External::EGL::eglCreatePbufferSurface(dpy, config, attrib_list);
         }
 
         __eglMustCastToProperFunctionPointerType GetProcAddress(const char* name) {
@@ -115,3 +100,5 @@ namespace MobileGL {
         }
     } // namespace MG_Impl::EGLImpl
 } // namespace MobileGL
+
+#endif

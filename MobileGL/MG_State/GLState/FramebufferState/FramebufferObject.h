@@ -46,7 +46,6 @@ namespace MobileGL {
         Color31,
         Depth,
         Stencil,
-        DepthStencil,
         FramebufferAttachmentTypeCount,
         Unknown = -1
     };
@@ -60,8 +59,7 @@ namespace MobileGL {
                 // TODO: add Renderbuffer when it is implemented
                 explicit FramebufferAttachment(SharedPtr<MG_State::GLState::ITextureObject> texture, Int level = 0);
                 explicit FramebufferAttachment(SharedPtr<RenderbufferObjectStub> renderbuffer);
-                explicit FramebufferAttachment(std::nullptr_t);
-                explicit FramebufferAttachment();
+                explicit FramebufferAttachment(Bool IsValid = true);
 
                 Bool IsTexture() const;
                 Bool IsRenderbuffer() const;
@@ -71,11 +69,13 @@ namespace MobileGL {
                 Int GetTextureLevel() const;
                 Bool IsComplete() const;
                 IntVec3 GetSize() const;
+                Bool IsValid() const;
 
             private:
                 SharedPtr<MG_State::GLState::ITextureObject> m_texture = nullptr;
                 SharedPtr<RenderbufferObjectStub> m_renderbuffer = nullptr;
                 Int m_textureLevel = 0;
+                Bool m_isValid = true;
             };
 
             class FramebufferObject {

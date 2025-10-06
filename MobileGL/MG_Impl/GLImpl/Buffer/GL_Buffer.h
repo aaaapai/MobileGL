@@ -4,6 +4,7 @@
 namespace MobileGL {
     namespace MG_Impl::GLImpl {
         /* @INSERTION_POINT:FUNCTION_DECLARATION@ */
+        void GetBufferParameteriv(GLenum target, GLenum pname, GLint* params);
         GLboolean IsBuffer(GLuint buffer);
         void DeleteBuffers(GLsizei n, const GLuint* buffers);
         void FlushMappedBufferRange(GLenum target, GLintptr offset, GLsizeiptr length);

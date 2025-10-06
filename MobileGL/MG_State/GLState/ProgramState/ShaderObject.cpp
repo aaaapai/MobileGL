@@ -1,7 +1,6 @@
 #include "ShaderObject.h"
 #include <MG_Util/ShaderTranspiler/ShaderCompiler.h>
-
-#include "MG_Util/ShaderTranspiler/glslang/UniformTraverser.h"
+#include <MG_Util/ShaderTranspiler/glslang/UniformTraverser.h>
 
 namespace MobileGL {
     namespace MG_State {

@@ -1,8 +1,8 @@
 #include "GL_Texture.h"
-#include "GL/glext.h"
-#include "MG_State/GLState/TextureState/TextureObject.h"
+#include "GL/gl.h"
 #include "MG_Util/Types.h"
 #include "Validators.h"
+#include "ProxyTexture.h"
 #include <MG_State/GLState/Core.h>
 #include <MG_Util/Metrics/TextureMetrics.h>
 #include <MG_State/GLState/ErrorState/Error.h>
@@ -93,11 +93,142 @@ namespace MobileGL {
         }
 
         void TexParameterf_State(GLenum target, GLenum pname, GLfloat param) {
-            // TODO: implement
+
+            // ======================= Converting ================================
+            TextureUploadTarget textureUploadingTarget = MG_Util::ConvertGLEnumToTextureUploadTarget(target);
+            TextureTarget textureTarget = MG_Util::ConvertTextureUploadTargetToTextureTarget(textureUploadingTarget);
+
+            // ======================= Processing ================================
+            SharedPtr<MG_State::GLState::ITextureObject> textureObject = nullptr;
+            if (TextureImpl::IsProxyTextureTarget(textureUploadingTarget)) {
+                textureObject =
+                    TextureImpl::pProxyTextureManager->CreateOrReplaceProxyTextureObject(textureUploadingTarget);
+            } else {
+                auto activeUnit =
+                    MG_State::pGLContext->GetTextureUnitObject(MG_State::pGLContext->GetActiveTextureUnit());
+                auto& bindingSlot = activeUnit.GetBindingSlot(textureTarget);
+                textureObject = bindingSlot.GetBoundObject();
+            }
+
+            if (!TextureImpl::ValidateTextureObject(textureObject)) return;
+
+            switch (pname) {
+            case GL_TEXTURE_MAG_FILTER:
+                textureObject->GetSamplerObject()->SetMagFilter(MG_Util::ConvertGLEnumToSamplerFilterMode(param));
+                break;
+            case GL_TEXTURE_MIN_FILTER:
+                textureObject->GetSamplerObject()->SetMinFilter(MG_Util::ConvertGLEnumToSamplerFilterMode(param));
+                break;
+            case GL_TEXTURE_MIN_LOD: {
+                Float maxLod = textureObject->GetSamplerObject()->GetMaxLod();
+                textureObject->GetSamplerObject()->SetLodRange(param, maxLod);
+                break;
+            }
+            case GL_TEXTURE_MAX_LOD: {
+                Float minLod = textureObject->GetSamplerObject()->GetMinLod();
+                textureObject->GetSamplerObject()->SetLodRange(minLod, param);
+                break;
+            }
+            case GL_TEXTURE_BASE_LEVEL:
+            case GL_TEXTURE_MAX_LEVEL:
+            case GL_TEXTURE_SWIZZLE_R:
+            case GL_TEXTURE_SWIZZLE_G:
+            case GL_TEXTURE_SWIZZLE_B:
+            case GL_TEXTURE_SWIZZLE_A:
+            case GL_TEXTURE_SWIZZLE_RGBA:
+            case GL_TEXTURE_BORDER_COLOR:
+                break; // TODO
+            case GL_TEXTURE_WRAP_S:
+                textureObject->GetSamplerObject()->SetWrapS(MG_Util::ConvertGLEnumToSamplerWrapMode(param));
+                break;
+            case GL_TEXTURE_WRAP_T:
+                textureObject->GetSamplerObject()->SetWrapT(MG_Util::ConvertGLEnumToSamplerWrapMode(param));
+                break;
+            case GL_TEXTURE_WRAP_R:
+                textureObject->GetSamplerObject()->SetWrapR(MG_Util::ConvertGLEnumToSamplerWrapMode(param));
+                break;
+            case GL_TEXTURE_COMPARE_MODE:
+                textureObject->GetSamplerObject()->SetCompareMode(MG_Util::ConvertGLEnumToSamplerCompareMode(param));
+                break;
+            case GL_TEXTURE_COMPARE_FUNC:
+                textureObject->GetSamplerObject()->SetSamplerCompareFunc(
+                    MG_Util::ConvertGLEnumToSamplerCompareFunc(param));
+                break;
+            default:
+                MG_State::pGLContext->RecordError(
+                    ErrorCode::InvalidEnum, MakeShared<GenericErrorInfo>("MG_Impl/GLImpl", "TexParameteri_State",
+                                                                         "pname is not a valid texture parameter."));
+                return;
+            }
         }
 
         void TexParameteri_State(GLenum target, GLenum pname, GLint param) {
-            // TODO: implement
+            // ======================= Converting ================================
+            TextureUploadTarget textureUploadingTarget = MG_Util::ConvertGLEnumToTextureUploadTarget(target);
+            TextureTarget textureTarget = MG_Util::ConvertTextureUploadTargetToTextureTarget(textureUploadingTarget);
+
+            // ======================= Processing ================================
+            SharedPtr<MG_State::GLState::ITextureObject> textureObject = nullptr;
+            if (TextureImpl::IsProxyTextureTarget(textureUploadingTarget)) {
+                textureObject =
+                    TextureImpl::pProxyTextureManager->CreateOrReplaceProxyTextureObject(textureUploadingTarget);
+            } else {
+                auto activeUnit =
+                    MG_State::pGLContext->GetTextureUnitObject(MG_State::pGLContext->GetActiveTextureUnit());
+                auto& bindingSlot = activeUnit.GetBindingSlot(textureTarget);
+                textureObject = bindingSlot.GetBoundObject();
+            }
+
+            if (!TextureImpl::ValidateTextureObject(textureObject)) return;
+
+            switch (pname) {
+            case GL_TEXTURE_MAG_FILTER:
+                textureObject->GetSamplerObject()->SetMagFilter(MG_Util::ConvertGLEnumToSamplerFilterMode(param));
+                break;
+            case GL_TEXTURE_MIN_FILTER:
+                textureObject->GetSamplerObject()->SetMinFilter(MG_Util::ConvertGLEnumToSamplerFilterMode(param));
+                break;
+            case GL_TEXTURE_MIN_LOD: {
+                Float maxLod = textureObject->GetSamplerObject()->GetMaxLod();
+                textureObject->GetSamplerObject()->SetLodRange(param, maxLod);
+                break;
+            }
+            case GL_TEXTURE_MAX_LOD: {
+                Float minLod = textureObject->GetSamplerObject()->GetMinLod();
+                textureObject->GetSamplerObject()->SetLodRange(minLod, param);
+                break;
+            }
+            case GL_TEXTURE_BASE_LEVEL:
+            case GL_TEXTURE_MAX_LEVEL:
+            case GL_TEXTURE_SWIZZLE_R:
+            case GL_TEXTURE_SWIZZLE_G:
+            case GL_TEXTURE_SWIZZLE_B:
+            case GL_TEXTURE_SWIZZLE_A:
+            case GL_TEXTURE_SWIZZLE_RGBA:
+            case GL_TEXTURE_BORDER_COLOR:
+                break; // TODO
+            case GL_TEXTURE_WRAP_S:
+                textureObject->GetSamplerObject()->SetWrapS(MG_Util::ConvertGLEnumToSamplerWrapMode(param));
+                break;
+            case GL_TEXTURE_WRAP_T:
+                textureObject->GetSamplerObject()->SetWrapT(MG_Util::ConvertGLEnumToSamplerWrapMode(param));
+                break;
+            case GL_TEXTURE_WRAP_R:
+                textureObject->GetSamplerObject()->SetWrapR(MG_Util::ConvertGLEnumToSamplerWrapMode(param));
+                break;
+            case GL_TEXTURE_COMPARE_MODE:
+                textureObject->GetSamplerObject()->SetCompareMode(MG_Util::ConvertGLEnumToSamplerCompareMode(param));
+                break;
+            case GL_TEXTURE_COMPARE_FUNC:
+                textureObject->GetSamplerObject()->SetSamplerCompareFunc(
+                    MG_Util::ConvertGLEnumToSamplerCompareFunc(param));
+                break;
+            default:
+                MG_State::pGLContext->RecordError(
+                    ErrorCode::InvalidEnum, MakeShared<GenericErrorInfo>("MG_Impl/GLImpl", "TexParameteri_State",
+                                                                         "pname is not a valid texture parameter."));
+                return;
+            }
         }
 
         void TexImage3DMultisample_State(GLenum target, GLsizei samples, GLenum internalformat, GLsizei width,
@@ -148,9 +279,16 @@ namespace MobileGL {
             // indicated by type.
 
             // ======================= Processing ================================
-            auto activeUnit = MG_State::pGLContext->GetTextureUnitObject(MG_State::pGLContext->GetActiveTextureUnit());
-            auto& bindingSlot = activeUnit.GetBindingSlot(textureTarget);
-            auto textureObject = bindingSlot.GetBoundObject();
+            SharedPtr<MG_State::GLState::ITextureObject> textureObject = nullptr;
+            if (TextureImpl::IsProxyTextureTarget(textureUploadingTarget)) {
+                textureObject =
+                    TextureImpl::pProxyTextureManager->CreateOrReplaceProxyTextureObject(textureUploadingTarget);
+            } else {
+                auto activeUnit =
+                    MG_State::pGLContext->GetTextureUnitObject(MG_State::pGLContext->GetActiveTextureUnit());
+                auto& bindingSlot = activeUnit.GetBindingSlot(textureTarget);
+                textureObject = bindingSlot.GetBoundObject();
+            }
 
             // ===================== Error Checking ==============================
             if (!TextureImpl::ValidateTextureObject(textureObject)) return;
@@ -189,19 +327,307 @@ namespace MobileGL {
         }
 
         void GetTexParameteriv_State(GLenum target, GLenum pname, GLint* params) {
-            // TODO: implement
+            // ======================= Converting ================================
+            TextureUploadTarget textureUploadingTarget = MG_Util::ConvertGLEnumToTextureUploadTarget(target);
+            TextureTarget textureTarget = MG_Util::ConvertTextureUploadTargetToTextureTarget(textureUploadingTarget);
+
+            // ======================= Processing ================================
+            SharedPtr<MG_State::GLState::ITextureObject> textureObject = nullptr;
+            if (TextureImpl::IsProxyTextureTarget(textureUploadingTarget)) {
+                textureObject = TextureImpl::pProxyTextureManager->GetProxyTextureObject(textureUploadingTarget);
+            } else {
+                auto activeUnit =
+                    MG_State::pGLContext->GetTextureUnitObject(MG_State::pGLContext->GetActiveTextureUnit());
+                auto& bindingSlot = activeUnit.GetBindingSlot(textureTarget);
+                textureObject = bindingSlot.GetBoundObject();
+            }
+
+            if (!TextureImpl::ValidateTextureObject(textureObject)) return;
+
+            switch (pname) {
+            case GL_TEXTURE_MAG_FILTER:
+                if (params) {
+                    *params =
+                        MG_Util::ConvertSamplerFilterModeToGLEnum(textureObject->GetSamplerObject()->GetMagFilter());
+                }
+                break;
+            case GL_TEXTURE_MIN_FILTER:
+                if (params) {
+                    *params =
+                        MG_Util::ConvertSamplerFilterModeToGLEnum(textureObject->GetSamplerObject()->GetMinFilter());
+                }
+                break;
+            case GL_TEXTURE_MIN_LOD:
+                if (params) {
+                    *params = static_cast<GLint>(textureObject->GetSamplerObject()->GetMinLod());
+                }
+                break;
+            case GL_TEXTURE_MAX_LOD:
+                if (params) {
+                    *params = static_cast<GLint>(textureObject->GetSamplerObject()->GetMaxLod());
+                }
+                break;
+            case GL_TEXTURE_BASE_LEVEL:
+            case GL_TEXTURE_MAX_LEVEL:
+            case GL_TEXTURE_SWIZZLE_R:
+            case GL_TEXTURE_SWIZZLE_G:
+            case GL_TEXTURE_SWIZZLE_B:
+            case GL_TEXTURE_SWIZZLE_A:
+            case GL_TEXTURE_SWIZZLE_RGBA:
+            case GL_TEXTURE_BORDER_COLOR:
+                break; // TODO
+            case GL_TEXTURE_WRAP_S:
+                if (params) {
+                    *params = MG_Util::ConvertSamplerWrapModeToGLEnum(textureObject->GetSamplerObject()->GetWrapS());
+                }
+                break;
+            case GL_TEXTURE_WRAP_T:
+                if (params) {
+                    *params = MG_Util::ConvertSamplerWrapModeToGLEnum(textureObject->GetSamplerObject()->GetWrapT());
+                }
+                break;
+            case GL_TEXTURE_WRAP_R:
+                if (params) {
+                    *params = MG_Util::ConvertSamplerWrapModeToGLEnum(textureObject->GetSamplerObject()->GetWrapR());
+                }
+                break;
+            case GL_TEXTURE_COMPARE_MODE:
+                if (params) {
+                    *params =
+                        MG_Util::ConvertSamplerCompareModeToGLEnum(textureObject->GetSamplerObject()->GetCompareMode());
+                }
+                break;
+            case GL_TEXTURE_COMPARE_FUNC:
+                if (params) {
+                    *params = MG_Util::ConvertSamplerCompareFuncToGLEnum(
+                        textureObject->GetSamplerObject()->GetSamplerCompareFunc());
+                }
+                break;
+            default:
+                MG_State::pGLContext->RecordError(
+                    ErrorCode::InvalidEnum, MakeShared<GenericErrorInfo>("MG_Impl/GLImpl", "GetTexParameteriv_State",
+                                                                         "pname is not a valid texture parameter."));
+                return;
+            }
         }
 
         void GetTexParameterfv_State(GLenum target, GLenum pname, GLfloat* params) {
-            // TODO: implement
+            // ======================= Converting ================================
+            TextureUploadTarget textureUploadingTarget = MG_Util::ConvertGLEnumToTextureUploadTarget(target);
+            TextureTarget textureTarget = MG_Util::ConvertTextureUploadTargetToTextureTarget(textureUploadingTarget);
+
+            // ======================= Processing ================================
+            SharedPtr<MG_State::GLState::ITextureObject> textureObject = nullptr;
+            if (TextureImpl::IsProxyTextureTarget(textureUploadingTarget)) {
+                textureObject = TextureImpl::pProxyTextureManager->GetProxyTextureObject(textureUploadingTarget);
+            } else {
+                auto activeUnit =
+                    MG_State::pGLContext->GetTextureUnitObject(MG_State::pGLContext->GetActiveTextureUnit());
+                auto& bindingSlot = activeUnit.GetBindingSlot(textureTarget);
+                textureObject = bindingSlot.GetBoundObject();
+            }
+
+            if (!TextureImpl::ValidateTextureObject(textureObject)) return;
+
+            switch (pname) {
+            case GL_TEXTURE_MAG_FILTER:
+                if (params) {
+                    *params =
+                        MG_Util::ConvertSamplerFilterModeToGLEnum(textureObject->GetSamplerObject()->GetMagFilter());
+                }
+                break;
+            case GL_TEXTURE_MIN_FILTER:
+                if (params) {
+                    *params =
+                        MG_Util::ConvertSamplerFilterModeToGLEnum(textureObject->GetSamplerObject()->GetMinFilter());
+                }
+                break;
+            case GL_TEXTURE_MIN_LOD:
+                if (params) {
+                    *params = static_cast<GLfloat>(textureObject->GetSamplerObject()->GetMinLod());
+                }
+                break;
+            case GL_TEXTURE_MAX_LOD:
+                if (params) {
+                    *params = static_cast<GLfloat>(textureObject->GetSamplerObject()->GetMaxLod());
+                }
+                break;
+            case GL_TEXTURE_BASE_LEVEL:
+            case GL_TEXTURE_MAX_LEVEL:
+            case GL_TEXTURE_SWIZZLE_R:
+            case GL_TEXTURE_SWIZZLE_G:
+            case GL_TEXTURE_SWIZZLE_B:
+            case GL_TEXTURE_SWIZZLE_A:
+            case GL_TEXTURE_SWIZZLE_RGBA:
+            case GL_TEXTURE_BORDER_COLOR:
+                break; // TODO
+            case GL_TEXTURE_WRAP_S:
+                if (params) {
+                    *params = MG_Util::ConvertSamplerWrapModeToGLEnum(textureObject->GetSamplerObject()->GetWrapS());
+                }
+                break;
+            case GL_TEXTURE_WRAP_T:
+                if (params) {
+                    *params = MG_Util::ConvertSamplerWrapModeToGLEnum(textureObject->GetSamplerObject()->GetWrapT());
+                }
+                break;
+            case GL_TEXTURE_WRAP_R:
+                if (params) {
+                    *params = MG_Util::ConvertSamplerWrapModeToGLEnum(textureObject->GetSamplerObject()->GetWrapR());
+                }
+                break;
+            case GL_TEXTURE_COMPARE_MODE:
+                if (params) {
+                    *params =
+                        MG_Util::ConvertSamplerCompareModeToGLEnum(textureObject->GetSamplerObject()->GetCompareMode());
+                }
+                break;
+            case GL_TEXTURE_COMPARE_FUNC:
+                if (params) {
+                    *params = MG_Util::ConvertSamplerCompareFuncToGLEnum(
+                        textureObject->GetSamplerObject()->GetSamplerCompareFunc());
+                }
+                break;
+            default:
+                MG_State::pGLContext->RecordError(
+                    ErrorCode::InvalidEnum, MakeShared<GenericErrorInfo>("MG_Impl/GLImpl", "GetTexParameterfv_State",
+                                                                         "pname is not a valid texture parameter."));
+                return;
+            }
         }
 
         void GetTexLevelParameteriv_State(GLenum target, GLint level, GLenum pname, GLint* params) {
-            // TODO: implement
+            MGLOG_D("GetTexLevelParameteriv_State called");
+            // ======================= Converting ================================
+            TextureUploadTarget textureUploadingTarget = MG_Util::ConvertGLEnumToTextureUploadTarget(target);
+            TextureTarget textureTarget = MG_Util::ConvertTextureUploadTargetToTextureTarget(textureUploadingTarget);
+
+            // ===================== Error Checking ==============================
+            if (!TextureImpl::ValidateTextureUploadTarget(textureUploadingTarget)) return;
+            if (!TextureImpl::ValidateTextureLevelNumber(level)) return;
+            if (!TextureImpl::ValidateTextureLevelWithUploadTarget(textureUploadingTarget, level)) return;
+
+            // ======================= Processing ================================
+            SharedPtr<MG_State::GLState::ITextureObject> textureObject = nullptr;
+
+            if (TextureImpl::IsProxyTextureTarget(textureUploadingTarget)) {
+                textureObject = TextureImpl::pProxyTextureManager->GetProxyTextureObject(textureUploadingTarget);
+            } else {
+                auto activeUnit =
+                    MG_State::pGLContext->GetTextureUnitObject(MG_State::pGLContext->GetActiveTextureUnit());
+                auto& bindingSlot = activeUnit.GetBindingSlot(textureTarget);
+                textureObject = bindingSlot.GetBoundObject();
+            }
+
+            if (!TextureImpl::ValidateTextureObject(textureObject)) return;
+
+            switch (pname) {
+            case GL_TEXTURE_WIDTH:
+                if (params) {
+                    *params = textureObject->GetMipmap(level).size.x();
+                }
+                break;
+            case GL_TEXTURE_HEIGHT:
+                if (params) {
+                    *params = textureObject->GetMipmap(level).size.y();
+                }
+                break;
+            case GL_TEXTURE_DEPTH:
+                if (params) {
+                    *params = textureObject->GetMipmap(level).size.z();
+                }
+                break;
+            case GL_TEXTURE_INTERNAL_FORMAT:
+                if (params) {
+                    *params = MG_Util::ConvertTextureInternalFormatToGLEnum(textureObject->GetFormat());
+                }
+                break;
+            case GL_TEXTURE_RED_TYPE:
+            case GL_TEXTURE_GREEN_TYPE:
+            case GL_TEXTURE_BLUE_TYPE:
+            case GL_TEXTURE_ALPHA_TYPE:
+            case GL_TEXTURE_DEPTH_TYPE:
+            case GL_TEXTURE_RED_SIZE:
+            case GL_TEXTURE_GREEN_SIZE:
+            case GL_TEXTURE_BLUE_SIZE:
+            case GL_TEXTURE_ALPHA_SIZE:
+            case GL_TEXTURE_DEPTH_SIZE:
+            case GL_TEXTURE_COMPRESSED:
+            case GL_TEXTURE_COMPRESSED_IMAGE_SIZE:
+                break; // TODO
+            default:
+                MG_State::pGLContext->RecordError(
+                    ErrorCode::InvalidEnum,
+                    MakeShared<GenericErrorInfo>("MG_Impl/GLImpl", "GetTexLevelParameteriv_State",
+                                                 "pname is not a valid texture level parameter."));
+                return;
+            }
         }
 
         void GetTexLevelParameterfv_State(GLenum target, GLint level, GLenum pname, GLfloat* params) {
-            // TODO: implement
+            // ======================= Converting ================================
+            TextureUploadTarget textureUploadingTarget = MG_Util::ConvertGLEnumToTextureUploadTarget(target);
+            TextureTarget textureTarget = MG_Util::ConvertTextureUploadTargetToTextureTarget(textureUploadingTarget);
+
+            // ===================== Error Checking ==============================
+            if (!TextureImpl::ValidateTextureUploadTarget(textureUploadingTarget)) return;
+            if (!TextureImpl::ValidateTextureLevelNumber(level)) return;
+            if (!TextureImpl::ValidateTextureLevelWithUploadTarget(textureUploadingTarget, level)) return;
+
+            // ======================= Processing ================================
+            SharedPtr<MG_State::GLState::ITextureObject> textureObject = nullptr;
+            if (TextureImpl::IsProxyTextureTarget(textureUploadingTarget)) {
+                textureObject = TextureImpl::pProxyTextureManager->GetProxyTextureObject(textureUploadingTarget);
+            } else {
+                auto activeUnit =
+                    MG_State::pGLContext->GetTextureUnitObject(MG_State::pGLContext->GetActiveTextureUnit());
+                auto& bindingSlot = activeUnit.GetBindingSlot(textureTarget);
+                textureObject = bindingSlot.GetBoundObject();
+            }
+
+            if (!TextureImpl::ValidateTextureObject(textureObject)) return;
+
+            switch (pname) {
+            case GL_TEXTURE_WIDTH:
+                if (params) {
+                    *params = textureObject->GetMipmap(level).size.x();
+                }
+                break;
+            case GL_TEXTURE_HEIGHT:
+                if (params) {
+                    *params = textureObject->GetMipmap(level).size.y();
+                }
+                break;
+            case GL_TEXTURE_DEPTH:
+                if (params) {
+                    *params = textureObject->GetMipmap(level).size.z();
+                }
+                break;
+            case GL_TEXTURE_INTERNAL_FORMAT:
+                if (params) {
+                    *params = MG_Util::ConvertTextureInternalFormatToGLEnum(textureObject->GetFormat());
+                }
+                break;
+            case GL_TEXTURE_RED_TYPE:
+            case GL_TEXTURE_GREEN_TYPE:
+            case GL_TEXTURE_BLUE_TYPE:
+            case GL_TEXTURE_ALPHA_TYPE:
+            case GL_TEXTURE_DEPTH_TYPE:
+            case GL_TEXTURE_RED_SIZE:
+            case GL_TEXTURE_GREEN_SIZE:
+            case GL_TEXTURE_BLUE_SIZE:
+            case GL_TEXTURE_ALPHA_SIZE:
+            case GL_TEXTURE_DEPTH_SIZE:
+            case GL_TEXTURE_COMPRESSED:
+            case GL_TEXTURE_COMPRESSED_IMAGE_SIZE:
+                break; // TODO
+            default:
+                MG_State::pGLContext->RecordError(
+                    ErrorCode::InvalidEnum,
+                    MakeShared<GenericErrorInfo>("MG_Impl/GLImpl", "GetTexLevelParameterfv_State",
+                                                 "pname is not a valid texture level parameter."));
+                return;
+            }
         }
 
         void GetTexImage_State(GLenum target, GLint level, GLenum format, GLenum type, GLvoid* pixels) {

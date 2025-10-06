@@ -25,8 +25,6 @@ namespace MobileGL {
                 return "Depth";
             case FramebufferAttachmentType::Stencil:
                 return "Stencil";
-            case FramebufferAttachmentType::DepthStencil:
-                return "DepthStencil";
             case FramebufferAttachmentType::Unknown:
             default:
                 return "Unknown";

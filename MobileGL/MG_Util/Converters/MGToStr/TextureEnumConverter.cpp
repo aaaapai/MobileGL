@@ -300,5 +300,76 @@ namespace MobileGL {
                 return "Unknown";
             }
         }
+
+        String ConvertSamplerFilterModeToString(SamplerFilterMode v) {
+            switch (v) {
+            case SamplerFilterMode::Nearest:
+                return "Nearest";
+            case SamplerFilterMode::Linear:
+                return "Linear";
+            default:
+                return "Unknown";
+            }
+        }
+
+        String ConvertSamplerMipmapModeToString(SamplerMipmapMode v) {
+            switch (v) {
+            case SamplerMipmapMode::None:
+                return "None";
+            case SamplerMipmapMode::Nearest:
+                return "Nearest";
+            default:
+                return "Unknown";
+            }
+        }
+
+        String ConvertSamplerWrapModeToString(SamplerWrapMode v) {
+            switch (v) {
+            case SamplerWrapMode::ClampToEdge:
+                return "ClampToEdge";
+            case SamplerWrapMode::MirroredRepeat:
+                return "MirroredRepeat";
+            case SamplerWrapMode::Repeat:
+                return "Repeat";
+            case SamplerWrapMode::ClampToBorder:
+                return "ClampToBorder";
+            default:
+                return "Unknown";
+            }
+        }
+
+        String ConvertSamplerCompareModeToString(SamplerCompareMode v) {
+            switch (v) {
+            case SamplerCompareMode::None:
+                return "None";
+            case SamplerCompareMode::CompareToTexture:
+                return "CompareToTexture";
+            default:
+                return "Unknown";
+            }
+        }
+
+        String ConvertSamplerCompareFuncToString(SamplerCompareFunc v) {
+            switch (v) {
+            case SamplerCompareFunc::Never:
+                return "Never";
+            case SamplerCompareFunc::Less:
+                return "Less";
+            case SamplerCompareFunc::Equal:
+                return "Equal";
+            case SamplerCompareFunc::LessEqual:
+                return "LessEqual";
+            case SamplerCompareFunc::Greater:
+                return "Greater";
+            case SamplerCompareFunc::NotEqual:
+                return "NotEqual";
+            case SamplerCompareFunc::GreaterEqual:
+                return "GreaterEqual";
+            case SamplerCompareFunc::Always:
+                return "Always";
+            default:
+                return "Unknown";
+            }
+        }
     } // namespace MG_Util
 } // namespace MobileGL

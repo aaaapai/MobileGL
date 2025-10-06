@@ -1,7 +1,6 @@
 #include "ProgramObject.h"
 #include <MG_Util/ShaderTranspiler/ShaderCompiler.h>
-
-#include "MG_Util/Converters/SPIRVCrossToGL/SpvcTypeConverter.h"
+#include <MG_Util/Converters/SPIRVCrossToGL/SpvcTypeConverter.h>
 
 namespace MobileGL {
     namespace MG_State {
@@ -74,7 +73,9 @@ namespace MobileGL {
                 for (int i = 0; i < m_activeUniformCount; i++) {
                     auto& uniform = m_program->getUniform(i);
                     auto location = uniform.layoutLocation();
-                    m_maxUniformLocation = std::max(m_maxUniformLocation, location);
+                    if (location >= 0) {
+                        m_maxUniformLocation = std::max(m_maxUniformLocation, location);
+                    }
                     m_uniformNameMaxLength = std::max(m_uniformNameMaxLength, (Int)uniform.name.length());
                     m_uniformLocations[uniform.name] = location;
                 }
@@ -88,37 +89,97 @@ namespace MobileGL {
                 for (int i = 0; i < m_activeUniformCount; i++) {
                     auto& uniform = m_program->getUniform(i);
                     auto location = uniform.layoutLocation();
-                    m_uniformNames[location] = uniform.name;
-                    m_uniformTypes[location] = uniform.glDefineType;
-                    m_uniformIsOpaqueType[location] = uniform.getType()->isOpaque();
-                    m_uniformArraySizes[location] = uniform.size;
-                }
-
-                // attributes (pipe in)
-                int inCount = m_program->getNumPipeInputs();
-                m_attribs.resize(inCount);
-                m_attribTypes.resize(inCount);
-
-                // Get locations parsed in program
-                for (int i = 0; i < inCount; i++) {
-                    auto& inVar = m_program->getPipeInput(i);
-                    auto location = inVar.layoutLocation();
-                    m_attribInNameMaxLength = std::max(m_attribInNameMaxLength, (Int)inVar.name.length());
-                    m_attribs[location] = inVar.name;
-                    m_attribTypes[location] = inVar.glDefineType;
-                }
-                // Implement glBindAttribLocation semantics
-                for (auto& [name, location] : m_explicitAttribLocations) {
-                    assert(location < m_attribs.size());
-                    if (m_attribs[location] != name) {
-                        auto it = std::find(m_attribs.begin(), m_attribs.end(), name);
-                        if (it == m_attribs.end()) continue;
-                        std::swap(m_attribs[location], m_attribs[std::distance(m_attribs.begin(), it)]);
-                        std::swap(m_attribTypes[location], m_attribTypes[std::distance(m_attribs.begin(), it)]);
+                    if (location >= 0 && location < (int)m_uniformNames.size()) {
+                        m_uniformNames[location] = uniform.name;
+                        m_uniformTypes[location] = uniform.glDefineType;
+                        m_uniformIsOpaqueType[location] = uniform.getType()->isOpaque();
+                        m_uniformArraySizes[location] = uniform.size;
                     }
                 }
 
-                // UBO
+                int inCount = m_program->getNumPipeInputs();
+
+                int maxLoc = -1;
+                for (int i = 0; i < inCount; ++i) {
+                    int loc = m_program->getPipeInput(i).layoutLocation();
+                    if (loc >= 0) maxLoc = std::max(maxLoc, loc);
+                }
+
+                if (maxLoc < 0) {
+                    maxLoc = std::max(0, inCount - 1);
+                }
+
+                GLint maxAttribs = 16; // TODO: get from backend
+
+                if (maxLoc >= maxAttribs) {
+                    MGLOG_W("ProgramObject::DoReflection - required attrib location %d >= GL_MAX_VERTEX_ATTRIBS (%d). "
+                            "Clamping.",
+                            maxLoc, maxAttribs);
+                    maxLoc = maxAttribs - 1;
+                }
+
+                m_attribs.resize(maxLoc + 1);
+                m_attribTypes.resize(maxLoc + 1);
+
+                for (int i = 0; i < inCount; ++i) {
+                    auto& inVar = m_program->getPipeInput(i);
+                    int location = inVar.layoutLocation();
+                    m_attribInNameMaxLength = std::max(m_attribInNameMaxLength, (Int)inVar.name.length());
+
+                    if (location >= 0 && location < (int)m_attribs.size()) {
+                        m_attribs[location] = inVar.name;
+                        m_attribTypes[location] = inVar.glDefineType;
+                    } else if (location >= (int)m_attribs.size()) {
+                        MGLOG_W("ProgramObject::DoReflection - attrib location %d >= attribs.size() (%zu). Ignoring.",
+                                location, m_attribs.size());
+                        continue;
+                    } else {
+                        bool placed = false;
+                        for (size_t idx = 0; idx < m_attribs.size(); ++idx) {
+                            if (m_attribs[idx].empty()) {
+                                m_attribs[idx] = inVar.name;
+                                m_attribTypes[idx] = inVar.glDefineType;
+                                placed = true;
+                                break;
+                            }
+                        }
+                        if (!placed && (int)m_attribs.size() < maxAttribs) {
+                            m_attribs.push_back(inVar.name);
+                            m_attribTypes.push_back(inVar.glDefineType);
+                            placed = true;
+                        }
+                        if (!placed) {
+                            MGLOG_W("ProgramObject::DoReflection - cannot place attrib '%s' (no free slot and at max "
+                                    "capacity). Ignoring.",
+                                    inVar.name.c_str());
+                        }
+                    }
+                }
+
+                // Implement glBindAttribLocation semantics (explicit locations set by user)
+                for (auto& [name, location] : m_explicitAttribLocations) {
+                    if (location < 0) continue;
+                    if (location >= (int)m_attribs.size()) {
+                        if (location >= maxAttribs) {
+                            MGLOG_W("SetExplicitAttribLocation: requested location %d >= GL_MAX_VERTEX_ATTRIBS (%d). "
+                                    "Ignored for attribute '%s'.",
+                                    location, maxAttribs, name.c_str());
+                            continue;
+                        }
+                        m_attribs.resize(location + 1);
+                        m_attribTypes.resize(location + 1);
+                    }
+
+                    if (m_attribs[location] != name) {
+                        auto it = std::find(m_attribs.begin(), m_attribs.end(), name);
+                        if (it == m_attribs.end()) continue;
+                        auto idx = std::distance(m_attribs.begin(), it);
+                        std::swap(m_attribs[location], m_attribs[idx]);
+                        std::swap(m_attribTypes[location], m_attribTypes[idx]);
+                    }
+                }
+
+                // ---------- UBO ----------
                 int uboCount = m_program->getNumUniformBlocks();
                 for (int i = 0; i < uboCount; i++) {
                     auto& ubo = m_program->getUniformBlock(i);

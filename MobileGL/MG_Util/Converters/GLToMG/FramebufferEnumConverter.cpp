@@ -26,8 +26,6 @@ namespace MobileGL {
                 return FramebufferAttachmentType::Depth;
             case GL_STENCIL_ATTACHMENT:
                 return FramebufferAttachmentType::Stencil;
-            case GL_DEPTH_STENCIL_ATTACHMENT:
-                return FramebufferAttachmentType::DepthStencil;
             case GL_UNKNOWN_MGL:
             default:
                 return FramebufferAttachmentType::Unknown;

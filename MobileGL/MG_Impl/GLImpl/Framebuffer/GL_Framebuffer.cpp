@@ -1,7 +1,6 @@
 #include "GL_Framebuffer.h"
-#include "GL/glext.h"
 #include "Validators.h"
-#include <MG_State/GLState/Core.h>
+#include <MG_Impl/GLImpl/Texture/Validators.h>
 #include <MG_State/GLState/ErrorState/Error.h>
 #include <MG_Util/Converters/GLToMG/FramebufferEnumConverter.h>
 
@@ -70,17 +69,20 @@ namespace MobileGL {
         void FramebufferTexture2D_State(GLenum target, GLenum attachment, GLenum textarget, GLuint texture,
                                         GLint level) {
             if (target == GL_FRAMEBUFFER) {
-                FramebufferTexture2D_State(GL_DRAW_FRAMEBUFFER, attachment, textarget, texture, level);
-                FramebufferTexture2D_State(GL_READ_FRAMEBUFFER, attachment, textarget, texture, level);
-                return;
+                target = GL_DRAW_FRAMEBUFFER;
+            }
+
+            if (attachment == GL_DEPTH_STENCIL_ATTACHMENT) {
+                FramebufferTexture2D_State(target, GL_DEPTH_ATTACHMENT, textarget, texture, level);
+                FramebufferTexture2D_State(target, GL_STENCIL_ATTACHMENT, textarget, texture, level);
             }
 
             FramebufferAttachmentType attachmentType = MG_Util::ConvertGLEnumToFramebufferAttachmentType(attachment);
-            if (!FramebufferImpl::ValidateFramebufferAttachmentType(attachmentType)) return;
-
-            if (!FramebufferImpl::ValidateFramebufferName(texture, true)) return;
             FramebufferTarget framebufferTarget = MG_Util::ConvertGLEnumToFramebufferTarget(target);
+
+            if (!FramebufferImpl::ValidateFramebufferAttachmentType(attachmentType)) return;
             if (!FramebufferImpl::ValidateFramebufferTarget(framebufferTarget)) return;
+            if (!TextureImpl::ValidateTextureName(texture)) return;
 
             auto& bindingSlot = MG_State::pGLContext->GetFramebufferBindingSlot(framebufferTarget);
             auto framebufferObject = bindingSlot.GetBoundObject();
@@ -286,6 +288,10 @@ namespace MobileGL {
 
         void BindFramebuffer(GLenum target, GLuint framebuffer) {
             BindFramebuffer_State(target, framebuffer);
+        }
+
+        namespace FramebufferImpl {
+            DefaultFramebufferInfo* pDefaultFramebufferInfo;
         }
     } // namespace MG_Impl::GLImpl
 } // namespace MobileGL

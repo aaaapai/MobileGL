@@ -62,6 +62,7 @@ set(SOURCE_FILES
 
     MobileGL/MG_Impl/EGLImpl/Exporting/Definitions.cpp
     MobileGL/MG_Impl/EGLImpl/Temporary/TemporaryEGLImpl.cpp
+    MobileGL/MG_Impl/EGLImpl/EGLWrapper/EGLWrapper.cpp
     
     # @INSERTION_POINT:SOURCE_FILE_GLIMPL@ #
     MobileGL/MG_Impl/GLImpl/RenderState/GL_RenderState.cpp
@@ -70,12 +71,15 @@ set(SOURCE_FILES
     MobileGL/MG_Impl/GLImpl/Program/GL_Program.cpp
     MobileGL/MG_Impl/GLImpl/Texture/GL_Texture.cpp
     MobileGL/MG_Impl/GLImpl/Texture/Validators.cpp
+    MobileGL/MG_Impl/GLImpl/Texture/ProxyTexture.cpp
     MobileGL/MG_Impl/GLImpl/VertexArray/GL_VertexArray.cpp
     MobileGL/MG_Impl/GLImpl/VertexArray/Validators.cpp
     MobileGL/MG_Impl/GLImpl/Buffer/GL_Buffer.cpp
     MobileGL/MG_Impl/GLImpl/Buffer/Validators.cpp
     MobileGL/MG_Impl/GLImpl/Exporting/Definitions.cpp
     MobileGL/MG_Impl/GLImpl/Getter/GL_Getter.cpp
+
+    MobileGL/MG_Impl/Init.cpp
 
     MobileGL/MG_Backend/Init.cpp
 
@@ -101,9 +105,9 @@ add_library(${CMAKE_PROJECT_NAME} SHARED
 )
 
 set_target_properties(${CMAKE_PROJECT_NAME} PROPERTIES
-    C_VISIBILITY_PRESET hidden
-    CXX_VISIBILITY_PRESET hidden
-    VISIBILITY_INLINES_HIDDEN ON
+    C_VISIBILITY_PRESET default
+    CXX_VISIBILITY_PRESET default
+    VISIBILITY_INLINES_HIDDEN OFF
 )
 
 target_include_directories(${CMAKE_PROJECT_NAME} PUBLIC

@@ -305,5 +305,76 @@ namespace MobileGL {
             }
         }
 
+        SamplerFilterMode ConvertGLEnumToSamplerFilterMode(GLenum v) {
+            switch (v) {
+            case GL_NEAREST:
+                return SamplerFilterMode::Nearest;
+            case GL_LINEAR:
+                return SamplerFilterMode::Linear;
+            default:
+                return SamplerFilterMode::Unknown;
+            }
+        }
+
+        SamplerMipmapMode ConvertGLEnumToSamplerMipmapMode(GLenum v) {
+            switch (v) {
+            case 0:
+                return SamplerMipmapMode::None; // 无 mipmap 时
+            case GL_NEAREST_MIPMAP_NEAREST:
+                return SamplerMipmapMode::Nearest;
+            default:
+                return SamplerMipmapMode::Unknown;
+            }
+        }
+
+        SamplerWrapMode ConvertGLEnumToSamplerWrapMode(GLenum v) {
+            switch (v) {
+            case GL_CLAMP_TO_EDGE:
+                return SamplerWrapMode::ClampToEdge;
+            case GL_MIRRORED_REPEAT:
+                return SamplerWrapMode::MirroredRepeat;
+            case GL_REPEAT:
+                return SamplerWrapMode::Repeat;
+            case GL_CLAMP_TO_BORDER:
+                return SamplerWrapMode::ClampToBorder;
+            default:
+                return SamplerWrapMode::Unknown;
+            }
+        }
+
+        SamplerCompareMode ConvertGLEnumToSamplerCompareMode(GLenum v) {
+            switch (v) {
+            case 0:
+                return SamplerCompareMode::None; // 无 compare
+            case GL_COMPARE_REF_TO_TEXTURE:
+                return SamplerCompareMode::CompareToTexture;
+            default:
+                return SamplerCompareMode::Unknown;
+            }
+        }
+
+        SamplerCompareFunc ConvertGLEnumToSamplerCompareFunc(GLenum v) {
+            switch (v) {
+            case GL_NEVER:
+                return SamplerCompareFunc::Never;
+            case GL_LESS:
+                return SamplerCompareFunc::Less;
+            case GL_EQUAL:
+                return SamplerCompareFunc::Equal;
+            case GL_LEQUAL:
+                return SamplerCompareFunc::LessEqual;
+            case GL_GREATER:
+                return SamplerCompareFunc::Greater;
+            case GL_NOTEQUAL:
+                return SamplerCompareFunc::NotEqual;
+            case GL_GEQUAL:
+                return SamplerCompareFunc::GreaterEqual;
+            case GL_ALWAYS:
+                return SamplerCompareFunc::Always;
+            default:
+                return SamplerCompareFunc::Unknown;
+            }
+        }
+
     } // namespace MG_Util
 } // namespace MobileGL

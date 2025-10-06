@@ -33,7 +33,7 @@ namespace MobileGL {
         Unknown = -1
     };
 
-    enum class CompareFunc {
+    enum class SamplerCompareFunc {
         Never,
         Less,
         Equal,
@@ -42,7 +42,7 @@ namespace MobileGL {
         NotEqual,
         GreaterEqual,
         Always,
-        CompareFuncCount,
+        SamplerCompareFuncCount,
         Unknown = -1
     };
 
@@ -55,7 +55,7 @@ namespace MobileGL {
                       m_wrapR(SamplerWrapMode::Repeat), m_minFilter(SamplerFilterMode::Linear),
                       m_magFilter(SamplerFilterMode::Linear), m_mipmapMode(SamplerMipmapMode::None), m_minLod(0.0f),
                       m_maxLod(1000.0f), m_lodBias(0.0f), m_compareMode(SamplerCompareMode::None),
-                      m_compareFunc(CompareFunc::Less) {}
+                      m_compareFunc(SamplerCompareFunc::Less) {}
 
                 void SetWrapS(SamplerWrapMode mode) { m_wrapS = mode; }
                 void SetWrapT(SamplerWrapMode mode) { m_wrapT = mode; }
@@ -71,7 +71,7 @@ namespace MobileGL {
                     m_maxLod = maxLod;
                 }
                 void SetLodBias(Float bias) { m_lodBias = bias; }
-                void SetCompareFunc(CompareFunc func) { m_compareFunc = func; }
+                void SetSamplerCompareFunc(SamplerCompareFunc func) { m_compareFunc = func; }
                 void SetCompareMode(SamplerCompareMode mode) { m_compareMode = mode; }
 
                 SamplerWrapMode GetWrapS() const { return m_wrapS; }
@@ -84,7 +84,7 @@ namespace MobileGL {
                 Float GetMaxLod() const { return m_maxLod; }
                 Float GetLodBias() const { return m_lodBias; }
                 SamplerCompareMode GetCompareMode() const { return m_compareMode; }
-                CompareFunc GetCompareFunc() const { return m_compareFunc; }
+                SamplerCompareFunc GetSamplerCompareFunc() const { return m_compareFunc; }
 
             private:
                 SamplerWrapMode m_wrapS, m_wrapT, m_wrapR;
@@ -93,7 +93,7 @@ namespace MobileGL {
                 Float m_minLod, m_maxLod;
                 Float m_lodBias;
                 SamplerCompareMode m_compareMode;
-                CompareFunc m_compareFunc;
+                SamplerCompareFunc m_compareFunc;
             };
         } // namespace GLState
     } // namespace MG_State

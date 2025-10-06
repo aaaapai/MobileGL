@@ -1,8 +1,7 @@
 #pragma once
+#include "SamplerObject.h"
 #include <Includes.h>
 #include <MG_Util/Math/VectorTypes.h>
-#include "MG_Util/Types.h"
-#include "SamplerObject.h"
 
 namespace MobileGL {
     enum class TextureTarget {
@@ -197,6 +196,7 @@ namespace MobileGL {
                 }
             };
 
+            // TODO: BaseLevel, MaxLevel, Swizzle
             class ITextureObject {
             public:
                 using TargetEnum = TextureTarget;

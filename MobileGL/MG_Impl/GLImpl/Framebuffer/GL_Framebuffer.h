@@ -1,5 +1,7 @@
 #pragma once
+#include "MG_State/GLState/FramebufferState/FramebufferObject.h"
 #include <Includes.h>
+#include <MG_State/GLState/Core.h>
 
 namespace MobileGL {
     namespace MG_Impl::GLImpl {
@@ -29,5 +31,16 @@ namespace MobileGL {
                              GLint dstY1, GLbitfield mask, GLenum filter);
         void BindRenderbuffer(GLenum target, GLuint renderbuffer);
         void BindFramebuffer(GLenum target, GLuint framebuffer);
+
+        namespace FramebufferImpl {
+            struct DefaultFramebufferInfo {
+                SharedPtr<MG_State::GLState::FramebufferObject> defaultFBO;
+                SharedPtr<MG_State::GLState::ITextureObject> colorAttachment;
+                SharedPtr<MG_State::GLState::ITextureObject> depthAttachment;
+                SharedPtr<MG_State::GLState::ITextureObject> stencilAttachment;
+            };
+
+            extern DefaultFramebufferInfo* pDefaultFramebufferInfo;
+        } // namespace FramebufferImpl
     } // namespace MG_Impl::GLImpl
 } // namespace MobileGL

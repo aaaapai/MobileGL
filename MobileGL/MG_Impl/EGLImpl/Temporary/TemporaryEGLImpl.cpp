@@ -1,5 +1,7 @@
 #include "TemporaryEGLImpl.h"
+#include <Config.h>
 
+#if !(MOBILEGL_BACKEND == MOBILEGL_BACKEND_TYPE_DIRECT_GLES)
 namespace MobileGL {
     namespace MG_Impl::EGLImpl {
         // TODO: implement complete EGL functionality
@@ -115,3 +117,4 @@ namespace MobileGL {
         }
     } // namespace MG_Impl::EGLImpl
 } // namespace MobileGL
+#endif

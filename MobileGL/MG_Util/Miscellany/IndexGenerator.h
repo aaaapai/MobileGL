@@ -61,6 +61,28 @@ namespace MobileGL {
             m_active_count--;
         }
 
+        bool Insert(IndexType index) noexcept {
+            if (IsValid(index)) return false;
+
+            if (index >= m_valid_bits.size()) {
+                m_valid_bits.resize(index + 1, false);
+            }
+
+            auto it = std::find(m_free_list.begin(), m_free_list.end(), index);
+            if (it != m_free_list.end()) {
+                m_free_list.erase(it);
+            }
+
+            m_valid_bits[index] = true;
+            m_active_count++;
+
+            if (index >= m_next_index) {
+                m_next_index = index + 1;
+            }
+
+            return true;
+        }
+
         bool IsValid(IndexType index) const noexcept { return index < m_valid_bits.size() && m_valid_bits[index]; }
 
         SizeT FreeListSize() const noexcept { return m_free_list.size(); }
@@ -74,5 +96,4 @@ namespace MobileGL {
         std::vector<IndexType> m_free_list;
         std::vector<bool> m_valid_bits;
     };
-
 } // namespace MobileGL

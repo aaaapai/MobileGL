@@ -9,9 +9,9 @@ namespace MobileGL {
                 : m_texture(texture), m_textureLevel(level) {}
             FramebufferAttachment::FramebufferAttachment(SharedPtr<RenderbufferObjectStub> renderbuffer)
                 : m_renderbuffer(renderbuffer) {}
-            FramebufferAttachment::FramebufferAttachment(std::nullptr_t)
-                : m_texture(nullptr), m_renderbuffer(nullptr) {}
-            FramebufferAttachment::FramebufferAttachment() : m_texture(nullptr), m_renderbuffer(nullptr) {}
+            FramebufferAttachment::FramebufferAttachment(Bool IsValid) : m_texture(nullptr), m_renderbuffer(nullptr) {
+                m_isValid = IsValid;
+            }
 
             Bool FramebufferAttachment::IsTexture() const {
                 return m_texture != nullptr;
@@ -39,10 +39,13 @@ namespace MobileGL {
 
             Bool FramebufferAttachment::IsComplete() const {
                 if (IsTexture()) {
-                    return m_texture->IsComplete();
+                    Bool complete = m_texture->IsComplete();
+                    return complete;
                 } else if (IsRenderbuffer()) {
                     // TODO
+                    return false;
                 }
+
                 return false;
             }
 
@@ -55,9 +58,13 @@ namespace MobileGL {
                 return {0, 0};
             }
 
+            Bool FramebufferAttachment::IsValid() const {
+                return m_isValid;
+            }
+
             // FramebufferObject
             FramebufferObject::FramebufferObject() {
-                m_attachments.fill(FramebufferAttachment(nullptr));
+                m_attachments.fill(FramebufferAttachment(false));
             }
 
             void FramebufferObject::AttachTexture(FramebufferAttachmentType type, SharedPtr<ITextureObject> texture,
@@ -73,7 +80,7 @@ namespace MobileGL {
             }
 
             void FramebufferObject::Detach(FramebufferAttachmentType type) {
-                m_attachments[static_cast<SizeT>(type)] = FramebufferAttachment(nullptr);
+                m_attachments[static_cast<SizeT>(type)] = FramebufferAttachment(false);
                 m_drawBuffersDirty = true;
             }
 
@@ -86,21 +93,30 @@ namespace MobileGL {
                     return false;
                 }
 
-                int width = -1, height = -1;
-                for (const auto& attachment : m_attachments) {
+                Int width = -1, height = -1;
+                Int validAttachmentCount = 0;
+                for (SizeT i = 0; i < m_attachments.size(); ++i) {
+                    if (!m_attachments[i].IsValid()) continue;
+
+                    ++validAttachmentCount;
+                    const auto& attachment = m_attachments[i];
                     auto attachmentSize = attachment.GetSize();
-                    int w = attachmentSize.x();
-                    int h = attachmentSize.y();
+                    Int w = attachmentSize.x();
+                    Int h = attachmentSize.y();
+
                     if (width == -1) {
                         width = w;
                         height = h;
                     } else if (width != w || height != h) {
                         return false;
                     }
+
                     if (!attachment.IsComplete()) {
                         return false;
                     }
                 }
+
+                if (validAttachmentCount == 0) return false;
                 return true;
             }
 

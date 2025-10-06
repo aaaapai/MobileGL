@@ -29,10 +29,10 @@ namespace MobileGL {
             case GL_VERSION: {
                 if (versionStr.empty()) {
                     versionStr =
-                        std::format("{} {}, {} Backend, Version {}",
+                        std::format("{} {} {}, {} Backend",
                                     MG_Config::RendererInfoPtr->RendererGLInfo.TargetGLVersion.toString().c_str(),
-                                    MG_Config::ProjectName.c_str(), MG_Config::RendererInfoPtr->BackendName.c_str(),
-                                    MG_Config::CoreVersion.toString().c_str());
+                                    MG_Config::ProjectName.c_str(), MG_Config::CoreVersion.toString().c_str(),
+                                    MG_Config::RendererInfoPtr->BackendName.c_str());
                 }
                 return (const GLubyte*)versionStr.c_str();
             }
@@ -114,6 +114,9 @@ namespace MobileGL {
                 break;
             case GL_MINOR_VERSION:
                 params[0] = MG_Config::RendererInfoPtr->RendererGLInfo.TargetGLVersion.Minor;
+                break;
+            case GL_MAX_TEXTURE_SIZE:
+                params[0] = 1024 * 64; // TODO: get from backend
                 break;
 
                 // State

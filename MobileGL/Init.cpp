@@ -1,4 +1,5 @@
 #include "Includes.h"
+#include <MG_Impl/Init.h>
 #include <MG_Backend/Backends.h>
 #include <MG_State/GLState/Core.h>
 
@@ -10,13 +11,15 @@ namespace MobileGL {
         MGLOG_D("MobileGL State initialized");
         MG_Backend::Init();
         MGLOG_D("MobileGL Backend initialized");
+        MG_Impl::Init();
+        MGLOG_D("MobileGL Implementation initialized");
         glslang::InitializeProcess();
         MGLOG_D("glslang initialized");
-        MGLOG_I("MobileGL Initialized");
+        MGLOG_I("MobileGL initialized");
     }
 
     void MG_Destroy() {
-        MGLOG_I("MobileGL Closing...");
+        MGLOG_I("MobileGL closing...");
         glslang::FinalizeProcess();
         MG_Util::Debug::Close();
     }
