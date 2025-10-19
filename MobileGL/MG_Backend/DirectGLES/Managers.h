@@ -10,6 +10,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
         public:
             BackendBufferObject();
             void SyncToBackend(SharedPtr<MG_State::GLState::BufferObject>& stateBufferObject);
+            Uint GetBackendBufferId() { return m_backendBufferId; }
             void Bind();
             void Bind(GLenum target);
 
@@ -33,6 +34,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
         public:
             BackendVertexArrayObject();
             void SyncToBackend(SharedPtr<MG_State::GLState::VertexArrayObject>& stateVAOObject);
+            Uint GetBackendVertexArrayId() { return m_backendVAOId; }
             void Bind();
 
         private:
@@ -82,6 +84,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
         public:
             BackendFramebufferObject();
             void SyncToBackend(SharedPtr<MG_State::GLState::FramebufferObject>& stateFBOObject);
+            Uint GetBackendFramebufferId() { return m_backendFBOId; }
             void Bind();
 
         private:

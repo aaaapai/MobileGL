@@ -70,18 +70,19 @@ namespace MobileGL::MG_Backend::DirectGLES {
     namespace TextureImpl {
         void SyncNeccessaryTextures() {
             // All textures we need are:
-            //   1. textures bound to current texture units (TODO: only sync ones that are used in current program)
+            //   1. textures bound to texture units (TODO: only sync ones that are used in current program)
             //   2. textures used in current FBO
             //   3. textures bound to image units (TODO)
 
             Vector<SharedPtr<MG_State::GLState::ITextureObject>> texturesToSync;
 
-            auto& currentUnit =
-                MG_State::pGLContext->GetTextureUnitObject(MG_State::pGLContext->GetActiveTextureUnit());
-            for (auto& bindingSlot : currentUnit.GetAllBindingSlots()) {
-                const auto& textureObject = bindingSlot.GetBoundObject();
-                if (textureObject) {
-                    texturesToSync.push_back(textureObject);
+            for (int index = 0; index < MG_State::GLState::TextureState::MAX_TEXTURE_IMAGE_UNITS; ++index) {
+                auto& unit = MG_State::pGLContext->GetTextureUnitObject(index);
+                for (auto& bindingSlot : unit.GetAllBindingSlots()) {
+                    const auto& textureObject = bindingSlot.GetBoundObject();
+                    if (textureObject) {
+                        texturesToSync.push_back(textureObject);
+                    }
                 }
             }
 
@@ -134,29 +135,6 @@ namespace MobileGL::MG_Backend::DirectGLES {
 
     namespace RenderStateImpl {
         void SyncRenderState() {
-            /*
-                void SetViewport(IntVec4 viewport); // x, y, width, height
-                const IntVec4& GetViewport() const; // x, y, width, height
-                void SetCapability(CapabilityInput cap, Bool enabled);
-                Bool IsCapabilityEnabled(CapabilityInput cap) const;
-                void SetBlendFunc(BlendFactor srcRGB, BlendFactor dstRGB, BlendFactor srcAlpha, BlendFactor dstAlpha);
-                void GetBlendFunc(BlendFactor& srcRGB, BlendFactor& dstRGB, BlendFactor& srcAlpha,
-                                  BlendFactor& dstAlpha) const;
-                void SetDepthFunc(DepthTestFunc func);
-                DepthTestFunc GetDepthFunc() const;
-                void SetDepthMask(Bool flag);
-                Bool GetDepthMask() const;
-                void SetColorMask(BoolVec4 mask);
-                const BoolVec4 GetColorMask() const;
-                void SetClearColor(FloatVec4 color);
-                const FloatVec4& GetClearColor() const;
-                void SetClearDepth(Float depth);
-                Float GetClearDepth() const;
-                void SetPixelStoreParam(PixelStoreParam param, Int value);
-                Int GetPixelStoreParam(PixelStoreParam param) const;
-                void SetCullFaceMode(CullFaceMode mode);
-                CullFaceMode GetCullFaceMode() const;*/
-
             MG_External::GLES::glViewport(
                 MG_State::pGLContext->GetViewport().x(), MG_State::pGLContext->GetViewport().y(),
                 MG_State::pGLContext->GetViewport().z(), MG_State::pGLContext->GetViewport().w());
@@ -256,7 +234,49 @@ namespace MobileGL::MG_Backend::DirectGLES {
         TextureImpl::SyncNeccessaryTextures();
         FramebufferImpl::SyncCurrentFBO();
         PrgramImpl::SyncCurrentProgram();
-        RenderStateImpl::SyncRenderState();
+
+        auto currentFBO = MG_State::pGLContext->GetFramebufferBindingSlot(FramebufferTarget::Draw).GetBoundObject();
+        if (currentFBO) {
+            auto backendFBOIt = FramebufferImpl::g_backendFramebufferObjects.find(currentFBO);
+            if (backendFBOIt != FramebufferImpl::g_backendFramebufferObjects.end()) {
+                backendFBOIt->second->Bind();
+            }
+        } else {
+            MG_External::GLES::glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
+        }
+
+        auto currentVAO = MG_State::pGLContext->GetBoundVertexArray();
+        if (currentVAO) {
+            auto backendVAOIt = VertexArrayImpl::g_backendVertexArrayObjects.find(currentVAO);
+            if (backendVAOIt != VertexArrayImpl::g_backendVertexArrayObjects.end()) {
+                backendVAOIt->second->Bind();
+            }
+        } else {
+            MG_External::GLES::glBindVertexArray(0);
+        }
+
+        Int maxTextureUnits = MG_State::GLState::TextureState::MAX_TEXTURE_IMAGE_UNITS;
+        for (Int unit = 0; unit < maxTextureUnits; ++unit) {
+            auto& textureUnit = MG_State::pGLContext->GetTextureUnitObject(unit);
+            if (!textureUnit.GetBindingSlot(TextureTarget::Texture2D).GetBoundObject()) continue;
+            // TODO
+
+            MG_External::GLES::glActiveTexture(GL_TEXTURE0 + unit);
+
+            for (auto& bindingSlot : textureUnit.GetAllBindingSlots()) {
+                auto textureObject = bindingSlot.GetBoundObject();
+                if (!textureObject) continue;
+
+                auto backendTextureIt = TextureImpl::g_backendTextureObjects.find(textureObject);
+                if (backendTextureIt == TextureImpl::g_backendTextureObjects.end()) continue;
+
+                GLenum target = MG_Util::ConvertTextureTargetToGLEnum(textureObject->GetTarget());
+                backendTextureIt->second->Bind(target);
+            }
+        }
+
+        Int originalActiveUnit = MG_State::pGLContext->GetActiveTextureUnit();
+        MG_External::GLES::glActiveTexture(GL_TEXTURE0 + originalActiveUnit);
     }
 
     void DrawElements(GLenum mode, GLsizei count, GLenum type, const void* indices) {
