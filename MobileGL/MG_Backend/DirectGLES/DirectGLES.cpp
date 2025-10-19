@@ -27,7 +27,6 @@ namespace MobileGL::MG_Backend::DirectGLES {
                     buffersToSync.push_back(bufferObject);
                 }
             }
-
             const auto& possibleIBO = currentVAOObject->GetIndexBufferBindingSlot().GetBoundObject();
             if (possibleIBO) {
                 buffersToSync.push_back(possibleIBO);
@@ -37,7 +36,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
             for (auto& bufferObject : buffersToSync) {
                 const auto& backendBufferIt = g_backendBufferObjects.find(bufferObject);
                 SharedPtr<BackendBufferObject> backendBufferObject;
-                if (backendBufferIt != g_backendBufferObjects.end()) {
+                if (backendBufferIt == g_backendBufferObjects.end()) {
                     backendBufferObject = MakeShared<BackendBufferObject>();
                     g_backendBufferObjects[bufferObject] = backendBufferObject;
                 } else {

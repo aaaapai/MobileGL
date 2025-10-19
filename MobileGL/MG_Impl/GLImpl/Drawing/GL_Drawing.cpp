@@ -1,8 +1,8 @@
 #include "GL_Drawing.h"
 #include <Config.h>
 #include <MG_State/GLState/Core.h>
-#include <MG_Util/BackendLoaders/OpenGL/Loader.h>
 #include <MG_Backend/DirectGLES/DirectGLES.h>
+#include <MG_Util/BackendLoaders/OpenGL/Loader.h>
 
 namespace MobileGL {
     namespace MG_Impl::GLImpl {

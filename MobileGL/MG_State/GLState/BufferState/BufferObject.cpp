@@ -1,11 +1,13 @@
 #include "BufferObject.h"
+#include "MG_Util/Types.h"
 
 namespace MobileGL {
     namespace MG_State {
         namespace GLState {
             BufferObject::BufferObject()
                 : m_id(0), m_size(0), m_usage(BufferUsage::StaticDraw), m_isMapped(false),
-                  m_mappingAccess(BufferMappingAccessBit::Null), m_dirtyRange({0, 0}), m_mappedRange({0, 0}) {}
+                  m_mappingAccess(BufferMappingAccessBit::Null), m_dirtyRange({0, 0}), m_mappedRange({0, 0}),
+                  m_dataPtr(MakeShared<Data>()) {}
 
             void BufferObject::Resize(SizeT size) {
                 m_size = size;
