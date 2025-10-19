@@ -89,6 +89,9 @@ namespace MobileGL {
                                         std::shared_ptr<RenderbufferObjectStub> renderbuffer);
                 void Detach(FramebufferAttachmentType type);
                 const FramebufferAttachment& GetAttachment(FramebufferAttachmentType type) const;
+                const Array<FramebufferAttachment,
+                            static_cast<SizeT>(FramebufferAttachmentType::FramebufferAttachmentTypeCount)>&
+                GetAllAttachments() const;
                 Bool CheckCompleteness() const;
                 void SetDrawBuffers(const std::vector<FramebufferAttachmentType>& buffers);
                 const Vector<FramebufferAttachmentType>& GetDrawBuffers() const;

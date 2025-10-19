@@ -68,6 +68,12 @@ namespace MobileGL {
                 m_internalFormat = format;
             }
 
+            void TextureObjectBase::UnmarkMipmapDirty(Int index) {
+                if (index >= 0 && index < static_cast<Int>(m_mipmaps.size())) {
+                    m_mipmaps[index].dirty = false;
+                }
+            }
+
             // TextureObject1D
             TextureObject1D::TextureObject1D() : TextureObjectBase(TextureTarget::Texture1D) {}
 

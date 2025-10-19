@@ -9,15 +9,15 @@ namespace MobileGL {
 
             void BufferObject::Resize(SizeT size) {
                 m_size = size;
-                m_data.reserve(std::bit_ceil(size)); // power-of-2 reserve
-                m_data.resize(size);
+                m_dataPtr->reserve(std::bit_ceil(size)); // power-of-2 reserve
+                m_dataPtr->resize(size);
                 m_dirtyRange = {0, 0};
             }
 
             void BufferObject::UploadData(DataPtr data, SizeT atOffset) {
                 assert(atOffset + data.size <= m_size);
                 assert(!m_isMapped);
-                memcpy(m_data.data() + atOffset, data.data, data.size);
+                memcpy(m_dataPtr->data() + atOffset, data.data, data.size);
                 m_dirtyRange.UnionUpdate(atOffset, atOffset + data.size);
             }
 
@@ -30,7 +30,7 @@ namespace MobileGL {
 
                 if (m_mappingAccess & BufferMappingAccessBit::Write) {                // if we wrote to the buffer
                     if (!(m_mappingAccess & BufferMappingAccessBit::FlushExplicit)) { // if we didn't flush explicitly
-                        memcpy(m_data.data() + m_mappedRange.start, m_stagingData.data(),
+                        memcpy(m_dataPtr->data() + m_mappedRange.start, m_stagingData.data(),
                                m_mappedRange.end - m_mappedRange.start);
                         m_dirtyRange.UnionUpdate(m_mappedRange.start, m_mappedRange.end);
                     }
@@ -53,7 +53,7 @@ namespace MobileGL {
                 SizeT end = start + length;
                 assert(end <= m_mappedRange.end);
 
-                memcpy(m_data.data() + start, m_stagingData.data() + offset, length);
+                memcpy(m_dataPtr->data() + start, m_stagingData.data() + offset, length);
                 m_dirtyRange.UnionUpdate(start, end);
             }
 
@@ -61,7 +61,7 @@ namespace MobileGL {
                 assert(!m_isMapped);
                 assert(atOffset + data.size <= m_size);
 
-                memcpy(m_data.data() + atOffset, data.data, data.size);
+                memcpy(m_dataPtr->data() + atOffset, data.data, data.size);
                 m_dirtyRange.UnionUpdate(atOffset, atOffset + data.size);
             }
 
@@ -72,8 +72,8 @@ namespace MobileGL {
                 assert(srcOffset + size <= src->GetSize());
                 assert(dstOffset + size <= m_size);
 
-                const Uint8* srcData = src->m_data.data() + srcOffset;
-                memcpy(m_data.data() + dstOffset, srcData, size);
+                const Uint8* srcData = src->m_dataPtr->data() + srcOffset;
+                memcpy(m_dataPtr->data() + dstOffset, srcData, size);
                 m_dirtyRange.UnionUpdate(dstOffset, dstOffset + size);
             }
 
@@ -91,14 +91,14 @@ namespace MobileGL {
 
                         if (!(m_mappingAccess &
                               (BufferMappingAccessBit::InvalidateRange | BufferMappingAccessBit::InvalidateBuffer))) {
-                            memcpy(m_stagingData.data(), m_data.data(), m_size);
+                            memcpy(m_stagingData.data(), m_dataPtr->data(), m_size);
                         }
 
                         return m_stagingData.data();
                     }
                 }
 
-                return m_data.data();
+                return m_dataPtr->data();
             }
 
             void* BufferObject::AcquireMemoryRange(Range1D range, Flags<BufferMappingAccessBit> access) {
@@ -113,14 +113,18 @@ namespace MobileGL {
 
                     if (!(access &
                           (BufferMappingAccessBit::InvalidateRange | BufferMappingAccessBit::InvalidateBuffer))) {
-                        memcpy(m_stagingData.data(), m_data.data() + range.start, m_stagingData.size());
+                        memcpy(m_stagingData.data(), m_dataPtr->data() + range.start, m_stagingData.size());
                     }
 
                     return m_stagingData.data();
                 } else {
                     m_ownsStagingData = false;
-                    return m_data.data() + range.start;
+                    return m_dataPtr->data() + range.start;
                 }
+            }
+
+            SharedPtr<Data> BufferObject::GetDataReadOnly() const {
+                return m_dataPtr;
             }
 
             void BufferObject::ClearDirty() {

@@ -4,7 +4,8 @@ namespace MobileGL {
     namespace MG_State {
         namespace GLState {
             VertexArrayObject::VertexArrayObject() {
-                for (auto& attr : m_attributes) {
+                for (int index = 0; index < MAX_VERTEX_ATTRIBS; ++index) {
+                    auto& attr = m_attributes[index];
                     attr.Enabled = false;
                     attr.Size = 4;
                     attr.Type = DataType::Float32;
@@ -12,17 +13,21 @@ namespace MobileGL {
                     attr.Stride = 0;
                     attr.Offset = 0;
                     attr.Buffer = nullptr;
+
+                    MarkAttributeDirty(index);
                 }
             }
 
             void VertexArrayObject::EnableAttribute(Uint index) {
                 if (index >= MAX_VERTEX_ATTRIBS) return;
                 m_attributes[index].Enabled = true;
+                MarkAttributeDirty(index);
             }
 
             void VertexArrayObject::DisableAttribute(Uint index) {
                 if (index >= MAX_VERTEX_ATTRIBS) return;
                 m_attributes[index].Enabled = false;
+                MarkAttributeDirty(index);
             }
 
             Bool VertexArrayObject::IsAttributeEnabled(Uint index) const {
@@ -45,11 +50,14 @@ namespace MobileGL {
                 attr.Stride = stride;
                 attr.Offset = offset;
                 attr.IsInteger = isInteger;
+
+                MarkAttributeDirty(index);
             }
 
             void VertexArrayObject::BindAttributeBuffer(Uint index, const SharedPtr<BufferObject>& buffer) {
                 if (index >= MAX_VERTEX_ATTRIBS) return;
                 m_attributes[index].Buffer = buffer;
+                MarkAttributeDirty(index);
             }
 
             BindingSlot<BufferObject>& VertexArrayObject::GetIndexBufferBindingSlot() {
@@ -60,6 +68,27 @@ namespace MobileGL {
                 static VertexAttribute emptyAttr;
                 if (index >= MAX_VERTEX_ATTRIBS) return emptyAttr;
                 return m_attributes[index];
+            }
+
+            const Array<VertexAttribute, VertexArrayObject::MAX_VERTEX_ATTRIBS>& VertexArrayObject::GetAllAttributes()
+                const {
+                return m_attributes;
+            }
+
+            void VertexArrayObject::MarkAttributeDirty(Uint index) {
+                if (index >= MAX_VERTEX_ATTRIBS) return;
+                if (std::find(m_dirtyAttributes.begin(), m_dirtyAttributes.end(), index) != m_dirtyAttributes.end()) {
+                    return;
+                }
+                m_dirtyAttributes.push_back(index);
+            }
+
+            const Vector<Uint>& VertexArrayObject::GetDirtyAttributeIndices() const {
+                return m_dirtyAttributes;
+            }
+
+            void VertexArrayObject::ClearDirtyAttributes() {
+                m_dirtyAttributes.clear();
             }
         } // namespace GLState
     } // namespace MG_State

@@ -34,9 +34,16 @@ namespace MobileGL {
                 BindingSlot<BufferObject>& GetIndexBufferBindingSlot();
 
                 const VertexAttribute& GetAttribute(Uint index) const;
+                const Array<VertexAttribute, MAX_VERTEX_ATTRIBS>& GetAllAttributes() const;
+
+                const Vector<Uint>& GetDirtyAttributeIndices() const;
+                void ClearDirtyAttributes();
 
             private:
+                void MarkAttributeDirty(Uint index);
+
                 Array<VertexAttribute, MAX_VERTEX_ATTRIBS> m_attributes;
+                Vector<Uint> m_dirtyAttributes;
                 BindingSlot<BufferObject> m_indexBufferBindingSlot;
             };
         } // namespace GLState

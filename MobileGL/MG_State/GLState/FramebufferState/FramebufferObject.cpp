@@ -88,6 +88,12 @@ namespace MobileGL {
                 return m_attachments[static_cast<SizeT>(type)];
             }
 
+            const Array<FramebufferAttachment,
+                        static_cast<SizeT>(FramebufferAttachmentType::FramebufferAttachmentTypeCount)>&
+            FramebufferObject::GetAllAttachments() const {
+                return m_attachments;
+            }
+
             Bool FramebufferObject::CheckCompleteness() const {
                 if (m_attachments.empty()) {
                     return false;
