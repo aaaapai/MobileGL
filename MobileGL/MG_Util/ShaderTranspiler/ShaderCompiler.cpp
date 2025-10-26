@@ -142,11 +142,11 @@ namespace MobileGL {
                                           ((attrib.flags & ShaderCompileBits::EmitDiscardAsDemote)
                                                ? glslang::EShTargetSpv_1_6
                                                : glslang::EShTargetSpv_1_5));
+                    tshader->setEnvInputVulkanRulesRelaxed(); // using EXT_vulkan_glsl_relaxed for gl_VertexID and
+                                                              // gl_InstanceID?
                 }
                 tshader->setAutoMapLocations(true);
                 tshader->setAutoMapBindings(true);
-                tshader->setEnvInputVulkanRulesRelaxed(); // using EXT_vulkan_glsl_relaxed for gl_VertexID and
-                                                          // gl_InstanceID?
                 tshader->setGlobalUniformBlockName(GLOBAL_UBO_NAME);
                 if (!tshader->parse(&GetTBuiltInResourceInstance(), 460, ECoreProfile,
                                     /*forceDefaultVersionAndProfile: */ false,

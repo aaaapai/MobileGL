@@ -61,9 +61,10 @@ namespace MobileGL::MG_Backend::DirectGLES {
     } // namespace FramebufferImpl
 
     namespace PrgramImpl {
+        String ConvertTShaderToGLSL(SharedPtr<glslang::TShader>& shaderTShader, Uint glslVersion, Bool isES);
         String ProcessOutColorLocations(const String& glslCode);
         String ForceSupporterOutput(const String& glslCode);
-        String removeLayoutBinding(const String& glslCode);
+        String RemoveLayoutBinding(const String& glslCode);
     } // namespace PrgramImpl
 
     namespace Utils {

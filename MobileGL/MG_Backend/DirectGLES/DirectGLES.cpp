@@ -1,4 +1,5 @@
 #include "DirectGLES.h"
+#include "MG_Util/ShaderTranspiler/Types.h"
 #include "Utils.h"
 #include "Managers.h"
 #include <MG_State/GLState/Core.h>
@@ -289,6 +290,18 @@ namespace MobileGL::MG_Backend::DirectGLES {
             const auto& backendProgramIt = PrgramImpl::g_backendProgramObjects.find(currentProgram);
             if (backendProgramIt != PrgramImpl::g_backendProgramObjects.end()) {
                 backendProgramIt->second->Use();
+                // UBO
+                MG_External::GLES::glBindBuffer(GL_UNIFORM_BUFFER, backendProgramIt->second->GetBackendGlobalUBOId());
+                MG_External::GLES::glBufferSubData(GL_UNIFORM_BUFFER, 0, currentProgram->GetUBOSize(),
+                                                   currentProgram->MapUBO());
+                MG_External::GLES::glBindBuffer(GL_UNIFORM_BUFFER, 0);
+
+                Uint bindingPoint;
+                MG_External::GLES::glGetUniformBlockIndex(backendProgramIt->second->GetBackendProgramId(),
+                                                          MG_Util::ShaderTranspiler::GLOBAL_UBO_NAME);
+
+                MG_External::GLES::glBindBufferBase(GL_UNIFORM_BUFFER, bindingPoint,
+                                                    backendProgramIt->second->GetBackendGlobalUBOId());
             } else {
                 MG_External::GLES::glUseProgram(0);
             }

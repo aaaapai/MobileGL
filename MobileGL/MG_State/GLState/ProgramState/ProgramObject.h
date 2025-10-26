@@ -44,6 +44,7 @@ namespace MobileGL {
                 GLenum GetAttribType(Uint index) const { return m_attribTypes[index]; }
                 const String& GetAttribName(Uint index) const { return m_attribs[index]; }
                 void* MapUBO() { return m_uboScratch.data(); }
+                Uint GetUBOSize() const { return static_cast<Uint>(m_uboScratch.size()); }
 
                 Bool GetDeleteStatus() const { return m_deleteStatus; }
                 Bool GetLinkStatus() const { return m_linkStatus; }
@@ -53,6 +54,8 @@ namespace MobileGL {
                 Int GetActiveUniformBlocksCount() const { return m_program->getNumUniformBlocks(); }
                 Int GetActiveAttributesMaxLength() const { return m_attribInNameMaxLength; }
                 Int GetActiveUniformBlocksMaxNameLength() const { return m_uniformBlockNameMaxLength; }
+
+                Vector<Vector<unsigned>>& GetGeneratedSpirv() { return m_generatedSpirv; }
 
             private:
                 void DoReflection();
