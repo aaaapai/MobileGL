@@ -86,7 +86,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
             MGLOG_D("Syncing buffer sub-data (glBufferSubData) for object with ID : %u", m_backendBufferId);
 
             const void* data = stateBufferObject->GetDataReadOnly()->data();
-            auto range = stateBufferObject->GetDirtyRange();
+            const auto& range = stateBufferObject->GetDirtyRange();
             // dirty range: [range.start, range.end)
 
             MG_External::GLES::glBindBuffer(TempBufferTarget, m_backendBufferId);
@@ -101,7 +101,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
             MGLOG_D("Syncing buffer map (glMapBuffer) for object with ID : %u", m_backendBufferId);
             MGLOG_D("Mapping buffer with ID: %u", m_backendBufferId);
             MG_External::GLES::glBindBuffer(TempBufferTarget, m_backendBufferId);
-            auto range = stateBufferObject->GetDirtyRange();
+            const auto& range = stateBufferObject->GetDirtyRange();
             void* mappedData = MG_External::GLES::glMapBufferRange(
                 TempBufferTarget, range.start, range.end - range.start,
                 (invalidate ? GL_MAP_INVALIDATE_BUFFER_BIT : 0) | GL_MAP_WRITE_BIT | GL_MAP_UNSYNCHRONIZED_BIT);
@@ -157,18 +157,18 @@ namespace MobileGL::MG_Backend::DirectGLES {
             for (const auto& attribIndex : stateVAOObject->GetDirtyAttributeIndices()) {
                 const auto& attrib = stateVAOObject->GetAttribute(attribIndex);
 
-                auto bufferObject = attrib.Buffer;
+                const auto& bufferObject = attrib.Buffer;
                 if (!bufferObject) {
                     MGLOG_W("Attribute has no bound buffer, skipping.");
                     continue;
                 }
 
-                auto backendBufferIt = BufferImpl::g_backendBufferObjects.find(bufferObject);
+                const auto& backendBufferIt = BufferImpl::g_backendBufferObjects.find(bufferObject);
                 if (backendBufferIt == BufferImpl::g_backendBufferObjects.end()) {
                     MGLOG_E("No backend buffer found for attribute's buffer, cannot bind attribute.");
                     continue;
                 }
-                auto backendBufferObject = backendBufferIt->second;
+                const auto& backendBufferObject = backendBufferIt->second;
 
                 backendBufferObject->Bind(GL_ARRAY_BUFFER);
                 MG_External::GLES::glEnableVertexAttribArray(attribIndex);
@@ -180,11 +180,11 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 // TODO: divisor
             }
 
-            auto indexBufferBinding = stateVAOObject->GetIndexBufferBindingSlot().GetBoundObject();
+            const auto& indexBufferBinding = stateVAOObject->GetIndexBufferBindingSlot().GetBoundObject();
             if (indexBufferBinding) {
-                auto backendBufferIt = BufferImpl::g_backendBufferObjects.find(indexBufferBinding);
+                const auto& backendBufferIt = BufferImpl::g_backendBufferObjects.find(indexBufferBinding);
                 if (backendBufferIt != BufferImpl::g_backendBufferObjects.end()) {
-                    auto backendBufferObject = backendBufferIt->second;
+                    const auto& backendBufferObject = backendBufferIt->second;
                     backendBufferObject->Bind(GL_ELEMENT_ARRAY_BUFFER);
                 } else {
                     MGLOG_E("No backend buffer found for index buffer binding, cannot bind index buffer.");
@@ -274,7 +274,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
 
             { // Update sampler parameters; TODO: always use sampler objects in backend
 
-                auto samplerObject = stateTextureObject->GetSamplerObject();
+                const auto& samplerObject = stateTextureObject->GetSamplerObject();
                 if (samplerObject) {
                     MG_External::GLES::glTexParameteri(
                         target, GL_TEXTURE_MIN_FILTER,
@@ -359,13 +359,13 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 }
 
                 if (attachment.IsTexture()) {
-                    auto textureObject = attachment.GetTexture();
-                    auto backendTextureIt = TextureImpl::g_backendTextureObjects.find(textureObject);
+                    const auto& textureObject = attachment.GetTexture();
+                    const auto& backendTextureIt = TextureImpl::g_backendTextureObjects.find(textureObject);
                     if (backendTextureIt == TextureImpl::g_backendTextureObjects.end()) {
                         MGLOG_E("No backend texture found for FBO attachment, cannot bind texture.");
                         continue;
                     }
-                    auto backendTextureObject = backendTextureIt->second;
+                    const auto& backendTextureObject = backendTextureIt->second;
                     backendTextureObject->Bind(MG_Util::ConvertTextureTargetToGLEnum(textureObject->GetTarget()));
                     MG_External::GLES::glFramebufferTexture2D(
                         GL_FRAMEBUFFER, MG_Util::ConvertFramebufferAttachmentTypeToGLEnum(attachmentType),
@@ -451,8 +451,8 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 }
             }
             // Attach current shaders
-            for (auto& shader : stateProgramObject->GetAttachedShaders()) {
-                auto it = g_backendShaderObjects.find(shader);
+            for (const auto& shader : stateProgramObject->GetAttachedShaders()) {
+                const auto& it = g_backendShaderObjects.find(shader);
                 if (it != g_backendShaderObjects.end() && it->second) {
                     MG_External::GLES::glAttachShader(m_backendProgramId, it->second->GetBackendShaderId());
                 }

@@ -79,7 +79,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
 
             for (int index = 0; index < MG_State::GLState::TextureState::MAX_TEXTURE_IMAGE_UNITS; ++index) {
                 auto& unit = MG_State::pGLContext->GetTextureUnitObject(index);
-                for (auto& bindingSlot : unit.GetAllBindingSlots()) {
+                for (const auto& bindingSlot : unit.GetAllBindingSlots()) {
                     const auto& textureObject = bindingSlot.GetBoundObject();
                     if (textureObject) {
                         texturesToSync.push_back(textureObject);
@@ -90,7 +90,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
             const auto& currentFBO =
                 MG_State::pGLContext->GetFramebufferBindingSlot(FramebufferTarget::Draw).GetBoundObject();
             if (currentFBO) {
-                for (auto& attachment : currentFBO->GetAllAttachments()) {
+                for (const auto& attachment : currentFBO->GetAllAttachments()) {
                     if (!attachment.IsTexture()) continue;
                     const auto& textureObject = attachment.GetTexture();
                     if (textureObject) {
@@ -155,7 +155,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 MG_External::GLES::glDisable(GL_BLEND);
             }
 
-            auto ToGLBoolean = [](Bool b) -> GLboolean { return b ? GL_TRUE : GL_FALSE; };
+            const auto& ToGLBoolean = [](Bool b) -> GLboolean { return b ? GL_TRUE : GL_FALSE; };
 
             {
                 BlendFactor srcRGB, dstRGB, srcAlpha, dstAlpha;
@@ -218,7 +218,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 MG_External::GLES::glUseProgram(0);
                 return;
             }
-            auto backendProgramIt = g_backendProgramObjects.find(currentProgram);
+            const auto& backendProgramIt = g_backendProgramObjects.find(currentProgram);
             SharedPtr<BackendProgramObjectImpl> backendProgram;
             if (backendProgramIt == g_backendProgramObjects.end()) {
                 backendProgram = MakeShared<BackendProgramObjectImpl>();
@@ -230,7 +230,6 @@ namespace MobileGL::MG_Backend::DirectGLES {
                     backendProgram->SyncToBackend(currentProgram);
                 }
             }
-            backendProgram->Use();
         }
     } // namespace PrgramImpl
 
@@ -241,9 +240,10 @@ namespace MobileGL::MG_Backend::DirectGLES {
         FramebufferImpl::SyncCurrentFBO();
         PrgramImpl::SyncCurrentProgram();
 
-        auto currentFBO = MG_State::pGLContext->GetFramebufferBindingSlot(FramebufferTarget::Draw).GetBoundObject();
+        const auto& currentFBO =
+            MG_State::pGLContext->GetFramebufferBindingSlot(FramebufferTarget::Draw).GetBoundObject();
         if (currentFBO && currentFBO != MG_Impl::GLImpl::FramebufferImpl::pDefaultFramebufferInfo->defaultFBO) {
-            auto backendFBOIt = FramebufferImpl::g_backendFramebufferObjects.find(currentFBO);
+            const auto& backendFBOIt = FramebufferImpl::g_backendFramebufferObjects.find(currentFBO);
             if (backendFBOIt != FramebufferImpl::g_backendFramebufferObjects.end()) {
                 backendFBOIt->second->Bind();
             }
@@ -251,9 +251,9 @@ namespace MobileGL::MG_Backend::DirectGLES {
             MG_External::GLES::glBindFramebuffer(GL_FRAMEBUFFER, 0);
         }
 
-        auto currentVAO = MG_State::pGLContext->GetBoundVertexArray();
+        const auto& currentVAO = MG_State::pGLContext->GetBoundVertexArray();
         if (currentVAO) {
-            auto backendVAOIt = VertexArrayImpl::g_backendVertexArrayObjects.find(currentVAO);
+            const auto& backendVAOIt = VertexArrayImpl::g_backendVertexArrayObjects.find(currentVAO);
             if (backendVAOIt != VertexArrayImpl::g_backendVertexArrayObjects.end()) {
                 backendVAOIt->second->Bind();
             }
@@ -269,11 +269,11 @@ namespace MobileGL::MG_Backend::DirectGLES {
 
             MG_External::GLES::glActiveTexture(GL_TEXTURE0 + unit);
 
-            for (auto& bindingSlot : textureUnit.GetAllBindingSlots()) {
-                auto textureObject = bindingSlot.GetBoundObject();
+            for (const auto& bindingSlot : textureUnit.GetAllBindingSlots()) {
+                const auto& textureObject = bindingSlot.GetBoundObject();
                 if (!textureObject) continue;
 
-                auto backendTextureIt = TextureImpl::g_backendTextureObjects.find(textureObject);
+                const auto& backendTextureIt = TextureImpl::g_backendTextureObjects.find(textureObject);
                 if (backendTextureIt == TextureImpl::g_backendTextureObjects.end()) continue;
 
                 GLenum target = MG_Util::ConvertTextureTargetToGLEnum(textureObject->GetTarget());
@@ -283,6 +283,16 @@ namespace MobileGL::MG_Backend::DirectGLES {
 
         Int originalActiveUnit = MG_State::pGLContext->GetActiveTextureUnit();
         MG_External::GLES::glActiveTexture(GL_TEXTURE0 + originalActiveUnit);
+
+        const auto& currentProgram = MG_State::pGLContext->GetCurrentProgram();
+        if (currentProgram) {
+            const auto& backendProgramIt = PrgramImpl::g_backendProgramObjects.find(currentProgram);
+            if (backendProgramIt != PrgramImpl::g_backendProgramObjects.end()) {
+                backendProgramIt->second->Use();
+            } else {
+                MG_External::GLES::glUseProgram(0);
+            }
+        }
     }
 
     void DrawElements(GLenum mode, GLsizei count, GLenum type, const void* indices) {
