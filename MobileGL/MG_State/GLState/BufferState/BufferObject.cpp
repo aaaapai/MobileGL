@@ -125,7 +125,7 @@ namespace MobileGL {
                 }
             }
 
-            SharedPtr<Data> BufferObject::GetDataReadOnly() const {
+            const SharedPtr<Data> BufferObject::GetDataReadOnly() const {
                 return m_dataPtr;
             }
 

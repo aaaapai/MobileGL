@@ -69,7 +69,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
 
             MGLOG_D("Syncing buffer data (glBufferData) for object with ID : %u", m_backendBufferId);
 
-            const void* data = stateBufferObject->GetDataReadOnly().get();
+            const void* data = stateBufferObject->GetDataReadOnly()->data();
             SizeT size = stateBufferObject->GetSize();
             GLenum usage = MG_Util::ConvertBufferUsageToGLEnum(stateBufferObject->GetUsage());
 
@@ -85,7 +85,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
 
             MGLOG_D("Syncing buffer sub-data (glBufferSubData) for object with ID : %u", m_backendBufferId);
 
-            const void* data = stateBufferObject->GetDataReadOnly().get();
+            const void* data = stateBufferObject->GetDataReadOnly()->data();
             auto range = stateBufferObject->GetDirtyRange();
             // dirty range: [range.start, range.end)
 
@@ -105,7 +105,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
             void* mappedData = MG_External::GLES::glMapBufferRange(
                 TempBufferTarget, range.start, range.end - range.start,
                 (invalidate ? GL_MAP_INVALIDATE_BUFFER_BIT : 0) | GL_MAP_WRITE_BIT | GL_MAP_UNSYNCHRONIZED_BIT);
-            const void* data = stateBufferObject->GetDataReadOnly().get();
+            const void* data = stateBufferObject->GetDataReadOnly()->data();
             if (mappedData) {
                 Memcpy(reinterpret_cast<const void*>(reinterpret_cast<const char*>(data) + range.start), mappedData,
                        range.end - range.start);

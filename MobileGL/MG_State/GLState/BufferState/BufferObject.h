@@ -71,7 +71,7 @@ namespace MobileGL {
                 BufferUsage GetUsage() const;
                 Range1D GetDirtyRange() const;
                 Range1D GetMappedRange() const;
-                SharedPtr<Data> GetDataReadOnly() const;
+                const SharedPtr<Data> GetDataReadOnly() const;
                 Flags<BufferMappingAccessBit> GetMappingAccess() const;
 
             private:
