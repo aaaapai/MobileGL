@@ -2,6 +2,7 @@
 #include "Utils.h"
 #include "Managers.h"
 #include <MG_State/GLState/Core.h>
+#include <MG_Impl/GLImpl/Framebuffer/GL_Framebuffer.h>
 #include <MG_Util/BackendLoaders/OpenGL/Loader.h>
 #include <MG_Util/Converters/GLToStr/GLEnumConverter.h>
 #include <MG_Util/Converters/MGToGL/TextureEnumConverter.h>
@@ -121,6 +122,11 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 return;
             }
 
+            if (currentFBO == MG_Impl::GLImpl::FramebufferImpl::pDefaultFramebufferInfo->defaultFBO) {
+                // Default FBO, nothing to sync
+                return;
+            }
+
             const auto& backendFBOIt = g_backendFramebufferObjects.find(currentFBO);
             SharedPtr<BackendFramebufferObject> backendFBOObject;
             if (backendFBOIt == g_backendFramebufferObjects.end()) {
@@ -236,13 +242,13 @@ namespace MobileGL::MG_Backend::DirectGLES {
         PrgramImpl::SyncCurrentProgram();
 
         auto currentFBO = MG_State::pGLContext->GetFramebufferBindingSlot(FramebufferTarget::Draw).GetBoundObject();
-        if (currentFBO) {
+        if (currentFBO && currentFBO != MG_Impl::GLImpl::FramebufferImpl::pDefaultFramebufferInfo->defaultFBO) {
             auto backendFBOIt = FramebufferImpl::g_backendFramebufferObjects.find(currentFBO);
             if (backendFBOIt != FramebufferImpl::g_backendFramebufferObjects.end()) {
                 backendFBOIt->second->Bind();
             }
         } else {
-            MG_External::GLES::glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
+            MG_External::GLES::glBindFramebuffer(GL_FRAMEBUFFER, 0);
         }
 
         auto currentVAO = MG_State::pGLContext->GetBoundVertexArray();
