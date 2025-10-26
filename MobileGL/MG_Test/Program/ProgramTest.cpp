@@ -207,6 +207,10 @@ TEST_F(ProgramTest, UniformMatrixFunctions) {
 
     UseProgram(program);
 
+    int uniformCount = 0;
+    GetProgramiv(program, GL_ACTIVE_UNIFORMS, &uniformCount);
+    ASSERT_LT(uniformCount, 4000);
+
     // Test UniformMatrix2fv
     auto locProjMat = GetUniformLocation(program, "ProjMat");
     ASSERT_NE(locProjMat, -1);
@@ -267,6 +271,10 @@ TEST_F(ProgramTest, UniformMatrixTranspose) {
     printf("Program linked.\n");
 
     UseProgram(program);
+
+    int uniformCount = 0;
+    GetProgramiv(program, GL_ACTIVE_UNIFORMS, &uniformCount);
+    ASSERT_LT(uniformCount, 4000);
 
     // Test 2x2 matrix transpose
     auto locMat2 = GetUniformLocation(program, "TestMat2");
@@ -427,6 +435,10 @@ TEST_F(ProgramTest, UniformLocationGaps) {
     LinkProgram(program);
 
     UseProgram(program);
+
+    int uniformCount = 0;
+    GetProgramiv(program, GL_ACTIVE_UNIFORMS, &uniformCount);
+    ASSERT_LT(uniformCount, 4000);
 
     // Test that uniform locations are correctly assigned even with gaps
     // ProjMat is at location 0
