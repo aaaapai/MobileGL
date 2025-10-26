@@ -443,6 +443,7 @@ namespace MobileGL {
             static const char* EGLLibs[] = {"libEGL", nullptr};
 
             void* OpenLib(const char** names, const char* override) {
+#ifndef __WIN32
                 void* lib = nullptr;
 
                 char path_name[PATH_MAX + 1];
@@ -464,6 +465,9 @@ namespace MobileGL {
                     }
                 }
                 return lib;
+#else
+                return nullptr;
+#endif
             }
 
             void LoadLibs() {
@@ -473,7 +477,11 @@ namespace MobileGL {
             }
 
             void* ProcAddress(void* lib, const char* name) {
+#ifndef __WIN32
                 return dlsym(lib, name);
+#else
+                return nullptr;
+#endif
             }
 
             void InitGLESCapabilities() {
