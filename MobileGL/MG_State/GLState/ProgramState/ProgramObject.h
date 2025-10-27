@@ -29,14 +29,19 @@ namespace MobileGL {
                         return -1;
                     return (Int)it->second;
                 }
+
                 GLenum GetUniformType(Uint location) const {
                     auto& uniform = m_program->getUniform(m_uniformIndexInTProgram[location]);
                     return uniform.glDefineType;
                 }
 
-                Bool IsUniformOpaqueAtLocation(Uint location) const {
+                const glslang::TType* GetUniformTType(Uint location) const {
                     auto& uniform = m_program->getUniform(m_uniformIndexInTProgram[location]);
-                    return uniform.getType()->isOpaque();
+                    return uniform.getType();
+                }
+
+                Bool IsUniformOpaqueAtLocation(Uint location) const {
+                    return GetUniformTType(location)->isOpaque();
                 }
 
                 const String& GetUniformName(Uint location) const {
@@ -55,6 +60,14 @@ namespace MobileGL {
                 GLenum GetAttribType(Uint index) const { return m_attribTypes[index]; }
                 const String& GetAttribName(Uint index) const { return m_attribs[index]; }
                 void* MapUBO() { return m_uboScratch.data(); }
+
+                void SetUniformSamplerOrImageUnitIndex(Uint location, Int unit) {
+                    m_uniformSamplerOrImageUnitIndex[location] = unit;
+                }
+
+                Int SetUniformSamplerOrImageUnitIndex(Uint location) const {
+                    return m_uniformSamplerOrImageUnitIndex[location];
+                }
 
                 Bool GetDeleteStatus() const { return m_deleteStatus; }
                 Bool GetLinkStatus() const { return m_linkStatus; }
@@ -91,6 +104,8 @@ namespace MobileGL {
                 // Ordered by location,
                 // aka. m_uniformIndexInTProgram[loc] == "uniform index of TProgram at location `loc`"
                 Vector<Int> m_uniformIndexInTProgram;
+                // ditto. Will be set at glUniform1i
+                Vector<Int> m_uniformSamplerOrImageUnitIndex;
 
                 // Need to be reflected after linking of SPIR-V binary
                 Vector<Uint> m_uniformOffsets;
