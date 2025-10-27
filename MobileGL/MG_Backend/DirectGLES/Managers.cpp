@@ -18,6 +18,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
             MG_External::GLES::glGenBuffers(1, &m_backendBufferId);
             if (m_backendBufferId == 0) {
                 MGLOG_E("Failed to generate buffer object.");
+                MGLOG_E("ES glGetError(): %s", MG_Util::ConvertGLEnumToString(MG_External::GLES::glGetError()).c_str());
             } else {
                 MGLOG_D("Generated buffer object with ID: %u.", m_backendBufferId);
             }
@@ -135,6 +136,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
             MG_External::GLES::glGenVertexArrays(1, &m_backendVAOId);
             if (m_backendVAOId == 0) {
                 MGLOG_E("Failed to generate vertex array object.");
+                MGLOG_E("ES glGetError(): %s", MG_Util::ConvertGLEnumToString(MG_External::GLES::glGetError()).c_str());
             } else {
                 MGLOG_D("Generated vertex array object with ID: %u.", m_backendVAOId);
             }
@@ -206,6 +208,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
             MG_External::GLES::glGenTextures(1, &m_backendTextureId);
             if (m_backendTextureId == 0) {
                 MGLOG_E("Failed to generate texture object.");
+                MGLOG_E("ES glGetError(): %s", MG_Util::ConvertGLEnumToString(MG_External::GLES::glGetError()).c_str());
             } else {
                 MGLOG_D("Generated texture object with ID: %u.", m_backendTextureId);
             }
@@ -328,6 +331,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
             MG_External::GLES::glGenFramebuffers(1, &m_backendFBOId);
             if (m_backendFBOId == 0) {
                 MGLOG_E("Failed to generate framebuffer object.");
+                MGLOG_E("ES glGetError(): %s", MG_Util::ConvertGLEnumToString(MG_External::GLES::glGetError()).c_str());
             } else {
                 MGLOG_D("Generated framebuffer object with ID: %u.", m_backendFBOId);
             }
@@ -389,6 +393,8 @@ namespace MobileGL::MG_Backend::DirectGLES {
             m_backendProgramId = MG_External::GLES::glCreateProgram();
             if (m_backendProgramId == 0) {
                 MGLOG_E("Failed to create program object in backend.");
+                MGLOG_E("ES glGetError(): %s", MG_Util::ConvertGLEnumToString(MG_External::GLES::glGetError()).c_str());
+
             } else {
                 MGLOG_D("Created backend program object with ID: %u", m_backendProgramId);
             }
@@ -523,6 +529,9 @@ namespace MobileGL::MG_Backend::DirectGLES {
             MG_External::GLES::glBufferData(GL_UNIFORM_BUFFER, stateProgramObject->GetUBOSize(), nullptr,
                                             GL_STREAM_DRAW);
             MG_External::GLES::glBindBuffer(GL_UNIFORM_BUFFER, 0);
+
+            // Bind samplers
+
 
             m_isInitialized = true;
             MGLOG_D("Program sync completed. Backend ID: %u", m_backendProgramId);
