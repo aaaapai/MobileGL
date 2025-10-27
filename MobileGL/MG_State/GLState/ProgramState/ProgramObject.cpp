@@ -91,11 +91,7 @@ namespace MobileGL {
                 // i-th elements refers to uniform at layout(location = i, ...)
                 // Be aware, there could be gaps in between these vectors
                 // Locations can be not sequential
-                m_uniformNames.resize(m_maxUniformLocation + 1);
-                m_uniformTypes.resize(m_maxUniformLocation + 1, GL_ZERO);
-                m_uniformIsOpaqueType.resize(m_maxUniformLocation + 1);
-                m_uniformOffsets.resize(m_maxUniformLocation + 1);
-                m_uniformArraySizes.resize(m_maxUniformLocation + 1);
+                m_uniformIndexInTProgram.resize(m_maxUniformLocation + 1, 4095);
 
                 Vector<int> unallocatedUniformIndex;
 
@@ -103,26 +99,21 @@ namespace MobileGL {
                 for (int i = 0; i < m_activeUniformCount; i++) {
                     auto& uniform = m_program->getUniform(i);
                     auto location = uniform.layoutLocation();
-                    if (location >= m_uniformNames.size()) {
+                    if (m_uniformLocations[uniform.name] == 4095) {
                         unallocatedUniformIndex.emplace_back(i);
                         continue; // will allocate unallocated uniforms later
                     }
-                    m_uniformNames[location] = uniform.name;
-                    m_uniformTypes[location] = uniform.glDefineType;
-                    m_uniformIsOpaqueType[location] = uniform.getType()->isOpaque();
-                    m_uniformArraySizes[location] = uniform.size;
+                    m_uniformIndexInTProgram[location] = i;
                 }
 
                 SizeT locNeedle = 0;
-                for (auto index : unallocatedUniformIndex) {
+                for (auto index: unallocatedUniformIndex) {
                     auto& uniform = m_program->getUniform(index);
                     for (; locNeedle <= m_maxUniformLocation; locNeedle++) {
-                        if (m_uniformTypes[locNeedle] != GL_ZERO) continue;
+                        if (m_uniformIndexInTProgram[locNeedle] != 4095)
+                            continue;
                         // Found a vacant location at locNeedle
-                        m_uniformNames[locNeedle] = uniform.name;
-                        m_uniformTypes[locNeedle] = uniform.glDefineType;
-                        m_uniformIsOpaqueType[locNeedle] = uniform.getType()->isOpaque();
-                        m_uniformArraySizes[locNeedle] = uniform.size;
+                        m_uniformIndexInTProgram[locNeedle] = index;
                         m_uniformLocations[uniform.name] = locNeedle;
                         break;
                     }

@@ -25,17 +25,27 @@ namespace MobileGL {
                 Uint GetMaxUniformLocation() const { return m_maxUniformLocation; }
                 Int GetUniformLocation(const String& name) {
                     const auto it = m_uniformLocations.find(name);
-                    if (it == m_uniformLocations.end()) return -1;
+                    if (it == m_uniformLocations.end())
+                        return -1;
                     return (Int)it->second;
                 }
-                GLenum GetUniformType(Uint index) const { return m_uniformTypes[index]; }
+                GLenum GetUniformType(Uint location) const {
+                    auto& uniform = m_program->getUniform(m_uniformIndexInTProgram[location]);
+                    return uniform.glDefineType;
+                }
 
-                Bool IsUniformOpaqueAtLocation(Uint location) const { return m_uniformIsOpaqueType[location]; }
+                Bool IsUniformOpaqueAtLocation(Uint location) const {
+                    auto& uniform = m_program->getUniform(m_uniformIndexInTProgram[location]);
+                    return uniform.getType()->isOpaque();
+                }
 
-                const String& GetUniformName(Uint index) const { return m_uniformNames[index]; }
+                const String& GetUniformName(Uint location) const {
+                    auto& uniform = m_program->getUniform(m_uniformIndexInTProgram[location]);
+                    return uniform.name;
+                }
                 Uint GetUniformOffset(Uint location) const { return m_uniformOffsets[location]; }
                 Uint GetUniformSizesInBytes(Uint location) const {
-                    return MG_Util::GetGLTypeSize(m_uniformTypes[location]);
+                    return MG_Util::GetGLTypeSize(GetUniformType(location));
                 }
 
                 Int GetAttributeLocation(const String& name) {
@@ -79,12 +89,8 @@ namespace MobileGL {
 
                 UnorderedMap<String, Uint> m_uniformLocations;
                 // Ordered by location,
-                // aka. m_uniformNames[loc] == "name at location `loc`"
-                Vector<String> m_uniformNames;
-                // ditto.
-                Vector<GLenum> m_uniformTypes;
-                Vector<Bool> m_uniformIsOpaqueType;
-                Vector<Int> m_uniformArraySizes;
+                // aka. m_uniformIndexInTProgram[loc] == "uniform index of TProgram at location `loc`"
+                Vector<Int> m_uniformIndexInTProgram;
 
                 // Need to be reflected after linking of SPIR-V binary
                 Vector<Uint> m_uniformOffsets;
