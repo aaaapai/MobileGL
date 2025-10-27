@@ -25,7 +25,9 @@ namespace MobileGL {
                 Uint GetMaxUniformLocation() const { return m_maxUniformLocation; }
                 Int GetUniformLocation(const String& name) {
                     const auto it = m_uniformLocations.find(name);
-                    return (it == m_uniformLocations.end()) ? -1 : (Int)it->second;
+                    if (it == m_uniformLocations.end())
+                        return -1;
+                    return (Int)it->second;
                 }
                 GLenum GetUniformType(Uint index) const { return m_uniformTypes[index]; }
 

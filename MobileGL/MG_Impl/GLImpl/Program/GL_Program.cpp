@@ -473,7 +473,7 @@ namespace MobileGL {
                 return;
             }
 
-            if (location >= programObject->GetUniformCount() || location < -1) {
+            if (location > programObject->GetMaxUniformLocation() || location < -1) {
                 MG_State::pGLContext->RecordError(
                     ErrorCode::InvalidOperation,
                     MakeShared<GenericErrorInfo>("MG_Impl/GLImpl", __func__,
