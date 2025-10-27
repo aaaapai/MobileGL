@@ -302,6 +302,17 @@ namespace MobileGL::MG_Backend::DirectGLES {
 
                 MG_External::GLES::glBindBufferBase(GL_UNIFORM_BUFFER, bindingPoint,
                                                     backendProgramIt->second->GetBackendGlobalUBOId());
+
+                // Sampler unit binding
+                auto maxUniformLoc = currentProgram->GetMaxUniformLocation();
+                for (int loc = 0; loc < maxUniformLoc; ++loc) {
+                    auto unit = currentProgram->GetUniformSamplerOrImageUnitIndex(loc);
+                    if (unit == -1)
+                        continue;
+                    auto& name = currentProgram->GetUniformName(loc);
+                    auto locAtBackend = MG_External::GLES::glGetUniformLocation(backendProgramIt->second->GetBackendProgramId(), name.c_str());
+                    MG_External::GLES::glUniform1i(locAtBackend, unit);
+                }
             } else {
                 MG_External::GLES::glUseProgram(0);
             }

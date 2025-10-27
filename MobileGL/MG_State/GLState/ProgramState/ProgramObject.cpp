@@ -92,7 +92,7 @@ namespace MobileGL {
                 // Be aware, there could be gaps in between these vectors
                 // Locations can be not sequential
                 m_uniformIndexInTProgram.resize(m_maxUniformLocation + 1, 4095);
-                m_uniformSamplerOrImageUnitIndex.resize(m_maxUniformLocation + 1, 0);
+                m_uniformSamplerOrImageUnitIndex.resize(m_maxUniformLocation + 1, -1);
 
                 Vector<int> unallocatedUniformIndex;
 

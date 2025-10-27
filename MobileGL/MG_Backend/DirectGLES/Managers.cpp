@@ -530,9 +530,6 @@ namespace MobileGL::MG_Backend::DirectGLES {
                                             GL_STREAM_DRAW);
             MG_External::GLES::glBindBuffer(GL_UNIFORM_BUFFER, 0);
 
-            // Bind samplers
-
-
             m_isInitialized = true;
             MGLOG_D("Program sync completed. Backend ID: %u", m_backendProgramId);
         }

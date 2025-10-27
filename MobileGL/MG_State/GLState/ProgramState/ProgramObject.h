@@ -66,7 +66,7 @@ namespace MobileGL {
                     m_uniformSamplerOrImageUnitIndex[location] = unit;
                 }
 
-                Int SetUniformSamplerOrImageUnitIndex(Uint location) const {
+                Int GetUniformSamplerOrImageUnitIndex(Uint location) const {
                     return m_uniformSamplerOrImageUnitIndex[location];
                 }
 
