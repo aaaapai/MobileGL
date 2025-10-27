@@ -382,69 +382,8 @@ namespace MobileGL::MG_Backend::DirectGLES {
     } // namespace FramebufferImpl
 
     namespace PrgramImpl {
-        UnorderedMap<SharedPtr<MG_State::GLState::ShaderObject>, SharedPtr<BackendShaderObjectImpl>>
-            g_backendShaderObjects;
         UnorderedMap<SharedPtr<MG_State::GLState::ProgramObject>, SharedPtr<BackendProgramObjectImpl>>
             g_backendProgramObjects;
-
-        BackendShaderObjectImpl::BackendShaderObjectImpl() {
-            m_backendShaderId = MG_External::GLES::glCreateShader(GL_VERTEX_SHADER);
-            if (m_backendShaderId == 0) {
-                MGLOG_E("Failed to create shader object in backend.");
-            } else {
-                MGLOG_D("Created backend shader object with ID: %u", m_backendShaderId);
-            }
-        }
-
-        BackendShaderObjectImpl::~BackendShaderObjectImpl() {
-            if (m_backendShaderId != 0) {
-                MGLOG_D("Deleting backend shader object with ID: %u", m_backendShaderId);
-                MG_External::GLES::glDeleteShader(m_backendShaderId);
-            }
-        }
-
-        void BackendShaderObjectImpl::SyncToBackend(SharedPtr<MG_State::GLState::ShaderObject>& stateShaderObject) {
-            if (!stateShaderObject) {
-                MGLOG_E("State shader object is null, skipping backend sync.");
-                return;
-            }
-
-            if (!stateShaderObject->GetCompileStatus()) {
-                MGLOG_E("Shader object is not compiled, skipping backend sync. Shader: 0x%p", stateShaderObject.get());
-                return;
-            }
-
-            MGLOG_D("Syncing shader to backend. State shader: 0x%p, Backend ID: %u, Stage: %s", stateShaderObject.get(),
-                    m_backendShaderId,
-                    MG_Util::ConvertGLEnumToString(
-                        MG_State::GLState::ConvertGLShaderTypeByMGLShaderStage(stateShaderObject->GetShaderStage()))
-                        .c_str());
-
-            auto shaderTShader = stateShaderObject->GetCompiledShader();
-            String source = ConvertTShaderToGLSL(shaderTShader, 320, true); // TODO: get real version
-            const char* sourceCStr = source.c_str();
-
-            MGLOG_D("Setting shader source for backend shader ID: %u", m_backendShaderId);
-            MG_External::GLES::glShaderSource(m_backendShaderId, 1, &sourceCStr, nullptr);
-
-            MGLOG_D("Compiling shader. Backend ID: %u", m_backendShaderId);
-            MG_External::GLES::glCompileShader(m_backendShaderId);
-
-            GLint compileStatus;
-            MG_External::GLES::glGetShaderiv(m_backendShaderId, GL_COMPILE_STATUS, &compileStatus);
-            if (compileStatus != GL_TRUE) {
-                GLint logLength;
-                MG_External::GLES::glGetShaderiv(m_backendShaderId, GL_INFO_LOG_LENGTH, &logLength);
-                Vector<GLchar> log(logLength);
-                MG_External::GLES::glGetShaderInfoLog(m_backendShaderId, logLength, nullptr, log.data());
-                MGLOG_E("Shader compilation failed for backend ID %u: %s", m_backendShaderId, log.data());
-            } else {
-                MGLOG_D("Shader compiled successfully. Backend ID: %u", m_backendShaderId);
-            }
-
-            m_isInitialized = true;
-            MGLOG_D("Shader sync completed. Backend ID: %u", m_backendShaderId);
-        }
 
         BackendProgramObjectImpl::BackendProgramObjectImpl() {
             m_backendProgramId = MG_External::GLES::glCreateProgram();

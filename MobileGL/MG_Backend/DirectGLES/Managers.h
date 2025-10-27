@@ -96,18 +96,6 @@ namespace MobileGL::MG_Backend::DirectGLES {
     } // namespace FramebufferImpl
 
     namespace PrgramImpl {
-        class BackendShaderObjectImpl {
-        public:
-            BackendShaderObjectImpl();
-            ~BackendShaderObjectImpl();
-            void SyncToBackend(SharedPtr<MG_State::GLState::ShaderObject>& stateShaderObject);
-            Uint GetBackendShaderId() const { return m_backendShaderId; }
-
-        private:
-            Uint m_backendShaderId = 0;
-            Bool m_isInitialized = false;
-        };
-
         class BackendProgramObjectImpl {
         public:
             BackendProgramObjectImpl();
@@ -123,8 +111,6 @@ namespace MobileGL::MG_Backend::DirectGLES {
             Bool m_isInitialized = false;
         };
 
-        extern UnorderedMap<SharedPtr<MG_State::GLState::ShaderObject>, SharedPtr<BackendShaderObjectImpl>>
-            g_backendShaderObjects;
         extern UnorderedMap<SharedPtr<MG_State::GLState::ProgramObject>, SharedPtr<BackendProgramObjectImpl>>
             g_backendProgramObjects;
     } // namespace PrgramImpl

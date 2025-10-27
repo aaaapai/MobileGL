@@ -294,8 +294,6 @@ namespace MobileGL::MG_Backend::DirectGLES {
     } // namespace FramebufferImpl
 
     namespace PrgramImpl {
-        String ConvertTShaderToGLSL(SharedPtr<glslang::TShader>& shaderTShader, Uint glslVersion, Bool isES) {}
-
         String ProcessOutColorLocations(const String& glslCode) {
             const static std::regex pattern(R"(\n(out highp vec4 outColor)(\d+);)");
             const String replacement = "\nlayout(location=$2) $1$2;";
