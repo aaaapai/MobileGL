@@ -34,6 +34,11 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 buffersToSync.push_back(possibleIBO);
             }
 
+            const auto& pbo = MG_State::pGLContext->GetBufferBindingSlot(BufferTarget::PixelUnpack).GetBoundObject();
+            if (pbo) {
+                buffersToSync.push_back(pbo);
+            }
+
             // Do real sync
             for (auto& bufferObject : buffersToSync) {
                 const auto& backendBufferIt = g_backendBufferObjects.find(bufferObject);
