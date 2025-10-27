@@ -114,11 +114,10 @@ namespace MobileGL {
                 }
 
                 SizeT locNeedle = 0;
-                for (auto index: unallocatedUniformIndex) {
+                for (auto index : unallocatedUniformIndex) {
                     auto& uniform = m_program->getUniform(index);
                     for (; locNeedle <= m_maxUniformLocation; locNeedle++) {
-                        if (m_uniformTypes[locNeedle] != GL_ZERO)
-                            continue;
+                        if (m_uniformTypes[locNeedle] != GL_ZERO) continue;
                         // Found a vacant location at locNeedle
                         m_uniformNames[locNeedle] = uniform.name;
                         m_uniformTypes[locNeedle] = uniform.glDefineType;
