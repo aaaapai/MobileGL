@@ -69,31 +69,63 @@ namespace MobileGL {
                     return;
                 }
 
+                // ------------ Uniforms (GL Plain) ----------------
+                // Allocate uniform locations
                 m_activeUniformCount = m_program->getNumUniformVariables();
                 for (int i = 0; i < m_activeUniformCount; i++) {
                     auto& uniform = m_program->getUniform(i);
                     auto location = uniform.layoutLocation();
-                    if (location >= 0) {
+                    if (location != 4095) {
                         m_maxUniformLocation = std::max(m_maxUniformLocation, location);
                     }
                     m_uniformNameMaxLength = std::max(m_uniformNameMaxLength, (Int)uniform.name.length());
                     m_uniformLocations[uniform.name] = location;
                 }
 
+                if (m_maxUniformLocation + 1 < m_activeUniformCount) {
+                    // This means we have fewer than enough gaps to fit
+                    // unallocated uniforms
+                    m_maxUniformLocation = m_activeUniformCount;
+                }
+
+                // i-th elements refers to uniform at layout(location = i, ...)
+                // Be aware, there could be gaps in between these vectors
+                // Locations can be not sequential
                 m_uniformNames.resize(m_maxUniformLocation + 1);
-                m_uniformTypes.resize(m_maxUniformLocation + 1);
+                m_uniformTypes.resize(m_maxUniformLocation + 1, GL_ZERO);
                 m_uniformIsOpaqueType.resize(m_maxUniformLocation + 1);
                 m_uniformOffsets.resize(m_maxUniformLocation + 1);
                 m_uniformArraySizes.resize(m_maxUniformLocation + 1);
 
+                Vector<int> unallocatedUniformIndex;
+
+                // Populate vector with already allocated location
                 for (int i = 0; i < m_activeUniformCount; i++) {
                     auto& uniform = m_program->getUniform(i);
                     auto location = uniform.layoutLocation();
-                    if (location >= 0 && location < (int)m_uniformNames.size()) {
-                        m_uniformNames[location] = uniform.name;
-                        m_uniformTypes[location] = uniform.glDefineType;
-                        m_uniformIsOpaqueType[location] = uniform.getType()->isOpaque();
-                        m_uniformArraySizes[location] = uniform.size;
+                    if (location >= m_uniformNames.size()) {
+                        unallocatedUniformIndex.emplace_back(i);
+                        continue; // will allocate unallocated uniforms later
+                    }
+                    m_uniformNames[location] = uniform.name;
+                    m_uniformTypes[location] = uniform.glDefineType;
+                    m_uniformIsOpaqueType[location] = uniform.getType()->isOpaque();
+                    m_uniformArraySizes[location] = uniform.size;
+                }
+
+                SizeT locNeedle = 0;
+                for (auto index: unallocatedUniformIndex) {
+                    auto& uniform = m_program->getUniform(index);
+                    for (; locNeedle <= m_maxUniformLocation; locNeedle++) {
+                        if (m_uniformTypes[locNeedle] != GL_ZERO)
+                            continue;
+                        // Found a vacant location at locNeedle
+                        m_uniformNames[locNeedle] = uniform.name;
+                        m_uniformTypes[locNeedle] = uniform.glDefineType;
+                        m_uniformIsOpaqueType[locNeedle] = uniform.getType()->isOpaque();
+                        m_uniformArraySizes[locNeedle] = uniform.size;
+                        m_uniformLocations[uniform.name] = locNeedle;
+                        break;
                     }
                 }
 
