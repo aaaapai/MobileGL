@@ -207,6 +207,10 @@ TEST_F(ProgramTest, UniformMatrixFunctions) {
 
     UseProgram(program);
 
+    int uniformCount = 0;
+    GetProgramiv(program, GL_ACTIVE_UNIFORMS, &uniformCount);
+    ASSERT_LT(uniformCount, 4000);
+
     // Test UniformMatrix2fv
     auto locProjMat = GetUniformLocation(program, "ProjMat");
     ASSERT_NE(locProjMat, -1);
@@ -267,6 +271,10 @@ TEST_F(ProgramTest, UniformMatrixTranspose) {
     printf("Program linked.\n");
 
     UseProgram(program);
+
+    int uniformCount = 0;
+    GetProgramiv(program, GL_ACTIVE_UNIFORMS, &uniformCount);
+    ASSERT_LT(uniformCount, 4000);
 
     // Test 2x2 matrix transpose
     auto locMat2 = GetUniformLocation(program, "TestMat2");
@@ -428,6 +436,10 @@ TEST_F(ProgramTest, UniformLocationGaps) {
 
     UseProgram(program);
 
+    int uniformCount = 0;
+    GetProgramiv(program, GL_ACTIVE_UNIFORMS, &uniformCount);
+    ASSERT_LT(uniformCount, 4000);
+
     // Test that uniform locations are correctly assigned even with gaps
     // ProjMat is at location 0
     ASSERT_EQ(GetUniformLocation(program, "ProjMat"), 0);
@@ -479,4 +491,76 @@ TEST_F(ProgramTest, UniformLocationGaps) {
     ASSERT_EQ(redVal[0], 1.0);
     ASSERT_EQ(redVal[1], 3.0);
     ASSERT_EQ(redVal[2], 5.0);
+}
+
+const char* mc_position_tex_fs = R"(#version 150
+
+uniform sampler2D Sampler0;
+
+uniform vec4 ColorModulator;
+
+in vec2 texCoord0;
+
+out vec4 fragColor;
+
+void main() {
+    vec4 color = texture(Sampler0, texCoord0);
+    if (color.a == 0.0) {
+        discard;
+    }
+    fragColor = color * ColorModulator;
+}
+)";
+
+const char* mc_position_tex_vs = R"(#version 150
+
+in vec3 Position;
+in vec2 UV0;
+
+uniform mat4 ModelViewMat;
+uniform mat4 ProjMat;
+
+out vec2 texCoord0;
+
+void main() {
+    gl_Position = ProjMat * ModelViewMat * vec4(Position, 1.0);
+
+    texCoord0 = UV0;
+}
+)";
+
+TEST_F(ProgramTest, MinecraftPositionTex) {
+    char infoLog[1024] = "";
+
+    GLuint vs = CreateShader(GL_VERTEX_SHADER);
+    ShaderSource(vs, 1, &mc_position_tex_vs, NULL);
+    CompileShader(vs);
+    GLint vsStatus = GL_FALSE;
+    GetShaderiv(vs, GL_COMPILE_STATUS, &vsStatus);
+    GetShaderInfoLog(vs, 1024, nullptr, infoLog);
+    ASSERT_EQ(vsStatus, GL_TRUE) << infoLog;
+
+    GLuint fs = CreateShader(GL_FRAGMENT_SHADER);
+    ShaderSource(fs, 1, &mc_position_tex_fs, NULL);
+    CompileShader(fs);
+    GLint fsStatus = GL_FALSE;
+    GetShaderiv(fs, GL_COMPILE_STATUS, &fsStatus);
+    GetShaderInfoLog(fs, 1024, nullptr, infoLog);
+    ASSERT_EQ(fsStatus, GL_TRUE) << infoLog;
+
+    GLuint program = CreateProgram();
+    AttachShader(program, vs);
+    AttachShader(program, fs);
+
+    LinkProgram(program);
+
+    UseProgram(program);
+
+    int uniformCount = 0;
+    GetProgramiv(program, GL_ACTIVE_UNIFORMS, &uniformCount);
+    ASSERT_LT(uniformCount, 4000);
+
+    int sampler0Loc = GetUniformLocation(program, "Sampler0");
+    ASSERT_GE(sampler0Loc, 0);
+    ASSERT_LT(sampler0Loc, 4000);
 }
