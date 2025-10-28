@@ -56,7 +56,7 @@ namespace MobileGL {
     inline constexpr void Copy(const T* src, T* dest, SizeT count) {
         std::copy(src, src + count, dest);
     }
-    inline constexpr void Memcpy(const void* src, void* dest, SizeT size) {
+    inline constexpr void Memcpy(void* dest, const void* src, SizeT size) {
         std::memcpy(dest, src, size);
     }
     template <typename... Ts>

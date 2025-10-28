@@ -189,9 +189,10 @@ namespace MobileGL {
                 Bool dirty = true;
 
                 MipmapLevelInternal(const MipmapLevelInput& input) : MipmapLevelBase(input) {
+                    data.resize(input.inputData.size);
                     if (input.inputData.data && input.inputData.size > 0) {
                         const Uint8* src = static_cast<const Uint8*>(input.inputData.data);
-                        data.assign(src, src + input.inputData.size);
+                        Memcpy(data.data(), src, input.inputData.size);
                     }
                 }
             };

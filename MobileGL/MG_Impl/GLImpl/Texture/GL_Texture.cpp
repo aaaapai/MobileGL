@@ -80,7 +80,7 @@ namespace MobileGL {
                 SizeT srcOffset = row * width * bytesPerPixel;
 
                 if (dstOffset + width * bytesPerPixel < data.size()) {
-                    Memcpy(srcData + srcOffset, data.data() + dstOffset, width * bytesPerPixel);
+                    Memcpy(data.data() + dstOffset, srcData + srcOffset, width * bytesPerPixel);
                 } else {
                     MG_State::pGLContext->RecordError(
                             ErrorCode::InvalidOperation,
@@ -286,7 +286,8 @@ namespace MobileGL {
 
             // ======================= Processing ================================
             SharedPtr<MG_State::GLState::ITextureObject> textureObject = nullptr;
-            if (TextureImpl::IsProxyTextureTarget(textureUploadingTarget)) {
+            Bool isProxy = TextureImpl::IsProxyTextureTarget(textureUploadingTarget);
+            if (isProxy) {
                 textureObject =
                     TextureImpl::pProxyTextureManager->CreateOrReplaceProxyTextureObject(textureUploadingTarget);
             } else {
@@ -300,14 +301,14 @@ namespace MobileGL {
             if (!TextureImpl::ValidateTextureObject(textureObject)) return;
 
             // ======================= Processing ================================
-            SizeT imageSize =
+            SizeT imageSize = isProxy ? 0 :
                     MG_Util::CalculateInputTextureImageSize(textureInternalFormat,
                                                             texturePixelDataType,
                                                             {width, height, 1});
 
             textureObject->SetInternalFormat(textureInternalFormat);
             MG_State::GLState::MipmapLevelInput mipmap = MG_State::GLState::MipmapLevelInput(
-                {width, height, 1}, level, false, 0, {const_cast<void*>(pixels), imageSize});
+                {width, height, 1}, level, false, 0, {const_cast<void*>(isProxy ? pixels : nullptr), imageSize});
             textureObject->SetMipmapLevel(mipmap);
         }
 
