@@ -307,11 +307,13 @@ namespace MobileGL::MG_Backend::DirectGLES {
                                                    currentProgram->MapUBO());
                 MG_External::GLES::glBindBuffer(GL_UNIFORM_BUFFER, 0);
 
-                Uint bindingPoint;
-                MG_External::GLES::glGetUniformBlockIndex(backendProgramIt->second->GetBackendProgramId(),
+                Uint blockIndex = MG_External::GLES::glGetUniformBlockIndex(backendProgramIt->second->GetBackendProgramId(),
                                                           MG_Util::ShaderTranspiler::GLOBAL_UBO_NAME);
 
-                MG_External::GLES::glBindBufferBase(GL_UNIFORM_BUFFER, bindingPoint,
+                MG_External::GLES::glUniformBlockBinding(
+                        backendProgramIt->second->GetBackendProgramId(), blockIndex, 0);
+
+                MG_External::GLES::glBindBufferBase(GL_UNIFORM_BUFFER, 0,
                                                     backendProgramIt->second->GetBackendGlobalUBOId());
 
                 // Sampler unit binding
