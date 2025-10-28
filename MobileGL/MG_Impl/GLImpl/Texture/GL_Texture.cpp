@@ -59,12 +59,14 @@ namespace MobileGL {
 
             // ======================= Processing ================================
             SizeT imageSize =
-                MG_Util::CalculateTextureImageSize(textureInternalFormat, texturePixelDataType, {width, height, 1});
+                    MG_Util::CalculateInputTextureImageSize(textureInternalFormat,
+                                                            texturePixelDataType,
+                                                            {width, height, 1});
             auto& mipmap = textureObject->GetMipmap(level);
             Vector<Uint8>& data = mipmap.data;
 
-            SizeT bytesPerPixel = MG_Util::GetTexturePixelSize(textureInternalFormat) *
-                                  MG_Util::GetTexturePixelDataTypeSize(texturePixelDataType);
+            SizeT bytesPerPixel =
+                    MG_Util::GetInputBytesPerPixel(textureInternalFormat, texturePixelDataType);
             SizeT rowStride = mipmap.size.x() * bytesPerPixel;
 
             const Uint8* srcData = reinterpret_cast<const Uint8*>(pixels);
@@ -74,13 +76,17 @@ namespace MobileGL {
 
             for (GLint row = 0; row < height; ++row) {
                 SizeT dstOffset = ((yoffset + row) * mipmap.size.x() + xoffset) * bytesPerPixel;
+                // Should take states from glPixelStorei/glPixelStoref into account
                 SizeT srcOffset = row * width * bytesPerPixel;
 
-                if (dstOffset + width * bytesPerPixel <= data.size()) {
-                    Copy(reinterpret_cast<const Uint8*>(srcData + srcOffset),
-                         reinterpret_cast<Uint8*>(&data[dstOffset]), width * bytesPerPixel);
+                if (dstOffset + width * bytesPerPixel < data.size()) {
+                    Memcpy(srcData + srcOffset, data.data() + dstOffset, width * bytesPerPixel);
                 } else {
-                    return;
+                    MG_State::pGLContext->RecordError(
+                            ErrorCode::InvalidOperation,
+                            MakeShared<GenericErrorInfo>("MG_Impl/GLImpl", __func__,
+                                 "Copy failed. Dest image does not have sufficient space."));
+                    break;
                 }
             }
 
@@ -295,7 +301,9 @@ namespace MobileGL {
 
             // ======================= Processing ================================
             SizeT imageSize =
-                MG_Util::CalculateTextureImageSize(textureInternalFormat, texturePixelDataType, {width, height, 1});
+                    MG_Util::CalculateInputTextureImageSize(textureInternalFormat,
+                                                            texturePixelDataType,
+                                                            {width, height, 1});
 
             textureObject->SetInternalFormat(textureInternalFormat);
             MG_State::GLState::MipmapLevelInput mipmap = MG_State::GLState::MipmapLevelInput(
