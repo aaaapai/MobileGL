@@ -160,6 +160,11 @@ namespace MobileGL::MG_Backend::DirectGLES {
             } else {
                 MG_External::GLES::glDisable(GL_BLEND);
             }
+            if (MG_State::pGLContext->IsCapabilityEnabled(CapabilityInput::CullFace)) {
+                MG_External::GLES::glEnable(GL_CULL_FACE);
+            } else {
+                MG_External::GLES::glDisable(GL_CULL_FACE);
+            }
 
             const auto& ToGLBoolean = [](Bool b) -> GLboolean { return b ? GL_TRUE : GL_FALSE; };
 
@@ -245,6 +250,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
         TextureImpl::SyncNeccessaryTextures();
         FramebufferImpl::SyncCurrentFBO();
         PrgramImpl::SyncCurrentProgram();
+        RenderStateImpl::SyncRenderState();
 
         const auto& currentFBO =
             MG_State::pGLContext->GetFramebufferBindingSlot(FramebufferTarget::Draw).GetBoundObject();
@@ -330,8 +336,21 @@ namespace MobileGL::MG_Backend::DirectGLES {
     }
 
     void Clear(GLbitfield mask) {
+        TextureImpl::SyncNeccessaryTextures();
         FramebufferImpl::SyncCurrentFBO();
         RenderStateImpl::SyncRenderState();
+
+        const auto& currentFBO =
+                MG_State::pGLContext->GetFramebufferBindingSlot(FramebufferTarget::Draw).GetBoundObject();
+        if (currentFBO && currentFBO != MG_Impl::GLImpl::FramebufferImpl::pDefaultFramebufferInfo->defaultFBO) {
+            const auto& backendFBOIt = FramebufferImpl::g_backendFramebufferObjects.find(currentFBO);
+            if (backendFBOIt != FramebufferImpl::g_backendFramebufferObjects.end()) {
+                backendFBOIt->second->Bind();
+            }
+        } else {
+            MG_External::GLES::glBindFramebuffer(GL_FRAMEBUFFER, 0);
+        }
+
         MG_External::GLES::glClear(mask);
     }
 
