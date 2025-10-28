@@ -86,7 +86,7 @@ namespace MobileGL {
                 // Should take states from glPixelStorei/glPixelStoref into account
                 SizeT srcOffset = row * width * bytesPerPixel;
 
-                if (dstOffset + width * bytesPerPixel < data.size()) {
+                if (dstOffset + width * bytesPerPixel <= data.size()) {
                     Memcpy(data.data() + dstOffset, srcData + srcOffset, width * bytesPerPixel);
                 } else {
                     MG_State::pGLContext->RecordError(
