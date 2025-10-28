@@ -58,20 +58,27 @@ namespace MobileGL {
             if (!TextureImpl::ValidateTextureSubImageOffsets(textureObject, xoffset, width, yoffset, height)) return;
 
             // ======================= Processing ================================
-            SizeT imageSize =
-                    MG_Util::CalculateInputTextureImageSize(textureInternalFormat,
-                                                            texturePixelDataType,
-                                                            {width, height, 1});
+//            SizeT imageSize =
+//                    MG_Util::CalculateInputTextureImageSize(textureInternalFormat,
+//                                                            texturePixelDataType,
+//                                                            {width, height, 1});
             auto& mipmap = textureObject->GetMipmap(level);
             Vector<Uint8>& data = mipmap.data;
 
             SizeT bytesPerPixel =
                     MG_Util::GetInputBytesPerPixel(textureInternalFormat, texturePixelDataType);
-            SizeT rowStride = mipmap.size.x() * bytesPerPixel;
+//            SizeT rowStride = mipmap.size.x() * bytesPerPixel;
 
             const Uint8* srcData = reinterpret_cast<const Uint8*>(pixels);
             if (!srcData) {
                 return;
+            }
+
+            if (pixels != nullptr) {
+                auto rowsToSkip = MG_State::pGLContext->GetPixelStoreParam(PixelStoreParam::UnpackSkipRows);
+                auto pixelsToSkip = MG_State::pGLContext->GetPixelStoreParam(PixelStoreParam::UnpackSkipPixels);
+
+                srcData += (rowsToSkip * width + pixelsToSkip);
             }
 
             for (GLint row = 0; row < height; ++row) {
@@ -306,9 +313,17 @@ namespace MobileGL {
                                                             texturePixelDataType,
                                                             {width, height, 1});
 
+            Uint8* skippedPixels = (Uint8 *) pixels;
+            if (pixels != nullptr) {
+                auto rowsToSkip = MG_State::pGLContext->GetPixelStoreParam(PixelStoreParam::UnpackSkipRows);
+                auto pixelsToSkip = MG_State::pGLContext->GetPixelStoreParam(PixelStoreParam::UnpackSkipPixels);
+
+                skippedPixels += (rowsToSkip * width + pixelsToSkip);
+            }
+
             textureObject->SetInternalFormat(textureInternalFormat);
             MG_State::GLState::MipmapLevelInput mipmap = MG_State::GLState::MipmapLevelInput(
-                {width, height, 1}, level, false, 0, {const_cast<void*>(isProxy ? pixels : nullptr), imageSize});
+                {width, height, 1}, level, false, 0, {const_cast<void*>(isProxy ? (void*)skippedPixels : nullptr), imageSize});
             textureObject->SetMipmapLevel(mipmap);
         }
 
