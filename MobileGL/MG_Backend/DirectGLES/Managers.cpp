@@ -177,10 +177,16 @@ namespace MobileGL::MG_Backend::DirectGLES {
 
                 backendBufferObject->Bind(GL_ARRAY_BUFFER);
                 MG_External::GLES::glEnableVertexAttribArray(attribIndex);
-                MG_External::GLES::glVertexAttribPointer(
-                    attribIndex, attrib.Size, MG_Util::ConvertDataTypeToGLEnum(attrib.Type),
-                    attrib.Normalized ? GL_TRUE : GL_FALSE, attrib.Stride,
-                    reinterpret_cast<const void*>(static_cast<SizeT>(attrib.Offset)));
+                if (!attrib.IsInteger) {
+                    MG_External::GLES::glVertexAttribPointer(
+                            attribIndex, attrib.Size, MG_Util::ConvertDataTypeToGLEnum(attrib.Type),
+                            attrib.Normalized ? GL_TRUE : GL_FALSE,
+                            attrib.Stride, (const void *)attrib.Offset);
+                } else {
+                    MG_External::GLES::glVertexAttribIPointer(
+                            attribIndex, attrib.Size, MG_Util::ConvertDataTypeToGLEnum(attrib.Type),
+                            attrib.Stride, (const void *)attrib.Offset);
+                }
 
                 // TODO: divisor
             }
