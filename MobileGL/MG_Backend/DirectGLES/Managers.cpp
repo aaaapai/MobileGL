@@ -343,8 +343,11 @@ namespace MobileGL::MG_Backend::DirectGLES {
             }
         }
 
-        void BackendFramebufferObject::Bind() {
-            MG_External::GLES::glBindFramebuffer(GL_FRAMEBUFFER, m_backendFBOId);
+        void BackendFramebufferObject::Bind(FramebufferTarget target) {
+            if (target == FramebufferTarget::Read)
+                MG_External::GLES::glBindFramebuffer(GL_READ_FRAMEBUFFER, m_backendFBOId);
+            else
+                MG_External::GLES::glBindFramebuffer(GL_DRAW_FRAMEBUFFER, m_backendFBOId);
         }
 
         void BackendFramebufferObject::SyncToBackend(SharedPtr<MG_State::GLState::FramebufferObject>& stateFBOObject) {
@@ -356,7 +359,9 @@ namespace MobileGL::MG_Backend::DirectGLES {
             MGLOG_D("Syncing FBO object with ID: %u to backend for state: 0x%p", m_backendFBOId, stateFBOObject.get());
 
             BackendFramebufferBindingProtector backendFBOBindingProtector(GL_FRAMEBUFFER);
-            Bind();
+            // TODO: do i really need to bind here?
+            Bind(FramebufferTarget::Read);
+            Bind(FramebufferTarget::Draw);
 
             // TODO: add dirty check
             // Sync all attachments

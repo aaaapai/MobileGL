@@ -1,14 +1,21 @@
 #include "GL_Framebuffer.h"
 #include "Validators.h"
+#include "Config.h"
 #include <MG_Impl/GLImpl/Texture/Validators.h>
 #include <MG_State/GLState/ErrorState/Error.h>
 #include <MG_Util/Converters/GLToMG/FramebufferEnumConverter.h>
+#if MOBILEGL_BACKEND == MOBILEGL_BACKEND_TYPE_DIRECT_GLES
+#include <MG_Backend/DirectGLES/DirectGLES.h>
+#endif
 
 namespace MobileGL {
     namespace MG_Impl::GLImpl {
         void BlitFramebuffer_Backend(GLint srcX0, GLint srcY0, GLint srcX1, GLint srcY1, GLint dstX0, GLint dstY0,
                                      GLint dstX1, GLint dstY1, GLbitfield mask, GLenum filter) {
-            // TODO: implement
+#if MOBILEGL_BACKEND == MOBILEGL_BACKEND_TYPE_DIRECT_GLES
+            MG_Backend::DirectGLES::BlitFramebuffer(srcX0, srcY0, srcX1, srcY1, dstX0, dstY0,
+                                     dstX1, dstY1, mask, filter);
+#endif
         }
 
         void SampleMaski_State(GLuint maskNumber, GLbitfield mask) {

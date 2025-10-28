@@ -1,7 +1,9 @@
 #include "GL_Drawing.h"
 #include <Config.h>
 #include <MG_State/GLState/Core.h>
+#if MOBILEGL_BACKEND == MOBILEGL_BACKEND_TYPE_DIRECT_GLES
 #include <MG_Backend/DirectGLES/DirectGLES.h>
+#endif
 #include <MG_Util/BackendLoaders/OpenGL/Loader.h>
 
 namespace MobileGL {

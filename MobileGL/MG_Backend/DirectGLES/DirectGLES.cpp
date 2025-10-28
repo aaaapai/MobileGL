@@ -244,6 +244,22 @@ namespace MobileGL::MG_Backend::DirectGLES {
         }
     } // namespace PrgramImpl
 
+    void BindCurrentFBO(FramebufferTarget target) {
+        const auto& currentFBO =
+                MG_State::pGLContext->GetFramebufferBindingSlot(target).GetBoundObject();
+        if (currentFBO && currentFBO != MG_Impl::GLImpl::FramebufferImpl::pDefaultFramebufferInfo->defaultFBO) {
+            const auto& backendFBOIt = FramebufferImpl::g_backendFramebufferObjects.find(currentFBO);
+            if (backendFBOIt != FramebufferImpl::g_backendFramebufferObjects.end()) {
+                backendFBOIt->second->Bind(target);
+            }
+        } else {
+            if (target == FramebufferTarget::Read)
+                MG_External::GLES::glBindFramebuffer(GL_READ_FRAMEBUFFER, 0);
+            else
+                MG_External::GLES::glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
+        }
+    }
+
     void PrepareForDraw() {
         BufferImpl::SyncNeccessaryBuffers();
         VertexArrayImpl::SyncCurrentVAO();
@@ -252,16 +268,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
         PrgramImpl::SyncCurrentProgram();
         RenderStateImpl::SyncRenderState();
 
-        const auto& currentFBO =
-            MG_State::pGLContext->GetFramebufferBindingSlot(FramebufferTarget::Draw).GetBoundObject();
-        if (currentFBO && currentFBO != MG_Impl::GLImpl::FramebufferImpl::pDefaultFramebufferInfo->defaultFBO) {
-            const auto& backendFBOIt = FramebufferImpl::g_backendFramebufferObjects.find(currentFBO);
-            if (backendFBOIt != FramebufferImpl::g_backendFramebufferObjects.end()) {
-                backendFBOIt->second->Bind();
-            }
-        } else {
-            MG_External::GLES::glBindFramebuffer(GL_FRAMEBUFFER, 0);
-        }
+        BindCurrentFBO(FramebufferTarget::Draw);
 
         const auto& currentVAO = MG_State::pGLContext->GetBoundVertexArray();
         if (currentVAO) {
@@ -342,16 +349,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
         FramebufferImpl::SyncCurrentFBO();
         RenderStateImpl::SyncRenderState();
 
-        const auto& currentFBO =
-                MG_State::pGLContext->GetFramebufferBindingSlot(FramebufferTarget::Draw).GetBoundObject();
-        if (currentFBO && currentFBO != MG_Impl::GLImpl::FramebufferImpl::pDefaultFramebufferInfo->defaultFBO) {
-            const auto& backendFBOIt = FramebufferImpl::g_backendFramebufferObjects.find(currentFBO);
-            if (backendFBOIt != FramebufferImpl::g_backendFramebufferObjects.end()) {
-                backendFBOIt->second->Bind();
-            }
-        } else {
-            MG_External::GLES::glBindFramebuffer(GL_FRAMEBUFFER, 0);
-        }
+        BindCurrentFBO(FramebufferTarget::Draw);
 
         MG_External::GLES::glClear(mask);
     }
@@ -375,5 +373,18 @@ namespace MobileGL::MG_Backend::DirectGLES {
         for (GLsizei i = 0; i < drawcount; ++i) {
             MG_External::GLES::glDrawElementsBaseVertex(mode, counts[i], type, indices[i], baseVertices[i]);
         }
+    }
+
+    void BlitFramebuffer(GLint srcX0, GLint srcY0, GLint srcX1, GLint srcY1, GLint dstX0, GLint dstY0,
+                         GLint dstX1, GLint dstY1, GLbitfield mask, GLenum filter) {
+        TextureImpl::SyncNeccessaryTextures();
+        FramebufferImpl::SyncCurrentFBO();
+        RenderStateImpl::SyncRenderState();
+
+        BindCurrentFBO(FramebufferTarget::Draw);
+        BindCurrentFBO(FramebufferTarget::Read);
+
+        MG_External::GLES::glBlitFramebuffer(srcX0, srcY0, srcX1, srcY1, dstX0, dstY0,
+                                             dstX1, dstY1, mask, filter);
     }
 } // namespace MobileGL::MG_Backend::DirectGLES
