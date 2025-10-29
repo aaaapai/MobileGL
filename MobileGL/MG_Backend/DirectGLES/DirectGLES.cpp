@@ -297,6 +297,14 @@ namespace MobileGL::MG_Backend::DirectGLES {
 
                 GLenum target = MG_Util::ConvertTextureTargetToGLEnum(textureObject->GetTarget());
                 backendTextureIt->second->Bind(target);
+
+                const auto& samplerObj = textureObject->GetSamplerObject();
+                const auto minfilter = samplerObj->GetMinFilter();
+                MG_External::GLES::glTexParameteri(target, GL_TEXTURE_MIN_FILTER, MG_Util::ConvertSamplerFilterModeToGLEnum(minfilter));
+                const auto magfilter = samplerObj->GetMagFilter();
+                MG_External::GLES::glTexParameteri(target, GL_TEXTURE_MAG_FILTER, MG_Util::ConvertSamplerFilterModeToGLEnum(magfilter));
+                MG_External::GLES::glTexParameterf(target, GL_TEXTURE_MIN_LOD, samplerObj->GetMinLod());
+                MG_External::GLES::glTexParameterf(target, GL_TEXTURE_MAX_LOD, samplerObj->GetMaxLod());
             }
         }
 
@@ -386,5 +394,9 @@ namespace MobileGL::MG_Backend::DirectGLES {
 
         MG_External::GLES::glBlitFramebuffer(srcX0, srcY0, srcX1, srcY1, dstX0, dstY0,
                                              dstX1, dstY1, mask, filter);
+    }
+
+    const GLubyte* GetString(GLenum name) {
+        return MG_External::GLES::glGetString(name);
     }
 } // namespace MobileGL::MG_Backend::DirectGLES

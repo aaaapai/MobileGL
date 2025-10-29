@@ -4,9 +4,18 @@
 #include <MG_Util/Converters/GLToStr/GLEnumConverter.h>
 #include <MG_Util/Converters/MGToGL/ErrorCodeConverter.h>
 #include <MG_Util/Converters/MGToStr/GLExtensionConverter.h>
+#if MOBILEGL_BACKEND == MOBILEGL_BACKEND_TYPE_DIRECT_GLES
+#include <MG_Backend/DirectGLES/DirectGLES.h>
+#endif
 
 namespace MobileGL {
     namespace MG_Impl::GLImpl {
+        const GLubyte* GetString_Backend(GLenum name) {
+#if MOBILEGL_BACKEND == MOBILEGL_BACKEND_TYPE_DIRECT_GLES
+            return MG_Backend::DirectGLES::GetString(name);
+#endif
+        }
+
         /* @INSERTION_POINT:FUNCTION_IMPLEMENTATION@ */
         const GLubyte* GetString(GLenum name) {
             static String vendorString;
@@ -39,9 +48,9 @@ namespace MobileGL {
 
             case GL_RENDERER: {
                 if (rendererString.empty()) {
-                    String deviceInfo;
+                    const char* backendStr = (const char*)GetString_Backend(GL_RENDER);
                     rendererString = std::format("{} ({}) ({})", MG_Config::RendererInfoPtr->RendererName.c_str(),
-                                                 MG_Config::CoreName.c_str(), deviceInfo);
+                                                 MG_Config::CoreName.c_str(), backendStr ? backendStr : "<unknown GPU>");
                 }
                 return (const GLubyte*)rendererString.c_str();
             }
@@ -118,7 +127,9 @@ namespace MobileGL {
             case GL_MAX_TEXTURE_SIZE:
                 params[0] = 1024 * 64; // TODO: get from backend
                 break;
-
+            case GL_UNIFORM_BUFFER_OFFSET_ALIGNMENT:
+                params[0] = 1; // TODO: get from backend
+                break;
                 // State
                 // TODO
 
