@@ -53,10 +53,10 @@ namespace MobileGL {
         return static_cast<std::remove_reference_t<T>&&>(t);
     }
     template <typename T>
-    inline constexpr void Copy(const T* src, T* dest, SizeT count) {
+    inline void Copy(const T* src, T* dest, SizeT count) {
         std::copy(src, src + count, dest);
     }
-    inline constexpr void Memcpy(void* dest, const void* src, SizeT size) {
+    inline void Memcpy(void* dest, const void* src, SizeT size) {
         std::memcpy(dest, src, size);
     }
     template <typename... Ts>
