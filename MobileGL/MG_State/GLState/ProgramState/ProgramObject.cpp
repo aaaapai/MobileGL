@@ -244,27 +244,35 @@ namespace MobileGL {
                 assert(binaryResult);
                 m_generatedSpirv = Move(binaryResult.value());
 
-                SpvcSession session(m_generatedSpirv[0]);
-                auto srcResult = ShaderCompiler::DecompileShader(session);
-                assert(srcResult);
-                // auto src = srcResult.value();
-                // printf("decompiled src: \n%s\n", src.c_str());
+                for (auto spv: m_generatedSpirv) {
+                    SpvcSession session(spv);
+                    auto result = session.ParseMetaData();
+                    if (result < 0) {
+                        continue;
+                    }
+                    // auto srcResult = ShaderCompiler::DecompileShader(session);
+                    // assert(srcResult);
+                    // auto src = srcResult.value();
+                    // printf("decompiled src: \n%s\n", src.c_str());
 
-                auto& meta = session.GetMetadata();
-                auto size = meta.uboSize;
-                m_uboScratch.resize(size);
-                m_uniformOffsets.resize(m_maxUniformLocation + 1);
-                for (const auto& [name, offset] : meta.plainUniformOffsetsInUBO) {
-                    if (m_uniformLocations.find(name) != m_uniformLocations.end())
-                        m_uniformOffsets[m_uniformLocations[name]] = offset;
+
+                    auto& meta = session.GetMetadata();
+                    auto size = meta.uboSize;
+                    m_uboScratch.resize(size);
+                    m_uniformOffsets.resize(m_maxUniformLocation + 1);
+                    for (const auto& [name, offset] : meta.plainUniformOffsetsInUBO) {
+                        if (m_uniformLocations.find(name) != m_uniformLocations.end())
+                            m_uniformOffsets[m_uniformLocations[name]] = offset;
+                    }
+                    m_uniformSizesInBytes.resize(m_maxUniformLocation + 1);
+                    for (const auto& [name, size] : meta.plainUniformMemberSizesInBytes) {
+                        if (m_uniformLocations.find(name) != m_uniformLocations.end())
+                            m_uniformSizesInBytes[m_uniformLocations[name]] = size;
+                    }
+                    // assert(m_uniformOffsets.size() == GetUniformCount());
+                    // assert(m_uniformSizesInBytes.size() == GetUniformCount());
+                    break;
                 }
-                m_uniformSizesInBytes.resize(m_maxUniformLocation + 1);
-                for (const auto& [name, size] : meta.plainUniformMemberSizesInBytes) {
-                    if (m_uniformLocations.find(name) != m_uniformLocations.end())
-                        m_uniformSizesInBytes[m_uniformLocations[name]] = size;
-                }
-                // assert(m_uniformOffsets.size() == GetUniformCount());
-                // assert(m_uniformSizesInBytes.size() == GetUniformCount());
             }
 
             void ProgramObject::WaitUntilGenerationCompleted() {}

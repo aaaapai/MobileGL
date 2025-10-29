@@ -77,9 +77,9 @@ namespace MobileGL {
                 const SpvcMetadata& GetMetadata() const;
                 const char* GetLastErrorString() const;
 
-            private:
                 // Should be called once, and only once, for every SPIR-V binary
                 spvc_result ParseMetaData();
+            private:
 
                 spvc_context context = nullptr;
                 spvc_parsed_ir ir = nullptr;

@@ -63,7 +63,7 @@ namespace MobileGL {
             spvc_result SpvcSession::Compile(const char** result) {
                 SPVC_CHK_INIT
                 SPVC_CHK_RESULT(spvc_compiler_compile(compiler, result));
-                SPVC_CHK_RESULT(ParseMetaData());
+                // SPVC_CHK_RESULT(ParseMetaData());
                 SPVC_CHK_RETURN
             }
 
@@ -109,9 +109,12 @@ namespace MobileGL {
                                 .matCol = matCol,
                             };
                         }
+                        SPVC_CHK_RETURN
                     }
                 }
-                SPVC_CHK_RETURN
+                // This means this spv binary does not have
+                // auto-generated UBO in it
+                return SPVC_ERROR_INVALID_SPIRV;
             }
 
             const SpvcMetadata& SpvcSession::GetMetadata() const {
