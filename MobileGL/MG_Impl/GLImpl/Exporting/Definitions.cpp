@@ -393,7 +393,7 @@ DECLARE_GL_FUNCTION_STUB_HEAD(void, GetSamplerParameterIuiv, GLuint sampler, GLe
 DECLARE_GL_FUNCTION_HEAD(void, TexBuffer, GLenum target, GLenum internalformat, GLuint buffer) DECLARE_GL_FUNCTION_END_NO_RETURN(void, TexBuffer, target, internalformat, buffer)
 DECLARE_GL_FUNCTION_STUB_HEAD(void, TexBufferRange, GLenum target, GLenum internalformat, GLuint buffer, GLintptr offset, GLsizeiptr size) DECLARE_GL_FUNCTION_STUB_END_NO_RETURN(void, TexBufferRange, target, internalformat, buffer, offset, size)
 DECLARE_GL_FUNCTION_STUB_HEAD(void, TexStorage3DMultisample, GLenum target, GLsizei samples, GLenum internalformat, GLsizei width, GLsizei height, GLsizei depth, GLboolean fixedsamplelocations) DECLARE_GL_FUNCTION_STUB_END_NO_RETURN(void, TexStorage3DMultisample, target, samples, internalformat, width, height, depth, fixedsamplelocations)
-DECLARE_GL_FUNCTION_STUB_HEAD(void*, MapBufferRange, GLenum target, GLintptr offset, GLsizeiptr length, GLbitfield access) DECLARE_GL_FUNCTION_STUB_END(void*, MapBufferRange, target, offset, length, access)
+DECLARE_GL_FUNCTION_HEAD(void*, MapBufferRange, GLenum target, GLintptr offset, GLsizeiptr length, GLbitfield access) DECLARE_GL_FUNCTION_END(void*, MapBufferRange, target, offset, length, access)
 DECLARE_GL_FUNCTION_STUB_HEAD(void, ClearIndex, GLfloat c) DECLARE_GL_FUNCTION_STUB_END_NO_RETURN(void, ClearIndex, c)
 DECLARE_GL_FUNCTION_STUB_HEAD(void, IndexMask, GLuint mask) DECLARE_GL_FUNCTION_STUB_END_NO_RETURN(void, IndexMask, mask)
 DECLARE_GL_FUNCTION_STUB_HEAD(void, AlphaFunc, GLenum func, GLclampf ref) DECLARE_GL_FUNCTION_STUB_END_NO_RETURN(void, AlphaFunc, func, ref)
