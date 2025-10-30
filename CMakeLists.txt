@@ -79,6 +79,7 @@ set(SOURCE_FILES
     MobileGL/MG_Impl/GLImpl/Buffer/Validators.cpp
     MobileGL/MG_Impl/GLImpl/Exporting/Definitions.cpp
     MobileGL/MG_Impl/GLImpl/Getter/GL_Getter.cpp
+    MobileGL/MG_Impl/GLImpl/Sync/GL_Sync.cpp
 
     MobileGL/MG_Impl/Init.cpp
 
