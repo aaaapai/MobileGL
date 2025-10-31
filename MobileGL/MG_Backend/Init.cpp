@@ -1,33 +1,15 @@
 #include "Backends.h"
+#include "MG_Util/Types.h"
 #include <Config.h>
 #include <MG_Util/BackendLoaders/OpenGL/Loader.h>
 #include <MG_Util/Converters/MGToStr/GLExtensionConverter.h>
 
 namespace MobileGL {
     namespace MG_Config {
-        // TODO: tidy this mess up
-        RendererInfo* RendererInfoPtr =
-#if MOBILEGL_BACKEND == MOBILEGL_BACKEND_DILIGENT
-            switch (MG_Config::Backend::Diligent::SpecificBackend) {
-        case MG_Backend::Diligent::SpecificBackendType::Vulkan:
-            MG_Config::RendererInfoPtr = &MG_Backend::Diligent::RendererInfoVulkan;
-            break;
-        case MG_Backend::Diligent::SpecificBackendType::Metal:
-            MG_Config::RendererInfoPtr = &MG_Backend::Diligent::RendererInfoMetal;
-            break;
-        default:
-            throw RuntimeError("Unsupported renderer type");
-        }
-#elif MOBILEGL_BACKEND == MOBILEGL_BACKEND_TYPE_DIRECT_GLES
-            &MG_Backend::DirectGLES::RendererInfo;
-#else
-            MG_Config::RendererInfoPtr = &RendererInfoUnknown;
-#endif
+        UniquePtr<RendererInfo> RendererInfoPtr = nullptr;
     } // namespace MG_Config
 
     namespace MG_Backend {
-        static RendererInfo RendererInfo;
-
         void LogBackendInfo() {
             if (MG_Config::RendererInfoPtr) {
                 MGLOG_I("MobileGL Backend Info:");
@@ -66,6 +48,23 @@ namespace MobileGL {
 
         void Init() {
             MGLOG_D("Initializing MobileGL Backend...");
+
+#if MOBILEGL_BACKEND == MOBILEGL_BACKEND_DILIGENT
+            switch (MG_Config::Backend::Diligent::SpecificBackend) {
+            case MG_Backend::Diligent::SpecificBackendType::Vulkan:
+                MG_Config::RendererInfoPtr = MakeUnique<RendererInfo>(Diligent::RendererInfoVulkan);
+                break;
+            case MG_Backend::Diligent::SpecificBackendType::Metal:
+                MG_Config::RendererInfoPtr = MakeUnique<RendererInfo>(Diligent::RendererInfoMetal);
+                break;
+            default:
+                throw RuntimeError("Unsupported renderer type");
+            }
+#elif MOBILEGL_BACKEND == MOBILEGL_BACKEND_TYPE_DIRECT_GLES
+            MG_Config::RendererInfoPtr = MakeUnique<RendererInfo>(DirectGLES::RendererInfo);
+#else
+            MG_Config::RendererInfoPtr = MakeUnique<RendererInfo>(Unknown::RendererInfoUnknown);
+#endif
 
             InitSpecificBackendLibs();
             LogBackendInfo();

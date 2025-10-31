@@ -1,5 +1,4 @@
 #pragma once
-
 #include <Includes.h>
 #include <MG_Util/GLExtensions.h>
 

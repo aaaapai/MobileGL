@@ -8,7 +8,7 @@ namespace MobileGL {
         inline const String CoreName = "MobileGL Core";
         inline const String CoreVendor = "MobileGL-Dev";
         inline const Version CoreVersion = {1, 0, 0, "-Dev"};
-        extern RendererInfo* RendererInfoPtr;
+        extern UniquePtr<RendererInfo> RendererInfoPtr;
 
         namespace Backend {
 #define MOBILEGL_BACKEND MOBILEGL_BACKEND_TYPE_DIRECT_GLES
