@@ -89,7 +89,7 @@ namespace MobileGL {
 
             if (!FramebufferImpl::ValidateFramebufferAttachmentType(attachmentType)) return;
             if (!FramebufferImpl::ValidateFramebufferTarget(framebufferTarget)) return;
-            if (!TextureImpl::ValidateTextureName(texture)) return;
+            if (!TextureImpl::ValidateTextureName(texture, true)) return;
 
             auto& bindingSlot = MG_State::pGLContext->GetFramebufferBindingSlot(framebufferTarget);
             auto framebufferObject = bindingSlot.GetBoundObject();
@@ -98,6 +98,11 @@ namespace MobileGL {
                     ErrorCode::InvalidOperation,
                     MakeShared<GenericErrorInfo>("MG_Impl/GLImpl", "FramebufferTexture2D_State",
                                                  "Framebuffer target is bound to no framebuffer object."));
+                return;
+            }
+
+            if (texture == 0) {
+                framebufferObject->Detach(attachmentType);
                 return;
             }
 
@@ -110,7 +115,7 @@ namespace MobileGL {
                 return;
             }
 
-            framebufferObject->AttachTexture(attachmentType, textureObject, level);
+            framebufferObject->AttachTexture(attachmentType, textureObject, textureObject ? level : 0);
         }
 
         void FramebufferTexture1D_State(GLenum target, GLenum attachment, GLenum textarget, GLuint texture,

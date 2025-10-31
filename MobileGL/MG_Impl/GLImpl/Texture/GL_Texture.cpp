@@ -337,7 +337,7 @@ namespace MobileGL {
 
         GLboolean IsTexture_State(GLuint texture) {
             // ======================= Processing ================================
-            if (!TextureImpl::ValidateTextureName(texture)) return GL_FALSE;
+            if (!TextureImpl::ValidateTextureName(texture, true)) return GL_FALSE;
             return MG_State::pGLContext->ValidateTextureObject(texture) ? GL_TRUE : GL_FALSE;
         }
 
