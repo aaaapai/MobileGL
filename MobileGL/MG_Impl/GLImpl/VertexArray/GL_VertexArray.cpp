@@ -107,7 +107,7 @@ namespace MobileGL {
                 return;
             }
 
-            if (!VertexArrayImpl::ValidateVertexArrayName(array, true)) return;
+            if (!VertexArrayImpl::ValidateVertexArrayName(array)) return;
 
             if (!MG_State::pGLContext->ValidateVertexArrayObject(array)) {
                 MG_State::pGLContext->CreateVertexArrayObject(array);
@@ -128,7 +128,7 @@ namespace MobileGL {
                 GLuint vao = arrays[i];
                 if (vao == 0) continue;
 
-                if (!VertexArrayImpl::ValidateVertexArrayName(vao, true)) continue;
+                if (!VertexArrayImpl::ValidateVertexArrayName(vao)) continue;
 
                 if (MG_State::pGLContext->GetBoundVertexArray() &&
                     MG_State::pGLContext->GetBoundVertexArray() == MG_State::pGLContext->GetVertexArrayObject(vao)) {
