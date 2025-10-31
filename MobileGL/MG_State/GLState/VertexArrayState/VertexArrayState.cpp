@@ -3,7 +3,14 @@
 namespace MobileGL {
     namespace MG_State {
         namespace GLState {
-            VertexArrayState::VertexArrayState() : m_indexGenerator(1024, 1) {}
+            VertexArrayState::VertexArrayState() : m_indexGenerator(1024, 1) {
+                // Generate default VAO at index 0, which is not valid in core profile, but still remains for
+                // compatibility reasons.
+                m_indexGenerator.Insert(0);
+                auto defaultVAO = MakeShared<VertexArrayObject>();
+                m_vertexArrays.push_back(defaultVAO);
+                m_boundVertexArray = defaultVAO;
+            }
 
             SharedPtr<VertexArrayObject> VertexArrayState::GetVertexArrayObject(Uint index) {
                 if (index >= m_vertexArrays.size())
@@ -20,12 +27,6 @@ namespace MobileGL {
             }
 
             void VertexArrayState::Bind(Uint index) {
-                if (index == 0) {
-                    // FIXME: should we make a dummy VAO at index 0?
-                    m_boundVertexArray = nullptr;
-                    return;
-                }
-
                 m_boundVertexArray = GetVertexArrayObject(index);
             }
 
