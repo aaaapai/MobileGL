@@ -49,8 +49,9 @@ namespace MobileGL {
             case GL_RENDERER: {
                 if (rendererString.empty()) {
                     const char* backendStr = (const char*)GetString_Backend(GL_RENDER);
-                    rendererString = std::format("{} ({}) ({})", MG_Config::RendererInfoPtr->RendererName.c_str(),
-                                                 MG_Config::CoreName.c_str(), backendStr ? backendStr : "<unknown GPU>");
+                    rendererString =
+                        std::format("{} ({}) ({})", MG_Config::RendererInfoPtr->RendererName.c_str(),
+                                    MG_Config::CoreName.c_str(), backendStr ? backendStr : "<unknown GPU>");
                 }
                 return (const GLubyte*)rendererString.c_str();
             }

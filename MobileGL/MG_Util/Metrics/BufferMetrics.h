@@ -1,10 +1,4 @@
-//
-// Created by Swung0x48 on 2025/8/22.
-//
-
-#ifndef BUFFERMETRICS_H
-#define BUFFERMETRICS_H
-
+#pragma once
 #include <Includes.h>
 
 namespace MobileGL {
@@ -12,5 +6,3 @@ namespace MobileGL {
         SizeT GetGLTypeSize(GLenum type);
     }
 } // namespace MobileGL
-
-#endif // BUFFERMETRICS_H

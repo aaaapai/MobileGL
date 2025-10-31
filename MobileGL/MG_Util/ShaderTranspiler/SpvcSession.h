@@ -79,8 +79,8 @@ namespace MobileGL {
 
                 // Should be called once, and only once, for every SPIR-V binary
                 spvc_result ParseMetaData();
-            private:
 
+            private:
                 spvc_context context = nullptr;
                 spvc_parsed_ir ir = nullptr;
                 spvc_compiler compiler = nullptr;

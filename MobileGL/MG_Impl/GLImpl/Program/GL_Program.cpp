@@ -1,7 +1,8 @@
 #include "GL_Program.h"
-
-#include "MG_State/GLState/Core.h"
-#include "MG_Util/Converters/SPIRVCrossToGL/SpvcTypeConverter.h"
+#include <MG_State/GLState/Core.h>
+#include <MG_Util/Converters/GLToMG/ProgramEnumConverter.h>
+#include <MG_Util/Converters/MGToGL/ProgramEnumConverter.h>
+#include <MG_Util/Converters/SPIRVCrossToGL/SpvcTypeConverter.h>
 
 namespace MobileGL {
     namespace MG_Impl::GLImpl {
@@ -111,8 +112,7 @@ namespace MobileGL {
         }
 
         GLuint CreateShader_State(GLenum type) {
-            auto shaderId =
-                MG_State::pGLContext->CreateShader(MG_State::GLState::ConvertMGLShaderStageByGLShaderType(type));
+            auto shaderId = MG_State::pGLContext->CreateShader(MG_Util::ConvertGLEnumToShaderStage(type));
             if (shaderId == 0) {
                 MG_State::pGLContext->RecordError(
                     ErrorCode::InvalidValue,
@@ -300,7 +300,7 @@ namespace MobileGL {
 
             switch (pname) {
             case GL_SHADER_TYPE:
-                *params = ConvertGLShaderTypeByMGLShaderStage(shaderObject->GetShaderStage());
+                *params = MG_Util::ConvertShaderStageToGLEnum(shaderObject->GetShaderStage());
                 break;
             case GL_DELETE_STATUS:
                 *params = shaderObject->GetDeleteStatus();

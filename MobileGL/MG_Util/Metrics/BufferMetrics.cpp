@@ -1,7 +1,3 @@
-//
-// Created by Swung0x48 on 2025/8/22.
-//
-
 #include "BufferMetrics.h"
 
 namespace MobileGL {

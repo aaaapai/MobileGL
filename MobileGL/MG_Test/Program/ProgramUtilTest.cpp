@@ -1,14 +1,11 @@
-//
-// Created by Swung 0x48 on 2025/7/17.
-//
 #include <gtest/gtest.h>
 
 #include "Includes.h"
 #include <MG_Util/Converters/GLToStr/GLEnumConverter.h>
 #include <MG_Util/ShaderTranspiler/ShaderCompiler.h>
 #include <MG_Util/ShaderTranspiler/Types.h>
+#include <MG_Util/ShaderTranspiler/glslang/UniformTraverser.h>
 
-#include "MG_Util/ShaderTranspiler/glslang/UniformTraverser.h"
 using namespace MobileGL;
 
 class ProgramUtilTest : public ::testing::Test {

@@ -688,4 +688,3 @@ TEST_F(ProgramTest, MinecraftBlitScreenLightmap) {
     auto programObject = MG_State::pGLContext->GetCurrentProgram();
     ASSERT_GT(programObject->GetUBOSize(), 0);
 }
-

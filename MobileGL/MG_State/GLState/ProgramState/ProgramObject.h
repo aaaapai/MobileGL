@@ -25,8 +25,7 @@ namespace MobileGL {
                 Uint GetMaxUniformLocation() const { return m_maxUniformLocation; }
                 Int GetUniformLocation(const String& name) {
                     const auto it = m_uniformLocations.find(name);
-                    if (it == m_uniformLocations.end())
-                        return -1;
+                    if (it == m_uniformLocations.end()) return -1;
                     return (Int)it->second;
                 }
 
@@ -40,9 +39,7 @@ namespace MobileGL {
                     return uniform.getType();
                 }
 
-                Bool IsUniformOpaqueAtLocation(Uint location) const {
-                    return GetUniformTType(location)->isOpaque();
-                }
+                Bool IsUniformOpaqueAtLocation(Uint location) const { return GetUniformTType(location)->isOpaque(); }
 
                 const String& GetUniformName(Uint location) const {
                     auto& uniform = m_program->getUniform(m_uniformIndexInTProgram[location]);
@@ -85,9 +82,6 @@ namespace MobileGL {
                 void DoReflection();
                 void GenerateBinary();
                 void WaitUntilGenerationCompleted();
-                // void PreLink();
-                // void PostLink();
-
                 const Uint m_id = 0;
                 Vector<SharedPtr<ShaderObject>> m_shaders;
 
@@ -101,8 +95,6 @@ namespace MobileGL {
                 Vector<GLenum> m_attribTypes;
 
                 // Uniforms
-                // MG_Util::ShaderTranspiler::SpvcMetadata m_metadata;
-
                 UnorderedMap<String, Uint> m_uniformLocations;
                 // Ordered by location,
                 // aka. m_uniformIndexInTProgram[loc] == "uniform index of TProgram at location `loc`"

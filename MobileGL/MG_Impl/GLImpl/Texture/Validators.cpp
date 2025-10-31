@@ -210,7 +210,7 @@ namespace MobileGL::MG_Impl::GLImpl {
                  internalFormat != TextureInternalFormat::DepthComponent24 &&
                  internalFormat != TextureInternalFormat::DepthComponent32F &&
                  internalFormat != TextureInternalFormat::DepthComponent32 // workaround for Minecraft 1.21.5+
-             )) {
+                 )) {
                 MG_State::pGLContext->RecordError(
                     ErrorCode::InvalidOperation,
                     MakeShared<GenericErrorInfo>("MG_Impl/GLImpl", "ValidateTextureFormatWithType",

@@ -1,10 +1,5 @@
-//
-// Created by Swung0x48 on 2025/8/14.
-//
-
 #include "SpvcTypeConverter.h"
-
-#include "MG_Util/ShaderTranspiler/SpvcSession.h"
+#include <MG_Util/ShaderTranspiler/SpvcSession.h>
 
 namespace MobileGL {
     namespace MG_Util {

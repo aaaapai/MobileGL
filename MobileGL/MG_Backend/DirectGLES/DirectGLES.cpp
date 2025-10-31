@@ -245,8 +245,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
     } // namespace PrgramImpl
 
     void BindCurrentFBO(FramebufferTarget target) {
-        const auto& currentFBO =
-                MG_State::pGLContext->GetFramebufferBindingSlot(target).GetBoundObject();
+        const auto& currentFBO = MG_State::pGLContext->GetFramebufferBindingSlot(target).GetBoundObject();
         if (currentFBO && currentFBO != MG_Impl::GLImpl::FramebufferImpl::pDefaultFramebufferInfo->defaultFBO) {
             const auto& backendFBOIt = FramebufferImpl::g_backendFramebufferObjects.find(currentFBO);
             if (backendFBOIt != FramebufferImpl::g_backendFramebufferObjects.end()) {
@@ -300,9 +299,11 @@ namespace MobileGL::MG_Backend::DirectGLES {
 
                 const auto& samplerObj = textureObject->GetSamplerObject();
                 const auto minfilter = samplerObj->GetMinFilter();
-                MG_External::GLES::glTexParameteri(target, GL_TEXTURE_MIN_FILTER, MG_Util::ConvertSamplerFilterModeToGLEnum(minfilter));
+                MG_External::GLES::glTexParameteri(target, GL_TEXTURE_MIN_FILTER,
+                                                   MG_Util::ConvertSamplerFilterModeToGLEnum(minfilter));
                 const auto magfilter = samplerObj->GetMagFilter();
-                MG_External::GLES::glTexParameteri(target, GL_TEXTURE_MAG_FILTER, MG_Util::ConvertSamplerFilterModeToGLEnum(magfilter));
+                MG_External::GLES::glTexParameteri(target, GL_TEXTURE_MAG_FILTER,
+                                                   MG_Util::ConvertSamplerFilterModeToGLEnum(magfilter));
                 MG_External::GLES::glTexParameterf(target, GL_TEXTURE_MIN_LOD, samplerObj->GetMinLod());
                 MG_External::GLES::glTexParameterf(target, GL_TEXTURE_MAX_LOD, samplerObj->GetMaxLod());
             }
@@ -322,11 +323,11 @@ namespace MobileGL::MG_Backend::DirectGLES {
                                                    currentProgram->MapUBO());
                 MG_External::GLES::glBindBuffer(GL_UNIFORM_BUFFER, 0);
 
-                Uint blockIndex = MG_External::GLES::glGetUniformBlockIndex(backendProgramIt->second->GetBackendProgramId(),
-                                                          MG_Util::ShaderTranspiler::GLOBAL_UBO_NAME);
+                Uint blockIndex = MG_External::GLES::glGetUniformBlockIndex(
+                    backendProgramIt->second->GetBackendProgramId(), MG_Util::ShaderTranspiler::GLOBAL_UBO_NAME);
 
-                MG_External::GLES::glUniformBlockBinding(
-                        backendProgramIt->second->GetBackendProgramId(), blockIndex, 0);
+                MG_External::GLES::glUniformBlockBinding(backendProgramIt->second->GetBackendProgramId(), blockIndex,
+                                                         0);
 
                 MG_External::GLES::glBindBufferBase(GL_UNIFORM_BUFFER, 0,
                                                     backendProgramIt->second->GetBackendGlobalUBOId());
@@ -335,10 +336,10 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 auto maxUniformLoc = currentProgram->GetMaxUniformLocation();
                 for (int loc = 0; loc < maxUniformLoc; ++loc) {
                     auto unit = currentProgram->GetUniformSamplerOrImageUnitIndex(loc);
-                    if (unit == -1)
-                        continue;
+                    if (unit == -1) continue;
                     auto& name = currentProgram->GetUniformName(loc);
-                    auto locAtBackend = MG_External::GLES::glGetUniformLocation(backendProgramIt->second->GetBackendProgramId(), name.c_str());
+                    auto locAtBackend = MG_External::GLES::glGetUniformLocation(
+                        backendProgramIt->second->GetBackendProgramId(), name.c_str());
                     MG_External::GLES::glUniform1i(locAtBackend, unit);
                 }
             } else {
@@ -383,8 +384,8 @@ namespace MobileGL::MG_Backend::DirectGLES {
         }
     }
 
-    void BlitFramebuffer(GLint srcX0, GLint srcY0, GLint srcX1, GLint srcY1, GLint dstX0, GLint dstY0,
-                         GLint dstX1, GLint dstY1, GLbitfield mask, GLenum filter) {
+    void BlitFramebuffer(GLint srcX0, GLint srcY0, GLint srcX1, GLint srcY1, GLint dstX0, GLint dstY0, GLint dstX1,
+                         GLint dstY1, GLbitfield mask, GLenum filter) {
         TextureImpl::SyncNeccessaryTextures();
         FramebufferImpl::SyncCurrentFBO();
         RenderStateImpl::SyncRenderState();
@@ -392,8 +393,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
         BindCurrentFBO(FramebufferTarget::Draw);
         BindCurrentFBO(FramebufferTarget::Read);
 
-        MG_External::GLES::glBlitFramebuffer(srcX0, srcY0, srcX1, srcY1, dstX0, dstY0,
-                                             dstX1, dstY1, mask, filter);
+        MG_External::GLES::glBlitFramebuffer(srcX0, srcY0, srcX1, srcY1, dstX0, dstY0, dstX1, dstY1, mask, filter);
     }
 
     const GLubyte* GetString(GLenum name) {

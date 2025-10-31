@@ -1,10 +1,4 @@
-//
-// Created by Swung 0x48 on 2025/7/20.
-//
-
-#ifndef MOBILEGL_UNIFORMTRAVERSER_H
-#define MOBILEGL_UNIFORMTRAVERSER_H
-
+#pragma once
 #include "Includes.h"
 
 namespace MobileGL {
@@ -21,5 +15,3 @@ namespace MobileGL {
         } // namespace ShaderTranspiler
     } // namespace MG_Util
 } // namespace MobileGL
-
-#endif // MOBILEGL_UNIFORMTRAVERSER_H

@@ -9,6 +9,7 @@
 #include <MG_Util/Converters/MGToGL/DataTypeConverter.h>
 #include <MG_Util/Converters/MGToGL/BufferEnumConverter.h>
 #include <MG_Util/Converters/MGToGL/TextureEnumConverter.h>
+#include <MG_Util/Converters/MGToGL/ProgramEnumConverter.h>
 #include <MG_Util/Converters/MGToGL/FramebufferEnumConverter.h>
 #include <MG_State/GLState/FramebufferState/FramebufferObject.h>
 
@@ -111,8 +112,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 (invalidate ? GL_MAP_INVALIDATE_BUFFER_BIT : 0) | GL_MAP_WRITE_BIT | GL_MAP_UNSYNCHRONIZED_BIT);
             const void* data = stateBufferObject->GetDataReadOnly()->data();
             if (mappedData) {
-                Memcpy(mappedData, ((const char*)(data) + range.start),
-                       range.end - range.start);
+                Memcpy(mappedData, ((const char*)(data) + range.start), range.end - range.start);
                 MGLOG_D("Mapped buffer data successfully for object with ID: %u", m_backendBufferId);
                 MG_External::GLES::glUnmapBuffer(TempBufferTarget);
             } else {
@@ -152,7 +152,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 return;
             }
 
-            MGLOG_D("Syncing VAO object with ID: %u to backend for state: 0x%p", m_backendVAOId, stateVAOObject.get());
+            MGLOG_D("Syncing VAO object with ID: %u to backend for state: %p", m_backendVAOId, stateVAOObject.get());
 
             BufferImpl::BackendBufferBindingProtector backendBufferBindingProtector(BufferImpl::TempBufferTarget);
             BackendVertexArrayBindingProtector backendVAOBindingProtector;
@@ -179,13 +179,12 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 MG_External::GLES::glEnableVertexAttribArray(attribIndex);
                 if (!attrib.IsInteger) {
                     MG_External::GLES::glVertexAttribPointer(
-                            attribIndex, attrib.Size, MG_Util::ConvertDataTypeToGLEnum(attrib.Type),
-                            attrib.Normalized ? GL_TRUE : GL_FALSE,
-                            attrib.Stride, (const void *)attrib.Offset);
+                        attribIndex, attrib.Size, MG_Util::ConvertDataTypeToGLEnum(attrib.Type),
+                        attrib.Normalized ? GL_TRUE : GL_FALSE, attrib.Stride, (const void*)attrib.Offset);
                 } else {
-                    MG_External::GLES::glVertexAttribIPointer(
-                            attribIndex, attrib.Size, MG_Util::ConvertDataTypeToGLEnum(attrib.Type),
-                            attrib.Stride, (const void *)attrib.Offset);
+                    MG_External::GLES::glVertexAttribIPointer(attribIndex, attrib.Size,
+                                                              MG_Util::ConvertDataTypeToGLEnum(attrib.Type),
+                                                              attrib.Stride, (const void*)attrib.Offset);
                 }
 
                 // TODO: divisor
@@ -234,7 +233,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 return;
             }
 
-            MGLOG_D("Syncing texture object with ID: %u to backend for state: 0x%p", m_backendTextureId,
+            MGLOG_D("Syncing texture object with ID: %u to backend for state: %p", m_backendTextureId,
                     stateTextureObject.get());
 
             GLenum target = MG_Util::ConvertTextureTargetToGLEnum(stateTextureObject->GetTarget());
@@ -356,7 +355,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 return;
             }
 
-            MGLOG_D("Syncing FBO object with ID: %u to backend for state: 0x%p", m_backendFBOId, stateFBOObject.get());
+            MGLOG_D("Syncing FBO object with ID: %u to backend for state: %p", m_backendFBOId, stateFBOObject.get());
 
             BackendFramebufferBindingProtector backendFBOBindingProtector(GL_FRAMEBUFFER);
             // TODO: do i really need to bind here?
@@ -425,11 +424,11 @@ namespace MobileGL::MG_Backend::DirectGLES {
             }
 
             if (!stateProgramObject->GetLinkStatus()) {
-                MGLOG_E("Program object is not linked, skipping backend sync. Program: 0x%p", stateProgramObject.get());
+                MGLOG_E("Program object is not linked, skipping backend sync. Program: %p", stateProgramObject.get());
                 return;
             }
 
-            MGLOG_D("Syncing program to backend. State program: 0x%p, Backend ID: 0x%p", stateProgramObject.get(),
+            MGLOG_D("Syncing program to backend. State program: %p, Backend ID: %p", stateProgramObject.get(),
                     m_backendProgramId);
 
             // Detach all existing shaders
@@ -457,7 +456,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
 
             for (int index = 0; index < attachedShaders.size(); ++index) {
                 auto& shader = attachedShaders[index];
-                GLenum glShaderType = MG_State::GLState::ConvertGLShaderTypeByMGLShaderStage(shader->GetShaderStage());
+                GLenum glShaderType = MG_Util::ConvertShaderStageToGLEnum(shader->GetShaderStage());
                 GLuint backendShaderId = MG_External::GLES::glCreateShader(glShaderType);
 
                 if (backendShaderId == 0) {

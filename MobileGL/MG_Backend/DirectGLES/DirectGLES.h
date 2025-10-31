@@ -14,7 +14,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
                            GLsizei drawcount);
     void MultiDrawElementsBaseVertex(GLenum mode, const GLsizei* count, GLenum type, const GLvoid* const* indices,
                                      GLsizei drawcount, const GLint* basevertex);
-    void BlitFramebuffer(GLint srcX0, GLint srcY0, GLint srcX1, GLint srcY1, GLint dstX0, GLint dstY0,
-                                 GLint dstX1, GLint dstY1, GLbitfield mask, GLenum filter);
+    void BlitFramebuffer(GLint srcX0, GLint srcY0, GLint srcX1, GLint srcY1, GLint dstX0, GLint dstY0, GLint dstX1,
+                         GLint dstY1, GLbitfield mask, GLenum filter);
     const GLubyte* GetString(GLenum name);
 } // namespace MobileGL::MG_Backend::DirectGLES

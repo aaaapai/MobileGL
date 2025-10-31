@@ -38,18 +38,20 @@ set(SOURCE_FILES
     MobileGL/MG_Util/Converters/MGToStr/BufferEnumConverter.cpp
     MobileGL/MG_Util/Converters/MGToStr/FramebufferEnumConverter.cpp
     MobileGL/MG_Util/Converters/MGToStr/TextureEnumConverter.cpp
-    MobileGL/MG_Util/Converters/GLToGlslang/GLShaderLangConverter.cpp
+    MobileGL/MG_Util/Converters/GLToGlslang/ProgramEnumConverter.cpp
     MobileGL/MG_Util/Converters/MGToGL/ErrorCodeConverter.cpp
     MobileGL/MG_Util/Converters/MGToGL/BufferEnumConverter.cpp
     MobileGL/MG_Util/Converters/MGToGL/FramebufferEnumConverter.cpp
     MobileGL/MG_Util/Converters/MGToGL/TextureEnumConverter.cpp
     MobileGL/MG_Util/Converters/MGToGL/DataTypeConverter.cpp
     MobileGL/MG_Util/Converters/MGToGL/RenderStateEnumConverter.cpp
+    MobileGL/MG_Util/Converters/MGToGL/ProgramEnumConverter.cpp
     MobileGL/MG_Util/Converters/GLToMG/BufferEnumConverter.cpp
     MobileGL/MG_Util/Converters/GLToMG/FramebufferEnumConverter.cpp
     MobileGL/MG_Util/Converters/GLToMG/TextureEnumConverter.cpp
     MobileGL/MG_Util/Converters/GLToMG/DataTypeConverter.cpp
     MobileGL/MG_Util/Converters/GLToMG/RenderStateEnumConverter.cpp
+    MobileGL/MG_Util/Converters/GLToMG/ProgramEnumConverter.cpp
     MobileGL/MG_Util/Converters/MGToMG/TextureEnumConverter.cpp
 
     MobileGL/MG_Util/ShaderTranspiler/ShaderCompiler.cpp

@@ -1,6 +1,6 @@
 #include "ShaderCompiler.h"
 #include <MG_Util/Converters/GLToStr/GLEnumConverter.h>
-#include <MG_Util/Converters/GLToGlslang/GLShaderLangConverter.h>
+#include <MG_Util/Converters/GLToGlslang/ProgramEnumConverter.h>
 
 namespace MobileGL {
     namespace MG_Util {
@@ -117,7 +117,7 @@ namespace MobileGL {
                 auto shaderType = attrib.shaderType;
                 auto& sourceStr = attrib.sourceStr;
 
-                auto lang = GetEShLanguageByShaderType(shaderType);
+                auto lang = MG_Util::ConvertGLEnumToEShLanguage(shaderType);
                 if (lang == EShLanguage::EShLangCount) {
                     ResultInfo r;
                     r.log += "Error: [Preprocess] Unsupported shader type: " + ConvertGLEnumToString(shaderType);
