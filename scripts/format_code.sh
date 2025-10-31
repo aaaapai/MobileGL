@@ -107,15 +107,32 @@ ARROW="╰─>"; SIMPLE_ARROW="─>"
 
 draw_progress() {
     local current=$1 total=$2 width=36
+
     local percent=0
     if [ "$total" -gt 0 ]; then
-        percent=$(( current * 100 / total ))
+        percent=$(( (current * 100 + total/2) / total ))
+        if [ "$percent" -gt 100 ]; then percent=100; fi
     fi
-    local filled=$(( percent * width / 100 ))
+
+    local filled=0
+    if [ "$total" -gt 0 ]; then
+        filled=$(( (current * width + total - 1) / total ))
+    fi
+    if [ "$filled" -gt "$width" ]; then filled=$width; fi
+    if [ "$filled" -lt 0 ]; then filled=0; fi
+
     local empty=$(( width - filled ))
-    local bar
-    bar="$(printf '%0.s█' $(seq 1 $filled) 2>/dev/null)$(printf '%0.s░' $(seq 1 $empty) 2>/dev/null)"
-    printf "\r%s [%3d/%3d] %3d%% |%s| " "${CYAN}${BOLD}Progress${RESET}" "$current" "$total" "$percent" "$bar"
+
+    local bar_filled=""
+    local bar_empty=""
+    if [ "$filled" -gt 0 ]; then
+        bar_filled="$(printf '%0.s█' $(seq 1 "$filled") 2>/dev/null || true)"
+    fi
+    if [ "$empty" -gt 0 ]; then
+        bar_empty="$(printf '%0.s░' $(seq 1 "$empty") 2>/dev/null || true)"
+    fi
+
+    printf "\r%s [%3d/%3d] %3d%% |%s%s| " "${CYAN}${BOLD}Progress${RESET}" "$current" "$total" "$percent" "$bar_filled" "$bar_empty"
 }
 
 processed=0
