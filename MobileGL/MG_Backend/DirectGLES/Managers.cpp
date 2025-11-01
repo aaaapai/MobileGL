@@ -162,6 +162,14 @@ namespace MobileGL::MG_Backend::DirectGLES {
 
             for (const auto& attribIndex : stateVAOObject->GetDirtyAttributeIndices()) {
                 const auto& attrib = stateVAOObject->GetAttribute(attribIndex);
+                if (attrib.Enabled) {
+                    MGLOG_D("Binding attribute index %u for VAO ID: %u", attribIndex, m_backendVAOId);
+                    MG_External::GLES::glEnableVertexAttribArray(attribIndex);
+                } else {
+                    MGLOG_D("Disabling attribute index %u for VAO ID: %u", attribIndex, m_backendVAOId);
+                    MG_External::GLES::glDisableVertexAttribArray(attribIndex);
+                    continue;
+                }
 
                 const auto& bufferObject = attrib.Buffer;
                 if (!bufferObject) {
@@ -177,7 +185,6 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 const auto& backendBufferObject = backendBufferIt->second;
 
                 backendBufferObject->Bind(GL_ARRAY_BUFFER);
-                MG_External::GLES::glEnableVertexAttribArray(attribIndex);
                 if (!attrib.IsInteger) {
                     MG_External::GLES::glVertexAttribPointer(
                         attribIndex, attrib.Size, MG_Util::ConvertDataTypeToGLEnum(attrib.Type),

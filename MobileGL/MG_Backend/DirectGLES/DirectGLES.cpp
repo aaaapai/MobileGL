@@ -23,6 +23,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
             }
 
             for (const auto& attrib : currentVAOObject->GetAllAttributes()) {
+                if (!attrib.Enabled) return;
                 const auto& bufferObject = attrib.Buffer;
                 if (bufferObject) {
                     buffersToSync.push_back(bufferObject);
