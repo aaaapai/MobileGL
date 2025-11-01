@@ -300,7 +300,34 @@ namespace MobileGL::MG_Backend::DirectGLES {
                         target, GL_TEXTURE_WRAP_T, MG_Util::ConvertSamplerWrapModeToGLEnum(samplerObject->GetWrapT()));
                     MG_External::GLES::glTexParameteri(
                         target, GL_TEXTURE_WRAP_R, MG_Util::ConvertSamplerWrapModeToGLEnum(samplerObject->GetWrapR()));
+                    MG_External::GLES::glTexParameteri(target, GL_TEXTURE_MIN_LOD, samplerObject->GetMinLod());
+                    MG_External::GLES::glTexParameteri(target, GL_TEXTURE_MAX_LOD, samplerObject->GetMaxLod());
+                    MG_External::GLES::glTexParameteri(
+                        target, GL_TEXTURE_COMPARE_FUNC,
+                        MG_Util::ConvertSamplerCompareFuncToGLEnum(samplerObject->GetSamplerCompareFunc()));
+                    MG_External::GLES::glTexParameteri(
+                        target, GL_TEXTURE_COMPARE_MODE,
+                        MG_Util::ConvertSamplerCompareModeToGLEnum(samplerObject->GetCompareMode()));
                 }
+            }
+
+            { // Update texture parameters
+                const auto& levelRange = stateTextureObject->GetLevelRange();
+                MG_External::GLES::glTexParameteri(target, GL_TEXTURE_BASE_LEVEL, static_cast<GLint>(levelRange.x()));
+                MG_External::GLES::glTexParameteri(target, GL_TEXTURE_MAX_LEVEL, static_cast<GLint>(levelRange.y()));
+                GLenum swizzleParams[4] = {MG_Util::ConvertTextureSwizzleParamToGLEnum(
+                                               stateTextureObject->GetSwizzleParam(TextureSwizzleParam::Red)),
+                                           MG_Util::ConvertTextureSwizzleParamToGLEnum(
+                                               stateTextureObject->GetSwizzleParam(TextureSwizzleParam::Green)),
+                                           MG_Util::ConvertTextureSwizzleParamToGLEnum(
+                                               stateTextureObject->GetSwizzleParam(TextureSwizzleParam::Blue)),
+                                           MG_Util::ConvertTextureSwizzleParamToGLEnum(
+                                               stateTextureObject->GetSwizzleParam(TextureSwizzleParam::Alpha))};
+                MG_External::GLES::glTexParameteriv(target, GL_TEXTURE_SWIZZLE_RGBA,
+                                                    reinterpret_cast<GLint*>(swizzleParams));
+                const auto& borderColor = stateTextureObject->GetBorderColor();
+                GLfloat borderColorArray[4] = {borderColor.x(), borderColor.y(), borderColor.z(), borderColor.w()};
+                MG_External::GLES::glTexParameterfv(target, GL_TEXTURE_BORDER_COLOR, borderColorArray);
             }
 
             { // Update all dirty mipmap levels
