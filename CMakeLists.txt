@@ -60,6 +60,8 @@ set(SOURCE_FILES
 
     MobileGL/MG_Util/BackendLoaders/OpenGL/Loader.cpp
 
+    MobileGL/MG_Util/Texture/PixelStoreProcessor.cpp
+
     MobileGL/MG_Impl/GLXImpl/Exporting/Definitions.cpp
     MobileGL/MG_Impl/GLXImpl/LookUp/LookUp.cpp
 

@@ -59,6 +59,9 @@ namespace MobileGL {
     inline void Memcpy(void* dest, const void* src, SizeT size) {
         std::memcpy(dest, src, size);
     }
+    inline void Memset(void* dest, Int value, SizeT size) {
+        std::memset(dest, value, size);
+    }
     template <typename... Ts>
     constexpr auto ToArray(Ts&&... elems) {
         using E = std::common_type_t<Ts...>;

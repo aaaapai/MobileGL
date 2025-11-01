@@ -192,19 +192,6 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 MG_External::GLES::glClearDepthf(MG_State::pGLContext->GetClearDepth());
             }
 
-            { // Pixel store params
-                {
-                    PixelStoreParam p = PixelStoreParam::UnpackAlignment;
-                    GLint v = MG_State::pGLContext->GetPixelStoreParam(p);
-                    MG_External::GLES::glPixelStorei(MG_Util::ConvertPixelStoreParamToGLEnum(p), v);
-                }
-                {
-                    PixelStoreParam p = PixelStoreParam::PackAlignment;
-                    GLint v = MG_State::pGLContext->GetPixelStoreParam(p);
-                    MG_External::GLES::glPixelStorei(MG_Util::ConvertPixelStoreParamToGLEnum(p), v);
-                }
-            }
-
             { // Cull face mode
                 CullFaceMode cfm = MG_State::pGLContext->GetCullFaceMode();
                 MG_External::GLES::glCullFace(MG_Util::ConvertCullFaceModeToGLEnum(cfm));

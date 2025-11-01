@@ -90,6 +90,7 @@ namespace MobileGL {
                 Float GetClearDepth() const;
                 void SetPixelStoreParam(PixelStoreParam param, Int value);
                 Int GetPixelStoreParam(PixelStoreParam param) const;
+                PixelStoreParameters GetPixelStoreParameters(Bool isUnpack) const;
                 void SetCullFaceMode(CullFaceMode mode);
                 CullFaceMode GetCullFaceMode() const;
                 void SetScissorBox(IntVec4 box);      // x, y, width, height

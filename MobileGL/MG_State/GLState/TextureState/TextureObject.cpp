@@ -58,8 +58,10 @@ namespace MobileGL {
             }
 
             MipmapLevelInternal& TextureObjectBase::GetMipmap(Int index) {
-                if (index > m_mipmaps.size()) {
-                    // fallback to the last mipmap
+                if (index >= m_mipmaps.size()) {
+                    MGLOG_F("TextureObjectBase::GetMipmap: Requested mipmap level %d exceeds available levels %zu",
+                            index, m_mipmaps.size());
+                    assert(false && "Requested mipmap level exceeds available levels");
                     index = static_cast<Int>(m_mipmaps.size() - 1);
                 }
                 return m_mipmaps[index];
@@ -145,7 +147,7 @@ namespace MobileGL {
 
             void TextureObject1D::SetMipmapImpl(const MipmapLevelInput& level) {
                 if (level.size.x() > 0) {
-                    m_mipmaps.push_back(level);
+                    m_mipmaps.push_back(MipmapLevelInternal(level));
                 }
             }
 
@@ -155,7 +157,7 @@ namespace MobileGL {
 
             void TextureObject2D::SetMipmapImpl(const MipmapLevelInput& level) {
                 if (level.size.x() > 0 && level.size.y() > 0) {
-                    m_mipmaps.push_back(level);
+                    m_mipmaps.push_back(MipmapLevelInternal(level));
                 }
             }
 
@@ -165,7 +167,7 @@ namespace MobileGL {
 
             void TextureObject3D::SetMipmapImpl(const MipmapLevelInput& level) {
                 if (level.size.x() > 0 && level.size.y() > 0 && level.size.z() > 0) {
-                    m_mipmaps.push_back(level);
+                    m_mipmaps.push_back(MipmapLevelInternal(level));
                 }
             }
 

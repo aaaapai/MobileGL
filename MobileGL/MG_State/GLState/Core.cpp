@@ -285,6 +285,10 @@ namespace MobileGL {
                 return m_renderState.GetPixelStoreParam(param);
             }
 
+            PixelStoreParameters GLContext::GetPixelStoreParameters(Bool isUnpack) const {
+                return m_renderState.GetPixelStoreParameters(isUnpack);
+            }
+
             void GLContext::SetCullFaceMode(CullFaceMode mode) {
                 m_renderState.SetCullFaceMode(mode);
             }
