@@ -99,7 +99,7 @@ namespace MobileGL {
             for (GLsizei y = 0; y < height; y++) {
                 const SizeT destRowOffset = (yoffset + y) * destRowSize + xoffset * bytesPerPixel;
                 const SizeT srcRowOffset = y * srcRowSize;
-                MGLOG_I("memcpy params: dst: %p, src: %p, size: %zu", destData + destRowOffset, srcData + srcRowOffset,
+                MGLOG_D("memcpy params: dst: %p, src: %p, size: %zu", destData + destRowOffset, srcData + srcRowOffset,
                         srcRowSize);
                 Memcpy(destData + destRowOffset, srcData + srcRowOffset, srcRowSize);
             }
