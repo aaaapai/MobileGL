@@ -42,13 +42,14 @@ namespace MobileGL::MG_Backend::DirectGLES {
                     stateBufferObject.get());
 
             Bool needsRegeneration =
-                !m_isInitialized || bufferSize > m_prevBufferSize || bufferSize > m_prevBufferSize * 2;
+                !m_isInitialized || bufferSize > m_prevBufferSize || bufferSize < m_prevBufferSize / 2;
 
             if (needsRegeneration) {
                 MGLOG_D("Buffer size changed significantly or not initialized, regenerating buffer with ID: %u",
                         m_backendBufferId);
                 SyncToBackend_glBufferData(stateBufferObject);
                 m_isInitialized = true;
+                m_prevBufferSize = bufferSize;
                 return;
             }
 
@@ -107,9 +108,9 @@ namespace MobileGL::MG_Backend::DirectGLES {
             MGLOG_D("Mapping buffer with ID: %u", m_backendBufferId);
             MG_External::GLES::glBindBuffer(TempBufferTarget, m_backendBufferId);
             const auto& range = stateBufferObject->GetDirtyRange();
-            void* mappedData = MG_External::GLES::glMapBufferRange(
-                TempBufferTarget, range.start, range.end - range.start,
-                (invalidate ? GL_MAP_INVALIDATE_BUFFER_BIT : 0) | GL_MAP_WRITE_BIT | GL_MAP_UNSYNCHRONIZED_BIT);
+            void* mappedData =
+                MG_External::GLES::glMapBufferRange(TempBufferTarget, range.start, range.end - range.start,
+                                                    (invalidate ? GL_MAP_INVALIDATE_BUFFER_BIT : 0) | GL_MAP_WRITE_BIT);
             const void* data = stateBufferObject->GetDataReadOnly()->data();
             if (mappedData) {
                 Memcpy(mappedData, ((const char*)(data) + range.start), range.end - range.start);
