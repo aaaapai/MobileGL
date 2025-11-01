@@ -56,6 +56,7 @@ set(SOURCE_FILES
 
     MobileGL/MG_Util/ShaderTranspiler/ShaderCompiler.cpp
     MobileGL/MG_Util/ShaderTranspiler/SpvcSession.cpp
+    MobileGL/MG_Util/ShaderTranspiler/ShaderSourceProcessor.cpp
 
     MobileGL/MG_Util/BackendLoaders/OpenGL/Loader.cpp
 

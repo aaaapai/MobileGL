@@ -1,6 +1,8 @@
 #include "ShaderObject.h"
+#include <MG_Util/ShaderTranspiler/Types.h>
 #include <MG_Util/ShaderTranspiler/ShaderCompiler.h>
 #include <MG_Util/Converters/MGToGL/ProgramEnumConverter.h>
+#include <MG_Util/ShaderTranspiler/ShaderSourceProcessor.h>
 #include <MG_Util/ShaderTranspiler/glslang/UniformTraverser.h>
 
 namespace MobileGL {
@@ -16,6 +18,7 @@ namespace MobileGL {
 
             void ShaderObject::Compile() {
                 using namespace MG_Util::ShaderTranspiler;
+                MG_Util::ShaderTranspiler::PreprocessShaderSource(m_stage, m_source);
 
                 // Compile for OpenGL here, so that we can do validation and link
                 // like a real OpenGL driver at linking stage
