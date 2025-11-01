@@ -779,7 +779,7 @@ namespace MobileGL {
                 *params = 0; // TODO
                 break;
             case GL_UNIFORM_BUFFER_OFFSET_ALIGNMENT:
-                *params = 0; // TODO
+                *params = 1; // TODO
                 break;
             case GL_UNIFORM_BUFFER_SIZE:
                 *params = 0; // TODO
@@ -850,6 +850,9 @@ namespace MobileGL {
                 break;
             case GL_MAX_ELEMENT_INDEX:
                 *params = 1024 * 1024; // TODO
+                break;
+            case GL_CONTEXT_PROFILE_MASK:
+                *params = GL_CONTEXT_CORE_PROFILE_BIT;
                 break;
             default:
                 MGLOG_E("glGetIntegerv: Invalid enum %s (0x%X)", MG_Util::ConvertGLEnumToString(pname).c_str(), pname);
