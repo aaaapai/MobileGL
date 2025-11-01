@@ -146,7 +146,7 @@ namespace MobileGL {
                 textureObject->SetBaseLevel(param);
                 break;
             case GL_TEXTURE_MAX_LEVEL:
-                textureObject->SetBaseLevel(param);
+                textureObject->SetMaxLevel(param);
                 break;
             case GL_TEXTURE_SWIZZLE_R:
             case GL_TEXTURE_SWIZZLE_G:
@@ -227,7 +227,7 @@ namespace MobileGL {
                 textureObject->SetBaseLevel(param);
                 break;
             case GL_TEXTURE_MAX_LEVEL:
-                textureObject->SetBaseLevel(param);
+                textureObject->SetMaxLevel(param);
                 break;
             case GL_TEXTURE_SWIZZLE_R:
             case GL_TEXTURE_SWIZZLE_G:
