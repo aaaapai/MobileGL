@@ -79,6 +79,66 @@ namespace MobileGL {
                 return m_externalIndex;
             }
 
+            const FloatVec4& TextureObjectBase::GetBorderColor() const {
+                return m_borderColor;
+            }
+
+            void TextureObjectBase::SetBorderColor(const FloatVec4& color) {
+                m_borderColor = color;
+            }
+
+            TextureSwizzleParam TextureObjectBase::GetSwizzleParam(TextureSwizzleParam param) const {
+                switch (param) {
+                case TextureSwizzleParam::Red:
+                    return m_swizzleParams[0];
+                case TextureSwizzleParam::Green:
+                    return m_swizzleParams[1];
+                case TextureSwizzleParam::Blue:
+                    return m_swizzleParams[2];
+                case TextureSwizzleParam::Alpha:
+                    return m_swizzleParams[3];
+                default:
+                    MGLOG_F("TextureObjectBase::GetSwizzleParam: Invalid TextureSwizzleParam: %d",
+                            static_cast<Int>(param));
+                    assert(false && "Invalid TextureSwizzleParam");
+                    return TextureSwizzleParam::Red;
+                }
+            }
+
+            void TextureObjectBase::SetSwizzleParam(TextureSwizzleParam param, TextureSwizzleParam value) {
+                switch (param) {
+                case TextureSwizzleParam::Red:
+                    m_swizzleParams[0] = value;
+                    break;
+                case TextureSwizzleParam::Green:
+                    m_swizzleParams[1] = value;
+                    break;
+                case TextureSwizzleParam::Blue:
+                    m_swizzleParams[2] = value;
+                    break;
+                case TextureSwizzleParam::Alpha:
+                    m_swizzleParams[3] = value;
+                    break;
+                default:
+                    MGLOG_F("TextureObjectBase::SetSwizzleParam: Invalid TextureSwizzleParam: %d",
+                            static_cast<Int>(param));
+                    assert(false && "Invalid TextureSwizzleParam");
+                    break;
+                }
+            }
+
+            const UintVec2& TextureObjectBase::GetLevelRange() const {
+                return m_levelRange;
+            }
+
+            void TextureObjectBase::SetBaseLevel(Uint baseLevel) {
+                m_levelRange.x() = baseLevel;
+            }
+
+            void TextureObjectBase::SetMaxLevel(Uint maxLevel) {
+                m_levelRange.y() = maxLevel;
+            }
+
             // TextureObject1D
             TextureObject1D::TextureObject1D(Uint externalIndex)
                 : TextureObjectBase(TextureTarget::Texture1D, externalIndex) {}

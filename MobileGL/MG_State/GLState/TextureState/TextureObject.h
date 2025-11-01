@@ -169,6 +169,18 @@ namespace MobileGL {
         Unknown = -1
     };
 
+    enum class TextureSwizzleParam {
+        Red,
+        Green,
+        Blue,
+        Alpha,
+        Zero,
+        One,
+
+        SwizzleParamCount,
+        Unknown = -1
+    };
+
     namespace MG_State {
         namespace GLState {
             struct MipmapLevelBase {
@@ -215,6 +227,13 @@ namespace MobileGL {
                 virtual Bool IsComplete() const = 0;
                 virtual void UnmarkMipmapDirty(Int index) = 0;
                 virtual Uint GetExternalIndex() const = 0;
+                virtual const FloatVec4& GetBorderColor() const = 0;
+                virtual void SetBorderColor(const FloatVec4& color) = 0;
+                virtual TextureSwizzleParam GetSwizzleParam(TextureSwizzleParam param) const = 0;
+                virtual void SetSwizzleParam(TextureSwizzleParam param, TextureSwizzleParam value) = 0;
+                virtual const UintVec2& GetLevelRange() const = 0;
+                virtual void SetBaseLevel(Uint baseLevel) = 0;
+                virtual void SetMaxLevel(Uint maxLevel) = 0;
             };
 
             class TextureObjectBase : public ITextureObject {
@@ -233,6 +252,13 @@ namespace MobileGL {
                 Bool IsComplete() const override;
                 void UnmarkMipmapDirty(Int index) override;
                 Uint GetExternalIndex() const override;
+                const FloatVec4& GetBorderColor() const override;
+                void SetBorderColor(const FloatVec4& color) override;
+                TextureSwizzleParam GetSwizzleParam(TextureSwizzleParam param) const override;
+                void SetSwizzleParam(TextureSwizzleParam param, TextureSwizzleParam value) override;
+                const UintVec2& GetLevelRange() const override;
+                void SetBaseLevel(Uint baseLevel) override;
+                void SetMaxLevel(Uint maxLevel) override;
 
             protected:
                 virtual void SetMipmapImpl(const MipmapLevelInput& level) = 0;
@@ -242,6 +268,10 @@ namespace MobileGL {
                 TextureInternalFormat m_internalFormat = TextureInternalFormat::Unknown;
                 Vector<MipmapLevelInternal> m_mipmaps = {};
                 SharedPtr<SamplerObject> m_sampler = nullptr;
+                FloatVec4 m_borderColor = {0.0f, 0.0f, 0.0f, 0.0f};
+                TextureSwizzleParam m_swizzleParams[4] = {TextureSwizzleParam::Red, TextureSwizzleParam::Green,
+                                                          TextureSwizzleParam::Blue, TextureSwizzleParam::Alpha};
+                UintVec2 m_levelRange = {0, 1000};
             };
 
             class TextureObject1D : public TextureObjectBase {
