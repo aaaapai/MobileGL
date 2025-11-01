@@ -376,5 +376,23 @@ namespace MobileGL {
             }
         }
 
+        TextureSwizzleParam ConvertGLEnumToTextureSwizzleParam(GLenum v) {
+            switch (v) {
+            case GL_RED:
+                return TextureSwizzleParam::Red;
+            case GL_GREEN:
+                return TextureSwizzleParam::Green;
+            case GL_BLUE:
+                return TextureSwizzleParam::Blue;
+            case GL_ALPHA:
+                return TextureSwizzleParam::Alpha;
+            case GL_ZERO:
+                return TextureSwizzleParam::Zero;
+            case GL_ONE:
+                return TextureSwizzleParam::One;
+            default:
+                return TextureSwizzleParam::Unknown;
+            }
+        }
     } // namespace MG_Util
 } // namespace MobileGL

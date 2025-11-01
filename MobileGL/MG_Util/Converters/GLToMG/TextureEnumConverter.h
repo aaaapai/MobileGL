@@ -14,5 +14,6 @@ namespace MobileGL {
         SamplerWrapMode ConvertGLEnumToSamplerWrapMode(GLenum value);
         SamplerCompareMode ConvertGLEnumToSamplerCompareMode(GLenum value);
         SamplerCompareFunc ConvertGLEnumToSamplerCompareFunc(GLenum value);
+        TextureSwizzleParam ConvertGLEnumToTextureSwizzleParam(GLenum value);
     } // namespace MG_Util
 } // namespace MobileGL

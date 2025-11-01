@@ -1,4 +1,6 @@
 #include "TextureEnumConverter.h"
+#include "GL/gl.h"
+#include "MG_Util/Types.h"
 
 namespace MobileGL {
     namespace MG_Util {
@@ -312,18 +314,18 @@ namespace MobileGL {
             case SamplerFilterMode::Linear:
                 return GL_LINEAR;
             default:
-                return 0;
+                return GL_UNKNOWN_MGL;
             }
         }
 
         GLenum ConvertSamplerMipmapModeToGLEnum(SamplerMipmapMode v) {
             switch (v) {
             case SamplerMipmapMode::None:
-                return 0;
+                return GL_NONE;
             case SamplerMipmapMode::Nearest:
                 return GL_NEAREST_MIPMAP_NEAREST;
             default:
-                return 0;
+                return GL_UNKNOWN_MGL;
             }
         }
 
@@ -338,18 +340,18 @@ namespace MobileGL {
             case SamplerWrapMode::ClampToBorder:
                 return GL_CLAMP_TO_BORDER;
             default:
-                return 0;
+                return GL_UNKNOWN_MGL;
             }
         }
 
         GLenum ConvertSamplerCompareModeToGLEnum(SamplerCompareMode v) {
             switch (v) {
             case SamplerCompareMode::None:
-                return 0;
+                return GL_NONE;
             case SamplerCompareMode::CompareToTexture:
                 return GL_COMPARE_REF_TO_TEXTURE;
             default:
-                return 0;
+                return GL_UNKNOWN_MGL;
             }
         }
 
@@ -372,9 +374,27 @@ namespace MobileGL {
             case SamplerCompareFunc::Always:
                 return GL_ALWAYS;
             default:
-                return 0;
+                return GL_UNKNOWN_MGL;
             }
         }
 
+        GLenum ConvertTextureSwizzleParamToGLEnum(TextureSwizzleParam v) {
+            switch (v) {
+            case TextureSwizzleParam::Red:
+                return GL_RED;
+            case TextureSwizzleParam::Green:
+                return GL_GREEN;
+            case TextureSwizzleParam::Blue:
+                return GL_BLUE;
+            case TextureSwizzleParam::Alpha:
+                return GL_ALPHA;
+            case TextureSwizzleParam::Zero:
+                return GL_ZERO;
+            case TextureSwizzleParam::One:
+                return GL_ONE;
+            default:
+                return GL_UNKNOWN_MGL;
+            }
+        }
     } // namespace MG_Util
 } // namespace MobileGL
