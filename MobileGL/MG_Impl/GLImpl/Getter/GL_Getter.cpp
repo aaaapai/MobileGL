@@ -1,4 +1,5 @@
 #include "GL_Getter.h"
+#include "GL/gl.h"
 #include "MG_State/GLState/ErrorState/ErrorInfo.h"
 #include <Config.h>
 #include <MG_State/GLState/Core.h>
@@ -111,7 +112,7 @@ namespace MobileGL {
 
             switch (pname) {
             case GL_ACTIVE_TEXTURE:
-                *params = MG_State::pGLContext->GetActiveTextureUnit();
+                *params = MG_State::pGLContext->GetActiveTextureUnit() + GL_TEXTURE0;
                 break;
             case GL_ALIASED_LINE_WIDTH_RANGE:
                 *params = 0; // TODO
@@ -722,6 +723,7 @@ namespace MobileGL {
                 const auto& slot = tu.GetBindingSlot(TextureTarget::Texture2D);
                 const auto& obj = slot.GetBoundObject();
                 *params = obj ? static_cast<GLint>(obj->GetExternalIndex()) : 0;
+                MGLOG_D("Get GL_TEXTURE_BINDING_2D: %d", *params);
                 break;
             }
             case GL_TEXTURE_BINDING_2D_ARRAY:
