@@ -851,6 +851,9 @@ namespace MobileGL {
             case GL_MAX_ELEMENT_INDEX:
                 *params = 1024 * 1024; // TODO
                 break;
+            case GL_CONTEXT_PROFILE_MASK:
+                *params = GL_CONTEXT_CORE_PROFILE_BIT;
+                break;
             default:
                 MGLOG_E("glGetIntegerv: Invalid enum %s (0x%X)", MG_Util::ConvertGLEnumToString(pname).c_str(), pname);
                 MG_State::pGLContext->RecordError(
