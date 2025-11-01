@@ -53,7 +53,7 @@ namespace MobileGL {
             public:
                 using TargetEnum = BufferTarget;
 
-                BufferObject();
+                BufferObject(Uint externalIndex);
 
                 void Resize(SizeT size);
                 void UploadData(DataPtr data, SizeT atOffset);
@@ -73,9 +73,10 @@ namespace MobileGL {
                 Range1D GetMappedRange() const;
                 const SharedPtr<Data> GetDataReadOnly() const;
                 Flags<BufferMappingAccessBit> GetMappingAccess() const;
+                Uint GetExternalIndex() const;
 
             private:
-                Int m_id = 0;
+                const Uint m_externalIndex = 0;
                 SizeT m_size = 0;
                 BufferUsage m_usage = BufferUsage::StaticDraw;
                 SharedPtr<Data> m_dataPtr;

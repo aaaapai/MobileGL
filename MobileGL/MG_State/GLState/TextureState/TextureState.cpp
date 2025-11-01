@@ -29,13 +29,13 @@ namespace MobileGL {
                 SharedPtr<ITextureObject> textureObject = nullptr;
                 switch (target) {
                 case TextureTarget::Texture1D:
-                    textureObject = MakeShared<TextureObject1D>();
+                    textureObject = MakeShared<TextureObject1D>(index);
                     break;
                 case TextureTarget::Texture2D:
-                    textureObject = MakeShared<TextureObject2D>();
+                    textureObject = MakeShared<TextureObject2D>(index);
                     break;
                 case TextureTarget::Texture3D:
-                    textureObject = MakeShared<TextureObject3D>();
+                    textureObject = MakeShared<TextureObject3D>(index);
                     break;
                 default:
                     // TODO: implement more texture types

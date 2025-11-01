@@ -32,7 +32,7 @@ namespace MobileGL {
                         return nullptr;
                     }
                 }
-                auto bufferObject = MakeShared<FramebufferObject>();
+                auto bufferObject = MakeShared<FramebufferObject>(index);
                 m_framebufferObjects[index] = bufferObject;
                 return bufferObject;
             }

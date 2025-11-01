@@ -1,4 +1,5 @@
 #pragma once
+#include "MG_Util/Types.h"
 #include "SamplerObject.h"
 #include <Includes.h>
 #include <MG_Util/Math/VectorTypes.h>
@@ -213,11 +214,12 @@ namespace MobileGL {
                 virtual void SetInternalFormat(TextureInternalFormat format) = 0;
                 virtual Bool IsComplete() const = 0;
                 virtual void UnmarkMipmapDirty(Int index) = 0;
+                virtual Uint GetExternalIndex() const = 0;
             };
 
             class TextureObjectBase : public ITextureObject {
             public:
-                TextureObjectBase(TextureTarget target);
+                TextureObjectBase(TextureTarget target, Uint externalIndex);
                 virtual ~TextureObjectBase() = default;
 
                 void SetMipmapLevel(const MipmapLevelInput& level) override;
@@ -230,10 +232,12 @@ namespace MobileGL {
                 void SetInternalFormat(TextureInternalFormat format) override;
                 Bool IsComplete() const override;
                 void UnmarkMipmapDirty(Int index) override;
+                Uint GetExternalIndex() const override;
 
             protected:
                 virtual void SetMipmapImpl(const MipmapLevelInput& level) = 0;
 
+                const Uint m_externalIndex;
                 const TextureTarget m_target = TextureTarget::Unknown;
                 TextureInternalFormat m_internalFormat = TextureInternalFormat::Unknown;
                 Vector<MipmapLevelInternal> m_mipmaps = {};
@@ -242,7 +246,7 @@ namespace MobileGL {
 
             class TextureObject1D : public TextureObjectBase {
             public:
-                explicit TextureObject1D();
+                explicit TextureObject1D(Uint externalIndex);
 
             protected:
                 void SetMipmapImpl(const MipmapLevelInput& level) override;
@@ -250,7 +254,7 @@ namespace MobileGL {
 
             class TextureObject2D : public TextureObjectBase {
             public:
-                explicit TextureObject2D();
+                explicit TextureObject2D(Uint externalIndex);
 
             protected:
                 void SetMipmapImpl(const MipmapLevelInput& level) override;
@@ -258,7 +262,7 @@ namespace MobileGL {
 
             class TextureObject3D : public TextureObjectBase {
             public:
-                explicit TextureObject3D();
+                explicit TextureObject3D(Uint externalIndex);
 
             protected:
                 void SetMipmapImpl(const MipmapLevelInput& level) override;

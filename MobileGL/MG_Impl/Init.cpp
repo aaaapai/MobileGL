@@ -10,13 +10,13 @@ namespace MobileGL {
 
             // TODO: get real info in EGL
             auto fbo0 = MG_State::pGLContext->CreateFramebufferObject(0);
-            auto colorTex = MakeShared<MG_State::GLState::TextureObject2D>();
+            auto colorTex = MakeShared<MG_State::GLState::TextureObject2D>(0);
             colorTex->SetInternalFormat(TextureInternalFormat::RGBA8);
             colorTex->SetMipmapLevel({{512, 512, 1}, 0, false, 0, {nullptr, 0}});
-            auto depthTex = MakeShared<MG_State::GLState::TextureObject2D>();
+            auto depthTex = MakeShared<MG_State::GLState::TextureObject2D>(0);
             depthTex->SetInternalFormat(TextureInternalFormat::Depth32FStencil8);
             depthTex->SetMipmapLevel({{512, 512, 1}, 0, false, 0, {nullptr, 0}});
-            auto stencilTex = MakeShared<MG_State::GLState::TextureObject2D>();
+            auto stencilTex = MakeShared<MG_State::GLState::TextureObject2D>(0);
             stencilTex->SetInternalFormat(TextureInternalFormat::Depth32FStencil8);
             stencilTex->SetMipmapLevel({{512, 512, 1}, 0, false, 0, {nullptr, 0}});
             fbo0->AttachTexture(FramebufferAttachmentType::Color0, colorTex);

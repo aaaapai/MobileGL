@@ -3,7 +3,7 @@
 namespace MobileGL {
     namespace MG_State {
         namespace GLState {
-            VertexArrayObject::VertexArrayObject() {
+            VertexArrayObject::VertexArrayObject(Uint externIndex) : m_externalIndex(externIndex) {
                 for (int index = 0; index < MAX_VERTEX_ATTRIBS; ++index) {
                     auto& attr = m_attributes[index];
                     attr.Enabled = false;
@@ -89,6 +89,10 @@ namespace MobileGL {
 
             void VertexArrayObject::ClearDirtyAttributes() {
                 m_dirtyAttributes.clear();
+            }
+
+            Uint VertexArrayObject::GetExternalIndex() const {
+                return m_externalIndex;
             }
         } // namespace GLState
     } // namespace MG_State

@@ -211,7 +211,7 @@ namespace MobileGL {
             GLsizei c = std::min((GLsizei)s.size(), maxCount);
             if (count) *count = c;
             for (GLsizei i = 0; i < c; ++i) {
-                shaders[i] = s[i]->GetId();
+                shaders[i] = s[i]->GetExternalIndex();
             }
         }
 

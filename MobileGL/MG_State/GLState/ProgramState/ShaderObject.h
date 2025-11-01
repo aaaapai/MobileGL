@@ -16,13 +16,14 @@ namespace MobileGL {
         namespace GLState {
             class ShaderObject {
             public:
-                ShaderObject(const ShaderStage stage, const Uint id) : m_stage(stage), m_id(id) {}
+                ShaderObject(const ShaderStage stage, const Uint externalIndex)
+                    : m_stage(stage), m_externalIndex(externalIndex) {}
                 void SetShaderSource(const String& source);
                 void SetShaderSource(String&& source);
                 void Compile();
                 void MarkAsDeleted();
 
-                Uint GetId() const { return m_id; }
+                Uint GetExternalIndex() const { return m_externalIndex; }
                 ShaderStage GetShaderStage() const { return m_stage; }
                 const String& GetShaderSource() const { return m_source; }
                 SharedPtr<glslang::TShader> GetCompiledShader() const { return m_shader; }
@@ -32,7 +33,7 @@ namespace MobileGL {
                 Bool GetDeleteStatus() const { return m_deleteStatus; }
 
             private:
-                const Uint m_id = 0;
+                const Uint m_externalIndex = 0;
                 const ShaderStage m_stage;
                 String m_source;
                 SharedPtr<glslang::TShader> m_shader;

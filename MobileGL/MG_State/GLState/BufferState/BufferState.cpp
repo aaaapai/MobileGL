@@ -24,7 +24,7 @@ namespace MobileGL {
             }
 
             SharedPtr<BufferObject> BufferState::CreateBufferObject(Uint index) {
-                auto bufferObject = MakeShared<BufferObject>();
+                auto bufferObject = MakeShared<BufferObject>(index);
                 m_bufferObjects[index] = bufferObject;
                 return bufferObject;
             }

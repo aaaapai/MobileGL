@@ -63,7 +63,7 @@ namespace MobileGL {
             }
 
             // FramebufferObject
-            FramebufferObject::FramebufferObject() {
+            FramebufferObject::FramebufferObject(Uint externalIndex) : m_externalIndex(externalIndex) {
                 m_attachments.fill(FramebufferAttachment(false));
             }
 
@@ -135,6 +135,9 @@ namespace MobileGL {
                 return m_drawBuffers;
             }
 
+            Uint FramebufferObject::GetExternalIndex() const {
+                return m_externalIndex;
+            }
         } // namespace GLState
     } // namespace MG_State
 } // namespace MobileGL

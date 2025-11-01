@@ -9,7 +9,7 @@ namespace MobileGL {
         namespace GLState {
             class ProgramObject {
             public:
-                ProgramObject(const Uint id) : m_id(id) {}
+                ProgramObject(const Uint externalIndex) : m_externalIndex(externalIndex) {}
                 bool ShaderIsAttached(SharedPtr<ShaderObject> shader);
                 bool AttachShader(SharedPtr<ShaderObject> shader);
                 SizeT DetachShader(SharedPtr<ShaderObject> shader);
@@ -78,11 +78,14 @@ namespace MobileGL {
 
                 Vector<Vector<unsigned>>& GetGeneratedSpirv() { return m_generatedSpirv; }
 
+                Uint GetExternalIndex() const { return m_externalIndex; }
+
             private:
                 void DoReflection();
                 void GenerateBinary();
                 void WaitUntilGenerationCompleted();
-                const Uint m_id = 0;
+
+                const Uint m_externalIndex = 0;
                 Vector<SharedPtr<ShaderObject>> m_shaders;
 
                 SharedPtr<glslang::TProgram> m_program;

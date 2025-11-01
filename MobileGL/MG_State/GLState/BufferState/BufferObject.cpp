@@ -4,8 +4,8 @@
 namespace MobileGL {
     namespace MG_State {
         namespace GLState {
-            BufferObject::BufferObject()
-                : m_id(0), m_size(0), m_usage(BufferUsage::StaticDraw), m_isMapped(false),
+            BufferObject::BufferObject(Uint externalIndex)
+                : m_externalIndex(externalIndex), m_size(0), m_usage(BufferUsage::StaticDraw), m_isMapped(false),
                   m_mappingAccess(BufferMappingAccessBit::Null), m_dirtyRange({0, 0}), m_mappedRange({0, 0}),
                   m_dataPtr(MakeShared<Data>()) {}
 
@@ -155,6 +155,10 @@ namespace MobileGL {
 
             Flags<BufferMappingAccessBit> BufferObject::GetMappingAccess() const {
                 return m_isMapped ? m_mappingAccess : BufferMappingAccessBit::Null;
+            }
+
+            Uint BufferObject::GetExternalIndex() const {
+                return m_externalIndex;
             }
         } // namespace GLState
     } // namespace MG_State

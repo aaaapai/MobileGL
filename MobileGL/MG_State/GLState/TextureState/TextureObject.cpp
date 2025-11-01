@@ -5,7 +5,8 @@ namespace MobileGL {
     namespace MG_State {
         namespace GLState {
             // TextureObjectBase implementations
-            TextureObjectBase::TextureObjectBase(TextureTarget target) : m_target(target) {
+            TextureObjectBase::TextureObjectBase(TextureTarget target, Uint externalIndex)
+                : m_target(target), m_externalIndex(externalIndex) {
                 m_sampler = MakeShared<SamplerObject>();
             }
 
@@ -75,7 +76,8 @@ namespace MobileGL {
             }
 
             // TextureObject1D
-            TextureObject1D::TextureObject1D() : TextureObjectBase(TextureTarget::Texture1D) {}
+            TextureObject1D::TextureObject1D(Uint externalIndex)
+                : TextureObjectBase(TextureTarget::Texture1D, externalIndex) {}
 
             void TextureObject1D::SetMipmapImpl(const MipmapLevelInput& level) {
                 if (level.size.x() > 0) {
@@ -84,7 +86,8 @@ namespace MobileGL {
             }
 
             // TextureObject2D
-            TextureObject2D::TextureObject2D() : TextureObjectBase(TextureTarget::Texture2D) {}
+            TextureObject2D::TextureObject2D(Uint externalIndex)
+                : TextureObjectBase(TextureTarget::Texture2D, externalIndex) {}
 
             void TextureObject2D::SetMipmapImpl(const MipmapLevelInput& level) {
                 if (level.size.x() > 0 && level.size.y() > 0) {
@@ -93,7 +96,8 @@ namespace MobileGL {
             }
 
             // TextureObject3D
-            TextureObject3D::TextureObject3D() : TextureObjectBase(TextureTarget::Texture3D) {}
+            TextureObject3D::TextureObject3D(Uint externalIndex)
+                : TextureObjectBase(TextureTarget::Texture3D, externalIndex) {}
 
             void TextureObject3D::SetMipmapImpl(const MipmapLevelInput& level) {
                 if (level.size.x() > 0 && level.size.y() > 0 && level.size.z() > 0) {

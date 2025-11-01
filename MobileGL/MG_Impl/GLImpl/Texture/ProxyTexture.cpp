@@ -25,7 +25,7 @@ namespace MobileGL::MG_Impl::GLImpl {
             if (it != m_proxyTexturesMap.end()) {
                 m_proxyTexturesMap.erase(it);
             }
-            m_proxyTexturesMap[target] = MakeShared<MG_State::GLState::TextureObject2D>();
+            m_proxyTexturesMap[target] = MakeShared<MG_State::GLState::TextureObject2D>(0);
             return m_proxyTexturesMap[target];
         }
 
