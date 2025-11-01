@@ -75,6 +75,10 @@ namespace MobileGL {
                 }
             }
 
+            Uint TextureObjectBase::GetExternalIndex() const {
+                return m_externalIndex;
+            }
+
             // TextureObject1D
             TextureObject1D::TextureObject1D(Uint externalIndex)
                 : TextureObjectBase(TextureTarget::Texture1D, externalIndex) {}
