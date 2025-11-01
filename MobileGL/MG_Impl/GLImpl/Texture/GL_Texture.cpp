@@ -104,6 +104,7 @@ namespace MobileGL {
             // TODO: implement
         }
 
+        // TexParameteriv/TexParameterfv are introduced in OpenGL 4.0, so do not support them for now.
         void TexParameterf_State(GLenum target, GLenum pname, GLfloat param) {
 
             // ======================= Converting ================================
@@ -142,14 +143,26 @@ namespace MobileGL {
                 break;
             }
             case GL_TEXTURE_BASE_LEVEL:
+                textureObject->SetBaseLevel(param);
+                break;
             case GL_TEXTURE_MAX_LEVEL:
+                textureObject->SetBaseLevel(param);
+                break;
             case GL_TEXTURE_SWIZZLE_R:
             case GL_TEXTURE_SWIZZLE_G:
             case GL_TEXTURE_SWIZZLE_B:
-            case GL_TEXTURE_SWIZZLE_A:
+            case GL_TEXTURE_SWIZZLE_A: {
+                auto swizzleParam = MG_Util::ConvertGLEnumToTextureSwizzleParam(pname);
+                auto swizzleValue = MG_Util::ConvertGLEnumToTextureSwizzleParam(param);
+                textureObject->SetSwizzleParam(swizzleParam, swizzleValue);
+                break;
+            }
             case GL_TEXTURE_SWIZZLE_RGBA:
+                // Not supported in this function
+                break;
             case GL_TEXTURE_BORDER_COLOR:
-                break; // TODO
+                // Not supported in this function
+                break;
             case GL_TEXTURE_WRAP_S:
                 textureObject->GetSamplerObject()->SetWrapS(MG_Util::ConvertGLEnumToSamplerWrapMode(param));
                 break;
@@ -211,14 +224,26 @@ namespace MobileGL {
                 break;
             }
             case GL_TEXTURE_BASE_LEVEL:
+                textureObject->SetBaseLevel(param);
+                break;
             case GL_TEXTURE_MAX_LEVEL:
+                textureObject->SetBaseLevel(param);
+                break;
             case GL_TEXTURE_SWIZZLE_R:
             case GL_TEXTURE_SWIZZLE_G:
             case GL_TEXTURE_SWIZZLE_B:
-            case GL_TEXTURE_SWIZZLE_A:
+            case GL_TEXTURE_SWIZZLE_A: {
+                auto swizzleParam = MG_Util::ConvertGLEnumToTextureSwizzleParam(pname);
+                auto swizzleValue = MG_Util::ConvertGLEnumToTextureSwizzleParam(param);
+                textureObject->SetSwizzleParam(swizzleParam, swizzleValue);
+                break;
+            }
             case GL_TEXTURE_SWIZZLE_RGBA:
+                // Not supported in this function
+                break;
             case GL_TEXTURE_BORDER_COLOR:
-                break; // TODO
+                // Not supported in this function
+                break;
             case GL_TEXTURE_WRAP_S:
                 textureObject->GetSamplerObject()->SetWrapS(MG_Util::ConvertGLEnumToSamplerWrapMode(param));
                 break;
