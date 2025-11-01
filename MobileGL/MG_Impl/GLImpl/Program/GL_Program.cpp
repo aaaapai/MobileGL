@@ -443,6 +443,8 @@ namespace MobileGL {
         }
 
         void UseProgram_State(GLint program) {
+            MGLOG_D("UseProgram_State: program=%u", program);
+
             if (program == 0) {
                 MG_State::pGLContext->UseProgram(0);
                 return;

@@ -1,4 +1,5 @@
 #include "GL_Getter.h"
+#include "MG_State/GLState/ErrorState/ErrorInfo.h"
 #include <Config.h>
 #include <MG_State/GLState/Core.h>
 #include <MG_Util/Converters/GLToStr/GLEnumConverter.h>
@@ -222,9 +223,11 @@ namespace MobileGL {
             case GL_CULL_FACE:
                 *params = MG_State::pGLContext->IsCapabilityEnabled(CapabilityInput::CullFace) ? GL_TRUE : GL_FALSE;
                 break;
-            case GL_CURRENT_PROGRAM:
-                *params = MG_State::pGLContext->GetCurrentProgram()->GetExternalIndex();
+            case GL_CURRENT_PROGRAM: {
+                const auto& currentProgram = MG_State::pGLContext->GetCurrentProgram();
+                *params = currentProgram ? currentProgram->GetExternalIndex() : 0;
                 break;
+            }
             case GL_DEPTH_CLEAR_VALUE:
                 *params = MG_State::pGLContext->GetClearDepth();
                 break;
@@ -253,21 +256,25 @@ namespace MobileGL {
                 *params = 0; // TODO
                 break;
             case GL_DRAW_FRAMEBUFFER_BINDING: {
-                *params = MG_State::pGLContext->GetFramebufferBindingSlot(FramebufferTarget::Draw)
-                              .GetBoundObject()
-                              ->GetExternalIndex();
+                const auto& FBO =
+                    MG_State::pGLContext->GetFramebufferBindingSlot(FramebufferTarget::Draw).GetBoundObject();
+                *params = FBO ? FBO->GetExternalIndex() : 0;
                 break;
             }
             case GL_READ_FRAMEBUFFER_BINDING: {
-                *params = MG_State::pGLContext->GetFramebufferBindingSlot(FramebufferTarget::Read)
-                              .GetBoundObject()
-                              ->GetExternalIndex();
+                const auto& FBO =
+                    MG_State::pGLContext->GetFramebufferBindingSlot(FramebufferTarget::Read).GetBoundObject();
+                *params = FBO ? FBO->GetExternalIndex() : 0;
                 break;
             }
             case GL_ELEMENT_ARRAY_BUFFER_BINDING: {
-                *params = MG_State::pGLContext->GetBufferBindingSlot(BufferTarget::Index)
-                              .GetBoundObject()
-                              ->GetExternalIndex();
+                if (!MG_State::pGLContext->GetBoundVertexArray()) {
+                    *params = 0;
+                    break;
+                }
+                const auto& bufferObject =
+                    MG_State::pGLContext->GetBufferBindingSlot(BufferTarget::Index).GetBoundObject();
+                *params = bufferObject ? bufferObject->GetExternalIndex() : 0;
                 break;
             }
             case GL_FRAGMENT_SHADER_DERIVATIVE_HINT:
@@ -614,8 +621,8 @@ namespace MobileGL {
                 break;
             case GL_SAMPLER_BINDING: {
                 Int unit = MG_State::pGLContext->GetActiveTextureUnit();
-                auto& tu = MG_State::pGLContext->GetTextureUnitObject(unit);
-                auto sampler = tu.GetSamplerObject();
+                const auto& tu = MG_State::pGLContext->GetTextureUnitObject(unit);
+                const auto& sampler = tu.GetSamplerObject();
                 *params = sampler ? static_cast<GLint>(sampler->GetExternalIndex()) : 0;
                 break;
             }
@@ -712,8 +719,8 @@ namespace MobileGL {
             case GL_TEXTURE_BINDING_2D: {
                 Int unit = MG_State::pGLContext->GetActiveTextureUnit();
                 auto& tu = MG_State::pGLContext->GetTextureUnitObject(unit);
-                auto& slot = tu.GetBindingSlot(TextureTarget::Texture2D);
-                auto obj = slot.GetBoundObject();
+                const auto& slot = tu.GetBindingSlot(TextureTarget::Texture2D);
+                const auto& obj = slot.GetBoundObject();
                 *params = obj ? static_cast<GLint>(obj->GetExternalIndex()) : 0;
                 break;
             }
@@ -729,8 +736,8 @@ namespace MobileGL {
             case GL_TEXTURE_BINDING_3D: {
                 Int unit = MG_State::pGLContext->GetActiveTextureUnit();
                 auto& tu = MG_State::pGLContext->GetTextureUnitObject(unit);
-                auto& slot = tu.GetBindingSlot(TextureTarget::Texture3D);
-                auto obj = slot.GetBoundObject();
+                const auto& slot = tu.GetBindingSlot(TextureTarget::Texture3D);
+                const auto& obj = slot.GetBoundObject();
                 *params = obj ? static_cast<GLint>(obj->GetExternalIndex()) : 0;
                 break;
             }
@@ -740,8 +747,8 @@ namespace MobileGL {
             case GL_TEXTURE_BINDING_CUBE_MAP: {
                 Int unit = MG_State::pGLContext->GetActiveTextureUnit();
                 auto& tu = MG_State::pGLContext->GetTextureUnitObject(unit);
-                auto& slot = tu.GetBindingSlot(TextureTarget::TextureCubeMap);
-                auto obj = slot.GetBoundObject();
+                const auto& slot = tu.GetBindingSlot(TextureTarget::TextureCubeMap);
+                const auto& obj = slot.GetBoundObject();
                 *params = obj ? static_cast<GLint>(obj->GetExternalIndex()) : 0;
                 break;
             }
@@ -803,7 +810,7 @@ namespace MobileGL {
                 *params = MG_State::pGLContext->GetPixelStoreParam(PixelStoreParam::UnpackSwapBytes);
                 break;
             case GL_VERTEX_ARRAY_BINDING: {
-                auto vao = MG_State::pGLContext->GetBoundVertexArray();
+                const auto& vao = MG_State::pGLContext->GetBoundVertexArray();
                 *params = vao ? static_cast<GLint>(vao->GetExternalIndex()) : 0;
                 break;
             }
@@ -823,7 +830,7 @@ namespace MobileGL {
                 *params = 0; // TODO
                 break;
             case GL_VIEWPORT: {
-                auto vp = MG_State::pGLContext->GetViewport();
+                const auto& vp = MG_State::pGLContext->GetViewport();
                 params[0] = vp.x();
                 params[1] = vp.y();
                 params[2] = vp.z();
@@ -844,7 +851,10 @@ namespace MobileGL {
                 break;
             default:
                 MGLOG_E("glGetIntegerv: Invalid enum %s (0x%X)", MG_Util::ConvertGLEnumToString(pname).c_str(), pname);
-                // TODO: report GL_INVALID_ENUM.
+                MG_State::pGLContext->RecordError(
+                    ErrorCode::InvalidEnum, MakeShared<GenericErrorInfo>("MG_Impl/GLImpl", "GetIntegerv",
+                                                                         std::format("Invalid enum: 0x{:X}", pname)));
+
                 break;
             }
         }

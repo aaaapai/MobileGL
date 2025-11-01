@@ -9,7 +9,7 @@ namespace MobileGL {
         namespace GLState {
             class ProgramObject {
             public:
-                ProgramObject(const Uint externalIndex) : m_externalIndex(externalIndex) {}
+                ProgramObject(Uint externalIndex) : m_externalIndex(externalIndex) {}
                 bool ShaderIsAttached(SharedPtr<ShaderObject> shader);
                 bool AttachShader(SharedPtr<ShaderObject> shader);
                 SizeT DetachShader(SharedPtr<ShaderObject> shader);

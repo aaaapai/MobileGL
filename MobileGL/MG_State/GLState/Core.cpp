@@ -52,7 +52,14 @@ namespace MobileGL {
 
             BindingSlot<BufferObject>& GLContext::GetBufferBindingSlot(BufferTarget target) {
                 if (target == BufferTarget::Index) {
-                    return m_vertexArrayState.GetBoundVertexArray()->GetIndexBufferBindingSlot();
+                    const auto& vao = m_vertexArrayState.GetBoundVertexArray();
+                    if (vao) {
+                        return vao->GetIndexBufferBindingSlot();
+                    } else {
+                        assert(false);
+                        static BindingSlot<BufferObject> defaultSlot(BufferTarget::Index);
+                        return defaultSlot;
+                    }
                 }
 
                 return m_bufferState.GetBindingSlot(target);

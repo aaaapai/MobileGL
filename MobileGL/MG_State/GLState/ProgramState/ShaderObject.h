@@ -16,7 +16,7 @@ namespace MobileGL {
         namespace GLState {
             class ShaderObject {
             public:
-                ShaderObject(const ShaderStage stage, const Uint externalIndex)
+                ShaderObject(const ShaderStage stage, Uint externalIndex)
                     : m_stage(stage), m_externalIndex(externalIndex) {}
                 void SetShaderSource(const String& source);
                 void SetShaderSource(String&& source);
