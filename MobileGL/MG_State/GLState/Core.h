@@ -92,6 +92,8 @@ namespace MobileGL {
                 Int GetPixelStoreParam(PixelStoreParam param) const;
                 void SetCullFaceMode(CullFaceMode mode);
                 CullFaceMode GetCullFaceMode() const;
+                void SetScissorBox(IntVec4 box);      // x, y, width, height
+                const IntVec4& GetScissorBox() const; // x, y, width, height
 
                 // Framebuffer
                 Vector<Uint> GenFramebufferNames(Uint number);

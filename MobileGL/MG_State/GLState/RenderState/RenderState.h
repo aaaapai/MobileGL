@@ -1,5 +1,6 @@
 #pragma once
 #include "MG_Util/Math/VectorTypes.h"
+#include "MG_Util/Types.h"
 #include <Includes.h>
 
 namespace MobileGL {
@@ -151,6 +152,10 @@ namespace MobileGL {
                 void SetCullFaceMode(CullFaceMode mode);
                 CullFaceMode GetCullFaceMode() const;
 
+                // Scissor
+                void SetScissorBox(IntVec4 box);      // x, y, width, height
+                const IntVec4& GetScissorBox() const; // x, y, width, height
+
             private:
                 // Rasterization
                 IntVec4 m_viewport = IntVec4(0, 0, 0, 0); // x, y, width, height
@@ -180,6 +185,10 @@ namespace MobileGL {
                 // Cull Face
                 Bool m_cullFaceEnabled = false;
                 CullFaceMode m_cullFaceMode = CullFaceMode::Back;
+
+                // Scissor
+                Bool m_scissorTestEnabled = false;
+                IntVec4 m_scissorBox = IntVec4(0, 0, 0, 0); // x, y, width, height
             };
         } // namespace GLState
     } // namespace MG_State

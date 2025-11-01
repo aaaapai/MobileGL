@@ -285,7 +285,6 @@ namespace MobileGL::MG_Backend::DirectGLES {
             }
 
             { // Update sampler parameters; TODO: always use sampler objects in backend
-
                 const auto& samplerObject = stateTextureObject->GetSamplerObject();
                 if (samplerObject) {
                     MG_External::GLES::glTexParameteri(

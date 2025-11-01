@@ -293,6 +293,14 @@ namespace MobileGL {
                 return m_renderState.GetCullFaceMode();
             }
 
+            void GLContext::SetScissorBox(IntVec4 box) {
+                m_renderState.SetScissorBox(box);
+            }
+
+            const IntVec4& GLContext::GetScissorBox() const {
+                return m_renderState.GetScissorBox();
+            }
+
             // Framebuffer
             Vector<Uint> GLContext::GenFramebufferNames(Uint number) {
                 return m_framebufferState.GenerateNames(number);

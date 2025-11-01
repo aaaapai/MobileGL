@@ -1,5 +1,4 @@
 #include "DirectGLES.h"
-#include "MG_Util/ShaderTranspiler/Types.h"
 #include "Utils.h"
 #include "Managers.h"
 #include <MG_State/GLState/Core.h>
@@ -150,25 +149,22 @@ namespace MobileGL::MG_Backend::DirectGLES {
             MG_External::GLES::glViewport(
                 MG_State::pGLContext->GetViewport().x(), MG_State::pGLContext->GetViewport().y(),
                 MG_State::pGLContext->GetViewport().z(), MG_State::pGLContext->GetViewport().w());
-            if (MG_State::pGLContext->IsCapabilityEnabled(CapabilityInput::DepthTest)) {
-                MG_External::GLES::glEnable(GL_DEPTH_TEST);
-            } else {
-                MG_External::GLES::glDisable(GL_DEPTH_TEST);
-            }
-            if (MG_State::pGLContext->IsCapabilityEnabled(CapabilityInput::Blend)) {
-                MG_External::GLES::glEnable(GL_BLEND);
-            } else {
-                MG_External::GLES::glDisable(GL_BLEND);
-            }
-            if (MG_State::pGLContext->IsCapabilityEnabled(CapabilityInput::CullFace)) {
-                MG_External::GLES::glEnable(GL_CULL_FACE);
-            } else {
-                MG_External::GLES::glDisable(GL_CULL_FACE);
-            }
+#define SYNC_CAPABILITY(cap_mg, cap_gl)                                                                                \
+    if (MG_State::pGLContext->IsCapabilityEnabled(cap_mg)) {                                                           \
+        MG_External::GLES::glEnable(cap_gl);                                                                           \
+    } else {                                                                                                           \
+        MG_External::GLES::glDisable(cap_gl);                                                                          \
+    }
+            SYNC_CAPABILITY(CapabilityInput::Blend, GL_BLEND);
+            SYNC_CAPABILITY(CapabilityInput::DepthTest, GL_DEPTH_TEST);
+            SYNC_CAPABILITY(CapabilityInput::ScissorTest, GL_SCISSOR_TEST);
+            SYNC_CAPABILITY(CapabilityInput::CullFace, GL_CULL_FACE);
+
+#undef SYNC_CAPABILITY
 
             const auto& ToGLBoolean = [](Bool b) -> GLboolean { return b ? GL_TRUE : GL_FALSE; };
 
-            {
+            { // Blend func
                 BlendFactor srcRGB, dstRGB, srcAlpha, dstAlpha;
                 MG_State::pGLContext->GetBlendFunc(srcRGB, dstRGB, srcAlpha, dstAlpha);
 
@@ -177,26 +173,26 @@ namespace MobileGL::MG_Backend::DirectGLES {
                     MG_Util::ConvertBlendFactorToGLEnum(srcAlpha), MG_Util::ConvertBlendFactorToGLEnum(dstAlpha));
             }
 
-            {
+            { // Blend equation
                 DepthTestFunc df = MG_State::pGLContext->GetDepthFunc();
                 MG_External::GLES::glDepthFunc(MG_Util::ConvertDepthTestFuncToGLEnum(df));
 
                 MG_External::GLES::glDepthMask(MG_State::pGLContext->GetDepthMask() ? GL_TRUE : GL_FALSE);
             }
 
-            {
+            { // Color mask
                 BoolVec4 colorMask = MG_State::pGLContext->GetColorMask();
                 MG_External::GLES::glColorMask(ToGLBoolean(colorMask.x()), ToGLBoolean(colorMask.y()),
                                                ToGLBoolean(colorMask.z()), ToGLBoolean(colorMask.w()));
             }
 
-            {
+            { // Clear values
                 const FloatVec4& clearCol = MG_State::pGLContext->GetClearColor();
                 MG_External::GLES::glClearColor(clearCol.x(), clearCol.y(), clearCol.z(), clearCol.w());
                 MG_External::GLES::glClearDepthf(MG_State::pGLContext->GetClearDepth());
             }
 
-            {
+            { // Pixel store params
                 {
                     PixelStoreParam p = PixelStoreParam::UnpackAlignment;
                     GLint v = MG_State::pGLContext->GetPixelStoreParam(p);
@@ -209,15 +205,14 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 }
             }
 
-            if (MG_State::pGLContext->IsCapabilityEnabled(CapabilityInput::CullFace)) {
-                MG_External::GLES::glEnable(GL_CULL_FACE);
-            } else {
-                MG_External::GLES::glDisable(GL_CULL_FACE);
-            }
-
-            {
+            { // Cull face mode
                 CullFaceMode cfm = MG_State::pGLContext->GetCullFaceMode();
                 MG_External::GLES::glCullFace(MG_Util::ConvertCullFaceModeToGLEnum(cfm));
+            }
+
+            { // Scissor box
+                const IntVec4& scissorBox = MG_State::pGLContext->GetScissorBox();
+                MG_External::GLES::glScissor(scissorBox.x(), scissorBox.y(), scissorBox.z(), scissorBox.w());
             }
         }
     } // namespace RenderStateImpl

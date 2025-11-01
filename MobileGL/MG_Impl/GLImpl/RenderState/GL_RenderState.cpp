@@ -44,7 +44,14 @@ namespace MobileGL {
         }
 
         void Scissor_State(GLint x, GLint y, GLsizei width, GLsizei height) {
-            // TODO: implement
+            if (width < 0 || height < 0) {
+                MG_State::pGLContext->RecordError(
+                    ErrorCode::InvalidValue, MakeShared<GenericErrorInfo>("MG_Impl/GLImpl", "Scissor_State",
+                                                                          "Width abd height must be non-negative."));
+                return;
+            }
+
+            MG_State::pGLContext->SetScissorBox(IntVec4(x, y, width, height));
         }
 
         void SampleCoverage_State(GLfloat value, GLboolean invert) {

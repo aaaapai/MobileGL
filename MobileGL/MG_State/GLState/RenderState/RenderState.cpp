@@ -39,6 +39,9 @@ namespace MobileGL {
                 case CapabilityInput::CullFace:
                     m_cullFaceEnabled = enabled;
                     break;
+                case CapabilityInput::ScissorTest:
+                    m_scissorTestEnabled = enabled;
+                    break;
                 default: // not supported currently
                     break;
                 }
@@ -52,6 +55,8 @@ namespace MobileGL {
                     return m_depthTestEnabled;
                 case CapabilityInput::CullFace:
                     return m_cullFaceEnabled;
+                case CapabilityInput::ScissorTest:
+                    return m_scissorTestEnabled;
                 default:
                     return false;
                 }
@@ -133,6 +138,15 @@ namespace MobileGL {
 
             CullFaceMode RenderState::GetCullFaceMode() const {
                 return m_cullFaceMode;
+            }
+
+            // --------------------- Scissor ---------------------
+            void RenderState::SetScissorBox(IntVec4 box) {
+                m_scissorBox = box;
+            }
+
+            const IntVec4& RenderState::GetScissorBox() const {
+                return m_scissorBox;
             }
         } // namespace GLState
     } // namespace MG_State
