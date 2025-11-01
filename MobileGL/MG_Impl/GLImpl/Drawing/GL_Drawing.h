@@ -4,6 +4,7 @@
 namespace MobileGL {
     namespace MG_Impl::GLImpl {
         /* @INSERTION_POINT:FUNCTION_DECLARATION@ */
+        void DrawArrays(GLenum mode, GLint first, GLsizei count);
         void MultiDrawElements(GLenum mode, const GLsizei* count, GLenum type, const void* const* indices,
                                GLsizei drawcount);
         void MultiDrawElementsBaseVertex(GLenum mode, const GLsizei* count, GLenum type, const void* const* indices,

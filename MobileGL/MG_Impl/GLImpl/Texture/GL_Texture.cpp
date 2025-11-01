@@ -788,7 +788,9 @@ namespace MobileGL {
                     ErrorCode::InvalidEnum,
                     MakeShared<GenericErrorInfo>(
                         "MG_Impl/GLImpl", "ActiveTexture_State",
-                        "Texture must be one of GL_TEXTUREi, where i is in the range 0 to 31."));
+                        std::format("Texture must be one of GL_TEXTUREi, where i is in the range 0 to 31, but got "
+                                    "invalid enum: 0x{:X}, which may stand for unit {}.",
+                                    texture, texture - GL_TEXTURE0)));
                 return;
             }
 

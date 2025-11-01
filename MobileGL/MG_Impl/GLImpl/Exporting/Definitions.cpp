@@ -77,7 +77,7 @@ DECLARE_GL_FUNCTION_STUB_HEAD(void, DepthRangef, GLfloat n, GLfloat f) DECLARE_G
 DECLARE_GL_FUNCTION_HEAD(void, DetachShader, GLuint program, GLuint shader) DECLARE_GL_FUNCTION_END_NO_RETURN(void, DetachShader, program, shader)
 DECLARE_GL_FUNCTION_HEAD(void, Disable, GLenum cap) DECLARE_GL_FUNCTION_END_NO_RETURN(void, Disable, cap)
 DECLARE_GL_FUNCTION_HEAD(void, DisableVertexAttribArray, GLuint index) DECLARE_GL_FUNCTION_END_NO_RETURN(void, DisableVertexAttribArray, index)
-DECLARE_GL_FUNCTION_STUB_HEAD(void, DrawArrays, GLenum mode, GLint first, GLsizei count) DECLARE_GL_FUNCTION_STUB_END_NO_RETURN(void, DrawArrays, mode, first, count)
+DECLARE_GL_FUNCTION_HEAD(void, DrawArrays, GLenum mode, GLint first, GLsizei count) DECLARE_GL_FUNCTION_END_NO_RETURN(void, DrawArrays, mode, first, count)
 DECLARE_GL_FUNCTION_HEAD(void, DrawElements, GLenum mode, GLsizei count, GLenum type, const void* indices) DECLARE_GL_FUNCTION_END_NO_RETURN(void, DrawElements, mode, count, type, indices)
 DECLARE_GL_FUNCTION_HEAD(void, Enable, GLenum cap) DECLARE_GL_FUNCTION_END_NO_RETURN(void, Enable, cap)
 DECLARE_GL_FUNCTION_HEAD(void, EnableVertexAttribArray, GLuint index) DECLARE_GL_FUNCTION_END_NO_RETURN(void, EnableVertexAttribArray, index)

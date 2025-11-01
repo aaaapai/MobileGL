@@ -348,6 +348,11 @@ namespace MobileGL::MG_Backend::DirectGLES {
         }
     }
 
+    void DrawArrays(GLenum mode, GLint first, GLsizei count) {
+        PrepareForDraw();
+        MG_External::GLES::glDrawArrays(mode, first, count);
+    }
+
     void DrawElements(GLenum mode, GLsizei count, GLenum type, const void* indices) {
         PrepareForDraw();
         MG_External::GLES::glDrawElements(mode, count, type, indices);

@@ -35,7 +35,17 @@ namespace MobileGL {
 #endif
         }
 
+        void DrawArrays_Backend(GLenum mode, GLint first, GLsizei count) {
+#if MOBILEGL_BACKEND == MOBILEGL_BACKEND_TYPE_DIRECT_GLES
+            MG_Backend::DirectGLES::DrawArrays(mode, first, count);
+#endif
+        }
+
         /* @INSERTION_POINT:FUNCTION_IMPLEMENTATION@ */
+        void DrawArrays(GLenum mode, GLint first, GLsizei count) {
+            DrawArrays_Backend(mode, first, count);
+        }
+
         void MultiDrawElements(GLenum mode, const GLsizei* count, GLenum type, const void* const* indices,
                                GLsizei drawcount) {
             MultiDrawElements_Backend(mode, count, type, indices, drawcount);
