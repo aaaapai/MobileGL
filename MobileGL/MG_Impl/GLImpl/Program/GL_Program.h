@@ -49,6 +49,10 @@ namespace MobileGL {
         void UniformMatrix2fv(GLint location, GLsizei count, GLboolean transpose, const GLfloat* value);
         void UniformMatrix3fv(GLint location, GLsizei count, GLboolean transpose, const GLfloat* value);
         void UniformMatrix4fv(GLint location, GLsizei count, GLboolean transpose, const GLfloat* value);
+        GLuint GetUniformBlockIndex(GLuint program, const GLchar* uniformBlockName);
+        void UniformBlockBinding(GLuint program, GLuint uniformBlockIndex, GLuint uniformBlockBinding);
+        void GetActiveUniformBlockiv(GLuint program, GLuint uniformBlockIndex, GLenum pname, GLint* params);
+        void GetActiveUniformBlockName(GLuint program, GLuint uniformBlockIndex, GLsizei bufSize, GLsizei* length, GLchar* uniformBlockName);
         void ValidateProgram(GLuint program);
     } // namespace MG_Impl::GLImpl
 } // namespace MobileGL
