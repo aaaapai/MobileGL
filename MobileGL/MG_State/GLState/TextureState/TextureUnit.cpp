@@ -22,6 +22,10 @@ namespace MobileGL {
             void TextureUnit::SetSamplerObject(SharedPtr<SamplerObject> sampler) {
                 m_sampler = sampler;
             }
+
+            SharedPtr<SamplerObject> TextureUnit::GetSamplerObject() const {
+                return m_sampler;
+            }
         } // namespace GLState
     } // namespace MG_State
 } // namespace MobileGL
