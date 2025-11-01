@@ -75,6 +75,34 @@ namespace MobileGL {
                 Int GetActiveUniformBlocksCount() const { return m_program->getNumUniformBlocks(); }
                 Int GetActiveAttributesMaxLength() const { return m_attribInNameMaxLength; }
                 Int GetActiveUniformBlocksMaxNameLength() const { return m_uniformBlockNameMaxLength; }
+                Uint GetUniformBlockIndex(const char* name) const {
+                    auto it = m_uniformBlockIndex.find(name);
+                    if (it != m_uniformBlockIndex.end())
+                        return it->second;
+                    return 0xFFFFFFFFu; // GL_INVALID_INDEX
+                }
+                Bool IsActiveUniformBlock(Uint index) const {
+                    if (index >= GetActiveUniformBlocksCount())
+                        return false;
+                    if (m_uniformBlockIndexInTProgram[index] == -1)
+                        return false;
+                    return true;
+                }
+                Uint GetUBOSizeAt(Uint index) const {
+                    if (!IsActiveUniformBlock(index))
+                        return 0;
+                    return m_program->getUniformBlock(m_uniformBlockIndexInTProgram[index]).size;
+                }
+
+
+                const String& GetUniformBlockName(Uint index) const {
+                    auto& ubo = m_program->getUniform(m_uniformBlockIndexInTProgram[index]);
+                    return ubo.name;
+                }
+
+                void SetUniformBlockBinding(Uint index, Uint binding) {
+                    m_uniformBlockBinding[index] = binding;
+                }
 
                 Vector<Vector<unsigned>>& GetGeneratedSpirv() { return m_generatedSpirv; }
 
@@ -104,6 +132,12 @@ namespace MobileGL {
                 Vector<Int> m_uniformIndexInTProgram;
                 // ditto. Will be set at glUniform1i
                 Vector<Int> m_uniformSamplerOrImageUnitIndex;
+
+                UnorderedMap<String, Uint> m_uniformBlockIndex;
+
+                // Ordered by block index
+                Vector<Int> m_uniformBlockIndexInTProgram;
+                Vector<Int> m_uniformBlockBinding;
 
                 // Need to be reflected after linking of SPIR-V binary
                 Vector<Uint> m_uniformOffsets;
