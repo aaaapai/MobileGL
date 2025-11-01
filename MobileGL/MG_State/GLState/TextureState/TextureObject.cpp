@@ -7,7 +7,7 @@ namespace MobileGL {
             // TextureObjectBase implementations
             TextureObjectBase::TextureObjectBase(TextureTarget target, Uint externalIndex)
                 : m_target(target), m_externalIndex(externalIndex) {
-                m_sampler = MakeShared<SamplerObject>();
+                m_sampler = MakeShared<SamplerObject>(0);
             }
 
             void TextureObjectBase::SetMipmapLevel(const MipmapLevelInput& level) {

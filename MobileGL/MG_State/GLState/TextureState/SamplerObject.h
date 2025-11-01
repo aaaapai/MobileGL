@@ -50,12 +50,12 @@ namespace MobileGL {
         namespace GLState {
             class SamplerObject {
             public:
-                SamplerObject()
+                SamplerObject(Uint externalIndex)
                     : m_wrapS(SamplerWrapMode::Repeat), m_wrapT(SamplerWrapMode::Repeat),
                       m_wrapR(SamplerWrapMode::Repeat), m_minFilter(SamplerFilterMode::Linear),
                       m_magFilter(SamplerFilterMode::Linear), m_mipmapMode(SamplerMipmapMode::None), m_minLod(0.0f),
                       m_maxLod(1000.0f), m_lodBias(0.0f), m_compareMode(SamplerCompareMode::None),
-                      m_compareFunc(SamplerCompareFunc::Less) {}
+                      m_compareFunc(SamplerCompareFunc::Less), m_externalIndex(externalIndex) {}
 
                 void SetWrapS(SamplerWrapMode mode) { m_wrapS = mode; }
                 void SetWrapT(SamplerWrapMode mode) { m_wrapT = mode; }
@@ -85,8 +85,10 @@ namespace MobileGL {
                 Float GetLodBias() const { return m_lodBias; }
                 SamplerCompareMode GetCompareMode() const { return m_compareMode; }
                 SamplerCompareFunc GetSamplerCompareFunc() const { return m_compareFunc; }
+                Uint GetExternalIndex() const { return m_externalIndex; }
 
             private:
+                const Uint m_externalIndex = 0;
                 SamplerWrapMode m_wrapS, m_wrapT, m_wrapR;
                 SamplerFilterMode m_minFilter, m_magFilter;
                 SamplerMipmapMode m_mipmapMode;
