@@ -779,7 +779,7 @@ namespace MobileGL {
                 *params = 0; // TODO
                 break;
             case GL_UNIFORM_BUFFER_OFFSET_ALIGNMENT:
-                *params = 0; // TODO
+                *params = 1; // TODO
                 break;
             case GL_UNIFORM_BUFFER_SIZE:
                 *params = 0; // TODO
