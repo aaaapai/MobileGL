@@ -756,23 +756,23 @@ namespace MobileGL {
             switch (pname) {
                 case GL_UNIFORM_BLOCK_DATA_SIZE: {
                     *params = programObject->GetUBOSizeAt(uniformBlockIndex);
-                    MGLOG_D("%s: GL_UNIFORM_BLOCK_DATA_SIZE = %d", __func__, pname, *params);
+                    MGLOG_D("%s: GL_UNIFORM_BLOCK_DATA_SIZE = %d", __func__, *params);
                     break;
                 }
                 case GL_UNIFORM_BLOCK_NAME_LENGTH: {
                     *params = programObject->GetUniformBlockName(uniformBlockIndex).length() + 1;
-                    MGLOG_D("%s: GL_UNIFORM_BLOCK_NAME_LENGTH = %d", __func__, pname, *params);
+                    MGLOG_D("%s: GL_UNIFORM_BLOCK_NAME_LENGTH = %d", __func__, *params);
                     break;
                 }
                 case GL_UNIFORM_BLOCK_ACTIVE_UNIFORMS: {
                     // TODO: deduct global ubo?
                     *params = programObject->GetActiveUniformBlocksCount();
-                    MGLOG_D("%s: GL_UNIFORM_BLOCK_ACTIVE_UNIFORMS = %d", __func__, pname, *params);
+                    MGLOG_D("%s: GL_UNIFORM_BLOCK_ACTIVE_UNIFORMS = %d", __func__, *params);
                     break;
                 }
                 case GL_UNIFORM_BLOCK_BINDING: {
                     // TODO
-                    MGLOG_D("%s: GL_UNIFORM_BLOCK_BINDING = <TODO>", __func__, pname, *params);
+                    MGLOG_D("%s: GL_UNIFORM_BLOCK_BINDING = <TODO>", __func__, *params);
                 }
                 case GL_UNIFORM_BLOCK_ACTIVE_UNIFORM_INDICES:
                 case GL_UNIFORM_BLOCK_REFERENCED_BY_VERTEX_SHADER:
