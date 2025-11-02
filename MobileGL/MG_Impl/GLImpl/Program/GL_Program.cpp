@@ -729,7 +729,7 @@ namespace MobileGL {
                         MakeShared<GenericErrorInfo>("MG_Impl/GLImpl", __func__, "`program` is not a program object that has been linked."));
                 return;
             }
-            if (programObject->IsActiveUniformBlock(uniformBlockIndex)) {
+            if (!programObject->IsActiveUniformBlock(uniformBlockIndex)) {
                 MG_State::pGLContext->RecordError(
                         ErrorCode::InvalidValue,
                         MakeShared<GenericErrorInfo>("MG_Impl/GLImpl", __func__, "`uniformBlockIndex` is greater than or equal to the value of `GL_ACTIVE_UNIFORM_BLOCKS` or is not the index of an active uniform block in program."));
@@ -747,7 +747,7 @@ namespace MobileGL {
                         MakeShared<GenericErrorInfo>("MG_Impl/GLImpl", __func__, "`program` is not a program object that has been linked."));
                 return;
             }
-            if (programObject->IsActiveUniformBlock(uniformBlockIndex)) {
+            if (!programObject->IsActiveUniformBlock(uniformBlockIndex)) {
                 MG_State::pGLContext->RecordError(
                         ErrorCode::InvalidValue,
                         MakeShared<GenericErrorInfo>("MG_Impl/GLImpl", __func__, "`uniformBlockIndex` is greater than or equal to the value of `GL_ACTIVE_UNIFORM_BLOCKS` or is not the index of an active uniform block in program."));
@@ -795,7 +795,7 @@ namespace MobileGL {
                         MakeShared<GenericErrorInfo>("MG_Impl/GLImpl", __func__, "`program` is not a program object that has been linked."));
                 return;
             }
-            if (programObject->IsActiveUniformBlock(uniformBlockIndex)) {
+            if (!programObject->IsActiveUniformBlock(uniformBlockIndex)) {
                 MG_State::pGLContext->RecordError(
                         ErrorCode::InvalidValue,
                         MakeShared<GenericErrorInfo>("MG_Impl/GLImpl", __func__, "`uniformBlockIndex` is greater than or equal to the value of `GL_ACTIVE_UNIFORM_BLOCKS` or is not the index of an active uniform block in program."));
