@@ -32,7 +32,7 @@ namespace MobileGL {
                 Vector<Uint> GenBufferNames(Uint number);
                 SharedPtr<BufferObject> GetBufferObject(Uint index);
                 BindingSlot<BufferObject>& GetBufferBindingSlot(BufferTarget target);
-                BindingSlot<BufferObject>& GetBufferBindingPoint(BufferTarget target, Uint index);
+                BindingSlotRange1D<BufferObject>& GetBufferBindingPoint(BufferTarget target, Uint index);
                 SharedPtr<BufferObject> CreateBufferObject(Uint index);
                 void MarkBufferObjectForDeletion(Uint index);
                 Bool ValidateBufferName(Uint index) const;

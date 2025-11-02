@@ -65,7 +65,7 @@ namespace MobileGL {
                 return m_bufferState.GetBindingSlot(target);
             }
 
-            BindingSlot<BufferObject>& GLContext::GetBufferBindingPoint(BufferTarget target, Uint index) {
+            BindingSlotRange1D<BufferObject>& GLContext::GetBufferBindingPoint(BufferTarget target, Uint index) {
                 return m_bufferState.GetBindingPoint(target, index);
             }
 

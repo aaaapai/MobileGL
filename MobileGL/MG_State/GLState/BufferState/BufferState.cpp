@@ -62,7 +62,7 @@ namespace MobileGL {
                 return m_bufferObjects.find(index) != m_bufferObjects.end();
             }
 
-            BindingSlot<BufferObject> &
+            BindingSlotRange1D<BufferObject> &
             BufferState::GetBindingPoint(BufferTarget target, Uint index) {
                 for (SizeT i = 0; i < BufferBindPointTargets.size(); ++i) {
                     if (BufferBindPointTargets[i] == target) {

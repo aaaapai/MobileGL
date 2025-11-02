@@ -24,7 +24,7 @@ namespace MobileGL {
                 SharedPtr<BufferObject> CreateBufferObject(Uint index);
                 BindingSlot<BufferObject>& GetBindingSlot(BufferTarget target);
                 // For glBindBufferBase / glBindBufferRange
-                BindingSlot<BufferObject>& GetBindingPoint(BufferTarget target, Uint index);
+                BindingSlotRange1D<BufferObject>& GetBindingPoint(BufferTarget target, Uint index);
                 void MarkBufferObjectForDeletion(Uint index);
                 Bool ValidateName(Uint index) const;
                 Bool ValidateBufferObject(Uint index) const;
@@ -35,7 +35,7 @@ namespace MobileGL {
                 Array<BindingSlot<BufferObject>, GlobalBufferTargets.size()> m_bindingSlots;
                 // TODO: query the count somewhere globally?
                 // For glBindBufferBase / glBindBufferRange
-                Array<Array<BindingSlot<BufferObject>, 14>, BufferBindPointTargets.size()> m_bufferBindPointTargets;
+                Array<Array<BindingSlotRange1D<BufferObject>, 14>, BufferBindPointTargets.size()> m_bufferBindPointTargets;
             };
         } // namespace GLState
     } // namespace MG_State
