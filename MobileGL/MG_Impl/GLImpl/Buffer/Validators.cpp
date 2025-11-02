@@ -31,6 +31,22 @@ namespace MobileGL::MG_Impl::GLImpl {
             return true;
         }
 
+        Bool ValidateBufferBindingPointTarget(BufferTarget target) {
+            if (target != BufferTarget::Uniform && target != BufferTarget::AtomicCounter &&
+                target != BufferTarget::TransformFeedback && target != BufferTarget::ShaderStorage) {
+                using namespace MG_Util;
+                String bufferTargetStr = ConvertBufferTargetToString(target);
+                String glTargetStr = ConvertGLEnumToString(ConvertBufferTargetToGLEnum(target));
+                MG_State::pGLContext->RecordError(
+                        ErrorCode::InvalidEnum,
+                        MakeShared<GenericErrorInfo>(
+                                "MG_Impl/GLImpl/BufferImpl", "ValidateBufferTarget",
+                                std::format("Target {} ({}) is not valid.", bufferTargetStr, glTargetStr)));
+                return false;
+            }
+            return true;
+        }
+
         Bool ValidateBufferName(Uint index, Bool allowZero) {
             if (index == 0) {
                 if (allowZero) return true;
