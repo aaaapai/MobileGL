@@ -11,6 +11,9 @@ namespace MobileGL {
                         BufferTarget::PixelPack, BufferTarget::PixelUnpack, BufferTarget::Query, BufferTarget::Texture,
                         BufferTarget::TransformFeedback, BufferTarget::AtomicCounter, BufferTarget::DispatchIndirect,
                         BufferTarget::DrawIndirect, BufferTarget::ShaderStorage);
+            constexpr const auto BufferBindPointTargets =
+                    ToArray(BufferTarget::Uniform, BufferTarget::TransformFeedback,
+                            BufferTarget::AtomicCounter, BufferTarget::ShaderStorage);
 
             class BufferState {
             public:
@@ -20,6 +23,8 @@ namespace MobileGL {
                 Vector<Uint> GenerateNames(Uint number);
                 SharedPtr<BufferObject> CreateBufferObject(Uint index);
                 BindingSlot<BufferObject>& GetBindingSlot(BufferTarget target);
+                // For glBindBufferBase / glBindBufferRange
+                BindingSlot<BufferObject>& GetBindingPoint(BufferTarget target, Uint index);
                 void MarkBufferObjectForDeletion(Uint index);
                 Bool ValidateName(Uint index) const;
                 Bool ValidateBufferObject(Uint index) const;
@@ -28,6 +33,9 @@ namespace MobileGL {
                 UnorderedMap<Uint, SharedPtr<BufferObject>> m_bufferObjects;
                 IndexGenerator<Uint> m_indexGenerator;
                 Array<BindingSlot<BufferObject>, GlobalBufferTargets.size()> m_bindingSlots;
+                // TODO: query the count somewhere globally?
+                // For glBindBufferBase / glBindBufferRange
+                Array<Array<BindingSlot<BufferObject>, 14>, BufferBindPointTargets.size()> m_bufferBindPointTargets;
             };
         } // namespace GLState
     } // namespace MG_State

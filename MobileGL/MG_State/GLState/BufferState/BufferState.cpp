@@ -61,6 +61,17 @@ namespace MobileGL {
             Bool BufferState::ValidateBufferObject(Uint index) const {
                 return m_bufferObjects.find(index) != m_bufferObjects.end();
             }
+
+            BindingSlot<BufferObject> &
+            BufferState::GetBindingPoint(BufferTarget target, Uint index) {
+                for (SizeT i = 0; i < BufferBindPointTargets.size(); ++i) {
+                    if (BufferBindPointTargets[i] == target) {
+                        return m_bufferBindPointTargets[i][index];
+                    }
+                }
+                assert(false);
+                return m_bufferBindPointTargets[0][index];
+            }
         } // namespace GLState
     } // namespace MG_State
 } // namespace MobileGL

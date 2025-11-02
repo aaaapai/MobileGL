@@ -214,7 +214,7 @@ DECLARE_GL_FUNCTION_STUB_HEAD(void, GetIntegeri_v, GLenum target, GLuint index, 
 DECLARE_GL_FUNCTION_STUB_HEAD(void, BeginTransformFeedback, GLenum primitiveMode) DECLARE_GL_FUNCTION_STUB_END_NO_RETURN(void, BeginTransformFeedback, primitiveMode)
 DECLARE_GL_FUNCTION_STUB_HEAD(void, EndTransformFeedback) DECLARE_GL_FUNCTION_STUB_END_NO_RETURN(void, EndTransformFeedback)
 DECLARE_GL_FUNCTION_STUB_HEAD(void, BindBufferRange, GLenum target, GLuint index, GLuint buffer, GLintptr offset, GLsizeiptr size) DECLARE_GL_FUNCTION_STUB_END_NO_RETURN(void, BindBufferRange, target, index, buffer, offset, size)
-DECLARE_GL_FUNCTION_STUB_HEAD(void, BindBufferBase, GLenum target, GLuint index, GLuint buffer) DECLARE_GL_FUNCTION_STUB_END_NO_RETURN(void, BindBufferBase, target, index, buffer)
+DECLARE_GL_FUNCTION_HEAD(void, BindBufferBase, GLenum target, GLuint index, GLuint buffer) DECLARE_GL_FUNCTION_END_NO_RETURN(void, BindBufferBase, target, index, buffer)
 DECLARE_GL_FUNCTION_STUB_HEAD(void, TransformFeedbackVaryings, GLuint program, GLsizei count, const GLchar* const* varyings, GLenum bufferMode) DECLARE_GL_FUNCTION_STUB_END_NO_RETURN(void, TransformFeedbackVaryings, program, count, varyings, bufferMode)
 DECLARE_GL_FUNCTION_STUB_HEAD(void, GetTransformFeedbackVarying, GLuint program, GLuint index, GLsizei bufSize, GLsizei* length, GLsizei* size, GLenum* type, GLchar* name) DECLARE_GL_FUNCTION_STUB_END_NO_RETURN(void, GetTransformFeedbackVarying, program, index, bufSize, length, size, type, name)
 DECLARE_GL_FUNCTION_HEAD(void, VertexAttribIPointer, GLuint index, GLint size, GLenum type, GLsizei stride, const void* pointer) DECLARE_GL_FUNCTION_END_NO_RETURN(void, VertexAttribIPointer, index, size, type, stride, pointer)

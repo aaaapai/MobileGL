@@ -65,6 +65,10 @@ namespace MobileGL {
                 return m_bufferState.GetBindingSlot(target);
             }
 
+            BindingSlot<BufferObject>& GLContext::GetBufferBindingPoint(BufferTarget target, Uint index) {
+                return m_bufferState.GetBindingPoint(target, index);
+            }
+
             SharedPtr<BufferObject> GLContext::CreateBufferObject(Uint index) {
                 return m_bufferState.CreateBufferObject(index);
             }
