@@ -756,19 +756,23 @@ namespace MobileGL {
             switch (pname) {
                 case GL_UNIFORM_BLOCK_DATA_SIZE: {
                     *params = programObject->GetUBOSizeAt(uniformBlockIndex);
+                    MGLOG_D("%s: GL_UNIFORM_BLOCK_DATA_SIZE = %d", __func__, pname, *params);
                     break;
                 }
                 case GL_UNIFORM_BLOCK_NAME_LENGTH: {
                     *params = programObject->GetUniformBlockName(uniformBlockIndex).length() + 1;
+                    MGLOG_D("%s: GL_UNIFORM_BLOCK_NAME_LENGTH = %d", __func__, pname, *params);
                     break;
                 }
                 case GL_UNIFORM_BLOCK_ACTIVE_UNIFORMS: {
                     // TODO: deduct global ubo?
                     *params = programObject->GetActiveUniformBlocksCount();
+                    MGLOG_D("%s: GL_UNIFORM_BLOCK_ACTIVE_UNIFORMS = %d", __func__, pname, *params);
                     break;
                 }
                 case GL_UNIFORM_BLOCK_BINDING: {
                     // TODO
+                    MGLOG_D("%s: GL_UNIFORM_BLOCK_BINDING = <TODO>", __func__, pname, *params);
                 }
                 case GL_UNIFORM_BLOCK_ACTIVE_UNIFORM_INDICES:
                 case GL_UNIFORM_BLOCK_REFERENCED_BY_VERTEX_SHADER:
@@ -778,11 +782,11 @@ namespace MobileGL {
                 case GL_UNIFORM_BLOCK_REFERENCED_BY_FRAGMENT_SHADER:
                 case GL_UNIFORM_BLOCK_REFERENCED_BY_COMPUTE_SHADER:
                 default:
-                    MGLOG_D("%s: pname = %s", __func__, MG_Util::ConvertGLEnumToString(pname).c_str());
+                    MGLOG_E("%s: unknown pname = %p %s", __func__, pname, MG_Util::ConvertGLEnumToString(pname).c_str());
                     MG_State::pGLContext->RecordError(
                             ErrorCode::InvalidEnum,
                             MakeShared<GenericErrorInfo>("MG_Impl/GLImpl", __func__, "`pname` is not one of the accepted tokens."));
-                    return;
+                    break;
             }
         }
 
