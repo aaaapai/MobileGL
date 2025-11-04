@@ -108,6 +108,8 @@ namespace MobileGL {
 
                 Uint GetExternalIndex() const { return m_externalIndex; }
 
+                const UnorderedMap<String, Uint>& GetAttribLocationMap() const { return m_attribLocation; }
+
             private:
                 void DoReflection();
                 void GenerateBinary();
@@ -124,6 +126,8 @@ namespace MobileGL {
                 UnorderedMap<String, Uint> m_explicitAttribLocations;
                 Vector<String> m_attribs;
                 Vector<GLenum> m_attribTypes;
+                // For SpvcSession::SetVertexAttribLocation()
+                UnorderedMap<String, Uint> m_attribLocation;
 
                 // Uniforms
                 UnorderedMap<String, Uint> m_uniformLocations;

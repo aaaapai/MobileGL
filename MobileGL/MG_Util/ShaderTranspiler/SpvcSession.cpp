@@ -60,6 +60,25 @@ namespace MobileGL {
                 return variables;
             }
 
+            spvc_result SpvcSession::SetVertexAttribLocation(const UnorderedMap<String, Uint>& location) {
+                // TODO: We should assert we're really dealing with vertex shader here
+
+                SPVC_CHK_INIT
+                const spvc_reflected_resource *list = nullptr;
+                size_t count = 0;
+                SPVC_CHK_RESULT(spvc_resources_get_resource_list_for_type(resources, SPVC_RESOURCE_TYPE_STAGE_INPUT, &list, &count));
+                for (size_t i = 0; i < count; ++i) {
+                    auto& resource = list[i];
+                    auto it = location.find(resource.name);
+                    if (it != location.end()) {
+                        // realize glBindVertexAttribLocation here
+                        // it->second should be the location explicitly requested
+                        spvc_compiler_set_decoration(compiler, resource.id, SpvDecorationLocation, it->second);
+                    }
+                }
+                SPVC_CHK_RETURN
+            }
+
             spvc_result SpvcSession::Compile(const char** result) {
                 SPVC_CHK_INIT
                 SPVC_CHK_RESULT(spvc_compiler_compile(compiler, result));

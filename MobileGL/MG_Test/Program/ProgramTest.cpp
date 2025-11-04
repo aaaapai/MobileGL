@@ -19,7 +19,7 @@ TEST_F(ProgramTest, Sanity) {
 
 const char* vsSrc = R"(#version 460
 
-layout (location = 0) in vec4 Position;
+layout (location = 2) in vec4 Position;
 in float fIn4;
 in float fIn2;
 in float fIn5;
@@ -146,7 +146,7 @@ TEST_F(ProgramTest, CompileAndLink) {
     GetProgramiv(program, GL_ACTIVE_UNIFORM_MAX_LENGTH, &uniformNameMaxLength);
     ASSERT_EQ(uniformNameMaxLength, 12);
 
-    ASSERT_EQ(GetAttribLocation(program, "Position"), 0);
+    ASSERT_EQ(GetAttribLocation(program, "Position"), 2);
     ASSERT_EQ(GetAttribLocation(program, "fIn1"), 1);
     ASSERT_EQ(GetAttribLocation(program, "fIn3"), 3);
     ASSERT_EQ(GetAttribLocation(program, "fIn5"), 5);
@@ -169,6 +169,36 @@ TEST_F(ProgramTest, CompileAndLink) {
     int intVal;
     GetUniformiv(program, locInt, &intVal);
     EXPECT_EQ(intVal, 114514);
+
+    auto programObj = MG_State::pGLContext->GetProgramObject(program);
+    auto& shaderSpirvs = programObj->GetGeneratedSpirv();
+    for (int index = 0; index < shaderSpirvs.size(); ++index) {
+        String source;
+        auto& spirvCode = shaderSpirvs[index];
+
+        MG_Util::ShaderTranspiler::SpvcSession spvcSession(spirvCode);
+
+        spvc_compiler_options options;
+        spvcSession.CreateOptions(&options);
+
+        spvc_compiler_options_set_uint(options, SPVC_COMPILER_OPTION_GLSL_VERSION, 320);
+        spvc_compiler_options_set_bool(options, SPVC_COMPILER_OPTION_GLSL_ES, SPVC_TRUE);
+        spvc_compiler_options_set_bool(options, SPVC_COMPILER_OPTION_GLSL_VULKAN_SEMANTICS, SPVC_FALSE);
+
+        spvcSession.SetOptions(options);
+
+        const char* result = nullptr;
+        spvcSession.Compile(&result);
+
+        if (!result) {
+            MG_Util::ShaderTranspiler::ResultInfo r;
+            r.log += "Failed to compile the shader to GLSL: \n";
+            r.log += spvcSession.GetLastErrorString();
+            r.errc = -5;
+            FAIL() << r.log;
+        }
+        printf("shader dump: \n%s\n", result);
+    }
 }
 
 TEST_F(ProgramTest, UniformMatrixFunctions) {

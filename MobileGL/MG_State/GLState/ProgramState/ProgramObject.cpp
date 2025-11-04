@@ -195,6 +195,10 @@ namespace MobileGL {
                         std::swap(m_attribs[location], m_attribs[idx]);
                         std::swap(m_attribTypes[location], m_attribTypes[idx]);
                     }
+
+                    for (SizeT idx = 0; idx < m_attribs.size(); ++idx) {
+                        m_attribLocation[m_attribs[idx]] = idx;
+                    }
                 }
 
                 // ---------- UBO ----------
@@ -207,7 +211,6 @@ namespace MobileGL {
                     m_uniformBlockIndex[ubo.name] = ubo.getBinding();
                     m_uniformBlockIndexInTProgram[ubo.getBinding()] = i;
                 }
-
             }
 
             void ProgramObject::GenerateBinary() {
@@ -244,7 +247,9 @@ namespace MobileGL {
                 assert(binaryResult);
                 m_generatedSpirv = Move(binaryResult.value());
 
-                for (auto spv : m_generatedSpirv) {
+                for (SizeT i = 0; i < m_generatedSpirv.size(); i++) {
+                    auto& spv = m_generatedSpirv[i];
+                    auto shaderType = shaderTypes[i];
                     SpvcSession session(spv);
                     auto result = session.ParseMetaData();
                     if (result < 0) {

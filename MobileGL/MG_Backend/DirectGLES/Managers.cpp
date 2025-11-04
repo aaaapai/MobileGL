@@ -501,6 +501,9 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 auto& spirvCode = shaderSpirvs[index];
 
                 MG_Util::ShaderTranspiler::SpvcSession spvcSession(spirvCode);
+                if (glShaderType == GL_VERTEX_SHADER) {
+                    spvcSession.SetVertexAttribLocation(stateProgramObject->GetAttribLocationMap());
+                }
 
                 spvc_compiler_options options;
                 spvcSession.CreateOptions(&options);
