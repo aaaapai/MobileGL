@@ -208,6 +208,9 @@ namespace MobileGL {
                     auto& ubo = m_program->getUniformBlock(i);
                     m_uniformBlockNameMaxLength = std::max(m_uniformBlockNameMaxLength, (Int)ubo.name.length());
                     m_uniformBlockIndexByName[ubo.name] = i;
+                    // if there's binding defined in shader as layout(binding = ...),
+                    // retrieve it here
+                    m_uniformBlockBinding[i] = ubo.getBinding();
                 }
             }
 

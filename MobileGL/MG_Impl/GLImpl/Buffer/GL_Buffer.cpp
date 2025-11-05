@@ -494,7 +494,7 @@ namespace MobileGL {
             return MG_State::pGLContext->ValidateBufferObject(buffer) ? GL_TRUE : GL_FALSE;
         }
 
-        void BindBufferBase_State(GLenum target, GLuint index, GLuint buffer) {
+        void BindBufferBase_State(GLenum target, GLuint pointIndex, GLuint buffer) {
             BufferTarget bufferTarget = MG_Util::ConvertGLEnumToBufferTarget(target);
             if (!BufferImpl::ValidateBufferBindingPointTarget(bufferTarget)) return;
 
@@ -504,7 +504,7 @@ namespace MobileGL {
                 bufferObject = MG_State::pGLContext->GetBufferObject(buffer);
             }
 
-            auto& point = MG_State::pGLContext->GetBufferBindingPoint(bufferTarget, index);
+            auto& point = MG_State::pGLContext->GetBufferBindingPoint(bufferTarget, pointIndex);
             point.Bind(bufferObject);
             point.ClearRange();
         }

@@ -33,6 +33,9 @@ namespace MobileGL {
                 SharedPtr<BufferObject> GetBufferObject(Uint index);
                 BindingSlot<BufferObject>& GetBufferBindingSlot(BufferTarget target);
                 BindingSlotRange1D<BufferObject>& GetBufferBindingPoint(BufferTarget target, Uint index);
+                constexpr SizeT GetBufferBindingPointCount(BufferTarget target) const {
+                    return m_bufferState.GetBindingPointCount(target);
+                }
                 SharedPtr<BufferObject> CreateBufferObject(Uint index);
                 void MarkBufferObjectForDeletion(Uint index);
                 Bool ValidateBufferName(Uint index) const;

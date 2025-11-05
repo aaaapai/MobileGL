@@ -99,6 +99,7 @@ namespace MobileGL {
             auto programObject = TryToGetProgramObject(program);
             if (!programObject) return;
 
+            MGLOG_D("%s: loc %02d = \"%s\"", __func__, index, name);
             programObject->SetExplicitAttribLocation(index, name);
         }
 
@@ -231,43 +232,55 @@ namespace MobileGL {
             switch (pname) {
             case GL_DELETE_STATUS:
                 *params = programObject->GetDeleteStatus();
+                MGLOG_D("%s: %s = %d", __func__, MG_Util::ConvertGLEnumToString(pname).c_str(), *params);
                 break;
             case GL_LINK_STATUS:
                 *params = programObject->GetLinkStatus();
+                MGLOG_D("%s: %s = %d", __func__, MG_Util::ConvertGLEnumToString(pname).c_str(), *params);
                 break;
             case GL_VALIDATE_STATUS:
                 *params = programObject->GetValidateStatus();
+                MGLOG_D("%s: %s = %d", __func__, MG_Util::ConvertGLEnumToString(pname).c_str(), *params);
                 break;
             case GL_INFO_LOG_LENGTH: {
                 const auto& log = programObject->GetInfoLog();
                 *params = log.length();
+                MGLOG_D("%s: %s = %d", __func__, MG_Util::ConvertGLEnumToString(pname).c_str(), *params);
                 break;
             }
             case GL_ATTACHED_SHADERS: {
                 const auto& attachedShaders = programObject->GetAttachedShaders();
                 *params = attachedShaders.size();
+                MGLOG_D("%s: %s = %d", __func__, MG_Util::ConvertGLEnumToString(pname).c_str(), *params);
                 break;
             }
             case GL_ACTIVE_ATOMIC_COUNTER_BUFFERS:
                 *params = programObject->GetActiveAtomicCounterCount();
+                MGLOG_D("%s: %s = %d", __func__, MG_Util::ConvertGLEnumToString(pname).c_str(), *params);
                 break;
             case GL_ACTIVE_ATTRIBUTES:
                 *params = programObject->GetActiveAttributesCount();
+                MGLOG_D("%s: %s = %d", __func__, MG_Util::ConvertGLEnumToString(pname).c_str(), *params);
                 break;
             case GL_ACTIVE_ATTRIBUTE_MAX_LENGTH:
                 *params = programObject->GetActiveAttributesMaxLength();
+                MGLOG_D("%s: %s = %d", __func__, MG_Util::ConvertGLEnumToString(pname).c_str(), *params);
                 break;
             case GL_ACTIVE_UNIFORMS:
                 *params = programObject->GetUniformCount();
+                MGLOG_D("%s: %s = %d", __func__, MG_Util::ConvertGLEnumToString(pname).c_str(), *params);
                 break;
             case GL_ACTIVE_UNIFORM_MAX_LENGTH:
                 *params = programObject->GetUniformMaxLength();
+                MGLOG_D("%s: %s = %d", __func__, MG_Util::ConvertGLEnumToString(pname).c_str(), *params);
                 break;
             case GL_ACTIVE_UNIFORM_BLOCKS: // GL >= 3.1
                 *params = programObject->GetActiveUniformBlocksCount();
+                MGLOG_D("%s: %s = %d", __func__, MG_Util::ConvertGLEnumToString(pname).c_str(), *params);
                 break;
             case GL_ACTIVE_UNIFORM_BLOCK_MAX_NAME_LENGTH: // ditto.
                 *params = programObject->GetActiveUniformBlocksMaxNameLength();
+                MGLOG_D("%s: %s = %d", __func__, MG_Util::ConvertGLEnumToString(pname).c_str(), *params);
                 break;
             case GL_COMPUTE_WORK_GROUP_SIZE: // GL >= 4.3
 
@@ -280,6 +293,7 @@ namespace MobileGL {
             case GL_GEOMETRY_INPUT_TYPE:
             case GL_GEOMETRY_OUTPUT_TYPE:
             default:
+                MGLOG_D("%s: %s", __func__, MG_Util::ConvertGLEnumToString(pname).c_str());
                 MG_State::pGLContext->RecordError(
                     ErrorCode::InvalidEnum,
                     MakeShared<GenericErrorInfo>("MG_Impl/GLImpl", __func__, "`pname` is not an accepted value."));

@@ -15,6 +15,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
         void SyncNeccessaryBuffers() {
             // All buffers we need are:
             //   1.VBOs 2.IBO 3.UBOs (TODO) 4.SSBOs (TODO)
+
             Vector<SharedPtr<MG_State::GLState::BufferObject>> buffersToSync;
             const auto& currentVAOObject = MG_State::pGLContext->GetBoundVertexArray();
             if (!currentVAOObject) {
@@ -22,6 +23,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 return;
             }
 
+            // VBO
             for (const auto& attrib : currentVAOObject->GetAllAttributes()) {
                 if (!attrib.Enabled) continue;
                 const auto& bufferObject = attrib.Buffer;
@@ -29,11 +31,24 @@ namespace MobileGL::MG_Backend::DirectGLES {
                     buffersToSync.push_back(bufferObject);
                 }
             }
+
+            // IBO
             const auto& possibleIBO = currentVAOObject->GetIndexBufferBindingSlot().GetBoundObject();
             if (possibleIBO) {
                 buffersToSync.push_back(possibleIBO);
             }
 
+            // UBO
+            auto uboBindingPointCnt = MG_State::pGLContext->GetBufferBindingPointCount(BufferTarget::Uniform);
+            for (SizeT i = 0; i < uboBindingPointCnt; ++i) {
+                auto& point = MG_State::pGLContext->GetBufferBindingPoint(BufferTarget::Uniform, i);
+                auto obj = point.GetBoundObject();
+                if (obj)
+                    buffersToSync.push_back(obj);
+            }
+
+
+            // PBO
             const auto& pbo = MG_State::pGLContext->GetBufferBindingSlot(BufferTarget::PixelUnpack).GetBoundObject();
             if (pbo) {
                 buffersToSync.push_back(pbo);
@@ -300,20 +315,44 @@ namespace MobileGL::MG_Backend::DirectGLES {
             const auto& backendProgramIt = PrgramImpl::g_backendProgramObjects.find(currentProgram);
             if (backendProgramIt != PrgramImpl::g_backendProgramObjects.end()) {
                 backendProgramIt->second->Use();
-                // UBO
-                MG_External::GLES::glBindBuffer(GL_UNIFORM_BUFFER, backendProgramIt->second->GetBackendGlobalUBOId());
-                MG_External::GLES::glBufferSubData(GL_UNIFORM_BUFFER, 0, currentProgram->GetUBOSize(),
-                                                   currentProgram->MapUBO());
-                MG_External::GLES::glBindBuffer(GL_UNIFORM_BUFFER, 0);
+                auto backendProgramId = backendProgramIt->second->GetBackendProgramId();
+                // Global UBO
+                if (currentProgram->GetUBOSize() > 0) {
+                    MG_External::GLES::glBindBuffer(GL_UNIFORM_BUFFER, backendProgramIt->second->GetBackendGlobalUBOId());
+                    MG_External::GLES::glBufferSubData(GL_UNIFORM_BUFFER, 0, currentProgram->GetUBOSize(),
+                                                       currentProgram->MapUBO());
+                    MG_External::GLES::glBindBuffer(GL_UNIFORM_BUFFER, 0);
 
-                Uint blockIndex = MG_External::GLES::glGetUniformBlockIndex(
-                    backendProgramIt->second->GetBackendProgramId(), MG_Util::ShaderTranspiler::GLOBAL_UBO_NAME);
+                    Uint blockIndex = MG_External::GLES::glGetUniformBlockIndex(
+                        backendProgramId, MG_Util::ShaderTranspiler::GLOBAL_UBO_NAME);
 
-                MG_External::GLES::glUniformBlockBinding(backendProgramIt->second->GetBackendProgramId(), blockIndex,
-                                                         0);
+                    MG_External::GLES::glUniformBlockBinding(backendProgramId, blockIndex, 0);
 
-                MG_External::GLES::glBindBufferBase(GL_UNIFORM_BUFFER, 0,
-                                                    backendProgramIt->second->GetBackendGlobalUBOId());
+                    MG_External::GLES::glBindBufferBase(GL_UNIFORM_BUFFER, 0,
+                                                        backendProgramIt->second->GetBackendGlobalUBOId());
+                }
+                // Normal UBO
+                auto uboCount = currentProgram->GetActiveUniformBlocksCount();
+                for (Int i = 0; i < uboCount; ++i) {
+                    // state binding point == backend binding point
+
+                    // Connect program ubo index to backend binding point
+                    auto binding = currentProgram->GetUniformBlockBinding(i);
+                    auto& name = currentProgram->GetUniformBlockName(i);
+                    GLuint backendBlkIdx = MG_External::GLES::glGetUniformBlockIndex(backendProgramId, name.c_str());
+                    MG_External::GLES::glUniformBlockBinding(backendProgramId, backendBlkIdx, binding);
+
+                    // Connect buffer to backend binding point
+                    auto& point = MG_State::pGLContext->GetBufferBindingPoint(BufferTarget::Uniform, binding);
+                    auto bufferObj = point.GetBoundObject();
+                    auto range = point.GetRange();
+                    if (range.end > bufferObj->GetSize()) {
+                        MG_External::GLES::glBindBufferBase(GL_UNIFORM_BUFFER, binding, BufferImpl::g_backendBufferObjects[bufferObj]->GetBackendBufferId());
+                    } else {
+                        MG_External::GLES::glBindBufferRange(GL_UNIFORM_BUFFER, binding, BufferImpl::g_backendBufferObjects[bufferObj]->GetBackendBufferId(),
+                            range.start, range.end - range.start);
+                    }
+                }
 
                 // Sampler unit binding
                 auto maxUniformLoc = currentProgram->GetMaxUniformLocation();

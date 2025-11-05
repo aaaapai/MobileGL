@@ -103,6 +103,10 @@ namespace MobileGL {
                     m_uniformBlockBinding[index] = binding;
                 }
 
+                Uint GetUniformBlockBinding(Uint index) const {
+                    return m_uniformBlockBinding[index];
+                }
+
                 Vector<Vector<unsigned>>& GetGeneratedSpirv() { return m_generatedSpirv; }
 
                 Uint GetExternalIndex() const { return m_externalIndex; }
