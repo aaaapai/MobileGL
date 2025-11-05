@@ -2,6 +2,7 @@
 #include "Includes.h"
 #include "MG_Impl/GLImpl/Program/GL_Program.h"
 #include "MG_State/GLState/Core.h"
+#include "MG_Util/ShaderTranspiler/ShaderCompiler.h"
 
 using namespace MobileGL;
 using namespace MobileGL::MG_Impl::GLImpl;
@@ -717,4 +718,116 @@ TEST_F(ProgramTest, MinecraftBlitScreenLightmap) {
 
     auto programObject = MG_State::pGLContext->GetCurrentProgram();
     ASSERT_GT(programObject->GetUBOSize(), 0);
+}
+
+const char* minecraft_core_tex_color_1216_vs = R"(#version 150
+
+// Can't moj_import in things used during startup, when resource packs don't exist.
+// This is a copy of dynamicimports.glsl and projection.glsl
+layout(std140) uniform DynamicTransforms {
+    mat4 ModelViewMat;
+    vec4 ColorModulator;
+    vec3 ModelOffset;
+    mat4 TextureMat;
+    float LineWidth;
+};
+layout(std140) uniform Projection {
+    mat4 ProjMat;
+};
+
+in vec3 Position;
+in vec2 UV0;
+in vec4 Color;
+
+out vec2 texCoord0;
+out vec4 vertexColor;
+
+void main() {
+    gl_Position = ProjMat * ModelViewMat * vec4(Position, 1.0);
+
+    texCoord0 = UV0;
+    vertexColor = Color;
+}
+)";
+
+const char* minecraft_core_tex_color_1216_fs = R"(#version 150
+
+// Can't moj_import in things used during startup, when resource packs don't exist.
+// This is a copy of dynamicimports.glsl
+layout(std140) uniform DynamicTransforms {
+    mat4 ModelViewMat;
+    vec4 ColorModulator;
+    vec3 ModelOffset;
+    mat4 TextureMat;
+    float LineWidth;
+};
+
+uniform sampler2D Sampler0;
+
+in vec2 texCoord0;
+in vec4 vertexColor;
+
+out vec4 fragColor;
+
+void main() {
+    vec4 color = texture(Sampler0, texCoord0) * vertexColor;
+    if (color.a == 0.0) {
+        discard;
+    }
+    fragColor = color * ColorModulator;
+}
+)";
+
+TEST_F(ProgramTest, MinecraftTexColor1_21_6) {
+    char infoLog[1024] = "";
+
+    GLuint vs = CreateShader(GL_VERTEX_SHADER);
+    ShaderSource(vs, 1, &minecraft_core_tex_color_1216_vs, NULL);
+    CompileShader(vs);
+    GLint vsStatus = GL_FALSE;
+    GetShaderiv(vs, GL_COMPILE_STATUS, &vsStatus);
+    GetShaderInfoLog(vs, 1024, nullptr, infoLog);
+    ASSERT_EQ(vsStatus, GL_TRUE) << infoLog;
+
+    GLuint fs = CreateShader(GL_FRAGMENT_SHADER);
+    ShaderSource(fs, 1, &minecraft_core_tex_color_1216_fs, NULL);
+    CompileShader(fs);
+    GLint fsStatus = GL_FALSE;
+    GetShaderiv(fs, GL_COMPILE_STATUS, &fsStatus);
+    GetShaderInfoLog(fs, 1024, nullptr, infoLog);
+    ASSERT_EQ(fsStatus, GL_TRUE) << infoLog;
+
+    GLuint program = CreateProgram();
+    AttachShader(program, vs);
+    AttachShader(program, fs);
+
+    LinkProgram(program);
+
+    UseProgram(program);
+
+    int uniformCount = 0;
+    GetProgramiv(program, GL_ACTIVE_UNIFORMS, &uniformCount);
+    ASSERT_LT(uniformCount, 4000);
+
+    auto transformuboIdx = GetUniformBlockIndex(program, "DynamicTransforms");
+
+    auto programObject = MG_State::pGLContext->GetCurrentProgram();
+    ASSERT_EQ(programObject->GetUBOSize(), 0);
+
+    auto& spirvs = programObject->GetGeneratedSpirv();
+    for (auto spirv: spirvs) {
+        MG_Util::ShaderTranspiler::SpvcSession spvcSession(spirv);
+        spvc_compiler_options options;
+        spvcSession.CreateOptions(&options);
+
+        spvc_compiler_options_set_uint(options, SPVC_COMPILER_OPTION_GLSL_VERSION, 320);
+        spvc_compiler_options_set_bool(options, SPVC_COMPILER_OPTION_GLSL_ES, SPVC_TRUE);
+        // spvc_compiler_options_set_bool(options, SPVC_COMPILER_OPTION_GLSL_VULKAN_SEMANTICS, SPVC_TRUE);
+
+        spvcSession.SetOptions(options);
+
+        const char* result = nullptr;
+        spvcSession.Compile(&result);
+        printf("%s\n\n", result);
+    }
 }
