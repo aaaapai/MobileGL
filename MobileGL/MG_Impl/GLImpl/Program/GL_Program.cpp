@@ -129,7 +129,7 @@ namespace MobileGL {
         }
 
         void DeleteShader_State(GLuint shader) {
-            if (!CheckProgramNameValidity(shader)) return;
+            if (!CheckShaderNameValidity(shader)) return;
             MG_State::pGLContext->MarkShaderForDeletion(shader);
         }
 
