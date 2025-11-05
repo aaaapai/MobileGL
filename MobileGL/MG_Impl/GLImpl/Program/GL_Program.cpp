@@ -362,7 +362,9 @@ namespace MobileGL {
         GLint GetUniformLocation_State(GLuint program, const GLchar* name) {
             auto programObject = TryToGetProgramObject(program);
             if (!programObject) return -1;
-            return programObject->GetUniformLocation(name);
+            auto loc = programObject->GetUniformLocation(name);
+            MGLOG_D("%s: loc %02d = %s", __func__, loc, name);
+            return loc;
         }
 
         void GetUniform_State(GLuint program, GLint location, void* params) {
@@ -821,6 +823,7 @@ namespace MobileGL {
             }
             const auto& name = programObject->GetUniformBlockName(uniformBlockIndex);
             CopyStr(bufSize, length, uniformBlockName, name.c_str(), name.length());
+            MGLOG_D("%s: \"%s\" at uniformBlockIndex %02d, length = %d", __func__, uniformBlockName, uniformBlockIndex, *length);
         }
 
         void ValidateProgram_State(GLuint program) {

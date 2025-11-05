@@ -94,7 +94,7 @@ namespace MobileGL {
 
 
                 const String& GetUniformBlockName(Uint index) const {
-                    auto& ubo = m_program->getUniform(index);
+                    auto& ubo = m_program->getUniformBlock(index);
                     return ubo.name;
                 }
 
