@@ -1,5 +1,6 @@
 #include "GL_Buffer.h"
 #include "Validators.h"
+#include "MG_Util/Converters/GLToStr/GLEnumConverter.h"
 #include <MG_State/GLState/Core.h>
 #include <MG_State/GLState/ErrorState/Error.h>
 #include <MG_Util/Converters/GLToMG/BufferEnumConverter.h>
@@ -433,6 +434,8 @@ namespace MobileGL {
         }
 
         void BufferData_State(GLenum target, GLsizeiptr size, const void* data, GLenum usage) {
+            MGLOG_D("%s: %s, size = %d, data = %p, usage = %s",
+                    __func__, MG_Util::ConvertGLEnumToString(target).c_str(), size, data, MG_Util::ConvertGLEnumToString(usage).c_str());
             if (size < 0) {
                 MG_State::pGLContext->RecordError(
                     ErrorCode::InvalidValue,
@@ -476,6 +479,7 @@ namespace MobileGL {
 
             auto& bindingSlot = MG_State::pGLContext->GetBufferBindingSlot(bufferTarget);
             bindingSlot.Bind(bufferObject);
+            MGLOG_D("%s: bind buffer object %p -> %s", __func__, bufferObject.get(), MG_Util::ConvertGLEnumToString(target).c_str());
         }
 
         void GenBuffers_State(GLsizei n, GLuint* buffers) {
