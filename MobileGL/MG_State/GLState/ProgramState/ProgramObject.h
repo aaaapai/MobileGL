@@ -76,30 +76,29 @@ namespace MobileGL {
                 Int GetActiveAttributesMaxLength() const { return m_attribInNameMaxLength; }
                 Int GetActiveUniformBlocksMaxNameLength() const { return m_uniformBlockNameMaxLength; }
                 Uint GetUniformBlockIndex(const char* name) const {
-                    auto it = m_uniformBlockIndex.find(name);
-                    if (it != m_uniformBlockIndex.end())
+                    auto it = m_uniformBlockIndexByName.find(name);
+                    if (it != m_uniformBlockIndexByName.end())
                         return it->second;
                     return 0xFFFFFFFFu; // GL_INVALID_INDEX
                 }
                 Bool IsActiveUniformBlock(Uint index) const {
                     if (index >= GetActiveUniformBlocksCount())
                         return false;
-                    if (m_uniformBlockIndexInTProgram[index] == -1)
-                        return false;
                     return true;
                 }
                 Uint GetUBOSizeAt(Uint index) const {
                     if (!IsActiveUniformBlock(index))
                         return 0;
-                    return m_program->getUniformBlock(m_uniformBlockIndexInTProgram[index]).size;
+                    return m_program->getUniformBlock(index).size;
                 }
 
 
                 const String& GetUniformBlockName(Uint index) const {
-                    auto& ubo = m_program->getUniform(m_uniformBlockIndexInTProgram[index]);
+                    auto& ubo = m_program->getUniform(index);
                     return ubo.name;
                 }
 
+                // Set by glUniformBlockBinding
                 void SetUniformBlockBinding(Uint index, Uint binding) {
                     m_uniformBlockBinding[index] = binding;
                 }
@@ -137,10 +136,13 @@ namespace MobileGL {
                 // ditto. Will be set at glUniform1i
                 Vector<Int> m_uniformSamplerOrImageUnitIndex;
 
-                UnorderedMap<String, Uint> m_uniformBlockIndex;
-
-                // Ordered by block index
-                Vector<Int> m_uniformBlockIndexInTProgram;
+                // Ordered by uniform block index
+                // index is DIFFERENT from binding!!!
+                //
+                // Let's define UniformBlockIndex == the order at glslang getUniformBlock()
+                // aka `i = glGetUniformBlockIndex(prog, "BlockName")` implies:
+                // `prog->getUniformBlock(i) == "BlockName"`
+                UnorderedMap<String, Uint> m_uniformBlockIndexByName;
                 Vector<Int> m_uniformBlockBinding;
 
                 // Need to be reflected after linking of SPIR-V binary

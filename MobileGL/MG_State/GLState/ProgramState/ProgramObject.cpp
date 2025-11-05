@@ -203,13 +203,11 @@ namespace MobileGL {
 
                 // ---------- UBO ----------
                 int uboCount = m_program->getNumUniformBlocks();
-                m_uniformBlockIndexInTProgram.resize(uboCount, -1);
-                m_uniformBlockBinding.resize(uboCount, 0);
+                m_uniformBlockBinding.resize(uboCount, -1);
                 for (int i = 0; i < uboCount; i++) {
                     auto& ubo = m_program->getUniformBlock(i);
                     m_uniformBlockNameMaxLength = std::max(m_uniformBlockNameMaxLength, (Int)ubo.name.length());
-                    m_uniformBlockIndex[ubo.name] = ubo.getBinding();
-                    m_uniformBlockIndexInTProgram[ubo.getBinding()] = i;
+                    m_uniformBlockIndexByName[ubo.name] = i;
                 }
             }
 
