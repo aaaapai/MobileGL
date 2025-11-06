@@ -223,7 +223,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
     namespace PrgramImpl {
         void SyncCurrentProgram() {
             auto currentProgram = MG_State::pGLContext->GetCurrentProgram();
-            if (!currentProgram) {
+            if (!currentProgram || !currentProgram->GetLinkStatus()) {
                 MG_External::GLES::glUseProgram(0);
                 return;
             }
@@ -311,7 +311,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
         MG_External::GLES::glActiveTexture(GL_TEXTURE0 + originalActiveUnit);
 
         const auto& currentProgram = MG_State::pGLContext->GetCurrentProgram();
-        if (currentProgram) {
+        if (currentProgram && currentProgram->GetLinkStatus()) {
             const auto& backendProgramIt = PrgramImpl::g_backendProgramObjects.find(currentProgram);
             if (backendProgramIt != PrgramImpl::g_backendProgramObjects.end()) {
                 backendProgramIt->second->Use();

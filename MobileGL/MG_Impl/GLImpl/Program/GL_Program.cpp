@@ -158,7 +158,7 @@ namespace MobileGL {
                 return;
             }
             auto programObject = TryToGetProgramObject(program);
-            if (!programObject) return;
+            if (!programObject || !programObject->GetLinkStatus()) return;
             auto attribCount = programObject->GetActiveAttributesCount();
             if (index >= attribCount) {
                 MG_State::pGLContext->RecordError(
@@ -183,7 +183,7 @@ namespace MobileGL {
                 return;
             }
             auto programObject = TryToGetProgramObject(program);
-            if (!programObject) return;
+            if (!programObject || !programObject->GetLinkStatus()) return;
             auto uniformCount = programObject->GetUniformCount();
             if (index >= uniformCount) {
                 MG_State::pGLContext->RecordError(
@@ -438,6 +438,7 @@ namespace MobileGL {
         void LinkProgram_State(GLuint program) {
             auto programObject = TryToGetProgramObject(program);
             if (!programObject) return;
+            MGLOG_D("%s: linking program %d", __func__, program);
             programObject->Link();
         }
 
@@ -827,7 +828,7 @@ namespace MobileGL {
         }
 
         void ValidateProgram_State(GLuint program) {
-            THROW_UNIMPL_EXCEPTION;
+//            THROW_UNIMPL_EXCEPTION;
         }
 
         void AttachShader(GLuint program, GLuint shader) {
