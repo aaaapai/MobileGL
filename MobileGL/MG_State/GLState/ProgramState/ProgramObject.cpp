@@ -1,4 +1,5 @@
 #include "ProgramObject.h"
+#include "MG_Util/Converters/GLToStr/GLEnumConverter.h"
 #include <MG_Util/ShaderTranspiler/ShaderCompiler.h>
 #include <MG_Util/Converters/MGToGL/ProgramEnumConverter.h>
 #include <MG_Util/Converters/SPIRVCrossToGL/SpvcTypeConverter.h>
@@ -28,9 +29,20 @@ namespace MobileGL {
             void ProgramObject::Link() {
                 Vector<GLenum> shaderTypes(m_shaders.size());
                 Vector<SharedPtr<glslang::TShader>> shaders(m_shaders.size());
+                MGLOG_D("%s: shaders to link: %d\n", __func__, m_shaders.size());
                 for (SizeT i = 0; i < m_shaders.size(); i++) {
                     shaderTypes[i] = MG_Util::ConvertShaderStageToGLEnum(m_shaders[i]->GetShaderStage());
+                    if (!m_shaders[i]->GetCompileStatus()) {
+                        m_infoLog = std::format("Linking a {} with compilation error, linking will now terminate. Shader error log:\n{}\nShader src:\n{}",
+                                MG_Util::ConvertGLEnumToString(shaderTypes[i]).c_str(),
+                                m_shaders[i]->GetInfoLog().c_str(), m_shaders[i]->GetShaderSource().c_str());
+                        m_linkStatus = false;
+                        MGLOG_W("%s", m_infoLog.c_str());
+                        return;
+                    }
                     shaders[i] = m_shaders[i]->GetCompiledShader();
+                    MGLOG_D("%s: \n%s",
+                            MG_Util::ConvertGLEnumToString(shaderTypes[i]).c_str(), m_shaders[i]->GetShaderSource().c_str());
                 }
 
                 MG_Util::ShaderTranspiler::ProgramAttrib attrib{
@@ -44,6 +56,7 @@ namespace MobileGL {
                 } else {
                     m_linkStatus = false;
                     m_infoLog = result.error().log;
+                    MGLOG_W("%s", m_infoLog.c_str());
                 }
 
                 DoReflection();
