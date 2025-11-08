@@ -32,6 +32,7 @@
 #include <functional>
 #include <string_view>
 #include <unordered_map>
+#include <mutex>
 
 // Include FastSTL
 #include <FastSTL/UnorderedMap.h>

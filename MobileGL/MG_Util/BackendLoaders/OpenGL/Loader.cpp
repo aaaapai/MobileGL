@@ -443,7 +443,7 @@ namespace MobileGL {
             static const char* EGLLibs[] = {"libEGL", nullptr};
 
             void* OpenLib(const char** names, const char* override) {
-#if !defined(__WIN32) && !defined(_WIN32)
+#if !defined(__WIN32) && !defined(_WIN32) && !defined(__APPLE__)
                 void* lib = nullptr;
 
                 char path_name[PATH_MAX + 1];
@@ -477,7 +477,7 @@ namespace MobileGL {
             }
 
             void* ProcAddress(void* lib, const char* name) {
-#if !defined(__WIN32) && !defined(_WIN32)
+#if !defined(__WIN32) && !defined(_WIN32) && !defined(__APPLE__)
                 return dlsym(lib, name);
 #else
                 return nullptr;
