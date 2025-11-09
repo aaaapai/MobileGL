@@ -2,6 +2,19 @@ cmake_minimum_required(VERSION 3.22.1)
 
 project("MobileGL")
 
+option(MOBILEGL_FORCE_RELEASE_OPT "Enable Release optimization flags in Debug build" OFF)
+
+if (NOT CMAKE_BUILD_TYPE STREQUAL "Debug" OR MOBILEGL_FORCE_RELEASE_OPT)
+    if (CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang|AppleClang")
+        add_compile_options(-O3 -ffunction-sections -fdata-sections -flto=thin)
+        add_link_options(-flto=thin -Wl,--gc-sections)
+    elseif (CMAKE_CXX_COMPILER_ID MATCHES "MSVC")
+        add_compile_options(/O2 /GL)
+        add_link_options(/LTCG)
+    endif()
+endif()
+
+
 enable_language(CXX)
 
 set(CMAKE_CXX_STANDARD 23)
@@ -16,8 +29,19 @@ if (MSVC)
     set(CMAKE_CXX_FLAGS "/EHsc ${CMAKE_CXX_FLAGS}")
 endif()
 
-set(SPIRV_CROSS_STATIC ON CACHE BOOL "Build SPIRV-Cross as static library")
-set(SPIRV_CROSS_CLI OFF CACHE BOOL "Build SPIRV-Cross command line tool")
+set(ENABLE_GLSLANG_BINARIES    OFF CACHE BOOL "Disable glslangValidator/spirv-remap" FORCE)
+set(ENABLE_SPVREMAPPER         OFF CACHE BOOL "Disable SPVRemapper" FORCE)
+set(ENABLE_OPT                 OFF CACHE BOOL "Disable SPIRV-Tools opt usage in glslang" FORCE)
+set(BUILD_EXTERNAL             OFF CACHE BOOL "Don't build external deps in External/" FORCE)
+set(ENABLE_GLSLANG_INSTALL     OFF CACHE BOOL "Don't install glslang targets" FORCE)
+
+set(SPIRV_CROSS_C_API          ON  CACHE BOOL "Enable C API" FORCE)
+set(SPIRV_CROSS_ENABLE_GLSL    ON  CACHE BOOL "Enable GLSL backend" FORCE)
+set(SPIRV_CROSS_ENABLE_HLSL    OFF CACHE BOOL "Disable HLSL backend" FORCE)
+set(SPIRV_CROSS_ENABLE_MSL     OFF CACHE BOOL "Disable MSL backend" FORCE)
+set(SPIRV_CROSS_ENABLE_CPP     OFF CACHE BOOL "Disable C++ API target" FORCE)
+set(SPIRV_CROSS_CLI            OFF CACHE BOOL "Disable CLI binary" FORCE)
+set(SPIRV_CROSS_STATIC         ON  CACHE BOOL "Prefer static libs" FORCE)
 
 # add_subdirectory(3rdparty/DiligentCore)
 add_subdirectory(3rdparty/glslang)
@@ -115,11 +139,19 @@ add_library(${CMAKE_PROJECT_NAME} SHARED
     ${SOURCE_FILES}
 )
 
-set_target_properties(${CMAKE_PROJECT_NAME} PROPERTIES
-    C_VISIBILITY_PRESET default
-    CXX_VISIBILITY_PRESET default
-    VISIBILITY_INLINES_HIDDEN OFF
-)
+if (CMAKE_BUILD_TYPE STREQUAL "Debug")
+    set_target_properties(${CMAKE_PROJECT_NAME} PROPERTIES
+        C_VISIBILITY_PRESET default
+        CXX_VISIBILITY_PRESET default
+        VISIBILITY_INLINES_HIDDEN OFF
+    )
+else()
+    set_target_properties(${CMAKE_PROJECT_NAME} PROPERTIES
+        C_VISIBILITY_PRESET hidden
+        CXX_VISIBILITY_PRESET hidden
+        VISIBILITY_INLINES_HIDDEN ON
+    )
+endif()
 
 target_include_directories(${CMAKE_PROJECT_NAME} PUBLIC
     ${CMAKE_SOURCE_DIR}/include
@@ -143,11 +175,19 @@ add_library(${CMAKE_PROJECT_NAME}_s STATIC
     ${SOURCE_FILES}
 )
 
-set_target_properties(${CMAKE_PROJECT_NAME}_s PROPERTIES
-    C_VISIBILITY_PRESET hidden
-    CXX_VISIBILITY_PRESET hidden
-    VISIBILITY_INLINES_HIDDEN ON
-)
+if (CMAKE_BUILD_TYPE STREQUAL "Debug")
+    set_target_properties(${CMAKE_PROJECT_NAME}_s PROPERTIES
+        C_VISIBILITY_PRESET default
+        CXX_VISIBILITY_PRESET default
+        VISIBILITY_INLINES_HIDDEN OFF
+    )
+else()
+    set_target_properties(${CMAKE_PROJECT_NAME}_s PROPERTIES
+        C_VISIBILITY_PRESET hidden
+        CXX_VISIBILITY_PRESET hidden
+        VISIBILITY_INLINES_HIDDEN ON
+    )
+endif()
 
 target_include_directories(${CMAKE_PROJECT_NAME}_s PUBLIC
     ${CMAKE_SOURCE_DIR}/include
@@ -179,10 +219,10 @@ endif()
 
 if (NOT ANDROID)
 
-set(BUILD_TEST ON CACHE BOOL "Build the tests")
-set(BUILD_BENCHMARK ON CACHE BOOL "Build the benchmarks")
+    set(BUILD_TEST ON CACHE BOOL "Build the tests")
+    set(BUILD_BENCHMARK ON CACHE BOOL "Build the benchmarks")
 
-add_subdirectory(MobileGL/MG_Test)
-add_subdirectory(MobileGL/MG_Benchmark)
+    add_subdirectory(MobileGL/MG_Test)
+    add_subdirectory(MobileGL/MG_Benchmark)
 
 endif()
