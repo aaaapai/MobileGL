@@ -401,8 +401,8 @@ namespace MobileGL {
                     SpvcSession session(spv);
                     auto result = session.ParseMetaData();
                     if (result < 0) {
-                        MGLOG_E("ProgramObject %u: GenerateBinary - SpvcSession::ParseMetaData failed for module %zu",
-                                m_externalIndex, i);
+                        MGLOG_E("ProgramObject %u: GenerateBinary - SpvcSession::ParseMetaData failed for module %zu, err = %d%s",
+                                m_externalIndex, i, result, (result == SPVC_ERROR_INVALID_SPIRV ? ". Probably no global UBO?" : ""));
                         continue;
                     }
                     // auto srcResult = ShaderCompiler::DecompileShader(session);
@@ -452,6 +452,7 @@ namespace MobileGL {
             void ProgramObject::WaitUntilGenerationCompleted() {
                 MGLOG_D("ProgramObject %u: WaitUntilGenerationCompleted called (no-op)", m_externalIndex);
                 // currently no-op, but keep log for debugging
+                // will probably be useful when multi-threaded compilation
             }
 
             void ProgramObject::SetExplicitAttribLocation(Uint index, const char* name) {
