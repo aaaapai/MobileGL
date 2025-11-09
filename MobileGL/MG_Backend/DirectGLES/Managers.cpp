@@ -565,7 +565,8 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 MG_External::GLES::glGetProgramiv(m_backendProgramId, GL_INFO_LOG_LENGTH, &logLength);
                 Vector<GLchar> log(logLength);
                 MG_External::GLES::glGetProgramInfoLog(m_backendProgramId, logLength, nullptr, log.data());
-                MGLOG_E("Program linking failed for %u: %s", m_backendProgramId, log.data());
+                MGLOG_E("Program %u linking failed for %u: %s", stateProgramObject->GetExternalIndex(),
+                        m_backendProgramId, log.data());
             } else {
                 MGLOG_D("Program linked successfully. ID: %u", m_backendProgramId);
             }

@@ -13,6 +13,7 @@ namespace MobileGL {
                 bool ShaderIsAttached(SharedPtr<ShaderObject> shader);
                 bool AttachShader(SharedPtr<ShaderObject> shader);
                 SizeT DetachShader(SharedPtr<ShaderObject> shader);
+                SizeT RemoveShader(SharedPtr<ShaderObject> shader);
                 void Link();
                 void MarkAsDeleted();
 
@@ -77,21 +78,17 @@ namespace MobileGL {
                 Int GetActiveUniformBlocksMaxNameLength() const { return m_uniformBlockNameMaxLength; }
                 Uint GetUniformBlockIndex(const char* name) const {
                     auto it = m_uniformBlockIndexByName.find(name);
-                    if (it != m_uniformBlockIndexByName.end())
-                        return it->second;
+                    if (it != m_uniformBlockIndexByName.end()) return it->second;
                     return 0xFFFFFFFFu; // GL_INVALID_INDEX
                 }
                 Bool IsActiveUniformBlock(Uint index) const {
-                    if (index >= GetActiveUniformBlocksCount())
-                        return false;
+                    if (index >= GetActiveUniformBlocksCount()) return false;
                     return true;
                 }
                 Uint GetUBOSizeAt(Uint index) const {
-                    if (!IsActiveUniformBlock(index))
-                        return 0;
+                    if (!IsActiveUniformBlock(index)) return 0;
                     return m_program->getUniformBlock(index).size;
                 }
-
 
                 const String& GetUniformBlockName(Uint index) const {
                     auto& ubo = m_program->getUniformBlock(index);
@@ -99,13 +96,9 @@ namespace MobileGL {
                 }
 
                 // Set by glUniformBlockBinding
-                void SetUniformBlockBinding(Uint index, Uint binding) {
-                    m_uniformBlockBinding[index] = binding;
-                }
+                void SetUniformBlockBinding(Uint index, Uint binding) { m_uniformBlockBinding[index] = binding; }
 
-                Uint GetUniformBlockBinding(Uint index) const {
-                    return m_uniformBlockBinding[index];
-                }
+                Uint GetUniformBlockBinding(Uint index) const { return m_uniformBlockBinding[index]; }
 
                 Vector<Vector<unsigned>>& GetGeneratedSpirv() { return m_generatedSpirv; }
 
@@ -120,6 +113,7 @@ namespace MobileGL {
 
                 const Uint m_externalIndex = 0;
                 Vector<SharedPtr<ShaderObject>> m_shaders;
+                Vector<SharedPtr<ShaderObject>> m_detachedShaders; // Store detached shaders and remove on next link
 
                 SharedPtr<glslang::TProgram> m_program;
 
