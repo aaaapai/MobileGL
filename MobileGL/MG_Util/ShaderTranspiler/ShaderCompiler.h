@@ -1,6 +1,8 @@
 #pragma once
 #include <Includes.h>
 #include "SpvcSession.h"
+#include "glslang/TVarEntryInfo.h"
+#include "glslang/TMglGlslIoResolver.h"
 
 namespace MobileGL {
     namespace MG_Util {

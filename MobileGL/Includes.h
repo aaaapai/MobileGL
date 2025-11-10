@@ -56,7 +56,6 @@
 // Include glslang headers
 #include <glslang/Include/Types.h>
 #include <glslang/Public/ShaderLang.h>
-#include <glslang/Public/ShaderLang.h>
 #include <glslang/SPIRV/GlslangToSpv.h>
 #include <glslang/Include/intermediate.h>
 #include <glslang/MachineIndependent/localintermediate.h>

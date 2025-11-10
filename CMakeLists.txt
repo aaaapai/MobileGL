@@ -34,6 +34,8 @@ if (MSVC)
     set(CMAKE_CXX_FLAGS "/EHsc ${CMAKE_CXX_FLAGS}")
 endif()
 
+set(ENABLE_RTTI                ON  CACHE BOOL "Enables RTTI (will be took by glslang)" FORCE)
+
 set(ENABLE_GLSLANG_BINARIES    OFF CACHE BOOL "Disable glslangValidator/spirv-remap" FORCE)
 set(ENABLE_SPVREMAPPER         OFF CACHE BOOL "Disable SPVRemapper" FORCE)
 set(ENABLE_OPT                 OFF CACHE BOOL "Disable SPIRV-Tools opt usage in glslang" FORCE)
@@ -86,6 +88,7 @@ set(SOURCE_FILES
     MobileGL/MG_Util/ShaderTranspiler/ShaderCompiler.cpp
     MobileGL/MG_Util/ShaderTranspiler/SpvcSession.cpp
     MobileGL/MG_Util/ShaderTranspiler/ShaderSourceProcessor.cpp
+    MobileGL/MG_Util/ShaderTranspiler/glslang/TMglGlslIoResolver.cpp
 
     MobileGL/MG_Util/BackendLoaders/OpenGL/Loader.cpp
 
