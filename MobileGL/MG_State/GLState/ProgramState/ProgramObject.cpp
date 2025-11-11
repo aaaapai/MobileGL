@@ -86,6 +86,7 @@ namespace MobileGL {
 
                 MG_Util::ShaderTranspiler::ProgramAttrib attrib{
                     .shaders = Move(shaders),
+                    .explicitAttribLocations = m_explicitAttribLocations
                 };
 
                 MGLOG_D("ProgramObject %u: Calling ShaderCompiler::LinkProgram", m_externalIndex);
@@ -246,79 +247,81 @@ namespace MobileGL {
                         m_attribTypes[location] = inVar.glDefineType;
                         MGLOG_D("ProgramObject %u: Reflection - placed attrib '%s' at explicit location %d",
                                 m_externalIndex, inVar.name.c_str(), location);
-                    } else if (location >= (int)m_attribs.size()) {
-                        MGLOG_W("ProgramObject %u: ProgramObject::DoReflection - attrib location %d >= attribs.size() "
-                                "(%zu). Ignoring.",
-                                m_externalIndex, location, m_attribs.size());
-                        continue;
-                    } else {
-                        bool placed = false;
-                        for (size_t idx = 0; idx < m_attribs.size(); ++idx) {
-                            if (m_attribs[idx].empty()) {
-                                m_attribs[idx] = inVar.name;
-                                m_attribTypes[idx] = inVar.glDefineType;
-                                placed = true;
-                                MGLOG_D("ProgramObject %u: Reflection - placed attrib '%s' into free slot %zu",
-                                        m_externalIndex, inVar.name.c_str(), idx);
-                                break;
-                            }
-                        }
-                        if (!placed && (int)m_attribs.size() < maxAttribs) {
-                            m_attribs.push_back(inVar.name);
-                            m_attribTypes.push_back(inVar.glDefineType);
-                            placed = true;
-                            MGLOG_D("ProgramObject %u: Reflection - pushed attrib '%s' to new slot %zu",
-                                    m_externalIndex, inVar.name.c_str(), m_attribs.size() - 1);
-                        }
-                        if (!placed) {
-                            MGLOG_W("ProgramObject %u: ProgramObject::DoReflection - cannot place attrib '%s' (no free "
-                                    "slot and at max capacity). Ignoring.",
-                                    m_externalIndex, inVar.name.c_str());
-                        }
                     }
+                    // else if (location >= (int)m_attribs.size()) {
+                    //     MGLOG_W("ProgramObject %u: ProgramObject::DoReflection - attrib location %d >= attribs.size() "
+                    //             "(%zu). Ignoring.",
+                    //             m_externalIndex, location, m_attribs.size());
+                    //     continue;
+                    // }
+                    // else {
+                    //     bool placed = false;
+                    //     for (size_t idx = 0; idx < m_attribs.size(); ++idx) {
+                    //         if (m_attribs[idx].empty()) {
+                    //             m_attribs[idx] = inVar.name;
+                    //             m_attribTypes[idx] = inVar.glDefineType;
+                    //             placed = true;
+                    //             MGLOG_D("ProgramObject %u: Reflection - placed attrib '%s' into free slot %zu",
+                    //                     m_externalIndex, inVar.name.c_str(), idx);
+                    //             break;
+                    //         }
+                    //     }
+                    //     if (!placed && (int)m_attribs.size() < maxAttribs) {
+                    //         m_attribs.push_back(inVar.name);
+                    //         m_attribTypes.push_back(inVar.glDefineType);
+                    //         placed = true;
+                    //         MGLOG_D("ProgramObject %u: Reflection - pushed attrib '%s' to new slot %zu",
+                    //                 m_externalIndex, inVar.name.c_str(), m_attribs.size() - 1);
+                    //     }
+                    //     if (!placed) {
+                    //         MGLOG_W("ProgramObject %u: ProgramObject::DoReflection - cannot place attrib '%s' (no free "
+                    //                 "slot and at max capacity). Ignoring.",
+                    //                 m_externalIndex, inVar.name.c_str());
+                    //     }
+                    // }
                 }
 
                 // Implement glBindAttribLocation semantics (explicit locations set by user)
-                for (auto& [name, location] : m_explicitAttribLocations) {
-                    MGLOG_D("ProgramObject %u: Reflection - explicit attrib location request: name='%s' location=%d",
-                            m_externalIndex, name.c_str(), location);
-                    if (location < 0) continue;
-                    if (location >= (int)m_attribs.size()) {
-                        if (location >= maxAttribs) {
-                            MGLOG_W("ProgramObject %u: SetExplicitAttribLocation: requested location %d >= "
-                                    "GL_MAX_VERTEX_ATTRIBS (%d). Ignored for attribute '%s'.",
-                                    m_externalIndex, location, maxAttribs, name.c_str());
-                            continue;
-                        }
-                        m_attribs.resize(location + 1);
-                        m_attribTypes.resize(location + 1);
-                        MGLOG_D("ProgramObject %u: Reflection - resized attrib arrays to %zu to accommodate explicit "
-                                "location %d",
-                                m_externalIndex, m_attribs.size(), location);
-                    }
-
-                    if (m_attribs[location] != name) {
-                        auto it = std::find(m_attribs.begin(), m_attribs.end(), name);
-                        if (it == m_attribs.end()) {
-                            MGLOG_D("ProgramObject %u: Reflection - explicit attrib '%s' not found in current list, "
-                                    "skipping swap",
-                                    m_externalIndex, name.c_str());
-                            continue;
-                        }
-                        auto idx = std::distance(m_attribs.begin(), it);
-                        std::swap(m_attribs[location], m_attribs[idx]);
-                        std::swap(m_attribTypes[location], m_attribTypes[idx]);
-                        MGLOG_D("ProgramObject %u: Reflection - swapped attrib '%s' from idx %zu to explicit "
-                                "location %d",
-                                m_externalIndex, name.c_str(), idx, location);
-                    }
-
-                    for (SizeT idx = 0; idx < m_attribs.size(); ++idx) {
-                        m_attribLocation[m_attribs[idx]] = idx;
-                        MGLOG_D("ProgramObject %u: Reflection - attribLocation['%s'] = %zu", m_externalIndex,
-                                m_attribs[idx].c_str(), idx);
-                    }
-                }
+                // for (auto& [name, location] : m_explicitAttribLocations) {
+                //     MGLOG_D("ProgramObject %u: Reflection - explicit attrib location request: name='%s' location=%d",
+                //             m_externalIndex, name.c_str(), location);
+                //     if (location < 0) continue;
+                //     if (location >= (int)m_attribs.size()) {
+                //         if (location >= maxAttribs) {
+                //             MGLOG_W("ProgramObject %u: SetExplicitAttribLocation: requested location %d >= "
+                //                     "GL_MAX_VERTEX_ATTRIBS (%d). Ignored for attribute '%s'.",
+                //                     m_externalIndex, location, maxAttribs, name.c_str());
+                //             continue;
+                //         }
+                //         m_attribs.resize(location + 1);
+                //         m_attribTypes.resize(location + 1);
+                //         MGLOG_D("ProgramObject %u: Reflection - resized attrib arrays to %zu to accommodate explicit "
+                //                 "location %d",
+                //                 m_externalIndex, m_attribs.size(), location);
+                //     }
+                //
+                //     if (m_attribs[location] != name) {
+                //         auto it = std::find(m_attribs.begin(), m_attribs.end(), name);
+                //         if (it == m_attribs.end()) {
+                //             MGLOG_D("ProgramObject %u: Reflection - explicit attrib '%s' not found in current list, "
+                //                     "skipping swap",
+                //                     m_externalIndex, name.c_str());
+                //             continue;
+                //         }
+                //         auto idx = std::distance(m_attribs.begin(), it);
+                //         std::swap(m_attribs[location], m_attribs[idx]);
+                //         std::swap(m_attribTypes[location], m_attribTypes[idx]);
+                //         MGLOG_D("ProgramObject %u: Reflection - swapped attrib '%s' from idx %zu to explicit "
+                //                 "location %d",
+                //                 m_externalIndex, name.c_str(), idx, location);
+                //     }
+                //
+                //     for (SizeT idx = 0; idx < m_attribs.size(); ++idx) {
+                //         m_attribLocation[m_attribs[idx]] = idx;
+                //         MGLOG_D("ProgramObject %u: Reflection - attribLocation['%s'] = %zu", m_externalIndex,
+                //                 m_attribs[idx].c_str(), idx);
+                //     }
+                // }
 
                 // ---------- UBO ----------
                 int uboCount = m_program->getNumUniformBlocks();

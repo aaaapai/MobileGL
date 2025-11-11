@@ -26,6 +26,7 @@ in float fIn2;
 in float fIn5;
 in float fIn6;
 in float fIn1;
+layout (location = 0) in float fIn0;
 in float fIn3;
 
 layout(location = 0) uniform mat4 ProjMat;
@@ -45,7 +46,7 @@ void main(){
     vec2 dummy2 = TestMat2[0];
     vec3 dummy3 = TestMat3[0];
     
-    oneTexel = (1.0 * (fIn1 * fIn2 * fIn3 * fIn4 * fIn5 * fIn6)) / InSize;
+    oneTexel = (1.0 * (fIn1 * fIn2 * fIn3 * fIn4 * fIn5 * fIn6 * fIn0)) / InSize;
 
     texCoord = Position.xy / OutSize;
 })";
@@ -135,6 +136,9 @@ TEST_F(ProgramTest, CompileAndLink) {
     BindAttribLocation(program, 5, "fIn5");
     printf("Linking program...\n");
     LinkProgram(program);
+    GLint linkStatus = GL_FALSE;
+    GetProgramiv(program, GL_LINK_STATUS, &linkStatus);
+    ASSERT_EQ(linkStatus, GL_TRUE);
     printf("Program linked.\n");
 
     ASSERT_EQ(GetUniformLocation(program, "ProjMat"), 0);
@@ -151,6 +155,7 @@ TEST_F(ProgramTest, CompileAndLink) {
     ASSERT_EQ(GetAttribLocation(program, "fIn1"), 1);
     ASSERT_EQ(GetAttribLocation(program, "fIn3"), 3);
     ASSERT_EQ(GetAttribLocation(program, "fIn5"), 5);
+    ASSERT_EQ(GetAttribLocation(program, "fIn0"), 0);
 
     UseProgram(program);
 

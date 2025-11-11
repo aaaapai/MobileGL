@@ -174,13 +174,13 @@ namespace MobileGL {
                     return std::unexpected(r);
                 }
 
-                UniquePtr<glslang::TIoMapResolver> resolver;
+                // UniquePtr<glslang::TIoMapResolver> resolver;
+                UniquePtr<TMglGlslIoResolver> resolver;
                 for (unsigned stage = 0; stage < EShLangCount; stage++) {
-                    auto* pResolver = program->getGlslIoResolver((EShLanguage)stage);
-                    if (pResolver) {
-                        resolver = UniquePtr<glslang::TIoMapResolver>(pResolver);
-                        break;
-                    }
+                    if (program->getIntermediate((EShLanguage)stage) == nullptr)
+                        continue;
+                    resolver = MakeUnique<TMglGlslIoResolver>(*program, (EShLanguage)stage, attrib.explicitAttribLocations);
+                    break;
                 }
                 auto ioMapper = UniquePtr<glslang::TIoMapper>(glslang::GetGlslIoMapper());
 

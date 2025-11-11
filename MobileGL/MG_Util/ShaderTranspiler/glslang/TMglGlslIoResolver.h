@@ -11,10 +11,21 @@
 #include <glslang/Include/intermediate.h>
 #include <glslang/MachineIndependent/iomapper.h>
 #include "TVarEntryInfo.h"
+#include "MG_Util/Types.h"
 
-class TMglGlslIoResolver: public glslang::TDefaultGlslIoResolver {
-    int resolveInOutLocation(EShLanguage stage, glslang::TVarEntryInfo& ent) override;
-    int resolveUniformLocation(EShLanguage /*stage*/, glslang::TVarEntryInfo& ent) override;
-};
+namespace MobileGL {
+    class TMglGlslIoResolver: public glslang::TDefaultGlslIoResolver {
+    public:
+        using ExplicitVarSlotMap = UnorderedMap<String, Uint>;
+        TMglGlslIoResolver(const glslang::TIntermediate& intermediate, const ExplicitVarSlotMap& attribLocations):
+            TDefaultGlslIoResolver(intermediate), m_explicitAttribLocations(attribLocations) {}
+        TMglGlslIoResolver(const glslang::TProgram& program, const EShLanguage stage, const ExplicitVarSlotMap& attribLocations):
+            TDefaultGlslIoResolver(*program.getIntermediate(stage)),
+            m_explicitAttribLocations(attribLocations) {}
+        void reserverStorageSlot(glslang::TVarEntryInfo& ent, TInfoSink& infoSink) override;
+    protected:
+        const ExplicitVarSlotMap& m_explicitAttribLocations;
+    };
+}
 
 

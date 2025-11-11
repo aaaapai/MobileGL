@@ -4,10 +4,17 @@
 
 #include "TMglGlslIoResolver.h"
 
-int TMglGlslIoResolver::resolveInOutLocation(EShLanguage stage, glslang::TVarEntryInfo &ent) {
-    return glslang::TDefaultGlslIoResolver::resolveInOutLocation(stage, ent);
-}
-
-int TMglGlslIoResolver::resolveUniformLocation(EShLanguage stage, glslang::TVarEntryInfo &ent) {
-    return glslang::TDefaultGlslIoResolver::resolveUniformLocation(stage, ent);
+namespace MobileGL {
+    void TMglGlslIoResolver::reserverStorageSlot(glslang::TVarEntryInfo& ent, TInfoSink& infoSink) {
+        const glslang::TType& type = ent.symbol->getType();
+        const glslang::TString& name = ent.symbol->getAccessName();
+        if (type.getQualifier().isPipeInput()) {
+            auto it = m_explicitAttribLocations.find(name.c_str());
+            if (it != m_explicitAttribLocations.end()) {
+                auto& writableType = ent.symbol->getWritableType();
+                writableType.getQualifier().layoutLocation = it->second;
+            }
+        }
+        TDefaultGlslIoResolver::reserverStorageSlot(ent, infoSink);
+    }
 }
