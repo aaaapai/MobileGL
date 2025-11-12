@@ -174,6 +174,10 @@ namespace MobileGL {
                     return std::unexpected(r);
                 }
 
+                for (auto [name, loc]: attrib.explicitAttribLocations) {
+                    MGLOG_D("%s: got explicitly set - layout(location = %d) %s;", __func__, loc, name.c_str());
+                }
+
                 // UniquePtr<glslang::TIoMapResolver> resolver;
                 UniquePtr<TMglGlslIoResolver> resolver;
                 for (unsigned stage = 0; stage < EShLangCount; stage++) {

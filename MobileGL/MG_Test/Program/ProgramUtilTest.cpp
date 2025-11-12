@@ -342,41 +342,37 @@ TEST_F(ProgramUtilTest, DecompProgram) {
 const char* blit_vs = R"(#version 460 core
 
 in vec3 Position;
-in vec2 UV;
-in vec4 Color;
+in vec2 UV0;
 
 uniform mat4 ModelViewMat;
 uniform mat4 ProjMat;
 
-out vec2 texCoord;
-out vec4 vertexColor;
+out vec2 texCoord0;
 
 void main() {
     gl_Position = ProjMat * ModelViewMat * vec4(Position, 1.0);
 
-    texCoord = UV;
-    vertexColor = Color;
+    texCoord0 = UV0;
 }
 )";
 
 const char* blit_fs = R"(#version 460 core
 
-uniform sampler2D DiffuseSampler;
+uniform sampler2D Sampler0;
 
 uniform vec4 ColorModulator;
 
-in vec2 texCoord;
-in vec4 vertexColor;
+in vec2 texCoord0;
 
 out vec4 fragColor;
 
 void main() {
-    vec4 color = texture(DiffuseSampler, texCoord) * vertexColor;
-
-    // blit final output of compositor into displayed back buffer
+    vec4 color = texture(Sampler0, texCoord0);
+    if (color.a == 0.0) {
+        discard;
+    }
     fragColor = color * ColorModulator;
-}
-)";
+})";
 
 TEST_F(ProgramUtilTest, CompileAndLinkBlitProgram) {
     using namespace MG_Util::ShaderTranspiler;
@@ -396,7 +392,7 @@ TEST_F(ProgramUtilTest, CompileAndLinkBlitProgram) {
 
     UnorderedMap<String, Uint> attribLocations;
     attribLocations["Position"] = 0;
-    attribLocations["UV"] = 2;
+    attribLocations["UV0"] = 2;
 
     ProgramAttrib programAttrib{// .shaderTypes = { GL_VERTEX_SHADER, GL_FRAGMENT_SHADER },
         .shaders = {vs_res.value(), fs_res.value()},
@@ -416,8 +412,12 @@ TEST_F(ProgramUtilTest, CompileAndLinkBlitProgram) {
         auto it = attribLocations.find(in.name);
         if (it != attribLocations.end()) {
             ASSERT_EQ(it->second, in.layoutLocation());
+            std::cout << in.name << ": location = " << it->second << "\n";
+            attribLocations.erase(it);
         }
     }
+
+    ASSERT_TRUE(attribLocations.empty()) << "Not all vertex input location mapped!";
 
     ProgramBinaryAttrib binaryAttrib{
         .shaderTypes = {GL_VERTEX_SHADER, GL_FRAGMENT_SHADER},
