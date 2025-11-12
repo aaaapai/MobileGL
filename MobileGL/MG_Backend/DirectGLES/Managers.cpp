@@ -486,6 +486,11 @@ namespace MobileGL::MG_Backend::DirectGLES {
             // Attach current shaders
             auto& attachedShaders = stateProgramObject->GetAttachedShaders();
             MGLOG_D("Attaching %zu shaders to program %u", attachedShaders.size(), m_backendProgramId);
+            for (auto& shader: attachedShaders) {
+                const auto& src = shader->GetShaderSource();
+                const auto& stage = MG_Util::ConvertGLEnumToString(MG_Util::ConvertShaderStageToGLEnum(shader->GetShaderStage()));
+                MGLOG_D("Original src @ %s: \n%s", stage.c_str(), src.c_str());
+            }
             auto& shaderSpirvs = stateProgramObject->GetGeneratedSpirv();
 
             for (int index = 0; index < attachedShaders.size(); ++index) {
@@ -501,9 +506,14 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 auto& spirvCode = shaderSpirvs[index];
 
                 MG_Util::ShaderTranspiler::SpvcSession spvcSession(spirvCode);
-                if (glShaderType == GL_VERTEX_SHADER) {
-                    spvcSession.SetVertexAttribLocation(stateProgramObject->GetAttribLocationMap());
-                }
+//                if (glShaderType == GL_VERTEX_SHADER) {
+//                    if (stateProgramObject->GetAttribLocationMap().empty())
+//                        MGLOG_D("%s: no explicitly set vertex in location", __func__);
+//                    for (auto& [name, loc]: stateProgramObject->GetAttribLocationMap()) {
+//                        MGLOG_D("%s: got explicitly set - layout(location = %d) %s;", __func__, loc, name.c_str());
+//                    }
+////                    spvcSession.SetVertexAttribLocation(stateProgramObject->GetAttribLocationMap());
+//                }
 
                 spvc_compiler_options options;
                 spvcSession.CreateOptions(&options);
@@ -533,7 +543,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 source = ForceSupporterOutput(source);
 
                 const char* sourceCStr = source.c_str();
-                MGLOG_D("Setting shader source for backend shader ID: %u", backendShaderId);
+                MGLOG_D("Setting shader source for backend shader ID: %u\nsrc:\n%s", backendShaderId, sourceCStr);
                 MG_External::GLES::glShaderSource(backendShaderId, 1, &sourceCStr, nullptr);
                 MG_External::GLES::glCompileShader(backendShaderId);
 

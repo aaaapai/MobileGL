@@ -104,7 +104,7 @@ namespace MobileGL {
 
                 Uint GetExternalIndex() const { return m_externalIndex; }
 
-                const UnorderedMap<String, Uint>& GetAttribLocationMap() const { return m_attribLocation; }
+//                const UnorderedMap<String, Uint>& GetAttribLocationMap() const { return m_attribLocation; }
 
             private:
                 void DoReflection();
@@ -124,7 +124,7 @@ namespace MobileGL {
                 Vector<String> m_attribs;
                 Vector<GLenum> m_attribTypes;
                 // For SpvcSession::SetVertexAttribLocation()
-                UnorderedMap<String, Uint> m_attribLocation;
+//                UnorderedMap<String, Uint> m_attribLocation;
 
                 // Uniforms
                 UnorderedMap<String, Uint> m_uniformLocations;

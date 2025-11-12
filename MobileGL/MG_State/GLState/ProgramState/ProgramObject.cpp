@@ -149,7 +149,7 @@ namespace MobileGL {
                 for (int i = 0; i < m_activeUniformCount; i++) {
                     auto& uniform = m_program->getUniform(i);
                     auto location = uniform.layoutLocation();
-                    if (location != 4095) {
+                    if (location != glslang::TQualifier::layoutLocationEnd) {
                         m_maxUniformLocation = std::max(m_maxUniformLocation, location);
                     }
                     m_uniformNameMaxLength = std::max(m_uniformNameMaxLength, (Int)uniform.name.length());
@@ -171,7 +171,7 @@ namespace MobileGL {
                 }
 
                 // i-th elements refers to uniform at layout(location = i, ...)
-                m_uniformIndexInTProgram.resize(m_maxUniformLocation + 1, 4095);
+                m_uniformIndexInTProgram.resize(m_maxUniformLocation + 1, glslang::TQualifier::layoutLocationEnd);
                 m_uniformSamplerOrImageUnitIndex.resize(m_maxUniformLocation + 1, -1);
 
                 Vector<int> unallocatedUniformIndex;
@@ -180,7 +180,7 @@ namespace MobileGL {
                 for (int i = 0; i < m_activeUniformCount; i++) {
                     auto& uniform = m_program->getUniform(i);
                     auto location = uniform.layoutLocation();
-                    if (m_uniformLocations[uniform.name] == 4095) {
+                    if (m_uniformLocations[uniform.name] == glslang::TQualifier::layoutLocationEnd) {
                         unallocatedUniformIndex.emplace_back(i);
                         MGLOG_D("ProgramObject %u: Reflection - uniform '%s' is unallocated, will assign later",
                                 m_externalIndex, uniform.name.c_str());
@@ -195,7 +195,7 @@ namespace MobileGL {
                 for (auto index : unallocatedUniformIndex) {
                     auto& uniform = m_program->getUniform(index);
                     for (; locNeedle <= m_maxUniformLocation; locNeedle++) {
-                        if (m_uniformIndexInTProgram[locNeedle] != 4095) continue;
+                        if (m_uniformIndexInTProgram[locNeedle] != glslang::TQualifier::layoutLocationEnd) continue;
                         // Found a vacant location at locNeedle
                         m_uniformIndexInTProgram[locNeedle] = index;
                         m_uniformLocations[uniform.name] = locNeedle;
@@ -207,13 +207,15 @@ namespace MobileGL {
                     }
                 }
 
+                // ------------ attributes (vertex in) ---------------
                 int inCount = m_program->getNumPipeInputs();
                 MGLOG_D("ProgramObject %u: Reflection - pipe input count (attributes) = %d", m_externalIndex, inCount);
 
                 int maxLoc = -1;
                 for (int i = 0; i < inCount; ++i) {
                     int loc = m_program->getPipeInput(i).layoutLocation();
-                    if (loc >= 0) maxLoc = std::max(maxLoc, loc);
+                    if (loc >= 0 && loc != glslang::TQualifier::layoutLocationEnd)
+                        maxLoc = std::max(maxLoc, loc);
                     MGLOG_D("ProgramObject %u: Reflection - pipe input[%d] name='%s' layoutLocation=%d glType=%u",
                             m_externalIndex, i, m_program->getPipeInput(i).name.c_str(), loc,
                             m_program->getPipeInput(i).glDefineType);
@@ -245,7 +247,7 @@ namespace MobileGL {
                     if (location >= 0 && location < (int)m_attribs.size()) {
                         m_attribs[location] = inVar.name;
                         m_attribTypes[location] = inVar.glDefineType;
-                        MGLOG_D("ProgramObject %u: Reflection - placed attrib '%s' at explicit location %d",
+                        MGLOG_D("ProgramObject %u: Reflection - got attrib '%s' at explicit location %d",
                                 m_externalIndex, inVar.name.c_str(), location);
                     }
                     // else if (location >= (int)m_attribs.size()) {
