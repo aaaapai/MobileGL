@@ -372,6 +372,7 @@ namespace MobileGL {
 
                 ProgramAttrib attrib{
                     .shaders = Move(shaders),
+                    .explicitAttribLocations = m_explicitAttribLocations
                 };
                 MGLOG_D("ProgramObject %u: GenerateBinary - linking program for binary", m_externalIndex);
                 auto programResult = ShaderCompiler::LinkProgram(attrib);
