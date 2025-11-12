@@ -338,3 +338,107 @@ TEST_F(ProgramUtilTest, DecompProgram) {
         EXPECT_EQ(offset, meta1.plainUniformOffsetsInUBO.at(name));
     }
 }
+
+const char* blit_vs = R"(#version 460 core
+
+in vec3 Position;
+in vec2 UV;
+in vec4 Color;
+
+uniform mat4 ModelViewMat;
+uniform mat4 ProjMat;
+
+out vec2 texCoord;
+out vec4 vertexColor;
+
+void main() {
+    gl_Position = ProjMat * ModelViewMat * vec4(Position, 1.0);
+
+    texCoord = UV;
+    vertexColor = Color;
+}
+)";
+
+const char* blit_fs = R"(#version 460 core
+
+uniform sampler2D DiffuseSampler;
+
+uniform vec4 ColorModulator;
+
+in vec2 texCoord;
+in vec4 vertexColor;
+
+out vec4 fragColor;
+
+void main() {
+    vec4 color = texture(DiffuseSampler, texCoord) * vertexColor;
+
+    // blit final output of compositor into displayed back buffer
+    fragColor = color * ColorModulator;
+}
+)";
+
+TEST_F(ProgramUtilTest, CompileAndLinkBlitProgram) {
+    using namespace MG_Util::ShaderTranspiler;
+    ShaderAttrib vs_attrib{.shaderType = GL_VERTEX_SHADER, .sourceStr = blit_vs};
+    auto vs_res = ShaderCompiler::CompileShader(vs_attrib);
+    if (!vs_res) {
+        ASSERT_NE(vs_res.error().errc, 0);
+        FAIL() << "errc: " << vs_res.error().errc << "\nlog: " << vs_res.error().log;
+    }
+
+    ShaderAttrib fs_attrib{.shaderType = GL_FRAGMENT_SHADER, .sourceStr = blit_fs};
+    auto fs_res = ShaderCompiler::CompileShader(fs_attrib);
+    if (!fs_res) {
+        ASSERT_NE(fs_res.error().errc, 0);
+        FAIL() << "errc: " << fs_res.error().errc << "\nlog: " << fs_res.error().log;
+    }
+
+    UnorderedMap<String, Uint> attribLocations;
+    attribLocations["Position"] = 0;
+    attribLocations["UV"] = 2;
+
+    ProgramAttrib programAttrib{// .shaderTypes = { GL_VERTEX_SHADER, GL_FRAGMENT_SHADER },
+        .shaders = {vs_res.value(), fs_res.value()},
+        .explicitAttribLocations = attribLocations
+    };
+
+    auto program_res = ShaderCompiler::LinkProgram(programAttrib);
+    if (!program_res) {
+        ASSERT_NE(program_res.error().errc, 0);
+        FAIL() << "errc: " << program_res.error().errc << "\nlog: " << program_res.error().log;
+    }
+    auto program = program_res.value();
+    program->buildReflection();
+    auto inCnt = program->getNumPipeInputs();
+    for (int i = 0; i < inCnt; i++) {
+        auto& in = program->getPipeInput(i);
+        auto it = attribLocations.find(in.name);
+        if (it != attribLocations.end()) {
+            ASSERT_EQ(it->second, in.layoutLocation());
+        }
+    }
+
+    ProgramBinaryAttrib binaryAttrib{
+        .shaderTypes = {GL_VERTEX_SHADER, GL_FRAGMENT_SHADER},
+        .program = *program,
+    };
+    auto bin_res = ShaderCompiler::GetSpirvBinaryFromProgram(binaryAttrib);
+
+    auto spirvs = bin_res.value();
+    Vector<SpvcSession> sessions(spirvs.size());
+    for (SizeT i = 0; i < spirvs.size(); ++i) {
+        sessions[i] = SpvcSession(spirvs[i]);
+    }
+
+    for (SizeT i = 0; i < spirvs.size(); ++i) {
+        std::cout << "Decompiling " << MG_Util::ConvertGLEnumToString(binaryAttrib.shaderTypes[i]) << std::endl;
+        auto src = ShaderCompiler::DecompileShader(sessions[i]);
+        if (!src) {
+            ASSERT_NE(src.error().errc, 0);
+            FAIL() << "errc: " << src.error().errc << "\nlog: " << src.error().log;
+        } else {
+            std::cout << "src: " << src.value() << std::endl;
+        }
+    }
+}
