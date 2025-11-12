@@ -72,7 +72,7 @@ namespace MobileGL {
             std::string header =
                 "[" + GetCurrentTime() + "] [" + GetOSName() + " " + GetThreadName() + "/" + levelTag + "]: ";
 
-            char buffer[1024];
+            static char buffer[102400];
             va_list args;
             va_start(args, fmt);
             int n = std::vsnprintf(buffer, sizeof(buffer), fmt, args);
