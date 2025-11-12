@@ -363,8 +363,12 @@ namespace MobileGL {
                         MGLOG_E("ProgramObject %u: GenerateBinary - CompileShader failed for shader[%zu], aborting "
                                 "binary generation",
                                 m_externalIndex, i);
-                        assert(res); // keep original assert but log first
+                        MGLOG_E("ProgramObject %u: GenerateBinary - CompileShader return code %d, log:\n%s",
+                                m_externalIndex, res.error().errc, res.error().log.c_str());
+                        MGLOG_E("ProgramObject %u: GenerateBinary - last compiled shader src: \n%s",
+                                m_externalIndex, m_shaders[i]->GetShaderSource().c_str());
                     }
+                    assert(res); // keep original assert but log first
                     shaders[i] = res.value();
                     MGLOG_D("ProgramObject %u: GenerateBinary - compiled shader[%zu] -> TShader ptr %p",
                             m_externalIndex, i, shaders[i].get());
