@@ -86,7 +86,7 @@ namespace MobileGL {
 
                 MG_Util::ShaderTranspiler::ProgramAttrib attrib{
                     .shaders = Move(shaders),
-                    .explicitAttribLocations = m_explicitAttribLocations
+                    .explicitVertexInLocations = m_explicitAttribLocations
                 };
 
                 MGLOG_D("ProgramObject %u: Calling ShaderCompiler::LinkProgram", m_externalIndex);
@@ -376,7 +376,7 @@ namespace MobileGL {
 
                 ProgramAttrib attrib{
                     .shaders = Move(shaders),
-                    .explicitAttribLocations = m_explicitAttribLocations
+                    .explicitVertexInLocations = m_explicitAttribLocations
                 };
                 MGLOG_D("ProgramObject %u: GenerateBinary - linking program for binary", m_externalIndex);
                 auto programResult = ShaderCompiler::LinkProgram(attrib);
