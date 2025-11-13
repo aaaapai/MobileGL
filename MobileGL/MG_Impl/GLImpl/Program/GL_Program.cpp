@@ -837,6 +837,39 @@ namespace MobileGL {
             MGLOG_D("%s: \"%s\" at uniformBlockIndex %02d, length = %d", __func__, uniformBlockName, uniformBlockIndex, *length);
         }
 
+        void BindFragDataLocation_State(GLuint program, GLuint colorNumber, const char* name) {
+            auto programObject = TryToGetProgramObject(program);
+            if (programObject == nullptr) {
+                MG_State::pGLContext->RecordError(
+                        ErrorCode::InvalidOperation,
+                        MakeShared<GenericErrorInfo>("MG_Impl/GLImpl", __func__, "`program` is not the name of a program object."));
+                return;
+            }
+            if (strncmp(name, "gl_", 3) == 0) {
+                MG_State::pGLContext->RecordError(
+                        ErrorCode::InvalidOperation,
+                        MakeShared<GenericErrorInfo>("MG_Impl/GLImpl", __func__,
+                                                     "`name` starts with the reserved prefix `gl_`."));
+                return;
+            }
+            // TODO: Emit error "if `colorNumber` is greater than or equal to `GL_MAX_DRAW_BUFFERS`"
+
+            MGLOG_D("%s: loc %02d = \"%s\"", __func__, index, name);
+            programObject->SetExplicitFragmentOutLocation(colorNumber, name);
+        }
+
+        GLint GetFragDataLocation_State(GLuint program, const char* name) {
+            auto programObject = TryToGetProgramObject(program);
+            if (programObject == nullptr) {
+                MG_State::pGLContext->RecordError(
+                        ErrorCode::InvalidOperation,
+                        MakeShared<GenericErrorInfo>("MG_Impl/GLImpl", __func__, "`program` is not the name of a program object."));
+                return -1;
+            }
+            return programObject->GetFragmentDataLocation(name);
+        }
+
+
         void ValidateProgram_State(GLuint program) {
 //            THROW_UNIMPL_EXCEPTION;
         }
@@ -1037,6 +1070,14 @@ namespace MobileGL {
 
         void GetActiveUniformBlockName(GLuint program, GLuint uniformBlockIndex, GLsizei bufSize, GLsizei* length, GLchar* uniformBlockName) {
             GetActiveUniformBlockName_State(program, uniformBlockIndex, bufSize, length, uniformBlockName);
+        }
+
+        void BindFragDataLocation(GLuint program, GLuint colorNumber, const char* name) {
+            BindFragDataLocation_State(program, colorNumber, name);
+        }
+
+        GLint GetFragDataLocation(GLuint program, const char* name) {
+            return GetFragDataLocation_State(program, name);
         }
 
         void ValidateProgram(GLuint program) {

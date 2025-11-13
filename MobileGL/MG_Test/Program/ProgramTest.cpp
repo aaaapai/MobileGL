@@ -872,7 +872,7 @@ void main() {
     fragColor = color * ColorModulator;
 })";
 
-TEST_F(ProgramTest, CompileAndLinkOptfineSample1) {
+TEST_F(ProgramTest, CompileAndLinkWithExplicitVertexIn) {
     char infoLog[1024] = "";
 
     GLuint fs = CreateShader(GL_FRAGMENT_SHADER);
@@ -913,10 +913,72 @@ TEST_F(ProgramTest, CompileAndLinkOptfineSample1) {
 
     auto programObject = MG_State::pGLContext->GetCurrentProgram();
     auto& spirvs = programObject->GetGeneratedSpirv();
-    char* found_correct_uv0 = nullptr;
+    auto& vertexSpirv = spirvs[1]; // 0 - fragment, 1 - vertex
+    char* pSrcVertIn = nullptr;
     const char* needle = "layout(location = 2) in vec2 UV0;";
-    for (auto spirv: spirvs) {
-        MG_Util::ShaderTranspiler::SpvcSession spvcSession(spirv);
+    // for (auto spirv: spirvs) {
+    MG_Util::ShaderTranspiler::SpvcSession spvcSession(vertexSpirv);
+    spvc_compiler_options options;
+    spvcSession.CreateOptions(&options);
+
+    spvc_compiler_options_set_uint(options, SPVC_COMPILER_OPTION_GLSL_VERSION, 460);
+    spvc_compiler_options_set_bool(options, SPVC_COMPILER_OPTION_GLSL_ES, SPVC_FALSE);
+    // spvc_compiler_options_set_bool(options, SPVC_COMPILER_OPTION_GLSL_VULKAN_SEMANTICS, SPVC_FALSE);
+
+    spvcSession.SetOptions(options);
+
+    const char* result = nullptr;
+    spvcSession.Compile(&result);
+    printf("%s\n\n", result);
+    const char* ret = strstr(result, needle);
+    if (ret)
+        pSrcVertIn = (char*)ret;
+    // }
+    ASSERT_TRUE(pSrcVertIn != nullptr) << "Not found expected string in generated shader.\n(Searching for \"" << needle << "\")";
+}
+
+TEST_F(ProgramTest, CompileAndLinkWithExplicitFragmentOut) {
+    char infoLog[1024] = "";
+
+    GLuint fs = CreateShader(GL_FRAGMENT_SHADER);
+    ShaderSource(fs, 1, &optifine_fs1, NULL);
+    CompileShader(fs);
+    GLint fsStatus = GL_FALSE;
+    GetShaderiv(fs, GL_COMPILE_STATUS, &fsStatus);
+    GetShaderInfoLog(fs, 1024, nullptr, infoLog);
+    ASSERT_EQ(fsStatus, GL_TRUE) << infoLog;
+
+    GLuint vs = CreateShader(GL_VERTEX_SHADER);
+    ShaderSource(vs, 1, &optifine_vs1, NULL);
+    CompileShader(vs);
+    GLint vsStatus = GL_FALSE;
+    GetShaderiv(vs, GL_COMPILE_STATUS, &vsStatus);
+    GetShaderInfoLog(vs, 1024, nullptr, infoLog);
+    ASSERT_EQ(vsStatus, GL_TRUE) << infoLog;
+
+    GLuint program = CreateProgram();
+    AttachShader(program, fs);
+    AttachShader(program, vs);
+
+    BindFragDataLocation(program, 7, "fragColor");
+
+    LinkProgram(program);
+    GLint linkStatus = GL_FALSE;
+    GetProgramiv(program, GL_LINK_STATUS, &linkStatus);
+    ASSERT_EQ(linkStatus, GL_TRUE);
+    printf("Program linked.\n");
+
+    UseProgram(program);
+    GLint fragColorLoc = GetFragDataLocation(program, "fragColor");
+    ASSERT_EQ(fragColorLoc, 7);
+
+    auto programObject = MG_State::pGLContext->GetCurrentProgram();
+    auto& spirvs = programObject->GetGeneratedSpirv();
+    auto& fragSpirv = spirvs[0]; // 0 - fragment, 1 - vertex
+    char* pSrcfragOut = nullptr;
+    const char* needle = "layout(location = 7) out vec4 fragColor;";
+    // for (auto spirv: spirvs) {
+        MG_Util::ShaderTranspiler::SpvcSession spvcSession(fragSpirv);
         spvc_compiler_options options;
         spvcSession.CreateOptions(&options);
 
@@ -931,8 +993,7 @@ TEST_F(ProgramTest, CompileAndLinkOptfineSample1) {
         printf("%s\n\n", result);
         const char* ret = strstr(result, needle);
         if (ret)
-            found_correct_uv0 = (char*)ret;
-    }
-    ASSERT_TRUE(found_correct_uv0 != nullptr) << "Not found correct attribute in generated shader.\n(Searching for \"" << needle << "\")";
+            pSrcfragOut = (char*)ret;
+    // }
+    ASSERT_TRUE(pSrcfragOut != nullptr) << "Not found expected string in generated shader.\n(Searching for \"" << needle << "\")";
 }
-

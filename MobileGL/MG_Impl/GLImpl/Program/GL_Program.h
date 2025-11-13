@@ -53,6 +53,8 @@ namespace MobileGL {
         void UniformBlockBinding(GLuint program, GLuint uniformBlockIndex, GLuint uniformBlockBinding);
         void GetActiveUniformBlockiv(GLuint program, GLuint uniformBlockIndex, GLenum pname, GLint* params);
         void GetActiveUniformBlockName(GLuint program, GLuint uniformBlockIndex, GLsizei bufSize, GLsizei* length, GLchar* uniformBlockName);
+        void BindFragDataLocation(GLuint program, GLuint colorNumber, const char* name);
+        GLint GetFragDataLocation(GLuint program, const char* name);
         void ValidateProgram(GLuint program);
     } // namespace MG_Impl::GLImpl
 } // namespace MobileGL

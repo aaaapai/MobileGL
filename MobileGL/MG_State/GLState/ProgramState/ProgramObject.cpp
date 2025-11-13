@@ -86,7 +86,8 @@ namespace MobileGL {
 
                 MG_Util::ShaderTranspiler::ProgramAttrib attrib{
                     .shaders = Move(shaders),
-                    .explicitVertexInLocations = m_explicitAttribLocations
+                    .explicitVertexInLocations = m_explicitAttribLocations,
+                    .explicitFragmentOutLocations = m_explicitFragDataLocation
                 };
 
                 MGLOG_D("ProgramObject %u: Calling ShaderCompiler::LinkProgram", m_externalIndex);
@@ -376,7 +377,8 @@ namespace MobileGL {
 
                 ProgramAttrib attrib{
                     .shaders = Move(shaders),
-                    .explicitVertexInLocations = m_explicitAttribLocations
+                    .explicitVertexInLocations = m_explicitAttribLocations,
+                    .explicitFragmentOutLocations = m_explicitFragDataLocation
                 };
                 MGLOG_D("ProgramObject %u: GenerateBinary - linking program for binary", m_externalIndex);
                 auto programResult = ShaderCompiler::LinkProgram(attrib);
@@ -471,6 +473,22 @@ namespace MobileGL {
                 m_explicitAttribLocations[name] = index;
                 MGLOG_D("ProgramObject %u: SetExplicitVertexInLocation - stored explicit location for '%s' -> %u",
                         m_externalIndex, name, index);
+            }
+
+            void ProgramObject::SetExplicitFragmentOutLocation(Uint index, const char* name) {
+                MGLOG_D("ProgramObject %u: SetExplicitFragmentOutLocation called name='%s' index=%u", m_externalIndex, name,
+                        index);
+                m_explicitFragDataLocation[name] = index;
+                MGLOG_D("ProgramObject %u: SetExplicitFragmentOutLocation - stored explicit location for '%s' -> %u",
+                        m_externalIndex, name, index);
+            }
+
+            Int ProgramObject::GetFragmentDataLocation(const char* name) {
+                // TODO: should retrieve "post-mortem" location from glslang instead
+                auto it = m_explicitFragDataLocation.find(name);
+                if (it == m_explicitFragDataLocation.end())
+                    return -1;
+                return it->second;
             }
         } // namespace GLState
     } // namespace MG_State
