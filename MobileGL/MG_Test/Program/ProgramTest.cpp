@@ -819,22 +819,22 @@ TEST_F(ProgramTest, MinecraftTexColor1_21_6) {
     auto programObject = MG_State::pGLContext->GetCurrentProgram();
     ASSERT_EQ(programObject->GetUBOSize(), 0);
 
-    auto& spirvs = programObject->GetGeneratedSpirv();
-    for (auto spirv: spirvs) {
-        MG_Util::ShaderTranspiler::SpvcSession spvcSession(spirv);
-        spvc_compiler_options options;
-        spvcSession.CreateOptions(&options);
-
-        spvc_compiler_options_set_uint(options, SPVC_COMPILER_OPTION_GLSL_VERSION, 320);
-        spvc_compiler_options_set_bool(options, SPVC_COMPILER_OPTION_GLSL_ES, SPVC_TRUE);
-        // spvc_compiler_options_set_bool(options, SPVC_COMPILER_OPTION_GLSL_VULKAN_SEMANTICS, SPVC_TRUE);
-
-        spvcSession.SetOptions(options);
-
-        const char* result = nullptr;
-        spvcSession.Compile(&result);
-        printf("%s\n\n", result);
-    }
+    // auto& spirvs = programObject->GetGeneratedSpirv();
+    // for (auto spirv: spirvs) {
+    //     MG_Util::ShaderTranspiler::SpvcSession spvcSession(spirv);
+    //     spvc_compiler_options options;
+    //     spvcSession.CreateOptions(&options);
+    //
+    //     spvc_compiler_options_set_uint(options, SPVC_COMPILER_OPTION_GLSL_VERSION, 320);
+    //     spvc_compiler_options_set_bool(options, SPVC_COMPILER_OPTION_GLSL_ES, SPVC_TRUE);
+    //     // spvc_compiler_options_set_bool(options, SPVC_COMPILER_OPTION_GLSL_VULKAN_SEMANTICS, SPVC_TRUE);
+    //
+    //     spvcSession.SetOptions(options);
+    //
+    //     const char* result = nullptr;
+    //     spvcSession.Compile(&result);
+    //     printf("%s\n\n", result);
+    // }
 }
 
 const char* optifine_vs1 = R"(#version 460 core
