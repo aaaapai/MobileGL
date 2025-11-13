@@ -738,8 +738,13 @@ namespace MobileGL {
         }
 
         void UniformBlockBinding_State(GLuint program, GLuint uniformBlockIndex, GLuint uniformBlockBinding) {
-            auto programObject = TryToGetProgramObject(program);
-            if (!programObject) return;
+            auto programObject = MG_State::pGLContext->GetCurrentProgram();
+            if (programObject == nullptr) {
+                MG_State::pGLContext->RecordError(
+                        ErrorCode::InvalidOperation,
+                        MakeShared<GenericErrorInfo>("MG_Impl/GLImpl", __func__, "There is no current program object."));
+                return;
+            }
             if (!programObject->GetLinkStatus()) {
                 MG_State::pGLContext->RecordError(
                         ErrorCode::InvalidOperation,
@@ -756,8 +761,13 @@ namespace MobileGL {
         }
 
         void GetActiveUniformBlockiv_State(GLuint program, GLuint uniformBlockIndex, GLenum pname, GLint* params) {
-            auto programObject = TryToGetProgramObject(program);
-            if (!programObject) return;
+            auto programObject = MG_State::pGLContext->GetCurrentProgram();
+            if (programObject == nullptr) {
+                MG_State::pGLContext->RecordError(
+                        ErrorCode::InvalidOperation,
+                        MakeShared<GenericErrorInfo>("MG_Impl/GLImpl", __func__, "There is no current program object."));
+                return;
+            }
             if (!programObject->GetLinkStatus()) {
                 MG_State::pGLContext->RecordError(
                         ErrorCode::InvalidOperation,
