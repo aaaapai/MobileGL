@@ -15,6 +15,13 @@ namespace MobileGL {
                 writableType.getQualifier().layoutLocation = it->second;
             }
         }
+        if (currentStage == EShLangFragment && type.getQualifier().isPipeOutput()) {
+            auto it = m_explicitFragOuts.find(name.c_str());
+            if (it != m_explicitFragOuts.end()) {
+                auto& writableType = ent.symbol->getWritableType();
+                writableType.getQualifier().layoutLocation = it->second;
+            }
+        }
         TDefaultGlslIoResolver::reserverStorageSlot(ent, infoSink);
     }
 }
