@@ -854,7 +854,7 @@ namespace MobileGL {
             }
             // TODO: Emit error "if `colorNumber` is greater than or equal to `GL_MAX_DRAW_BUFFERS`"
 
-            MGLOG_D("%s: loc %02d = \"%s\"", __func__, index, name);
+            MGLOG_D("%s: loc %02d = \"%s\"", __func__, colorNumber, name);
             programObject->SetExplicitFragmentOutLocation(colorNumber, name);
         }
 
