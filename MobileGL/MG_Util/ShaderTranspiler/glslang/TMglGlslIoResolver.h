@@ -17,14 +17,14 @@ namespace MobileGL {
     class TMglGlslIoResolver: public glslang::TDefaultGlslIoResolver {
     public:
         using ExplicitVarSlotMap = UnorderedMap<String, Uint>;
-        TMglGlslIoResolver(const glslang::TIntermediate& intermediate, const ExplicitVarSlotMap& attribLocations):
-            TDefaultGlslIoResolver(intermediate), m_explicitAttribLocations(attribLocations) {}
-        TMglGlslIoResolver(const glslang::TProgram& program, const EShLanguage stage, const ExplicitVarSlotMap& attribLocations):
-            TDefaultGlslIoResolver(*program.getIntermediate(stage)),
-            m_explicitAttribLocations(attribLocations) {}
+        TMglGlslIoResolver(const glslang::TIntermediate& intermediate, const ExplicitVarSlotMap& vertexIns, const ExplicitVarSlotMap& fragOuts):
+            TDefaultGlslIoResolver(intermediate), m_explicitVertexIns(vertexIns), m_explicitFragOuts(fragOuts) {}
+        TMglGlslIoResolver(const glslang::TProgram& program, const EShLanguage stage, const ExplicitVarSlotMap& vertexIns, const ExplicitVarSlotMap& fragOuts):
+                TMglGlslIoResolver(*program.getIntermediate(stage), vertexIns, fragOuts) {}
         void reserverStorageSlot(glslang::TVarEntryInfo& ent, TInfoSink& infoSink) override;
     protected:
-        const ExplicitVarSlotMap& m_explicitAttribLocations;
+        const ExplicitVarSlotMap& m_explicitVertexIns;
+        const ExplicitVarSlotMap& m_explicitFragOuts;
     };
 }
 

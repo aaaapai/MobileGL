@@ -290,7 +290,7 @@ namespace MobileGL {
                 //     if (location < 0) continue;
                 //     if (location >= (int)m_attribs.size()) {
                 //         if (location >= maxAttribs) {
-                //             MGLOG_W("ProgramObject %u: SetExplicitAttribLocation: requested location %d >= "
+                //             MGLOG_W("ProgramObject %u: SetExplicitVertexInLocation: requested location %d >= "
                 //                     "GL_MAX_VERTEX_ATTRIBS (%d). Ignored for attribute '%s'.",
                 //                     m_externalIndex, location, maxAttribs, name.c_str());
                 //             continue;
@@ -465,11 +465,11 @@ namespace MobileGL {
                 // will probably be useful when multi-threaded compilation
             }
 
-            void ProgramObject::SetExplicitAttribLocation(Uint index, const char* name) {
-                MGLOG_D("ProgramObject %u: SetExplicitAttribLocation called name='%s' index=%u", m_externalIndex, name,
+            void ProgramObject::SetExplicitVertexInLocation(Uint index, const char* name) {
+                MGLOG_D("ProgramObject %u: SetExplicitVertexInLocation called name='%s' index=%u", m_externalIndex, name,
                         index);
                 m_explicitAttribLocations[name] = index;
-                MGLOG_D("ProgramObject %u: SetExplicitAttribLocation - stored explicit location for '%s' -> %u",
+                MGLOG_D("ProgramObject %u: SetExplicitVertexInLocation - stored explicit location for '%s' -> %u",
                         m_externalIndex, name, index);
             }
         } // namespace GLState

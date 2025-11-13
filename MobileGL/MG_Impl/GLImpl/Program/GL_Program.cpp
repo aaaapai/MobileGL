@@ -100,7 +100,7 @@ namespace MobileGL {
             if (!programObject) return;
 
             MGLOG_D("%s: loc %02d = \"%s\"", __func__, index, name);
-            programObject->SetExplicitAttribLocation(index, name);
+            programObject->SetExplicitVertexInLocation(index, name);
         }
 
         void CompileShader_State(GLuint shader) {

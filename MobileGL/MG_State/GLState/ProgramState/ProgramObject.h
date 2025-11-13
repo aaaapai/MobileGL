@@ -17,7 +17,7 @@ namespace MobileGL {
                 void Link();
                 void MarkAsDeleted();
 
-                void SetExplicitAttribLocation(Uint index, const char* name);
+                void SetExplicitVertexInLocation(Uint index, const char* name);
 
                 Vector<SharedPtr<ShaderObject>>& GetAttachedShaders();
                 const String& GetInfoLog() const { return m_infoLog; }
