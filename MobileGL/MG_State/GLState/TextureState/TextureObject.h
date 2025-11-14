@@ -210,7 +210,6 @@ namespace MobileGL {
                 }
             };
 
-            // TODO: BaseLevel, MaxLevel, Swizzle
             class ITextureObject {
             public:
                 using TargetEnum = TextureTarget;
