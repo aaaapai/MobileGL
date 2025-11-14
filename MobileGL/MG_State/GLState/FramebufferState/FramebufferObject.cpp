@@ -67,23 +67,24 @@ namespace MobileGL {
                 m_externalIndex(externalIndex) {
                 m_attachments.fill(FramebufferAttachment(false));
                 m_drawBuffers.fill(FramebufferAttachmentType::None);
+                m_drawBuffers[0] = FramebufferAttachmentType::Color0;
             }
 
             void FramebufferObject::AttachTexture(FramebufferAttachmentType type, SharedPtr<ITextureObject> texture,
                                                   int level) {
                 m_attachments[static_cast<SizeT>(type)] = FramebufferAttachment(std::move(texture), level);
-//                m_drawBuffersDirty = true;
+                m_drawBuffersDirty = true;
             }
 
             void FramebufferObject::AttachRenderbuffer(FramebufferAttachmentType type,
                                                        std::shared_ptr<RenderbufferObjectStub> renderbuffer) {
                 m_attachments[static_cast<SizeT>(type)] = FramebufferAttachment(renderbuffer);
-//                m_drawBuffersDirty = true;
+                m_drawBuffersDirty = true;
             }
 
             void FramebufferObject::Detach(FramebufferAttachmentType type) {
                 m_attachments[static_cast<SizeT>(type)] = FramebufferAttachment(false);
-//                m_drawBuffersDirty = true;
+                m_drawBuffersDirty = true;
             }
 
             const FramebufferAttachment& FramebufferObject::GetAttachment(FramebufferAttachmentType type) const {

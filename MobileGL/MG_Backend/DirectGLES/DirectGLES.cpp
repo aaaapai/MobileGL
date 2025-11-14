@@ -137,26 +137,44 @@ namespace MobileGL::MG_Backend::DirectGLES {
 
     namespace FramebufferImpl {
         void SyncCurrentFBO() {
-            auto currentFBO = MG_State::pGLContext->GetFramebufferBindingSlot(FramebufferTarget::Draw).GetBoundObject();
-            if (!currentFBO) {
-                MGLOG_E("No FBO is currently bound, cannot sync current FBO.");
-                return;
-            }
+            const FramebufferTarget fboTargets[] = {FramebufferTarget::Draw, FramebufferTarget::Read};
 
-            if (currentFBO == MG_Impl::GLImpl::FramebufferImpl::pDefaultFramebufferInfo->defaultFBO) {
-                // Default FBO, nothing to sync
-                return;
-            }
+            MG_State::GLState::FramebufferObject* lastUpdatedFBO = nullptr;
 
-            const auto& backendFBOIt = g_backendFramebufferObjects.find(currentFBO);
-            SharedPtr<BackendFramebufferObject> backendFBOObject;
-            if (backendFBOIt == g_backendFramebufferObjects.end()) {
-                backendFBOObject = MakeShared<BackendFramebufferObject>();
-                g_backendFramebufferObjects[currentFBO] = backendFBOObject;
-            } else {
-                backendFBOObject = backendFBOIt->second;
+            for (auto target: fboTargets) {
+                auto currentFBO =
+                        MG_State::pGLContext->GetFramebufferBindingSlot(target).GetBoundObject();
+
+                if (!currentFBO) {
+                    MGLOG_E("No FBO is currently bound, cannot sync current FBO.");
+                    continue;
+                }
+
+                if (currentFBO ==
+                    MG_Impl::GLImpl::FramebufferImpl::pDefaultFramebufferInfo->defaultFBO) {
+                    // Default FBO, nothing to sync
+                    continue;
+                }
+
+                const auto &backendFBOIt = g_backendFramebufferObjects.find(currentFBO);
+                SharedPtr<BackendFramebufferObject> backendFBOObject;
+                if (backendFBOIt == g_backendFramebufferObjects.end()) {
+                    backendFBOObject = MakeShared<BackendFramebufferObject>();
+                    g_backendFramebufferObjects[currentFBO] = backendFBOObject;
+                } else {
+                    backendFBOObject = backendFBOIt->second;
+                }
+
+                if (currentFBO.get() == lastUpdatedFBO) {
+                    MGLOG_I("Draw FBO and read FBO are the same, skipping sync.");
+                } else {
+                    backendFBOObject->SyncToBackend(currentFBO, target);
+                }
+
+                backendFBOObject->Bind(target);
+
+                lastUpdatedFBO = currentFBO.get();
             }
-            backendFBOObject->SyncToBackend(currentFBO);
         }
     } // namespace FramebufferImpl
 

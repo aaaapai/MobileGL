@@ -103,11 +103,12 @@ namespace MobileGL {
                             static_cast<SizeT>(FramebufferAttachmentType::FramebufferAttachmentTypeCount)>&
                 GetAllAttachments() const;
                 Bool CheckCompleteness() const;
-//                void SetDrawBuffers(const Vector<FramebufferAttachmentType>& buffers);
+                // aka. `buffer` as in glDrawBuffers/glReadBuffers
                 void SetDrawBuffer(Uint index, FramebufferAttachmentType buffer);
                 bool DrawBuffersIsDirty() const { return m_drawBuffersDirty; }
                 void ClearDrawBuffersDirtyState() { m_drawBuffersDirty = false; }
                 const Array<FramebufferAttachmentType, MAX_DRAW_BUFFERS>& GetDrawBuffers() const;
+                FramebufferAttachmentType GetReadBuffer() const { return m_readBuffer; }
                 Uint GetExternalIndex() const;
 
             private:
@@ -117,6 +118,7 @@ namespace MobileGL {
                     m_attachments;
                 Bool m_drawBuffersDirty = false;
                 Array<FramebufferAttachmentType, MAX_DRAW_BUFFERS> m_drawBuffers;
+                FramebufferAttachmentType m_readBuffer = FramebufferAttachmentType::None;
             };
 
         } // namespace GLState

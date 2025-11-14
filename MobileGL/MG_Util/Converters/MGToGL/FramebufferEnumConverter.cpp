@@ -26,7 +26,7 @@ namespace MobileGL {
             case FramebufferAttachmentType::Stencil:
                 return GL_STENCIL_ATTACHMENT;
             default:
-                return GL_COLOR_ATTACHMENT0;
+                return GL_NONE;
             }
         }
 
