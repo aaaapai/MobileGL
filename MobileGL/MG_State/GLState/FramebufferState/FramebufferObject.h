@@ -105,7 +105,9 @@ namespace MobileGL {
                 Bool CheckCompleteness() const;
 //                void SetDrawBuffers(const Vector<FramebufferAttachmentType>& buffers);
                 void SetDrawBuffer(Uint index, FramebufferAttachmentType buffer);
-                const auto& GetDrawBuffers() const;
+                bool DrawBuffersIsDirty() const { return m_drawBuffersDirty; }
+                void ClearDrawBuffersDirtyState() { m_drawBuffersDirty = false; }
+                const Array<FramebufferAttachmentType, MAX_DRAW_BUFFERS>& GetDrawBuffers() const;
                 Uint GetExternalIndex() const;
 
             private:
@@ -113,7 +115,7 @@ namespace MobileGL {
                 Array<FramebufferAttachment,
                       static_cast<SizeT>(FramebufferAttachmentType::FramebufferAttachmentTypeCount)>
                     m_attachments;
-                Bool m_drawBuffersDirty = true;
+                Bool m_drawBuffersDirty = false;
                 Array<FramebufferAttachmentType, MAX_DRAW_BUFFERS> m_drawBuffers;
             };
 

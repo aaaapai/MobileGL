@@ -423,6 +423,23 @@ namespace MobileGL::MG_Backend::DirectGLES {
                     // TODO
                 }
             }
+
+            if (stateFBOObject->DrawBuffersIsDirty()) {
+                static GLenum drawbufs[MG_State::GLState::FramebufferObject::MAX_DRAW_BUFFERS];
+                std::fill(drawbufs, drawbufs + MG_State::GLState::FramebufferObject::MAX_DRAW_BUFFERS, GL_NONE);
+                auto& stateDrawBuffers = stateFBOObject->GetDrawBuffers();
+                GLint i = 0;
+                for (; i < stateDrawBuffers.size(); ++i) {
+                    if (stateDrawBuffers[i] == FramebufferAttachmentType::None) {
+                        break;
+                    }
+                    drawbufs[i] = MG_Util::ConvertFramebufferAttachmentTypeToGLEnum(stateDrawBuffers[i]);
+                }
+
+                MG_External::GLES::glDrawBuffers(i, drawbufs);
+
+                stateFBOObject->ClearDrawBuffersDirtyState();
+            }
         }
 
         UnorderedMap<SharedPtr<MG_State::GLState::FramebufferObject>, SharedPtr<BackendFramebufferObject>>
