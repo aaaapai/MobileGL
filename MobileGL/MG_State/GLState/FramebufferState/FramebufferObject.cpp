@@ -63,8 +63,10 @@ namespace MobileGL {
             }
 
             // FramebufferObject
-            FramebufferObject::FramebufferObject(Uint externalIndex) : m_externalIndex(externalIndex) {
+            FramebufferObject::FramebufferObject(Uint externalIndex) :
+                m_externalIndex(externalIndex) {
                 m_attachments.fill(FramebufferAttachment(false));
+                m_drawBuffers.fill(FramebufferAttachmentType::None);
             }
 
             void FramebufferObject::AttachTexture(FramebufferAttachmentType type, SharedPtr<ITextureObject> texture,
@@ -126,12 +128,22 @@ namespace MobileGL {
                 return true;
             }
 
-            void FramebufferObject::SetDrawBuffers(const std::vector<FramebufferAttachmentType>& buffers) {
-                m_drawBuffers = buffers;
+            void FramebufferObject::SetDrawBuffer(Uint index, FramebufferAttachmentType buffer) {
+                if (m_drawBuffers[index] == buffer)
+                    return;
                 m_drawBuffersDirty = true;
+                m_drawBuffers[index] = buffer;
             }
 
-            const Vector<FramebufferAttachmentType>& FramebufferObject::GetDrawBuffers() const {
+//            void FramebufferObject::SetDrawBuffers(const Vector<FramebufferAttachmentType>& buffers) {
+//                m_drawBuffers = buffers;
+//                m_drawBuffersDirty = true;
+//            }
+//            void SetDrawBuffer(Uint index, FramebufferAttachmentType buffer) {
+//
+//            }
+
+            const auto& FramebufferObject::GetDrawBuffers() const {
                 return m_drawBuffers;
             }
 

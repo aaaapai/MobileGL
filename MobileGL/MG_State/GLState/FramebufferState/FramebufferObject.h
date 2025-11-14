@@ -12,6 +12,16 @@ namespace MobileGL {
     };
 
     enum class FramebufferAttachmentType {
+        None,
+
+        FrontLeft,
+        FrontRight,
+        BackLeft,
+        BackRight,
+
+        Depth,
+        Stencil,
+
         Color0,
         Color1,
         Color2,
@@ -44,8 +54,7 @@ namespace MobileGL {
         Color29,
         Color30,
         Color31,
-        Depth,
-        Stencil,
+
         FramebufferAttachmentTypeCount,
         Unknown = -1
     };
@@ -81,6 +90,7 @@ namespace MobileGL {
             class FramebufferObject {
             public:
                 using TargetEnum = FramebufferTarget;
+                static constexpr uint MAX_DRAW_BUFFERS = 8;
 
                 FramebufferObject(Uint externalIndex);
 
@@ -93,8 +103,9 @@ namespace MobileGL {
                             static_cast<SizeT>(FramebufferAttachmentType::FramebufferAttachmentTypeCount)>&
                 GetAllAttachments() const;
                 Bool CheckCompleteness() const;
-                void SetDrawBuffers(const std::vector<FramebufferAttachmentType>& buffers);
-                const Vector<FramebufferAttachmentType>& GetDrawBuffers() const;
+//                void SetDrawBuffers(const Vector<FramebufferAttachmentType>& buffers);
+                void SetDrawBuffer(Uint index, FramebufferAttachmentType buffer);
+                const auto& GetDrawBuffers() const;
                 Uint GetExternalIndex() const;
 
             private:
@@ -103,7 +114,7 @@ namespace MobileGL {
                       static_cast<SizeT>(FramebufferAttachmentType::FramebufferAttachmentTypeCount)>
                     m_attachments;
                 Bool m_drawBuffersDirty = true;
-                Vector<FramebufferAttachmentType> m_drawBuffers;
+                Array<FramebufferAttachmentType, MAX_DRAW_BUFFERS> m_drawBuffers;
             };
 
         } // namespace GLState

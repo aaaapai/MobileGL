@@ -1,6 +1,7 @@
 #include "GL_Framebuffer.h"
 #include "Validators.h"
 #include "Config.h"
+#include "MG_Util/Converters/GLToStr/GLEnumConverter.h"
 #include <MG_Impl/GLImpl/Texture/Validators.h>
 #include <MG_State/GLState/ErrorState/Error.h>
 #include <MG_Util/Converters/GLToMG/FramebufferEnumConverter.h>
@@ -133,7 +134,76 @@ namespace MobileGL {
         }
 
         void DrawBuffers_State(GLsizei n, const GLenum* bufs) {
-            // TODO: implement
+            if (n < 0) {
+                MG_State::pGLContext->RecordError(
+                        ErrorCode::InvalidValue, MakeShared<GenericErrorInfo>("MG_Impl/GLImpl", __func__,
+                                                                              "`n` is less than 0."));
+                return;
+            } else if (n > MG_State::GLState::FramebufferObject::MAX_DRAW_BUFFERS) {
+                MG_State::pGLContext->RecordError(
+                        ErrorCode::InvalidValue, MakeShared<GenericErrorInfo>("MG_Impl/GLImpl", __func__,
+                                                                              "`n` is greater than `GL_MAX_DRAW_BUFFERS`."));
+                return;
+            }
+
+            // Get bound framebuffer
+            auto& bindingSlot = MG_State::pGLContext->GetFramebufferBindingSlot(FramebufferTarget::Draw);
+            auto fbo = bindingSlot.GetBoundObject();
+            bool isDefaultFBO = (fbo == FramebufferImpl::pDefaultFramebufferInfo->defaultFBO);
+
+            static int existenceMap[(SizeT)FramebufferAttachmentType::FramebufferAttachmentTypeCount] = {
+                    -1
+            };
+            std::fill(existenceMap, existenceMap + (SizeT)FramebufferAttachmentType::FramebufferAttachmentTypeCount, -1);
+
+            for (GLsizei i = 0; i < n; ++i) {
+                auto attType = MG_Util::ConvertGLEnumToFramebufferAttachmentType(bufs[i]);
+
+                // ------------------- Check validity begin ------------------------
+                if (attType == FramebufferAttachmentType::Unknown) {
+                    MG_State::pGLContext->RecordError(
+                            ErrorCode::InvalidEnum, MakeShared<GenericErrorInfo>("MG_Impl/GLImpl", __func__,
+                                                                                  std::format("bufs[{}] = %s is not an accepted value.", i, MG_Util::ConvertGLEnumToString(bufs[i]))));
+                    return;
+                }
+
+                if (isDefaultFBO &&
+                    attType >= FramebufferAttachmentType::Color0 && attType <= FramebufferAttachmentType::Color31) {
+                    MG_State::pGLContext->RecordError(
+                            ErrorCode::InvalidEnum, MakeShared<GenericErrorInfo>("MG_Impl/GLImpl", __func__,
+                                                                                  std::format("FBO is default FBO, but bufs[{}] = {} is one of the `GL_COLOR_ATTACHMENTn` tokens.", i, MG_Util::ConvertGLEnumToString(bufs[i]))));
+                    return;
+                }
+
+                if (!isDefaultFBO &&
+                    attType >= FramebufferAttachmentType::FrontLeft && attType <= FramebufferAttachmentType::BackRight) {
+                    MG_State::pGLContext->RecordError(
+                            ErrorCode::InvalidEnum, MakeShared<GenericErrorInfo>("MG_Impl/GLImpl", __func__,
+                                                                                 std::format("FBO is not default FBO, but bufs[{}] = {} is anything other than `GL_NONE` or one of the `GL_COLOR_ATTACHMENTn` tokens.", i, MG_Util::ConvertGLEnumToString(bufs[i]))));
+                    return;
+                }
+
+                if (attType != FramebufferAttachmentType::None && existenceMap[(SizeT)attType] >= 0) {
+                    MG_State::pGLContext->RecordError(
+                            ErrorCode::InvalidOperation, MakeShared<GenericErrorInfo>("MG_Impl/GLImpl", __func__,
+                            std::format("a symbolic constant other than `GL_NONE` appears more than once in bufs. bufs[{}] == bufs[{}] == {}.", i, existenceMap[(SizeT)attType], MG_Util::ConvertGLEnumToString(bufs[i]))));
+                    return;
+                }
+
+                existenceMap[(SizeT)attType] = i;
+
+                if ((SizeT)attType > (SizeT)FramebufferAttachmentType::Color0 + MG_State::GLState::FramebufferObject::MAX_DRAW_BUFFERS) {
+                    MG_State::pGLContext->RecordError(
+                            ErrorCode::InvalidOperation, MakeShared<GenericErrorInfo>("MG_Impl/GLImpl", __func__,
+                                                                                      std::format("bufs[{}] == {} indicates a color buffer that does not exist in the current GL context.", i, MG_Util::ConvertGLEnumToString(bufs[i]))));
+                    return;
+                }
+                // ------------------------- Check validity end ----------------------------------
+                fbo->SetDrawBuffer(i, attType);
+            }
+            for (GLsizei i = n; i < MG_State::GLState::FramebufferObject::MAX_DRAW_BUFFERS; ++i) {
+                fbo->SetDrawBuffer(i, FramebufferAttachmentType::None);
+            }
         }
 
         void DeleteRenderbuffers_State(GLsizei n, const GLuint* renderbuffers) {
