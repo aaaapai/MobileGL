@@ -45,6 +45,20 @@ namespace MobileGL {
         Unknown = -1
     };
 
+    struct SamplerParameters {
+        SamplerWrapMode wrapS = SamplerWrapMode::Repeat;
+        SamplerWrapMode wrapT = SamplerWrapMode::Repeat;
+        SamplerWrapMode wrapR = SamplerWrapMode::Repeat;
+        SamplerFilterMode minFilter = SamplerFilterMode::Linear;
+        SamplerFilterMode magFilter = SamplerFilterMode::Linear;
+        SamplerMipmapMode mipmapMode = SamplerMipmapMode::None;
+        Float minLod = -1000.0f;
+        Float maxLod = 1000.0f;
+        Float lodBias = 0.0f;
+        SamplerCompareFunc compareFunc = SamplerCompareFunc::Always;
+        SamplerCompareMode compareMode = SamplerCompareMode::None;
+    };
+
     namespace MG_State {
         namespace GLState {
             class SamplerObject {
@@ -74,16 +88,11 @@ namespace MobileGL {
                 SamplerCompareMode GetCompareMode() const;
                 SamplerCompareFunc GetSamplerCompareFunc() const;
                 Uint GetExternalIndex() const;
+                const SamplerParameters& GetAllSamplerParameters() const;
 
             private:
                 const Uint m_externalIndex;
-                SamplerWrapMode m_wrapS, m_wrapT, m_wrapR;
-                SamplerFilterMode m_minFilter, m_magFilter;
-                SamplerMipmapMode m_mipmapMode;
-                Float m_minLod, m_maxLod;
-                Float m_lodBias;
-                SamplerCompareMode m_compareMode;
-                SamplerCompareFunc m_compareFunc;
+                SamplerParameters m_samplerParameters;
             };
         } // namespace GLState
     } // namespace MG_State
