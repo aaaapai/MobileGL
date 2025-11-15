@@ -83,7 +83,8 @@ namespace MobileGL::MG_Backend::DirectGLES {
         class BackendFramebufferObject {
         public:
             BackendFramebufferObject();
-            void SyncToBackend(SharedPtr<MG_State::GLState::FramebufferObject>& stateFBOObject, FramebufferTarget asTarget);
+            void SyncToBackend(SharedPtr<MG_State::GLState::FramebufferObject>& stateFBOObject,
+                               FramebufferTarget asTarget);
             Uint GetBackendFramebufferId() { return m_backendFBOId; }
             void Bind(FramebufferTarget target);
 
