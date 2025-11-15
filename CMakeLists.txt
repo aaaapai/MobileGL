@@ -4,6 +4,20 @@ project("MobileGL")
 
 option(MOBILEGL_FORCE_RELEASE_OPT "Enable Release optimization flags in Debug build" OFF)
 
+enable_language(CXX)
+set(CMAKE_CXX_STANDARD 23)
+
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O3 -pipe -integrated-as -mllvm -polly -mllvm -polly-vectorizer=stripmine -mllvm -polly-invariant-load-hoisting -mllvm -polly-run-inliner -mllvm -polly-run-dce -mllvm -polly-invariant-load-hoisting -flto -mllvm -polly-run-inliner -mllvm -polly-run-dce -fno-emulated-tls -fwhole-program-vtables -fdata-sections -ffunction-sections -fmerge-all-constants -mllvm -polly-detect-keep-going -mllvm -polly-ast-use-context -march=armv8-a+simd -fvisibility=hidden -Wall -Wextra -ferror-limit=0 -Wno-return-type -Wno-unused-parameter -Wno-c++98-compat -Wno-c++98-compat-pedantic -DGLM_FORCE_INTRINSICS -fno-rtti -stdlib=libc++ -Wno-unicode-whitespace -Wno-format -Wno-unused-function -Wno-vla-cxx-extension -DUseAnkerl")
+set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -fuse-ld=lld -flto -O3 -Wl,-plugin-opt=-emulated-tls=0 -Wl,--strip-all -fvisibility=hidden -Wl,-O3 -Wl,--gc-sections -Wl,--as-needed -static-libstdc++")
+set(CMAKE_ANDROID_LD "lld")
+
+if (MSVC)
+    set(CMAKE_CXX_FLAGS "/EHsc ${CMAKE_CXX_FLAGS}")
+endif()
+
 if (NOT CMAKE_BUILD_TYPE STREQUAL "Debug" OR MOBILEGL_FORCE_RELEASE_OPT)
     include(CheckIPOSupported)
     check_ipo_supported(RESULT LTOSupported OUTPUT LTOError)
@@ -17,26 +31,6 @@ if (NOT CMAKE_BUILD_TYPE STREQUAL "Debug" OR MOBILEGL_FORCE_RELEASE_OPT)
     elseif (CMAKE_CXX_COMPILER_ID MATCHES "MSVC")
         add_compile_options(/O2 /GL)
     endif()
-endif()
-
-
-enable_language(CXX)
-
-set(CMAKE_CXX_STANDARD 23)
-
-set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -O3 -pipe -integrated-as -mllvm -polly -mllvm -polly-vectorizer=stripmine -mllvm -polly-invariant-load-hoisting -mllvm -polly-run-inliner -mllvm -polly-run-dce -mllvm -polly-invariant-load-hoisting -flto -mllvm -polly-run-inliner -mllvm -polly-run-dce -fno-emulated-tls -fwhole-program-vtables -fdata-sections -ffunction-sections -fmerge-all-constants -mllvm -polly-detect-keep-going -mllvm -polly-ast-use-context -march=armv8-a+simd -fvisibility=hidden -Wall -Wextra -ferror-limit=0 -Wno-return-type -Wno-unused-parameter -Wno-c++98-compat -Wno-c++98-compat-pedantic -DGLM_FORCE_INTRINSICS -Wno-unicode-whitespace -Wno-format -Wno-unused-function -DUseAnkerl")
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O3 -pipe -integrated-as -mllvm -polly -mllvm -polly-vectorizer=stripmine -mllvm -polly-invariant-load-hoisting -mllvm -polly-run-inliner -mllvm -polly-run-dce -mllvm -polly-invariant-load-hoisting -flto -mllvm -polly-run-inliner -mllvm -polly-run-dce -fno-emulated-tls -fwhole-program-vtables -fdata-sections -ffunction-sections -fmerge-all-constants -mllvm -polly-detect-keep-going -mllvm -polly-ast-use-context -march=armv8-a+simd -fvisibility=hidden -Wall -Wextra -ferror-limit=0 -Wno-return-type -Wno-unused-parameter -Wno-c++98-compat -Wno-c++98-compat-pedantic -DGLM_FORCE_INTRINSICS -fno-rtti -stdlib=libc++ -Wno-unicode-whitespace -Wno-format -Wno-unused-function -Wno-vla-cxx-extension -DUseAnkerl")
-set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -fuse-ld=lld -flto -O3 -Wl,-plugin-opt=-emulated-tls=0 -Wl,--strip-all -fvisibility=hidden -Wl,-O3 -Wl,--gc-sections -Wl,--as-needed -static-libstdc++")
-set(CMAKE_ANDROID_LD "lld")
-
-set(CMAKE_CXX_STANDARD_REQUIRED ON)
-
-set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
-
-set(CMAKE_POSITION_INDEPENDENT_CODE ON)
-
-if (MSVC)
-    set(CMAKE_CXX_FLAGS "/EHsc ${CMAKE_CXX_FLAGS}")
 endif()
 
 set(SOURCE_FILES
@@ -151,39 +145,19 @@ target_include_directories(${CMAKE_PROJECT_NAME} PUBLIC
     ${CMAKE_SOURCE_DIR}/MobileGL
 )
 
-if (CMAKE_BUILD_TYPE STREQUAL "Debug")
-    set_target_properties(${CMAKE_PROJECT_NAME} PROPERTIES
-        C_VISIBILITY_PRESET default
-        CXX_VISIBILITY_PRESET default
-        VISIBILITY_INLINES_HIDDEN OFF
-    )
-else()
-    set_target_properties(${CMAKE_PROJECT_NAME} PROPERTIES
-        C_VISIBILITY_PRESET hidden
-        CXX_VISIBILITY_PRESET hidden
-        VISIBILITY_INLINES_HIDDEN ON
-    )
-endif()
-
-target_include_directories(${CMAKE_PROJECT_NAME} PUBLIC
-    ${CMAKE_SOURCE_DIR}/include
-    ${CMAKE_SOURCE_DIR}/MobileGL
-)
-
 if (ANDROID)
-target_link_libraries(${CMAKE_PROJECT_NAME}
-    PRIVATE
-        android
-        log
+target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE
     ${CMAKE_SOURCE_DIR}/library/android/${ANDROID_ABI}/libspirv-cross-c.a
-                ${CMAKE_SOURCE_DIR}/library/android/${ANDROID_ABI}/libspirv-cross-core.a
-                ${CMAKE_SOURCE_DIR}/library/android/${ANDROID_ABI}/libspirv-cross-cpp.a
-                ${CMAKE_SOURCE_DIR}/library/android/${ANDROID_ABI}/libspirv-cross-glsl.a
-                ${CMAKE_SOURCE_DIR}/library/android/${ANDROID_ABI}/libspirv-cross-hlsl.a
-                ${CMAKE_SOURCE_DIR}/library/android/${ANDROID_ABI}/libspirv-cross-reflect.a
-                ${CMAKE_SOURCE_DIR}/library/android/${ANDROID_ABI}/libspirv-cross-util.a
-                ${CMAKE_SOURCE_DIR}/library/android/${ANDROID_ABI}/libshaderconv.a
-                ${CMAKE_SOURCE_DIR}/library/android/${ANDROID_ABI}/libshaderc_combined.a
+    ${CMAKE_SOURCE_DIR}/library/android/${ANDROID_ABI}/libspirv-cross-core.a
+    ${CMAKE_SOURCE_DIR}/library/android/${ANDROID_ABI}/libspirv-cross-cpp.a
+    ${CMAKE_SOURCE_DIR}/library/android/${ANDROID_ABI}/libspirv-cross-glsl.a
+    ${CMAKE_SOURCE_DIR}/library/android/${ANDROID_ABI}/libspirv-cross-hlsl.a
+    ${CMAKE_SOURCE_DIR}/library/android/${ANDROID_ABI}/libspirv-cross-reflect.a
+    ${CMAKE_SOURCE_DIR}/library/android/${ANDROID_ABI}/libspirv-cross-util.a
+    ${CMAKE_SOURCE_DIR}/library/android/${ANDROID_ABI}/libshaderconv.a
+    ${CMAKE_SOURCE_DIR}/library/android/${ANDROID_ABI}/libshaderc_combined.a
+    android
+    log
 )
 endif()
 
