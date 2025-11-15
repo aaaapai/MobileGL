@@ -51,8 +51,8 @@ set(SPIRV_CROSS_CLI            OFF CACHE BOOL "Disable CLI binary" FORCE)
 set(SPIRV_CROSS_STATIC         ON  CACHE BOOL "Prefer static libs" FORCE)
 
 # add_subdirectory(3rdparty/DiligentCore)
-add_subdirectory(3rdparty/glslang)
-add_subdirectory(3rdparty/SPIRV-Cross)
+# add_subdirectory(3rdparty/glslang)
+# add_subdirectory(3rdparty/SPIRV-Cross)
 
 set(SOURCE_FILES
     MobileGL/Init.cpp
@@ -211,8 +211,8 @@ target_link_libraries(${CMAKE_PROJECT_NAME}_s
 
 target_link_libraries(${CMAKE_PROJECT_NAME}_s
     PRIVATE
-    glslang::glslang
-    spirv-cross-c
+    # glslang::glslang
+    #vspirv-cross-c
 )
 
 if (ANDROID)
