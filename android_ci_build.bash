@@ -1,7 +1,7 @@
 #!/bin/bash
 # set -e
 
-git clone --depth 1 https://github.com/MobileGL-Dev/FastSTL.git src/main/cpp/include/FastSTL
+git clone --depth 1 https://github.com/MobileGL-Dev/FastSTL.git ./include/FastSTL
 cmake_build () {
   ANDROID_ABI=$1
   mkdir -p build
