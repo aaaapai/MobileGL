@@ -911,23 +911,18 @@ namespace MobileGL {
                 INIT_EGL_FUNC(eglWaitGL)
                 INIT_EGL_FUNC(eglWaitNative)
 
-                EGLint configAttribs[] = {EGL_RED_SIZE,
-                                          8,
-                                          EGL_GREEN_SIZE,
-                                          8,
-                                          EGL_BLUE_SIZE,
-                                          8,
-                                          EGL_ALPHA_SIZE,
-                                          8,
-                                          EGL_SURFACE_TYPE,
-                                          EGL_PBUFFER_BIT,
-                                          EGL_RENDERABLE_TYPE,
-                                          EGL_OPENGL_ES2_BIT,
+                EGLint configAttribs[] = {EGL_RED_SIZE, 8,
+                                          EGL_GREEN_SIZE, 8,
+                                          EGL_BLUE_SIZE, 8,
+                                          EGL_ALPHA_SIZE, 8,
+                                          EGL_DEPTH_SIZE, 24,
+                                          EGL_SURFACE_TYPE, EGL_WINDOW_BIT|EGL_PBUFFER_BIT,
+                                          EGL_RENDERABLE_TYPE, EGL_OPENGL_ES3_BIT,
                                           EGL_NONE};
 
-                EGLint ctxAttribs[] = {EGL_CONTEXT_CLIENT_VERSION, 2, EGL_NONE};
+                EGLint ctxAttribs[] = {EGL_CONTEXT_CLIENT_VERSION, 3, EGL_NONE};
 
-                EGLint pbAttribs[] = {EGL_WIDTH, 32, EGL_HEIGHT, 32, EGL_NONE};
+                EGLint pbAttribs[] = {EGL_WIDTH, 10, EGL_HEIGHT, 10, EGL_NONE};
 
                 EGLConfig pbufConfig;
                 EGLint configsFound = 0;
