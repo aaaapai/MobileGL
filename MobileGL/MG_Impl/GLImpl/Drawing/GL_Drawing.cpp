@@ -41,7 +41,18 @@ namespace MobileGL {
 #endif
         }
 
+        void DrawElementsBaseVertex_Backend(GLenum mode, GLsizei count, GLenum type, const void* indices,
+                                            GLint basevertex) {
+#if MOBILEGL_BACKEND == MOBILEGL_BACKEND_TYPE_DIRECT_GLES
+            MG_Backend::DirectGLES::DrawElementsBaseVertex(mode, count, type, indices, basevertex);
+#endif
+        }
+
         /* @INSERTION_POINT:FUNCTION_IMPLEMENTATION@ */
+        void DrawElementsBaseVertex(GLenum mode, GLsizei count, GLenum type, const void* indices, GLint basevertex) {
+            DrawElementsBaseVertex_Backend(mode, count, type, indices, basevertex);
+        }
+
         void DrawArrays(GLenum mode, GLint first, GLsizei count) {
             DrawArrays_Backend(mode, first, count);
         }
