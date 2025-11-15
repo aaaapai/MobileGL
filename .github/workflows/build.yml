@@ -27,4 +27,5 @@ jobs:
       uses: actions/upload-artifact@main
       with:
         name: MobileGGGGGGGGGGGGGL
-        path: build/*.so
+        path: |
+              **/libMobileGL.so
