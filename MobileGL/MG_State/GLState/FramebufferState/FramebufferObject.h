@@ -72,7 +72,7 @@ namespace MobileGL {
 
                 Bool IsTexture() const;
                 Bool IsRenderbuffer() const;
-                Bool IsEmpty();
+                Bool IsEmpty() const;
                 SharedPtr<MG_State::GLState::ITextureObject> GetTexture() const;
                 SharedPtr<RenderbufferObjectStub> GetRenderbuffer() const;
                 Int GetTextureLevel() const;

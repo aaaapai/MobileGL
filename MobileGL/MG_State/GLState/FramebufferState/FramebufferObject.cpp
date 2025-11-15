@@ -21,7 +21,7 @@ namespace MobileGL {
                 return false;
             }
 
-            Bool FramebufferAttachment::IsEmpty() {
+            Bool FramebufferAttachment::IsEmpty() const {
                 return m_texture == nullptr && m_renderbuffer == nullptr;
             }
 
@@ -63,8 +63,7 @@ namespace MobileGL {
             }
 
             // FramebufferObject
-            FramebufferObject::FramebufferObject(Uint externalIndex) :
-                m_externalIndex(externalIndex) {
+            FramebufferObject::FramebufferObject(Uint externalIndex) : m_externalIndex(externalIndex) {
                 m_attachments.fill(FramebufferAttachment(false));
                 m_drawBuffers.fill(FramebufferAttachmentType::None);
                 m_drawBuffers[0] = FramebufferAttachmentType::Color0;
@@ -130,21 +129,21 @@ namespace MobileGL {
             }
 
             void FramebufferObject::SetDrawBuffer(Uint index, FramebufferAttachmentType buffer) {
-                if (m_drawBuffers[index] == buffer)
-                    return;
+                if (m_drawBuffers[index] == buffer) return;
                 m_drawBuffersDirty = true;
                 m_drawBuffers[index] = buffer;
             }
 
-//            void FramebufferObject::SetDrawBuffers(const Vector<FramebufferAttachmentType>& buffers) {
-//                m_drawBuffers = buffers;
-//                m_drawBuffersDirty = true;
-//            }
-//            void SetDrawBuffer(Uint index, FramebufferAttachmentType buffer) {
-//
-//            }
+            //            void FramebufferObject::SetDrawBuffers(const Vector<FramebufferAttachmentType>& buffers) {
+            //                m_drawBuffers = buffers;
+            //                m_drawBuffersDirty = true;
+            //            }
+            //            void SetDrawBuffer(Uint index, FramebufferAttachmentType buffer) {
+            //
+            //            }
 
-            const Array<FramebufferAttachmentType, FramebufferObject::MAX_DRAW_BUFFERS>& FramebufferObject::GetDrawBuffers() const {
+            const Array<FramebufferAttachmentType, FramebufferObject::MAX_DRAW_BUFFERS>& FramebufferObject::
+                GetDrawBuffers() const {
                 return m_drawBuffers;
             }
 
