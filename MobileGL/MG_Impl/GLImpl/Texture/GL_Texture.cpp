@@ -66,8 +66,20 @@ namespace MobileGL {
             SizeT imageSize = 0;
             const SizeT bytesPerPixel = MG_Util::GetInputBytesPerPixel(textureInternalFormat, texturePixelDataType);
 
+            const void* originalPixels = pixels;
+
+            // PBO
+            const auto& pixelUnpackBufferObject =
+                MG_State::pGLContext->GetBufferBindingSlot(BufferTarget::PixelUnpack).GetBoundObject();
+            if (pixelUnpackBufferObject) {
+                MGLOG_D("TexSubImage2D_State: Using Pixel Unpack Buffer Object ID: %u",
+                        pixelUnpackBufferObject->GetExternalIndex());
+                originalPixels = reinterpret_cast<const char*>(pixelUnpackBufferObject->GetDataReadOnly()->data()) +
+                                 reinterpret_cast<SizeT>(pixels);
+            }
+
             void* processedPixels = MG_Util::PixelStoreProcessor::ProcessTexturePixelsDataUnpack(
-                pixels, MG_State::pGLContext->GetPixelStoreParameters(true), bytesPerPixel, {width, height, 1},
+                originalPixels, MG_State::pGLContext->GetPixelStoreParameters(true), bytesPerPixel, {width, height, 1},
                 false /*TODO*/, imageSize);
 
             if (!processedPixels || imageSize == 0) {
@@ -360,10 +372,22 @@ namespace MobileGL {
             const SizeT bytesPerPixel = MG_Util::GetInputBytesPerPixel(textureInternalFormat, texturePixelDataType);
             const SizeT totalBytes = width * height * bytesPerPixel;
 
-            if (pixels) {
+            const void* originalPixels = pixels;
+
+            // PBO
+            const auto& pixelUnpackBufferObject =
+                MG_State::pGLContext->GetBufferBindingSlot(BufferTarget::PixelUnpack).GetBoundObject();
+            if (pixelUnpackBufferObject) {
+                MGLOG_D("TexImage2D_State: Using Pixel Unpack Buffer Object ID: %u",
+                        pixelUnpackBufferObject->GetExternalIndex());
+                originalPixels = reinterpret_cast<const char*>(pixelUnpackBufferObject->GetDataReadOnly()->data()) +
+                                 reinterpret_cast<SizeT>(pixels);
+            }
+
+            if (originalPixels) {
                 processedPixels = MG_Util::PixelStoreProcessor::ProcessTexturePixelsDataUnpack(
-                    pixels, MG_State::pGLContext->GetPixelStoreParameters(true), bytesPerPixel, {width, height, 1},
-                    false, imageSize);
+                    originalPixels, MG_State::pGLContext->GetPixelStoreParameters(true), bytesPerPixel,
+                    {width, height, 1}, false, imageSize);
             }
 
             MG_State::GLState::MipmapLevelInput mipmap =
@@ -831,6 +855,7 @@ namespace MobileGL {
         }
 
         void BindTexture_State(GLenum target, GLuint texture) {
+            MGLOG_D("BindTexture_State called with target: 0x%X, texture: %u", target, texture);
             // ======================= Converting ================================
             TextureTarget textureTarget = MG_Util::ConvertGLEnumToTextureTarget(target);
 
