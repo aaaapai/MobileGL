@@ -1,9 +1,10 @@
 #include <Includes.h>
 #include "../Buffer/GL_Buffer.h"
 #include "../Getter/GL_Getter.h"
-#include "../Program/GL_Program.h"
+#include "../Sampler/GL_Sampler.h"
 #include "../Texture/GL_Texture.h"
 #include "../Drawing/GL_Drawing.h"
+#include "../Program/GL_Program.h"
 #include "../RenderState/GL_RenderState.h"
 #include "../Framebuffer/GL_Framebuffer.h"
 #include "../VertexArray/GL_VertexArray.h"
@@ -256,16 +257,16 @@ DECLARE_GL_FUNCTION_STUB_HEAD(void, GetInteger64v, GLenum pname, GLint64* data) 
 DECLARE_GL_FUNCTION_STUB_HEAD(void, GetSynciv, GLsync sync, GLenum pname, GLsizei bufSize, GLsizei* length, GLint* values) DECLARE_GL_FUNCTION_STUB_END_NO_RETURN(void, GetSynciv, sync, pname, bufSize, length, values)
 DECLARE_GL_FUNCTION_STUB_HEAD(void, GetInteger64i_v, GLenum target, GLuint index, GLint64* data) DECLARE_GL_FUNCTION_STUB_END_NO_RETURN(void, GetInteger64i_v, target, index, data)
 DECLARE_GL_FUNCTION_STUB_HEAD(void, GetBufferParameteri64v, GLenum target, GLenum pname, GLint64* params) DECLARE_GL_FUNCTION_STUB_END_NO_RETURN(void, GetBufferParameteri64v, target, pname, params)
-DECLARE_GL_FUNCTION_STUB_HEAD(void, GenSamplers, GLsizei count, GLuint* samplers) DECLARE_GL_FUNCTION_STUB_END_NO_RETURN(void, GenSamplers, count, samplers)
-DECLARE_GL_FUNCTION_STUB_HEAD(void, DeleteSamplers, GLsizei count, const GLuint* samplers) DECLARE_GL_FUNCTION_STUB_END_NO_RETURN(void, DeleteSamplers, count, samplers)
-DECLARE_GL_FUNCTION_STUB_HEAD(GLboolean, IsSampler, GLuint sampler) DECLARE_GL_FUNCTION_STUB_END(GLboolean, IsSampler, sampler)
-DECLARE_GL_FUNCTION_STUB_HEAD(void, BindSampler, GLuint unit, GLuint sampler) DECLARE_GL_FUNCTION_STUB_END_NO_RETURN(void, BindSampler, unit, sampler)
-DECLARE_GL_FUNCTION_STUB_HEAD(void, SamplerParameteri, GLuint sampler, GLenum pname, GLint param) DECLARE_GL_FUNCTION_STUB_END_NO_RETURN(void, SamplerParameteri, sampler, pname, param)
-DECLARE_GL_FUNCTION_STUB_HEAD(void, SamplerParameteriv, GLuint sampler, GLenum pname, const GLint* param) DECLARE_GL_FUNCTION_STUB_END_NO_RETURN(void, SamplerParameteriv, sampler, pname, param)
-DECLARE_GL_FUNCTION_STUB_HEAD(void, SamplerParameterf, GLuint sampler, GLenum pname, GLfloat param) DECLARE_GL_FUNCTION_STUB_END_NO_RETURN(void, SamplerParameterf, sampler, pname, param)
-DECLARE_GL_FUNCTION_STUB_HEAD(void, SamplerParameterfv, GLuint sampler, GLenum pname, const GLfloat* param) DECLARE_GL_FUNCTION_STUB_END_NO_RETURN(void, SamplerParameterfv, sampler, pname, param)
-DECLARE_GL_FUNCTION_STUB_HEAD(void, GetSamplerParameteriv, GLuint sampler, GLenum pname, GLint* params) DECLARE_GL_FUNCTION_STUB_END_NO_RETURN(void, GetSamplerParameteriv, sampler, pname, params)
-DECLARE_GL_FUNCTION_STUB_HEAD(void, GetSamplerParameterfv, GLuint sampler, GLenum pname, GLfloat* params) DECLARE_GL_FUNCTION_STUB_END_NO_RETURN(void, GetSamplerParameterfv, sampler, pname, params)
+DECLARE_GL_FUNCTION_HEAD(void, GenSamplers, GLsizei count, GLuint* samplers) DECLARE_GL_FUNCTION_END_NO_RETURN(void, GenSamplers, count, samplers)
+DECLARE_GL_FUNCTION_HEAD(void, DeleteSamplers, GLsizei count, const GLuint* samplers) DECLARE_GL_FUNCTION_END_NO_RETURN(void, DeleteSamplers, count, samplers)
+DECLARE_GL_FUNCTION_HEAD(GLboolean, IsSampler, GLuint sampler) DECLARE_GL_FUNCTION_END(GLboolean, IsSampler, sampler)
+DECLARE_GL_FUNCTION_HEAD(void, BindSampler, GLuint unit, GLuint sampler) DECLARE_GL_FUNCTION_END_NO_RETURN(void, BindSampler, unit, sampler)
+DECLARE_GL_FUNCTION_HEAD(void, SamplerParameteri, GLuint sampler, GLenum pname, GLint param) DECLARE_GL_FUNCTION_END_NO_RETURN(void, SamplerParameteri, sampler, pname, param)
+DECLARE_GL_FUNCTION_HEAD(void, SamplerParameteriv, GLuint sampler, GLenum pname, const GLint* param) DECLARE_GL_FUNCTION_END_NO_RETURN(void, SamplerParameteriv, sampler, pname, param)
+DECLARE_GL_FUNCTION_HEAD(void, SamplerParameterf, GLuint sampler, GLenum pname, GLfloat param) DECLARE_GL_FUNCTION_END_NO_RETURN(void, SamplerParameterf, sampler, pname, param)
+DECLARE_GL_FUNCTION_HEAD(void, SamplerParameterfv, GLuint sampler, GLenum pname, const GLfloat* param) DECLARE_GL_FUNCTION_END_NO_RETURN(void, SamplerParameterfv, sampler, pname, param)
+DECLARE_GL_FUNCTION_HEAD(void, GetSamplerParameteriv, GLuint sampler, GLenum pname, GLint* params) DECLARE_GL_FUNCTION_END_NO_RETURN(void, GetSamplerParameteriv, sampler, pname, params)
+DECLARE_GL_FUNCTION_HEAD(void, GetSamplerParameterfv, GLuint sampler, GLenum pname, GLfloat* params) DECLARE_GL_FUNCTION_END_NO_RETURN(void, GetSamplerParameterfv, sampler, pname, params)
 DECLARE_GL_FUNCTION_STUB_HEAD(void, VertexAttribDivisor, GLuint index, GLuint divisor) DECLARE_GL_FUNCTION_STUB_END_NO_RETURN(void, VertexAttribDivisor, index, divisor)
 DECLARE_GL_FUNCTION_STUB_HEAD(void, BindTransformFeedback, GLenum target, GLuint id) DECLARE_GL_FUNCTION_STUB_END_NO_RETURN(void, BindTransformFeedback, target, id)
 DECLARE_GL_FUNCTION_STUB_HEAD(void, DeleteTransformFeedbacks, GLsizei n, const GLuint* ids) DECLARE_GL_FUNCTION_STUB_END_NO_RETURN(void, DeleteTransformFeedbacks, n, ids)
@@ -386,10 +387,10 @@ DECLARE_GL_FUNCTION_STUB_HEAD(void, TexParameterIiv, GLenum target, GLenum pname
 DECLARE_GL_FUNCTION_STUB_HEAD(void, TexParameterIuiv, GLenum target, GLenum pname, const GLuint* params) DECLARE_GL_FUNCTION_STUB_END_NO_RETURN(void, TexParameterIuiv, target, pname, params)
 DECLARE_GL_FUNCTION_HEAD(void, GetTexParameterIiv, GLenum target, GLenum pname, GLint* params) DECLARE_GL_FUNCTION_END_NO_RETURN(void, GetTexParameterIiv, target, pname, params)
 DECLARE_GL_FUNCTION_HEAD(void, GetTexParameterIuiv, GLenum target, GLenum pname, GLuint* params) DECLARE_GL_FUNCTION_END_NO_RETURN(void, GetTexParameterIuiv, target, pname, params)
-DECLARE_GL_FUNCTION_STUB_HEAD(void, SamplerParameterIiv, GLuint sampler, GLenum pname, const GLint* param) DECLARE_GL_FUNCTION_STUB_END_NO_RETURN(void, SamplerParameterIiv, sampler, pname, param)
-DECLARE_GL_FUNCTION_STUB_HEAD(void, SamplerParameterIuiv, GLuint sampler, GLenum pname, const GLuint* param) DECLARE_GL_FUNCTION_STUB_END_NO_RETURN(void, SamplerParameterIuiv, sampler, pname, param)
-DECLARE_GL_FUNCTION_STUB_HEAD(void, GetSamplerParameterIiv, GLuint sampler, GLenum pname, GLint* params) DECLARE_GL_FUNCTION_STUB_END_NO_RETURN(void, GetSamplerParameterIiv, sampler, pname, params)
-DECLARE_GL_FUNCTION_STUB_HEAD(void, GetSamplerParameterIuiv, GLuint sampler, GLenum pname, GLuint* params) DECLARE_GL_FUNCTION_STUB_END_NO_RETURN(void, GetSamplerParameterIuiv, sampler, pname, params)
+DECLARE_GL_FUNCTION_HEAD(void, SamplerParameterIiv, GLuint sampler, GLenum pname, const GLint* param) DECLARE_GL_FUNCTION_END_NO_RETURN(void, SamplerParameterIiv, sampler, pname, param)
+DECLARE_GL_FUNCTION_HEAD(void, SamplerParameterIuiv, GLuint sampler, GLenum pname, const GLuint* param) DECLARE_GL_FUNCTION_END_NO_RETURN(void, SamplerParameterIuiv, sampler, pname, param)
+DECLARE_GL_FUNCTION_HEAD(void, GetSamplerParameterIiv, GLuint sampler, GLenum pname, GLint* params) DECLARE_GL_FUNCTION_END_NO_RETURN(void, GetSamplerParameterIiv, sampler, pname, params)
+DECLARE_GL_FUNCTION_HEAD(void, GetSamplerParameterIuiv, GLuint sampler, GLenum pname, GLuint* params) DECLARE_GL_FUNCTION_END_NO_RETURN(void, GetSamplerParameterIuiv, sampler, pname, params)
 DECLARE_GL_FUNCTION_HEAD(void, TexBuffer, GLenum target, GLenum internalformat, GLuint buffer) DECLARE_GL_FUNCTION_END_NO_RETURN(void, TexBuffer, target, internalformat, buffer)
 DECLARE_GL_FUNCTION_STUB_HEAD(void, TexBufferRange, GLenum target, GLenum internalformat, GLuint buffer, GLintptr offset, GLsizeiptr size) DECLARE_GL_FUNCTION_STUB_END_NO_RETURN(void, TexBufferRange, target, internalformat, buffer, offset, size)
 DECLARE_GL_FUNCTION_STUB_HEAD(void, TexStorage3DMultisample, GLenum target, GLsizei samples, GLenum internalformat, GLsizei width, GLsizei height, GLsizei depth, GLboolean fixedsamplelocations) DECLARE_GL_FUNCTION_STUB_END_NO_RETURN(void, TexStorage3DMultisample, target, samples, internalformat, width, height, depth, fixedsamplelocations)
@@ -960,7 +961,7 @@ DECLARE_GL_FUNCTION_STUB_HEAD(void, ClearTexSubImage, GLuint texture, GLint leve
 DECLARE_GL_FUNCTION_STUB_HEAD(void, BindBuffersBase, GLenum target, GLuint first, GLsizei count, const GLuint* buffers) DECLARE_GL_FUNCTION_STUB_END_NO_RETURN(void, BindBuffersBase, target, first, count, buffers)
 DECLARE_GL_FUNCTION_STUB_HEAD(void, BindBuffersRange, GLenum target, GLuint first, GLsizei count, const GLuint* buffers, const GLintptr* offsets, const GLsizeiptr* sizes) DECLARE_GL_FUNCTION_STUB_END_NO_RETURN(void, BindBuffersRange, target, first, count, buffers, offsets, sizes)
 DECLARE_GL_FUNCTION_STUB_HEAD(void, BindTextures, GLuint first, GLsizei count, const GLuint* textures) DECLARE_GL_FUNCTION_STUB_END_NO_RETURN(void, BindTextures, first, count, textures)
-DECLARE_GL_FUNCTION_STUB_HEAD(void, BindSamplers, GLuint first, GLsizei count, const GLuint* samplers) DECLARE_GL_FUNCTION_STUB_END_NO_RETURN(void, BindSamplers, first, count, samplers)
+DECLARE_GL_FUNCTION_HEAD(void, BindSamplers, GLuint first, GLsizei count, const GLuint* samplers) DECLARE_GL_FUNCTION_END_NO_RETURN(void, BindSamplers, first, count, samplers)
 DECLARE_GL_FUNCTION_STUB_HEAD(void, BindImageTextures, GLuint first, GLsizei count, const GLuint* textures) DECLARE_GL_FUNCTION_STUB_END_NO_RETURN(void, BindImageTextures, first, count, textures)
 DECLARE_GL_FUNCTION_STUB_HEAD(void, BindVertexBuffers, GLuint first, GLsizei count, const GLuint* buffers, const GLintptr* offsets, const GLsizei* strides) DECLARE_GL_FUNCTION_STUB_END_NO_RETURN(void, BindVertexBuffers, first, count, buffers, offsets, strides)
 DECLARE_GL_FUNCTION_STUB_HEAD(void, ClipControl, GLenum origin, GLenum depth) DECLARE_GL_FUNCTION_STUB_END_NO_RETURN(void, ClipControl, origin, depth)
@@ -1052,7 +1053,7 @@ DECLARE_GL_FUNCTION_STUB_HEAD(void, VertexArrayBindingDivisor, GLuint vaobj, GLu
 DECLARE_GL_FUNCTION_STUB_HEAD(void, GetVertexArrayiv, GLuint vaobj, GLenum pname, GLint* param) DECLARE_GL_FUNCTION_STUB_END_NO_RETURN(void, GetVertexArrayiv, vaobj, pname, param)
 DECLARE_GL_FUNCTION_STUB_HEAD(void, GetVertexArrayIndexediv, GLuint vaobj, GLuint index, GLenum pname, GLint* param) DECLARE_GL_FUNCTION_STUB_END_NO_RETURN(void, GetVertexArrayIndexediv, vaobj, index, pname, param)
 DECLARE_GL_FUNCTION_STUB_HEAD(void, GetVertexArrayIndexed64iv, GLuint vaobj, GLuint index, GLenum pname, GLint64* param) DECLARE_GL_FUNCTION_STUB_END_NO_RETURN(void, GetVertexArrayIndexed64iv, vaobj, index, pname, param)
-DECLARE_GL_FUNCTION_STUB_HEAD(void, CreateSamplers, GLsizei n, GLuint* samplers) DECLARE_GL_FUNCTION_STUB_END_NO_RETURN(void, CreateSamplers, n, samplers)
+DECLARE_GL_FUNCTION_HEAD(void, CreateSamplers, GLsizei n, GLuint* samplers) DECLARE_GL_FUNCTION_END_NO_RETURN(void, CreateSamplers, n, samplers)
 DECLARE_GL_FUNCTION_STUB_HEAD(void, CreateProgramPipelines, GLsizei n, GLuint* pipelines) DECLARE_GL_FUNCTION_STUB_END_NO_RETURN(void, CreateProgramPipelines, n, pipelines)
 DECLARE_GL_FUNCTION_STUB_HEAD(void, CreateQueries, GLenum target, GLsizei n, GLuint* ids) DECLARE_GL_FUNCTION_STUB_END_NO_RETURN(void, CreateQueries, target, n, ids)
 DECLARE_GL_FUNCTION_STUB_HEAD(void, GetQueryBufferObjecti64v, GLuint id, GLuint buffer, GLenum pname, GLintptr offset) DECLARE_GL_FUNCTION_STUB_END_NO_RETURN(void, GetQueryBufferObjecti64v, id, buffer, pname, offset)
