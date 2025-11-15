@@ -39,10 +39,6 @@ if (MSVC)
     set(CMAKE_CXX_FLAGS "/EHsc ${CMAKE_CXX_FLAGS}")
 endif()
 
-# add_subdirectory(3rdparty/DiligentCore)
-# add_subdirectory(3rdparty/glslang)
-# add_subdirectory(3rdparty/SPIRV-Cross)
-
 set(SOURCE_FILES
     MobileGL/Init.cpp
 
@@ -155,10 +151,6 @@ target_include_directories(${CMAKE_PROJECT_NAME} PUBLIC
     ${CMAKE_SOURCE_DIR}/MobileGL
 )
 
-add_library(${CMAKE_PROJECT_NAME} STATIC 
-    ${SOURCE_FILES}
-)
-
 if (CMAKE_BUILD_TYPE STREQUAL "Debug")
     set_target_properties(${CMAKE_PROJECT_NAME} PROPERTIES
         C_VISIBILITY_PRESET default
@@ -181,6 +173,8 @@ target_include_directories(${CMAKE_PROJECT_NAME} PUBLIC
 if (ANDROID)
 target_link_libraries(${CMAKE_PROJECT_NAME}
     PRIVATE
+        android
+        log
     ${CMAKE_SOURCE_DIR}/library/android/${ANDROID_ABI}/libspirv-cross-c.a
                 ${CMAKE_SOURCE_DIR}/library/android/${ANDROID_ABI}/libspirv-cross-core.a
                 ${CMAKE_SOURCE_DIR}/library/android/${ANDROID_ABI}/libspirv-cross-cpp.a
@@ -191,13 +185,6 @@ target_link_libraries(${CMAKE_PROJECT_NAME}
                 ${CMAKE_SOURCE_DIR}/library/android/${ANDROID_ABI}/libshaderconv.a
                 ${CMAKE_SOURCE_DIR}/library/android/${ANDROID_ABI}/libshaderc_combined.a
 )
-endif()
-
-if (ANDROID)
-    target_link_libraries(${CMAKE_PROJECT_NAME} PUBLIC
-        android
-        log
-    )
 endif()
 
 if (NOT ANDROID)
