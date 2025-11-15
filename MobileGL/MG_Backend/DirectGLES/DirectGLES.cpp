@@ -14,7 +14,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
     namespace BufferImpl {
         void SyncNeccessaryBuffers() {
             // All buffers we need are:
-            //   1.VBOs 2.IBO 3.UBOs (TODO) 4.SSBOs (TODO)
+            //   1.VBO 2.IBO 3.UBO 4.PBO 5.SSBO (TODO)
 
             Vector<SharedPtr<MG_State::GLState::BufferObject>> buffersToSync;
             const auto& currentVAOObject = MG_State::pGLContext->GetBoundVertexArray();
@@ -43,10 +43,8 @@ namespace MobileGL::MG_Backend::DirectGLES {
             for (SizeT i = 0; i < uboBindingPointCnt; ++i) {
                 auto& point = MG_State::pGLContext->GetBufferBindingPoint(BufferTarget::Uniform, i);
                 auto obj = point.GetBoundObject();
-                if (obj)
-                    buffersToSync.push_back(obj);
+                if (obj) buffersToSync.push_back(obj);
             }
-
 
             // PBO
             const auto& pbo = MG_State::pGLContext->GetBufferBindingSlot(BufferTarget::PixelUnpack).GetBoundObject();
@@ -141,22 +139,20 @@ namespace MobileGL::MG_Backend::DirectGLES {
 
             MG_State::GLState::FramebufferObject* lastUpdatedFBO = nullptr;
 
-            for (auto target: fboTargets) {
-                auto currentFBO =
-                        MG_State::pGLContext->GetFramebufferBindingSlot(target).GetBoundObject();
+            for (auto target : fboTargets) {
+                auto currentFBO = MG_State::pGLContext->GetFramebufferBindingSlot(target).GetBoundObject();
 
                 if (!currentFBO) {
                     MGLOG_E("No FBO is currently bound, cannot sync current FBO.");
                     continue;
                 }
 
-                if (currentFBO ==
-                    MG_Impl::GLImpl::FramebufferImpl::pDefaultFramebufferInfo->defaultFBO) {
+                if (currentFBO == MG_Impl::GLImpl::FramebufferImpl::pDefaultFramebufferInfo->defaultFBO) {
                     // Default FBO, nothing to sync
                     continue;
                 }
 
-                const auto &backendFBOIt = g_backendFramebufferObjects.find(currentFBO);
+                const auto& backendFBOIt = g_backendFramebufferObjects.find(currentFBO);
                 SharedPtr<BackendFramebufferObject> backendFBOObject;
                 if (backendFBOIt == g_backendFramebufferObjects.end()) {
                     backendFBOObject = MakeShared<BackendFramebufferObject>();
@@ -266,12 +262,14 @@ namespace MobileGL::MG_Backend::DirectGLES {
             const auto& backendFBOIt = FramebufferImpl::g_backendFramebufferObjects.find(currentFBO);
             if (backendFBOIt != FramebufferImpl::g_backendFramebufferObjects.end()) {
                 backendFBOIt->second->Bind(target);
+            } else {
+                MGLOG_E("No backend FBO found (maybe not synced) for current %s FBO, cannot bind FBO.",
+                        (target == FramebufferTarget::Read ? "READ" : "DRAW"));
             }
         } else {
-            if (target == FramebufferTarget::Read)
-                MG_External::GLES::glBindFramebuffer(GL_READ_FRAMEBUFFER, 0);
-            else
-                MG_External::GLES::glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
+            MGLOG_D("Binding default framebuffer as %s FBO", (target == FramebufferTarget::Read ? "READ" : "DRAW"));
+            MG_External::GLES::glBindFramebuffer(
+                target == FramebufferTarget::Draw ? GL_DRAW_FRAMEBUFFER : GL_READ_FRAMEBUFFER, 0);
         }
     }
 
@@ -336,7 +334,8 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 auto backendProgramId = backendProgramIt->second->GetBackendProgramId();
                 // Global UBO
                 if (currentProgram->GetUBOSize() > 0) {
-                    MG_External::GLES::glBindBuffer(GL_UNIFORM_BUFFER, backendProgramIt->second->GetBackendGlobalUBOId());
+                    MG_External::GLES::glBindBuffer(GL_UNIFORM_BUFFER,
+                                                    backendProgramIt->second->GetBackendGlobalUBOId());
                     MG_External::GLES::glBufferSubData(GL_UNIFORM_BUFFER, 0, currentProgram->GetUBOSize(),
                                                        currentProgram->MapUBO());
                     MG_External::GLES::glBindBuffer(GL_UNIFORM_BUFFER, 0);
@@ -351,24 +350,38 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 }
                 // Normal UBO
                 auto uboCount = currentProgram->GetActiveUniformBlocksCount();
+                Uint lastUBOBinding = 0; // to prevent overlapping bindings between global UBO and normal UBOs
                 for (Int i = 0; i < uboCount; ++i) {
-                    // state binding point == backend binding point
+                    ++lastUBOBinding;
+                    // program state binding index == backend binding index
 
                     // Connect program ubo index to backend binding point
                     auto binding = currentProgram->GetUniformBlockBinding(i);
                     auto& name = currentProgram->GetUniformBlockName(i);
                     GLuint backendBlkIdx = MG_External::GLES::glGetUniformBlockIndex(backendProgramId, name.c_str());
-                    MG_External::GLES::glUniformBlockBinding(backendProgramId, backendBlkIdx, binding);
+                    MG_External::GLES::glUniformBlockBinding(backendProgramId, backendBlkIdx, lastUBOBinding);
 
                     // Connect buffer to backend binding point
                     auto& point = MG_State::pGLContext->GetBufferBindingPoint(BufferTarget::Uniform, binding);
                     auto bufferObj = point.GetBoundObject();
                     auto range = point.GetRange();
-                    if (range.end > bufferObj->GetSize()) {
-                        MG_External::GLES::glBindBufferBase(GL_UNIFORM_BUFFER, binding, BufferImpl::g_backendBufferObjects[bufferObj]->GetBackendBufferId());
-                    } else {
-                        MG_External::GLES::glBindBufferRange(GL_UNIFORM_BUFFER, binding, BufferImpl::g_backendBufferObjects[bufferObj]->GetBackendBufferId(),
-                            range.start, range.end - range.start);
+
+                    if (bufferObj) {
+                        const auto& backendBufferIt = BufferImpl::g_backendBufferObjects.find(bufferObj);
+                        if (backendBufferIt != BufferImpl::g_backendBufferObjects.end()) {
+                            const auto& backendBufferObject = backendBufferIt->second;
+                            backendBufferObject->Bind(GL_UNIFORM_BUFFER);
+                            if (range.end == 0) {
+                                MG_External::GLES::glBindBufferBase(GL_UNIFORM_BUFFER, lastUBOBinding,
+                                                                    backendBufferObject->GetBackendBufferId());
+                            } else {
+                                MG_External::GLES::glBindBufferRange(GL_UNIFORM_BUFFER, lastUBOBinding,
+                                                                     backendBufferObject->GetBackendBufferId(),
+                                                                     range.start, range.end - range.start);
+                            }
+                        } else {
+                            MGLOG_E("No backend buffer found for UBO binding, cannot bind UBO.");
+                        }
                     }
                 }
 
@@ -384,6 +397,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 }
             } else {
                 MG_External::GLES::glUseProgram(0);
+                MGLOG_E("No backend program found (maybe not synced) for current program, cannot use program.");
             }
         }
     }

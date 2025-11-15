@@ -530,12 +530,13 @@ namespace MobileGL::MG_Backend::DirectGLES {
             }
 
             if (!stateProgramObject->GetLinkStatus()) {
-                MGLOG_E("Program object is not linked, skipping backend sync. Program: %p", stateProgramObject.get());
+                MGLOG_E("Program object is not linked, skipping backend sync. State program ID: %u",
+                        stateProgramObject->GetExternalIndex());
                 return;
             }
 
-            MGLOG_D("Syncing program to backend. State program: %p, Backend ID: %p", stateProgramObject.get(),
-                    m_backendProgramId);
+            MGLOG_D("Syncing program to backend. State program ID: %u, Backend ID: %u",
+                    stateProgramObject->GetExternalIndex(), m_backendProgramId);
 
             // Detach all existing shaders
             GLint attachedCount = 0;
