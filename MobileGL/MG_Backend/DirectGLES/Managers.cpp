@@ -295,6 +295,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
                                                     static_cast<GLsizei>(mipmap.size.x()),
                                                     static_cast<GLsizei>(mipmap.size.y()), 0, glFormat, glType,
                                                     mipmap.hasData ? mipmap.data.data() : nullptr);
+                    // TODO: handle more texture types
 
                     MGLOG_D("Regenerated mipmap level %d for texture with ID: %u", level, m_backendTextureId);
                     stateTextureObject->UnmarkMipmapDirty(level);
@@ -303,33 +304,39 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 m_isInitialized = true;
             }
 
-            { // Update sampler parameters; TODO: always use sampler objects in backend
-                const auto& samplerObject = stateTextureObject->GetSamplerObject();
-                if (samplerObject) {
-                    MG_External::GLES::glTexParameteri(
-                        target, GL_TEXTURE_MIN_FILTER,
-                        MG_Util::ConvertSamplerFilterModeToGLEnum(samplerObject->GetMinFilter()));
-                    MG_External::GLES::glTexParameteri(
-                        target, GL_TEXTURE_MAG_FILTER,
-                        MG_Util::ConvertSamplerFilterModeToGLEnum(samplerObject->GetMagFilter()));
-                    MG_External::GLES::glTexParameteri(
-                        target, GL_TEXTURE_WRAP_S, MG_Util::ConvertSamplerWrapModeToGLEnum(samplerObject->GetWrapS()));
-                    MG_External::GLES::glTexParameteri(
-                        target, GL_TEXTURE_WRAP_T, MG_Util::ConvertSamplerWrapModeToGLEnum(samplerObject->GetWrapT()));
-                    MG_External::GLES::glTexParameteri(
-                        target, GL_TEXTURE_WRAP_R, MG_Util::ConvertSamplerWrapModeToGLEnum(samplerObject->GetWrapR()));
-                    MG_External::GLES::glTexParameteri(target, GL_TEXTURE_MIN_LOD, samplerObject->GetMinLod());
-                    MG_External::GLES::glTexParameteri(target, GL_TEXTURE_MAX_LOD, samplerObject->GetMaxLod());
-                    MG_External::GLES::glTexParameteri(
-                        target, GL_TEXTURE_COMPARE_FUNC,
-                        MG_Util::ConvertSamplerCompareFuncToGLEnum(samplerObject->GetSamplerCompareFunc()));
-                    MG_External::GLES::glTexParameteri(
-                        target, GL_TEXTURE_COMPARE_MODE,
-                        MG_Util::ConvertSamplerCompareModeToGLEnum(samplerObject->GetCompareMode()));
+            { // Update built-in sampler parameters
+                MGLOG_D("Updating sampler parameters for texture with ID: %u", m_backendTextureId);
+                const auto& samplerParams = stateTextureObject->GetSamplerObject()->GetAllSamplerParameters();
+
+#define SYNC_TEX_SAMPLER_PARAM_IF_CHANGED(internalName, glName, type)                                                  \
+    if (m_cacheSamplerParameters.internalName != samplerParams.internalName) {                                         \
+        MG_External::GLES::glTexParameteri(target, glName,                                                             \
+                                           MG_Util::ConvertSampler##type##ToGLEnum(samplerParams.internalName));       \
+        m_cacheSamplerParameters.internalName = samplerParams.internalName;                                            \
+    }
+
+                SYNC_TEX_SAMPLER_PARAM_IF_CHANGED(minFilter, GL_TEXTURE_MIN_FILTER, FilterMode)
+                SYNC_TEX_SAMPLER_PARAM_IF_CHANGED(magFilter, GL_TEXTURE_MAG_FILTER, FilterMode)
+                SYNC_TEX_SAMPLER_PARAM_IF_CHANGED(wrapS, GL_TEXTURE_WRAP_S, WrapMode)
+                SYNC_TEX_SAMPLER_PARAM_IF_CHANGED(wrapT, GL_TEXTURE_WRAP_T, WrapMode)
+                SYNC_TEX_SAMPLER_PARAM_IF_CHANGED(wrapR, GL_TEXTURE_WRAP_R, WrapMode)
+                SYNC_TEX_SAMPLER_PARAM_IF_CHANGED(compareFunc, GL_TEXTURE_COMPARE_FUNC, CompareFunc)
+                SYNC_TEX_SAMPLER_PARAM_IF_CHANGED(compareMode, GL_TEXTURE_COMPARE_MODE, CompareMode)
+                if (m_cacheSamplerParameters.minLod != samplerParams.minLod) {
+                    MG_External::GLES::glTexParameterf(target, GL_TEXTURE_MIN_LOD, samplerParams.minLod);
+                    m_cacheSamplerParameters.minLod = samplerParams.minLod;
                 }
+                if (m_cacheSamplerParameters.maxLod != samplerParams.maxLod) {
+                    MG_External::GLES::glTexParameterf(target, GL_TEXTURE_MAX_LOD, samplerParams.maxLod);
+                    m_cacheSamplerParameters.maxLod = samplerParams.maxLod;
+                }
+
+#undef SYNC_TEX_SAMPLER_PARAM_IF_CHANGED
             }
 
             { // Update texture parameters
+                MGLOG_D("Updating texture parameters for texture with ID: %u", m_backendTextureId);
+
                 const auto& levelRange = stateTextureObject->GetLevelRange();
                 MG_External::GLES::glTexParameteri(target, GL_TEXTURE_BASE_LEVEL, static_cast<GLint>(levelRange.x()));
                 MG_External::GLES::glTexParameteri(target, GL_TEXTURE_MAX_LEVEL, static_cast<GLint>(levelRange.y()));
@@ -674,6 +681,66 @@ namespace MobileGL::MG_Backend::DirectGLES {
             MG_External::GLES::glUseProgram(m_backendProgramId);
         }
     } // namespace PrgramImpl
+
+    namespace SamplerImpl {
+        BackendSamplerObject::BackendSamplerObject() {
+            MG_External::GLES::glGenSamplers(1, &m_backendSamplerId);
+            if (m_backendSamplerId == 0) {
+                MGLOG_E("Failed to generate sampler object.");
+                MGLOG_E("ES glGetError(): %s", MG_Util::ConvertGLEnumToString(MG_External::GLES::glGetError()).c_str());
+            } else {
+                MGLOG_D("Generated sampler object with ID: %u.", m_backendSamplerId);
+            }
+        }
+
+        void BackendSamplerObject::SyncToBackend(SharedPtr<MG_State::GLState::SamplerObject>& stateSamplerObject) {
+            if (!stateSamplerObject) {
+                MGLOG_E("State sampler object is null, cannot sync to backend.");
+                return;
+            }
+
+            MGLOG_D("Syncing sampler with backend ID %u to backend for state ID %u", m_backendSamplerId,
+                    stateSamplerObject->GetExternalIndex());
+
+            const auto& samplerParams = stateSamplerObject->GetAllSamplerParameters();
+
+#define SYNC_SAMPLER_PARAM_IF_CHANGED(internalName, glName, type)                                                      \
+    if (m_cacheSamplerParameters.internalName != samplerParams.internalName) {                                         \
+        MG_External::GLES::glSamplerParameteri(m_backendSamplerId, glName,                                             \
+                                               MG_Util::ConvertSampler##type##ToGLEnum(samplerParams.internalName));   \
+        m_cacheSamplerParameters.internalName = samplerParams.internalName;                                            \
+    }
+
+            SYNC_SAMPLER_PARAM_IF_CHANGED(minFilter, GL_TEXTURE_MIN_FILTER, FilterMode)
+            SYNC_SAMPLER_PARAM_IF_CHANGED(magFilter, GL_TEXTURE_MAG_FILTER, FilterMode)
+            SYNC_SAMPLER_PARAM_IF_CHANGED(wrapS, GL_TEXTURE_WRAP_S, WrapMode)
+            SYNC_SAMPLER_PARAM_IF_CHANGED(wrapT, GL_TEXTURE_WRAP_T, WrapMode)
+            SYNC_SAMPLER_PARAM_IF_CHANGED(wrapR, GL_TEXTURE_WRAP_R, WrapMode)
+            SYNC_SAMPLER_PARAM_IF_CHANGED(compareFunc, GL_TEXTURE_COMPARE_FUNC, CompareFunc)
+            SYNC_SAMPLER_PARAM_IF_CHANGED(compareMode, GL_TEXTURE_COMPARE_MODE, CompareMode)
+            if (m_cacheSamplerParameters.minLod != samplerParams.minLod) {
+                MG_External::GLES::glSamplerParameterf(m_backendSamplerId, GL_TEXTURE_MIN_LOD, samplerParams.minLod);
+                m_cacheSamplerParameters.minLod = samplerParams.minLod;
+            }
+            if (m_cacheSamplerParameters.maxLod != samplerParams.maxLod) {
+                MG_External::GLES::glSamplerParameterf(m_backendSamplerId, GL_TEXTURE_MAX_LOD, samplerParams.maxLod);
+                m_cacheSamplerParameters.maxLod = samplerParams.maxLod;
+            }
+#undef SYNC_SAMPLER_PARAM_IF_CHANGED
+            m_isInitialized = true;
+        }
+
+        void BackendSamplerObject::Bind(Uint unit) {
+            MG_External::GLES::glBindSampler(static_cast<GLenum>(unit), m_backendSamplerId);
+        }
+
+        Uint BackendSamplerObject::GetBackendSamplerId() {
+            return m_backendSamplerId;
+        }
+
+        UnorderedMap<SharedPtr<MG_State::GLState::SamplerObject>, SharedPtr<BackendSamplerObject>>
+            g_backendSamplerObjects;
+    } // namespace SamplerImpl
 
     namespace Utils {} // namespace Utils
 } // namespace MobileGL::MG_Backend::DirectGLES

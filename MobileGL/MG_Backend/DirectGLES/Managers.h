@@ -1,6 +1,7 @@
 #pragma once
 #include <Includes.h>
 #include "DirectGLES.h"
+#include "MG_State/GLState/SamplerState/SamplerObject.h"
 #include <MG_State/GLState/TextureState/TextureObject.h>
 #include <MG_State/GLState/Core.h>
 
@@ -73,6 +74,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
             Uint m_backendTextureId = 0;
             Bool m_isInitialized = false;
             StateTextureBasicInfo m_prevTextureInfo;
+            SamplerParameters m_cacheSamplerParameters;
         };
 
         extern UnorderedMap<SharedPtr<MG_State::GLState::ITextureObject>, SharedPtr<BackendTextureObject>>
@@ -135,4 +137,22 @@ namespace MobileGL::MG_Backend::DirectGLES {
         extern UnorderedMap<SharedPtr<MG_State::GLState::ProgramObject>, SharedPtr<BackendProgramObjectImpl>>
             g_backendProgramObjects;
     } // namespace PrgramImpl
+
+    namespace SamplerImpl {
+        class BackendSamplerObject {
+        public:
+            BackendSamplerObject();
+            void SyncToBackend(SharedPtr<MG_State::GLState::SamplerObject>& stateSamplerObject);
+            void Bind(Uint unit);
+            Uint GetBackendSamplerId();
+
+        private:
+            Uint m_backendSamplerId = 0;
+            Bool m_isInitialized = false;
+            SamplerParameters m_cacheSamplerParameters;
+        };
+
+        extern UnorderedMap<SharedPtr<MG_State::GLState::SamplerObject>, SharedPtr<BackendSamplerObject>>
+            g_backendSamplerObjects;
+    } // namespace SamplerImpl
 } // namespace MobileGL::MG_Backend::DirectGLES
