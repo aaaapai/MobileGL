@@ -475,7 +475,7 @@ namespace MobileGL {
 
             void LoadLibs() {
                 // TODO: Add ANGLE override?
-                if (std::getenv("MGL_USE_ANGLE") {
+                if (std::getenv("MGL_USE_ANGLE")) {
                     libGLES = OpenLib(GLES3ANGLELibs, nullptr);
                     libEGL = OpenLib(EGLANGLELibs, nullptr);
                 } else {
