@@ -84,11 +84,10 @@ namespace MobileGL {
                             m_shaders[i]->GetShaderSource().c_str());
                 }
 
-                MG_Util::ShaderTranspiler::ProgramAttrib attrib{
-                    .shaders = Move(shaders),
-                    .explicitVertexInLocations = m_explicitAttribLocations,
-                    .explicitFragmentOutLocations = m_explicitFragDataLocation
-                };
+                MG_Util::ShaderTranspiler::ProgramAttrib attrib{.shaders = Move(shaders),
+                                                                .explicitVertexInLocations = m_explicitAttribLocations,
+                                                                .explicitFragmentOutLocations =
+                                                                    m_explicitFragDataLocation};
 
                 MGLOG_D("ProgramObject %u: Calling ShaderCompiler::LinkProgram", m_externalIndex);
                 auto result = MG_Util::ShaderTranspiler::ShaderCompiler::LinkProgram(attrib);
@@ -215,8 +214,7 @@ namespace MobileGL {
                 int maxLoc = -1;
                 for (int i = 0; i < inCount; ++i) {
                     int loc = m_program->getPipeInput(i).layoutLocation();
-                    if (loc >= 0 && loc != glslang::TQualifier::layoutLocationEnd)
-                        maxLoc = std::max(maxLoc, loc);
+                    if (loc >= 0 && loc != glslang::TQualifier::layoutLocationEnd) maxLoc = std::max(maxLoc, loc);
                     MGLOG_D("ProgramObject %u: Reflection - pipe input[%d] name='%s' layoutLocation=%d glType=%u",
                             m_externalIndex, i, m_program->getPipeInput(i).name.c_str(), loc,
                             m_program->getPipeInput(i).glDefineType);
@@ -252,7 +250,8 @@ namespace MobileGL {
                                 m_externalIndex, inVar.name.c_str(), location);
                     }
                     // else if (location >= (int)m_attribs.size()) {
-                    //     MGLOG_W("ProgramObject %u: ProgramObject::DoReflection - attrib location %d >= attribs.size() "
+                    //     MGLOG_W("ProgramObject %u: ProgramObject::DoReflection - attrib location %d >= attribs.size()
+                    //     "
                     //             "(%zu). Ignoring.",
                     //             m_externalIndex, location, m_attribs.size());
                     //     continue;
@@ -277,7 +276,8 @@ namespace MobileGL {
                     //                 m_externalIndex, inVar.name.c_str(), m_attribs.size() - 1);
                     //     }
                     //     if (!placed) {
-                    //         MGLOG_W("ProgramObject %u: ProgramObject::DoReflection - cannot place attrib '%s' (no free "
+                    //         MGLOG_W("ProgramObject %u: ProgramObject::DoReflection - cannot place attrib '%s' (no
+                    //         free "
                     //                 "slot and at max capacity). Ignoring.",
                     //                 m_externalIndex, inVar.name.c_str());
                     //     }
@@ -298,7 +298,8 @@ namespace MobileGL {
                 //         }
                 //         m_attribs.resize(location + 1);
                 //         m_attribTypes.resize(location + 1);
-                //         MGLOG_D("ProgramObject %u: Reflection - resized attrib arrays to %zu to accommodate explicit "
+                //         MGLOG_D("ProgramObject %u: Reflection - resized attrib arrays to %zu to accommodate explicit
+                //         "
                 //                 "location %d",
                 //                 m_externalIndex, m_attribs.size(), location);
                 //     }
@@ -366,8 +367,8 @@ namespace MobileGL {
                                 m_externalIndex, i);
                         MGLOG_E("ProgramObject %u: GenerateBinary - CompileShader return code %d, log:\n%s",
                                 m_externalIndex, res.error().errc, res.error().log.c_str());
-                        MGLOG_E("ProgramObject %u: GenerateBinary - last compiled shader src: \n%s",
-                                m_externalIndex, m_shaders[i]->GetShaderSource().c_str());
+                        MGLOG_E("ProgramObject %u: GenerateBinary - last compiled shader src: \n%s", m_externalIndex,
+                                m_shaders[i]->GetShaderSource().c_str());
                     }
                     assert(res); // keep original assert but log first
                     shaders[i] = res.value();
@@ -375,11 +376,9 @@ namespace MobileGL {
                             m_externalIndex, i, shaders[i].get());
                 }
 
-                ProgramAttrib attrib{
-                    .shaders = Move(shaders),
-                    .explicitVertexInLocations = m_explicitAttribLocations,
-                    .explicitFragmentOutLocations = m_explicitFragDataLocation
-                };
+                ProgramAttrib attrib{.shaders = Move(shaders),
+                                     .explicitVertexInLocations = m_explicitAttribLocations,
+                                     .explicitFragmentOutLocations = m_explicitFragDataLocation};
                 MGLOG_D("ProgramObject %u: GenerateBinary - linking program for binary", m_externalIndex);
                 auto programResult = ShaderCompiler::LinkProgram(attrib);
                 if (!programResult) {
@@ -413,50 +412,53 @@ namespace MobileGL {
                     SpvcSession session(spv);
                     auto result = session.ParseMetaData();
                     if (result < 0) {
-                        MGLOG_E("ProgramObject %u: GenerateBinary - SpvcSession::ParseMetaData failed for module %zu, err = %d%s",
-                                m_externalIndex, i, result, (result == SPVC_ERROR_INVALID_SPIRV ? ". Probably no global UBO?" : ""));
+                        MGLOG_D("ProgramObject %u: GenerateBinary - SpvcSession::ParseMetaData failed for module %zu, "
+                                "err = %d%s",
+                                m_externalIndex, i, result,
+                                (result == SPVC_ERROR_INVALID_SPIRV ? ". Probably no global UBO?" : ""));
+                        m_uniformSizesInBytes.clear();
+                        m_uniformOffsets.clear();
+                        m_uboScratch.clear();
                         continue;
-                    }
-                    // auto srcResult = ShaderCompiler::DecompileShader(session);
-                    // assert(srcResult);
-                    // auto src = srcResult.value();
-                    // printf("decompiled src: \n%s\n", src.c_str());
-
-                    auto& meta = session.GetMetadata();
-                    auto size = meta.uboSize;
-                    MGLOG_D("ProgramObject %u: GenerateBinary - SPIR-V meta: uboSize=%zu plainUniformCount=%zu "
-                            "plainUniformOffsets=%zu",
-                            m_externalIndex, meta.uboSize, meta.plainUniformMemberSizesInBytes.size(),
-                            meta.plainUniformOffsetsInUBO.size());
-                    m_uboScratch.resize(size);
-                    m_uniformOffsets.resize(m_maxUniformLocation + 1);
-                    for (const auto& [name, offset] : meta.plainUniformOffsetsInUBO) {
-                        if (m_uniformLocations.find(name) != m_uniformLocations.end()) {
-                            m_uniformOffsets[m_uniformLocations[name]] = offset;
-                            MGLOG_D("ProgramObject %u: GenerateBinary - uniform '%s' offset=%u assigned to location %u",
+                    } else {
+                        auto& meta = session.GetMetadata();
+                        auto size = meta.uboSize;
+                        MGLOG_D("ProgramObject %u: GenerateBinary - SPIR-V meta: uboSize=%zu plainUniformCount=%zu "
+                                "plainUniformOffsets=%zu",
+                                m_externalIndex, meta.uboSize, meta.plainUniformMemberSizesInBytes.size(),
+                                meta.plainUniformOffsetsInUBO.size());
+                        m_uboScratch.resize(size);
+                        m_uniformOffsets.resize(m_maxUniformLocation + 1);
+                        for (const auto& [name, offset] : meta.plainUniformOffsetsInUBO) {
+                            if (m_uniformLocations.find(name) != m_uniformLocations.end()) {
+                                m_uniformOffsets[m_uniformLocations[name]] = offset;
+                                MGLOG_D(
+                                    "ProgramObject %u: GenerateBinary - uniform '%s' offset=%u assigned to location %u",
                                     m_externalIndex, name.c_str(), offset, m_uniformLocations[name]);
-                        } else {
-                            MGLOG_D("ProgramObject %u: GenerateBinary - uniform '%s' offset=%u but not found in "
-                                    "m_uniformLocations",
-                                    m_externalIndex, name.c_str(), offset);
+                            } else {
+                                MGLOG_D("ProgramObject %u: GenerateBinary - uniform '%s' offset=%u but not found in "
+                                        "m_uniformLocations",
+                                        m_externalIndex, name.c_str(), offset);
+                            }
                         }
-                    }
-                    m_uniformSizesInBytes.resize(m_maxUniformLocation + 1);
-                    for (const auto& [name, size] : meta.plainUniformMemberSizesInBytes) {
-                        if (m_uniformLocations.find(name) != m_uniformLocations.end()) {
-                            m_uniformSizesInBytes[m_uniformLocations[name]] = size;
-                            MGLOG_D("ProgramObject %u: GenerateBinary - uniform '%s' size=%u assigned to location %u",
+                        m_uniformSizesInBytes.resize(m_maxUniformLocation + 1);
+                        for (const auto& [name, size] : meta.plainUniformMemberSizesInBytes) {
+                            if (m_uniformLocations.find(name) != m_uniformLocations.end()) {
+                                m_uniformSizesInBytes[m_uniformLocations[name]] = size;
+                                MGLOG_D(
+                                    "ProgramObject %u: GenerateBinary - uniform '%s' size=%u assigned to location %u",
                                     m_externalIndex, name.c_str(), size, m_uniformLocations[name]);
-                        } else {
-                            MGLOG_D("ProgramObject %u: GenerateBinary - uniform '%s' size=%u but not found in "
-                                    "m_uniformLocations",
-                                    m_externalIndex, name.c_str(), size);
+                            } else {
+                                MGLOG_D("ProgramObject %u: GenerateBinary - uniform '%s' size=%u but not found in "
+                                        "m_uniformLocations",
+                                        m_externalIndex, name.c_str(), size);
+                            }
                         }
+                        // Only parse first module that contains uniform metadata
+                        MGLOG_D("ProgramObject %u: GenerateBinary - finished parsing module %zu; breaking after first "
+                                "valid metadata",
+                                m_externalIndex, i);
                     }
-                    // Only parse first module that contains uniform metadata
-                    MGLOG_D("ProgramObject %u: GenerateBinary - finished parsing module %zu; breaking after first "
-                            "valid metadata",
-                            m_externalIndex, i);
                     break;
                 }
             }
@@ -468,16 +470,16 @@ namespace MobileGL {
             }
 
             void ProgramObject::SetExplicitVertexInLocation(Uint index, const char* name) {
-                MGLOG_D("ProgramObject %u: SetExplicitVertexInLocation called name='%s' index=%u", m_externalIndex, name,
-                        index);
+                MGLOG_D("ProgramObject %u: SetExplicitVertexInLocation called name='%s' index=%u", m_externalIndex,
+                        name, index);
                 m_explicitAttribLocations[name] = index;
                 MGLOG_D("ProgramObject %u: SetExplicitVertexInLocation - stored explicit location for '%s' -> %u",
                         m_externalIndex, name, index);
             }
 
             void ProgramObject::SetExplicitFragmentOutLocation(Uint index, const char* name) {
-                MGLOG_D("ProgramObject %u: SetExplicitFragmentOutLocation called name='%s' index=%u", m_externalIndex, name,
-                        index);
+                MGLOG_D("ProgramObject %u: SetExplicitFragmentOutLocation called name='%s' index=%u", m_externalIndex,
+                        name, index);
                 m_explicitFragDataLocation[name] = index;
                 MGLOG_D("ProgramObject %u: SetExplicitFragmentOutLocation - stored explicit location for '%s' -> %u",
                         m_externalIndex, name, index);
@@ -486,8 +488,7 @@ namespace MobileGL {
             Int ProgramObject::GetFragmentDataLocation(const char* name) {
                 // TODO: should retrieve "post-mortem" location from glslang instead
                 auto it = m_explicitFragDataLocation.find(name);
-                if (it == m_explicitFragDataLocation.end())
-                    return -1;
+                if (it == m_explicitFragDataLocation.end()) return -1;
                 return it->second;
             }
         } // namespace GLState

@@ -11,6 +11,12 @@ namespace MobileGL {
             case GL_TEXTURE_3D:
                 return TextureTarget::Texture3D;
             case GL_TEXTURE_CUBE_MAP:
+            case GL_TEXTURE_CUBE_MAP_POSITIVE_X:
+            case GL_TEXTURE_CUBE_MAP_NEGATIVE_X:
+            case GL_TEXTURE_CUBE_MAP_POSITIVE_Y:
+            case GL_TEXTURE_CUBE_MAP_NEGATIVE_Y:
+            case GL_TEXTURE_CUBE_MAP_POSITIVE_Z:
+            case GL_TEXTURE_CUBE_MAP_NEGATIVE_Z:
                 return TextureTarget::TextureCubeMap;
             case GL_TEXTURE_2D_ARRAY:
                 return TextureTarget::Texture2DArray;

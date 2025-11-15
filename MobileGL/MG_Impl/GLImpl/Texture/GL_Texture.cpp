@@ -23,7 +23,7 @@ namespace MobileGL {
                                  GLsizei height, GLenum format, GLenum type, const void* pixels) {
             // ======================= Converting ================================
             TextureUploadTarget textureUploadingTarget = MG_Util::ConvertGLEnumToTextureUploadTarget(target);
-            TextureTarget textureTarget = MG_Util::ConvertTextureUploadTargetToTextureTarget(textureUploadingTarget);
+            TextureTarget textureTarget = MG_Util::ConvertGLEnumToTextureTarget(target);
             TextureInputFormat textureInputFormat = MG_Util::ConvertGLEnumToTextureInputFormat(format);
             TexturePixelDataType texturePixelDataType = MG_Util::ConvertGLEnumToTexturePixelDataType(type);
             TextureInternalFormat textureInternalFormat = MG_Util::ConvertGLEnumToTextureInternalFormat(format);
@@ -66,8 +66,20 @@ namespace MobileGL {
             SizeT imageSize = 0;
             const SizeT bytesPerPixel = MG_Util::GetInputBytesPerPixel(textureInternalFormat, texturePixelDataType);
 
+            const void* originalPixels = pixels;
+
+            // PBO
+            const auto& pixelUnpackBufferObject =
+                MG_State::pGLContext->GetBufferBindingSlot(BufferTarget::PixelUnpack).GetBoundObject();
+            if (pixelUnpackBufferObject) {
+                MGLOG_D("TexSubImage2D_State: Using Pixel Unpack Buffer Object ID: %u",
+                        pixelUnpackBufferObject->GetExternalIndex());
+                originalPixels = reinterpret_cast<const char*>(pixelUnpackBufferObject->GetDataReadOnly()->data()) +
+                                 reinterpret_cast<SizeT>(pixels);
+            }
+
             void* processedPixels = MG_Util::PixelStoreProcessor::ProcessTexturePixelsDataUnpack(
-                pixels, MG_State::pGLContext->GetPixelStoreParameters(true), bytesPerPixel, {width, height, 1},
+                originalPixels, MG_State::pGLContext->GetPixelStoreParameters(true), bytesPerPixel, {width, height, 1},
                 false /*TODO*/, imageSize);
 
             if (!processedPixels || imageSize == 0) {
@@ -117,7 +129,7 @@ namespace MobileGL {
 
             // ======================= Converting ================================
             TextureUploadTarget textureUploadingTarget = MG_Util::ConvertGLEnumToTextureUploadTarget(target);
-            TextureTarget textureTarget = MG_Util::ConvertTextureUploadTargetToTextureTarget(textureUploadingTarget);
+            TextureTarget textureTarget = MG_Util::ConvertGLEnumToTextureTarget(target);
 
             // ======================= Processing ================================
             SharedPtr<MG_State::GLState::ITextureObject> textureObject = nullptr;
@@ -198,7 +210,7 @@ namespace MobileGL {
         void TexParameteri_State(GLenum target, GLenum pname, GLint param) {
             // ======================= Converting ================================
             TextureUploadTarget textureUploadingTarget = MG_Util::ConvertGLEnumToTextureUploadTarget(target);
-            TextureTarget textureTarget = MG_Util::ConvertTextureUploadTargetToTextureTarget(textureUploadingTarget);
+            TextureTarget textureTarget = MG_Util::ConvertGLEnumToTextureTarget(target);
 
             // ======================= Processing ================================
             SharedPtr<MG_State::GLState::ITextureObject> textureObject = nullptr;
@@ -309,7 +321,7 @@ namespace MobileGL {
                 pixels);
             // ======================= Converting ================================
             TextureUploadTarget textureUploadingTarget = MG_Util::ConvertGLEnumToTextureUploadTarget(target);
-            TextureTarget textureTarget = MG_Util::ConvertTextureUploadTargetToTextureTarget(textureUploadingTarget);
+            TextureTarget textureTarget = MG_Util::ConvertGLEnumToTextureTarget(target);
             TextureInputFormat textureInputFormat = MG_Util::ConvertGLEnumToTextureInputFormat(format);
             TexturePixelDataType texturePixelDataType = MG_Util::ConvertGLEnumToTexturePixelDataType(type);
             TextureInternalFormat textureInternalFormat = MG_Util::ConvertGLEnumToTextureInternalFormat(internalformat);
@@ -360,10 +372,22 @@ namespace MobileGL {
             const SizeT bytesPerPixel = MG_Util::GetInputBytesPerPixel(textureInternalFormat, texturePixelDataType);
             const SizeT totalBytes = width * height * bytesPerPixel;
 
-            if (pixels) {
+            const void* originalPixels = pixels;
+
+            // PBO
+            const auto& pixelUnpackBufferObject =
+                MG_State::pGLContext->GetBufferBindingSlot(BufferTarget::PixelUnpack).GetBoundObject();
+            if (pixelUnpackBufferObject) {
+                MGLOG_D("TexImage2D_State: Using Pixel Unpack Buffer Object ID: %u",
+                        pixelUnpackBufferObject->GetExternalIndex());
+                originalPixels = reinterpret_cast<const char*>(pixelUnpackBufferObject->GetDataReadOnly()->data()) +
+                                 reinterpret_cast<SizeT>(pixels);
+            }
+
+            if (originalPixels) {
                 processedPixels = MG_Util::PixelStoreProcessor::ProcessTexturePixelsDataUnpack(
-                    pixels, MG_State::pGLContext->GetPixelStoreParameters(true), bytesPerPixel, {width, height, 1},
-                    false, imageSize);
+                    originalPixels, MG_State::pGLContext->GetPixelStoreParameters(true), bytesPerPixel,
+                    {width, height, 1}, false, imageSize);
             }
 
             MG_State::GLState::MipmapLevelInput mipmap =
@@ -426,7 +450,7 @@ namespace MobileGL {
         void GetTexParameteriv_State(GLenum target, GLenum pname, GLint* params) {
             // ======================= Converting ================================
             TextureUploadTarget textureUploadingTarget = MG_Util::ConvertGLEnumToTextureUploadTarget(target);
-            TextureTarget textureTarget = MG_Util::ConvertTextureUploadTargetToTextureTarget(textureUploadingTarget);
+            TextureTarget textureTarget = MG_Util::ConvertGLEnumToTextureTarget(target);
 
             // ======================= Processing ================================
             SharedPtr<MG_State::GLState::ITextureObject> textureObject = nullptr;
@@ -511,7 +535,7 @@ namespace MobileGL {
         void GetTexParameterfv_State(GLenum target, GLenum pname, GLfloat* params) {
             // ======================= Converting ================================
             TextureUploadTarget textureUploadingTarget = MG_Util::ConvertGLEnumToTextureUploadTarget(target);
-            TextureTarget textureTarget = MG_Util::ConvertTextureUploadTargetToTextureTarget(textureUploadingTarget);
+            TextureTarget textureTarget = MG_Util::ConvertGLEnumToTextureTarget(target);
 
             // ======================= Processing ================================
             SharedPtr<MG_State::GLState::ITextureObject> textureObject = nullptr;
@@ -597,7 +621,7 @@ namespace MobileGL {
             MGLOG_D("GetTexLevelParameteriv_State called");
             // ======================= Converting ================================
             TextureUploadTarget textureUploadingTarget = MG_Util::ConvertGLEnumToTextureUploadTarget(target);
-            TextureTarget textureTarget = MG_Util::ConvertTextureUploadTargetToTextureTarget(textureUploadingTarget);
+            TextureTarget textureTarget = MG_Util::ConvertGLEnumToTextureTarget(target);
 
             // ===================== Error Checking ==============================
             if (!TextureImpl::ValidateTextureUploadTarget(textureUploadingTarget)) return;
@@ -664,7 +688,7 @@ namespace MobileGL {
         void GetTexLevelParameterfv_State(GLenum target, GLint level, GLenum pname, GLfloat* params) {
             // ======================= Converting ================================
             TextureUploadTarget textureUploadingTarget = MG_Util::ConvertGLEnumToTextureUploadTarget(target);
-            TextureTarget textureTarget = MG_Util::ConvertTextureUploadTargetToTextureTarget(textureUploadingTarget);
+            TextureTarget textureTarget = MG_Util::ConvertGLEnumToTextureTarget(target);
 
             // ===================== Error Checking ==============================
             if (!TextureImpl::ValidateTextureUploadTarget(textureUploadingTarget)) return;
@@ -831,6 +855,7 @@ namespace MobileGL {
         }
 
         void BindTexture_State(GLenum target, GLuint texture) {
+            MGLOG_D("BindTexture_State called with target: 0x%X, texture: %u", target, texture);
             // ======================= Converting ================================
             TextureTarget textureTarget = MG_Util::ConvertGLEnumToTextureTarget(target);
 
@@ -842,7 +867,9 @@ namespace MobileGL {
             auto textureObject = MG_State::pGLContext->GetTextureObject(texture);
 
             // ===================== Error Checking ==============================
-            if (!TextureImpl::ValidateTextureTargetUniformity(textureObject, textureTarget)) return;
+            if (textureTarget != TextureTarget::TextureCubeMap &&
+                !TextureImpl::ValidateTextureTargetUniformity(textureObject, textureTarget))
+                return;
 
             // ======================= Processing ================================
             if (!textureObject) {

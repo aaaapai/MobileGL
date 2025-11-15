@@ -1,16 +1,15 @@
 #include "Managers.h"
 #include "MG_Backend/Backends.h"
-#include "MG_State/GLState/ProgramState/ShaderObject.h"
 #include "MG_Util/Types.h"
 #include "Utils.h"
 #include "DirectGLES.h"
-#include "MG_Util/Converters/GLToMG/FramebufferEnumConverter.h"
 #include <MG_Util/BackendLoaders/OpenGL/Loader.h>
 #include <MG_Util/Converters/GLToStr/GLEnumConverter.h>
 #include <MG_Util/Converters/MGToGL/DataTypeConverter.h>
 #include <MG_Util/Converters/MGToGL/BufferEnumConverter.h>
 #include <MG_Util/Converters/MGToGL/TextureEnumConverter.h>
 #include <MG_Util/Converters/MGToGL/ProgramEnumConverter.h>
+#include <MG_Util/Converters/GLToMG/FramebufferEnumConverter.h>
 #include <MG_Util/Converters/MGToGL/FramebufferEnumConverter.h>
 #include <MG_State/GLState/FramebufferState/FramebufferObject.h>
 
@@ -93,8 +92,12 @@ namespace MobileGL::MG_Backend::DirectGLES {
             MGLOG_D("Syncing buffer sub-data (glBufferSubData) for object with ID : %u", m_backendBufferId);
 
             const void* data = stateBufferObject->GetDataReadOnly()->data();
-            const auto& range = stateBufferObject->GetDirtyRange();
             // dirty range: [range.start, range.end)
+            const auto& range = stateBufferObject->GetDirtyRange();
+            if (range.end == 0) {
+                MGLOG_D("No dirty range to sync for buffer with ID: %u", m_backendBufferId);
+                return;
+            }
 
             MG_External::GLES::glBindBuffer(TempBufferTarget, m_backendBufferId);
             MG_External::GLES::glBufferSubData(TempBufferTarget, range.start, range.end - range.start,
@@ -107,8 +110,12 @@ namespace MobileGL::MG_Backend::DirectGLES {
 
             MGLOG_D("Syncing buffer map (glMapBuffer) for object with ID : %u", m_backendBufferId);
             MGLOG_D("Mapping buffer with ID: %u", m_backendBufferId);
-            MG_External::GLES::glBindBuffer(TempBufferTarget, m_backendBufferId);
             const auto& range = stateBufferObject->GetDirtyRange();
+            if (range.end == 0) {
+                MGLOG_D("No dirty range to sync for buffer with ID: %u", m_backendBufferId);
+                return;
+            }
+            MG_External::GLES::glBindBuffer(TempBufferTarget, m_backendBufferId);
             void* mappedData =
                 MG_External::GLES::glMapBufferRange(TempBufferTarget, range.start, range.end - range.start,
                                                     (invalidate ? GL_MAP_INVALIDATE_BUFFER_BIT : 0) | GL_MAP_WRITE_BIT);
@@ -391,113 +398,101 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 MGLOG_E("State FBO object is null, cannot sync to backend.");
                 return;
             }
-
             MGLOG_D("Syncing FBO with backend ID %u to backend for state ID %u, as %s FBO", m_backendFBOId,
                     stateFBOObject->GetExternalIndex(), (asTarget == FramebufferTarget::Draw ? "DRAW" : "READ"));
-
             GLenum glFBOTarget = MG_Util::ConvertFramebufferTargetToGLEnum(asTarget);
             BackendFramebufferBindingProtector backendFBOBindingProtector(glFBOTarget);
-
             Bind(asTarget);
 
-            if (asTarget == FramebufferTarget::Draw) {
-                int nBuffers = 0;
-                // Attach attachment to FBO, realize `glDrawBuffers`
-                if (stateFBOObject->DrawBuffersIsDirty()) {
-                    std::fill(m_frontendBuffers,
-                              m_frontendBuffers + MG_State::GLState::FramebufferObject::MAX_DRAW_BUFFERS, GL_NONE);
-                    std::fill(m_backendBuffers,
-                              m_backendBuffers + MG_State::GLState::FramebufferObject::MAX_DRAW_BUFFERS, GL_NONE);
-                    auto& stateDrawBuffers = stateFBOObject->GetDrawBuffers();
-                    for (GLint i = 0; i < stateDrawBuffers.size(); ++i) {
-                        m_frontendBuffers[i] = MG_Util::ConvertFramebufferAttachmentTypeToGLEnum(stateDrawBuffers[i]);
-                    }
-
-                    MGLOG_D("%s: mapping draw buffers gl -> es:", __func__);
-                    for (int i = 0; i < MG_State::GLState::FramebufferObject::MAX_DRAW_BUFFERS; ++i) {
-                        if (m_frontendBuffers[i] == GL_NONE) {
-                            MGLOG_D("(m_frontendBuffers[%d] = GL_NONE), skipped", i);
-                            continue;
-                        }
-                        m_backendBuffers[nBuffers] = GL_COLOR_ATTACHMENT0 + nBuffers;
-                        m_compactedFrontendBuffers[nBuffers] = m_frontendBuffers[i];
-                        MGLOG_D("(m_frontendBuffers[%d] = %s) -> %s", i,
-                                MG_Util::ConvertGLEnumToString(m_frontendBuffers[i]).c_str(),
-                                MG_Util::ConvertGLEnumToString(m_backendBuffers[nBuffers]).c_str());
-                        nBuffers++;
-                    }
-
-                    MG_External::GLES::glDrawBuffers(nBuffers, m_backendBuffers);
-
-                    stateFBOObject->ClearDrawBuffersDirtyState();
+            // Handle all attachments
+            const auto& attachments = stateFBOObject->GetAllAttachments();
+            for (SizeT i = 0; i < attachments.size(); ++i) {
+                const auto& attachment = attachments[i];
+                if (!attachment.IsValid() || attachment.IsEmpty()) {
+                    continue;
                 }
-
-                // Sync all attachments
-                const auto& attachments = stateFBOObject->GetAllAttachments();
-                for (SizeT i = 0; i < nBuffers; ++i) {
-                    FramebufferAttachmentType frontendAttachmentType =
-                        MG_Util::ConvertGLEnumToFramebufferAttachmentType(m_compactedFrontendBuffers[i]);
-                    GLenum glBackendAttachmentType = m_backendBuffers[i];
-
-                    const auto& attachment = attachments[(SizeT)frontendAttachmentType];
-                    if (!attachment.IsComplete()) {
+                FramebufferAttachmentType type = static_cast<FramebufferAttachmentType>(i);
+                GLenum glAttachment = MG_Util::ConvertFramebufferAttachmentTypeToGLEnum(type);
+                if (attachment.IsTexture()) {
+                    const auto& textureObject = attachment.GetTexture();
+                    const auto& backendTextureIt = TextureImpl::g_backendTextureObjects.find(textureObject);
+                    if (backendTextureIt == TextureImpl::g_backendTextureObjects.end()) {
+                        MGLOG_E("No backend texture found for FBO attachment, cannot bind texture.");
+                        continue;
+                    }
+                    const auto& backendTextureObject = backendTextureIt->second;
+                    auto glTextureTarget = MG_Util::ConvertTextureTargetToGLEnum(textureObject->GetTarget());
+                    backendTextureObject->Bind(glTextureTarget);
+                    MG_External::GLES::glFramebufferTexture2D(glFBOTarget, glAttachment, glTextureTarget,
+                                                              backendTextureObject->GetBackendTextureId(),
+                                                              static_cast<GLint>(attachment.GetTextureLevel()));
+                } else if (attachment.IsRenderbuffer()) {
+                    // TODO: renderbuffer support
+                }
+            }
+            // Handle draw buffers for DRAW_FRAMEBUFFER
+            if (asTarget == FramebufferTarget::Draw) {
+                // Create mappings for draw buffers
+                int nBuffers = 0;
+                std::fill(m_frontendBuffers, m_frontendBuffers + MG_State::GLState::FramebufferObject::MAX_DRAW_BUFFERS,
+                          GL_NONE);
+                std::fill(m_backendBuffers, m_backendBuffers + MG_State::GLState::FramebufferObject::MAX_DRAW_BUFFERS,
+                          GL_NONE);
+                std::fill(m_compactedFrontendBuffers,
+                          m_compactedFrontendBuffers + MG_State::GLState::FramebufferObject::MAX_DRAW_BUFFERS, GL_NONE);
+                auto& stateDrawBuffers = stateFBOObject->GetDrawBuffers();
+                for (GLint i = 0; i < MG_State::GLState::FramebufferObject::MAX_DRAW_BUFFERS; ++i) {
+                    if (stateDrawBuffers[i] == FramebufferAttachmentType::None) {
+                        m_frontendBuffers[i] = GL_NONE;
                         continue;
                     }
 
-                    if (attachment.IsTexture()) {
-                        const auto& textureObject = attachment.GetTexture();
-                        const auto& backendTextureIt = TextureImpl::g_backendTextureObjects.find(textureObject);
-                        if (backendTextureIt == TextureImpl::g_backendTextureObjects.end()) {
-                            MGLOG_E("No backend texture found for FBO attachment, cannot bind texture.");
-                            continue;
-                        }
-                        const auto& backendTextureObject = backendTextureIt->second;
-                        auto glTextureTarget = MG_Util::ConvertTextureTargetToGLEnum(textureObject->GetTarget());
-                        backendTextureObject->Bind(glTextureTarget);
-                        MG_External::GLES::glFramebufferTexture2D(glFBOTarget, glBackendAttachmentType, glTextureTarget,
-                                                                  backendTextureObject->GetBackendTextureId(),
-                                                                  static_cast<GLint>(attachment.GetTextureLevel()));
-                    } else if (attachment.IsRenderbuffer()) {
-                        // TODO
-                    }
+                    m_frontendBuffers[i] = MG_Util::ConvertFramebufferAttachmentTypeToGLEnum(stateDrawBuffers[i]);
+
+                    // Create compacted mapping
+                    m_backendBuffers[nBuffers] = GL_COLOR_ATTACHMENT0 + nBuffers;
+                    m_compactedFrontendBuffers[nBuffers] = m_frontendBuffers[i];
+                    nBuffers++;
                 }
-            } else {
-                // Attach attachment to FBO, realize `glReadBuffer`
-                // TODO: do we actually need "virtualization" here? I assume not?
-                GLenum frontendAtt = MG_Util::ConvertFramebufferAttachmentTypeToGLEnum(stateFBOObject->GetReadBuffer());
+
+                MG_External::GLES::glDrawBuffers(nBuffers, m_backendBuffers);
+
+                // Attach textures for compacted draw buffers
+                for (int i = 0; i < nBuffers; ++i) {
+                    FramebufferAttachmentType frontendAttachmentType =
+                        MG_Util::ConvertGLEnumToFramebufferAttachmentType(m_compactedFrontendBuffers[i]);
+                    GLenum backendAttachment = m_backendBuffers[i];
+                    const auto& attachment = attachments[static_cast<SizeT>(frontendAttachmentType)];
+                    if (!attachment.IsTexture()) continue;
+                    const auto& textureObject = attachment.GetTexture();
+                    const auto& backendTextureIt = TextureImpl::g_backendTextureObjects.find(textureObject);
+                    if (backendTextureIt == TextureImpl::g_backendTextureObjects.end()) continue;
+                    const auto& backendTextureObject = backendTextureIt->second;
+                    auto glTextureTarget = MG_Util::ConvertTextureTargetToGLEnum(textureObject->GetTarget());
+                    backendTextureObject->Bind(glTextureTarget);
+                    MG_External::GLES::glFramebufferTexture2D(glFBOTarget, backendAttachment, glTextureTarget,
+                                                              backendTextureObject->GetBackendTextureId(),
+                                                              static_cast<GLint>(attachment.GetTextureLevel()));
+                }
+
+                stateFBOObject->ClearDrawBuffersDirtyState();
+            }
+            // Handle read buffer for READ_FRAMEBUFFER
+            else if (asTarget == FramebufferTarget::Read) {
+                FramebufferAttachmentType readBufferType = stateFBOObject->GetReadBuffer();
+                GLenum frontendAtt = MG_Util::ConvertFramebufferAttachmentTypeToGLEnum(readBufferType);
                 GLenum backendAtt = GL_NONE;
-                // Attach attachment to FBO, fast path
+                // Find corresponding backend attachment in compacted draw buffers
                 for (SizeT i = 0; i < MG_State::GLState::FramebufferObject::MAX_DRAW_BUFFERS; ++i) {
-                    if (m_compactedFrontendBuffers[i] == frontendAtt) backendAtt = m_backendBuffers[i];
+                    if (m_compactedFrontendBuffers[i] == frontendAtt) {
+                        backendAtt = m_backendBuffers[i];
+                        break;
+                    }
                 }
                 if (backendAtt != GL_NONE) {
                     MG_External::GLES::glReadBuffer(backendAtt);
                 } else {
-                    // Maybe we should properly do `glFramebufferTexture2D` here
-                    // don't need remap / virtualization
                     MG_External::GLES::glReadBuffer(frontendAtt);
-                    const auto& attachments = stateFBOObject->GetAllAttachments();
-                    const auto& attachment = attachments[(SizeT)frontendAtt];
-                    if (!attachment.IsComplete()) {
-                        return;
-                    }
-
-                    if (attachment.IsTexture()) {
-                        const auto& textureObject = attachment.GetTexture();
-                        const auto& backendTextureIt = TextureImpl::g_backendTextureObjects.find(textureObject);
-                        if (backendTextureIt == TextureImpl::g_backendTextureObjects.end()) {
-                            MGLOG_E("No backend texture found for FBO attachment, cannot bind texture.");
-                            return;
-                        }
-                        const auto& backendTextureObject = backendTextureIt->second;
-                        auto glTextureTarget = MG_Util::ConvertTextureTargetToGLEnum(textureObject->GetTarget());
-                        backendTextureObject->Bind(glTextureTarget);
-                        MG_External::GLES::glFramebufferTexture2D(glFBOTarget, frontendAtt, glTextureTarget,
-                                                                  backendTextureObject->GetBackendTextureId(),
-                                                                  static_cast<GLint>(attachment.GetTextureLevel()));
-                    } else if (attachment.IsRenderbuffer()) {
-                        // TODO
-                    }
                 }
             }
         }
@@ -535,12 +530,13 @@ namespace MobileGL::MG_Backend::DirectGLES {
             }
 
             if (!stateProgramObject->GetLinkStatus()) {
-                MGLOG_E("Program object is not linked, skipping backend sync. Program: %p", stateProgramObject.get());
+                MGLOG_E("Program object is not linked, skipping backend sync. State program ID: %u",
+                        stateProgramObject->GetExternalIndex());
                 return;
             }
 
-            MGLOG_D("Syncing program to backend. State program: %p, Backend ID: %p", stateProgramObject.get(),
-                    m_backendProgramId);
+            MGLOG_D("Syncing program to backend. State program ID: %u, Backend ID: %u",
+                    stateProgramObject->GetExternalIndex(), m_backendProgramId);
 
             // Detach all existing shaders
             GLint attachedCount = 0;
@@ -584,15 +580,6 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 auto& spirvCode = shaderSpirvs[index];
 
                 MG_Util::ShaderTranspiler::SpvcSession spvcSession(spirvCode);
-                //                if (glShaderType == GL_VERTEX_SHADER) {
-                //                    if (stateProgramObject->GetAttribLocationMap().empty())
-                //                        MGLOG_D("%s: no explicitly set vertex in location", __func__);
-                //                    for (auto& [name, loc]: stateProgramObject->GetAttribLocationMap()) {
-                //                        MGLOG_D("%s: got explicitly set - layout(location = %d) %s;", __func__, loc,
-                //                        name.c_str());
-                //                    }
-                ////                    spvcSession.SetVertexAttribLocation(stateProgramObject->GetAttribLocationMap());
-                //                }
 
                 spvc_compiler_options options;
                 spvcSession.CreateOptions(&options);
@@ -661,11 +648,15 @@ namespace MobileGL::MG_Backend::DirectGLES {
             }
 
             // Create global UBO
-            MG_External::GLES::glGenBuffers(1, &m_backendGlobalUBOId);
-            MG_External::GLES::glBindBuffer(GL_UNIFORM_BUFFER, m_backendGlobalUBOId);
-            MG_External::GLES::glBufferData(GL_UNIFORM_BUFFER, stateProgramObject->GetUBOSize(), nullptr,
-                                            GL_STREAM_DRAW);
-            MG_External::GLES::glBindBuffer(GL_UNIFORM_BUFFER, 0);
+            if (stateProgramObject->GetUBOSize() > 0) {
+                MG_External::GLES::glGenBuffers(1, &m_backendGlobalUBOId);
+                MG_External::GLES::glBindBuffer(GL_UNIFORM_BUFFER, m_backendGlobalUBOId);
+                MG_External::GLES::glBufferData(GL_UNIFORM_BUFFER, stateProgramObject->GetUBOSize(), nullptr,
+                                                GL_STREAM_DRAW);
+                MG_External::GLES::glBindBuffer(GL_UNIFORM_BUFFER, 0);
+            } else {
+                m_backendGlobalUBOId = 0;
+            }
 
             m_isInitialized = true;
             MGLOG_D("Program sync completed. backend ID %u", m_backendProgramId);
