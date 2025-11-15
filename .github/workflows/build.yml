@@ -17,6 +17,8 @@ jobs:
 
     steps:
     - uses: actions/checkout@main
+      with:
+         submodules: true
 
     - name: Configure CMake and Build
       run: bash android_ci_build.bash
