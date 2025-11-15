@@ -1,6 +1,8 @@
 #include "GL_Getter.h"
 #include "GL/gl.h"
+#include "GL/glext.h"
 #include "MG_State/GLState/ErrorState/ErrorInfo.h"
+#include "MG_State/GLState/FramebufferState/FramebufferObject.h"
 #include <Config.h>
 #include <MG_State/GLState/Core.h>
 #include <MG_Util/Converters/GLToStr/GLEnumConverter.h>
@@ -340,9 +342,6 @@ namespace MobileGL {
                 break;
             case GL_MAX_DEPTH_TEXTURE_SAMPLES:
                 *params = 16; // TODO
-                break;
-            case GL_MAX_DRAW_BUFFERS:
-                *params = 8; // TODO
                 break;
             case GL_MAX_DUAL_SOURCE_DRAW_BUFFERS:
                 *params = 1; // TODO
@@ -854,6 +853,9 @@ namespace MobileGL {
             case GL_CONTEXT_PROFILE_MASK:
                 *params = GL_CONTEXT_CORE_PROFILE_BIT;
                 break;
+            case GL_MAX_COLOR_ATTACHMENTS:
+            case GL_MAX_DRAW_BUFFERS:
+                *params = MG_State::GLState::FramebufferObject::MAX_DRAW_BUFFERS; // TODO: use backend value
             default:
                 MGLOG_E("glGetIntegerv: Invalid enum %s (0x%X)", MG_Util::ConvertGLEnumToString(pname).c_str(), pname);
                 MG_State::pGLContext->RecordError(
