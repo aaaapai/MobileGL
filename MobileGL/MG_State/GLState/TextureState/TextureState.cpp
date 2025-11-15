@@ -31,6 +31,7 @@ namespace MobileGL {
                 case TextureTarget::Texture1D:
                     textureObject = MakeShared<TextureObject1D>(index);
                     break;
+                case TextureTarget::TextureCubeMap: // TODO
                 case TextureTarget::Texture2D:
                     textureObject = MakeShared<TextureObject2D>(index);
                     break;

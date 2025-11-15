@@ -23,7 +23,7 @@ namespace MobileGL {
                                  GLsizei height, GLenum format, GLenum type, const void* pixels) {
             // ======================= Converting ================================
             TextureUploadTarget textureUploadingTarget = MG_Util::ConvertGLEnumToTextureUploadTarget(target);
-            TextureTarget textureTarget = MG_Util::ConvertTextureUploadTargetToTextureTarget(textureUploadingTarget);
+            TextureTarget textureTarget = MG_Util::ConvertGLEnumToTextureTarget(target);
             TextureInputFormat textureInputFormat = MG_Util::ConvertGLEnumToTextureInputFormat(format);
             TexturePixelDataType texturePixelDataType = MG_Util::ConvertGLEnumToTexturePixelDataType(type);
             TextureInternalFormat textureInternalFormat = MG_Util::ConvertGLEnumToTextureInternalFormat(format);
@@ -117,7 +117,7 @@ namespace MobileGL {
 
             // ======================= Converting ================================
             TextureUploadTarget textureUploadingTarget = MG_Util::ConvertGLEnumToTextureUploadTarget(target);
-            TextureTarget textureTarget = MG_Util::ConvertTextureUploadTargetToTextureTarget(textureUploadingTarget);
+            TextureTarget textureTarget = MG_Util::ConvertGLEnumToTextureTarget(target);
 
             // ======================= Processing ================================
             SharedPtr<MG_State::GLState::ITextureObject> textureObject = nullptr;
@@ -198,7 +198,7 @@ namespace MobileGL {
         void TexParameteri_State(GLenum target, GLenum pname, GLint param) {
             // ======================= Converting ================================
             TextureUploadTarget textureUploadingTarget = MG_Util::ConvertGLEnumToTextureUploadTarget(target);
-            TextureTarget textureTarget = MG_Util::ConvertTextureUploadTargetToTextureTarget(textureUploadingTarget);
+            TextureTarget textureTarget = MG_Util::ConvertGLEnumToTextureTarget(target);
 
             // ======================= Processing ================================
             SharedPtr<MG_State::GLState::ITextureObject> textureObject = nullptr;
@@ -309,7 +309,7 @@ namespace MobileGL {
                 pixels);
             // ======================= Converting ================================
             TextureUploadTarget textureUploadingTarget = MG_Util::ConvertGLEnumToTextureUploadTarget(target);
-            TextureTarget textureTarget = MG_Util::ConvertTextureUploadTargetToTextureTarget(textureUploadingTarget);
+            TextureTarget textureTarget = MG_Util::ConvertGLEnumToTextureTarget(target);
             TextureInputFormat textureInputFormat = MG_Util::ConvertGLEnumToTextureInputFormat(format);
             TexturePixelDataType texturePixelDataType = MG_Util::ConvertGLEnumToTexturePixelDataType(type);
             TextureInternalFormat textureInternalFormat = MG_Util::ConvertGLEnumToTextureInternalFormat(internalformat);
@@ -426,7 +426,7 @@ namespace MobileGL {
         void GetTexParameteriv_State(GLenum target, GLenum pname, GLint* params) {
             // ======================= Converting ================================
             TextureUploadTarget textureUploadingTarget = MG_Util::ConvertGLEnumToTextureUploadTarget(target);
-            TextureTarget textureTarget = MG_Util::ConvertTextureUploadTargetToTextureTarget(textureUploadingTarget);
+            TextureTarget textureTarget = MG_Util::ConvertGLEnumToTextureTarget(target);
 
             // ======================= Processing ================================
             SharedPtr<MG_State::GLState::ITextureObject> textureObject = nullptr;
@@ -511,7 +511,7 @@ namespace MobileGL {
         void GetTexParameterfv_State(GLenum target, GLenum pname, GLfloat* params) {
             // ======================= Converting ================================
             TextureUploadTarget textureUploadingTarget = MG_Util::ConvertGLEnumToTextureUploadTarget(target);
-            TextureTarget textureTarget = MG_Util::ConvertTextureUploadTargetToTextureTarget(textureUploadingTarget);
+            TextureTarget textureTarget = MG_Util::ConvertGLEnumToTextureTarget(target);
 
             // ======================= Processing ================================
             SharedPtr<MG_State::GLState::ITextureObject> textureObject = nullptr;
@@ -597,7 +597,7 @@ namespace MobileGL {
             MGLOG_D("GetTexLevelParameteriv_State called");
             // ======================= Converting ================================
             TextureUploadTarget textureUploadingTarget = MG_Util::ConvertGLEnumToTextureUploadTarget(target);
-            TextureTarget textureTarget = MG_Util::ConvertTextureUploadTargetToTextureTarget(textureUploadingTarget);
+            TextureTarget textureTarget = MG_Util::ConvertGLEnumToTextureTarget(target);
 
             // ===================== Error Checking ==============================
             if (!TextureImpl::ValidateTextureUploadTarget(textureUploadingTarget)) return;
@@ -664,7 +664,7 @@ namespace MobileGL {
         void GetTexLevelParameterfv_State(GLenum target, GLint level, GLenum pname, GLfloat* params) {
             // ======================= Converting ================================
             TextureUploadTarget textureUploadingTarget = MG_Util::ConvertGLEnumToTextureUploadTarget(target);
-            TextureTarget textureTarget = MG_Util::ConvertTextureUploadTargetToTextureTarget(textureUploadingTarget);
+            TextureTarget textureTarget = MG_Util::ConvertGLEnumToTextureTarget(target);
 
             // ===================== Error Checking ==============================
             if (!TextureImpl::ValidateTextureUploadTarget(textureUploadingTarget)) return;
@@ -842,7 +842,9 @@ namespace MobileGL {
             auto textureObject = MG_State::pGLContext->GetTextureObject(texture);
 
             // ===================== Error Checking ==============================
-            if (!TextureImpl::ValidateTextureTargetUniformity(textureObject, textureTarget)) return;
+            if (textureTarget != TextureTarget::TextureCubeMap &&
+                !TextureImpl::ValidateTextureTargetUniformity(textureObject, textureTarget))
+                return;
 
             // ======================= Processing ================================
             if (!textureObject) {
