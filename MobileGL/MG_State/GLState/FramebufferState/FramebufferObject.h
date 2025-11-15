@@ -118,7 +118,7 @@ namespace MobileGL {
                     m_attachments;
                 Bool m_drawBuffersDirty = false;
                 Array<FramebufferAttachmentType, MAX_DRAW_BUFFERS> m_drawBuffers;
-                FramebufferAttachmentType m_readBuffer = FramebufferAttachmentType::None;
+                FramebufferAttachmentType m_readBuffer = FramebufferAttachmentType::Color0;
             };
 
         } // namespace GLState
