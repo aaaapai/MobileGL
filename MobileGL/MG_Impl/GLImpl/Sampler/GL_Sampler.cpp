@@ -10,6 +10,9 @@ namespace MobileGL {
             if (!SamplerImpl::ValidateSamplerName(sampler)) return;
 
             auto samplerObj = MG_State::pGLContext->GetSamplerObject(sampler);
+            if (!samplerObj) {
+                samplerObj = MG_State::pGLContext->CreateSamplerObject(sampler); // for compatibility
+            }
             if (!SamplerImpl::ValidateSamplerObject(sampler)) return;
 
             using namespace MG_Util;
@@ -55,6 +58,9 @@ namespace MobileGL {
             if (!SamplerImpl::ValidateSamplerName(sampler)) return;
 
             auto samplerObj = MG_State::pGLContext->GetSamplerObject(sampler);
+            if (!samplerObj) {
+                samplerObj = MG_State::pGLContext->CreateSamplerObject(sampler); // for compatibility
+            }
             if (!SamplerImpl::ValidateSamplerObject(sampler)) return;
 
             using namespace MG_Util;
