@@ -24,6 +24,11 @@ enable_language(CXX)
 
 set(CMAKE_CXX_STANDARD 23)
 
+set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -O3 -pipe -integrated-as -mllvm -polly -mllvm -polly-vectorizer=stripmine -mllvm -polly-invariant-load-hoisting -mllvm -polly-run-inliner -mllvm -polly-run-dce -mllvm -polly-invariant-load-hoisting -flto -mllvm -polly-run-inliner -mllvm -polly-run-dce -fno-emulated-tls -fwhole-program-vtables -fdata-sections -ffunction-sections -fmerge-all-constants -mllvm -polly-detect-keep-going -mllvm -polly-ast-use-context -march=armv8-a+simd -fvisibility=hidden -Wall -Wextra -ferror-limit=0 -Wno-return-type -Wno-unused-parameter -Wno-c++98-compat -Wno-c++98-compat-pedantic -DGLM_FORCE_INTRINSICS -Wno-unicode-whitespace -Wno-format -Wno-unused-function -DUseAnkerl")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O3 -pipe -integrated-as -mllvm -polly -mllvm -polly-vectorizer=stripmine -mllvm -polly-invariant-load-hoisting -mllvm -polly-run-inliner -mllvm -polly-run-dce -mllvm -polly-invariant-load-hoisting -flto -mllvm -polly-run-inliner -mllvm -polly-run-dce -fno-emulated-tls -fwhole-program-vtables -fdata-sections -ffunction-sections -fmerge-all-constants -mllvm -polly-detect-keep-going -mllvm -polly-ast-use-context -march=armv8-a+simd -fvisibility=hidden -Wall -Wextra -ferror-limit=0 -Wno-return-type -Wno-unused-parameter -Wno-c++98-compat -Wno-c++98-compat-pedantic -DGLM_FORCE_INTRINSICS -fno-rtti -stdlib=libc++ -Wno-unicode-whitespace -Wno-format -Wno-unused-function -Wno-vla-cxx-extension -DUseAnkerl")
+set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -fuse-ld=lld -flto -O3 -Wl,-plugin-opt=-emulated-tls=0 -Wl,--strip-all -fvisibility=hidden -Wl,-O3 -Wl,--gc-sections -Wl,--as-needed -static-libstdc++")
+set(CMAKE_ANDROID_LD "lld")
+
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
@@ -202,18 +207,20 @@ target_include_directories(${CMAKE_PROJECT_NAME}_s PUBLIC
     ${CMAKE_SOURCE_DIR}/MobileGL
 )
 
-target_link_libraries(${CMAKE_PROJECT_NAME}_s
+if (ANDROID)
+target_link_libraries(${CMAKE_PROJECT_NAME}
     PRIVATE
-    # Diligent-Common
-    # Diligent-GraphicsEngineOpenGL-shared
-    # Diligent-GraphicsEngineVk-shared
+    ${CMAKE_SOURCE_DIR}/library/android/${ANDROID_ABI}/libspirv-cross-c.a
+                ${CMAKE_SOURCE_DIR}/library/android/${ANDROID_ABI}/libspirv-cross-core.a
+                ${CMAKE_SOURCE_DIR}/library/android/${ANDROID_ABI}/libspirv-cross-cpp.a
+                ${CMAKE_SOURCE_DIR}/library/android/${ANDROID_ABI}/libspirv-cross-glsl.a
+                ${CMAKE_SOURCE_DIR}/library/android/${ANDROID_ABI}/libspirv-cross-hlsl.a
+                ${CMAKE_SOURCE_DIR}/library/android/${ANDROID_ABI}/libspirv-cross-reflect.a
+                ${CMAKE_SOURCE_DIR}/library/android/${ANDROID_ABI}/libspirv-cross-util.a
+                ${CMAKE_SOURCE_DIR}/library/android/${ANDROID_ABI}/libshaderconv.a
+                ${CMAKE_SOURCE_DIR}/library/android/${ANDROID_ABI}/libshaderc_combined.a
 )
-
-target_link_libraries(${CMAKE_PROJECT_NAME}_s
-    PRIVATE
-    # glslang::glslang
-    #vspirv-cross-c
-)
+endif()
 
 if (ANDROID)
     target_link_libraries(${CMAKE_PROJECT_NAME} PUBLIC
