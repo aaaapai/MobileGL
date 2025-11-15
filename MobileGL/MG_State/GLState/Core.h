@@ -4,6 +4,7 @@
 #include "ErrorState/Error.h"
 #include "BufferState/BufferState.h"
 #include "ProgramState/ProgramState.h"
+#include "SamplerState/SamplerState.h"
 #include "TextureState/TextureState.h"
 #include "FramebufferState/FramebufferState.h"
 #include "VertexArrayState/VertexArrayState.h"
@@ -109,6 +110,14 @@ namespace MobileGL {
                 Bool ValidateFramebufferName(Uint index) const;
                 Bool ValidateFramebufferObject(Uint index) const;
 
+                // Sampler
+                Vector<Uint> GenSamplerNames(Uint number);
+                SharedPtr<SamplerObject> GetSamplerObject(Uint index);
+                SharedPtr<SamplerObject> CreateSamplerObject(Uint index);
+                void MarkSamplerObjectForDeletion(Uint index);
+                Bool ValidateSamplerName(Uint index) const;
+                Bool ValidateSamplerObject(Uint index) const;
+
             private:
                 // Error
                 ErrorState m_errorState;
@@ -130,6 +139,9 @@ namespace MobileGL {
 
                 // Framebuffer
                 FramebufferState m_framebufferState;
+
+                // Sampler
+                SamplerState m_samplerState;
             };
         } // namespace GLState
 
