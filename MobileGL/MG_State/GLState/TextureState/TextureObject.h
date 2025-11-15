@@ -1,6 +1,6 @@
 #pragma once
 #include "MG_Util/Types.h"
-#include "SamplerObject.h"
+#include "../SamplerState/SamplerObject.h"
 #include <Includes.h>
 #include <MG_Util/Math/VectorTypes.h>
 

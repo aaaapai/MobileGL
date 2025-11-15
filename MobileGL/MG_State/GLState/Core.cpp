@@ -338,6 +338,40 @@ namespace MobileGL {
                 return m_framebufferState.ValidateFramebufferObject(index);
             }
 
+            // Sampler
+            Vector<Uint> GLContext::GenSamplerNames(Uint number) {
+                return m_samplerState.GenerateNames(number);
+            }
+
+            SharedPtr<SamplerObject> GLContext::GetSamplerObject(Uint index) {
+                return m_samplerState.GetSamplerObject(index);
+            }
+
+            SharedPtr<SamplerObject> GLContext::CreateSamplerObject(Uint index) {
+                return m_samplerState.CreateSamplerObject(index);
+            }
+
+            void GLContext::MarkSamplerObjectForDeletion(Uint index) {
+                // Unbind the sampler from all texture units
+                if (ValidateSamplerObject(index)) {
+                    auto sampler = m_samplerState.GetSamplerObject(index);
+                    for (Int unit = 0; unit < TextureState::MAX_TEXTURE_IMAGE_UNITS; ++unit) {
+                        auto& textureUnit = m_textureState.GetUnitObject(unit);
+                        if (textureUnit.GetSamplerObject() == sampler) {
+                            textureUnit.SetSamplerObject(nullptr);
+                        }
+                    }
+                }
+                m_samplerState.MarkSamplerObjectForDeletion(index);
+            }
+
+            Bool GLContext::ValidateSamplerName(Uint index) const {
+                return m_samplerState.ValidateName(index);
+            }
+
+            Bool GLContext::ValidateSamplerObject(Uint index) const {
+                return m_samplerState.ValidateSamplerObject(index);
+            }
         } // namespace GLState
 
         GLState::GLContext* pGLContext;

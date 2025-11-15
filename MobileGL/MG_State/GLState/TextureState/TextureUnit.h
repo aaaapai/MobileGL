@@ -1,6 +1,6 @@
 #pragma once
 #include <Includes.h>
-#include "MG_State/GLState/TextureState/SamplerObject.h"
+#include "MG_State/GLState/SamplerState/SamplerObject.h"
 #include "MG_Util/Types.h"
 #include "TextureObject.h"
 
