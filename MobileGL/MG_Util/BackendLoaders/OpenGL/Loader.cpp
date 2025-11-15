@@ -441,6 +441,9 @@ namespace MobileGL {
             static const char* LibExts[] = {"so", "so.1", "so.2", "dylib", "dll", nullptr};
             static const char* GLES3Libs[] = {"libGLESv3_CM", "libGLESv3", "libGLESv2_angle", nullptr};
             static const char* EGLLibs[] = {"libEGL", "libEGL_angle", nullptr};
+            static const char* GLES3ANGLELibs[] = {"libGLESv2_angle", nullptr};
+            static const char* EGLANGLELibs[] = {"libEGL_angle", nullptr};
+
 
             void* OpenLib(const char** names, const char* override) {
 #if !defined(__WIN32) && !defined(_WIN32) && !defined(__APPLE__)
@@ -472,8 +475,13 @@ namespace MobileGL {
 
             void LoadLibs() {
                 // TODO: Add ANGLE override?
-                libGLES = OpenLib(GLES3Libs, nullptr);
-                libEGL = OpenLib(EGLLibs, nullptr);
+                if (std::getenv("MGL_USE_ANGLE") {
+                    libGLES = OpenLib(GLES3ANGLELibs, nullptr);
+                    libEGL = OpenLib(EGLANGLELibs, nullptr);
+                } else {
+                    libGLES = OpenLib(GLES3Libs, nullptr);
+                    libEGL = OpenLib(EGLLibs, nullptr);
+                }
             }
 
             void* ProcAddress(void* lib, const char* name) {
