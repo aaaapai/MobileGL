@@ -114,20 +114,6 @@ add_library(${CMAKE_PROJECT_NAME} SHARED
     ${SOURCE_FILES}
 )
 
-if (CMAKE_BUILD_TYPE STREQUAL "Debug")
-    set_target_properties(${CMAKE_PROJECT_NAME} PROPERTIES
-        C_VISIBILITY_PRESET default
-        CXX_VISIBILITY_PRESET default
-        VISIBILITY_INLINES_HIDDEN OFF
-    )
-else()
-    set_target_properties(${CMAKE_PROJECT_NAME} PROPERTIES
-        C_VISIBILITY_PRESET hidden
-        CXX_VISIBILITY_PRESET hidden
-        VISIBILITY_INLINES_HIDDEN ON
-    )
-endif()
-
 target_include_directories(${CMAKE_PROJECT_NAME} PUBLIC
     ${CMAKE_SOURCE_DIR}/include
     ${CMAKE_SOURCE_DIR}/MobileGL
