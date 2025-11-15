@@ -288,10 +288,13 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 for (SizeT level = 0; level < mipmaps.size(); ++level) {
                     const auto& mipmap = mipmaps[level];
 
+                    BufferImpl::BackendBufferBindingProtector pixelUnpackProtector =
+                        BufferImpl::BackendBufferBindingProtector(GL_PIXEL_UNPACK_BUFFER);
+                    MG_External::GLES::glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
                     MG_External::GLES::glTexImage2D(GL_TEXTURE_2D, static_cast<GLint>(level), glInternalFormat,
                                                     static_cast<GLsizei>(mipmap.size.x()),
                                                     static_cast<GLsizei>(mipmap.size.y()), 0, glFormat, glType,
-                                                    mipmap.data.data());
+                                                    mipmap.hasData ? mipmap.data.data() : nullptr);
 
                     MGLOG_D("Regenerated mipmap level %d for texture with ID: %u", level, m_backendTextureId);
                     stateTextureObject->UnmarkMipmapDirty(level);
@@ -360,9 +363,13 @@ namespace MobileGL::MG_Backend::DirectGLES {
                         continue;
                     }
 
-                    MG_External::GLES::glTexSubImage2D(
-                        GL_TEXTURE_2D, static_cast<GLint>(mipmap.level), 0, 0, static_cast<GLsizei>(mipmap.size.x()),
-                        static_cast<GLsizei>(mipmap.size.y()), glFormat, glType, mipmap.data.data());
+                    BufferImpl::BackendBufferBindingProtector pixelUnpackProtector =
+                        BufferImpl::BackendBufferBindingProtector(GL_PIXEL_UNPACK_BUFFER);
+                    MG_External::GLES::glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
+                    MG_External::GLES::glTexSubImage2D(GL_TEXTURE_2D, static_cast<GLint>(mipmap.level), 0, 0,
+                                                       static_cast<GLsizei>(mipmap.size.x()),
+                                                       static_cast<GLsizei>(mipmap.size.y()), glFormat, glType,
+                                                       mipmap.hasData ? mipmap.data.data() : nullptr);
                     stateTextureObject->UnmarkMipmapDirty(mipmap.level);
                 }
             }
