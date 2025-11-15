@@ -81,7 +81,6 @@ target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE
     ${CMAKE_SOURCE_DIR}/library/android/${ANDROID_ABI}/libspirv-cross-hlsl.a
     ${CMAKE_SOURCE_DIR}/library/android/${ANDROID_ABI}/libspirv-cross-reflect.a
     ${CMAKE_SOURCE_DIR}/library/android/${ANDROID_ABI}/libspirv-cross-util.a
-    ${CMAKE_SOURCE_DIR}/library/android/${ANDROID_ABI}/libshaderconv.a
     ${CMAKE_SOURCE_DIR}/library/android/${ANDROID_ABI}/libshaderc_combined.a
     android
     log
