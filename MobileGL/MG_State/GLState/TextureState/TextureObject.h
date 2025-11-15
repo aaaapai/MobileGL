@@ -200,12 +200,14 @@ namespace MobileGL {
             struct MipmapLevelInternal : MipmapLevelBase {
                 Data data;
                 Bool dirty = true;
+                Bool hasData = false;
 
                 MipmapLevelInternal(const MipmapLevelInput& input) : MipmapLevelBase(input) {
-                    data.resize(input.inputData.size);
+                    data.resize(input.inputData.size, 0);
                     if (input.inputData.data && input.inputData.size > 0) {
                         const Uint8* src = static_cast<const Uint8*>(input.inputData.data);
                         Memcpy(data.data(), src, input.inputData.size);
+                        hasData = true;
                     }
                 }
             };

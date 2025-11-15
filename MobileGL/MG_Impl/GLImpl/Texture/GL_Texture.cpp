@@ -117,6 +117,7 @@ namespace MobileGL {
             free(processedPixels);
 
             mipmap.dirty = true;
+            mipmap.hasData = true;
         }
 
         void TexSubImage1D_State(GLenum target, GLint level, GLint xoffset, GLsizei width, GLenum format, GLenum type,
@@ -396,7 +397,7 @@ namespace MobileGL {
 
             if (!isProxy && !mipmap.inputData.data) {
                 MGLOG_E("TexImage2D_State: Failed to allocate memory for mipmap level data, size: %zu", totalBytes);
-                if (processedPixels) free(processedPixels);
+                free(processedPixels);
                 processedPixels = nullptr;
             }
 
@@ -410,9 +411,9 @@ namespace MobileGL {
                 const SizeT copySize = std::min(imageSize, totalBytes);
                 Memcpy(mipmap.inputData.data, processedPixels, copySize);
                 free(processedPixels);
-            } else if (pixels && !isProxy) {
+            } else if (processedPixels && !isProxy) {
                 MGLOG_E("TexImage2D_State: Failed to process pixel data, initializing with original data.");
-                Memcpy(mipmap.inputData.data, pixels, totalBytes);
+                Memcpy(mipmap.inputData.data, originalPixels, totalBytes);
             } else {
                 if (mipmap.inputData.data) {
                     free(mipmap.inputData.data);
@@ -421,7 +422,7 @@ namespace MobileGL {
             }
             textureObject->SetInternalFormat(textureInternalFormat);
             textureObject->SetMipmapLevel(mipmap);
-            if (mipmap.inputData.data) free(mipmap.inputData.data);
+            free(mipmap.inputData.data);
         }
 
         void TexImage1D_State(GLenum target, GLint level, GLint internalFormat, GLsizei width, GLint border,
