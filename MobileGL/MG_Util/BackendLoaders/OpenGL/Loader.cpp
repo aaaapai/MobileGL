@@ -439,10 +439,8 @@ namespace MobileGL {
 
             static const char* LibPathPrefixes[] = {"", "/opt/vc/lib/", "/usr/local/lib/", "/usr/lib/", nullptr};
             static const char* LibExts[] = {"so", "so.1", "so.2", "dylib", "dll", nullptr};
-            static const char* envGLESLib = std::getenv("LIBGL_GLES");
-            static const char* GLES3Libs[] = {envGLESLib, "libGLESv3_CM", "libGLESv3", "libGLESv2_angle", nullptr};
-            static const char* envEGLLib = std::getenv("LIBGL_EGL");
-            static const char* EGLLibs[] = {envEGLLib, "libEGL", "libEGL_angle", nullptr};
+            static const char* GLES3Libs[] = {"libGLESv3_CM", "libGLESv3", "libGLESv2_angle", nullptr};
+            static const char* EGLLibs[] = {"libEGL", "libEGL_angle", nullptr};
 
             void* OpenLib(const char** names, const char* override) {
 #if !defined(__WIN32) && !defined(_WIN32) && !defined(__APPLE__)
