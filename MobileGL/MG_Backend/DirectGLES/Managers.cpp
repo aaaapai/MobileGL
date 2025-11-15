@@ -1,16 +1,15 @@
 #include "Managers.h"
 #include "MG_Backend/Backends.h"
-#include "MG_State/GLState/ProgramState/ShaderObject.h"
 #include "MG_Util/Types.h"
 #include "Utils.h"
 #include "DirectGLES.h"
-#include "MG_Util/Converters/GLToMG/FramebufferEnumConverter.h"
 #include <MG_Util/BackendLoaders/OpenGL/Loader.h>
 #include <MG_Util/Converters/GLToStr/GLEnumConverter.h>
 #include <MG_Util/Converters/MGToGL/DataTypeConverter.h>
 #include <MG_Util/Converters/MGToGL/BufferEnumConverter.h>
 #include <MG_Util/Converters/MGToGL/TextureEnumConverter.h>
 #include <MG_Util/Converters/MGToGL/ProgramEnumConverter.h>
+#include <MG_Util/Converters/GLToMG/FramebufferEnumConverter.h>
 #include <MG_Util/Converters/MGToGL/FramebufferEnumConverter.h>
 #include <MG_State/GLState/FramebufferState/FramebufferObject.h>
 
@@ -93,8 +92,12 @@ namespace MobileGL::MG_Backend::DirectGLES {
             MGLOG_D("Syncing buffer sub-data (glBufferSubData) for object with ID : %u", m_backendBufferId);
 
             const void* data = stateBufferObject->GetDataReadOnly()->data();
-            const auto& range = stateBufferObject->GetDirtyRange();
             // dirty range: [range.start, range.end)
+            const auto& range = stateBufferObject->GetDirtyRange();
+            if (range.end == 0) {
+                MGLOG_D("No dirty range to sync for buffer with ID: %u", m_backendBufferId);
+                return;
+            }
 
             MG_External::GLES::glBindBuffer(TempBufferTarget, m_backendBufferId);
             MG_External::GLES::glBufferSubData(TempBufferTarget, range.start, range.end - range.start,
@@ -107,8 +110,12 @@ namespace MobileGL::MG_Backend::DirectGLES {
 
             MGLOG_D("Syncing buffer map (glMapBuffer) for object with ID : %u", m_backendBufferId);
             MGLOG_D("Mapping buffer with ID: %u", m_backendBufferId);
-            MG_External::GLES::glBindBuffer(TempBufferTarget, m_backendBufferId);
             const auto& range = stateBufferObject->GetDirtyRange();
+            if (range.end == 0) {
+                MGLOG_D("No dirty range to sync for buffer with ID: %u", m_backendBufferId);
+                return;
+            }
+            MG_External::GLES::glBindBuffer(TempBufferTarget, m_backendBufferId);
             void* mappedData =
                 MG_External::GLES::glMapBufferRange(TempBufferTarget, range.start, range.end - range.start,
                                                     (invalidate ? GL_MAP_INVALIDATE_BUFFER_BIT : 0) | GL_MAP_WRITE_BIT);
@@ -661,11 +668,15 @@ namespace MobileGL::MG_Backend::DirectGLES {
             }
 
             // Create global UBO
-            MG_External::GLES::glGenBuffers(1, &m_backendGlobalUBOId);
-            MG_External::GLES::glBindBuffer(GL_UNIFORM_BUFFER, m_backendGlobalUBOId);
-            MG_External::GLES::glBufferData(GL_UNIFORM_BUFFER, stateProgramObject->GetUBOSize(), nullptr,
-                                            GL_STREAM_DRAW);
-            MG_External::GLES::glBindBuffer(GL_UNIFORM_BUFFER, 0);
+            if (stateProgramObject->GetUBOSize() > 0) {
+                MG_External::GLES::glGenBuffers(1, &m_backendGlobalUBOId);
+                MG_External::GLES::glBindBuffer(GL_UNIFORM_BUFFER, m_backendGlobalUBOId);
+                MG_External::GLES::glBufferData(GL_UNIFORM_BUFFER, stateProgramObject->GetUBOSize(), nullptr,
+                                                GL_STREAM_DRAW);
+                MG_External::GLES::glBindBuffer(GL_UNIFORM_BUFFER, 0);
+            } else {
+                m_backendGlobalUBOId = 0;
+            }
 
             m_isInitialized = true;
             MGLOG_D("Program sync completed. backend ID %u", m_backendProgramId);
