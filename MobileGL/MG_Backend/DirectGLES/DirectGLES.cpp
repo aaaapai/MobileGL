@@ -185,7 +185,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 }
 
                 if (currentFBO.get() == lastUpdatedFBO) {
-                    MGLOG_I("Draw FBO and read FBO are the same, skipping sync.");
+                    MGLOG_D("Draw FBO and read FBO are the same, skipping sync.");
                 } else {
                     backendFBOObject->SyncToBackend(currentFBO, target);
                 }
