@@ -166,12 +166,8 @@ set(SOURCE_FILES
     MobileGL/MG_State/GLState/SamplerState/SamplerState.cpp
 )
 
-add_library(${CMAKE_PROJECT_NAME}_s STATIC 
-    ${SOURCE_FILES}
-)
-
 add_library(${CMAKE_PROJECT_NAME} SHARED 
-    # ${SOURCE_FILES}
+    ${SOURCE_FILES}
 )
 
 target_include_directories(${CMAKE_PROJECT_NAME} PUBLIC
@@ -193,7 +189,7 @@ target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE
     glslang::glslang
     android
     log
-    ${CMAKE_PROJECT_NAME}_s
+    # ${CMAKE_PROJECT_NAME}_s
 )
 
 endif()
