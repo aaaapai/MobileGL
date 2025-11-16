@@ -12,9 +12,12 @@ jobs:
         
     - name: Update all submodules
       run: |
-        git submodule update --remote --recursive
+        # git submodule update --remote --recursive
+        cd library/android/arm64-v8a
+        tar -xf libglslang.a.tar.xz
+        rm lang.tar.xz
         git config --global user.name "GitHub Actions"
         git config --global user.email "actions@github.com"
         git add .
-        git commit -m "Automated submodule update"
+        git commit -m "Upload glslang"
         git push
