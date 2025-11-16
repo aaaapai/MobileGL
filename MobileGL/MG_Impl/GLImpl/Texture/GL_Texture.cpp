@@ -1,5 +1,9 @@
 #include "GL_Texture.h"
 #include "GL/gl.h"
+#include "Config.h"
+#if MOBILEGL_BACKEND == MOBILEGL_BACKEND_TYPE_DIRECT_GLES
+#include <MG_Backend/DirectGLES/DirectGLES.h>
+#endif
 #include "MG_Util/Types.h"
 #include "Validators.h"
 #include "ProxyTexture.h"
@@ -804,18 +808,22 @@ namespace MobileGL {
             // TODO: implement
         }
 
-        void CopyTexSubImage2D_State(GLenum target, GLint level, GLint xoffset, GLint yoffset, GLint x, GLint y,
-                                     GLsizei width, GLsizei height) {
-            // TODO: implement
+        void CopyTexSubImage2D_Backend(GLenum target, GLint level, GLint xoffset, GLint yoffset, GLint x, GLint y,
+                                       GLsizei width, GLsizei height) {
+#if MOBILEGL_BACKEND == MOBILEGL_BACKEND_TYPE_DIRECT_GLES
+            MG_Backend::DirectGLES::CopyTexSubImage2D(target, level, xoffset, yoffset, x, y, width, height);
+#endif
         }
 
         void CopyTexSubImage1D_State(GLenum target, GLint level, GLint xoffset, GLint x, GLint y, GLsizei width) {
             // TODO: implement
         }
 
-        void CopyTexImage2D_State(GLenum target, GLint level, GLenum internalformat, GLint x, GLint y, GLsizei width,
-                                  GLsizei height, GLint border) {
-            // TODO: implement
+        void CopyTexImage2D_Backend(GLenum target, GLint level, GLenum internalformat, GLint x, GLint y, GLsizei width,
+                                    GLsizei height, GLint border) {
+#if MOBILEGL_BACKEND == MOBILEGL_BACKEND_TYPE_DIRECT_GLES
+            MG_Backend::DirectGLES::CopyTexImage2D(target, level, internalformat, x, y, width, height, border);
+#endif
         }
 
         void CopyTexImage1D_State(GLenum target, GLint level, GLenum internalformat, GLint x, GLint y, GLsizei width,
@@ -1004,7 +1012,7 @@ namespace MobileGL {
 
         void CopyTexSubImage2D(GLenum target, GLint level, GLint xoffset, GLint yoffset, GLint x, GLint y,
                                GLsizei width, GLsizei height) {
-            CopyTexSubImage2D_State(target, level, xoffset, yoffset, x, y, width, height);
+            CopyTexSubImage2D_Backend(target, level, xoffset, yoffset, x, y, width, height);
         }
 
         void CopyTexSubImage1D(GLenum target, GLint level, GLint xoffset, GLint x, GLint y, GLsizei width) {
@@ -1013,7 +1021,7 @@ namespace MobileGL {
 
         void CopyTexImage2D(GLenum target, GLint level, GLenum internalformat, GLint x, GLint y, GLsizei width,
                             GLsizei height, GLint border) {
-            CopyTexImage2D_State(target, level, internalformat, x, y, width, height, border);
+            CopyTexImage2D_Backend(target, level, internalformat, x, y, width, height, border);
         }
 
         void CopyTexImage1D(GLenum target, GLint level, GLenum internalformat, GLint x, GLint y, GLsizei width,

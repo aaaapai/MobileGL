@@ -16,5 +16,9 @@ namespace MobileGL::MG_Backend::DirectGLES {
                                      GLsizei drawcount, const GLint* basevertex);
     void BlitFramebuffer(GLint srcX0, GLint srcY0, GLint srcX1, GLint srcY1, GLint dstX0, GLint dstY0, GLint dstX1,
                          GLint dstY1, GLbitfield mask, GLenum filter);
+    void CopyTexImage2D(GLenum target, GLint level, GLenum internalformat, GLint x, GLint y, GLsizei width,
+                        GLsizei height, GLint border);
+    void CopyTexSubImage2D(GLenum target, GLint level, GLint xoffset, GLint yoffset, GLint x, GLint y,
+                                   GLsizei width, GLsizei height);
     const GLubyte* GetString(GLenum name);
 } // namespace MobileGL::MG_Backend::DirectGLES
