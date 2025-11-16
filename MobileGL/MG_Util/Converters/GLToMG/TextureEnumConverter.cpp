@@ -1,4 +1,5 @@
 #include "TextureEnumConverter.h"
+#include "MG_Util/Converters/GLToStr/GLEnumConverter.h"
 
 namespace MobileGL {
     namespace MG_Util {
@@ -223,6 +224,7 @@ namespace MobileGL {
             case GL_RGBA:
                 return TextureInternalFormat::RGBA;
             default:
+                MGLOG_D("%s: unknown internal format %s", MG_Util::ConvertGLEnumToString(internalformat).c_str());
                 return TextureInternalFormat::Unknown;
             }
         }
