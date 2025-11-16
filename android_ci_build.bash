@@ -3,7 +3,7 @@
 
 # export ANDROID_NDK_LATEST_HOME=/usr/local/lib/android/sdk/ndk/28.2.13676358
 
-# git clone --depth 1 https://github.com/MobileGL-Dev/FastSTL.git ./include/FastSTL
+git clone --depth 1 https://github.com/MobileGL-Dev/FastSTL.git ./include/FastSTL
 cmake_build () {
   ANDROID_ABI=$1
   mkdir -p build
