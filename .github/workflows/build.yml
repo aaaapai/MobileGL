@@ -29,5 +29,3 @@ jobs:
         name: MobileGGGGGGGGGGGGGL
         path: |
               **/libMobileGL.so
-              **/libspirv-cross-c.a
-              **/libglslang.a
