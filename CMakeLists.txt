@@ -55,6 +55,8 @@ set(SOURCE_FILES
     MobileGL/MG_Util/Converters/GLToMG/ProgramEnumConverter.cpp
     MobileGL/MG_Util/Converters/MGToMG/TextureEnumConverter.cpp
 
+    MobileGL/MG_Util/Classifiers/TextureEnumClassifier.cpp
+
     MobileGL/MG_Util/ShaderTranspiler/ShaderCompiler.cpp
     MobileGL/MG_Util/ShaderTranspiler/SpvcSession.cpp
     MobileGL/MG_Util/ShaderTranspiler/ShaderSourceProcessor.cpp

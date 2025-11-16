@@ -1,6 +1,9 @@
 #include "DirectGLES.h"
 #include "Utils.h"
 #include "Managers.h"
+#include "MG_Util/Converters/GLToMG/TextureEnumConverter.h"
+#include "MG_Util/Classifiers/TextureEnumClassifier.h"
+#include "MG_Util/Metrics/TextureMetrics.h"
 #include <MG_State/GLState/Core.h>
 #include <MG_Impl/GLImpl/Framebuffer/GL_Framebuffer.h>
 #include <MG_Util/BackendLoaders/OpenGL/Loader.h>
@@ -469,6 +472,106 @@ namespace MobileGL::MG_Backend::DirectGLES {
         BindCurrentFBO(FramebufferTarget::Read);
 
         MG_External::GLES::glBlitFramebuffer(srcX0, srcY0, srcX1, srcY1, dstX0, dstY0, dstX1, dstY1, mask, filter);
+    }
+
+    void CopyTexImage2D(GLenum target, GLint level, GLenum internalformat, GLint x, GLint y, GLsizei width,
+                        GLsizei height, GLint border) {
+        MGLOG_D("%s: Backend", __func__);
+        TextureImpl::SyncNeccessaryTextures();
+        FramebufferImpl::SyncCurrentFBO();
+        RenderStateImpl::SyncRenderState();
+
+        GLint realInternalFormat;
+        MG_External::GLES::glGetTexLevelParameteriv(target, level, GL_TEXTURE_INTERNAL_FORMAT, &realInternalFormat);
+        internalformat = (GLenum)realInternalFormat;
+        auto mglInternalFormat = MG_Util::ConvertGLEnumToTextureInternalFormat(internalformat);
+
+        GLenum format = GL_DEPTH_COMPONENT;
+        GLenum type = GL_UNSIGNED_INT;
+        TextureImpl::GenerateTextureFormatInfo(mglInternalFormat, &internalformat, &format, &type);
+        TexturePixelDataType texturePixelDataType = MG_Util::ConvertGLEnumToTexturePixelDataType(type);
+
+        bool isDepthFormat = MG_Util::IsDepthFormatInternalFormat(
+                MG_Util::ConvertGLEnumToTextureInternalFormat(internalformat));
+
+        if (!isDepthFormat) {
+            MG_External::GLES::glCopyTexImage2D(
+                    target, level, internalformat, x, y, width, height, border);
+        } else {
+            MGLOG_D("%s: Backend depth", __func__);
+            MG_External::GLES::glTexImage2D(target, level, (GLint)internalformat, width, height, border, format, type, nullptr);
+            FramebufferImpl::BackendFramebufferBindingProtector drawFboProtector(GL_DRAW_FRAMEBUFFER);
+            FramebufferImpl::BackendFramebufferBindingProtector readFboProtector(GL_READ_FRAMEBUFFER);
+
+            FramebufferImpl::BackendFramebufferBindingProtector::BindTempFBO(FramebufferTarget::Draw);
+            GLint currentTex;
+            MG_External::GLES::glGetIntegerv(Utils::GetBindingQuery(target, false), &currentTex);
+            MG_External::GLES::glFramebufferTexture2D(GL_DRAW_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, target, currentTex, level);
+            if (MG_External::GLES::glCheckFramebufferStatus(GL_DRAW_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
+                // Protector will automatically revert to previous fbo states
+                return;
+            }
+
+            MG_External::GLES::glBlitFramebuffer(x, y, x + width, y + height, 0, 0, width, height, GL_DEPTH_BUFFER_BIT, GL_NEAREST);
+            // Protector will automatically revert to previous fbo states
+        }
+
+        // TODO: potential desync between MG_State and backend
+        auto activeUnit =
+                MG_State::pGLContext->GetTextureUnitObject(MG_State::pGLContext->GetActiveTextureUnit());
+        TextureTarget textureTarget = MG_Util::ConvertGLEnumToTextureTarget(target);
+        auto& bindingSlot = activeUnit.GetBindingSlot(textureTarget);
+        auto textureObject = bindingSlot.GetBoundObject();
+
+
+        const SizeT bytesPerPixel = MG_Util::GetInputBytesPerPixel(mglInternalFormat, texturePixelDataType);
+        const SizeT totalBytes = width * height * bytesPerPixel;
+
+        MG_State::GLState::MipmapLevelInput mipmap =
+                MG_State::GLState::MipmapLevelInput({width, height, 1}, level, false, 0,
+                                                    {nullptr, totalBytes});
+
+        textureObject->SetInternalFormat(mglInternalFormat);
+        textureObject->SetMipmapLevel(mipmap);
+    }
+
+    void CopyTexSubImage2D(GLenum target, GLint level, GLint xoffset, GLint yoffset, GLint x, GLint y,
+                           GLsizei width, GLsizei height) {
+        MGLOG_D("%s: Backend", __func__);
+        TextureImpl::SyncNeccessaryTextures();
+        FramebufferImpl::SyncCurrentFBO();
+        RenderStateImpl::SyncRenderState();
+
+        BindCurrentFBO(FramebufferTarget::Read);
+
+        GLenum internalFormat;
+        MG_External::GLES::glGetTexLevelParameteriv(target, level, GL_TEXTURE_INTERNAL_FORMAT, (GLint *)&internalFormat);
+
+        auto mglInternalFormat = MG_Util::ConvertGLEnumToTextureInternalFormat(internalFormat);
+
+        bool isDepthFormat = MG_Util::IsDepthFormatInternalFormat(mglInternalFormat);
+        bool isStencilFormat = MG_Util::IsStencilFormatInternalFormat(mglInternalFormat);
+
+        if (!isDepthFormat) {
+            MG_External::GLES::glCopyTexSubImage2D(
+                    target, level, xoffset, yoffset, x, y, width, height);
+        } else {
+            MGLOG_D("%s: Backend depth", __func__);
+            FramebufferImpl::BackendFramebufferBindingProtector drawFboProtector(GL_DRAW_FRAMEBUFFER);
+            FramebufferImpl::BackendFramebufferBindingProtector readFboProtector(GL_READ_FRAMEBUFFER);
+            FramebufferImpl::BackendFramebufferBindingProtector::BindTempFBO(FramebufferTarget::Draw);
+            GLint currentTex;
+            MG_External::GLES::glGetIntegerv(Utils::GetBindingQuery(target, false), &currentTex);
+            MG_External::GLES::glFramebufferTexture2D(GL_DRAW_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, target, currentTex, level);
+            if (MG_External::GLES::glCheckFramebufferStatus(GL_DRAW_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
+                // Protector will automatically revert to previous fbo states
+                return;
+            }
+
+            MG_External::GLES::glBlitFramebuffer(x, y, x + width, y + height, xoffset, yoffset, xoffset + width, yoffset + height,
+                                   GL_DEPTH_BUFFER_BIT | (isStencilFormat ? GL_STENCIL_BUFFER_BIT : 0), GL_NEAREST);
+            // Protector will automatically revert to previous fbo states
+        }
     }
 
     const GLubyte* GetString(GLenum name) {

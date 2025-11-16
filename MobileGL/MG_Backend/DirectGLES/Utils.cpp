@@ -1,10 +1,12 @@
 #include "DirectGLES.h"
 #include "Utils.h"
 #include "Managers.h"
+#include "MG_Util/Converters/GLToMG/FramebufferEnumConverter.h"
 #include <MG_State/GLState/Core.h>
 #include <MG_Util/BackendLoaders/OpenGL/Loader.h>
 #include <MG_Util/Converters/GLToStr/GLEnumConverter.h>
 #include <MG_Util/Converters/MGToGL/TextureEnumConverter.h>
+#include <MG_Util/Converters/MGToGL/FramebufferEnumConverter.h>
 
 namespace MobileGL::MG_Backend::DirectGLES {
     namespace BufferImpl {
@@ -290,6 +292,21 @@ namespace MobileGL::MG_Backend::DirectGLES {
 
         BackendFramebufferBindingProtector::~BackendFramebufferBindingProtector() {
             MG_External::GLES::glBindFramebuffer(m_target, m_previousBinding);
+        }
+
+        GLuint BackendFramebufferBindingProtector::GetTempFBO(FramebufferTarget target) {
+            GLenum glTarget = MG_Util::ConvertFramebufferTargetToGLEnum(target);
+            GLuint& fbo = (glTarget == GL_DRAW_FRAMEBUFFER) ? s_tempDrawFBO : s_tempReadFBO;
+            if (fbo == 0) {
+                MG_External::GLES::glGenFramebuffers(1, &fbo);
+            }
+            return fbo;
+        }
+
+        void BackendFramebufferBindingProtector::BindTempFBO(MobileGL::FramebufferTarget target) {
+            GLuint fbo = GetTempFBO(target);
+            GLenum glTarget = MG_Util::ConvertFramebufferTargetToGLEnum(target);
+            MG_External::GLES::glBindFramebuffer(glTarget, fbo);
         }
     } // namespace FramebufferImpl
 

@@ -54,9 +54,13 @@ namespace MobileGL::MG_Backend::DirectGLES {
 
             ~BackendFramebufferBindingProtector();
 
+            static GLuint GetTempFBO(FramebufferTarget target);
+            static void BindTempFBO(FramebufferTarget target);
         private:
             GLenum m_target;
             GLint m_previousBinding = 0;
+            inline static GLuint s_tempReadFBO = 0;
+            inline static GLuint s_tempDrawFBO = 0;
         };
     } // namespace FramebufferImpl
 
