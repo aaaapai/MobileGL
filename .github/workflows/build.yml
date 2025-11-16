@@ -18,7 +18,7 @@ jobs:
     steps:
     - uses: actions/checkout@main
       with:
-         submodules: false
+         submodules: true
 
     - name: Configure CMake and Build
       run: bash android_ci_build.bash
@@ -29,3 +29,5 @@ jobs:
         name: MobileGGGGGGGGGGGGGL
         path: |
               **/libMobileGL.so
+              3rdparty/SPIRV-Cross/**/libspirv-cross-c.a
+              3rdparty/glslang/**/libglslang.a
