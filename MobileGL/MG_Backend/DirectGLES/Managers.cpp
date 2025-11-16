@@ -245,6 +245,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
         }
 
         void BackendTextureObject::SyncToBackend(SharedPtr<MG_State::GLState::ITextureObject>& stateTextureObject) {
+            DebugImpl::ErrorLopper errorLopper;
             if (!stateTextureObject) {
                 MGLOG_E("State texture object is null, cannot sync to backend.");
                 return;
@@ -268,6 +269,9 @@ namespace MobileGL::MG_Backend::DirectGLES {
 
             BackendTextureBindingProtector backendTextureBindingProtector(target);
             Bind(target);
+            errorLopper.Loop([file = __FILE__, line = __LINE__, func = __func__](GLenum err) {
+                MGLOG_D("%s(%s:%d) ES error: %s", func, file, line, MG_Util::ConvertGLEnumToString(err).c_str());
+            });
 
             StateTextureBasicInfo currentTextureInfo = {
                 stateTextureObject->GetFormat(), static_cast<SizeT>(stateTextureObject->GetBaseSize().x()),
@@ -290,11 +294,21 @@ namespace MobileGL::MG_Backend::DirectGLES {
 
                     BufferImpl::BackendBufferBindingProtector pixelUnpackProtector =
                         BufferImpl::BackendBufferBindingProtector(GL_PIXEL_UNPACK_BUFFER);
+                    errorLopper.Clear();
                     MG_External::GLES::glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
                     MG_External::GLES::glTexImage2D(GL_TEXTURE_2D, static_cast<GLint>(level), glInternalFormat,
                                                     static_cast<GLsizei>(mipmap.size.x()),
                                                     static_cast<GLsizei>(mipmap.size.y()), 0, glFormat, glType,
                                                     mipmap.hasData ? mipmap.data.data() : nullptr);
+
+                    errorLopper.Loop([index = stateTextureObject->GetExternalIndex(), &mipmap, level, glInternalFormat, glFormat, glType, file = __FILE__, line = __LINE__, func = __func__](GLenum err) {
+                        MGLOG_D("%s(%s:%d) ES error: %s, texobj %d, mip %d (%dx%d, %s, %s, %s)", func, file, line, MG_Util::ConvertGLEnumToString(err).c_str(),
+                                index, level, mipmap.size.x(), mipmap.size.y(),
+                                MG_Util::ConvertGLEnumToString(glInternalFormat).c_str(),
+                                MG_Util::ConvertGLEnumToString(glFormat).c_str(),
+                                MG_Util::ConvertGLEnumToString(glType).c_str()
+                                );
+                    });
                     // TODO: handle more texture types
 
                     MGLOG_D("Regenerated mipmap level %d for texture with ID: %u", level, m_backendTextureId);
