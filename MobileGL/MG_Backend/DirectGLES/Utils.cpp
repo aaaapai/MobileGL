@@ -72,7 +72,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 if (outType) *outType = GL_UNSIGNED_INT;
                 if (outFormat) *outFormat = GL_DEPTH_COMPONENT;
                 break;
-
+            case GL_DEPTH32F_STENCIL8:
             case GL_DEPTH_STENCIL:
                 if (outInternalFormat) *outInternalFormat = GL_DEPTH32F_STENCIL8;
                 if (outType) *outType = GL_FLOAT_32_UNSIGNED_INT_24_8_REV;
@@ -181,7 +181,9 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 break;
 
             case GL_RGBA16: {
-                if (outInternalFormat) *outInternalFormat = internalFormat;
+                // TODO: check for extension GL_EXT_texture_norm16 for eligibility of (GL_RGBA16, GL_UNSIGNED_SHORT)
+                // Most Mali does not support this (< Mali-G6xx, some G720?)
+                if (outInternalFormat) *outInternalFormat = GL_RGBA16F;
                 if (outType) *outType = GL_FLOAT;
                 if (outFormat) *outFormat = GL_RGBA;
                 break;
