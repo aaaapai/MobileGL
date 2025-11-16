@@ -177,7 +177,7 @@ namespace MobileGL {
             case GL_TEXTURE_SWIZZLE_G:
             case GL_TEXTURE_SWIZZLE_B:
             case GL_TEXTURE_SWIZZLE_A: {
-                auto swizzleParam = MG_Util::ConvertGLEnumToTextureSwizzleParam(pname);
+                auto swizzleParam = MG_Util::ConvertGLEnumPnameToTextureSwizzleParam(pname);
                 auto swizzleValue = MG_Util::ConvertGLEnumToTextureSwizzleParam(param);
                 textureObject->SetSwizzleParam(swizzleParam, swizzleValue);
                 break;
@@ -258,7 +258,7 @@ namespace MobileGL {
             case GL_TEXTURE_SWIZZLE_G:
             case GL_TEXTURE_SWIZZLE_B:
             case GL_TEXTURE_SWIZZLE_A: {
-                auto swizzleParam = MG_Util::ConvertGLEnumToTextureSwizzleParam(pname);
+                auto swizzleParam = MG_Util::ConvertGLEnumPnameToTextureSwizzleParam(pname);
                 auto swizzleValue = MG_Util::ConvertGLEnumToTextureSwizzleParam(param);
                 textureObject->SetSwizzleParam(swizzleParam, swizzleValue);
                 break;
@@ -495,11 +495,6 @@ namespace MobileGL {
                 break;
             case GL_TEXTURE_BASE_LEVEL:
             case GL_TEXTURE_MAX_LEVEL:
-            case GL_TEXTURE_SWIZZLE_R:
-            case GL_TEXTURE_SWIZZLE_G:
-            case GL_TEXTURE_SWIZZLE_B:
-            case GL_TEXTURE_SWIZZLE_A:
-            case GL_TEXTURE_SWIZZLE_RGBA:
             case GL_TEXTURE_BORDER_COLOR:
                 break; // TODO
             case GL_TEXTURE_WRAP_S:
