@@ -394,6 +394,22 @@ namespace MobileGL::MG_Backend::DirectGLES {
                     auto locAtBackend = MG_External::GLES::glGetUniformLocation(
                         backendProgramIt->second->GetBackendProgramId(), name.c_str());
                     MG_External::GLES::glUniform1i(locAtBackend, unit);
+
+                    auto samplerObject = MG_State::pGLContext->GetTextureUnitObject(unit).GetSamplerObject();
+
+                    if (samplerObject) {
+                        const auto& backendSamplerIt = SamplerImpl::g_backendSamplerObjects.find(samplerObject);
+                        SharedPtr<SamplerImpl::BackendSamplerObject> backendSamplerObject;
+                        if (backendSamplerIt == SamplerImpl::g_backendSamplerObjects.end()) {
+                            backendSamplerObject = MakeShared<SamplerImpl::BackendSamplerObject>();
+                            SamplerImpl::g_backendSamplerObjects[samplerObject] = backendSamplerObject;
+                        } else {
+                            backendSamplerObject = backendSamplerIt->second;
+                        }
+                        backendSamplerObject->SyncToBackend(samplerObject);
+                    } else {
+                        MG_External::GLES::glBindSampler(unit, 0);
+                    }
                 }
             } else {
                 MG_External::GLES::glUseProgram(0);

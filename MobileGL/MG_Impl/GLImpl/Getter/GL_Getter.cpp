@@ -856,6 +856,7 @@ namespace MobileGL {
             case GL_MAX_COLOR_ATTACHMENTS:
             case GL_MAX_DRAW_BUFFERS:
                 *params = MG_State::GLState::FramebufferObject::MAX_DRAW_BUFFERS; // TODO: use backend value
+                break;
             default:
                 MGLOG_E("glGetIntegerv: Invalid enum %s (0x%X)", MG_Util::ConvertGLEnumToString(pname).c_str(), pname);
                 MG_State::pGLContext->RecordError(
