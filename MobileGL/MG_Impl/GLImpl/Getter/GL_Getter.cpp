@@ -366,7 +366,7 @@ namespace MobileGL {
                 *params = 1024 * 4; // TODO
                 break;
             case GL_MAX_FRAGMENT_UNIFORM_VECTORS:
-                *params = 1024; // TODO
+                *params = 256; // TODO
                 break;
             case GL_MAX_FRAGMENT_UNIFORM_BLOCKS:
                 *params = 14; // TODO
