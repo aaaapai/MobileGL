@@ -46,8 +46,10 @@ namespace MobileGL {
             // TODO: implement
         }
 
-        void GenerateMipmap_State(GLenum target) {
-            // TODO: implement
+        void GenerateMipmap_Backend(GLenum target) {
+#if MOBILEGL_BACKEND == MOBILEGL_BACKEND_TYPE_DIRECT_GLES
+            MG_Backend::DirectGLES::GenerateMipmap(target);
+#endif
         }
 
         void GenRenderbuffers_State(GLsizei n, GLuint* renderbuffers) {
@@ -325,7 +327,7 @@ namespace MobileGL {
         }
 
         void GenerateMipmap(GLenum target) {
-            GenerateMipmap_State(target);
+            GenerateMipmap_Backend(target);
         }
 
         void GenRenderbuffers(GLsizei n, GLuint* renderbuffers) {

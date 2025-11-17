@@ -112,6 +112,19 @@ namespace MobileGL::MG_Backend::DirectGLES {
     } // namespace VertexArrayImpl
 
     namespace TextureImpl {
+        SharedPtr<BackendTextureObject> SyncTextureObjectToBackend(SharedPtr<MG_State::GLState::ITextureObject>& textureObject) {
+            const auto& backendTextureIt = g_backendTextureObjects.find(textureObject);
+            SharedPtr<BackendTextureObject> backendTextureObject;
+            if (backendTextureIt == g_backendTextureObjects.end()) {
+                backendTextureObject = MakeShared<BackendTextureObject>();
+                g_backendTextureObjects[textureObject] = backendTextureObject;
+            } else {
+                backendTextureObject = backendTextureIt->second;
+            }
+            backendTextureObject->SyncToBackend(textureObject);
+            return backendTextureObject;
+        }
+
         void SyncNeccessaryTextures() {
             // All textures we need are:
             //   1. textures bound to texture units (TODO: only sync ones that are used in current program)
@@ -144,15 +157,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
 
             // Do real sync
             for (auto& textureObject : texturesToSync) {
-                const auto& backendTextureIt = g_backendTextureObjects.find(textureObject);
-                SharedPtr<BackendTextureObject> backendTextureObject;
-                if (backendTextureIt == g_backendTextureObjects.end()) {
-                    backendTextureObject = MakeShared<BackendTextureObject>();
-                    g_backendTextureObjects[textureObject] = backendTextureObject;
-                } else {
-                    backendTextureObject = backendTextureIt->second;
-                }
-                backendTextureObject->SyncToBackend(textureObject);
+                SyncTextureObjectToBackend(textureObject);
             }
         }
     } // namespace TextureImpl
@@ -486,14 +491,30 @@ namespace MobileGL::MG_Backend::DirectGLES {
 
     void BlitFramebuffer(GLint srcX0, GLint srcY0, GLint srcX1, GLint srcY1, GLint dstX0, GLint dstY0, GLint dstX1,
                          GLint dstY1, GLbitfield mask, GLenum filter) {
+        DebugImpl::ErrorLopper errorLopper;
+
         TextureImpl::SyncNeccessaryTextures();
+        errorLopper.Loop([file = __FILE__, line = __LINE__](auto err) {
+            MGLOG_D("ES error (%s:%d): %s", file, line, MG_Util::ConvertGLEnumToString(err).c_str());
+        });
         FramebufferImpl::SyncCurrentFBO();
+        errorLopper.Loop([file = __FILE__, line = __LINE__](auto err) {
+            MGLOG_D("ES error (%s:%d): %s", file, line, MG_Util::ConvertGLEnumToString(err).c_str());
+        });
         RenderStateImpl::SyncRenderState();
+        errorLopper.Loop([file = __FILE__, line = __LINE__](auto err) {
+            MGLOG_D("ES error (%s:%d): %s", file, line, MG_Util::ConvertGLEnumToString(err).c_str());
+        });
 
         BindCurrentFBO(FramebufferTarget::Draw);
         BindCurrentFBO(FramebufferTarget::Read);
-
+        errorLopper.Loop([file = __FILE__, line = __LINE__](auto err) {
+            MGLOG_D("ES error (%s:%d): %s", file, line, MG_Util::ConvertGLEnumToString(err).c_str());
+        });
         MG_External::GLES::glBlitFramebuffer(srcX0, srcY0, srcX1, srcY1, dstX0, dstY0, dstX1, dstY1, mask, filter);
+        errorLopper.Loop([file = __FILE__, line = __LINE__](auto err) {
+            MGLOG_D("ES error (%s:%d): %s", file, line, MG_Util::ConvertGLEnumToString(err).c_str());
+        });
     }
 
     void CopyTexImage2D(GLenum target, GLint level, GLenum internalformat, GLint x, GLint y, GLsizei width,
@@ -660,6 +681,18 @@ namespace MobileGL::MG_Backend::DirectGLES {
             });
             // Protector will automatically revert to previous fbo states
         }
+    }
+
+    void GenerateMipmap(GLenum target) {
+        auto unitIndex = MG_State::pGLContext->GetActiveTextureUnit();
+        auto& unit = MG_State::pGLContext->GetTextureUnitObject(unitIndex);
+        auto& slot = unit.GetBindingSlot(MG_Util::ConvertGLEnumToTextureTarget(target));
+        auto texture = slot.GetBoundObject();
+        auto backendTexture = TextureImpl::SyncTextureObjectToBackend(texture);
+
+        TextureImpl::BackendTextureBindingProtector protector(target);
+        backendTexture->Bind(target);
+        MG_External::GLES::glGenerateMipmap(target);
     }
 
     const GLubyte* GetString(GLenum name) {
