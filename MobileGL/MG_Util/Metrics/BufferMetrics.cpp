@@ -16,6 +16,7 @@ namespace MobileGL {
             case GL_UNSIGNED_SHORT_4_4_4_4:
             case GL_UNSIGNED_SHORT_5_5_5_1:
                 return 2;
+            case GL_BOOL:
             case GL_INT:
             case GL_UNSIGNED_INT:
             case GL_FLOAT:
