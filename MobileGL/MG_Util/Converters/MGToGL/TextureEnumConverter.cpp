@@ -376,6 +376,8 @@ namespace MobileGL {
                 return GL_REPEAT;
             case SamplerWrapMode::ClampToBorder:
                 return GL_CLAMP_TO_BORDER;
+            case SamplerWrapMode::MirrorClampToEdge:
+                return GL_MIRROR_CLAMP_TO_EDGE;
             default:
                 return GL_UNKNOWN_MGL;
             }

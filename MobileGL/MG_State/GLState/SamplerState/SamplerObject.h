@@ -22,6 +22,7 @@ namespace MobileGL {
         MirroredRepeat,
         Repeat,
         ClampToBorder,
+        MirrorClampToEdge,
         SamplerWrapModeCount,
         Unknown = -1
     };
