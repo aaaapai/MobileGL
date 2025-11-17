@@ -12,6 +12,7 @@ namespace MobileGL {
     enum class SamplerMipmapMode {
         None,
         Nearest,
+        Linear,
         SamplerMipmapModeCount,
         Unknown = -1
     };

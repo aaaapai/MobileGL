@@ -316,20 +316,30 @@ namespace MobileGL {
         SamplerFilterMode ConvertGLEnumToSamplerFilterMode(GLenum v) {
             switch (v) {
             case GL_NEAREST:
+            case GL_NEAREST_MIPMAP_NEAREST:
+            case GL_NEAREST_MIPMAP_LINEAR:
                 return SamplerFilterMode::Nearest;
             case GL_LINEAR:
+            case GL_LINEAR_MIPMAP_NEAREST:
+            case GL_LINEAR_MIPMAP_LINEAR:
                 return SamplerFilterMode::Linear;
             default:
+                MGLOG_D("Unknown SamplerFilterMode %s", MG_Util::ConvertGLEnumToString(v).c_str());
                 return SamplerFilterMode::Unknown;
             }
         }
 
         SamplerMipmapMode ConvertGLEnumToSamplerMipmapMode(GLenum v) {
             switch (v) {
-            case 0:
+            case GL_NEAREST:
+            case GL_LINEAR:
                 return SamplerMipmapMode::None; // 无 mipmap 时
             case GL_NEAREST_MIPMAP_NEAREST:
+            case GL_LINEAR_MIPMAP_NEAREST:
                 return SamplerMipmapMode::Nearest;
+            case GL_NEAREST_MIPMAP_LINEAR:
+            case GL_LINEAR_MIPMAP_LINEAR:
+                return SamplerMipmapMode::Linear;
             default:
                 return SamplerMipmapMode::Unknown;
             }

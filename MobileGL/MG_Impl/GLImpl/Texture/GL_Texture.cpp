@@ -156,6 +156,7 @@ namespace MobileGL {
                 break;
             case GL_TEXTURE_MIN_FILTER:
                 textureObject->GetSamplerObject()->SetMinFilter(MG_Util::ConvertGLEnumToSamplerFilterMode(param));
+                textureObject->GetSamplerObject()->SetMipmapMode(MG_Util::ConvertGLEnumToSamplerMipmapMode(param));
                 break;
             case GL_TEXTURE_MIN_LOD: {
                 Float maxLod = textureObject->GetSamplerObject()->GetMaxLod();
@@ -237,6 +238,7 @@ namespace MobileGL {
                 break;
             case GL_TEXTURE_MIN_FILTER:
                 textureObject->GetSamplerObject()->SetMinFilter(MG_Util::ConvertGLEnumToSamplerFilterMode(param));
+                textureObject->GetSamplerObject()->SetMipmapMode(MG_Util::ConvertGLEnumToSamplerMipmapMode(param));
                 break;
             case GL_TEXTURE_MIN_LOD: {
                 Float maxLod = textureObject->GetSamplerObject()->GetMaxLod();
@@ -474,13 +476,13 @@ namespace MobileGL {
             case GL_TEXTURE_MAG_FILTER:
                 if (params) {
                     *params =
-                        MG_Util::ConvertSamplerFilterModeToGLEnum(textureObject->GetSamplerObject()->GetMagFilter());
+                        MG_Util::ConvertSamplerFilterModeToGLEnum(textureObject->GetSamplerObject()->GetMagFilter(), SamplerMipmapMode::None);
                 }
                 break;
             case GL_TEXTURE_MIN_FILTER:
                 if (params) {
                     *params =
-                        MG_Util::ConvertSamplerFilterModeToGLEnum(textureObject->GetSamplerObject()->GetMinFilter());
+                        MG_Util::ConvertSamplerFilterModeToGLEnum(textureObject->GetSamplerObject()->GetMinFilter(), textureObject->GetSamplerObject()->GetMipmapMode());
                 }
                 break;
             case GL_TEXTURE_MIN_LOD:
@@ -554,13 +556,13 @@ namespace MobileGL {
             case GL_TEXTURE_MAG_FILTER:
                 if (params) {
                     *params =
-                        MG_Util::ConvertSamplerFilterModeToGLEnum(textureObject->GetSamplerObject()->GetMagFilter());
+                        MG_Util::ConvertSamplerFilterModeToGLEnum(textureObject->GetSamplerObject()->GetMagFilter(), SamplerMipmapMode::None);
                 }
                 break;
             case GL_TEXTURE_MIN_FILTER:
                 if (params) {
                     *params =
-                        MG_Util::ConvertSamplerFilterModeToGLEnum(textureObject->GetSamplerObject()->GetMinFilter());
+                        MG_Util::ConvertSamplerFilterModeToGLEnum(textureObject->GetSamplerObject()->GetMinFilter(), textureObject->GetSamplerObject()->GetMipmapMode());
                 }
                 break;
             case GL_TEXTURE_MIN_LOD:
