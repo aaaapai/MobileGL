@@ -395,13 +395,15 @@ namespace MobileGL {
                 processedPixels = MG_Util::PixelStoreProcessor::ProcessTexturePixelsDataUnpack(
                     originalPixels, MG_State::pGLContext->GetPixelStoreParameters(true), bytesPerPixel,
                     {width, height, 1}, false, imageSize);
+            } else {
+                MGLOG_D("TexImage2D_State: No input pixel, do allocate only");
             }
 
             MG_State::GLState::MipmapLevelInput mipmap =
                 MG_State::GLState::MipmapLevelInput({width, height, 1}, level, false, 0,
-                                                    {isProxy ? nullptr : malloc(totalBytes), isProxy ? 0 : totalBytes});
+                                                    {(isProxy || originalPixels == nullptr) ? nullptr : malloc(totalBytes), isProxy ? 0 : totalBytes});
 
-            if (!isProxy && !mipmap.inputData.data) {
+            if (!isProxy && originalPixels != nullptr && !mipmap.inputData.data) {
                 MGLOG_E("TexImage2D_State: Failed to allocate memory for mipmap level data, size: %zu", totalBytes);
                 free(processedPixels);
                 processedPixels = nullptr;
