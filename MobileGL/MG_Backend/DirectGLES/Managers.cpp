@@ -520,66 +520,88 @@ namespace MobileGL::MG_Backend::DirectGLES {
             if (asTarget == FramebufferTarget::Draw) {
                 // Create mappings for draw buffers
                 int nBuffers = 0;
-                std::fill(m_frontendBuffers, m_frontendBuffers + MG_State::GLState::FramebufferObject::MAX_DRAW_BUFFERS,
+                std::fill(m_frontendDrawBuffers, m_frontendDrawBuffers + MG_State::GLState::FramebufferObject::MAX_DRAW_BUFFERS,
+                          FramebufferAttachmentType::None);
+                std::fill(m_compactedFrontendDrawBuffers,
+                          m_compactedFrontendDrawBuffers + MG_State::GLState::FramebufferObject::MAX_DRAW_BUFFERS,
+                          FramebufferAttachmentType::None);
+                std::fill(m_backendDrawBuffers, m_backendDrawBuffers + MG_State::GLState::FramebufferObject::MAX_DRAW_BUFFERS,
                           GL_NONE);
-                std::fill(m_backendBuffers, m_backendBuffers + MG_State::GLState::FramebufferObject::MAX_DRAW_BUFFERS,
-                          GL_NONE);
-                std::fill(m_compactedFrontendBuffers,
-                          m_compactedFrontendBuffers + MG_State::GLState::FramebufferObject::MAX_DRAW_BUFFERS, GL_NONE);
                 auto& stateDrawBuffers = stateFBOObject->GetDrawBuffers();
                 for (GLint i = 0; i < MG_State::GLState::FramebufferObject::MAX_DRAW_BUFFERS; ++i) {
                     if (stateDrawBuffers[i] == FramebufferAttachmentType::None) {
-                        m_frontendBuffers[i] = GL_NONE;
+                        m_frontendDrawBuffers[i] = FramebufferAttachmentType::None;
                         continue;
                     }
 
-                    m_frontendBuffers[i] = MG_Util::ConvertFramebufferAttachmentTypeToGLEnum(stateDrawBuffers[i]);
+                    m_frontendDrawBuffers[i] = stateDrawBuffers[i];
 
                     // Create compacted mapping
-                    m_backendBuffers[nBuffers] = GL_COLOR_ATTACHMENT0 + nBuffers;
-                    m_compactedFrontendBuffers[nBuffers] = m_frontendBuffers[i];
+                    m_backendDrawBuffers[nBuffers] = GL_COLOR_ATTACHMENT0 + nBuffers;
+                    m_compactedFrontendDrawBuffers[nBuffers] = m_frontendDrawBuffers[i];
                     nBuffers++;
                 }
 
-                MG_External::GLES::glDrawBuffers(nBuffers, m_backendBuffers);
+                MG_External::GLES::glDrawBuffers(nBuffers, m_backendDrawBuffers);
 
                 // Attach textures for compacted draw buffers
-                for (int i = 0; i < nBuffers; ++i) {
-                    FramebufferAttachmentType frontendAttachmentType =
-                        MG_Util::ConvertGLEnumToFramebufferAttachmentType(m_compactedFrontendBuffers[i]);
-                    GLenum backendAttachment = m_backendBuffers[i];
-                    const auto& attachment = attachments[static_cast<SizeT>(frontendAttachmentType)];
-                    if (!attachment.IsTexture()) continue;
-                    const auto& textureObject = attachment.GetTexture();
-                    const auto& backendTextureIt = TextureImpl::g_backendTextureObjects.find(textureObject);
-                    if (backendTextureIt == TextureImpl::g_backendTextureObjects.end()) continue;
-                    const auto& backendTextureObject = backendTextureIt->second;
-                    auto glTextureTarget = MG_Util::ConvertTextureTargetToGLEnum(textureObject->GetTarget());
-                    backendTextureObject->Bind(glTextureTarget);
-                    MG_External::GLES::glFramebufferTexture2D(glFBOTarget, backendAttachment, glTextureTarget,
-                                                              backendTextureObject->GetBackendTextureId(),
-                                                              static_cast<GLint>(attachment.GetTextureLevel()));
-                }
+//                for (int i = 0; i < nBuffers; ++i) {
+//                    FramebufferAttachmentType frontendAttachmentType =
+//                        MG_Util::ConvertGLEnumToFramebufferAttachmentType(m_compactedFrontendBuffers[i]);
+//                    GLenum backendAttachment = m_backendBuffers[i];
+//                    const auto& attachment = attachments[static_cast<SizeT>(frontendAttachmentType)];
+//                    if (!attachment.IsTexture()) continue;
+//                    const auto& textureObject = attachment.GetTexture();
+//                    const auto& backendTextureIt = TextureImpl::g_backendTextureObjects.find(textureObject);
+//                    if (backendTextureIt == TextureImpl::g_backendTextureObjects.end()) continue;
+//                    const auto& backendTextureObject = backendTextureIt->second;
+//                    auto glTextureTarget = MG_Util::ConvertTextureTargetToGLEnum(textureObject->GetTarget());
+//                    backendTextureObject->Bind(glTextureTarget);
+//                    MG_External::GLES::glFramebufferTexture2D(glFBOTarget, backendAttachment, glTextureTarget,
+//                                                              backendTextureObject->GetBackendTextureId(),
+//                                                              static_cast<GLint>(attachment.GetTextureLevel()));
+//                }
 
                 stateFBOObject->ClearDrawBuffersDirtyState();
             }
             // Handle read buffer for READ_FRAMEBUFFER
             else if (asTarget == FramebufferTarget::Read) {
-                FramebufferAttachmentType readBufferType = stateFBOObject->GetReadBuffer();
-                GLenum frontendAtt = MG_Util::ConvertFramebufferAttachmentTypeToGLEnum(readBufferType);
+                m_frontendReadBuffer = stateFBOObject->GetReadBuffer();
+                GLenum frontendAtt = MG_Util::ConvertFramebufferAttachmentTypeToGLEnum(m_frontendReadBuffer);
                 GLenum backendAtt = GL_NONE;
                 // Find corresponding backend attachment in compacted draw buffers
-                for (SizeT i = 0; i < MG_State::GLState::FramebufferObject::MAX_DRAW_BUFFERS; ++i) {
-                    if (m_compactedFrontendBuffers[i] == frontendAtt) {
-                        backendAtt = m_backendBuffers[i];
-                        break;
+//                for (SizeT i = 0; i < MG_State::GLState::FramebufferObject::MAX_DRAW_BUFFERS; ++i) {
+//                    if (m_compactedFrontendBuffers[i] == frontendAtt) {
+//                        backendAtt = m_backendBuffers[i];
+//                        break;
+//                    }
+//                }
+//                if (backendAtt != GL_NONE) {
+//                    MG_External::GLES::glReadBuffer(backendAtt);
+//                } else {
+                const auto& readAttachment = attachments[(SizeT)m_frontendReadBuffer];
+                GLenum glAttachment = MG_Util::ConvertFramebufferAttachmentTypeToGLEnum(m_frontendReadBuffer);
+                if (!readAttachment.IsValid() || readAttachment.IsEmpty()) {
+                    return;
+                }
+                if (readAttachment.IsTexture()) {
+                    const auto& textureObject = readAttachment.GetTexture();
+                    const auto& backendTextureIt = TextureImpl::g_backendTextureObjects.find(textureObject);
+                    if (backendTextureIt == TextureImpl::g_backendTextureObjects.end()) {
+                        MGLOG_E("ReadBuffer: No backend texture found for FBO attachment, cannot bind texture.");
+                        return;
                     }
+                    const auto& backendTextureObject = backendTextureIt->second;
+                    auto glTextureTarget = MG_Util::ConvertTextureTargetToGLEnum(textureObject->GetTarget());
+                    backendTextureObject->Bind(glTextureTarget);
+                    MG_External::GLES::glFramebufferTexture2D(glFBOTarget, glAttachment, glTextureTarget,
+                                                              backendTextureObject->GetBackendTextureId(),
+                                                              static_cast<GLint>(readAttachment.GetTextureLevel()));
+                } else if (readAttachment.IsRenderbuffer()) {
+                    // TODO: renderbuffer support
                 }
-                if (backendAtt != GL_NONE) {
-                    MG_External::GLES::glReadBuffer(backendAtt);
-                } else {
-                    MG_External::GLES::glReadBuffer(frontendAtt);
-                }
+                MG_External::GLES::glReadBuffer(glAttachment);
+//                }
             }
         }
 
