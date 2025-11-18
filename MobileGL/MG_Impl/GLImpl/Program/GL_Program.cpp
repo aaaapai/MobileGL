@@ -491,13 +491,13 @@ namespace MobileGL {
             MG_State::pGLContext->UseProgram(program);
         }
 
-        template <GLsizei VecCount, typename T>
-        void Uniform_State(MG_State::GLState::ProgramObject& programObject, GLuint location, T* value) {
+        template <GLsizei ItemCount, typename T>
+        void Uniform_State(MG_State::GLState::ProgramObject& programObject, GLuint location, T* value, SizeT byteOffsetInsideUniform = 0) {
             if (!programObject.IsUniformOpaqueAtLocation(location)) {
                 auto size = programObject.GetUniformSizesInBytes(location);
                 auto offset = programObject.GetUniformOffset(location);
-                assert(size >= VecCount * sizeof(T));
-                memcpy((char*)programObject.MapUBO() + offset, value, VecCount * sizeof(T));
+                assert(size >= ItemCount * sizeof(T));
+                memcpy((char*)programObject.MapUBO() + offset + byteOffsetInsideUniform, value, ItemCount * sizeof(T));
             } else {
                 auto* ttype = programObject.GetUniformTType(location);
                 if (ttype->isTexture() || ttype->isImage()) {
@@ -506,7 +506,7 @@ namespace MobileGL {
             }
         }
 
-        template <GLsizei VecCount, typename T>
+        template <GLsizei ItemCount, typename T>
         void Uniformv_State(GLint location, GLsizei count, T* value) {
             if (location == -1) return;
 
@@ -530,7 +530,7 @@ namespace MobileGL {
             }
 
             for (GLint offset = 0; offset < count; offset++) {
-                Uniform_State<VecCount>(*programObject, location + offset, value + offset * VecCount);
+                Uniform_State<ItemCount>(*programObject, location + offset, value + offset * ItemCount);
             }
         }
 
@@ -697,15 +697,20 @@ namespace MobileGL {
             }
 
             // For matrix uniforms, we handle each matrix individually
+            // Handle padding in mat3 correctly!!
             for (GLint i = 0; i < count; i++) {
                 if (transpose == GL_TRUE) {
                     // Transpose the matrix before uploading
                     GLfloat transposedMatrix[9];
                     TransposeMatrix3x3(value + i * 9, transposedMatrix);
-                    Uniform_State<9>(*programObject, location + i, transposedMatrix);
+                    for (int row = 0; row < 3; ++row) {
+                        Uniform_State<3>(*programObject, location + i, transposedMatrix + row * 3, row * 4 * sizeof(float));
+                    }
                 } else {
                     // No transpose needed, directly copy the matrix data
-                    Uniform_State<9>(*programObject, location + i, value + i * 9);
+                    for (int row = 0; row < 3; ++row) {
+                        Uniform_State<3>(*programObject, location + i, value + i * 9 + row * 3, row * 4 * sizeof(float));
+                    }
                 }
             }
         }
