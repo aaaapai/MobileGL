@@ -26,7 +26,7 @@ namespace MobileGL {
                         MG_Config::RendererInfoPtr->RendererGLInfo.TargetGLSLVersion.Minor);
                 MGLOG_I("  OpenGL Extensions:");
                 for (const auto& ext : MG_Config::RendererInfoPtr->RendererGLInfo.Extensions) {
-                    MGLOG_I("    - %s", MG_Util::ConvertetGLExtToString(ext).c_str());
+                    MGLOG_I("    - %s", MG_Util::ConvertGLExtToString(ext).c_str());
                 }
             } else {
                 MGLOG_W("  No renderer info available");

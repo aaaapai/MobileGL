@@ -3,6 +3,6 @@
 
 namespace MobileGL {
     namespace MG_Util {
-        String ConvertetGLExtToString(GLExtension extension);
+        String ConvertGLExtToString(GLExtension extension);
     }
 } // namespace MobileGL

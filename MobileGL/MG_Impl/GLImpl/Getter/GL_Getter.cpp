@@ -71,7 +71,7 @@ namespace MobileGL {
             case GL_EXTENSIONS:
                 if (extensionsString.empty()) {
                     for (auto& ext : MG_Config::RendererInfoPtr->RendererGLInfo.Extensions) {
-                        extensionsString += MG_Util::ConvertetGLExtToString(ext);
+                        extensionsString += MG_Util::ConvertGLExtToString(ext);
                         extensionsString += " ";
                     }
                     extensionsString.pop_back();
@@ -98,7 +98,7 @@ namespace MobileGL {
             if (!initialized) {
                 extStrings.reserve(exts.size());
                 for (const auto& ext : exts) {
-                    extStrings.emplace_back(MG_Util::ConvertetGLExtToString(ext));
+                    extStrings.emplace_back(MG_Util::ConvertGLExtToString(ext));
                 }
                 initialized = true;
             }
