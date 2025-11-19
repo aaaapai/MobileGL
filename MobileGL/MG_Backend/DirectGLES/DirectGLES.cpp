@@ -628,6 +628,22 @@ namespace MobileGL::MG_Backend::DirectGLES {
             MGLOG_D("ES error (%s:%d): %s", file, line, MG_Util::ConvertGLEnumToString(err).c_str());
         });
 
+        auto activeUnit =
+                MG_State::pGLContext->GetTextureUnitObject(MG_State::pGLContext->GetActiveTextureUnit());
+        TextureTarget textureTarget = MG_Util::ConvertGLEnumToTextureTarget(target);
+        auto& bindingSlot = activeUnit.GetBindingSlot(textureTarget);
+        auto textureObject = bindingSlot.GetBoundObject();
+
+        const auto& backendTextureIt = TextureImpl::g_backendTextureObjects.find(textureObject);
+        SharedPtr<TextureImpl::BackendTextureObject> backendTextureObject;
+        if (backendTextureIt == TextureImpl::g_backendTextureObjects.end()) {
+            backendTextureObject = MakeShared<TextureImpl::BackendTextureObject>();
+            TextureImpl::g_backendTextureObjects[textureObject] = backendTextureObject;
+        } else {
+            backendTextureObject = backendTextureIt->second;
+        }
+        backendTextureObject->Bind(target);
+
         BindCurrentFBO(FramebufferTarget::Read);
         errorLopper.Loop([file = __FILE__, line = __LINE__](auto err) {
             MGLOG_D("ES error (%s:%d): %s", file, line, MG_Util::ConvertGLEnumToString(err).c_str());
