@@ -423,7 +423,19 @@ namespace MobileGL {
                 auto offset = programObject->GetUniformOffset(location);
                 auto size = programObject->GetUniformSizesInBytes(location);
                 char* pUBO = (char*)programObject->MapUBO();
-                memcpy(params, pUBO + offset, size);
+                auto* ttype = programObject->GetUniformTType(location);
+
+                if (!ttype->isMatrix() || ttype->getMatrixCols() != 3)
+                    memcpy(params, pUBO + offset, size);
+                else {
+                    // TODO: we only deal with mat3 yet, deal with other types later
+                    // assuming float here, which may not be the case
+                    auto* pBase = pUBO + offset;
+                    for (int i = 0; i < ttype->getMatrixRows(); i++) {
+                        memcpy((char*)params + ttype->getMatrixCols() * sizeof(float) * i, pBase + 4 * sizeof(float) * i,
+                            ttype->getMatrixCols() * sizeof(float));
+                    }
+                }
             }
             // TODO: handle 1i variant as texture unit
         }
