@@ -671,7 +671,8 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 const auto& src = shader->GetShaderSource();
                 const auto& stage =
                     MG_Util::ConvertGLEnumToString(MG_Util::ConvertShaderStageToGLEnum(shader->GetShaderStage()));
-                MGLOG_D("Original src @ %s: \n%s", stage.c_str(), src.c_str());
+                MGLOG_D("Original src @ %s: \n", stage.c_str());
+                MGLOG_D("%s:", src.empty() ? "" : src.c_str());
             }
             auto& shaderSpirvs = stateProgramObject->GetGeneratedSpirv();
 
