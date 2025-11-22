@@ -1,4 +1,5 @@
 #include "TextureEnumConverter.h"
+#include "MG_Util/Converters/GLToStr/GLEnumConverter.h"
 
 namespace MobileGL {
     namespace MG_Util {
@@ -223,6 +224,7 @@ namespace MobileGL {
             case GL_RGBA:
                 return TextureInternalFormat::RGBA;
             default:
+                MGLOG_D("%s: unknown internal format %s", MG_Util::ConvertGLEnumToString(internalformat).c_str());
                 return TextureInternalFormat::Unknown;
             }
         }
@@ -314,20 +316,30 @@ namespace MobileGL {
         SamplerFilterMode ConvertGLEnumToSamplerFilterMode(GLenum v) {
             switch (v) {
             case GL_NEAREST:
+            case GL_NEAREST_MIPMAP_NEAREST:
+            case GL_NEAREST_MIPMAP_LINEAR:
                 return SamplerFilterMode::Nearest;
             case GL_LINEAR:
+            case GL_LINEAR_MIPMAP_NEAREST:
+            case GL_LINEAR_MIPMAP_LINEAR:
                 return SamplerFilterMode::Linear;
             default:
+                MGLOG_D("Unknown SamplerFilterMode %s", MG_Util::ConvertGLEnumToString(v).c_str());
                 return SamplerFilterMode::Unknown;
             }
         }
 
         SamplerMipmapMode ConvertGLEnumToSamplerMipmapMode(GLenum v) {
             switch (v) {
-            case 0:
+            case GL_NEAREST:
+            case GL_LINEAR:
                 return SamplerMipmapMode::None; // 无 mipmap 时
             case GL_NEAREST_MIPMAP_NEAREST:
+            case GL_LINEAR_MIPMAP_NEAREST:
                 return SamplerMipmapMode::Nearest;
+            case GL_NEAREST_MIPMAP_LINEAR:
+            case GL_LINEAR_MIPMAP_LINEAR:
+                return SamplerMipmapMode::Linear;
             default:
                 return SamplerMipmapMode::Unknown;
             }
@@ -343,6 +355,8 @@ namespace MobileGL {
                 return SamplerWrapMode::Repeat;
             case GL_CLAMP_TO_BORDER:
                 return SamplerWrapMode::ClampToBorder;
+            case GL_MIRROR_CLAMP_TO_EDGE:
+                return SamplerWrapMode::MirrorClampToEdge;
             default:
                 return SamplerWrapMode::Unknown;
             }
@@ -398,6 +412,21 @@ namespace MobileGL {
                 return TextureSwizzleParam::One;
             default:
                 return TextureSwizzleParam::Unknown;
+            }
+        }
+
+        TextureSwizzleParam ConvertGLEnumPnameToTextureSwizzleParam(GLenum v) {
+            switch (v) {
+                case GL_TEXTURE_SWIZZLE_R:
+                    return TextureSwizzleParam::Red;
+                case GL_TEXTURE_SWIZZLE_G:
+                    return TextureSwizzleParam::Green;
+                case GL_TEXTURE_SWIZZLE_B:
+                    return TextureSwizzleParam::Blue;
+                case GL_TEXTURE_SWIZZLE_A:
+                    return TextureSwizzleParam::Alpha;
+                default:
+                    return TextureSwizzleParam::Unknown;
             }
         }
     } // namespace MG_Util

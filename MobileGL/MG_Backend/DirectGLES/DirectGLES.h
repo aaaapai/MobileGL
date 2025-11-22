@@ -20,5 +20,6 @@ namespace MobileGL::MG_Backend::DirectGLES {
                         GLsizei height, GLint border);
     void CopyTexSubImage2D(GLenum target, GLint level, GLint xoffset, GLint yoffset, GLint x, GLint y,
                                    GLsizei width, GLsizei height);
+    void GenerateMipmap(GLenum target);
     const GLubyte* GetString(GLenum name);
 } // namespace MobileGL::MG_Backend::DirectGLES

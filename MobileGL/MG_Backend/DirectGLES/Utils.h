@@ -3,6 +3,16 @@
 #include <MG_State/GLState/Core.h>
 
 namespace MobileGL::MG_Backend::DirectGLES {
+    namespace DebugImpl {
+        class ErrorLopper {
+        public:
+            void Loop(std::function<void(GLenum)>);
+            void Clear();
+            ErrorLopper();
+            ~ErrorLopper();
+        };
+    }
+
     namespace BufferImpl {
         class BackendBufferBindingProtector {
         public:

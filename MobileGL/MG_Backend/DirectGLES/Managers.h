@@ -99,19 +99,20 @@ namespace MobileGL::MG_Backend::DirectGLES {
                Probably useful to re-link shader output according to this.
                aka. realizing `glBindFragDataLocation`
              */
-            GLenum m_frontendBuffers[MG_State::GLState::FramebufferObject::MAX_DRAW_BUFFERS] = {GL_NONE};
+            FramebufferAttachmentType m_frontendDrawBuffers[MG_State::GLState::FramebufferObject::MAX_DRAW_BUFFERS] = {FramebufferAttachmentType::None};
             /* this will save buffers in its compacted GL form,
                not consecutive is not allowed
                i.e. it could be like [COLOR_ATTACHMENT0, COLOR_ATTACHMENT5, COLOR_ATTACHMENT4]
                (no GL_NONE among those)
              */
-            GLenum m_compactedFrontendBuffers[MG_State::GLState::FramebufferObject::MAX_DRAW_BUFFERS] = {GL_NONE};
+            FramebufferAttachmentType m_compactedFrontendDrawBuffers[MG_State::GLState::FramebufferObject::MAX_DRAW_BUFFERS] = {FramebufferAttachmentType::None};
             /* this will save buffers in stricter ES rules
                reversion, absence or not consecutive are not allowed, according to ES spec
                i.e. it could be like [COLOR_ATTACHMENT0, COLOR_ATTACHMENT1, NONE, NONE, ...]
                this array could be provided as data directly to ES `glDrawBuffers` function
              */
-            GLenum m_backendBuffers[MG_State::GLState::FramebufferObject::MAX_DRAW_BUFFERS] = {GL_NONE};
+            GLenum m_backendDrawBuffers[MG_State::GLState::FramebufferObject::MAX_DRAW_BUFFERS] = {GL_NONE};
+            FramebufferAttachmentType m_frontendReadBuffer = FramebufferAttachmentType::Color0;
         };
 
         extern UnorderedMap<SharedPtr<MG_State::GLState::FramebufferObject>, SharedPtr<BackendFramebufferObject>>

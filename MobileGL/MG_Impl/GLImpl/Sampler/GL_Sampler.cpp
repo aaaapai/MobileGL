@@ -28,6 +28,7 @@ namespace MobileGL {
                 break;
             case GL_TEXTURE_MIN_FILTER:
                 samplerObj->SetMinFilter(MG_Util::ConvertGLEnumToSamplerFilterMode(*(const GLint*)param));
+                samplerObj->SetMipmapMode(MG_Util::ConvertGLEnumToSamplerMipmapMode(*(const GLint*)param));
                 break;
             case GL_TEXTURE_MAG_FILTER:
                 samplerObj->SetMagFilter(MG_Util::ConvertGLEnumToSamplerFilterMode(*(const GLint*)param));
@@ -75,10 +76,10 @@ namespace MobileGL {
                 *(GLint*)params = MG_Util::ConvertSamplerWrapModeToGLEnum(samplerObj->GetWrapR());
                 break;
             case GL_TEXTURE_MIN_FILTER:
-                *(GLint*)params = MG_Util::ConvertSamplerFilterModeToGLEnum(samplerObj->GetMinFilter());
+                *(GLint*)params = MG_Util::ConvertSamplerFilterModeToGLEnum(samplerObj->GetMinFilter(), samplerObj->GetMipmapMode());
                 break;
             case GL_TEXTURE_MAG_FILTER:
-                *(GLint*)params = MG_Util::ConvertSamplerFilterModeToGLEnum(samplerObj->GetMagFilter());
+                *(GLint*)params = MG_Util::ConvertSamplerFilterModeToGLEnum(samplerObj->GetMagFilter(), SamplerMipmapMode::None);
                 break;
             case GL_TEXTURE_MIN_LOD:
                 *(GLfloat*)params = samplerObj->GetMinLod();

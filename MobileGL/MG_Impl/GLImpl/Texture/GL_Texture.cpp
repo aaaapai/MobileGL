@@ -156,6 +156,7 @@ namespace MobileGL {
                 break;
             case GL_TEXTURE_MIN_FILTER:
                 textureObject->GetSamplerObject()->SetMinFilter(MG_Util::ConvertGLEnumToSamplerFilterMode(param));
+                textureObject->GetSamplerObject()->SetMipmapMode(MG_Util::ConvertGLEnumToSamplerMipmapMode(param));
                 break;
             case GL_TEXTURE_MIN_LOD: {
                 Float maxLod = textureObject->GetSamplerObject()->GetMaxLod();
@@ -177,7 +178,7 @@ namespace MobileGL {
             case GL_TEXTURE_SWIZZLE_G:
             case GL_TEXTURE_SWIZZLE_B:
             case GL_TEXTURE_SWIZZLE_A: {
-                auto swizzleParam = MG_Util::ConvertGLEnumToTextureSwizzleParam(pname);
+                auto swizzleParam = MG_Util::ConvertGLEnumPnameToTextureSwizzleParam(pname);
                 auto swizzleValue = MG_Util::ConvertGLEnumToTextureSwizzleParam(param);
                 textureObject->SetSwizzleParam(swizzleParam, swizzleValue);
                 break;
@@ -237,6 +238,7 @@ namespace MobileGL {
                 break;
             case GL_TEXTURE_MIN_FILTER:
                 textureObject->GetSamplerObject()->SetMinFilter(MG_Util::ConvertGLEnumToSamplerFilterMode(param));
+                textureObject->GetSamplerObject()->SetMipmapMode(MG_Util::ConvertGLEnumToSamplerMipmapMode(param));
                 break;
             case GL_TEXTURE_MIN_LOD: {
                 Float maxLod = textureObject->GetSamplerObject()->GetMaxLod();
@@ -258,7 +260,7 @@ namespace MobileGL {
             case GL_TEXTURE_SWIZZLE_G:
             case GL_TEXTURE_SWIZZLE_B:
             case GL_TEXTURE_SWIZZLE_A: {
-                auto swizzleParam = MG_Util::ConvertGLEnumToTextureSwizzleParam(pname);
+                auto swizzleParam = MG_Util::ConvertGLEnumPnameToTextureSwizzleParam(pname);
                 auto swizzleValue = MG_Util::ConvertGLEnumToTextureSwizzleParam(param);
                 textureObject->SetSwizzleParam(swizzleParam, swizzleValue);
                 break;
@@ -393,13 +395,15 @@ namespace MobileGL {
                 processedPixels = MG_Util::PixelStoreProcessor::ProcessTexturePixelsDataUnpack(
                     originalPixels, MG_State::pGLContext->GetPixelStoreParameters(true), bytesPerPixel,
                     {width, height, 1}, false, imageSize);
+            } else {
+                MGLOG_D("TexImage2D_State: No input pixel, do allocate only");
             }
 
             MG_State::GLState::MipmapLevelInput mipmap =
                 MG_State::GLState::MipmapLevelInput({width, height, 1}, level, false, 0,
-                                                    {isProxy ? nullptr : malloc(totalBytes), isProxy ? 0 : totalBytes});
+                                                    {(isProxy || originalPixels == nullptr) ? nullptr : malloc(totalBytes), isProxy ? 0 : totalBytes});
 
-            if (!isProxy && !mipmap.inputData.data) {
+            if (!isProxy && originalPixels != nullptr && !mipmap.inputData.data) {
                 MGLOG_E("TexImage2D_State: Failed to allocate memory for mipmap level data, size: %zu", totalBytes);
                 free(processedPixels);
                 processedPixels = nullptr;
@@ -474,13 +478,13 @@ namespace MobileGL {
             case GL_TEXTURE_MAG_FILTER:
                 if (params) {
                     *params =
-                        MG_Util::ConvertSamplerFilterModeToGLEnum(textureObject->GetSamplerObject()->GetMagFilter());
+                        MG_Util::ConvertSamplerFilterModeToGLEnum(textureObject->GetSamplerObject()->GetMagFilter(), SamplerMipmapMode::None);
                 }
                 break;
             case GL_TEXTURE_MIN_FILTER:
                 if (params) {
                     *params =
-                        MG_Util::ConvertSamplerFilterModeToGLEnum(textureObject->GetSamplerObject()->GetMinFilter());
+                        MG_Util::ConvertSamplerFilterModeToGLEnum(textureObject->GetSamplerObject()->GetMinFilter(), textureObject->GetSamplerObject()->GetMipmapMode());
                 }
                 break;
             case GL_TEXTURE_MIN_LOD:
@@ -495,11 +499,6 @@ namespace MobileGL {
                 break;
             case GL_TEXTURE_BASE_LEVEL:
             case GL_TEXTURE_MAX_LEVEL:
-            case GL_TEXTURE_SWIZZLE_R:
-            case GL_TEXTURE_SWIZZLE_G:
-            case GL_TEXTURE_SWIZZLE_B:
-            case GL_TEXTURE_SWIZZLE_A:
-            case GL_TEXTURE_SWIZZLE_RGBA:
             case GL_TEXTURE_BORDER_COLOR:
                 break; // TODO
             case GL_TEXTURE_WRAP_S:
@@ -559,13 +558,13 @@ namespace MobileGL {
             case GL_TEXTURE_MAG_FILTER:
                 if (params) {
                     *params =
-                        MG_Util::ConvertSamplerFilterModeToGLEnum(textureObject->GetSamplerObject()->GetMagFilter());
+                        MG_Util::ConvertSamplerFilterModeToGLEnum(textureObject->GetSamplerObject()->GetMagFilter(), SamplerMipmapMode::None);
                 }
                 break;
             case GL_TEXTURE_MIN_FILTER:
                 if (params) {
                     *params =
-                        MG_Util::ConvertSamplerFilterModeToGLEnum(textureObject->GetSamplerObject()->GetMinFilter());
+                        MG_Util::ConvertSamplerFilterModeToGLEnum(textureObject->GetSamplerObject()->GetMinFilter(), textureObject->GetSamplerObject()->GetMipmapMode());
                 }
                 break;
             case GL_TEXTURE_MIN_LOD:

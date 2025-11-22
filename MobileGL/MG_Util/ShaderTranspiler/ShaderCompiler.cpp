@@ -21,7 +21,7 @@ namespace MobileGL {
                 Resources.maxDrawBuffers = 32;
                 Resources.maxVertexUniformVectors = 128;
                 Resources.maxVaryingVectors = 8;
-                Resources.maxFragmentUniformVectors = 16;
+                Resources.maxFragmentUniformVectors = 256;
                 Resources.maxVertexOutputVectors = 16;
                 Resources.maxFragmentInputVectors = 15;
                 Resources.minProgramTexelOffset = -8;

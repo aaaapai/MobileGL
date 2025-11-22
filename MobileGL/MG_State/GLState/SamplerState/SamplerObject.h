@@ -12,6 +12,7 @@ namespace MobileGL {
     enum class SamplerMipmapMode {
         None,
         Nearest,
+        Linear,
         SamplerMipmapModeCount,
         Unknown = -1
     };
@@ -21,6 +22,7 @@ namespace MobileGL {
         MirroredRepeat,
         Repeat,
         ClampToBorder,
+        MirrorClampToEdge,
         SamplerWrapModeCount,
         Unknown = -1
     };

@@ -90,7 +90,7 @@ namespace MobileGL {
             class FramebufferObject {
             public:
                 using TargetEnum = FramebufferTarget;
-                static constexpr uint MAX_DRAW_BUFFERS = 8;
+                static constexpr Uint MAX_DRAW_BUFFERS = 8;
 
                 FramebufferObject(Uint externalIndex);
 

@@ -9,8 +9,9 @@ namespace MobileGL {
         GLenum ConvertTextureInternalFormatToGLEnum(TextureInternalFormat internalformat);
         GLenum ConvertTexturePixelDataTypeToGLEnum(TexturePixelDataType type);
         GLenum ConvertTextureUploadTargetToGLEnum(TextureUploadTarget target);
-        GLenum ConvertSamplerFilterModeToGLEnum(SamplerFilterMode value);
-        GLenum ConvertSamplerMipmapModeToGLEnum(SamplerMipmapMode value);
+//        GLenum ConvertSamplerFilterModeToGLEnum(SamplerFilterMode value);
+//        GLenum ConvertSamplerMipmapModeToGLEnum(SamplerMipmapMode value);
+        GLenum ConvertSamplerFilterModeToGLEnum(SamplerFilterMode filter, SamplerMipmapMode mipmap);
         GLenum ConvertSamplerWrapModeToGLEnum(SamplerWrapMode value);
         GLenum ConvertSamplerCompareModeToGLEnum(SamplerCompareMode value);
         GLenum ConvertSamplerCompareFuncToGLEnum(SamplerCompareFunc value);

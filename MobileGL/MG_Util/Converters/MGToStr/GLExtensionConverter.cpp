@@ -2,7 +2,7 @@
 
 namespace MobileGL {
     namespace MG_Util {
-        String ConvertetGLExtToString(GLExtension extension) {
+        String ConvertGLExtToString(GLExtension extension) {
             String str;
             switch (extension) {
 #define CASE(value)                                                                                                    \
