@@ -122,7 +122,9 @@ namespace MobileGL {
                     ResultInfo r;
                     r.log += "Error: [Preprocess] Unsupported shader type: " + ConvertGLEnumToString(shaderType);
                     r.errc = -1;
-                    return std::unexpected(r);
+                    if (std::getenv("MGL_CHEAT_CHECKFRAMEBUFFERSTATUS")) {
+                       return std::unexpected(r);
+                    }
                 }
 
                 SharedPtr<glslang::TShader> res;
@@ -132,9 +134,9 @@ namespace MobileGL {
                 tshader->setStrings(src, 1);
                 tshader->setInvertY(true);
                 if (attrib.flags & ShaderCompileBits::CompileForOpenGL) {
-                    tshader->setEnvInput(glslang::EShSourceGlsl, lang, glslang::EShClientVulkan, 450);
+                    tshader->setEnvInput(glslang::EShSourceGlsl, lang, glslang::EShClientOpenGL, 450);
                     tshader->setEnvClient(glslang::EShClientOpenGL, glslang::EShTargetOpenGL_450);
-                    tshader->setEnvTarget(glslang::EShTargetSpv, glslang::EShTargetSpv_1_5);
+                    tshader->setEnvTarget(glslang::EShTargetSpv, glslang::EShTargetSpv_1_6);
                 } else {
                     tshader->setEnvInput(glslang::EShSourceGlsl, lang, glslang::EShClientVulkan, 450);
                     tshader->setEnvClient(glslang::EShClientVulkan, glslang::EShTargetVulkan_1_3);
@@ -155,7 +157,9 @@ namespace MobileGL {
                     r.log += "Error: [glslang] Cannot compile " + ConvertGLEnumToString(shaderType) + ":\n" +
                              std::string(tshader->getInfoLog());
                     r.errc = -2;
-                    return std::unexpected(r);
+                    if (std::getenv("MGL_CHEAT_CHECKFRAMEBUFFERSTATUS")) {
+                            return std::unexpected(r);
+                    }
                 }
 
                 return res;
@@ -171,7 +175,9 @@ namespace MobileGL {
                     ResultInfo r;
                     r.log = "Error: [glslang] Cannot link the program:\n" + std::string(program->getInfoLog());
                     r.errc = -3;
-                    return std::unexpected(r);
+                    if (std::getenv("MGL_CHEAT_CHECKFRAMEBUFFERSTATUS")) {
+                       return std::unexpected(r);
+                    }
                 }
 
                 for (auto [name, loc]: attrib.explicitVertexInLocations) {
@@ -194,7 +200,9 @@ namespace MobileGL {
                     ResultInfo r;
                     r.log = "Error: [glslang] Cannot mapIO:\n" + std::string(program->getInfoLog());
                     r.errc = -4;
-                    return std::unexpected(r);
+                    if (std::getenv("MGL_CHEAT_CHECKFRAMEBUFFERSTATUS")) {
+                       return std::unexpected(r);
+                    }
                 }
 
                 return program;
@@ -221,8 +229,8 @@ namespace MobileGL {
 
                 spvc_compiler_options_set_uint(options, SPVC_COMPILER_OPTION_GLSL_VERSION, 320);
                 spvc_compiler_options_set_bool(options, SPVC_COMPILER_OPTION_GLSL_ES, SPVC_TRUE);
-                //spvc_compiler_options_set_bool(options, SPVC_COMPILER_OPTION_GLSL_ENABLE_420PACK_EXTENSION, SPVC_FALSE);
-                spvc_compiler_options_set_bool(options, SPVC_COMPILER_OPTION_GLSL_VULKAN_SEMANTICS, SPVC_FALSE);
+                spvc_compiler_options_set_bool(options, SPVC_COMPILER_OPTION_GLSL_ENABLE_420PACK_EXTENSION, SPVC_FALSE);
+                //spvc_compiler_options_set_bool(options, SPVC_COMPILER_OPTION_GLSL_VULKAN_SEMANTICS, SPVC_FALSE);
                 
                 session.SetOptions(options);
 
@@ -234,7 +242,9 @@ namespace MobileGL {
                     r.log += "Failed to compile the shader to GLSL: \n";
                     r.log += session.GetLastErrorString();
                     r.errc = -5;
-                    return std::unexpected(r);
+                    if (std::getenv("MGL_CHEAT_CHECKFRAMEBUFFERSTATUS")) {
+                       return std::unexpected(r);
+                    }
                 }
 
                 std::string glsl = result;
