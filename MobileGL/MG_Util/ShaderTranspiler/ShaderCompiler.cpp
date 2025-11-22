@@ -118,7 +118,7 @@ namespace MobileGL {
                 auto& sourceStr = attrib.sourceStr;
 
                 auto lang = MG_Util::ConvertGLEnumToEShLanguage(shaderType);
-                if (lang == EShLanguage::EShLangCount) {
+                if (lang == EShLanguage::EShLangCount && !(std::getenv("MGL_CHEAT_CHECKFRAMEBUFFERSTATUS"))) {
                     ResultInfo r;
                     r.log += "Error: [Preprocess] Unsupported shader type: " + ConvertGLEnumToString(shaderType);
                     r.errc = -1;
@@ -152,12 +152,12 @@ namespace MobileGL {
                 tshader->setGlobalUniformBlockName(GLOBAL_UBO_NAME);
                 if (!tshader->parse(&GetTBuiltInResourceInstance(), 460, ECoreProfile,
                                     /*forceDefaultVersionAndProfile: */ false,
-                                    /*forwardCompatible: */ true, EShMsgDefault)) {
+                                    /*forwardCompatible: */ true, EShMsgDefault) && !(std::getenv("MGL_CHEAT_CHECKFRAMEBUFFERSTATUS"))) {
                     ResultInfo r;
                     r.log += "Error: [glslang] Cannot compile " + ConvertGLEnumToString(shaderType) + ":\n" +
                              std::string(tshader->getInfoLog());
                     r.errc = -2;
-                    if (std::getenv("MGL_CHEAT_CHECKFRAMEBUFFERSTATUS")) {
+                    if (!std::getenv("MGL_CHEAT_CHECKFRAMEBUFFERSTATUS")) {
                             return std::unexpected(r);
                     }
                 }
@@ -171,11 +171,11 @@ namespace MobileGL {
                     program->addShader(s.get());
                 }
 
-                if (!program->link(EShMsgDefault)) {
+                if (!program->link(EShMsgDefault) && !(std::getenv("MGL_CHEAT_CHECKFRAMEBUFFERSTATUS"))) {
                     ResultInfo r;
                     r.log = "Error: [glslang] Cannot link the program:\n" + std::string(program->getInfoLog());
                     r.errc = -3;
-                    if (std::getenv("MGL_CHEAT_CHECKFRAMEBUFFERSTATUS")) {
+                    if (!std::getenv("MGL_CHEAT_CHECKFRAMEBUFFERSTATUS")) {
                        return std::unexpected(r);
                     }
                 }
@@ -196,7 +196,7 @@ namespace MobileGL {
                 }
                 auto ioMapper = UniquePtr<glslang::TIoMapper>(glslang::GetGlslIoMapper());
 
-                if (!program->mapIO(resolver.get(), ioMapper.get())) {
+                if (!program->mapIO(resolver.get(), ioMapper.get()) && !(std::getenv("MGL_CHEAT_CHECKFRAMEBUFFERSTATUS"))) {
                     ResultInfo r;
                     r.log = "Error: [glslang] Cannot mapIO:\n" + std::string(program->getInfoLog());
                     r.errc = -4;
@@ -237,12 +237,12 @@ namespace MobileGL {
                 const char* result = nullptr;
                 session.Compile(&result);
 
-                if (!result) {
+                if (!result && !(std::getenv("MGL_CHEAT_CHECKFRAMEBUFFERSTATUS"))) {
                     ResultInfo r;
                     r.log += "Failed to compile the shader to GLSL: \n";
                     r.log += session.GetLastErrorString();
                     r.errc = -5;
-                    if (std::getenv("MGL_CHEAT_CHECKFRAMEBUFFERSTATUS")) {
+                    if (!std::getenv("MGL_CHEAT_CHECKFRAMEBUFFERSTATUS")) {
                        return std::unexpected(r);
                     }
                 }
