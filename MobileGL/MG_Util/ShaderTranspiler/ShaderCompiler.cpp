@@ -114,14 +114,6 @@ namespace MobileGL {
             }
 
             Result<SharedPtr<glslang::TShader>> ShaderCompiler::CompileShader(const ShaderAttrib& attrib) {
-                // 输入验证
-                if (attrib.sourceStr.empty()) {
-                    ResultInfo r;
-                    r.log += "Error: [Preprocess] Empty shader source";
-                    r.errc = -100;
-                    return std::unexpected(r);
-                }
-
                 auto shaderType = attrib.shaderType;
                 auto& sourceStr = attrib.sourceStr;
 
@@ -134,56 +126,35 @@ namespace MobileGL {
                 }
 
                 SharedPtr<glslang::TShader> res;
-                try {
-                    res = MakeShared<glslang::TShader>(lang);
-                    const char* src[] = {sourceStr.data()};
-                    res->setStrings(src, 1);
-                    res->setInvertY(true);
-                    
-                    if (attrib.flags & ShaderCompileBits::CompileForOpenGL) {
-                        res->setEnvInput(glslang::EShSourceGlsl, lang, glslang::EShClientOpenGL, 450);
-                        res->setEnvClient(glslang::EShClientOpenGL, glslang::EShTargetOpenGL_450);
-                        res->setEnvTarget(glslang::EShTargetSpv, glslang::EShTargetSpv_1_6);
-                    } else {
-                        res->setEnvInput(glslang::EShSourceGlsl, lang, glslang::EShClientVulkan, 450);
-                        res->setEnvClient(glslang::EShClientVulkan, glslang::EShTargetVulkan_1_3);
-                        res->setEnvTarget(glslang::EShTargetSpv,
+                auto& tshader = res;
+                tshader = MakeShared<glslang::TShader>(lang);
+                const char* src[] = {sourceStr.data()};
+                tshader->setStrings(src, 1);
+                tshader->setInvertY(true);
+                if (attrib.flags & ShaderCompileBits::CompileForOpenGL) {
+                    tshader->setEnvInput(glslang::EShSourceGlsl, lang, glslang::EShClientOpenGL, 450);
+                    tshader->setEnvClient(glslang::EShClientOpenGL, glslang::EShTargetOpenGL_450);
+                    tshader->setEnvTarget(glslang::EShTargetSpv, glslang::EShTargetSpv_1_6);
+                } else {
+                    tshader->setEnvInput(glslang::EShSourceGlsl, lang, glslang::EShClientVulkan, 450);
+                    tshader->setEnvClient(glslang::EShClientVulkan, glslang::EShTargetVulkan_1_3);
+                    tshader->setEnvTarget(glslang::EShTargetSpv,
                                           ((attrib.flags & ShaderCompileBits::EmitDiscardAsDemote)
                                                ? glslang::EShTargetSpv_1_6
                                                : glslang::EShTargetSpv_1_5));
-                        res->setEnvInputVulkanRulesRelaxed();
-                    }
-                    
-                    res->setAutoMapLocations(true);
-                    res->setAutoMapBindings(true);
-                    res->setGlobalUniformBlockName(GLOBAL_UBO_NAME);
-                    
-                    if (!res->parse(&GetTBuiltInResourceInstance(), 460, ECoreProfile,
+                    tshader->setEnvInputVulkanRulesRelaxed(); // using EXT_vulkan_glsl_relaxed for gl_VertexID and
+                                                              // gl_InstanceID?
+                }
+                tshader->setAutoMapLocations(true);
+                tshader->setAutoMapBindings(true);
+                tshader->setGlobalUniformBlockName(GLOBAL_UBO_NAME);
+                if (!tshader->parse(&GetTBuiltInResourceInstance(), 460, ECoreProfile,
                                     /*forceDefaultVersionAndProfile: */ false,
                                     /*forwardCompatible: */ true, EShMsgDefault)) {
-                        ResultInfo r;
-                        r.log += "Error: [glslang] Cannot compile " + ConvertGLEnumToString(shaderType) + ":\n" +
-                                 std::string(res->getInfoLog());
-                        r.errc = -2;
-                        return std::unexpected(r);
-                    }
-                } catch (const std::exception& e) {
                     ResultInfo r;
-                    r.log += "Error: [glslang] Exception during shader compilation: " + std::string(e.what());
-                    r.errc = -3;
-                    return std::unexpected(r);
-                } catch (...) {
-                    ResultInfo r;
-                    r.log += "Error: [glslang] Unknown exception during shader compilation";
-                    r.errc = -4;
-                    return std::unexpected(r);
-                }
-
-                // 最终验证
-                if (!res) {
-                    ResultInfo r;
-                    r.log += "Error: [glslang] Shader compilation produced null result";
-                    r.errc = -5;
+                    r.log += "Error: [glslang] Cannot compile " + ConvertGLEnumToString(shaderType) + ":\n" +
+                             std::string(tshader->getInfoLog());
+                    r.errc = -2;
                     return std::unexpected(r);
                 }
 
@@ -191,88 +162,38 @@ namespace MobileGL {
             }
 
             Result<SharedPtr<glslang::TProgram>> ShaderCompiler::LinkProgram(const ProgramAttrib& attrib) {
-                // 输入验证
-                if (attrib.shaders.empty()) {
+                SharedPtr<glslang::TProgram> program = MakeShared<glslang::TProgram>();
+                for (auto& s : attrib.shaders) {
+                    program->addShader(s.get());
+                }
+
+                if (!program->link(EShMsgDefault)) {
                     ResultInfo r;
-                    r.log = "Error: [Link] No shaders provided for linking";
-                    r.errc = -10;
+                    r.log = "Error: [glslang] Cannot link the program:\n" + std::string(program->getInfoLog());
+                    r.errc = -3;
                     return std::unexpected(r);
                 }
 
-                SharedPtr<glslang::TProgram> program;
-                try {
-                    program = MakeShared<glslang::TProgram>();
-                    
-                    // 添加所有着色器
-                    for (auto& s : attrib.shaders) {
-                        if (!s) {
-                            ResultInfo r;
-                            r.log = "Error: [Link] Null shader in shader list";
-                            r.errc = -11;
-                            return std::unexpected(r);
-                        }
-                        program->addShader(s.get());
-                    }
-
-                    // 链接程序
-                    if (!program->link(EShMsgDefault)) {
-                        ResultInfo r;
-                        r.log = "Error: [glslang] Cannot link the program:\n" + std::string(program->getInfoLog());
-                        r.errc = -3;
-                        return std::unexpected(r);
-                    }
-
-                    // 记录显式设置的顶点输入位置
-                    for (auto [name, loc]: attrib.explicitVertexInLocations) {
-                        MGLOG_D("%s: got explicitly set - layout(location = %d) %s;", __func__, loc, name.c_str());
-                    }
-
-                    // 创建IO解析器
-                    UniquePtr<TMglGlslIoResolver> resolver;
-                    bool foundStage = false;
-                    
-                    for (unsigned stage = 0; stage < EShLangCount; stage++) {
-                        if (program->getIntermediate((EShLanguage)stage) == nullptr)
-                            continue;
-                        resolver = MakeUnique<TMglGlslIoResolver>(*program, (EShLanguage)stage,
-                            attrib.explicitVertexInLocations,
-                            attrib.explicitFragmentOutLocations);
-                        foundStage = true;
-                        break;
-                    }
-
-                    if (!foundStage) {
-                        ResultInfo r;
-                        r.log = "Error: [glslang] No valid shader stages found in program";
-                        r.errc = -12;
-                        return std::unexpected(r);
-                    }
-
-                    auto ioMapper = UniquePtr<glslang::TIoMapper>(glslang::GetGlslIoMapper());
-
-                    if (!program->mapIO(resolver.get(), ioMapper.get())) {
-                        ResultInfo r;
-                        r.log = "Error: [glslang] Cannot mapIO:\n" + std::string(program->getInfoLog());
-                        r.errc = -4;
-                        return std::unexpected(r);
-                    }
-                } catch (const std::exception& e) {
-                    ResultInfo r;
-                    r.log = "Error: [glslang] Exception during program linking: " + std::string(e.what());
-                    r.errc = -13;
-                    return std::unexpected(r);
-                } catch (...) {
-                    ResultInfo r;
-                    r.log = "Error: [glslang] Unknown exception during program linking";
-                    r.errc = -14;
-                    return std::unexpected(r);
+                for (auto [name, loc]: attrib.explicitVertexInLocations) {
+                    MGLOG_D("%s: got explicitly set - layout(location = %d) %s;", __func__, loc, name.c_str());
                 }
 
-                // 最终验证
-                if (!program) {
+                // UniquePtr<glslang::TIoMapResolver> resolver;
+                UniquePtr<TMglGlslIoResolver> resolver;
+                for (unsigned stage = 0; stage < EShLangCount; stage++) {
+                    if (program->getIntermediate((EShLanguage)stage) == nullptr)
+                        continue;
+                    resolver = MakeUnique<TMglGlslIoResolver>(*program, (EShLanguage)stage,
+                        attrib.explicitVertexInLocations,
+                        attrib.explicitFragmentOutLocations);
+                    break;
+                }
+                auto ioMapper = UniquePtr<glslang::TIoMapper>(glslang::GetGlslIoMapper());
+
+                if (!program->mapIO(resolver.get(), ioMapper.get())) {
                     ResultInfo r;
-                    r.log = "Error: [glslang] Program linking produced null result";
-                    r.errc = -15;
+                    r.log = "Error: [glslang] Cannot mapIO:\n" + std::string(program->getInfoLog());
+                    r.errc = -4;
                     return std::unexpected(r);
                 }
 
@@ -281,124 +202,43 @@ namespace MobileGL {
 
             Result<Vector<Vector<unsigned>>> ShaderCompiler::GetSpirvBinaryFromProgram(
                 const ProgramBinaryAttrib& attrib) {
-                // 输入验证
-                if (!attrib.program) {
-                    ResultInfo r;
-                    r.log = "Error: [SPIRV] Null program provided";
-                    r.errc = -20;
-                    return std::unexpected(r);
-                }
-
-                if (attrib.shaderTypes.empty()) {
-                    ResultInfo r;
-                    r.log = "Error: [SPIRV] No shader types specified";
-                    r.errc = -21;
-                    return std::unexpected(r);
-                }
-
                 glslang::SpvOptions spvOptions;
                 spvOptions.disableOptimizer = false;
 
                 Vector<Vector<unsigned>> allSpirv;
-                
-                try {
-                    for (auto type : attrib.shaderTypes) {
-                        auto intermediate = attrib.program.getIntermediate(ConvertGLEnumToEShLanguage(type));
-                        if (!intermediate) {
-                            ResultInfo r;
-                            r.log = "Error: [SPIRV] No intermediate representation for shader type: " + 
-                                   ConvertGLEnumToString(type);
-                            r.errc = -22;
-                            return std::unexpected(r);
-                        }
-
-                        Vector<unsigned> spirv;
-                        GlslangToSpv(*intermediate, spirv, &spvOptions);
-                        
-                        if (spirv.empty()) {
-                            ResultInfo r;
-                            r.log = "Error: [SPIRV] Empty SPIR-V generated for shader type: " + 
-                                   ConvertGLEnumToString(type);
-                            r.errc = -23;
-                            return std::unexpected(r);
-                        }
-                        
-                        allSpirv.push_back(std::move(spirv));
-                    }
-                } catch (const std::exception& e) {
-                    ResultInfo r;
-                    r.log = "Error: [SPIRV] Exception during SPIR-V generation: " + std::string(e.what());
-                    r.errc = -24;
-                    return std::unexpected(r);
-                } catch (...) {
-                    ResultInfo r;
-                    r.log = "Error: [SPIRV] Unknown exception during SPIR-V generation";
-                    r.errc = -25;
-                    return std::unexpected(r);
+                for (auto type : attrib.shaderTypes) {
+                    Vector<unsigned> spirv;
+                    GlslangToSpv(*attrib.program.getIntermediate(ConvertGLEnumToEShLanguage(type)), spirv, &spvOptions);
+                    allSpirv.push_back(spirv);
                 }
 
                 return allSpirv;
             }
 
             Result<String> ShaderCompiler::DecompileShader(SpvcSession& session) {
-                // 输入验证
-                if (!session.IsValid()) {
+                spvc_compiler_options options;
+                session.CreateOptions(&options);
+
+                spvc_compiler_options_set_uint(options, SPVC_COMPILER_OPTION_GLSL_VERSION, 320);
+                spvc_compiler_options_set_bool(options, SPVC_COMPILER_OPTION_GLSL_ES, SPVC_TRUE);
+                spvc_compiler_options_set_bool(options, SPVC_COMPILER_OPTION_GLSL_VULKAN_SEMANTICS, SPVC_FALSE);
+
+                session.SetOptions(options);
+
+                const char* result = nullptr;
+                session.Compile(&result);
+
+                if (!result) {
                     ResultInfo r;
-                    r.log = "Error: [Decompile] Invalid SPIRV-Cross session";
-                    r.errc = -30;
+                    r.log += "Failed to compile the shader to GLSL: \n";
+                    r.log += session.GetLastErrorString();
+                    r.errc = -5;
                     return std::unexpected(r);
                 }
 
-                spvc_compiler_options options = nullptr;
-                if (!session.CreateOptions(&options)) {
-                    ResultInfo r;
-                    r.log = "Error: [Decompile] Failed to create compiler options";
-                    r.errc = -31;
-                    return std::unexpected(r);
-                }
+                std::string glsl = result;
 
-                try {
-                    spvc_compiler_options_set_uint(options, SPVC_COMPILER_OPTION_GLSL_VERSION, 320);
-                    spvc_compiler_options_set_bool(options, SPVC_COMPILER_OPTION_GLSL_ES, SPVC_TRUE);
-                    //spvc_compiler_options_set_bool(options, SPVC_COMPILER_OPTION_GLSL_VULKAN_SEMANTICS, SPVC_FALSE);
-
-                    if (!session.SetOptions(options)) {
-                        ResultInfo r;
-                        r.log = "Error: [Decompile] Failed to set compiler options";
-                        r.errc = -32;
-                        return std::unexpected(r);
-                    }
-
-                    const char* result = nullptr;
-                    if (!session.Compile(&result)) {
-                        ResultInfo r;
-                        r.log += "Failed to compile the shader to GLSL: \n";
-                        r.log += session.GetLastErrorString();
-                        r.errc = -5;
-                        return std::unexpected(r);
-                    }
-
-                    if (!result) {
-                        ResultInfo r;
-                        r.log = "Error: [Decompile] Compilation returned null result";
-                        r.errc = -33;
-                        return std::unexpected(r);
-                    }
-
-                    std::string glsl = result;
-                    return glsl;
-                    
-                } catch (const std::exception& e) {
-                    ResultInfo r;
-                    r.log = "Error: [Decompile] Exception during decompilation: " + std::string(e.what());
-                    r.errc = -34;
-                    return std::unexpected(r);
-                } catch (...) {
-                    ResultInfo r;
-                    r.log = "Error: [Decompile] Unknown exception during decompilation";
-                    r.errc = -35;
-                    return std::unexpected(r);
-                }
+                return glsl;
             }
         } // namespace ShaderTranspiler
     } // namespace MG_Util
