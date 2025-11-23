@@ -161,9 +161,7 @@ namespace MobileGL {
                     m_unpackParameters.LSBFirst = value != 0;
                     break;
                 default:
-                    MGLOG_F("RenderState::SetPixelStoreParam: Invalid PixelStoreParam enum: %d",
-                            static_cast<int>(param));
-                    assert(false && "Invalid PixelStoreParam enum");
+                    MOBILEGL_ASSERT(false, "Invalid PixelStoreParam enum: %d", static_cast<int>(param));
                     return;
                 }
             }
@@ -203,9 +201,7 @@ namespace MobileGL {
                 case PixelStoreParam::UnpackLsbFirst:
                     return m_unpackParameters.LSBFirst ? 1 : 0;
                 default:
-                    MGLOG_F("RenderState::GetPixelStoreParam: Invalid PixelStoreParam enum: %d",
-                            static_cast<int>(param));
-                    assert(false && "Invalid PixelStoreParam enum");
+                    MOBILEGL_ASSERT(false, "Invalid PixelStoreParam enum: %d", static_cast<int>(param));
                     return 0;
                 }
             }

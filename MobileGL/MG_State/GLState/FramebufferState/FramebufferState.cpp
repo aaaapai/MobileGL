@@ -43,7 +43,7 @@ namespace MobileGL {
                         return m_bindingSlots[i];
                     }
                 }
-                assert(false);
+                MOBILEGL_ASSERT(false, "Invalid FramebufferTarget enum value: %d", static_cast<int>(target));
                 return m_bindingSlots[0];
             }
 

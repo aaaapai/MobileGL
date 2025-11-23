@@ -17,9 +17,11 @@ namespace MobileGL {
             }
 
             void BufferObject::UploadData(DataPtr data, SizeT atOffset) {
-                assert(atOffset + data.size <= m_size);
-                assert(!m_isMapped);
-                memcpy(m_dataPtr->data() + atOffset, data.data, data.size);
+                MOBILEGL_ASSERT(atOffset + data.size <= m_size,
+                                "UploadData out of bounds: atOffset (%zu) + data.size (%zu) > m_size (%zu)", atOffset,
+                                data.size, m_size);
+                MOBILEGL_ASSERT(!m_isMapped, "Cannot upload data while buffer is mapped.");
+                Memcpy(m_dataPtr->data() + atOffset, data.data, data.size);
                 m_dirtyRange.UnionUpdate(atOffset, atOffset + data.size);
             }
 
@@ -32,7 +34,7 @@ namespace MobileGL {
 
                 if (m_mappingAccess & BufferMappingAccessBit::Write) {                // if we wrote to the buffer
                     if (!(m_mappingAccess & BufferMappingAccessBit::FlushExplicit)) { // if we didn't flush explicitly
-                        memcpy(m_dataPtr->data() + m_mappedRange.start, m_stagingData.data(),
+                        Memcpy(m_dataPtr->data() + m_mappedRange.start, m_stagingData.data(),
                                m_mappedRange.end - m_mappedRange.start);
                         m_dirtyRange.UnionUpdate(m_mappedRange.start, m_mappedRange.end);
                     }
@@ -47,35 +49,44 @@ namespace MobileGL {
             }
 
             void BufferObject::FlushMemoryRange(SizeT offset, SizeT length) {
-                assert(m_isMapped);
-                assert((m_mappingAccess & BufferMappingAccessBit::FlushExplicit));
-                assert((m_mappingAccess & BufferMappingAccessBit::Write));
+                MOBILEGL_ASSERT(m_isMapped, "Buffer must be mapped to flush memory range.");
+                MOBILEGL_ASSERT((m_mappingAccess & BufferMappingAccessBit::FlushExplicit),
+                                "Buffer must be mapped with FlushExplicit access to flush memory range.");
+                MOBILEGL_ASSERT((m_mappingAccess & BufferMappingAccessBit::Write),
+                                "Buffer must be mapped with Write access to flush memory range.");
 
                 SizeT start = m_mappedRange.start + offset;
                 SizeT end = start + length;
-                assert(end <= m_mappedRange.end);
+                MOBILEGL_ASSERT(end <= m_mappedRange.end,
+                                "Flush range out of bounds: mappedRange.end (%zu) < end (%zu)", m_mappedRange.end, end);
 
-                memcpy(m_dataPtr->data() + start, m_stagingData.data() + offset, length);
+                Memcpy(m_dataPtr->data() + start, m_stagingData.data() + offset, length);
                 m_dirtyRange.UnionUpdate(start, end);
             }
 
             void BufferObject::UploadSubData(DataPtr data, SizeT atOffset) {
-                assert(!m_isMapped);
-                assert(atOffset + data.size <= m_size);
+                MOBILEGL_ASSERT(!m_isMapped, "Cannot upload sub data while buffer is mapped.");
+                MOBILEGL_ASSERT(atOffset + data.size <= m_size,
+                                "UploadSubData out of bounds: atOffset (%zu) + data.size (%zu) > m_size (%zu)",
+                                atOffset, data.size, m_size);
 
-                memcpy(m_dataPtr->data() + atOffset, data.data, data.size);
+                Memcpy(m_dataPtr->data() + atOffset, data.data, data.size);
                 m_dirtyRange.UnionUpdate(atOffset, atOffset + data.size);
             }
 
             void BufferObject::CopyDataFrom(const SharedPtr<BufferObject>& src, SizeT srcOffset, SizeT dstOffset,
                                             SizeT size) {
-                assert(!m_isMapped);
-                assert(!src->IsMapped());
-                assert(srcOffset + size <= src->GetSize());
-                assert(dstOffset + size <= m_size);
+                MOBILEGL_ASSERT(!m_isMapped, "Cannot copy data while buffer is mapped.");
+                MOBILEGL_ASSERT(!src->IsMapped(), "Cannot copy data from a buffer that is mapped.");
+                MOBILEGL_ASSERT(srcOffset + size <= src->GetSize(),
+                                "Source buffer copy out of bounds: srcOffset (%zu) + size (%zu) > src->GetSize() (%zu)",
+                                srcOffset, size, src->GetSize());
+                MOBILEGL_ASSERT(dstOffset + size <= m_size,
+                                "Destination buffer copy out of bounds: dstOffset (%zu) + size (%zu) > m_size (%zu)",
+                                dstOffset, size, m_size);
 
                 const Uint8* srcData = src->m_dataPtr->data() + srcOffset;
-                memcpy(m_dataPtr->data() + dstOffset, srcData, size);
+                Memcpy(m_dataPtr->data() + dstOffset, srcData, size);
                 m_dirtyRange.UnionUpdate(dstOffset, dstOffset + size);
             }
 
@@ -93,7 +104,7 @@ namespace MobileGL {
 
                         if (!(m_mappingAccess &
                               (BufferMappingAccessBit::InvalidateRange | BufferMappingAccessBit::InvalidateBuffer))) {
-                            memcpy(m_stagingData.data(), m_dataPtr->data(), m_size);
+                            Memcpy(m_stagingData.data(), m_dataPtr->data(), m_size);
                         }
 
                         return m_stagingData.data();
@@ -104,7 +115,9 @@ namespace MobileGL {
             }
 
             void* BufferObject::AcquireMemoryRange(Range1D range, Flags<BufferMappingAccessBit> access) {
-                assert(range.end <= m_size && range.start <= range.end);
+                MOBILEGL_ASSERT(range.end <= m_size && range.start <= range.end,
+                                "AcquireMemoryRange out of bounds: range (%zu, %zu) exceeds m_size (%zu)", range.start,
+                                range.end, m_size);
                 m_isMapped = true;
                 m_mappingAccess = access;
                 m_mappedRange = range;
@@ -115,7 +128,7 @@ namespace MobileGL {
 
                     if (!(access &
                           (BufferMappingAccessBit::InvalidateRange | BufferMappingAccessBit::InvalidateBuffer))) {
-                        memcpy(m_stagingData.data(), m_dataPtr->data() + range.start, m_stagingData.size());
+                        Memcpy(m_stagingData.data(), m_dataPtr->data() + range.start, m_stagingData.size());
                     }
 
                     return m_stagingData.data();

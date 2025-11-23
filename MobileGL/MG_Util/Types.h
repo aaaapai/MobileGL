@@ -104,13 +104,14 @@ namespace MobileGL {
         SizeT end = ~0u;
 
         void Update(SizeT newStart, SizeT newEnd) {
-            assert(newStart <= newEnd);
+            MOBILEGL_ASSERT(newStart <= newEnd, "Range1D::Update: newStart (%zu) > newEnd (%zu)", newStart, newEnd);
             start = newStart;
             end = newEnd;
         }
 
         void UnionUpdate(SizeT newStart, SizeT newEnd) {
-            assert(newStart <= newEnd);
+            MOBILEGL_ASSERT(newStart <= newEnd, "Range1D::UnionUpdate: newStart (%zu) > newEnd (%zu)", newStart,
+                            newEnd);
             if (start == end) {
                 Update(newStart, newEnd);
                 return;
@@ -120,10 +121,13 @@ namespace MobileGL {
         }
 
         void IntersectionUpdate(SizeT newStart, SizeT newEnd) {
-            assert(newStart <= newEnd);
+            MOBILEGL_ASSERT(newStart <= newEnd, "Range1D::IntersectionUpdate: newStart (%zu) > newEnd (%zu)", newStart,
+                            newEnd);
             start = std::max(start, newStart);
             end = std::min(end, newEnd);
-            assert(start <= end);
+            MOBILEGL_ASSERT(start <= end,
+                            "Range1D::IntersectionUpdate resulted in invalid range: start (%zu) > end (%zu)", start,
+                            end);
         }
     };
 
@@ -148,25 +152,20 @@ namespace MobileGL {
     };
 
     template <typename ObjectType>
-    class BindingSlotRange1D: public BindingSlot<ObjectType> {
+    class BindingSlotRange1D : public BindingSlot<ObjectType> {
     public:
         using TargetEnum = typename ObjectType::TargetEnum;
 
         BindingSlotRange1D() : BindingSlot<ObjectType>() {}
         explicit BindingSlotRange1D(TargetEnum target, const Range1D& range = Range1D())
-                : BindingSlot<ObjectType>(target), m_range(range) {}
+            : BindingSlot<ObjectType>(target), m_range(range) {}
 
-        Range1D GetRange() const {
-            return m_range;
-        }
+        Range1D GetRange() const { return m_range; }
 
-        void SetRange(const Range1D& range) {
-            m_range = range;
-        }
+        void SetRange(const Range1D& range) { m_range = range; }
 
-        void ClearRange() {
-            m_range = Range1D();
-        }
+        void ClearRange() { m_range = Range1D(); }
+
     private:
         Range1D m_range;
     };
