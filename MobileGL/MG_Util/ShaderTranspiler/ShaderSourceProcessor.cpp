@@ -22,6 +22,16 @@ namespace MobileGL {
                     linedirPos = source.find("#line", linedirPos);
                 }
 
+                // remove "noperspective"
+                const char* str_np = "noperspective";
+                const SizeT len_np = strlen(str_np);
+                SizeT noperspectivePos = source.find(str_np);
+                while (noperspectivePos != std::string::npos) {
+                    // + length of "\n"
+                    source = source.replace(noperspectivePos, len_np, "");
+                    noperspectivePos = source.find(str_np);
+                }
+
                 // force #version
                 ShaderProfile profile = ShaderProfile::Core;
                 SizeT versionPos = source.find("#version");

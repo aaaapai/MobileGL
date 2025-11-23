@@ -35,7 +35,7 @@ namespace MobileGL {
                         return m_bindingSlots[i];
                     }
                 }
-                assert(false);
+                MOBILEGL_ASSERT(false, "Invalid BufferTarget enum value: %d", static_cast<int>(target));
                 return m_bindingSlots[0];
             }
 
@@ -62,14 +62,14 @@ namespace MobileGL {
                 return m_bufferObjects.find(index) != m_bufferObjects.end();
             }
 
-            BindingSlotRange1D<BufferObject> &
-            BufferState::GetBindingPoint(BufferTarget target, Uint index) {
+            BindingSlotRange1D<BufferObject>& BufferState::GetBindingPoint(BufferTarget target, Uint index) {
                 for (SizeT i = 0; i < BufferBindPointTargets.size(); ++i) {
                     if (BufferBindPointTargets[i] == target) {
                         return m_bufferBindPointTargets[i][index];
                     }
                 }
-                assert(false);
+                MOBILEGL_ASSERT(false, "Invalid BufferTarget enum value for binding point: %d",
+                                static_cast<int>(target));
                 return m_bufferBindPointTargets[0][index];
             }
         } // namespace GLState

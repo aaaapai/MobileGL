@@ -53,13 +53,9 @@ namespace MobileGL {
             BindingSlot<BufferObject>& GLContext::GetBufferBindingSlot(BufferTarget target) {
                 if (target == BufferTarget::Index) {
                     const auto& vao = m_vertexArrayState.GetBoundVertexArray();
-                    if (vao) {
-                        return vao->GetIndexBufferBindingSlot();
-                    } else {
-                        assert(false);
-                        static BindingSlot<BufferObject> defaultSlot(BufferTarget::Index);
-                        return defaultSlot;
-                    }
+                    MOBILEGL_ASSERT(vao != nullptr,
+                                    "No VAO is currently bound when accessing index buffer binding slot.");
+                    return vao->GetIndexBufferBindingSlot();
                 }
 
                 return m_bufferState.GetBindingSlot(target);

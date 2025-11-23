@@ -107,7 +107,7 @@ namespace MobileGL {
 
             const auto* srcData = static_cast<const Uint8*>(processedPixels);
             Uint8* destData = data.data();
-            if (!data.size()) {
+            if (data.empty()) {
                 SizeT totalSize = mipmap.size.x() * mipmap.size.y() * bytesPerPixel;
                 data.resize(totalSize);
             }

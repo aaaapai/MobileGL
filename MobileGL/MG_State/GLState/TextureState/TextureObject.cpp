@@ -59,9 +59,7 @@ namespace MobileGL {
 
             MipmapLevelInternal& TextureObjectBase::GetMipmap(Int index) {
                 if (index >= m_mipmaps.size()) {
-                    MGLOG_F("TextureObjectBase::GetMipmap: Requested mipmap level %d exceeds available levels %zu",
-                            index, m_mipmaps.size());
-                    assert(false && "Requested mipmap level exceeds available levels");
+                    MOBILEGL_ASSERT(false, "GetMipmap: index %d out of bounds, returning last mipmap level", index);
                     index = static_cast<Int>(m_mipmaps.size() - 1);
                 }
                 return m_mipmaps[index];
@@ -100,9 +98,8 @@ namespace MobileGL {
                 case TextureSwizzleParam::Alpha:
                     return m_swizzleParams[3];
                 default:
-                    MGLOG_F("TextureObjectBase::GetSwizzleParam: Invalid TextureSwizzleParam: %d",
-                            static_cast<Int>(param));
-                    assert(false && "Invalid TextureSwizzleParam");
+                    MOBILEGL_ASSERT(false, "TextureObjectBase::GetSwizzleParam: Invalid TextureSwizzleParam: %d",
+                                    static_cast<Int>(param));
                     return TextureSwizzleParam::Red;
                 }
             }
@@ -122,9 +119,8 @@ namespace MobileGL {
                     m_swizzleParams[3] = value;
                     break;
                 default:
-                    MGLOG_F("TextureObjectBase::SetSwizzleParam: Invalid TextureSwizzleParam: %d",
-                            static_cast<Int>(param));
-                    assert(false && "Invalid TextureSwizzleParam");
+                    MOBILEGL_ASSERT(false, "TextureObjectBase::SetSwizzleParam: Invalid TextureSwizzleParam: %d",
+                                    static_cast<Int>(param));
                     break;
                 }
             }

@@ -63,7 +63,7 @@ namespace MobileGL {
 
             if (bufSize == 0) return;
 
-            memcpy(dst, src, sz);
+            Memcpy(dst, src, sz);
             dst[sz] = '\0';
         }
 
@@ -426,14 +426,14 @@ namespace MobileGL {
                 auto* ttype = programObject->GetUniformTType(location);
 
                 if (!ttype->isMatrix() || ttype->getMatrixCols() != 3)
-                    memcpy(params, pUBO + offset, size);
+                    Memcpy(params, pUBO + offset, size);
                 else {
                     // TODO: we only deal with mat3 yet, deal with other types later
                     // assuming float here, which may not be the case
                     auto* pBase = pUBO + offset;
                     for (int i = 0; i < ttype->getMatrixRows(); i++) {
-                        memcpy((char*)params + ttype->getMatrixCols() * sizeof(float) * i, pBase + 4 * sizeof(float) * i,
-                            ttype->getMatrixCols() * sizeof(float));
+                        Memcpy((char*)params + ttype->getMatrixCols() * sizeof(float) * i,
+                               pBase + 4 * sizeof(float) * i, ttype->getMatrixCols() * sizeof(float));
                     }
                 }
             }
@@ -504,12 +504,15 @@ namespace MobileGL {
         }
 
         template <GLsizei ItemCount, typename T>
-        void Uniform_State(MG_State::GLState::ProgramObject& programObject, GLuint location, T* value, SizeT byteOffsetInsideUniform = 0) {
+        void Uniform_State(MG_State::GLState::ProgramObject& programObject, GLuint location, T* value,
+                           SizeT byteOffsetInsideUniform = 0) {
             if (!programObject.IsUniformOpaqueAtLocation(location)) {
                 auto size = programObject.GetUniformSizesInBytes(location);
                 auto offset = programObject.GetUniformOffset(location);
-                assert(size >= ItemCount * sizeof(T));
-                memcpy((char*)programObject.MapUBO() + offset + byteOffsetInsideUniform, value, ItemCount * sizeof(T));
+                MOBILEGL_ASSERT(size >= ItemCount * sizeof(T),
+                                "Uniform size mismatch, expected at least %zu bytes, got %zu bytes.",
+                                ItemCount * sizeof(T), size);
+                Memcpy((char*)programObject.MapUBO() + offset + byteOffsetInsideUniform, value, ItemCount * sizeof(T));
             } else {
                 auto* ttype = programObject.GetUniformTType(location);
                 if (ttype->isTexture() || ttype->isImage()) {
@@ -716,12 +719,14 @@ namespace MobileGL {
                     GLfloat transposedMatrix[9];
                     TransposeMatrix3x3(value + i * 9, transposedMatrix);
                     for (int row = 0; row < 3; ++row) {
-                        Uniform_State<3>(*programObject, location + i, transposedMatrix + row * 3, row * 4 * sizeof(float));
+                        Uniform_State<3>(*programObject, location + i, transposedMatrix + row * 3,
+                                         row * 4 * sizeof(float));
                     }
                 } else {
                     // No transpose needed, directly copy the matrix data
                     for (int row = 0; row < 3; ++row) {
-                        Uniform_State<3>(*programObject, location + i, value + i * 9 + row * 3, row * 4 * sizeof(float));
+                        Uniform_State<3>(*programObject, location + i, value + i * 9 + row * 3,
+                                         row * 4 * sizeof(float));
                     }
                 }
             }
