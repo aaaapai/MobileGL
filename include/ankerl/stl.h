@@ -1,12 +1,12 @@
 ///////////////////////// ankerl::unordered_dense::{map, set} /////////////////////////
 
 // A fast & densely stored hashmap and hashset based on robin-hood backward shift deletion.
-// Version 4.5.0
+// Version 4.8.1
 // https://github.com/martinus/unordered_dense
 //
 // Licensed under the MIT License <http://opensource.org/licenses/MIT>.
 // SPDX-License-Identifier: MIT
-// Copyright (c) 2022-2024 Martin Leitner-Ankerl <martin.ankerl@gmail.com>
+// Copyright (c) 2022 Martin Leitner-Ankerl <martin.ankerl@gmail.com>
 //
 // Permission is hereby granted, free of charge, to any person obtaining a copy
 // of this software and associated documentation files (the "Software"), to deal
@@ -46,13 +46,32 @@
 #include <utility>          // for forward, exchange, pair, as_const, piece...
 #include <vector>           // for vector
 
-#if defined(__has_include)
-#    if __has_include(<memory_resource>)
-#         define ANKERL_UNORDERED_DENSE_PMR std::pmr // NOLINT(cppcoreguidelines-macro-usage)
-#         include <memory_resource>                  // for polymorphic_allocator
+// <memory_resource> includes <mutex>, which fails to compile if
+// targeting GCC >= 13 with the (rewritten) win32 thread model, and
+// targeting Windows earlier than Vista (0x600).  GCC predefines
+// _REENTRANT when using the 'posix' model, and doesn't when using the
+// 'win32' model.
+#if defined __MINGW64__ && defined __GNUC__ && __GNUC__ >= 13 && !defined _REENTRANT
+// _WIN32_WINNT is guaranteed to be defined here because of the
+// <cstdint> inclusion above.
+#    ifndef _WIN32_WINNT
+#        error "_WIN32_WINNT not defined"
+#    endif
+#    if _WIN32_WINNT < 0x600
+#        define ANKERL_MEMORY_RESOURCE_IS_BAD() 1 // NOLINT(cppcoreguidelines-macro-usage)
+#    endif
+#endif
+#ifndef ANKERL_MEMORY_RESOURCE_IS_BAD
+#    define ANKERL_MEMORY_RESOURCE_IS_BAD() 0 // NOLINT(cppcoreguidelines-macro-usage)
+#endif
+
+#if defined(__has_include) && !defined(ANKERL_UNORDERED_DENSE_DISABLE_PMR)
+#    if __has_include(<memory_resource>) && !ANKERL_MEMORY_RESOURCE_IS_BAD()
+#        define ANKERL_UNORDERED_DENSE_PMR std::pmr // NOLINT(cppcoreguidelines-macro-usage)
+#        include <memory_resource>                  // for polymorphic_allocator
 #    elif __has_include(<experimental/memory_resource>)
-#         define ANKERL_UNORDERED_DENSE_PMR std::experimental::pmr // NOLINT(cppcoreguidelines-macro-usage)
-#         include <experimental/memory_resource>                   // for polymorphic_allocator
+#        define ANKERL_UNORDERED_DENSE_PMR std::experimental::pmr // NOLINT(cppcoreguidelines-macro-usage)
+#        include <experimental/memory_resource>                   // for polymorphic_allocator
 #    endif
 #endif
 
