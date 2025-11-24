@@ -10,9 +10,44 @@ namespace MobileGL {
                 m_sampler = MakeShared<SamplerObject>(0);
             }
 
-            void TextureObjectBase::SetMipmapLevel(const MipmapLevelInput& level) {
-                SetMipmapImpl(level);
+            Uint TextureObjectBase::GetMipmapLevelCount() const {
+                return m_textureStorage.GetLevelCount();
             }
+
+            const IntVec3 TextureObjectBase::GetMipmapTexelSize(TextureUploadTarget target, Uint mipmapLevel) const {
+                return m_textureStorage.GetTexelSize(0, mipmapLevel);
+            }
+
+            const SizeT TextureObjectBase::GetMipmapByteSize(TextureUploadTarget target, Uint mipmapLevel) const {
+                return m_textureStorage.GetByteSize(0, mipmapLevel);
+            }
+
+            void TextureObjectBase::AllocateStorage(TextureUploadTarget uploadTarget, Uint mipmapLevel,
+                                                    MipmapInput input) {
+                // don't care target, index always 0
+                m_textureStorage.AllocateLevel(0, mipmapLevel, input);
+            }
+            void TextureObjectBase::UpdateMipmapSubData(TextureUploadTarget uploadTarget, Uint mipmapLevel,
+                                                        DataPtr input) {
+                // ditto
+                m_textureStorage.UpdateSubData(0, mipmapLevel, input);
+            }
+            void* TextureObjectBase::MapMipmapData(TextureUploadTarget uploadTarget, Uint mipmapLevel) {
+                return m_textureStorage.MapData(0, mipmapLevel);
+            }
+
+            void TextureObjectBase::MarkStorageDirty(TextureUploadTarget uploadTarget, Uint mipmapLevel, bool dirty) {
+                // ditto
+                m_textureStorage.MarkDirty(0, mipmapLevel, dirty);
+            }
+
+            bool TextureObjectBase::IsStorageDirty(TextureUploadTarget uploadTarget, Uint mipmapLevel) const {
+                return m_textureStorage.IsDirty(0, mipmapLevel);
+            }
+
+            // void TextureObjectBase::SetMipmapLevel(const MipmapLevelInput& level) {
+            //     SetMipmapImpl(level);
+            // }
 
             TextureInternalFormat TextureObjectBase::GetFormat() const {
                 return m_internalFormat;
@@ -23,32 +58,33 @@ namespace MobileGL {
             }
 
             IntVec3 TextureObjectBase::GetBaseSize() const {
-                if (m_mipmaps.empty()) {
+                if (m_textureStorage.GetLevelCount() == 0) {
                     return {0, 0, 0};
                 }
-                return m_mipmaps[0].size;
+                return m_textureStorage.GetTexelSize(0, 0);
             }
 
             SharedPtr<SamplerObject> TextureObjectBase::GetSamplerObject() const {
                 return m_sampler;
             }
 
-            const Vector<MipmapLevelInternal>& TextureObjectBase::GetMipmaps() const {
-                return m_mipmaps;
-            }
+            // const Vector<MipmapLevelInternal>& TextureObjectBase::GetMipmaps() const {
+            //     return m_mipmaps;
+            // }
 
             Bool TextureObjectBase::IsComplete() const {
                 if (m_internalFormat == TextureInternalFormat::Unknown) {
                     return false;
                 }
 
-                if (m_mipmaps.empty()) {
+                SizeT levelCount = m_textureStorage.GetLevelCount();
+                if (levelCount == 0) {
                     return false;
                 }
 
-                for (size_t i = 0; i < m_mipmaps.size(); ++i) {
-                    const auto& level = m_mipmaps[i];
-                    if (level.size.x() <= 0 || level.size.y() <= 0 || level.size.z() <= 0) {
+                for (size_t i = 0; i < levelCount; ++i) {
+                    const auto& levelSize = m_textureStorage.GetTexelSize(0, i);
+                    if (levelSize.x() <= 0 || levelSize.y() <= 0 || levelSize.z() <= 0) {
                         return false;
                     }
                 }
@@ -57,23 +93,23 @@ namespace MobileGL {
                 return true;
             }
 
-            MipmapLevelInternal& TextureObjectBase::GetMipmap(Int index) {
-                if (index >= m_mipmaps.size()) {
-                    MOBILEGL_ASSERT(false, "GetMipmap: index %d out of bounds, returning last mipmap level", index);
-                    index = static_cast<Int>(m_mipmaps.size() - 1);
-                }
-                return m_mipmaps[index];
-            }
+            // MipmapLevelInternal& TextureObjectBase::GetMipmap(TextureUploadTarget target, Int index) {
+            //     if (index >= m_mipmaps.size()) {
+            //         MOBILEGL_ASSERT(false, "GetMipmap: index %d out of bounds, returning last mipmap level", index);
+            //         index = static_cast<Int>(m_mipmaps.size() - 1);
+            //     }
+            //     return m_mipmaps[index];
+            // }
 
             void TextureObjectBase::SetInternalFormat(TextureInternalFormat format) {
                 m_internalFormat = format;
             }
 
-            void TextureObjectBase::UnmarkMipmapDirty(Int index) {
-                if (index >= 0 && index < static_cast<Int>(m_mipmaps.size())) {
-                    m_mipmaps[index].dirty = false;
-                }
-            }
+            // void TextureObjectBase::UnmarkMipmapDirty(Int index) {
+            //     if (index >= 0 && index < static_cast<Int>(m_mipmaps.size())) {
+            //         m_mipmaps[index].dirty = false;
+            //     }
+            // }
 
             Uint TextureObjectBase::GetExternalIndex() const {
                 return m_externalIndex;

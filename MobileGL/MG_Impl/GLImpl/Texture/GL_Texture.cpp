@@ -64,8 +64,9 @@ namespace MobileGL {
             if (!TextureImpl::ValidateTextureSubImageOffsets(textureObject, xoffset, width, yoffset, height)) return;
 
             // ======================= Processing ================================
-            auto& mipmap = textureObject->GetMipmap(level);
-            Vector<Uint8>& data = mipmap.data;
+            // auto& mipmap = textureObject->GetMipmap(level);
+            // Vector<Uint8>& data = mipmap.data;
+            auto texelSize = textureObject->GetMipmapTexelSize(textureUploadingTarget, level);
 
             SizeT imageSize = 0;
             const SizeT bytesPerPixel = MG_Util::GetInputBytesPerPixel(textureInternalFormat, texturePixelDataType);
@@ -94,23 +95,24 @@ namespace MobileGL {
             }
 
             const SizeT srcRowSize = width * bytesPerPixel;
-            const SizeT destRowSize = mipmap.size.x() * bytesPerPixel;
+            const SizeT destRowSize = texelSize.x() * bytesPerPixel;
 
-            if (xoffset + width > static_cast<GLsizei>(mipmap.size.x()) ||
-                yoffset + height > static_cast<GLsizei>(mipmap.size.y())) {
+            if (xoffset + width > static_cast<GLsizei>(texelSize.x()) ||
+                yoffset + height > static_cast<GLsizei>(texelSize.y())) {
                 MGLOG_E("TexSubImage2D_State: Specified region exceeds texture dimensions, xoffset: %d, yoffset: %d, "
                         "width: %d, height: %d, mipmap size: (%d, %d)",
-                        xoffset, yoffset, width, height, mipmap.size.x(), mipmap.size.y());
+                        xoffset, yoffset, width, height, texelSize.x(), texelSize.y());
                 free(processedPixels);
                 return;
             }
 
             const auto* srcData = static_cast<const Uint8*>(processedPixels);
-            Uint8* destData = data.data();
-            if (data.empty()) {
-                SizeT totalSize = mipmap.size.x() * mipmap.size.y() * bytesPerPixel;
-                data.resize(totalSize);
-            }
+            Uint8* destData = (Uint8*)textureObject->MapMipmapData(textureUploadingTarget, level);
+            // No allocation should be done here
+            // if (data.empty()) {
+            //     SizeT totalSize = texelSize.x() * texelSize.y() * bytesPerPixel;
+            //     data.resize(totalSize);
+            // }
 
             for (GLsizei y = 0; y < height; y++) {
                 const SizeT destRowOffset = (yoffset + y) * destRowSize + xoffset * bytesPerPixel;
@@ -120,8 +122,9 @@ namespace MobileGL {
 
             free(processedPixels);
 
-            mipmap.dirty = true;
-            mipmap.hasData = true;
+            textureObject->MarkStorageDirty(textureUploadingTarget, level, true);
+            // mipmap.dirty = true;
+            // mipmap.hasData = true;
         }
 
         void TexSubImage1D_State(GLenum target, GLint level, GLint xoffset, GLsizei width, GLenum format, GLenum type,
@@ -375,9 +378,16 @@ namespace MobileGL {
             // ======================= Processing ================================
 
             SizeT imageSize = 0;
-            void* processedPixels = nullptr;
             const SizeT bytesPerPixel = MG_Util::GetInputBytesPerPixel(textureInternalFormat, texturePixelDataType);
             const SizeT totalBytes = width * height * bytesPerPixel;
+
+            textureObject->SetInternalFormat(textureInternalFormat);
+            // Allocate in TextureObject
+            textureObject->AllocateStorage(textureUploadingTarget, level, {{width, height, 1}, isProxy ? 0 : totalBytes});
+
+            // if isProxy, no more pixel transfer needed below
+            if (isProxy)
+                return;
 
             const void* originalPixels = pixels;
 
@@ -391,25 +401,17 @@ namespace MobileGL {
                                  reinterpret_cast<SizeT>(pixels);
             }
 
+            void* processedPixels = nullptr;
             if (originalPixels) {
                 processedPixels = MG_Util::PixelStoreProcessor::ProcessTexturePixelsDataUnpack(
                     originalPixels, MG_State::pGLContext->GetPixelStoreParameters(true), bytesPerPixel,
                     {width, height, 1}, false, imageSize);
             } else {
-                MGLOG_D("TexImage2D_State: No input pixel, do allocate only");
+                MGLOG_D("TexImage2D_State: No input pixel and no PBO bound, no pixel transfer");
+                return;
             }
 
-            MG_State::GLState::MipmapLevelInput mipmap =
-                MG_State::GLState::MipmapLevelInput({width, height, 1}, level, false, 0,
-                                                    {(isProxy || originalPixels == nullptr) ? nullptr : malloc(totalBytes), isProxy ? 0 : totalBytes});
-
-            if (!isProxy && originalPixels != nullptr && !mipmap.inputData.data) {
-                MGLOG_E("TexImage2D_State: Failed to allocate memory for mipmap level data, size: %zu", totalBytes);
-                free(processedPixels);
-                processedPixels = nullptr;
-            }
-
-            if (processedPixels && imageSize > 0 && !isProxy) {
+            if (processedPixels && imageSize > 0) {
                 if (imageSize != totalBytes) {
                     MGLOG_W("TexImage2D_State: Processed pixel data size (%zu) does not match expected size (%zu). "
                             "This may indicate an alignment or processing issue.",
@@ -417,20 +419,53 @@ namespace MobileGL {
                 }
 
                 const SizeT copySize = std::min(imageSize, totalBytes);
-                Memcpy(mipmap.inputData.data, processedPixels, copySize);
-                free(processedPixels);
-            } else if (processedPixels && !isProxy) {
+                DataPtr texelInput { processedPixels, copySize };
+                textureObject->UpdateMipmapSubData(textureUploadingTarget, level, texelInput);
+            } else if (originalPixels) {
                 MGLOG_E("TexImage2D_State: Failed to process pixel data, initializing with original data.");
-                Memcpy(mipmap.inputData.data, originalPixels, totalBytes);
-            } else {
-                if (mipmap.inputData.data) {
-                    free(mipmap.inputData.data);
-                    mipmap.inputData.data = nullptr;
-                }
+                DataPtr texelInput { (void*)originalPixels, totalBytes };
+                textureObject->UpdateMipmapSubData(textureUploadingTarget, level, texelInput);
             }
-            textureObject->SetInternalFormat(textureInternalFormat);
-            textureObject->SetMipmapLevel(mipmap);
-            free(mipmap.inputData.data);
+            free(processedPixels);
+
+            // MG_State::GLState::MipmapLevelInput mipmap =
+            //     MG_State::GLState::MipmapLevelInput({width, height, 1}, level, false, 0,
+            //                                         {(isProxy || originalPixels == nullptr) ? nullptr : malloc(totalBytes), isProxy ? 0 : totalBytes});
+
+
+            // if (!isProxy && originalPixels != nullptr && !mipmap.inputData.data) {
+            //     MGLOG_E("TexImage2D_State: Failed to allocate memory for mipmap level data, size: %zu", totalBytes);
+            //     free(processedPixels);
+            //     processedPixels = nullptr;
+            // }
+
+            // if (!isProxy && originalPixels != nullptr) {
+            //     MGLOG_E("TexImage2D_State: Failed to allocate memory for mipmap level data, size: %zu", totalBytes);
+            //     free(processedPixels);
+            //     processedPixels = nullptr;
+            // }
+            //
+            // if (processedPixels && imageSize > 0 && !isProxy) {
+            //     if (imageSize != totalBytes) {
+            //         MGLOG_W("TexImage2D_State: Processed pixel data size (%zu) does not match expected size (%zu). "
+            //                 "This may indicate an alignment or processing issue.",
+            //                 imageSize, totalBytes);
+            //     }
+            //
+            //     const SizeT copySize = std::min(imageSize, totalBytes);
+            //     Memcpy(mipmap.inputData.data, processedPixels, copySize);
+            //     free(processedPixels);
+            // } else if (processedPixels && !isProxy) {
+            //     MGLOG_E("TexImage2D_State: Failed to process pixel data, initializing with original data.");
+            //     Memcpy(mipmap.inputData.data, originalPixels, totalBytes);
+            // } else {
+            //     if (mipmap.inputData.data) {
+            //         free(mipmap.inputData.data);
+            //         mipmap.inputData.data = nullptr;
+            //     }
+            // }
+            // textureObject->SetMipmapLevel(mipmap);
+            // free(mipmap.inputData.data);
         }
 
         void TexImage1D_State(GLenum target, GLint level, GLint internalFormat, GLsizei width, GLint border,
@@ -649,17 +684,17 @@ namespace MobileGL {
             switch (pname) {
             case GL_TEXTURE_WIDTH:
                 if (params) {
-                    *params = textureObject->GetMipmap(level).size.x();
+                    *params = textureObject->GetMipmapTexelSize(textureUploadingTarget, level).x();
                 }
                 break;
             case GL_TEXTURE_HEIGHT:
                 if (params) {
-                    *params = textureObject->GetMipmap(level).size.y();
+                    *params = textureObject->GetMipmapTexelSize(textureUploadingTarget, level).y();
                 }
                 break;
             case GL_TEXTURE_DEPTH:
                 if (params) {
-                    *params = textureObject->GetMipmap(level).size.z();
+                    *params = textureObject->GetMipmapTexelSize(textureUploadingTarget, level).z();
                 }
                 break;
             case GL_TEXTURE_INTERNAL_FORMAT:
@@ -715,17 +750,17 @@ namespace MobileGL {
             switch (pname) {
             case GL_TEXTURE_WIDTH:
                 if (params) {
-                    *params = textureObject->GetMipmap(level).size.x();
+                    *params = textureObject->GetMipmapTexelSize(textureUploadingTarget, level).x();
                 }
                 break;
             case GL_TEXTURE_HEIGHT:
                 if (params) {
-                    *params = textureObject->GetMipmap(level).size.y();
+                    *params = textureObject->GetMipmapTexelSize(textureUploadingTarget, level).y();
                 }
                 break;
             case GL_TEXTURE_DEPTH:
                 if (params) {
-                    *params = textureObject->GetMipmap(level).size.z();
+                    *params = textureObject->GetMipmapTexelSize(textureUploadingTarget, level).z();
                 }
                 break;
             case GL_TEXTURE_INTERNAL_FORMAT:

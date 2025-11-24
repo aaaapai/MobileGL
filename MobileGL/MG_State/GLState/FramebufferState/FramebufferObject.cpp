@@ -51,7 +51,8 @@ namespace MobileGL {
 
             IntVec3 FramebufferAttachment::GetSize() const {
                 if (IsTexture()) {
-                    return m_texture->GetMipmap(m_textureLevel).size;
+                    // TODO: get correct upload target
+                    return m_texture->GetMipmapTexelSize(TextureUploadTarget::Texture2D, m_textureLevel);
                 } else if (IsRenderbuffer()) {
                     // TODO
                 }

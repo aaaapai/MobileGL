@@ -9,7 +9,7 @@ namespace MobileGL {
                 explicit TextureObject3D(Uint externalIndex);
 
             protected:
-                void SetMipmapImpl(const MipmapLevelInput& level) override;
+                // void SetMipmapImpl(const MipmapLevelInput& level) override;
             };
         }
     }
