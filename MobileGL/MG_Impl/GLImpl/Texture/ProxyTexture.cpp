@@ -1,5 +1,5 @@
 #include "ProxyTexture.h"
-#include "MG_State/GLState/TextureState/TextureObject.h"
+#include "MG_State/GLState/TextureState/TextureObject2D.h"
 #include "MG_Util/Types.h"
 
 namespace MobileGL::MG_Impl::GLImpl {

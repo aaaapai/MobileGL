@@ -137,36 +137,6 @@ namespace MobileGL {
                 m_levelRange.y() = maxLevel;
             }
 
-            // TextureObject1D
-            TextureObject1D::TextureObject1D(Uint externalIndex)
-                : TextureObjectBase(TextureTarget::Texture1D, externalIndex) {}
-
-            void TextureObject1D::SetMipmapImpl(const MipmapLevelInput& level) {
-                if (level.size.x() > 0) {
-                    m_mipmaps.push_back(MipmapLevelInternal(level));
-                }
-            }
-
-            // TextureObject2D
-            TextureObject2D::TextureObject2D(Uint externalIndex)
-                : TextureObjectBase(TextureTarget::Texture2D, externalIndex) {}
-
-            void TextureObject2D::SetMipmapImpl(const MipmapLevelInput& level) {
-                if (level.size.x() > 0 && level.size.y() > 0) {
-                    m_mipmaps.push_back(MipmapLevelInternal(level));
-                }
-            }
-
-            // TextureObject3D
-            TextureObject3D::TextureObject3D(Uint externalIndex)
-                : TextureObjectBase(TextureTarget::Texture3D, externalIndex) {}
-
-            void TextureObject3D::SetMipmapImpl(const MipmapLevelInput& level) {
-                if (level.size.x() > 0 && level.size.y() > 0 && level.size.z() > 0) {
-                    m_mipmaps.push_back(MipmapLevelInternal(level));
-                }
-            }
-
             // TODO: add other texture types as needed
 
         } // namespace GLState

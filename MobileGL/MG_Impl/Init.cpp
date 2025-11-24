@@ -2,6 +2,10 @@
 #include "GLImpl/Texture/ProxyTexture.h"
 #include "GLImpl/Framebuffer/GL_Framebuffer.h"
 
+#include "MG_State/GLState/TextureState/TextureObject1D.h"
+#include "MG_State/GLState/TextureState/TextureObject2D.h"
+#include "MG_State/GLState/TextureState/TextureObject3D.h"
+
 namespace MobileGL {
     namespace MG_Impl {
         void Init() {

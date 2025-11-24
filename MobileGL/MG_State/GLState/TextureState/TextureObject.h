@@ -274,33 +274,6 @@ namespace MobileGL {
                                                           TextureSwizzleParam::Blue, TextureSwizzleParam::Alpha};
                 UintVec2 m_levelRange = {0, 1000};
             };
-
-            class TextureObject1D : public TextureObjectBase {
-            public:
-                explicit TextureObject1D(Uint externalIndex);
-
-            protected:
-                void SetMipmapImpl(const MipmapLevelInput& level) override;
-            };
-
-            class TextureObject2D : public TextureObjectBase {
-            public:
-                explicit TextureObject2D(Uint externalIndex);
-
-            protected:
-                void SetMipmapImpl(const MipmapLevelInput& level) override;
-            };
-
-            class TextureObject3D : public TextureObjectBase {
-            public:
-                explicit TextureObject3D(Uint externalIndex);
-
-            protected:
-                void SetMipmapImpl(const MipmapLevelInput& level) override;
-            };
-
-            // TODO: add other texture types as needed
-
         } // namespace GLState
     } // namespace MG_State
 } // namespace MobileGL

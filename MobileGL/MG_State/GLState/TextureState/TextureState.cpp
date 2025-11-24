@@ -1,5 +1,8 @@
 #include "TextureState.h"
 #include "MG_State/GLState/TextureState/TextureObject.h"
+#include "MG_State/GLState/TextureState/TextureObject1D.h"
+#include "MG_State/GLState/TextureState/TextureObject2D.h"
+#include "MG_State/GLState/TextureState/TextureObject3D.h"
 #include "MG_Util/Types.h"
 
 namespace MobileGL {
