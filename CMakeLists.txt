@@ -19,6 +19,9 @@ if (NOT CMAKE_BUILD_TYPE STREQUAL "Debug" OR MOBILEGL_FORCE_RELEASE_OPT)
     endif()
 endif()
 
+if (CMAKE_CXX_COMPILER_ID MATCHES "MSVC")
+    add_compile_options(/Zc:preprocessor)
+endif()
 
 enable_language(CXX)
 
