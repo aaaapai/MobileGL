@@ -218,15 +218,16 @@ namespace MobileGL {
                 virtual ~ITextureObject() = default;
 
                 virtual void SetMipmapLevel(const MipmapLevelInput& level) = 0;
+                virtual const Vector<MipmapLevelInternal>& GetMipmaps() const = 0;
+                virtual MipmapLevelInternal& GetMipmap(Int index) = 0;
+                virtual void UnmarkMipmapDirty(Int index) = 0;
+
                 virtual TextureInternalFormat GetFormat() const = 0;
                 virtual TextureTarget GetTarget() const = 0;
                 virtual IntVec3 GetBaseSize() const = 0;
                 virtual SharedPtr<SamplerObject> GetSamplerObject() const = 0;
-                virtual const Vector<MipmapLevelInternal>& GetMipmaps() const = 0;
-                virtual MipmapLevelInternal& GetMipmap(Int index) = 0;
                 virtual void SetInternalFormat(TextureInternalFormat format) = 0;
                 virtual Bool IsComplete() const = 0;
-                virtual void UnmarkMipmapDirty(Int index) = 0;
                 virtual Uint GetExternalIndex() const = 0;
                 virtual const FloatVec4& GetBorderColor() const = 0;
                 virtual void SetBorderColor(const FloatVec4& color) = 0;
@@ -243,15 +244,16 @@ namespace MobileGL {
                 virtual ~TextureObjectBase() = default;
 
                 void SetMipmapLevel(const MipmapLevelInput& level) override;
+                const Vector<MipmapLevelInternal>& GetMipmaps() const override;
+                MipmapLevelInternal& GetMipmap(Int index) override;
+                void UnmarkMipmapDirty(Int index) override;
+
                 TextureInternalFormat GetFormat() const override;
                 TextureTarget GetTarget() const override;
                 IntVec3 GetBaseSize() const override;
                 SharedPtr<SamplerObject> GetSamplerObject() const override;
-                const Vector<MipmapLevelInternal>& GetMipmaps() const override;
-                MipmapLevelInternal& GetMipmap(Int index) override;
                 void SetInternalFormat(TextureInternalFormat format) override;
                 Bool IsComplete() const override;
-                void UnmarkMipmapDirty(Int index) override;
                 Uint GetExternalIndex() const override;
                 const FloatVec4& GetBorderColor() const override;
                 void SetBorderColor(const FloatVec4& color) override;
