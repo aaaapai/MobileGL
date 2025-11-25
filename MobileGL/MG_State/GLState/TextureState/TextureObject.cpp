@@ -15,34 +15,34 @@ namespace MobileGL {
             }
 
             const IntVec3 TextureObjectBase::GetMipmapTexelSize(TextureUploadTarget target, Uint mipmapLevel) const {
-                return m_textureStorage.GetTexelSize(0, mipmapLevel);
+                return m_textureStorage.GetTexelSize(GetIndexOfTextureUploadTarget(target), mipmapLevel);
             }
 
             const SizeT TextureObjectBase::GetMipmapByteSize(TextureUploadTarget target, Uint mipmapLevel) const {
-                return m_textureStorage.GetByteSize(0, mipmapLevel);
+                return m_textureStorage.GetByteSize(GetIndexOfTextureUploadTarget(target), mipmapLevel);
             }
 
             void TextureObjectBase::AllocateStorage(TextureUploadTarget uploadTarget, Uint mipmapLevel,
                                                     MipmapInput input) {
                 // don't care target, index always 0
-                m_textureStorage.AllocateLevel(0, mipmapLevel, input);
+                m_textureStorage.AllocateLevel(GetIndexOfTextureUploadTarget(uploadTarget), mipmapLevel, input);
             }
             void TextureObjectBase::UpdateMipmapSubData(TextureUploadTarget uploadTarget, Uint mipmapLevel,
                                                         DataPtr input) {
                 // ditto
-                m_textureStorage.UpdateSubData(0, mipmapLevel, input);
+                m_textureStorage.UpdateSubData(GetIndexOfTextureUploadTarget(uploadTarget), mipmapLevel, input);
             }
             void* TextureObjectBase::MapMipmapData(TextureUploadTarget uploadTarget, Uint mipmapLevel) {
-                return m_textureStorage.MapData(0, mipmapLevel);
+                return m_textureStorage.MapData(GetIndexOfTextureUploadTarget(uploadTarget), mipmapLevel);
             }
 
             void TextureObjectBase::MarkStorageDirty(TextureUploadTarget uploadTarget, Uint mipmapLevel, bool dirty) {
                 // ditto
-                m_textureStorage.MarkDirty(0, mipmapLevel, dirty);
+                m_textureStorage.MarkDirty(GetIndexOfTextureUploadTarget(uploadTarget), mipmapLevel, dirty);
             }
 
             bool TextureObjectBase::IsStorageDirty(TextureUploadTarget uploadTarget, Uint mipmapLevel) const {
-                return m_textureStorage.IsDirty(0, mipmapLevel);
+                return m_textureStorage.IsDirty(GetIndexOfTextureUploadTarget(uploadTarget), mipmapLevel);
             }
 
             // void TextureObjectBase::SetMipmapLevel(const MipmapLevelInput& level) {

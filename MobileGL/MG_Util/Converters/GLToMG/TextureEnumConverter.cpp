@@ -278,9 +278,13 @@ namespace MobileGL {
 
         TextureUploadTarget ConvertGLEnumToTextureUploadTarget(GLenum target) {
             switch (target) {
+            case GL_TEXTURE_1D:
+                return TextureUploadTarget::Texture1D;
             case GL_TEXTURE_2D:
                 return TextureUploadTarget::Texture2D;
-            case GL_PROXY_TEXTURE_2D:
+            case GL_TEXTURE_3D:
+                return TextureUploadTarget::Texture3D;
+                case GL_PROXY_TEXTURE_2D:
                 return TextureUploadTarget::ProxyTexture2D;
             case GL_TEXTURE_1D_ARRAY:
                 return TextureUploadTarget::Texture1DArray;

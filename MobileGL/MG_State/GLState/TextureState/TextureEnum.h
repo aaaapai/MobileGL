@@ -20,7 +20,9 @@ namespace MobileGL {
     // Don't tinker with order in this enum
     // it is used in TextureStorage
     enum class TextureUploadTarget {
+        Texture1D,
         Texture2D,
+        Texture3D,
         ProxyTexture2D,
         Texture1DArray,
         ProxyTexture1DArray,

@@ -274,6 +274,10 @@ namespace MobileGL {
             switch (target) {
             case TextureUploadTarget::Texture2D:
                 return GL_TEXTURE_2D;
+            case TextureUploadTarget::Texture1D:
+                return GL_TEXTURE_1D;
+            case TextureUploadTarget::Texture3D:
+                return GL_TEXTURE_3D;
             case TextureUploadTarget::ProxyTexture2D:
                 return GL_PROXY_TEXTURE_2D;
             case TextureUploadTarget::Texture1DArray:
