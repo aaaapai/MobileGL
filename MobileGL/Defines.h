@@ -48,6 +48,7 @@
 #elif __clang__
 #define TRAP __builtin_debugtrap()
 #else
+#include <signal.h>
 #define TRAP raise(SIGTRAP)
 #endif
 
