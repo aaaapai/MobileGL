@@ -4,7 +4,7 @@
 namespace MobileGL {
     namespace MG_State {
         namespace GLState {
-            class TextureObject2D : public TextureObjectBase {
+            class TextureObject2D : public TextureObjectWithOneMipmap {
             public:
                 explicit TextureObject2D(Uint externalIndex);
 

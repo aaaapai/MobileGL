@@ -46,14 +46,15 @@ namespace MobileGL {
                 TextureObjectBase(TextureTarget target, Uint externalIndex);
                 virtual ~TextureObjectBase() = default;
 
-                Uint GetMipmapLevelCount() const override;
-                const IntVec3 GetMipmapTexelSize(TextureUploadTarget target, Uint mipmapLevel) const override;
-                const SizeT GetMipmapByteSize(TextureUploadTarget target, Uint mipmapLevel) const override;
-                void AllocateStorage(TextureUploadTarget uploadTarget, Uint mipmapLevel, MipmapInput input) override;
-                void UpdateMipmapSubData(TextureUploadTarget uploadTarget, Uint mipmapLevel, DataPtr input) override;
-                void* MapMipmapData(TextureUploadTarget uploadTarget, Uint mipmapLevel) override;
-                void MarkStorageDirty(TextureUploadTarget uploadTarget, Uint mipmapLevel, bool dirty) override;
-                bool IsStorageDirty(TextureUploadTarget uploadTarget, Uint mipmapLevel) const override;
+                // Mipmap ops
+                Uint GetMipmapLevelCount() const = 0;
+                const IntVec3 GetMipmapTexelSize(TextureUploadTarget target, Uint mipmapLevel) const = 0;
+                const SizeT GetMipmapByteSize(TextureUploadTarget target, Uint mipmapLevel) const = 0;
+                void AllocateStorage(TextureUploadTarget uploadTarget, Uint mipmapLevel, MipmapInput input) = 0;
+                void UpdateMipmapSubData(TextureUploadTarget uploadTarget, Uint mipmapLevel, DataPtr input) = 0;
+                void* MapMipmapData(TextureUploadTarget uploadTarget, Uint mipmapLevel) = 0;
+                void MarkStorageDirty(TextureUploadTarget uploadTarget, Uint mipmapLevel, bool dirty) = 0;
+                bool IsStorageDirty(TextureUploadTarget uploadTarget, Uint mipmapLevel) const = 0;
 
                 TextureInternalFormat GetFormat() const override;
                 TextureTarget GetTarget() const override;
@@ -74,13 +75,31 @@ namespace MobileGL {
                 const Uint m_externalIndex;
                 const TextureTarget m_target = TextureTarget::Unknown;
                 TextureInternalFormat m_internalFormat = TextureInternalFormat::Unknown;
-                // Vector<MipmapLevelInternal> m_mipmaps = {};
-                TextureStorage<1> m_textureStorage;
                 SharedPtr<SamplerObject> m_sampler = nullptr;
                 FloatVec4 m_borderColor = {0.0f, 0.0f, 0.0f, 0.0f};
                 TextureSwizzleParam m_swizzleParams[4] = {TextureSwizzleParam::Red, TextureSwizzleParam::Green,
                                                           TextureSwizzleParam::Blue, TextureSwizzleParam::Alpha};
                 UintVec2 m_levelRange = {0, 1000};
+            };
+
+            class TextureObjectWithOneMipmap: public TextureObjectBase {
+            public:
+                TextureObjectWithOneMipmap(TextureTarget target, Uint externalIndex): TextureObjectBase(target, externalIndex) {}
+                virtual ~TextureObjectWithOneMipmap() = default;
+
+                Uint GetMipmapLevelCount() const override;
+                const IntVec3 GetMipmapTexelSize(TextureUploadTarget target, Uint mipmapLevel) const override;
+                const SizeT GetMipmapByteSize(TextureUploadTarget target, Uint mipmapLevel) const override;
+                void AllocateStorage(TextureUploadTarget uploadTarget, Uint mipmapLevel, MipmapInput input) override;
+                void UpdateMipmapSubData(TextureUploadTarget uploadTarget, Uint mipmapLevel, DataPtr input) override;
+                void* MapMipmapData(TextureUploadTarget uploadTarget, Uint mipmapLevel) override;
+                void MarkStorageDirty(TextureUploadTarget uploadTarget, Uint mipmapLevel, bool dirty) override;
+                bool IsStorageDirty(TextureUploadTarget uploadTarget, Uint mipmapLevel) const override;
+
+                IntVec3 GetBaseSize() const override;
+                Bool IsComplete() const override;
+            protected:
+                TextureStorage<1> m_textureStorage;
             };
         } // namespace GLState
     } // namespace MG_State

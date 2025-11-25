@@ -10,45 +10,6 @@ namespace MobileGL {
                 m_sampler = MakeShared<SamplerObject>(0);
             }
 
-            Uint TextureObjectBase::GetMipmapLevelCount() const {
-                return m_textureStorage.GetLevelCount();
-            }
-
-            const IntVec3 TextureObjectBase::GetMipmapTexelSize(TextureUploadTarget target, Uint mipmapLevel) const {
-                return m_textureStorage.GetTexelSize(GetIndexOfTextureUploadTarget(target), mipmapLevel);
-            }
-
-            const SizeT TextureObjectBase::GetMipmapByteSize(TextureUploadTarget target, Uint mipmapLevel) const {
-                return m_textureStorage.GetByteSize(GetIndexOfTextureUploadTarget(target), mipmapLevel);
-            }
-
-            void TextureObjectBase::AllocateStorage(TextureUploadTarget uploadTarget, Uint mipmapLevel,
-                                                    MipmapInput input) {
-                // don't care target, index always 0
-                m_textureStorage.AllocateLevel(GetIndexOfTextureUploadTarget(uploadTarget), mipmapLevel, input);
-            }
-            void TextureObjectBase::UpdateMipmapSubData(TextureUploadTarget uploadTarget, Uint mipmapLevel,
-                                                        DataPtr input) {
-                // ditto
-                m_textureStorage.UpdateSubData(GetIndexOfTextureUploadTarget(uploadTarget), mipmapLevel, input);
-            }
-            void* TextureObjectBase::MapMipmapData(TextureUploadTarget uploadTarget, Uint mipmapLevel) {
-                return m_textureStorage.MapData(GetIndexOfTextureUploadTarget(uploadTarget), mipmapLevel);
-            }
-
-            void TextureObjectBase::MarkStorageDirty(TextureUploadTarget uploadTarget, Uint mipmapLevel, bool dirty) {
-                // ditto
-                m_textureStorage.MarkDirty(GetIndexOfTextureUploadTarget(uploadTarget), mipmapLevel, dirty);
-            }
-
-            bool TextureObjectBase::IsStorageDirty(TextureUploadTarget uploadTarget, Uint mipmapLevel) const {
-                return m_textureStorage.IsDirty(GetIndexOfTextureUploadTarget(uploadTarget), mipmapLevel);
-            }
-
-            // void TextureObjectBase::SetMipmapLevel(const MipmapLevelInput& level) {
-            //     SetMipmapImpl(level);
-            // }
-
             TextureInternalFormat TextureObjectBase::GetFormat() const {
                 return m_internalFormat;
             }
@@ -58,58 +19,24 @@ namespace MobileGL {
             }
 
             IntVec3 TextureObjectBase::GetBaseSize() const {
-                if (m_textureStorage.GetLevelCount() == 0) {
-                    return {0, 0, 0};
-                }
-                return m_textureStorage.GetTexelSize(0, 0);
+                return {0, 0, 0};
             }
 
             SharedPtr<SamplerObject> TextureObjectBase::GetSamplerObject() const {
                 return m_sampler;
             }
 
-            // const Vector<MipmapLevelInternal>& TextureObjectBase::GetMipmaps() const {
-            //     return m_mipmaps;
-            // }
-
             Bool TextureObjectBase::IsComplete() const {
                 if (m_internalFormat == TextureInternalFormat::Unknown) {
                     return false;
                 }
 
-                SizeT levelCount = m_textureStorage.GetLevelCount();
-                if (levelCount == 0) {
-                    return false;
-                }
-
-                for (size_t i = 0; i < levelCount; ++i) {
-                    const auto& levelSize = m_textureStorage.GetTexelSize(0, i);
-                    if (levelSize.x() <= 0 || levelSize.y() <= 0 || levelSize.z() <= 0) {
-                        return false;
-                    }
-                }
-
-                // TODO: add more completeness checks based on texture type and mipmap levels
                 return true;
             }
-
-            // MipmapLevelInternal& TextureObjectBase::GetMipmap(TextureUploadTarget target, Int index) {
-            //     if (index >= m_mipmaps.size()) {
-            //         MOBILEGL_ASSERT(false, "GetMipmap: index %d out of bounds, returning last mipmap level", index);
-            //         index = static_cast<Int>(m_mipmaps.size() - 1);
-            //     }
-            //     return m_mipmaps[index];
-            // }
 
             void TextureObjectBase::SetInternalFormat(TextureInternalFormat format) {
                 m_internalFormat = format;
             }
-
-            // void TextureObjectBase::UnmarkMipmapDirty(Int index) {
-            //     if (index >= 0 && index < static_cast<Int>(m_mipmaps.size())) {
-            //         m_mipmaps[index].dirty = false;
-            //     }
-            // }
 
             Uint TextureObjectBase::GetExternalIndex() const {
                 return m_externalIndex;
@@ -171,6 +98,68 @@ namespace MobileGL {
 
             void TextureObjectBase::SetMaxLevel(Uint maxLevel) {
                 m_levelRange.y() = maxLevel;
+            }
+
+            Uint TextureObjectWithOneMipmap::GetMipmapLevelCount() const {
+                return m_textureStorage.GetLevelCount();
+            }
+
+            const IntVec3 TextureObjectWithOneMipmap::GetMipmapTexelSize(TextureUploadTarget target, Uint mipmapLevel) const {
+                return m_textureStorage.GetTexelSize(GetIndexOfTextureUploadTarget(target), mipmapLevel);
+            }
+
+            const SizeT TextureObjectWithOneMipmap::GetMipmapByteSize(TextureUploadTarget target, Uint mipmapLevel) const {
+                return m_textureStorage.GetByteSize(GetIndexOfTextureUploadTarget(target), mipmapLevel);
+            }
+
+            void TextureObjectWithOneMipmap::AllocateStorage(TextureUploadTarget uploadTarget, Uint mipmapLevel,
+                                                    MipmapInput input) {
+                // don't care target, index always 0
+                m_textureStorage.AllocateLevel(GetIndexOfTextureUploadTarget(uploadTarget), mipmapLevel, input);
+            }
+            void TextureObjectWithOneMipmap::UpdateMipmapSubData(TextureUploadTarget uploadTarget, Uint mipmapLevel,
+                                                        DataPtr input) {
+                // ditto
+                m_textureStorage.UpdateSubData(GetIndexOfTextureUploadTarget(uploadTarget), mipmapLevel, input);
+            }
+            void* TextureObjectWithOneMipmap::MapMipmapData(TextureUploadTarget uploadTarget, Uint mipmapLevel) {
+                return m_textureStorage.MapData(GetIndexOfTextureUploadTarget(uploadTarget), mipmapLevel);
+            }
+
+            void TextureObjectWithOneMipmap::MarkStorageDirty(TextureUploadTarget uploadTarget, Uint mipmapLevel, bool dirty) {
+                // ditto
+                m_textureStorage.MarkDirty(GetIndexOfTextureUploadTarget(uploadTarget), mipmapLevel, dirty);
+            }
+
+            bool TextureObjectWithOneMipmap::IsStorageDirty(TextureUploadTarget uploadTarget, Uint mipmapLevel) const {
+                return m_textureStorage.IsDirty(GetIndexOfTextureUploadTarget(uploadTarget), mipmapLevel);
+            }
+
+            IntVec3 TextureObjectWithOneMipmap::GetBaseSize() const {
+                if (m_textureStorage.GetLevelCount() == 0) {
+                    return {0, 0, 0};
+                }
+                return m_textureStorage.GetTexelSize(0, 0);
+            }
+
+            Bool TextureObjectWithOneMipmap::IsComplete() const {
+                if (!TextureObjectBase::IsComplete())
+                    return false;
+
+                SizeT levelCount = m_textureStorage.GetLevelCount();
+                if (levelCount == 0) {
+                    return false;
+                }
+
+                for (size_t i = 0; i < levelCount; ++i) {
+                    const auto& levelSize = m_textureStorage.GetTexelSize(0, i);
+                    if (levelSize.x() <= 0 || levelSize.y() <= 0 || levelSize.z() <= 0) {
+                        return false;
+                    }
+                }
+
+                // TODO: add more completeness checks based on texture type and mipmap levels
+                return true;
             }
 
             // TODO: add other texture types as needed
