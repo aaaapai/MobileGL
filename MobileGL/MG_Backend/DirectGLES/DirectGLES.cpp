@@ -598,14 +598,6 @@ namespace MobileGL::MG_Backend::DirectGLES {
         auto& bindingSlot = activeUnit.GetBindingSlot(textureTarget);
         auto textureObject = bindingSlot.GetBoundObject();
 
-
-//        const SizeT bytesPerPixel = MG_Util::GetInputBytesPerPixel(mglInternalFormat, texturePixelDataType);
-//        const SizeT totalBytes = width * height * bytesPerPixel;
-
-        // MG_State::GLState::MipmapLevelInput mipmap =
-        //         MG_State::GLState::MipmapLevelInput({width, height, 1}, level, false, 0,
-        //                                             {nullptr, totalBytes});
-
         textureObject->SetInternalFormat(mglInternalFormat);
         textureObject->AllocateStorage(TextureUploadTarget::Texture2D, level, {{width, height, 1}, 0});
     }

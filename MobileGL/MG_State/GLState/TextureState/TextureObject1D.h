@@ -9,7 +9,6 @@ namespace MobileGL {
                 explicit TextureObject1D(Uint externalIndex);
 
             protected:
-                // void SetMipmapImpl(const MipmapLevelInput& level) override;
                 Uint GetIndexOfTextureUploadTarget(TextureUploadTarget target) const override;
             };
         }

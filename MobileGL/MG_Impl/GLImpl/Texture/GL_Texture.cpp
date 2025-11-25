@@ -425,45 +425,6 @@ namespace MobileGL {
             }
 
             free(processedPixels);
-
-            // MG_State::GLState::MipmapLevelInput mipmap =
-            //     MG_State::GLState::MipmapLevelInput({width, height, 1}, level, false, 0,
-            //                                         {(isProxy || originalPixels == nullptr) ? nullptr : malloc(totalBytes), isProxy ? 0 : totalBytes});
-
-
-            // if (!isProxy && originalPixels != nullptr && !mipmap.inputData.data) {
-            //     MGLOG_E("TexImage2D_State: Failed to allocate memory for mipmap level data, size: %zu", totalBytes);
-            //     free(processedPixels);
-            //     processedPixels = nullptr;
-            // }
-
-            // if (!isProxy && originalPixels != nullptr) {
-            //     MGLOG_E("TexImage2D_State: Failed to allocate memory for mipmap level data, size: %zu", totalBytes);
-            //     free(processedPixels);
-            //     processedPixels = nullptr;
-            // }
-            //
-            // if (processedPixels && imageSize > 0 && !isProxy) {
-            //     if (imageSize != totalBytes) {
-            //         MGLOG_W("TexImage2D_State: Processed pixel data size (%zu) does not match expected size (%zu). "
-            //                 "This may indicate an alignment or processing issue.",
-            //                 imageSize, totalBytes);
-            //     }
-            //
-            //     const SizeT copySize = std::min(imageSize, totalBytes);
-            //     Memcpy(mipmap.inputData.data, processedPixels, copySize);
-            //     free(processedPixels);
-            // } else if (processedPixels && !isProxy) {
-            //     MGLOG_E("TexImage2D_State: Failed to process pixel data, initializing with original data.");
-            //     Memcpy(mipmap.inputData.data, originalPixels, totalBytes);
-            // } else {
-            //     if (mipmap.inputData.data) {
-            //         free(mipmap.inputData.data);
-            //         mipmap.inputData.data = nullptr;
-            //     }
-            // }
-            // textureObject->SetMipmapLevel(mipmap);
-            // free(mipmap.inputData.data);
         }
 
         void TexImage1D_State(GLenum target, GLint level, GLint internalFormat, GLsizei width, GLint border,

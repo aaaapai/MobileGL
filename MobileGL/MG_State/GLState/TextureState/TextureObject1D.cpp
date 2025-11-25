@@ -11,11 +11,6 @@ namespace MobileGL {
                 return 0;
             }
 
-            // void TextureObject1D::SetMipmapImpl(const MipmapLevelInput& level) {
-            //     if (level.size.x() > 0) {
-            //         m_mipmaps.push_back(MipmapLevelInternal(level));
-            //     }
-            // }
         }
     }
 }

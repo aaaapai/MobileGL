@@ -33,10 +33,6 @@ namespace MobileGL {
 
                     auto& data = targetData[level];
                     data.resize(input.byteSize, 0);
-                    // if (input.texelData.data && input.texelData.size > 0) {
-                    //     const Uint8* src = static_cast<const Uint8*>(input.texelData.data);
-                    //     Memcpy(data.data(), src, input.texelData.size);
-                    // }
                 }
 
                 void UpdateSubData(Uint targetIndex, Uint level, DataPtr input) {

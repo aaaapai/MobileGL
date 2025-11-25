@@ -9,44 +9,10 @@
 namespace MobileGL {
     namespace MG_State {
         namespace GLState {
-            struct MipmapLevelBase {
-                IntVec3 size = {0, 0, 0};
-                Int level = 0;
-                Bool compressed = false;
-                Int compressedSize = 0;
-            };
-
-            struct MipmapLevelInput : MipmapLevelBase {
-                DataPtr inputData = {nullptr, 0};
-
-                MipmapLevelInput(IntVec3 size, Int level, Bool compressed, Int compressedSize, DataPtr data)
-                    : MipmapLevelBase{size, level, compressed, compressedSize}, inputData(data) {}
-            };
-
-            struct MipmapLevelInternal : MipmapLevelBase {
-                Data data;
-                Bool dirty = true;
-                Bool hasData = false;
-
-                MipmapLevelInternal(const MipmapLevelInput& input) : MipmapLevelBase(input) {
-                    data.resize(input.inputData.size, 0);
-                    if (input.inputData.data && input.inputData.size > 0) {
-                        const Uint8* src = static_cast<const Uint8*>(input.inputData.data);
-                        Memcpy(data.data(), src, input.inputData.size);
-                        hasData = true;
-                    }
-                }
-            };
-
             class ITextureObject {
             public:
                 using TargetEnum = TextureTarget;
                 virtual ~ITextureObject() = default;
-
-                // virtual void SetMipmapLevel(const MipmapLevelInput& level) = 0;
-                // virtual const Vector<MipmapLevelInternal>& GetMipmaps() const = 0;
-                // virtual MipmapLevelInternal& GetMipmap(Int index) = 0;
-                // virtual void UnmarkMipmapDirty(Int index) = 0;
 
                 virtual Uint GetMipmapLevelCount() const = 0;
                 virtual const IntVec3 GetMipmapTexelSize(TextureUploadTarget target, Uint mipmapLevel) const = 0;
@@ -80,11 +46,6 @@ namespace MobileGL {
                 TextureObjectBase(TextureTarget target, Uint externalIndex);
                 virtual ~TextureObjectBase() = default;
 
-                // void SetMipmapLevel(const MipmapLevelInput& level) override;
-                // const Vector<MipmapLevelInternal>& GetMipmaps() const override;
-                // MipmapLevelInternal& GetMipmap(TextureUploadTarget target, Int index) override;
-                // void UnmarkMipmapDirty(Int index) override;
-
                 Uint GetMipmapLevelCount() const override;
                 const IntVec3 GetMipmapTexelSize(TextureUploadTarget target, Uint mipmapLevel) const override;
                 const SizeT GetMipmapByteSize(TextureUploadTarget target, Uint mipmapLevel) const override;
@@ -110,8 +71,6 @@ namespace MobileGL {
                 void SetMaxLevel(Uint maxLevel) override;
 
             protected:
-                // virtual void SetMipmapImpl(const MipmapLevelInput& level) = 0;
-
                 const Uint m_externalIndex;
                 const TextureTarget m_target = TextureTarget::Unknown;
                 TextureInternalFormat m_internalFormat = TextureInternalFormat::Unknown;

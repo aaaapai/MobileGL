@@ -316,14 +316,6 @@ namespace MobileGL::MG_Backend::DirectGLES {
                                                     static_cast<GLsizei>(levelTexelSize.y()), 0, glFormat, glType,
                                                     pData);
 
-                    // errorLopper.Loop([index = stateTextureObject->GetExternalIndex(), &mipmap, level, glInternalFormat, glFormat, glType, file = __FILE__, line = __LINE__, func = __func__](GLenum err) {
-                    //     MGLOG_D("%s(%s:%d) ES error: %s, texobj %d, mip %d (%dx%d, %s, %s, %s)", func, file, line, MG_Util::ConvertGLEnumToString(err).c_str(),
-                    //             index, level, mipmap.size.x(), mipmap.size.y(),
-                    //             MG_Util::ConvertGLEnumToString(glInternalFormat).c_str(),
-                    //             MG_Util::ConvertGLEnumToString(glFormat).c_str(),
-                    //             MG_Util::ConvertGLEnumToString(glType).c_str()
-                    //             );
-                    // });
                     // TODO: handle more texture types
 
                     MGLOG_D("Regenerated mipmap level %d for texture with ID: %u", level, m_backendTextureId);
@@ -459,10 +451,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
                                                        static_cast<GLsizei>(texelSize.x()),
                                                        static_cast<GLsizei>(texelSize.y()), glFormat, glType,
                                                        (byteSize != 0) ? stateTextureObject->MapMipmapData(TextureUploadTarget::Texture2D, level) : nullptr);
-                    // errorLopper.Loop([file = __FILE__, line = __LINE__, func = __func__, &mipmap, glFormat, glType](GLenum err) {
-                    //     MGLOG_D("%s(%s:%d) ES error at glTexSubImage2D: %s (mip %d, %dx%d, %s, %s)", func, file, line, MG_Util::ConvertGLEnumToString(err).c_str(),
-                    //             mipmap.level, mipmap.size.x(), mipmap.size.y(), MG_Util::ConvertGLEnumToString(glFormat).c_str(), MG_Util::ConvertGLEnumToString(glType).c_str());
-                    // });
+
                     stateTextureObject->MarkStorageDirty(TextureUploadTarget::Texture2D, level, false);
                 }
             }
