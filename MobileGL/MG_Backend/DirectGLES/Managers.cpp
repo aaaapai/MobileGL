@@ -5,6 +5,7 @@
 #include "DirectGLES.h"
 #include <MG_Util/BackendLoaders/OpenGL/Loader.h>
 #include <MG_Util/Converters/GLToStr/GLEnumConverter.h>
+#include <MG_Util/Converters/MGToStr/TextureEnumConverter.h>
 #include <MG_Util/Converters/MGToGL/DataTypeConverter.h>
 #include <MG_Util/Converters/MGToGL/BufferEnumConverter.h>
 #include <MG_Util/Converters/MGToGL/TextureEnumConverter.h>
@@ -282,6 +283,11 @@ namespace MobileGL::MG_Backend::DirectGLES {
 
             Bool needsRegeneration = !m_isInitialized || (currentTextureInfo != m_prevTextureInfo);
 
+            MGLOG_D("%s: Got texture info: %dx%dx%d, mips %d, format %s", __func__,
+                    baseSize.x(), baseSize.y(), baseSize.z(),
+                    mipmapCount,
+                    MG_Util::ConvertTextureInternalFormatToString(stateTextureObject->GetFormat()).c_str());
+
             if (needsRegeneration) {
                 MGLOG_D("Texture state changed significantly or not initialized, regenerating texture with ID: %u",
                         m_backendTextureId);
@@ -294,6 +300,13 @@ namespace MobileGL::MG_Backend::DirectGLES {
                     // TODO: deal with multiple upload target texture
                     auto levelTexelSize = stateTextureObject->GetMipmapTexelSize(TextureUploadTarget::Texture2D, level);
                     auto levelByteSize = stateTextureObject->GetMipmapByteSize(TextureUploadTarget::Texture2D, level);
+                    bool levelDirty = stateTextureObject->IsStorageDirty(TextureUploadTarget::Texture2D, 0);
+                    auto* pData = (levelDirty && levelByteSize != 0) ? stateTextureObject->MapMipmapData(TextureUploadTarget::Texture2D, level) : nullptr;
+                    MGLOG_D("%s: syncing mip %d: %dx%dx%d, byteSize = %d, pData = %p", __func__,
+                            level,
+                            levelTexelSize.x(), levelTexelSize.y(), levelTexelSize.z(),
+                            levelByteSize,
+                            pData);
                     BufferImpl::BackendBufferBindingProtector pixelUnpackProtector =
                         BufferImpl::BackendBufferBindingProtector(GL_PIXEL_UNPACK_BUFFER);
                     errorLopper.Clear();
@@ -301,7 +314,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
                     MG_External::GLES::glTexImage2D(GL_TEXTURE_2D, static_cast<GLint>(level), glInternalFormat,
                                                     static_cast<GLsizei>(levelTexelSize.x()),
                                                     static_cast<GLsizei>(levelTexelSize.y()), 0, glFormat, glType,
-                                                    (levelByteSize != 0) ? stateTextureObject->MapMipmapData(TextureUploadTarget::Texture2D, level) : nullptr);
+                                                    pData);
 
                     // errorLopper.Loop([index = stateTextureObject->GetExternalIndex(), &mipmap, level, glInternalFormat, glFormat, glType, file = __FILE__, line = __LINE__, func = __func__](GLenum err) {
                     //     MGLOG_D("%s(%s:%d) ES error: %s, texobj %d, mip %d (%dx%d, %s, %s, %s)", func, file, line, MG_Util::ConvertGLEnumToString(err).c_str(),

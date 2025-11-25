@@ -28,7 +28,6 @@ namespace MobileGL {
             // stencilTex->SetMipmapLevel({{512, 512, 1}, 0, false, 0, {nullptr, 0}});
             fbo0->AttachTexture(FramebufferAttachmentType::Color0, colorTex);
             fbo0->AttachTexture(FramebufferAttachmentType::Depth, depthTex);
-            fbo0->AttachTexture(FramebufferAttachmentType::Depth, depthTex);
             fbo0->AttachTexture(FramebufferAttachmentType::Stencil, stencilTex);
             GLImpl::FramebufferImpl::pDefaultFramebufferInfo =
                 new GLImpl::FramebufferImpl::DefaultFramebufferInfo(fbo0, colorTex, depthTex, stencilTex);

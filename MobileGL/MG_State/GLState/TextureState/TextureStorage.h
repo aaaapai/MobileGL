@@ -29,7 +29,7 @@ namespace MobileGL {
                     targetTexelSizes.resize(level + 1);
                     targetTexelSizes[level] = input.texelSize;
                     auto& dirtyArr = m_isDirty[targetIndex];
-                    dirtyArr.resize(level + 1, true);
+                    dirtyArr.resize(level + 1, false);
 
                     auto& data = targetData[level];
                     data.resize(input.byteSize, 0);
@@ -49,7 +49,7 @@ namespace MobileGL {
                     if (input.data && input.size > 0) {
                         const Uint8* src = static_cast<const Uint8*>(input.data);
                         Memcpy(levelData.data(), src, input.size);
-                        m_isDirty[targetIndex][level] = false;
+                        m_isDirty[targetIndex][level] = true;
                     }
                 }
 

@@ -382,8 +382,6 @@ namespace MobileGL {
             const SizeT totalBytes = width * height * bytesPerPixel;
 
             textureObject->SetInternalFormat(textureInternalFormat);
-            // Allocate in TextureObject
-            textureObject->AllocateStorage(textureUploadingTarget, level, {{width, height, 1}, isProxy ? 0 : totalBytes});
 
             // if isProxy, no more pixel transfer needed below
             if (isProxy)
@@ -401,15 +399,18 @@ namespace MobileGL {
                                  reinterpret_cast<SizeT>(pixels);
             }
 
-            void* processedPixels = nullptr;
-            if (originalPixels) {
-                processedPixels = MG_Util::PixelStoreProcessor::ProcessTexturePixelsDataUnpack(
-                    originalPixels, MG_State::pGLContext->GetPixelStoreParameters(true), bytesPerPixel,
-                    {width, height, 1}, false, imageSize);
-            } else {
+            // Allocate in TextureObject
+            textureObject->AllocateStorage(textureUploadingTarget, level, {{width, height, 1}, totalBytes});
+
+            if (!originalPixels) {
                 MGLOG_D("TexImage2D_State: No input pixel and no PBO bound, no pixel transfer");
                 return;
             }
+
+            void* processedPixels = nullptr;
+            processedPixels = MG_Util::PixelStoreProcessor::ProcessTexturePixelsDataUnpack(
+                originalPixels, MG_State::pGLContext->GetPixelStoreParameters(true), bytesPerPixel,
+                {width, height, 1}, false, imageSize);
 
             if (processedPixels && imageSize > 0) {
                 if (imageSize != totalBytes) {
@@ -421,11 +422,8 @@ namespace MobileGL {
                 const SizeT copySize = std::min(imageSize, totalBytes);
                 DataPtr texelInput { processedPixels, copySize };
                 textureObject->UpdateMipmapSubData(textureUploadingTarget, level, texelInput);
-            } else if (originalPixels) {
-                MGLOG_E("TexImage2D_State: Failed to process pixel data, initializing with original data.");
-                DataPtr texelInput { (void*)originalPixels, totalBytes };
-                textureObject->UpdateMipmapSubData(textureUploadingTarget, level, texelInput);
             }
+
             free(processedPixels);
 
             // MG_State::GLState::MipmapLevelInput mipmap =
