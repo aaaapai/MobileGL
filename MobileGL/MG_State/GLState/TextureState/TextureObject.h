@@ -25,6 +25,7 @@ namespace MobileGL {
 
                 virtual TextureInternalFormat GetFormat() const = 0;
                 virtual TextureTarget GetTarget() const = 0;
+                virtual const Vector<TextureUploadTarget>& GetUploadTargets() const = 0;
                 virtual IntVec3 GetBaseSize() const = 0;
                 virtual SharedPtr<SamplerObject> GetSamplerObject() const = 0;
                 virtual void SetInternalFormat(TextureInternalFormat format) = 0;

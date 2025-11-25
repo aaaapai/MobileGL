@@ -4,6 +4,7 @@
 #include "MG_State/GLState/TextureState/TextureObject2D.h"
 #include "MG_State/GLState/TextureState/TextureObject3D.h"
 #include "MG_Util/Types.h"
+#include "TextureObject2DCube.h"
 
 namespace MobileGL {
     namespace MG_State {
@@ -34,7 +35,9 @@ namespace MobileGL {
                 case TextureTarget::Texture1D:
                     textureObject = MakeShared<TextureObject1D>(index);
                     break;
-                case TextureTarget::TextureCubeMap: // TODO
+                case TextureTarget::TextureCubeMap:
+                    textureObject = MakeShared<TextureObject2DCube>(index);
+                    break;
                 case TextureTarget::Texture2D:
                     textureObject = MakeShared<TextureObject2D>(index);
                     break;
