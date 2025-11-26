@@ -48,14 +48,14 @@ namespace MobileGL {
                 virtual ~TextureObjectBase() = default;
 
                 // Mipmap ops
-                Uint GetMipmapLevelCount() const = 0;
-                const IntVec3 GetMipmapTexelSize(TextureUploadTarget target, Uint mipmapLevel) const = 0;
-                const SizeT GetMipmapByteSize(TextureUploadTarget target, Uint mipmapLevel) const = 0;
-                void AllocateStorage(TextureUploadTarget uploadTarget, Uint mipmapLevel, MipmapInput input) = 0;
-                void UpdateMipmapSubData(TextureUploadTarget uploadTarget, Uint mipmapLevel, DataPtr input) = 0;
-                void* MapMipmapData(TextureUploadTarget uploadTarget, Uint mipmapLevel) = 0;
-                void MarkStorageDirty(TextureUploadTarget uploadTarget, Uint mipmapLevel, bool dirty) = 0;
-                bool IsStorageDirty(TextureUploadTarget uploadTarget, Uint mipmapLevel) const = 0;
+//                Uint GetMipmapLevelCount() const = 0;
+//                const IntVec3 GetMipmapTexelSize(TextureUploadTarget target, Uint mipmapLevel) const = 0;
+//                const SizeT GetMipmapByteSize(TextureUploadTarget target, Uint mipmapLevel) const = 0;
+//                void AllocateStorage(TextureUploadTarget uploadTarget, Uint mipmapLevel, MipmapInput input) = 0;
+//                void UpdateMipmapSubData(TextureUploadTarget uploadTarget, Uint mipmapLevel, DataPtr input) = 0;
+//                void* MapMipmapData(TextureUploadTarget uploadTarget, Uint mipmapLevel) = 0;
+//                void MarkStorageDirty(TextureUploadTarget uploadTarget, Uint mipmapLevel, bool dirty) = 0;
+//                bool IsStorageDirty(TextureUploadTarget uploadTarget, Uint mipmapLevel) const = 0;
 
                 TextureInternalFormat GetFormat() const override;
                 TextureTarget GetTarget() const override;
