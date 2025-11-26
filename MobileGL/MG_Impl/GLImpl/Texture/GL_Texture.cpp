@@ -430,10 +430,12 @@ namespace MobileGL {
         void TexImage1D_State(GLenum target, GLint level, GLint internalFormat, GLsizei width, GLint border,
                               GLenum format, GLenum type, const GLvoid* pixels) {
             // TODO: implement
+            THROW_UNIMPL_EXCEPTION;
         }
 
         void TexBuffer_State(GLenum target, GLenum internalformat, GLuint texture) {
             // TODO: implement
+            THROW_UNIMPL_EXCEPTION;
         }
 
         GLboolean IsTexture_State(GLuint texture) {
@@ -444,10 +446,12 @@ namespace MobileGL {
 
         void GetTexParameterIuiv_State(GLenum target, GLenum pname, GLuint* params) {
             // TODO: implement
+            THROW_UNIMPL_EXCEPTION;
         }
 
         void GetTexParameterIiv_State(GLenum target, GLenum pname, GLint* params) {
             // TODO: implement
+            THROW_UNIMPL_EXCEPTION;
         }
 
         void GetTexParameteriv_State(GLenum target, GLenum pname, GLint* params) {
@@ -822,38 +826,45 @@ namespace MobileGL {
         void CopyTexImage1D_State(GLenum target, GLint level, GLenum internalformat, GLint x, GLint y, GLsizei width,
                                   GLint border) {
             // TODO: implement
+            THROW_UNIMPL_EXCEPTION;
         }
 
         void CompressedTexSubImage3D_State(GLenum target, GLint level, GLint xoffset, GLint yoffset, GLint zoffset,
                                            GLsizei width, GLsizei height, GLsizei depth, GLenum format,
                                            GLsizei imageSize, const void* data) {
             // TODO: implement
+            THROW_UNIMPL_EXCEPTION;
         }
 
         void CompressedTexSubImage2D_State(GLenum target, GLint level, GLint xoffset, GLint yoffset, GLsizei width,
                                            GLsizei height, GLenum format, GLsizei imageSize, const void* data) {
             // TODO: implement
+            THROW_UNIMPL_EXCEPTION;
         }
 
         void CompressedTexSubImage1D_State(GLenum target, GLint level, GLint xoffset, GLsizei width, GLenum format,
                                            GLsizei imageSize, const void* data) {
             // TODO: implement
+            THROW_UNIMPL_EXCEPTION;
         }
 
         void CompressedTexImage3D_State(GLenum target, GLint level, GLenum internalformat, GLsizei width,
                                         GLsizei height, GLsizei depth, GLint border, GLsizei imageSize,
                                         const void* data) {
             // TODO: implement
+            THROW_UNIMPL_EXCEPTION;
         }
 
         void CompressedTexImage2D_State(GLenum target, GLint level, GLenum internalformat, GLsizei width,
                                         GLsizei height, GLint border, GLsizei imageSize, const void* data) {
             // TODO: implement
+            THROW_UNIMPL_EXCEPTION;
         }
 
         void CompressedTexImage1D_State(GLenum target, GLint level, GLenum internalformat, GLsizei width, GLint border,
                                         GLsizei imageSize, const void* data) {
             // TODO: implement
+            THROW_UNIMPL_EXCEPTION;
         }
 
         void BindTexture_State(GLenum target, GLuint texture) {
