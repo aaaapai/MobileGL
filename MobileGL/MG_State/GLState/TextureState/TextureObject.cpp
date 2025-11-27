@@ -148,7 +148,7 @@ namespace MobileGL {
                     return false;
                 }
 
-                for (size_t i = 0; i < levelCount; ++i) {
+                for (SizeT i = 0; i < levelCount; ++i) {
                     const auto& levelSize = m_textureStorage.GetTexelSize(0, i);
                     if (levelSize.x() <= 0 || levelSize.y() <= 0 || levelSize.z() <= 0) {
                         return false;

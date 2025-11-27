@@ -54,6 +54,35 @@ namespace MobileGL {
                                 "Invalid TextureUploadTarget!");
                 return (Uint)target - (Uint)TextureUploadTarget::CubeMapPositiveX;
             }
+
+            IntVec3 TextureObject2DCube::GetBaseSize() const {
+                if (m_textureStorage.GetLevelCount() == 0) {
+                    return {0, 0, 0};
+                }
+                return m_textureStorage.GetTexelSize(0, 0);
+            }
+
+            Bool TextureObject2DCube::IsComplete() const {
+                if (!TextureObjectBase::IsComplete())
+                    return false;
+
+                SizeT levelCount = m_textureStorage.GetLevelCount();
+                if (levelCount == 0) {
+                    return false;
+                }
+
+                for (SizeT t = 0; t < 6; ++t) {
+                    for (SizeT i = 0; i < levelCount; ++i) {
+                        const auto &levelSize = m_textureStorage.GetTexelSize(t, i);
+                        if (levelSize.x() <= 0 || levelSize.y() <= 0 || levelSize.z() <= 0) {
+                            return false;
+                        }
+                    }
+                }
+
+                // TODO: add more completeness checks based on texture type and mipmap levels
+                return true;
+            }
         }
     }
 }
