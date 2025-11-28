@@ -1,4 +1,5 @@
 #include "TextureEnumConverter.h"
+#include "GL/glext.h"
 #include "MG_Util/Converters/GLToStr/GLEnumConverter.h"
 
 namespace MobileGL {
@@ -290,6 +291,14 @@ namespace MobileGL {
                 return TextureUploadTarget::Texture1DArray;
             case GL_PROXY_TEXTURE_1D_ARRAY:
                 return TextureUploadTarget::ProxyTexture1DArray;
+            case GL_TEXTURE_2D_ARRAY:
+                return TextureUploadTarget::Texture2DArray;
+            case GL_TEXTURE_CUBE_MAP_ARRAY:
+                return TextureUploadTarget::CubeMapArray;
+            case GL_PROXY_TEXTURE_CUBE_MAP_ARRAY:
+                return TextureUploadTarget::ProxyCubeMapArray;
+            case GL_PROXY_TEXTURE_2D_ARRAY:
+                return TextureUploadTarget::ProxyTexture2DArray;
             case GL_TEXTURE_RECTANGLE:
                 return TextureUploadTarget::TextureRectangle;
             case GL_PROXY_TEXTURE_RECTANGLE:
@@ -312,6 +321,10 @@ namespace MobileGL {
                 return TextureUploadTarget::Texture2DMultisample;
             case GL_PROXY_TEXTURE_2D_MULTISAMPLE:
                 return TextureUploadTarget::ProxyTexture2DMultisample;
+            case GL_TEXTURE_2D_MULTISAMPLE_ARRAY:
+                return TextureUploadTarget::Texture2DMultisampleArray;
+            case GL_PROXY_TEXTURE_2D_MULTISAMPLE_ARRAY:
+                return TextureUploadTarget::ProxyTexture2DMultisampleArray;
             default:
                 return TextureUploadTarget::Unknown;
             }

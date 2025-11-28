@@ -306,21 +306,22 @@ namespace MobileGL {
                 return GL_TEXTURE_2D_MULTISAMPLE;
             case TextureUploadTarget::ProxyTexture2DMultisample:
                 return GL_PROXY_TEXTURE_2D_MULTISAMPLE;
+            case TextureUploadTarget::CubeMapArray:
+                return GL_TEXTURE_CUBE_MAP_ARRAY;
+            case TextureUploadTarget::ProxyCubeMapArray:
+                return GL_PROXY_TEXTURE_CUBE_MAP_ARRAY;
+            case TextureUploadTarget::Texture2DArray:
+                return GL_TEXTURE_2D_ARRAY;
+            case TextureUploadTarget::ProxyTexture2DArray:
+                return GL_PROXY_TEXTURE_2D_ARRAY;
+            case TextureUploadTarget::Texture2DMultisampleArray:
+                return GL_TEXTURE_2D_MULTISAMPLE_ARRAY;
+            case TextureUploadTarget::ProxyTexture2DMultisampleArray:
+                return GL_PROXY_TEXTURE_2D_MULTISAMPLE_ARRAY;
             default:
                 return GL_UNKNOWN_MGL;
             }
         }
-
-        //        GLenum ConvertSamplerFilterModeToGLEnum(SamplerFilterMode v) {
-        //            switch (v) {
-        //            case SamplerFilterMode::Nearest:
-        //                return GL_NEAREST;
-        //            case SamplerFilterMode::Linear:
-        //                return GL_LINEAR;
-        //            default:
-        //                return GL_UNKNOWN_MGL;
-        //            }
-        //        }
 
         GLenum ConvertSamplerFilterModeToGLEnum(SamplerFilterMode filter, SamplerMipmapMode mipmap) {
             switch (mipmap) {

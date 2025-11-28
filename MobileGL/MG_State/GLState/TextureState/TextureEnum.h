@@ -17,7 +17,7 @@ namespace MobileGL {
         Unknown = -1
     };
 
-    // Don't tinker with order in this enum
+    // Don't tinker with order in this enum (especially CubeMap faces),
     // it is used in TextureStorage
     enum class TextureUploadTarget {
         Texture1D,
@@ -27,7 +27,9 @@ namespace MobileGL {
         ProxyTexture2D,
         ProxyTexture3D,
         Texture1DArray,
+        Texture2DArray,
         ProxyTexture1DArray,
+        ProxyTexture2DArray,
         TextureRectangle,
         ProxyTextureRectangle,
         CubeMapPositiveX,
@@ -37,8 +39,12 @@ namespace MobileGL {
         CubeMapPositiveZ,
         CubeMapNegativeZ,
         ProxyCubeMap,
+        CubeMapArray,
+        ProxyCubeMapArray,
         Texture2DMultisample,
+        Texture2DMultisampleArray,
         ProxyTexture2DMultisample,
+        ProxyTexture2DMultisampleArray,
         TextureUploadTargetCount,
         Unknown = -1
     };
@@ -182,4 +188,4 @@ namespace MobileGL {
         SwizzleParamCount,
         Unknown = -1
     };
-}
+} // namespace MobileGL
