@@ -104,27 +104,32 @@ namespace MobileGL {
                 return m_textureStorage.GetLevelCount();
             }
 
-            const IntVec3 TextureObjectWithOneMipmap::GetMipmapTexelSize(TextureUploadTarget target, Uint mipmapLevel) const {
+            const IntVec3 TextureObjectWithOneMipmap::GetMipmapTexelSize(TextureUploadTarget target,
+                                                                         Uint mipmapLevel) const {
                 return m_textureStorage.GetTexelSize(GetIndexOfTextureUploadTarget(target), mipmapLevel);
             }
 
-            const SizeT TextureObjectWithOneMipmap::GetMipmapByteSize(TextureUploadTarget target, Uint mipmapLevel) const {
+            const SizeT TextureObjectWithOneMipmap::GetMipmapByteSize(TextureUploadTarget target,
+                                                                      Uint mipmapLevel) const {
                 return m_textureStorage.GetByteSize(GetIndexOfTextureUploadTarget(target), mipmapLevel);
             }
 
             void TextureObjectWithOneMipmap::AllocateStorage(TextureUploadTarget uploadTarget, Uint mipmapLevel,
-                                                    MipmapInput input) {
+                                                             MipmapInput input) {
                 m_textureStorage.AllocateLevel(GetIndexOfTextureUploadTarget(uploadTarget), mipmapLevel, input);
             }
+
             void TextureObjectWithOneMipmap::UpdateMipmapSubData(TextureUploadTarget uploadTarget, Uint mipmapLevel,
-                                                        DataPtr input) {
+                                                                 DataPtr input) {
                 m_textureStorage.UpdateSubData(GetIndexOfTextureUploadTarget(uploadTarget), mipmapLevel, input);
             }
+
             void* TextureObjectWithOneMipmap::MapMipmapData(TextureUploadTarget uploadTarget, Uint mipmapLevel) {
                 return m_textureStorage.MapData(GetIndexOfTextureUploadTarget(uploadTarget), mipmapLevel);
             }
 
-            void TextureObjectWithOneMipmap::MarkStorageDirty(TextureUploadTarget uploadTarget, Uint mipmapLevel, bool dirty) {
+            void TextureObjectWithOneMipmap::MarkStorageDirty(TextureUploadTarget uploadTarget, Uint mipmapLevel,
+                                                              bool dirty) {
                 m_textureStorage.MarkDirty(GetIndexOfTextureUploadTarget(uploadTarget), mipmapLevel, dirty);
             }
 
@@ -140,8 +145,7 @@ namespace MobileGL {
             }
 
             Bool TextureObjectWithOneMipmap::IsComplete() const {
-                if (!TextureObjectBase::IsComplete())
-                    return false;
+                if (!TextureObjectBase::IsComplete()) return false;
 
                 SizeT levelCount = m_textureStorage.GetLevelCount();
                 if (levelCount == 0) {

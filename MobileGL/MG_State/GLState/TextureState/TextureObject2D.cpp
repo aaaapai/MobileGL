@@ -7,10 +7,11 @@ namespace MobileGL {
                 : TextureObjectWithOneMipmap(TextureTarget::Texture2D, externalIndex) {}
 
             Uint TextureObject2D::GetIndexOfTextureUploadTarget(TextureUploadTarget target) const {
-                MOBILEGL_ASSERT(target == TextureUploadTarget::Texture2D || target == TextureUploadTarget::ProxyTexture2D,
+                MOBILEGL_ASSERT(target == TextureUploadTarget::Texture2D ||
+                                    target == TextureUploadTarget::ProxyTexture2D,
                                 "Invalid TextureUploadTarget!");
                 return 0;
             }
-        }
-    }
-}
+        } // namespace GLState
+    } // namespace MG_State
+} // namespace MobileGL

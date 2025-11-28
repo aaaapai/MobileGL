@@ -1,5 +1,4 @@
 #include "TextureUnit.h"
-#include "MG_Util/Types.h"
 
 namespace MobileGL {
     namespace MG_State {

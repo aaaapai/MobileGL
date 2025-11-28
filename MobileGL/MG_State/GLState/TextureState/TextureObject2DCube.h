@@ -8,9 +8,7 @@ namespace MobileGL {
             public:
                 explicit TextureObject2DCube(Uint externalIndex);
 
-                const Vector<TextureUploadTarget>& GetUploadTargets() const override {
-                    return m_uploadTargets;
-                }
+                const Vector<TextureUploadTarget>& GetUploadTargets() const override { return m_uploadTargets; }
 
                 Uint GetMipmapLevelCount() const override;
                 const IntVec3 GetMipmapTexelSize(TextureUploadTarget target, Uint mipmapLevel) const override;
@@ -23,18 +21,16 @@ namespace MobileGL {
 
                 IntVec3 GetBaseSize() const override;
                 Bool IsComplete() const override;
+
             protected:
                 Uint GetIndexOfTextureUploadTarget(TextureUploadTarget target) const override;
                 TextureStorage<6> m_textureStorage;
-                const Vector<TextureUploadTarget> m_uploadTargets {
-                        TextureUploadTarget::CubeMapPositiveX,
-                        TextureUploadTarget::CubeMapNegativeX,
-                        TextureUploadTarget::CubeMapPositiveY,
-                        TextureUploadTarget::CubeMapNegativeY,
-                        TextureUploadTarget::CubeMapPositiveZ,
-                        TextureUploadTarget::CubeMapNegativeZ,
+                const Vector<TextureUploadTarget> m_uploadTargets{
+                    TextureUploadTarget::CubeMapPositiveX, TextureUploadTarget::CubeMapNegativeX,
+                    TextureUploadTarget::CubeMapPositiveY, TextureUploadTarget::CubeMapNegativeY,
+                    TextureUploadTarget::CubeMapPositiveZ, TextureUploadTarget::CubeMapNegativeZ,
                 };
             };
-        }
-    }
-}
+        } // namespace GLState
+    } // namespace MG_State
+} // namespace MobileGL

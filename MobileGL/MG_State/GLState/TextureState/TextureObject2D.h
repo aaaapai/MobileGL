@@ -7,13 +7,12 @@ namespace MobileGL {
             class TextureObject2D : public TextureObjectWithOneMipmap {
             public:
                 explicit TextureObject2D(Uint externalIndex);
-                const Vector<TextureUploadTarget>& GetUploadTargets() const override {
-                    return m_uploadTargets;
-                }
+                const Vector<TextureUploadTarget>& GetUploadTargets() const override { return m_uploadTargets; }
+
             protected:
                 Uint GetIndexOfTextureUploadTarget(TextureUploadTarget target) const override;
-                const Vector<TextureUploadTarget> m_uploadTargets {TextureUploadTarget::Texture2D};
+                const Vector<TextureUploadTarget> m_uploadTargets{TextureUploadTarget::Texture2D};
             };
-        }
-    }
-}
+        } // namespace GLState
+    } // namespace MG_State
+} // namespace MobileGL

@@ -83,7 +83,7 @@ namespace MobileGL {
                 UintVec2 m_levelRange = {0, 1000};
             };
 
-            class TextureObjectWithOneMipmap: public TextureObjectBase {
+            class TextureObjectWithOneMipmap : public TextureObjectBase {
             public:
                 TextureObjectWithOneMipmap(TextureTarget target, Uint externalIndex): TextureObjectBase(target, externalIndex) {}
                 virtual ~TextureObjectWithOneMipmap() = default;
@@ -99,6 +99,7 @@ namespace MobileGL {
 
                 IntVec3 GetBaseSize() const override;
                 Bool IsComplete() const override;
+
             protected:
                 TextureStorage<1> m_textureStorage;
             };
