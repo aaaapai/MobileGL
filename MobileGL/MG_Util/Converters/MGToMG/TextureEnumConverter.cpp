@@ -20,9 +20,10 @@ namespace MobileGL {
             case TextureUploadTarget::CubeMapPositiveZ:
             case TextureUploadTarget::CubeMapNegativeZ:
             case TextureUploadTarget::ProxyCubeMap:
+                return TextureTarget::TextureCubeMap;
             case TextureUploadTarget::CubeMapArray:
             case TextureUploadTarget::ProxyCubeMapArray:
-                return TextureTarget::TextureCubeMap;
+                return TextureTarget::TextureCubeMapArray;
             case TextureUploadTarget::Texture2DMultisample:
             case TextureUploadTarget::ProxyTexture2DMultisample:
                 return TextureTarget::Texture2DMultisample;

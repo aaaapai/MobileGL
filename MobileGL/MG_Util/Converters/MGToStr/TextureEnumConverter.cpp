@@ -20,6 +20,14 @@ namespace MobileGL {
                 return "Texture2DMultisample";
             case TextureTarget::TextureCubeMapArray:
                 return "TextureCubeMapArray";
+            case TextureTarget::TextureRectangle:
+                return "TextureRectangle";
+            case TextureTarget::TextureBuffer:
+                return "TextureBuffer";
+            case TextureTarget::Texture1DArray:
+                return "Texture1DArray";
+            case TextureTarget::Texture2DMultisampleArray:
+                return "Texture2DMultisampleArray";
             default:
                 return "Unknown";
             }
