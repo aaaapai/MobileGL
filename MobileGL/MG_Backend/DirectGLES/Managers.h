@@ -99,13 +99,16 @@ namespace MobileGL::MG_Backend::DirectGLES {
                Probably useful to re-link shader output according to this.
                aka. realizing `glBindFragDataLocation`
              */
-            FramebufferAttachmentType m_frontendDrawBuffers[MG_State::GLState::FramebufferObject::MAX_DRAW_BUFFERS] = {FramebufferAttachmentType::None};
+            FramebufferAttachmentType m_frontendDrawBuffers[MG_State::GLState::FramebufferObject::MAX_DRAW_BUFFERS] = {
+                FramebufferAttachmentType::None};
             /* this will save buffers in its compacted GL form,
                not consecutive is not allowed
                i.e. it could be like [COLOR_ATTACHMENT0, COLOR_ATTACHMENT5, COLOR_ATTACHMENT4]
                (no GL_NONE among those)
              */
-            FramebufferAttachmentType m_compactedFrontendDrawBuffers[MG_State::GLState::FramebufferObject::MAX_DRAW_BUFFERS] = {FramebufferAttachmentType::None};
+            FramebufferAttachmentType
+                m_compactedFrontendDrawBuffers[MG_State::GLState::FramebufferObject::MAX_DRAW_BUFFERS] = {
+                    FramebufferAttachmentType::None};
             /* this will save buffers in stricter ES rules
                reversion, absence or not consecutive are not allowed, according to ES spec
                i.e. it could be like [COLOR_ATTACHMENT0, COLOR_ATTACHMENT1, NONE, NONE, ...]

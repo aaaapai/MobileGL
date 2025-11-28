@@ -64,9 +64,10 @@ namespace MobileGL {
                 // TODO: We should assert we're really dealing with vertex shader here
 
                 SPVC_CHK_INIT
-                const spvc_reflected_resource *list = nullptr;
+                const spvc_reflected_resource* list = nullptr;
                 size_t count = 0;
-                SPVC_CHK_RESULT(spvc_resources_get_resource_list_for_type(resources, SPVC_RESOURCE_TYPE_STAGE_INPUT, &list, &count));
+                SPVC_CHK_RESULT(spvc_resources_get_resource_list_for_type(resources, SPVC_RESOURCE_TYPE_STAGE_INPUT,
+                                                                          &list, &count));
                 for (size_t i = 0; i < count; ++i) {
                     auto& resource = list[i];
                     auto it = location.find(resource.name);

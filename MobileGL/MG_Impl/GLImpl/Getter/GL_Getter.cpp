@@ -55,9 +55,9 @@ namespace MobileGL {
                 if (rendererString.empty()) {
                     const char* backendStr = (const char*)GetString_Backend(GL_RENDERER);
                     const char* backendVersionStr = (const char*)GetString_Backend(GL_VERSION);
-                    rendererString =
-                        std::format("{} ({}) ({} | {})", MG_Config::RendererInfoPtr->RendererName.c_str(),
-                                    MG_Config::CoreName.c_str(), backendStr ? backendStr : "<unknown GPU>", backendVersionStr ? backendVersionStr : "<unknown version>");
+                    rendererString = std::format("{} ({}) ({} | {})", MG_Config::RendererInfoPtr->RendererName.c_str(),
+                                                 MG_Config::CoreName.c_str(), backendStr ? backendStr : "<unknown GPU>",
+                                                 backendVersionStr ? backendVersionStr : "<unknown version>");
                 }
                 return (const GLubyte*)rendererString.c_str();
             }

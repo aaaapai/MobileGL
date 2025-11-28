@@ -14,7 +14,7 @@
 namespace glslang {
     struct TVarEntryInfo {
         long long id;
-        TIntermSymbol *symbol;
+        TIntermSymbol* symbol;
         bool live;
         TLayoutPacking upgradedToPushConstantPacking; // ElpNone means it hasn't been upgraded
         int newBinding;
@@ -26,4 +26,4 @@ namespace glslang {
 
         void clearNewAssignments();
     };
-}
+} // namespace glslang

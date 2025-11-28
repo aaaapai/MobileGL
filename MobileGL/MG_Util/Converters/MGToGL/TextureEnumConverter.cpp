@@ -311,51 +311,51 @@ namespace MobileGL {
             }
         }
 
-//        GLenum ConvertSamplerFilterModeToGLEnum(SamplerFilterMode v) {
-//            switch (v) {
-//            case SamplerFilterMode::Nearest:
-//                return GL_NEAREST;
-//            case SamplerFilterMode::Linear:
-//                return GL_LINEAR;
-//            default:
-//                return GL_UNKNOWN_MGL;
-//            }
-//        }
+        //        GLenum ConvertSamplerFilterModeToGLEnum(SamplerFilterMode v) {
+        //            switch (v) {
+        //            case SamplerFilterMode::Nearest:
+        //                return GL_NEAREST;
+        //            case SamplerFilterMode::Linear:
+        //                return GL_LINEAR;
+        //            default:
+        //                return GL_UNKNOWN_MGL;
+        //            }
+        //        }
 
         GLenum ConvertSamplerFilterModeToGLEnum(SamplerFilterMode filter, SamplerMipmapMode mipmap) {
             switch (mipmap) {
-                case SamplerMipmapMode::None: {
-                    switch (filter) {
-                        case SamplerFilterMode::Nearest:
-                            return GL_NEAREST;
-                        case SamplerFilterMode::Linear:
-                            return GL_LINEAR;
-                        default:
-                            return GL_UNKNOWN_MGL;
-                    }
-                }
-                case SamplerMipmapMode::Nearest: {
-                    switch (filter) {
-                        case SamplerFilterMode::Nearest:
-                            return GL_NEAREST_MIPMAP_NEAREST;
-                        case SamplerFilterMode::Linear:
-                            return GL_LINEAR_MIPMAP_NEAREST;
-                        default:
-                            return GL_UNKNOWN_MGL;
-                    }
-                }
-                case SamplerMipmapMode::Linear: {
-                    switch (filter) {
-                        case SamplerFilterMode::Nearest:
-                            return GL_NEAREST_MIPMAP_LINEAR;
-                        case SamplerFilterMode::Linear:
-                            return GL_LINEAR_MIPMAP_LINEAR;
-                        default:
-                            return GL_UNKNOWN_MGL;
-                    }
-                }
+            case SamplerMipmapMode::None: {
+                switch (filter) {
+                case SamplerFilterMode::Nearest:
+                    return GL_NEAREST;
+                case SamplerFilterMode::Linear:
+                    return GL_LINEAR;
                 default:
                     return GL_UNKNOWN_MGL;
+                }
+            }
+            case SamplerMipmapMode::Nearest: {
+                switch (filter) {
+                case SamplerFilterMode::Nearest:
+                    return GL_NEAREST_MIPMAP_NEAREST;
+                case SamplerFilterMode::Linear:
+                    return GL_LINEAR_MIPMAP_NEAREST;
+                default:
+                    return GL_UNKNOWN_MGL;
+                }
+            }
+            case SamplerMipmapMode::Linear: {
+                switch (filter) {
+                case SamplerFilterMode::Nearest:
+                    return GL_NEAREST_MIPMAP_LINEAR;
+                case SamplerFilterMode::Linear:
+                    return GL_LINEAR_MIPMAP_LINEAR;
+                default:
+                    return GL_UNKNOWN_MGL;
+                }
+            }
+            default:
+                return GL_UNKNOWN_MGL;
             }
         }
 

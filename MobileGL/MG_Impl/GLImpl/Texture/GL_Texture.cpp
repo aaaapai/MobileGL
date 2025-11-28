@@ -384,8 +384,7 @@ namespace MobileGL {
             textureObject->SetInternalFormat(textureInternalFormat);
 
             // if isProxy, no more pixel transfer needed below
-            if (isProxy)
-                return;
+            if (isProxy) return;
 
             const void* originalPixels = pixels;
 
@@ -409,8 +408,8 @@ namespace MobileGL {
 
             void* processedPixels = nullptr;
             processedPixels = MG_Util::PixelStoreProcessor::ProcessTexturePixelsDataUnpack(
-                originalPixels, MG_State::pGLContext->GetPixelStoreParameters(true), bytesPerPixel,
-                {width, height, 1}, false, imageSize);
+                originalPixels, MG_State::pGLContext->GetPixelStoreParameters(true), bytesPerPixel, {width, height, 1},
+                false, imageSize);
 
             if (processedPixels && imageSize > 0) {
                 if (imageSize != totalBytes) {
@@ -420,7 +419,7 @@ namespace MobileGL {
                 }
 
                 const SizeT copySize = std::min(imageSize, totalBytes);
-                DataPtr texelInput { processedPixels, copySize };
+                DataPtr texelInput{processedPixels, copySize};
                 textureObject->UpdateMipmapSubData(textureUploadingTarget, level, texelInput);
             }
 
@@ -475,14 +474,15 @@ namespace MobileGL {
             switch (pname) {
             case GL_TEXTURE_MAG_FILTER:
                 if (params) {
-                    *params =
-                        MG_Util::ConvertSamplerFilterModeToGLEnum(textureObject->GetSamplerObject()->GetMagFilter(), SamplerMipmapMode::None);
+                    *params = MG_Util::ConvertSamplerFilterModeToGLEnum(
+                        textureObject->GetSamplerObject()->GetMagFilter(), SamplerMipmapMode::None);
                 }
                 break;
             case GL_TEXTURE_MIN_FILTER:
                 if (params) {
                     *params =
-                        MG_Util::ConvertSamplerFilterModeToGLEnum(textureObject->GetSamplerObject()->GetMinFilter(), textureObject->GetSamplerObject()->GetMipmapMode());
+                        MG_Util::ConvertSamplerFilterModeToGLEnum(textureObject->GetSamplerObject()->GetMinFilter(),
+                                                                  textureObject->GetSamplerObject()->GetMipmapMode());
                 }
                 break;
             case GL_TEXTURE_MIN_LOD:
@@ -555,14 +555,15 @@ namespace MobileGL {
             switch (pname) {
             case GL_TEXTURE_MAG_FILTER:
                 if (params) {
-                    *params =
-                        MG_Util::ConvertSamplerFilterModeToGLEnum(textureObject->GetSamplerObject()->GetMagFilter(), SamplerMipmapMode::None);
+                    *params = MG_Util::ConvertSamplerFilterModeToGLEnum(
+                        textureObject->GetSamplerObject()->GetMagFilter(), SamplerMipmapMode::None);
                 }
                 break;
             case GL_TEXTURE_MIN_FILTER:
                 if (params) {
                     *params =
-                        MG_Util::ConvertSamplerFilterModeToGLEnum(textureObject->GetSamplerObject()->GetMinFilter(), textureObject->GetSamplerObject()->GetMipmapMode());
+                        MG_Util::ConvertSamplerFilterModeToGLEnum(textureObject->GetSamplerObject()->GetMinFilter(),
+                                                                  textureObject->GetSamplerObject()->GetMipmapMode());
                 }
                 break;
             case GL_TEXTURE_MIN_LOD:
@@ -880,9 +881,7 @@ namespace MobileGL {
             auto textureObject = MG_State::pGLContext->GetTextureObject(texture);
 
             // ===================== Error Checking ==============================
-            if (textureTarget != TextureTarget::TextureCubeMap &&
-                !TextureImpl::ValidateTextureTargetUniformity(textureObject, textureTarget))
-                return;
+            if (!TextureImpl::ValidateTextureTargetUniformity(textureObject, textureTarget)) return;
 
             // ======================= Processing ================================
             if (!textureObject) {

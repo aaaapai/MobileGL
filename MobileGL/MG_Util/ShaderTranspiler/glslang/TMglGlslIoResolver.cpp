@@ -24,4 +24,4 @@ namespace MobileGL {
         }
         TDefaultGlslIoResolver::reserverStorageSlot(ent, infoSink);
     }
-}
+} // namespace MobileGL

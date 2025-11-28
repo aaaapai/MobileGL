@@ -58,6 +58,6 @@
         if (!(condition)) {                                                                                            \
             MGLOG_F("Assertion failed" __VA_OPT__(": ") __VA_ARGS__);                                                  \
             MGLOG_F("  at %s:%d (%s)", __FILE__, __LINE__, __func__);                                                  \
-            TRAP;                                                                                             \
+            TRAP;                                                                                                      \
         }                                                                                                              \
     } while (0)

@@ -284,7 +284,7 @@ namespace MobileGL {
                 return TextureUploadTarget::Texture2D;
             case GL_TEXTURE_3D:
                 return TextureUploadTarget::Texture3D;
-                case GL_PROXY_TEXTURE_2D:
+            case GL_PROXY_TEXTURE_2D:
                 return TextureUploadTarget::ProxyTexture2D;
             case GL_TEXTURE_1D_ARRAY:
                 return TextureUploadTarget::Texture1DArray;
@@ -421,16 +421,16 @@ namespace MobileGL {
 
         TextureSwizzleParam ConvertGLEnumPnameToTextureSwizzleParam(GLenum v) {
             switch (v) {
-                case GL_TEXTURE_SWIZZLE_R:
-                    return TextureSwizzleParam::Red;
-                case GL_TEXTURE_SWIZZLE_G:
-                    return TextureSwizzleParam::Green;
-                case GL_TEXTURE_SWIZZLE_B:
-                    return TextureSwizzleParam::Blue;
-                case GL_TEXTURE_SWIZZLE_A:
-                    return TextureSwizzleParam::Alpha;
-                default:
-                    return TextureSwizzleParam::Unknown;
+            case GL_TEXTURE_SWIZZLE_R:
+                return TextureSwizzleParam::Red;
+            case GL_TEXTURE_SWIZZLE_G:
+                return TextureSwizzleParam::Green;
+            case GL_TEXTURE_SWIZZLE_B:
+                return TextureSwizzleParam::Blue;
+            case GL_TEXTURE_SWIZZLE_A:
+                return TextureSwizzleParam::Alpha;
+            default:
+                return TextureSwizzleParam::Unknown;
             }
         }
     } // namespace MG_Util
