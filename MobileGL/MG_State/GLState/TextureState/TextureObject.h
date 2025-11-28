@@ -39,6 +39,7 @@ namespace MobileGL {
                 virtual const UintVec2& GetLevelRange() const = 0;
                 virtual void SetBaseLevel(Uint baseLevel) = 0;
                 virtual void SetMaxLevel(Uint maxLevel) = 0;
+
             protected:
                 virtual Uint GetIndexOfTextureUploadTarget(TextureUploadTarget target) const = 0;
             };
@@ -88,8 +89,8 @@ namespace MobileGL {
 
             class TextureObjectWithOneMipmap : public TextureObjectBase {
             public:
-                TextureObjectWithOneMipmap(TextureTarget target, Uint externalIndex, Bool isDefaultTexture)
-                    : TextureObjectBase(target, externalIndex, isDefaultTexture) {}
+                TextureObjectWithOneMipmap(TextureTarget target, Uint externalIndex)
+                    : TextureObjectBase(target, externalIndex) {}
                 virtual ~TextureObjectWithOneMipmap() = default;
 
                 Uint GetMipmapLevelCount() const override;

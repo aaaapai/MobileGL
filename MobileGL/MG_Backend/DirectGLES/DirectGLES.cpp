@@ -367,12 +367,10 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 const auto& backendTextureIt = TextureImpl::g_backendTextureObjects.find(textureObject);
                 if (backendTextureIt == TextureImpl::g_backendTextureObjects.end()) continue;
 
-                GLenum target = MG_Util::ConvertTextureTargetToGLEnum(textureObject->GetTarget());
-                backendTextureIt->second->Bind(target);
-
+                GLenum targetGL = MG_Util::ConvertTextureTargetToGLEnum(target);
+                backendTextureIt->second->Bind(targetGL);
             }
         }
-
 
         const auto& currentProgram = MG_State::pGLContext->GetCurrentProgram();
         if (currentProgram && currentProgram->GetLinkStatus()) {

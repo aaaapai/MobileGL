@@ -257,8 +257,8 @@ namespace MobileGL::MG_Backend::DirectGLES {
 
             GLenum target = MG_Util::ConvertTextureTargetToGLEnum(stateTextureObject->GetTarget());
             auto targetInternal = stateTextureObject->GetTarget();
-            Uint currentUnit = TextureImpl::g_cachedActiveTextureUnit;
-            MGLOG_D("    Texture target for syncing is %s", MG_Util::ConvertTextureTargetToString(target).c_str());
+            MGLOG_D("    Texture target for syncing is %s",
+                    MG_Util::ConvertTextureTargetToString(targetInternal).c_str());
             if (targetInternal == TextureTarget::TextureBuffer || targetInternal == TextureTarget::Texture1D ||
                 targetInternal == TextureTarget::TextureRectangle ||
                 targetInternal == TextureTarget::Texture2DMultisampleArray ||
@@ -266,7 +266,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 targetInternal == TextureTarget::Texture2DMultisample ||
                 targetInternal == TextureTarget::Texture2DArray) {
                 MGLOG_D("    Texture target %s is not supported, skipping.",
-                        MG_Util::ConvertTextureTargetToString(target).c_str());
+                        MG_Util::ConvertTextureTargetToString(targetInternal).c_str());
                 return;
             }
 
@@ -398,8 +398,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 const auto& levelRange = stateTextureObject->GetLevelRange();
 
                 if (m_cacheLodRange.x() != levelRange.x()) {
-                    BIND_CURRENT_TEXTURE_IF_NOT_BOUND();
-                    MG_External::GLES::glTexParameteri(targetGL, GL_TEXTURE_BASE_LEVEL,
+                    MG_External::GLES::glTexParameteri(target, GL_TEXTURE_BASE_LEVEL,
                                                        static_cast<GLint>(levelRange.x()));
                     m_cacheLodRange.x() = levelRange.x();
                 }
@@ -407,8 +406,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
                     MGLOG_D("%s(%s:%d) ES error %s", func, file, line, MG_Util::ConvertGLEnumToString(err).c_str());
                 });
                 if (m_cacheLodRange.y() != levelRange.y()) {
-                    BIND_CURRENT_TEXTURE_IF_NOT_BOUND();
-                    MG_External::GLES::glTexParameteri(targetGL, GL_TEXTURE_MAX_LEVEL,
+                    MG_External::GLES::glTexParameteri(target, GL_TEXTURE_MAX_LEVEL,
                                                        static_cast<GLint>(levelRange.y()));
                     m_cacheLodRange.y() = levelRange.y();
                 }
@@ -420,8 +418,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 if (swizzleParams != m_cacheSwizzleParams) {
 #define SYNC_TEX_SWIZZLE_PARAM_IF_CHANGED(func, glEnum)                                                                \
     if (m_cacheSwizzleParams.func != swizzleParams.func) {                                                             \
-        BIND_CURRENT_TEXTURE_IF_NOT_BOUND();                                                                           \
-        MG_External::GLES::glTexParameteri(targetGL, glEnum,                                                           \
+        MG_External::GLES::glTexParameteri(target, glEnum,                                                           \
                                            MG_Util::ConvertTextureSwizzleParamToGLEnum(swizzleParams.func));           \
         m_cacheSwizzleParams.func = swizzleParams.func;                                                                \
     }
@@ -439,8 +436,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 if (m_cacheBorderColor != stateTextureObject->GetBorderColor()) {
                     const auto& borderColor = stateTextureObject->GetBorderColor();
                     GLfloat borderColorArray[4] = {borderColor.x(), borderColor.y(), borderColor.z(), borderColor.w()};
-                    BIND_CURRENT_TEXTURE_IF_NOT_BOUND();
-                    MG_External::GLES::glTexParameterfv(targetGL, GL_TEXTURE_BORDER_COLOR, borderColorArray);
+                    MG_External::GLES::glTexParameterfv(target, GL_TEXTURE_BORDER_COLOR, borderColorArray);
                     m_cacheBorderColor = borderColor;
                     errorLopper.Loop([file = __FILE__, line = __LINE__, func = __func__](GLenum err) {
                         MGLOG_D("%s(%s:%d) ES error %s", func, file, line, MG_Util::ConvertGLEnumToString(err).c_str());
