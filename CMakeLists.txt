@@ -146,6 +146,7 @@ set(SOURCE_FILES
     MobileGL/MG_State/GLState/TextureState/TextureObject2D.cpp
     MobileGL/MG_State/GLState/TextureState/TextureObject2DCube.cpp
     MobileGL/MG_State/GLState/TextureState/TextureObject3D.cpp
+    MobileGL/MG_State/GLState/TextureState/TextureStorage.cpp
     MobileGL/MG_State/GLState/TextureState/TextureUnit.cpp
     MobileGL/MG_State/GLState/TextureState/TextureState.cpp
     MobileGL/MG_State/GLState/ProgramState/ProgramObject.cpp
