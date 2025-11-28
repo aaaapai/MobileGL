@@ -256,6 +256,19 @@ namespace MobileGL::MG_Backend::DirectGLES {
                     stateTextureObject->GetExternalIndex());
 
             GLenum target = MG_Util::ConvertTextureTargetToGLEnum(stateTextureObject->GetTarget());
+            auto targetInternal = stateTextureObject->GetTarget();
+            Uint currentUnit = TextureImpl::g_cachedActiveTextureUnit;
+            MGLOG_D("    Texture target for syncing is %s", MG_Util::ConvertTextureTargetToString(target).c_str());
+            if (targetInternal == TextureTarget::TextureBuffer || targetInternal == TextureTarget::Texture1D ||
+                targetInternal == TextureTarget::TextureRectangle ||
+                targetInternal == TextureTarget::Texture2DMultisampleArray ||
+                targetInternal == TextureTarget::Texture1DArray || targetInternal == TextureTarget::Texture3D ||
+                targetInternal == TextureTarget::Texture2DMultisample ||
+                targetInternal == TextureTarget::Texture2DArray) {
+                MGLOG_D("    Texture target %s is not supported, skipping.",
+                        MG_Util::ConvertTextureTargetToString(target).c_str());
+                return;
+            }
 
             // The texture needs to be regenerated completely with glTexImage* calls if:
             // 1. Not initialized
@@ -360,8 +373,6 @@ namespace MobileGL::MG_Backend::DirectGLES {
                     MGLOG_D("%s(%s:%d) ES error %s", func, file, line, MG_Util::ConvertGLEnumToString(err).c_str());
                 });
 
-                //                SYNC_TEX_SAMPLER_PARAM_IF_CHANGED(minFilter, GL_TEXTURE_MIN_FILTER, FilterMode)
-                //                SYNC_TEX_SAMPLER_PARAM_IF_CHANGED(magFilter, GL_TEXTURE_MAG_FILTER, FilterMode)
                 SYNC_TEX_SAMPLER_PARAM_IF_CHANGED(wrapS, GL_TEXTURE_WRAP_S, WrapMode)
                 SYNC_TEX_SAMPLER_PARAM_IF_CHANGED(wrapT, GL_TEXTURE_WRAP_T, WrapMode)
                 SYNC_TEX_SAMPLER_PARAM_IF_CHANGED(wrapR, GL_TEXTURE_WRAP_R, WrapMode)
@@ -385,11 +396,22 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 MGLOG_D("Updating texture parameters for texture with ID: %u", m_backendTextureId);
 
                 const auto& levelRange = stateTextureObject->GetLevelRange();
-                MG_External::GLES::glTexParameteri(target, GL_TEXTURE_BASE_LEVEL, static_cast<GLint>(levelRange.x()));
+
+                if (m_cacheLodRange.x() != levelRange.x()) {
+                    BIND_CURRENT_TEXTURE_IF_NOT_BOUND();
+                    MG_External::GLES::glTexParameteri(targetGL, GL_TEXTURE_BASE_LEVEL,
+                                                       static_cast<GLint>(levelRange.x()));
+                    m_cacheLodRange.x() = levelRange.x();
+                }
                 errorLopper.Loop([file = __FILE__, line = __LINE__, func = __func__](GLenum err) {
                     MGLOG_D("%s(%s:%d) ES error %s", func, file, line, MG_Util::ConvertGLEnumToString(err).c_str());
                 });
-                MG_External::GLES::glTexParameteri(target, GL_TEXTURE_MAX_LEVEL, static_cast<GLint>(levelRange.y()));
+                if (m_cacheLodRange.y() != levelRange.y()) {
+                    BIND_CURRENT_TEXTURE_IF_NOT_BOUND();
+                    MG_External::GLES::glTexParameteri(targetGL, GL_TEXTURE_MAX_LEVEL,
+                                                       static_cast<GLint>(levelRange.y()));
+                    m_cacheLodRange.y() = levelRange.y();
+                }
                 errorLopper.Loop([file = __FILE__, line = __LINE__, func = __func__](GLenum err) {
                     MGLOG_D("%s(%s:%d) ES error %s", func, file, line, MG_Util::ConvertGLEnumToString(err).c_str());
                 });
@@ -423,9 +445,17 @@ namespace MobileGL::MG_Backend::DirectGLES {
                             MG_Util::ConvertGLEnumToString(swizzleParams[2]).c_str(),
                             MG_Util::ConvertGLEnumToString(swizzleParams[3]).c_str());
                 });
-                const auto& borderColor = stateTextureObject->GetBorderColor();
-                GLfloat borderColorArray[4] = {borderColor.x(), borderColor.y(), borderColor.z(), borderColor.w()};
-                MG_External::GLES::glTexParameterfv(target, GL_TEXTURE_BORDER_COLOR, borderColorArray);
+
+                if (m_cacheBorderColor != stateTextureObject->GetBorderColor()) {
+                    const auto& borderColor = stateTextureObject->GetBorderColor();
+                    GLfloat borderColorArray[4] = {borderColor.x(), borderColor.y(), borderColor.z(), borderColor.w()};
+                    BIND_CURRENT_TEXTURE_IF_NOT_BOUND();
+                    MG_External::GLES::glTexParameterfv(targetGL, GL_TEXTURE_BORDER_COLOR, borderColorArray);
+                    m_cacheBorderColor = borderColor;
+                    errorLopper.Loop([file = __FILE__, line = __LINE__, func = __func__](GLenum err) {
+                        MGLOG_D("%s(%s:%d) ES error %s", func, file, line, MG_Util::ConvertGLEnumToString(err).c_str());
+                    });
+                }
             }
 
             { // Update all dirty mipmap levels
@@ -560,27 +590,6 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 }
 
                 MG_External::GLES::glDrawBuffers(nBuffers, m_backendDrawBuffers);
-
-                // Attach textures for compacted draw buffers
-                //                for (int i = 0; i < nBuffers; ++i) {
-                //                    FramebufferAttachmentType frontendAttachmentType =
-                //                        MG_Util::ConvertGLEnumToFramebufferAttachmentType(m_compactedFrontendBuffers[i]);
-                //                    GLenum backendAttachment = m_backendBuffers[i];
-                //                    const auto& attachment = attachments[static_cast<SizeT>(frontendAttachmentType)];
-                //                    if (!attachment.IsTexture()) continue;
-                //                    const auto& textureObject = attachment.GetTexture();
-                //                    const auto& backendTextureIt =
-                //                    TextureImpl::g_backendTextureObjects.find(textureObject); if (backendTextureIt ==
-                //                    TextureImpl::g_backendTextureObjects.end()) continue; const auto&
-                //                    backendTextureObject = backendTextureIt->second; auto glTextureTarget =
-                //                    MG_Util::ConvertTextureTargetToGLEnum(textureObject->GetTarget());
-                //                    backendTextureObject->Bind(glTextureTarget);
-                //                    MG_External::GLES::glFramebufferTexture2D(glFBOTarget, backendAttachment,
-                //                    glTextureTarget,
-                //                                                              backendTextureObject->GetBackendTextureId(),
-                //                                                              static_cast<GLint>(attachment.GetTextureLevel()));
-                //                }
-
                 stateFBOObject->ClearDrawBuffersDirtyState();
             }
             // Handle read buffer for READ_FRAMEBUFFER
@@ -588,16 +597,6 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 m_frontendReadBuffer = stateFBOObject->GetReadBuffer();
                 GLenum frontendAtt = MG_Util::ConvertFramebufferAttachmentTypeToGLEnum(m_frontendReadBuffer);
                 GLenum backendAtt = GL_NONE;
-                // Find corresponding backend attachment in compacted draw buffers
-                //                for (SizeT i = 0; i < MG_State::GLState::FramebufferObject::MAX_DRAW_BUFFERS; ++i) {
-                //                    if (m_compactedFrontendBuffers[i] == frontendAtt) {
-                //                        backendAtt = m_backendBuffers[i];
-                //                        break;
-                //                    }
-                //                }
-                //                if (backendAtt != GL_NONE) {
-                //                    MG_External::GLES::glReadBuffer(backendAtt);
-                //                } else {
                 const auto& readAttachment = attachments[(SizeT)m_frontendReadBuffer];
                 GLenum glAttachment = MG_Util::ConvertFramebufferAttachmentTypeToGLEnum(m_frontendReadBuffer);
                 if (!readAttachment.IsValid() || readAttachment.IsEmpty()) {
@@ -620,7 +619,6 @@ namespace MobileGL::MG_Backend::DirectGLES {
                     // TODO: renderbuffer support
                 }
                 MG_External::GLES::glReadBuffer(glAttachment);
-                //                }
             }
         }
 
@@ -839,8 +837,6 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 m_cacheSamplerParameters.magFilter = samplerParams.magFilter;
             }
 
-            //            SYNC_SAMPLER_PARAM_IF_CHANGED(minFilter, GL_TEXTURE_MIN_FILTER, FilterMode)
-            //            SYNC_SAMPLER_PARAM_IF_CHANGED(magFilter, GL_TEXTURE_MAG_FILTER, FilterMode)
             SYNC_SAMPLER_PARAM_IF_CHANGED(wrapS, GL_TEXTURE_WRAP_S, WrapMode)
             SYNC_SAMPLER_PARAM_IF_CHANGED(wrapT, GL_TEXTURE_WRAP_T, WrapMode)
             SYNC_SAMPLER_PARAM_IF_CHANGED(wrapR, GL_TEXTURE_WRAP_R, WrapMode)

@@ -1,32 +1,37 @@
 #include "DirectGLES.h"
 #include "Utils.h"
 #include "Managers.h"
-#include "MG_Util/Converters/GLToMG/TextureEnumConverter.h"
-#include "MG_Util/Classifiers/TextureEnumClassifier.h"
-#include "MG_Util/Metrics/TextureMetrics.h"
+#include <MG_Util/Converters/GLToMG/TextureEnumConverter.h>
+#include <MG_Util/Classifiers/TextureEnumClassifier.h>
+#include <MG_Util/Metrics/TextureMetrics.h>
 #include <MG_State/GLState/Core.h>
 #include <MG_Impl/GLImpl/Framebuffer/GL_Framebuffer.h>
 #include <MG_Util/BackendLoaders/OpenGL/Loader.h>
 #include <MG_Util/Converters/GLToStr/GLEnumConverter.h>
 #include <MG_Util/Converters/MGToGL/TextureEnumConverter.h>
+#include <MG_Util/Converters/MGToStr/TextureEnumConverter.h>
 #include <MG_Util/Converters/MGToGL/RenderStateEnumConverter.h>
 
 namespace MobileGL::MG_Backend::DirectGLES {
     namespace DebugImpl {
         void ErrorLopper::Loop(std::function<void(GLenum)> func) {
+#if MOBILEGL_LOG_ACTIVE_LEVEL <= MOBILEGL_LOG_LEVEL_DEBUG
             GLenum err = MG_External::GLES::glGetError();
             while (err != GL_NO_ERROR) {
                 func(err);
                 err = MG_External::GLES::glGetError();
             }
+#endif
         }
 
         void ErrorLopper::Clear() {
+#if MOBILEGL_LOG_ACTIVE_LEVEL <= MOBILEGL_LOG_LEVEL_DEBUG
             GLenum err = MG_External::GLES::glGetError();
             while (err != GL_NO_ERROR) {
                 MGLOG_D("Stray GL Error cleared: %s", MG_Util::ConvertGLEnumToString(err).c_str());
                 err = MG_External::GLES::glGetError();
             }
+#endif
         }
 
         ErrorLopper::ErrorLopper() {
@@ -37,7 +42,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
         }
     } // namespace DebugImpl
 
-    // TODO: deletion of deleted objects
+    // TODO: deletion for deleted objects
 
     namespace BufferImpl {
         void SyncNeccessaryBuffers() {
@@ -56,14 +61,20 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 if (!attrib.Enabled) continue;
                 const auto& bufferObject = attrib.Buffer;
                 if (bufferObject) {
-                    buffersToSync.push_back(bufferObject);
+                    const auto& end = buffersToSync.end();
+                    if (std::find(buffersToSync.begin(), end, bufferObject) == end) {
+                        buffersToSync.push_back(bufferObject);
+                    }
                 }
             }
 
             // IBO
             const auto& possibleIBO = currentVAOObject->GetIndexBufferBindingSlot().GetBoundObject();
             if (possibleIBO) {
-                buffersToSync.push_back(possibleIBO);
+                const auto& end = buffersToSync.end();
+                if (std::find(buffersToSync.begin(), end, possibleIBO) == end) {
+                    buffersToSync.push_back(possibleIBO);
+                }
             }
 
             // UBO
@@ -71,7 +82,12 @@ namespace MobileGL::MG_Backend::DirectGLES {
             for (SizeT i = 0; i < uboBindingPointCnt; ++i) {
                 auto& point = MG_State::pGLContext->GetBufferBindingPoint(BufferTarget::Uniform, i);
                 auto obj = point.GetBoundObject();
-                if (obj) buffersToSync.push_back(obj);
+                if (obj) {
+                    const auto& end = buffersToSync.end();
+                    if (std::find(buffersToSync.begin(), end, obj) == end) {
+                        buffersToSync.push_back(obj);
+                    }
+                }
             }
 
             // Do real sync
@@ -137,7 +153,10 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 for (const auto& bindingSlot : unit.GetAllBindingSlots()) {
                     const auto& textureObject = bindingSlot.GetBoundObject();
                     if (textureObject) {
-                        texturesToSync.push_back(textureObject);
+                        const auto& end = texturesToSync.end();
+                        if (std::find(texturesToSync.begin(), end, textureObject) == end) {
+                            texturesToSync.push_back(textureObject);
+                        }
                     }
                 }
             }
@@ -149,7 +168,10 @@ namespace MobileGL::MG_Backend::DirectGLES {
                     if (!attachment.IsTexture()) continue;
                     const auto& textureObject = attachment.GetTexture();
                     if (textureObject) {
-                        texturesToSync.push_back(textureObject);
+                        const auto& end = texturesToSync.end();
+                        if (std::find(texturesToSync.begin(), end, textureObject) == end) {
+                            texturesToSync.push_back(textureObject);
+                        }
                     }
                 }
             }
@@ -333,28 +355,24 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 const auto& textureObject = bindingSlot.GetBoundObject();
                 if (!textureObject) continue;
 
+                auto target = textureObject->GetTarget();
+                if (target == TextureTarget::TextureBuffer || target == TextureTarget::Texture1D ||
+                    target == TextureTarget::TextureRectangle || target == TextureTarget::Texture2DMultisampleArray ||
+                    target == TextureTarget::Texture1DArray || target == TextureTarget::Texture3D ||
+                    target == TextureTarget::Texture2DMultisample || target == TextureTarget::Texture2DArray) {
+                    MGLOG_D("    Texture target %s is not supported, skipping.",
+                            MG_Util::ConvertTextureTargetToString(target).c_str());
+                    continue;
+                }
                 const auto& backendTextureIt = TextureImpl::g_backendTextureObjects.find(textureObject);
                 if (backendTextureIt == TextureImpl::g_backendTextureObjects.end()) continue;
 
                 GLenum target = MG_Util::ConvertTextureTargetToGLEnum(textureObject->GetTarget());
                 backendTextureIt->second->Bind(target);
 
-                const auto& samplerObj = textureObject->GetSamplerObject();
-                const auto minfilter = samplerObj->GetMinFilter();
-                const auto mipfilter = samplerObj->GetMipmapMode();
-                MG_External::GLES::glTexParameteri(target, GL_TEXTURE_MIN_FILTER,
-                                                   MG_Util::ConvertSamplerFilterModeToGLEnum(minfilter, mipfilter));
-                const auto magfilter = samplerObj->GetMagFilter();
-                MG_External::GLES::glTexParameteri(
-                    target, GL_TEXTURE_MAG_FILTER,
-                    MG_Util::ConvertSamplerFilterModeToGLEnum(magfilter, SamplerMipmapMode::None));
-                MG_External::GLES::glTexParameterf(target, GL_TEXTURE_MIN_LOD, samplerObj->GetMinLod());
-                MG_External::GLES::glTexParameterf(target, GL_TEXTURE_MAX_LOD, samplerObj->GetMaxLod());
             }
         }
 
-        Int originalActiveUnit = MG_State::pGLContext->GetActiveTextureUnit();
-        MG_External::GLES::glActiveTexture(GL_TEXTURE0 + originalActiveUnit);
 
         const auto& currentProgram = MG_State::pGLContext->GetCurrentProgram();
         if (currentProgram && currentProgram->GetLinkStatus()) {
@@ -623,10 +641,11 @@ namespace MobileGL::MG_Backend::DirectGLES {
             MGLOG_D("ES error (%s:%d): %s", file, line, MG_Util::ConvertGLEnumToString(err).c_str());
         });
 
-        auto activeUnit = MG_State::pGLContext->GetTextureUnitObject(MG_State::pGLContext->GetActiveTextureUnit());
+        Int unit = MG_State::pGLContext->GetActiveTextureUnit();
+        auto& activeUnit = MG_State::pGLContext->GetTextureUnitObject(unit);
         TextureTarget textureTarget = MG_Util::ConvertGLEnumToTextureTarget(target);
         auto& bindingSlot = activeUnit.GetBindingSlot(textureTarget);
-        auto textureObject = bindingSlot.GetBoundObject();
+        const auto& textureObject = bindingSlot.GetBoundObject();
 
         const auto& backendTextureIt = TextureImpl::g_backendTextureObjects.find(textureObject);
         SharedPtr<TextureImpl::BackendTextureObject> backendTextureObject;
