@@ -53,13 +53,13 @@ namespace MobileGL {
             TextureSwizzleParam TextureObjectBase::GetSwizzleParam(TextureSwizzleParam param) const {
                 switch (param) {
                 case TextureSwizzleParam::Red:
-                    return m_swizzleParams[0];
+                    return m_swizzleParams.r();
                 case TextureSwizzleParam::Green:
-                    return m_swizzleParams[1];
+                    return m_swizzleParams.g();
                 case TextureSwizzleParam::Blue:
-                    return m_swizzleParams[2];
+                    return m_swizzleParams.b();
                 case TextureSwizzleParam::Alpha:
-                    return m_swizzleParams[3];
+                    return m_swizzleParams.a();
                 default:
                     MOBILEGL_ASSERT(false, "TextureObjectBase::GetSwizzleParam: Invalid TextureSwizzleParam: %d",
                                     static_cast<Int>(param));
@@ -67,19 +67,23 @@ namespace MobileGL {
                 }
             }
 
+            const Vec4<TextureSwizzleParam>& TextureObjectBase::GetAllSwizzleParams() const {
+                return m_swizzleParams;
+            }
+
             void TextureObjectBase::SetSwizzleParam(TextureSwizzleParam param, TextureSwizzleParam value) {
                 switch (param) {
                 case TextureSwizzleParam::Red:
-                    m_swizzleParams[0] = value;
+                    m_swizzleParams.r() = value;
                     break;
                 case TextureSwizzleParam::Green:
-                    m_swizzleParams[1] = value;
+                    m_swizzleParams.g() = value;
                     break;
                 case TextureSwizzleParam::Blue:
-                    m_swizzleParams[2] = value;
+                    m_swizzleParams.b() = value;
                     break;
                 case TextureSwizzleParam::Alpha:
-                    m_swizzleParams[3] = value;
+                    m_swizzleParams.a() = value;
                     break;
                 default:
                     MOBILEGL_ASSERT(false, "TextureObjectBase::SetSwizzleParam: Invalid TextureSwizzleParam: %d",

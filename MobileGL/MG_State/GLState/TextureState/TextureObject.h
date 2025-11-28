@@ -35,6 +35,7 @@ namespace MobileGL {
                 virtual void SetBorderColor(const FloatVec4& color) = 0;
                 virtual TextureSwizzleParam GetSwizzleParam(TextureSwizzleParam param) const = 0;
                 virtual void SetSwizzleParam(TextureSwizzleParam param, TextureSwizzleParam value) = 0;
+                virtual const Vec4<TextureSwizzleParam>& GetAllSwizzleParams() const = 0;
                 virtual const UintVec2& GetLevelRange() const = 0;
                 virtual void SetBaseLevel(Uint baseLevel) = 0;
                 virtual void SetMaxLevel(Uint maxLevel) = 0;
@@ -48,14 +49,15 @@ namespace MobileGL {
                 virtual ~TextureObjectBase() = default;
 
                 // Mipmap ops
-//                Uint GetMipmapLevelCount() const = 0;
-//                const IntVec3 GetMipmapTexelSize(TextureUploadTarget target, Uint mipmapLevel) const = 0;
-//                const SizeT GetMipmapByteSize(TextureUploadTarget target, Uint mipmapLevel) const = 0;
-//                void AllocateStorage(TextureUploadTarget uploadTarget, Uint mipmapLevel, MipmapInput input) = 0;
-//                void UpdateMipmapSubData(TextureUploadTarget uploadTarget, Uint mipmapLevel, DataPtr input) = 0;
-//                void* MapMipmapData(TextureUploadTarget uploadTarget, Uint mipmapLevel) = 0;
-//                void MarkStorageDirty(TextureUploadTarget uploadTarget, Uint mipmapLevel, bool dirty) = 0;
-//                bool IsStorageDirty(TextureUploadTarget uploadTarget, Uint mipmapLevel) const = 0;
+                //                Uint GetMipmapLevelCount() const = 0;
+                //                const IntVec3 GetMipmapTexelSize(TextureUploadTarget target, Uint mipmapLevel) const =
+                //                0; const SizeT GetMipmapByteSize(TextureUploadTarget target, Uint mipmapLevel) const =
+                //                0; void AllocateStorage(TextureUploadTarget uploadTarget, Uint mipmapLevel,
+                //                MipmapInput input) = 0; void UpdateMipmapSubData(TextureUploadTarget uploadTarget,
+                //                Uint mipmapLevel, DataPtr input) = 0; void* MapMipmapData(TextureUploadTarget
+                //                uploadTarget, Uint mipmapLevel) = 0; void MarkStorageDirty(TextureUploadTarget
+                //                uploadTarget, Uint mipmapLevel, bool dirty) = 0; bool
+                //                IsStorageDirty(TextureUploadTarget uploadTarget, Uint mipmapLevel) const = 0;
 
                 TextureInternalFormat GetFormat() const override;
                 TextureTarget GetTarget() const override;
@@ -67,6 +69,7 @@ namespace MobileGL {
                 const FloatVec4& GetBorderColor() const override;
                 void SetBorderColor(const FloatVec4& color) override;
                 TextureSwizzleParam GetSwizzleParam(TextureSwizzleParam param) const override;
+                const Vec4<TextureSwizzleParam>& GetAllSwizzleParams() const override;
                 void SetSwizzleParam(TextureSwizzleParam param, TextureSwizzleParam value) override;
                 const UintVec2& GetLevelRange() const override;
                 void SetBaseLevel(Uint baseLevel) override;
@@ -78,14 +81,15 @@ namespace MobileGL {
                 TextureInternalFormat m_internalFormat = TextureInternalFormat::Unknown;
                 SharedPtr<SamplerObject> m_sampler = nullptr;
                 FloatVec4 m_borderColor = {0.0f, 0.0f, 0.0f, 0.0f};
-                TextureSwizzleParam m_swizzleParams[4] = {TextureSwizzleParam::Red, TextureSwizzleParam::Green,
-                                                          TextureSwizzleParam::Blue, TextureSwizzleParam::Alpha};
+                Vec4<TextureSwizzleParam> m_swizzleParams = {TextureSwizzleParam::Red, TextureSwizzleParam::Green,
+                                                             TextureSwizzleParam::Blue, TextureSwizzleParam::Alpha};
                 UintVec2 m_levelRange = {0, 1000};
             };
 
             class TextureObjectWithOneMipmap : public TextureObjectBase {
             public:
-                TextureObjectWithOneMipmap(TextureTarget target, Uint externalIndex): TextureObjectBase(target, externalIndex) {}
+                TextureObjectWithOneMipmap(TextureTarget target, Uint externalIndex, Bool isDefaultTexture)
+                    : TextureObjectBase(target, externalIndex, isDefaultTexture) {}
                 virtual ~TextureObjectWithOneMipmap() = default;
 
                 Uint GetMipmapLevelCount() const override;
