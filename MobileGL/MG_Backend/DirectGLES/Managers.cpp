@@ -415,36 +415,26 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 errorLopper.Loop([file = __FILE__, line = __LINE__, func = __func__](GLenum err) {
                     MGLOG_D("%s(%s:%d) ES error %s", func, file, line, MG_Util::ConvertGLEnumToString(err).c_str());
                 });
-                GLenum swizzleParams[4] = {MG_Util::ConvertTextureSwizzleParamToGLEnum(
-                                               stateTextureObject->GetSwizzleParam(TextureSwizzleParam::Red)),
-                                           MG_Util::ConvertTextureSwizzleParamToGLEnum(
-                                               stateTextureObject->GetSwizzleParam(TextureSwizzleParam::Green)),
-                                           MG_Util::ConvertTextureSwizzleParamToGLEnum(
-                                               stateTextureObject->GetSwizzleParam(TextureSwizzleParam::Blue)),
-                                           MG_Util::ConvertTextureSwizzleParamToGLEnum(
-                                               stateTextureObject->GetSwizzleParam(TextureSwizzleParam::Alpha))};
-                MG_External::GLES::glTexParameteri(target, GL_TEXTURE_SWIZZLE_R,
-                                                   MG_Util::ConvertTextureSwizzleParamToGLEnum(
-                                                       stateTextureObject->GetSwizzleParam(TextureSwizzleParam::Red)));
-                MG_External::GLES::glTexParameteri(
-                    target, GL_TEXTURE_SWIZZLE_G,
-                    MG_Util::ConvertTextureSwizzleParamToGLEnum(
-                        stateTextureObject->GetSwizzleParam(TextureSwizzleParam::Green)));
-                MG_External::GLES::glTexParameteri(target, GL_TEXTURE_SWIZZLE_B,
-                                                   MG_Util::ConvertTextureSwizzleParamToGLEnum(
-                                                       stateTextureObject->GetSwizzleParam(TextureSwizzleParam::Blue)));
-                MG_External::GLES::glTexParameteri(
-                    target, GL_TEXTURE_SWIZZLE_A,
-                    MG_Util::ConvertTextureSwizzleParamToGLEnum(
-                        stateTextureObject->GetSwizzleParam(TextureSwizzleParam::Alpha)));
-                errorLopper.Loop([file = __FILE__, line = __LINE__, func = __func__, swizzleParams](GLenum err) {
-                    MGLOG_D("%s(%s:%d) ES error %s, GL_TEXTURE_SWIZZLE_RGBA: [%s %s %s %s]", func, file, line,
-                            MG_Util::ConvertGLEnumToString(err).c_str(),
-                            MG_Util::ConvertGLEnumToString(swizzleParams[0]).c_str(),
-                            MG_Util::ConvertGLEnumToString(swizzleParams[1]).c_str(),
-                            MG_Util::ConvertGLEnumToString(swizzleParams[2]).c_str(),
-                            MG_Util::ConvertGLEnumToString(swizzleParams[3]).c_str());
-                });
+
+                const auto& swizzleParams = stateTextureObject->GetAllSwizzleParams();
+                if (swizzleParams != m_cacheSwizzleParams) {
+#define SYNC_TEX_SWIZZLE_PARAM_IF_CHANGED(func, glEnum)                                                                \
+    if (m_cacheSwizzleParams.func != swizzleParams.func) {                                                             \
+        BIND_CURRENT_TEXTURE_IF_NOT_BOUND();                                                                           \
+        MG_External::GLES::glTexParameteri(targetGL, glEnum,                                                           \
+                                           MG_Util::ConvertTextureSwizzleParamToGLEnum(swizzleParams.func));           \
+        m_cacheSwizzleParams.func = swizzleParams.func;                                                                \
+    }
+                    SYNC_TEX_SWIZZLE_PARAM_IF_CHANGED(r(), GL_TEXTURE_SWIZZLE_R)
+                    SYNC_TEX_SWIZZLE_PARAM_IF_CHANGED(g(), GL_TEXTURE_SWIZZLE_G)
+                    SYNC_TEX_SWIZZLE_PARAM_IF_CHANGED(b(), GL_TEXTURE_SWIZZLE_B)
+                    SYNC_TEX_SWIZZLE_PARAM_IF_CHANGED(a(), GL_TEXTURE_SWIZZLE_A)
+#undef SYNC_TEX_SWIZZLE_PARAM_IF_CHANGED
+                    m_cacheSwizzleParams = swizzleParams;
+                    errorLopper.Loop([file = __FILE__, line = __LINE__, func = __func__](GLenum err) {
+                        MGLOG_D("%s(%s:%d) ES error %s", func, file, line, MG_Util::ConvertGLEnumToString(err).c_str());
+                    });
+                }
 
                 if (m_cacheBorderColor != stateTextureObject->GetBorderColor()) {
                     const auto& borderColor = stateTextureObject->GetBorderColor();
