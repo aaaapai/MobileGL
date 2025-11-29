@@ -39,6 +39,24 @@ if (MSVC)
     set(CMAKE_CXX_FLAGS "/EHsc ${CMAKE_CXX_FLAGS}")
 endif()
 
+# Generate GitVersion.h
+execute_process(
+    COMMAND git rev-parse HEAD
+    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    OUTPUT_VARIABLE GIT_COMMIT_HASH_FULL
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+)
+
+string(SUBSTRING "${GIT_COMMIT_HASH_FULL}" 0 7 GIT_COMMIT_HASH_SHORT)
+
+configure_file(
+    ${CMAKE_SOURCE_DIR}/MobileGL/MG_Util/Miscellany/GitVersion.h.in
+    ${CMAKE_BINARY_DIR}/generated/GitVersion.h
+    @ONLY
+)
+
+include_directories(${CMAKE_BINARY_DIR}/generated)
+
 set(ENABLE_RTTI                ON  CACHE BOOL "Enables RTTI (will be took by glslang)" FORCE)
 
 set(ENABLE_GLSLANG_BINARIES    OFF CACHE BOOL "Disable glslangValidator/spirv-remap" FORCE)
