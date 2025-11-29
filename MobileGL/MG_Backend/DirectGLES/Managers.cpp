@@ -809,7 +809,8 @@ namespace MobileGL::MG_Backend::DirectGLES {
         m_cacheSamplerParameters.internalName = samplerParams.internalName;                                            \
     }
 
-            if (m_cacheSamplerParameters.minFilter != samplerParams.minFilter) {
+            if (m_cacheSamplerParameters.minFilter != samplerParams.minFilter ||
+                m_cacheSamplerParameters.mipmapMode != samplerParams.mipmapMode) {
                 MG_External::GLES::glSamplerParameteri(
                     m_backendSamplerId, GL_TEXTURE_MIN_FILTER,
                     MG_Util::ConvertSamplerFilterModeToGLEnum(samplerParams.minFilter, samplerParams.mipmapMode));
