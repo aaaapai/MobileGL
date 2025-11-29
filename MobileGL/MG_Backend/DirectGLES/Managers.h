@@ -19,7 +19,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
             void SyncToBackend_glBufferData(SharedPtr<MG_State::GLState::BufferObject>& stateBufferObject);
             void SyncToBackend_glBufferSubData(SharedPtr<MG_State::GLState::BufferObject>& stateBufferObject);
             void SyncToBackend_glMapBufferRange(SharedPtr<MG_State::GLState::BufferObject>& stateBufferObject,
-                                                Bool invalidate = false);
+                                                Bool invalidate = true);
 
             Uint m_backendBufferId = 0;
             SizeT m_prevBufferSize = 0;
