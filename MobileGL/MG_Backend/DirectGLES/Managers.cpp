@@ -66,6 +66,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 break;
             }
 
+            stateBufferObject->ClearDirty();
             m_prevBufferSize = bufferSize;
         }
 
