@@ -39,7 +39,7 @@ if (MSVC)
     set(CMAKE_CXX_FLAGS "/EHsc ${CMAKE_CXX_FLAGS}")
 endif()
 
-# Generate GitVersion.h
+# Generate MGLGitHash.h
 execute_process(
     COMMAND git rev-parse HEAD
     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
@@ -50,8 +50,8 @@ execute_process(
 string(SUBSTRING "${GIT_COMMIT_HASH_FULL}" 0 7 GIT_COMMIT_HASH_SHORT)
 
 configure_file(
-    ${CMAKE_SOURCE_DIR}/MobileGL/MG_Util/Miscellany/GitVersion.h.in
-    ${CMAKE_BINARY_DIR}/generated/GitVersion.h
+    ${CMAKE_SOURCE_DIR}/MobileGL/MG_Util/Miscellany/MGLGitHash.h.in
+    ${CMAKE_BINARY_DIR}/generated/MGLGitHash.h
     @ONLY
 )
 
