@@ -6,9 +6,7 @@
 namespace MobileGL {
     namespace MG_External {
         namespace GLES {
-            namespace Caps {
-                Version GLESVersion;
-            }
+            Caps::GLESCaps g_glesCaps;
 
             GL_FUNC_DECL(glActiveTexture)
             GL_FUNC_DECL(glAttachShader)
@@ -485,8 +483,19 @@ namespace MobileGL {
             }
 
             void InitGLESCapabilities() {
-                MG_External::GLES::glGetIntegerv(GL_MAJOR_VERSION, &MG_External::GLES::Caps::GLESVersion.Major);
-                MG_External::GLES::glGetIntegerv(GL_MINOR_VERSION, &MG_External::GLES::Caps::GLESVersion.Minor);
+                MG_External::GLES::glGetIntegerv(GL_MAJOR_VERSION, &MG_External::GLES::g_glesCaps.version.Major);
+                MG_External::GLES::glGetIntegerv(GL_MINOR_VERSION, &MG_External::GLES::g_glesCaps.version.Minor);
+
+                GLint extCount = 0;
+                MG_External::GLES::glGetIntegerv(GL_NUM_EXTENSIONS, &extCount);
+                for (GLint i = 0; i < extCount; ++i) {
+                    const char* extension = (const char*)MG_External::GLES::glGetStringi(GL_EXTENSIONS, i);
+                    if (extension) {
+                        if (std::strcmp(extension, "GL_EXT_buffer_storage") == 0) {
+                            MG_External::GLES::g_glesCaps.hasPersistentMapping = true;
+                        }
+                    }
+                }
             }
 
             void InitGLES() {
