@@ -346,8 +346,6 @@ namespace MobileGL::MG_Backend::DirectGLES {
         Int maxTextureUnits = MG_State::GLState::TextureState::MAX_TEXTURE_IMAGE_UNITS;
         for (Int unit = 0; unit < maxTextureUnits; ++unit) {
             auto& textureUnit = MG_State::pGLContext->GetTextureUnitObject(unit);
-            if (!textureUnit.GetBindingSlot(TextureTarget::Texture2D).GetBoundObject()) continue;
-            // TODO
 
             MG_External::GLES::glActiveTexture(GL_TEXTURE0 + unit);
 
