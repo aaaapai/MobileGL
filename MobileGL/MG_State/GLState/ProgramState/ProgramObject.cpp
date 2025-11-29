@@ -1,5 +1,6 @@
 #include "ProgramObject.h"
 #include "MG_Util/Converters/GLToStr/GLEnumConverter.h"
+#include "MG_Util/ShaderTranspiler/Types.h"
 #include <MG_Util/ShaderTranspiler/ShaderCompiler.h>
 #include <MG_Util/Converters/MGToGL/ProgramEnumConverter.h>
 #include <MG_Util/Converters/SPIRVCrossToGL/SpvcTypeConverter.h>
@@ -356,8 +357,10 @@ namespace MobileGL {
                 for (SizeT i = 0; i < m_shaders.size(); i++) {
                     auto shaderType = MG_Util::ConvertShaderStageToGLEnum(m_shaders[i]->GetShaderStage());
                     shaderTypes[i] = shaderType;
-                    ShaderAttrib attrib{
-                        .shaderType = shaderType, .sourceStr = m_shaders[i]->GetShaderSource(), .flags = 0};
+                    ShaderAttrib attrib{.shaderType = shaderType,
+                                        .sourceStr = m_shaders[i]->GetShaderSource(),
+                                        .flags =
+                                            ShaderCompileBits::CompileForOpenGL}; // TODO: better solution for flags
                     MGLOG_D("ProgramObject %u: GenerateBinary - compiling shader[%zu] type %u", m_externalIndex, i,
                             shaderType);
                     auto res = ShaderCompiler::CompileShader(attrib);
