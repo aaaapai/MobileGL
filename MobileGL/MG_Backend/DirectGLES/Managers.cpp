@@ -1,6 +1,5 @@
 #include "Managers.h"
 #include "MG_Backend/Backends.h"
-#include "MG_Util/Types.h"
 #include "Utils.h"
 #include "DirectGLES.h"
 #include <MG_Util/BackendLoaders/OpenGL/Loader.h>
@@ -356,7 +355,8 @@ namespace MobileGL::MG_Backend::DirectGLES {
         });                                                                                                            \
     }
 
-                if (m_cacheSamplerParameters.minFilter != samplerParams.minFilter) {
+                if (m_cacheSamplerParameters.minFilter != samplerParams.minFilter ||
+                    m_cacheSamplerParameters.mipmapMode != samplerParams.mipmapMode) {
                     MG_External::GLES::glTexParameteri(
                         target, GL_TEXTURE_MIN_FILTER,
                         MG_Util::ConvertSamplerFilterModeToGLEnum(samplerParams.minFilter, samplerParams.mipmapMode));
@@ -418,14 +418,14 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 if (swizzleParams != m_cacheSwizzleParams) {
 #define SYNC_TEX_SWIZZLE_PARAM_IF_CHANGED(func, glEnum)                                                                \
     if (m_cacheSwizzleParams.func != swizzleParams.func) {                                                             \
-        MG_External::GLES::glTexParameteri(target, glEnum,                                                           \
+        MG_External::GLES::glTexParameteri(target, glEnum,                                                             \
                                            MG_Util::ConvertTextureSwizzleParamToGLEnum(swizzleParams.func));           \
         m_cacheSwizzleParams.func = swizzleParams.func;                                                                \
     }
-                    SYNC_TEX_SWIZZLE_PARAM_IF_CHANGED(r(), GL_TEXTURE_SWIZZLE_R)
-                    SYNC_TEX_SWIZZLE_PARAM_IF_CHANGED(g(), GL_TEXTURE_SWIZZLE_G)
-                    SYNC_TEX_SWIZZLE_PARAM_IF_CHANGED(b(), GL_TEXTURE_SWIZZLE_B)
-                    SYNC_TEX_SWIZZLE_PARAM_IF_CHANGED(a(), GL_TEXTURE_SWIZZLE_A)
+                    SYNC_TEX_SWIZZLE_PARAM_IF_CHANGED(r(), GL_TEXTURE_SWIZZLE_R);
+                    SYNC_TEX_SWIZZLE_PARAM_IF_CHANGED(g(), GL_TEXTURE_SWIZZLE_G);
+                    SYNC_TEX_SWIZZLE_PARAM_IF_CHANGED(b(), GL_TEXTURE_SWIZZLE_B);
+                    SYNC_TEX_SWIZZLE_PARAM_IF_CHANGED(a(), GL_TEXTURE_SWIZZLE_A);
 #undef SYNC_TEX_SWIZZLE_PARAM_IF_CHANGED
                     m_cacheSwizzleParams = swizzleParams;
                     errorLopper.Loop([file = __FILE__, line = __LINE__, func = __func__](GLenum err) {
