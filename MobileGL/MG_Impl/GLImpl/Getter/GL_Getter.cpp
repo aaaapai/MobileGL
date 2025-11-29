@@ -1,6 +1,6 @@
 #include "GL_Getter.h"
 #include <Config.h>
-#include <GitVersion.h>
+#include <MGLGitHash.h>
 #include <MG_State/GLState/Core.h>
 #include <MG_State/GLState/ErrorState/ErrorInfo.h>
 #include <MG_Util/Converters/GLToStr/GLEnumConverter.h>
