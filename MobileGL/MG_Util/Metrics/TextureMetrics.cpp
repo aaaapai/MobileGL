@@ -6,6 +6,7 @@ namespace MobileGL {
         SizeT GetSizedInternalFormatSizeInBytes(TextureInternalFormat internal) {
             switch (internal) {
             case TextureInternalFormat::R8:
+            case TextureInternalFormat::Red:
             case TextureInternalFormat::R8Snorm:
             case TextureInternalFormat::R8I:
             case TextureInternalFormat::R8UI:
