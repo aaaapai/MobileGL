@@ -265,6 +265,8 @@ namespace MobileGL {
                 return GL_UNSIGNED_INT_10F_11F_11F_REV;
             case TexturePixelDataType::UnsignedInt5999Rev:
                 return GL_UNSIGNED_INT_5_9_9_9_REV;
+            case TexturePixelDataType::Float32UnsignedInt248Rev:
+                return GL_FLOAT_32_UNSIGNED_INT_24_8_REV;
             default:
                 return GL_UNKNOWN_MGL;
             }

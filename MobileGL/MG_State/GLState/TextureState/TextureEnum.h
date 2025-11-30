@@ -170,8 +170,9 @@ namespace MobileGL {
         UnsignedInt8888Rev,
         UnsignedInt1010102,
         UnsignedInt2101010Rev,
-        UnsignedInt101111Rev, // not a standard type in OpenGL core profile
-        UnsignedInt5999Rev,   // not a standard type in OpenGL core profile
+        UnsignedInt101111Rev,
+        UnsignedInt5999Rev,
+        Float32UnsignedInt248Rev,
 
         TypeCount,
         Unknown = -1

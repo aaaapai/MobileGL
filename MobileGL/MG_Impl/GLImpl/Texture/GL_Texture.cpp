@@ -317,7 +317,7 @@ namespace MobileGL {
                               GLint border, GLenum format, GLenum type, const void* pixels) {
             MGLOG_D(
                 "TexImage2D_State called with target: %s, level: %d, internalformat: %s, width: %d, height: %d, "
-                "border: %d, format: %s, type: %s, pixels: %p",
+                "border: %d, format: %s, type: %s (%u), pixels: %p",
                 MG_Util::ConvertTextureUploadTargetToString(MG_Util::ConvertGLEnumToTextureUploadTarget(target))
                     .c_str(),
                 level,
@@ -327,7 +327,7 @@ namespace MobileGL {
                 width, height, border,
                 MG_Util::ConvertTextureInputFormatToString(MG_Util::ConvertGLEnumToTextureInputFormat(format)).c_str(),
                 MG_Util::ConvertTexturePixelDataTypeToString(MG_Util::ConvertGLEnumToTexturePixelDataType(type))
-                    .c_str(),
+                    .c_str(),type,
                 pixels);
             // ======================= Converting ================================
             TextureUploadTarget textureUploadingTarget = MG_Util::ConvertGLEnumToTextureUploadTarget(target);

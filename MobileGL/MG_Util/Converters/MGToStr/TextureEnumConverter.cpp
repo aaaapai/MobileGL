@@ -267,6 +267,8 @@ namespace MobileGL {
                 return "UnsignedInt101111Rev";
             case TexturePixelDataType::UnsignedInt5999Rev:
                 return "UnsignedInt5999Rev";
+            case TexturePixelDataType::Float32UnsignedInt248Rev:
+                return "Float32UnsignedInt248Rev";
             default:
                 return "Unknown";
             }
