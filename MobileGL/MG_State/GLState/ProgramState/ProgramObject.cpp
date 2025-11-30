@@ -359,8 +359,7 @@ namespace MobileGL {
                     shaderTypes[i] = shaderType;
                     ShaderAttrib attrib{.shaderType = shaderType,
                                         .sourceStr = m_shaders[i]->GetShaderSource(),
-                                        .flags =
-                                            ShaderCompileBits::CompileForOpenGL}; // TODO: better solution for flags
+                                        .flags = 0}; // Will need patched glslang to work
                     MGLOG_D("ProgramObject %u: GenerateBinary - compiling shader[%zu] type %u", m_externalIndex, i,
                             shaderType);
                     auto res = ShaderCompiler::CompileShader(attrib);
