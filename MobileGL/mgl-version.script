@@ -1,6 +1,8 @@
-global:
-    gl*;
-    glX*;
-    egl*;
-local:
-    *;
+{
+    global:
+        gl*;
+        glX*;
+        egl*;
+    local:
+        *;
+};
