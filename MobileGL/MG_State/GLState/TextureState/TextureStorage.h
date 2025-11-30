@@ -14,9 +14,7 @@ namespace MobileGL {
             template <SizeT TargetCount>
             class TextureStorage {
             public:
-                TextureStorage() {
-                    static_assert(TargetCount > 0, "Mipmap size must be greater than zero");
-                }
+                TextureStorage() { static_assert(TargetCount > 0, "Mipmap size must be greater than zero"); }
 
                 void AllocateLevel(Uint targetIndex, Uint level, MipmapInput input) {
                     MOBILEGL_ASSERT(targetIndex < TargetCount, "AllocateLevel: target invalid");
@@ -61,8 +59,7 @@ namespace MobileGL {
                     MOBILEGL_ASSERT(targetIndex < TargetCount, "GetTexelSize: target invalid");
 
                     auto& targetTexelSizes = m_texelSizes[targetIndex];
-                    if (level >= targetTexelSizes.size())
-                        return {0, 0, 0};
+                    if (level >= targetTexelSizes.size()) return {0, 0, 0};
                     return targetTexelSizes[level];
                 }
 
@@ -73,9 +70,7 @@ namespace MobileGL {
                     return data[level].size();
                 }
 
-                SizeT GetLevelCount() const {
-                    return m_data[0].size();
-                }
+                SizeT GetLevelCount() const { return m_data[0].size(); }
 
                 void MarkDirty(Uint targetIndex, Uint level, bool dirty) {
                     MOBILEGL_ASSERT(targetIndex < TargetCount, "MarkDirty: target invalid");
@@ -94,6 +89,6 @@ namespace MobileGL {
                 Array<Vector<Vector<Uint8>>, TargetCount> m_data;
                 Array<Vector<bool>, TargetCount> m_isDirty;
             };
-        }
-    }
-}
+        } // namespace GLState
+    } // namespace MG_State
+} // namespace MobileGL

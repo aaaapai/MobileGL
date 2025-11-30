@@ -143,19 +143,18 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 if (outType) *outType = GL_UNSIGNED_INT;
                 if (outFormat) switch (internalFormat) {
                     case GL_RGBA32UI:
-                        if (outFormat) *outFormat = GL_RGBA;
+                        if (outFormat) *outFormat = GL_RGBA_INTEGER;
                         break;
                     case GL_RGB32UI:
-                        if (outFormat) *outFormat = GL_RGB;
+                        if (outFormat) *outFormat = GL_RGB_INTEGER;
                         break;
                     case GL_RG32UI:
-                        if (outFormat) *outFormat = GL_RG;
+                        if (outFormat) *outFormat = GL_RG_INTEGER;
                         break;
                     case GL_R32UI:
-                        if (outFormat) *outFormat = GL_RED;
+                        if (outFormat) *outFormat = GL_RED_INTEGER;
                         break;
                     }
-                break;
                 break;
 
             case GL_RGBA32I:
@@ -166,16 +165,16 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 if (outType) *outType = GL_INT;
                 if (outFormat) switch (internalFormat) {
                     case GL_RGBA32I:
-                        if (outFormat) *outFormat = GL_RGBA;
+                        if (outFormat) *outFormat = GL_RGBA_INTEGER;
                         break;
                     case GL_RGB32I:
-                        if (outFormat) *outFormat = GL_RGB;
+                        if (outFormat) *outFormat = GL_RGB_INTEGER;
                         break;
                     case GL_RG32I:
-                        if (outFormat) *outFormat = GL_RG;
+                        if (outFormat) *outFormat = GL_RG_INTEGER;
                         break;
                     case GL_R32I:
-                        if (outFormat) *outFormat = GL_RED;
+                        if (outFormat) *outFormat = GL_RED_INTEGER;
                         break;
                     }
                 break;
@@ -213,12 +212,6 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 }
                 break;
 
-            case GL_R16:
-                if (outInternalFormat) *outInternalFormat = GL_R16F;
-                if (outType) *outType = GL_FLOAT;
-                if (outFormat) *outFormat = GL_RED;
-                break;
-
             case GL_RGB16:
                 if (outInternalFormat) *outInternalFormat = GL_RGB16F;
                 if (outType) *outType = GL_HALF_FLOAT;
@@ -232,7 +225,6 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 break;
 
             case GL_RG16:
-            case GL_RG16F:
                 if (outInternalFormat) *outInternalFormat = GL_RG16F;
                 if (outType) *outType = GL_HALF_FLOAT;
                 if (outFormat) *outFormat = GL_RG;
@@ -243,11 +235,86 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 if (outType) *outType = GL_UNSIGNED_BYTE;
                 if (outFormat) *outFormat = GL_RED;
                 break;
+
+            case GL_R8_SNORM:
+                if (outInternalFormat) *outInternalFormat = internalFormat;
+                if (outType) *outType = GL_BYTE;
+                if (outFormat) *outFormat = GL_RED;
+                break;
+
+            case GL_RED:
+                // For GL_RED, we need to infer based on type or use default
+                if (outInternalFormat) *outInternalFormat = GL_R8; // Default fallback
+                if (outType) *outType = GL_UNSIGNED_BYTE;          // Default fallback
+                if (outFormat) *outFormat = GL_RED;
+                break;
+
             case GL_R8UI:
                 if (outInternalFormat) *outInternalFormat = internalFormat;
                 if (outType) *outType = GL_UNSIGNED_BYTE;
                 if (outFormat) *outFormat = GL_RED_INTEGER;
                 break;
+
+            case GL_R8I:
+                if (outInternalFormat) *outInternalFormat = internalFormat;
+                if (outType) *outType = GL_BYTE;
+                if (outFormat) *outFormat = GL_RED_INTEGER;
+                break;
+
+            case GL_R16UI:
+                if (outInternalFormat) *outInternalFormat = internalFormat;
+                if (outType) *outType = GL_UNSIGNED_SHORT;
+                if (outFormat) *outFormat = GL_RED_INTEGER;
+                break;
+
+            case GL_R16I:
+                if (outInternalFormat) *outInternalFormat = internalFormat;
+                if (outType) *outType = GL_SHORT;
+                if (outFormat) *outFormat = GL_RED_INTEGER;
+                break;
+
+            case GL_RG8:
+                if (outInternalFormat) *outInternalFormat = internalFormat;
+                if (outType) *outType = GL_UNSIGNED_BYTE;
+                if (outFormat) *outFormat = GL_RG;
+                break;
+
+            case GL_RG8_SNORM:
+                if (outInternalFormat) *outInternalFormat = internalFormat;
+                if (outType) *outType = GL_BYTE;
+                if (outFormat) *outFormat = GL_RG;
+                break;
+
+            case GL_RG16F:
+                if (outInternalFormat) *outInternalFormat = internalFormat;
+                if (outType) *outType = GL_HALF_FLOAT;
+                if (outFormat) *outFormat = GL_RG;
+                break;
+
+            case GL_RG8UI:
+                if (outInternalFormat) *outInternalFormat = internalFormat;
+                if (outType) *outType = GL_UNSIGNED_BYTE;
+                if (outFormat) *outFormat = GL_RG_INTEGER;
+                break;
+
+            case GL_RG8I:
+                if (outInternalFormat) *outInternalFormat = internalFormat;
+                if (outType) *outType = GL_BYTE;
+                if (outFormat) *outFormat = GL_RG_INTEGER;
+                break;
+
+            case GL_RG16UI:
+                if (outInternalFormat) *outInternalFormat = internalFormat;
+                if (outType) *outType = GL_UNSIGNED_SHORT;
+                if (outFormat) *outFormat = GL_RG_INTEGER;
+                break;
+
+            case GL_RG16I:
+                if (outInternalFormat) *outInternalFormat = internalFormat;
+                if (outType) *outType = GL_SHORT;
+                if (outFormat) *outFormat = GL_RG_INTEGER;
+                break;
+
 
             case GL_RGB8_SNORM:
             case GL_RGBA8_SNORM:
@@ -261,20 +328,37 @@ namespace MobileGL::MG_Backend::DirectGLES {
                     }
                 }
                 break;
+
             case GL_RGB8:
                 if (outInternalFormat) *outInternalFormat = internalFormat;
                 if (outType) *outType = GL_UNSIGNED_BYTE;
                 if (outFormat) *outFormat = GL_RGB;
                 break;
+
             case GL_RGBA16_SNORM:
                 if (outInternalFormat) *outInternalFormat = internalFormat;
                 if (outType) *outType = GL_SHORT;
                 if (outFormat) *outFormat = GL_RGBA;
                 break;
+
             default:
+                // Fallback handling for other formats
                 if (outInternalFormat) *outInternalFormat = internalFormat;
-                if (outType) *outType = GL_UNSIGNED_INT;
-                if (outFormat) *outFormat = GL_RGBA;
+                if (outType) *outType = GL_UNSIGNED_BYTE; // More reasonable default
+                if (outFormat) {
+                    // Try to infer format from internal format name
+                    if (strstr(MG_Util::ConvertGLEnumToString(internalFormat).c_str(), "RGBA") != nullptr) {
+                        *outFormat = GL_RGBA;
+                    } else if (strstr(MG_Util::ConvertGLEnumToString(internalFormat).c_str(), "RGB") != nullptr) {
+                        *outFormat = GL_RGB;
+                    } else if (strstr(MG_Util::ConvertGLEnumToString(internalFormat).c_str(), "RG") != nullptr) {
+                        *outFormat = GL_RG;
+                    } else if (strstr(MG_Util::ConvertGLEnumToString(internalFormat).c_str(), "RED") != nullptr) {
+                        *outFormat = GL_RED;
+                    } else {
+                        *outFormat = GL_RGBA; // Ultimate fallback
+                    }
+                }
                 break;
             }
         }

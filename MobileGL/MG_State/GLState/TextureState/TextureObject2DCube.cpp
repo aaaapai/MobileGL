@@ -3,10 +3,8 @@
 namespace MobileGL {
     namespace MG_State {
         namespace GLState {
-            TextureObject2DCube::TextureObject2DCube(Uint externalIndex):
-                TextureObjectBase(TextureTarget::TextureCubeMap, externalIndex) {
-
-            }
+            TextureObject2DCube::TextureObject2DCube(Uint externalIndex)
+                : TextureObjectBase(TextureTarget::TextureCubeMap, externalIndex) {}
 
             Uint TextureObject2DCube::GetMipmapLevelCount() const {
                 return m_textureStorage.GetLevelCount();
