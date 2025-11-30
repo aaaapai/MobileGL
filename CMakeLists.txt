@@ -140,11 +140,11 @@ set(SOURCE_FILES
     MobileGL/MG_State/GLState/SamplerState/SamplerState.cpp
 )
 
-add_library(${CMAKE_PROJECT_NAME}_s STATIC 
+add_library(${CMAKE_PROJECT_NAME} SHARED
     ${SOURCE_FILES}
 )
 
-target_include_directories(${CMAKE_PROJECT_NAME}_s PUBLIC
+target_include_directories(${CMAKE_PROJECT_NAME} PUBLIC
     ${CMAKE_SOURCE_DIR}/include
     ${CMAKE_SOURCE_DIR}/MobileGL
 )
@@ -189,7 +189,6 @@ target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE
     ${CMAKE_SOURCE_DIR}/library/android/${ANDROID_ABI}/libspirv-cross-glsl.a
     android
     log
-    ${CMAKE_PROJECT_NAME}_s
 )
 
 # 版本脚本针对特定目标设置
