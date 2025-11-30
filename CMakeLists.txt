@@ -192,4 +192,9 @@ target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE
     ${CMAKE_PROJECT_NAME}_s
 )
 
+# 版本脚本针对特定目标设置
+target_link_options(${CMAKE_PROJECT_NAME} PRIVATE 
+    "LINKER:--version-script=${CMAKE_SOURCE_DIR}/MobileGL/mgl-version.script"
+)
+
 endif()
