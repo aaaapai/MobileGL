@@ -19,7 +19,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
             void SyncToBackend_glBufferData(SharedPtr<MG_State::GLState::BufferObject>& stateBufferObject);
             void SyncToBackend_glBufferSubData(SharedPtr<MG_State::GLState::BufferObject>& stateBufferObject);
             void SyncToBackend_glMapBufferRange(SharedPtr<MG_State::GLState::BufferObject>& stateBufferObject,
-                                                Bool invalidate = false);
+                                                Bool invalidate = true);
 
             Uint m_backendBufferId = 0;
             SizeT m_prevBufferSize = 0;
@@ -75,6 +75,10 @@ namespace MobileGL::MG_Backend::DirectGLES {
             Bool m_isInitialized = false;
             StateTextureBasicInfo m_prevTextureInfo;
             SamplerParameters m_cacheSamplerParameters;
+            UintVec2 m_cacheLodRange = {0, 1000};
+            FloatVec4 m_cacheBorderColor = {0.0f, 0.0f, 0.0f, 0.0f};
+            Vec4<TextureSwizzleParam> m_cacheSwizzleParams = {TextureSwizzleParam::Red, TextureSwizzleParam::Green,
+                                                              TextureSwizzleParam::Blue, TextureSwizzleParam::Alpha};
         };
 
         extern UnorderedMap<SharedPtr<MG_State::GLState::ITextureObject>, SharedPtr<BackendTextureObject>>
@@ -99,13 +103,16 @@ namespace MobileGL::MG_Backend::DirectGLES {
                Probably useful to re-link shader output according to this.
                aka. realizing `glBindFragDataLocation`
              */
-            FramebufferAttachmentType m_frontendDrawBuffers[MG_State::GLState::FramebufferObject::MAX_DRAW_BUFFERS] = {FramebufferAttachmentType::None};
+            FramebufferAttachmentType m_frontendDrawBuffers[MG_State::GLState::FramebufferObject::MAX_DRAW_BUFFERS] = {
+                FramebufferAttachmentType::None};
             /* this will save buffers in its compacted GL form,
                not consecutive is not allowed
                i.e. it could be like [COLOR_ATTACHMENT0, COLOR_ATTACHMENT5, COLOR_ATTACHMENT4]
                (no GL_NONE among those)
              */
-            FramebufferAttachmentType m_compactedFrontendDrawBuffers[MG_State::GLState::FramebufferObject::MAX_DRAW_BUFFERS] = {FramebufferAttachmentType::None};
+            FramebufferAttachmentType
+                m_compactedFrontendDrawBuffers[MG_State::GLState::FramebufferObject::MAX_DRAW_BUFFERS] = {
+                    FramebufferAttachmentType::None};
             /* this will save buffers in stricter ES rules
                reversion, absence or not consecutive are not allowed, according to ES spec
                i.e. it could be like [COLOR_ATTACHMENT0, COLOR_ATTACHMENT1, NONE, NONE, ...]

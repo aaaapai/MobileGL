@@ -11,7 +11,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
             ErrorLopper();
             ~ErrorLopper();
         };
-    }
+    } // namespace DebugImpl
 
     namespace BufferImpl {
         class BackendBufferBindingProtector {
@@ -66,6 +66,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
 
             static GLuint GetTempFBO(FramebufferTarget target);
             static void BindTempFBO(FramebufferTarget target);
+
         private:
             GLenum m_target;
             GLint m_previousBinding = 0;

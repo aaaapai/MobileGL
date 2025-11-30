@@ -1,0 +1,18 @@
+#pragma once
+#include "TextureObject.h"
+
+namespace MobileGL {
+    namespace MG_State {
+        namespace GLState {
+            class TextureObject1D : public TextureObjectWithOneMipmap {
+            public:
+                explicit TextureObject1D(Uint externalIndex);
+                const Vector<TextureUploadTarget>& GetUploadTargets() const override { return m_uploadTargets; }
+
+            protected:
+                Uint GetIndexOfTextureUploadTarget(TextureUploadTarget target) const override;
+                const Vector<TextureUploadTarget> m_uploadTargets{TextureUploadTarget::Texture1D};
+            };
+        } // namespace GLState
+    } // namespace MG_State
+} // namespace MobileGL

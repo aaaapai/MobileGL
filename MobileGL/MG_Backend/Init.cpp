@@ -39,8 +39,8 @@ namespace MobileGL {
             MGLOG_D("Diligent Engine backend loaded");
 #elif MOBILEGL_BACKEND == MOBILEGL_BACKEND_TYPE_DIRECT_GLES
             MG_Util::BackendLoader::GLES::Init();
-            MGLOG_D("DirectGLES backend loaded, GLES version: %d.%d", MG_External::GLES::Caps::GLESVersion.Major,
-                    MG_External::GLES::Caps::GLESVersion.Minor);
+            MGLOG_D("DirectGLES backend loaded, GLES version: %d.%d", MG_External::GLES::g_glesCaps.version.Major,
+                    MG_External::GLES::g_glesCaps.version.Minor);
 #else
             MGLOG_W("Unknown backend, skipping backend initialization");
 #endif

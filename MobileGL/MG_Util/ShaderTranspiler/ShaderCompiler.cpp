@@ -174,18 +174,17 @@ namespace MobileGL {
                     return std::unexpected(r);
                 }
 
-                for (auto [name, loc]: attrib.explicitVertexInLocations) {
+                for (auto [name, loc] : attrib.explicitVertexInLocations) {
                     MGLOG_D("%s: got explicitly set - layout(location = %d) %s;", __func__, loc, name.c_str());
                 }
 
                 // UniquePtr<glslang::TIoMapResolver> resolver;
                 UniquePtr<TMglGlslIoResolver> resolver;
                 for (unsigned stage = 0; stage < EShLangCount; stage++) {
-                    if (program->getIntermediate((EShLanguage)stage) == nullptr)
-                        continue;
-                    resolver = MakeUnique<TMglGlslIoResolver>(*program, (EShLanguage)stage,
-                        attrib.explicitVertexInLocations,
-                        attrib.explicitFragmentOutLocations);
+                    if (program->getIntermediate((EShLanguage)stage) == nullptr) continue;
+                    resolver =
+                        MakeUnique<TMglGlslIoResolver>(*program, (EShLanguage)stage, attrib.explicitVertexInLocations,
+                                                       attrib.explicitFragmentOutLocations);
                     break;
                 }
                 auto ioMapper = UniquePtr<glslang::TIoMapper>(glslang::GetGlslIoMapper());

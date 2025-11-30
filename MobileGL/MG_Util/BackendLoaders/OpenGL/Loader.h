@@ -547,8 +547,13 @@ namespace MobileGL {
 
         namespace GLES {
             namespace Caps {
-                extern Version GLESVersion;
-            }
+                struct GLESCaps {
+                    Version version;
+                    Bool hasPersistentMapping;
+                };
+            } // namespace Caps
+
+            extern Caps::GLESCaps g_glesCaps;
 
             GL_FUNC_DECL(glActiveTexture)
             GL_FUNC_DECL(glAttachShader)

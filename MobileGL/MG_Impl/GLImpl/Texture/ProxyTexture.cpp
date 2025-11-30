@@ -1,5 +1,5 @@
 #include "ProxyTexture.h"
-#include "MG_State/GLState/TextureState/TextureObject.h"
+#include "MG_State/GLState/TextureState/TextureObject2D.h"
 #include "MG_Util/Types.h"
 
 namespace MobileGL::MG_Impl::GLImpl {
@@ -10,9 +10,14 @@ namespace MobileGL::MG_Impl::GLImpl {
             switch (target) {
             case TextureUploadTarget::ProxyCubeMap:
             case TextureUploadTarget::ProxyTexture1DArray:
+            case TextureUploadTarget::ProxyTexture2DArray:
+            case TextureUploadTarget::ProxyTexture1D:
             case TextureUploadTarget::ProxyTexture2D:
+            case TextureUploadTarget::ProxyTexture3D:
             case TextureUploadTarget::ProxyTexture2DMultisample:
+            case TextureUploadTarget::ProxyTexture2DMultisampleArray:
             case TextureUploadTarget::ProxyTextureRectangle:
+            case TextureUploadTarget::ProxyCubeMapArray:
                 return true;
             default:
                 return false;

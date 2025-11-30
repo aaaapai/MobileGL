@@ -38,10 +38,10 @@ namespace MobileGL::MG_Impl::GLImpl {
                 String bufferTargetStr = ConvertBufferTargetToString(target);
                 String glTargetStr = ConvertGLEnumToString(ConvertBufferTargetToGLEnum(target));
                 MG_State::pGLContext->RecordError(
-                        ErrorCode::InvalidEnum,
-                        MakeShared<GenericErrorInfo>(
-                                "MG_Impl/GLImpl/BufferImpl", "ValidateBufferTarget",
-                                std::format("Target {} ({}) is not valid.", bufferTargetStr, glTargetStr)));
+                    ErrorCode::InvalidEnum,
+                    MakeShared<GenericErrorInfo>(
+                        "MG_Impl/GLImpl/BufferImpl", "ValidateBufferTarget",
+                        std::format("Target {} ({}) is not valid.", bufferTargetStr, glTargetStr)));
                 return false;
             }
             return true;

@@ -18,8 +18,8 @@ namespace MobileGL::MG_Backend::DirectGLES {
                          GLint dstY1, GLbitfield mask, GLenum filter);
     void CopyTexImage2D(GLenum target, GLint level, GLenum internalformat, GLint x, GLint y, GLsizei width,
                         GLsizei height, GLint border);
-    void CopyTexSubImage2D(GLenum target, GLint level, GLint xoffset, GLint yoffset, GLint x, GLint y,
-                                   GLsizei width, GLsizei height);
+    void CopyTexSubImage2D(GLenum target, GLint level, GLint xoffset, GLint yoffset, GLint x, GLint y, GLsizei width,
+                           GLsizei height);
     void GenerateMipmap(GLenum target);
     const GLubyte* GetString(GLenum name);
 } // namespace MobileGL::MG_Backend::DirectGLES

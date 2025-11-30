@@ -21,9 +21,24 @@ namespace MobileGL {
             case TextureUploadTarget::CubeMapNegativeZ:
             case TextureUploadTarget::ProxyCubeMap:
                 return TextureTarget::TextureCubeMap;
+            case TextureUploadTarget::CubeMapArray:
+            case TextureUploadTarget::ProxyCubeMapArray:
+                return TextureTarget::TextureCubeMapArray;
             case TextureUploadTarget::Texture2DMultisample:
             case TextureUploadTarget::ProxyTexture2DMultisample:
                 return TextureTarget::Texture2DMultisample;
+            case TextureUploadTarget::Texture2DMultisampleArray:
+            case TextureUploadTarget::ProxyTexture2DMultisampleArray:
+                return TextureTarget::Texture2DMultisampleArray;
+            case TextureUploadTarget::Texture3D:
+            case TextureUploadTarget::ProxyTexture3D:
+                return TextureTarget::Texture3D;
+            case TextureUploadTarget::Texture1D:
+            case TextureUploadTarget::ProxyTexture1D:
+                return TextureTarget::Texture1D;
+            case TextureUploadTarget::Texture2DArray:
+            case TextureUploadTarget::ProxyTexture2DArray:
+                return TextureTarget::Texture2DArray;
             default:
                 return TextureTarget::Unknown;
             }

@@ -12,8 +12,8 @@ namespace MobileGL {
                         BufferTarget::TransformFeedback, BufferTarget::AtomicCounter, BufferTarget::DispatchIndirect,
                         BufferTarget::DrawIndirect, BufferTarget::ShaderStorage);
             constexpr const auto BufferBindPointTargets =
-                    ToArray(BufferTarget::Uniform, BufferTarget::TransformFeedback,
-                            BufferTarget::AtomicCounter, BufferTarget::ShaderStorage);
+                ToArray(BufferTarget::Uniform, BufferTarget::TransformFeedback, BufferTarget::AtomicCounter,
+                        BufferTarget::ShaderStorage);
 
             class BufferState {
             public:
@@ -40,7 +40,8 @@ namespace MobileGL {
                 Array<BindingSlot<BufferObject>, GlobalBufferTargets.size()> m_bindingSlots;
                 // TODO: query the count somewhere globally?
                 // For glBindBufferBase / glBindBufferRange
-                Array<Array<BindingSlotRange1D<BufferObject>, 16>, BufferBindPointTargets.size()> m_bufferBindPointTargets;
+                Array<Array<BindingSlotRange1D<BufferObject>, 16>, BufferBindPointTargets.size()>
+                    m_bufferBindPointTargets;
             };
         } // namespace GLState
     } // namespace MG_State

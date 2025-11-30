@@ -20,6 +20,14 @@ namespace MobileGL {
                 return "Texture2DMultisample";
             case TextureTarget::TextureCubeMapArray:
                 return "TextureCubeMapArray";
+            case TextureTarget::TextureRectangle:
+                return "TextureRectangle";
+            case TextureTarget::TextureBuffer:
+                return "TextureBuffer";
+            case TextureTarget::Texture1DArray:
+                return "Texture1DArray";
+            case TextureTarget::Texture2DMultisampleArray:
+                return "Texture2DMultisampleArray";
             default:
                 return "Unknown";
             }
@@ -259,6 +267,8 @@ namespace MobileGL {
                 return "UnsignedInt101111Rev";
             case TexturePixelDataType::UnsignedInt5999Rev:
                 return "UnsignedInt5999Rev";
+            case TexturePixelDataType::Float32UnsignedInt248Rev:
+                return "Float32UnsignedInt248Rev";
             default:
                 return "Unknown";
             }
@@ -296,6 +306,26 @@ namespace MobileGL {
                 return "Texture2DMultisample";
             case TextureUploadTarget::ProxyTexture2DMultisample:
                 return "ProxyTexture2DMultisample";
+            case TextureUploadTarget::CubeMapArray:
+                return "CubeMapArray";
+            case TextureUploadTarget::ProxyCubeMapArray:
+                return "ProxyCubeMapArray";
+            case TextureUploadTarget::Texture3D:
+                return "Texture3D";
+            case TextureUploadTarget::ProxyTexture3D:
+                return "ProxyTexture3D";
+            case TextureUploadTarget::Texture1D:
+                return "Texture1D";
+            case TextureUploadTarget::ProxyTexture1D:
+                return "ProxyTexture1D";
+            case TextureUploadTarget::Texture2DArray:
+                return "Texture2DArray";
+            case TextureUploadTarget::ProxyTexture2DArray:
+                return "ProxyTexture2DArray";
+            case TextureUploadTarget::Texture2DMultisampleArray:
+                return "Texture2DMultisampleArray";
+            case TextureUploadTarget::ProxyTexture2DMultisampleArray:
+                return "ProxyTexture2DMultisampleArray";
             default:
                 return "Unknown";
             }

@@ -36,6 +36,6 @@ namespace MobileGL {
             Bool SamplerState::ValidateSamplerObject(Uint index) const {
                 return m_samplerObjects.find(index) != m_samplerObjects.end();
             }
-        }
-    }
-}
+        } // namespace GLState
+    } // namespace MG_State
+} // namespace MobileGL

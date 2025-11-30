@@ -1,4 +1,5 @@
 #include "TextureEnumConverter.h"
+#include "GL/glext.h"
 #include "MG_Util/Converters/GLToStr/GLEnumConverter.h"
 
 namespace MobileGL {
@@ -271,6 +272,8 @@ namespace MobileGL {
                 return TexturePixelDataType::UnsignedInt2101010Rev;
             case GL_UNSIGNED_INT_5_9_9_9_REV:
                 return TexturePixelDataType::UnsignedInt5999Rev;
+            case GL_FLOAT_32_UNSIGNED_INT_24_8_REV:
+                return TexturePixelDataType::Float32UnsignedInt248Rev;
             default:
                 return TexturePixelDataType::Unknown;
             }
@@ -278,14 +281,26 @@ namespace MobileGL {
 
         TextureUploadTarget ConvertGLEnumToTextureUploadTarget(GLenum target) {
             switch (target) {
+            case GL_TEXTURE_1D:
+                return TextureUploadTarget::Texture1D;
             case GL_TEXTURE_2D:
                 return TextureUploadTarget::Texture2D;
+            case GL_TEXTURE_3D:
+                return TextureUploadTarget::Texture3D;
             case GL_PROXY_TEXTURE_2D:
                 return TextureUploadTarget::ProxyTexture2D;
             case GL_TEXTURE_1D_ARRAY:
                 return TextureUploadTarget::Texture1DArray;
             case GL_PROXY_TEXTURE_1D_ARRAY:
                 return TextureUploadTarget::ProxyTexture1DArray;
+            case GL_TEXTURE_2D_ARRAY:
+                return TextureUploadTarget::Texture2DArray;
+            case GL_TEXTURE_CUBE_MAP_ARRAY:
+                return TextureUploadTarget::CubeMapArray;
+            case GL_PROXY_TEXTURE_CUBE_MAP_ARRAY:
+                return TextureUploadTarget::ProxyCubeMapArray;
+            case GL_PROXY_TEXTURE_2D_ARRAY:
+                return TextureUploadTarget::ProxyTexture2DArray;
             case GL_TEXTURE_RECTANGLE:
                 return TextureUploadTarget::TextureRectangle;
             case GL_PROXY_TEXTURE_RECTANGLE:
@@ -308,6 +323,10 @@ namespace MobileGL {
                 return TextureUploadTarget::Texture2DMultisample;
             case GL_PROXY_TEXTURE_2D_MULTISAMPLE:
                 return TextureUploadTarget::ProxyTexture2DMultisample;
+            case GL_TEXTURE_2D_MULTISAMPLE_ARRAY:
+                return TextureUploadTarget::Texture2DMultisampleArray;
+            case GL_PROXY_TEXTURE_2D_MULTISAMPLE_ARRAY:
+                return TextureUploadTarget::ProxyTexture2DMultisampleArray;
             default:
                 return TextureUploadTarget::Unknown;
             }
@@ -417,16 +436,16 @@ namespace MobileGL {
 
         TextureSwizzleParam ConvertGLEnumPnameToTextureSwizzleParam(GLenum v) {
             switch (v) {
-                case GL_TEXTURE_SWIZZLE_R:
-                    return TextureSwizzleParam::Red;
-                case GL_TEXTURE_SWIZZLE_G:
-                    return TextureSwizzleParam::Green;
-                case GL_TEXTURE_SWIZZLE_B:
-                    return TextureSwizzleParam::Blue;
-                case GL_TEXTURE_SWIZZLE_A:
-                    return TextureSwizzleParam::Alpha;
-                default:
-                    return TextureSwizzleParam::Unknown;
+            case GL_TEXTURE_SWIZZLE_R:
+                return TextureSwizzleParam::Red;
+            case GL_TEXTURE_SWIZZLE_G:
+                return TextureSwizzleParam::Green;
+            case GL_TEXTURE_SWIZZLE_B:
+                return TextureSwizzleParam::Blue;
+            case GL_TEXTURE_SWIZZLE_A:
+                return TextureSwizzleParam::Alpha;
+            default:
+                return TextureSwizzleParam::Unknown;
             }
         }
     } // namespace MG_Util

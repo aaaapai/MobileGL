@@ -1,6 +1,12 @@
 #include "TextureState.h"
-#include "MG_State/GLState/TextureState/TextureObject.h"
-#include "MG_Util/Types.h"
+#include "Defines.h"
+#include "TextureEnum.h"
+#include "TextureObject.h"
+#include "TextureObject1D.h"
+#include "TextureObject2D.h"
+#include "TextureObject3D.h"
+#include "TextureObject2DCube.h"
+#include "TextureObjectStubs.h"
 
 namespace MobileGL {
     namespace MG_State {
@@ -31,15 +37,40 @@ namespace MobileGL {
                 case TextureTarget::Texture1D:
                     textureObject = MakeShared<TextureObject1D>(index);
                     break;
-                case TextureTarget::TextureCubeMap: // TODO
+                case TextureTarget::TextureCubeMap:
+                    textureObject = MakeShared<TextureObject2DCube>(index);
+                    break;
                 case TextureTarget::Texture2D:
                     textureObject = MakeShared<TextureObject2D>(index);
                     break;
                 case TextureTarget::Texture3D:
                     textureObject = MakeShared<TextureObject3D>(index);
                     break;
+
+                    // These texture types are stubbed:
+                case TextureTarget::TextureRectangle:
+                    textureObject = MakeShared<TextureObjectRectangle>(index);
+                    break;
+                case TextureTarget::Texture2DMultisample:
+                    textureObject = MakeShared<TextureObject2DMultisample>(index);
+                    break;
+                case TextureTarget::TextureBuffer:
+                    textureObject = MakeShared<TextureObjectBuffer>(index);
+                    break;
+                case TextureTarget::Texture1DArray:
+                    textureObject = MakeShared<TextureObject1DArray>(index);
+                    break;
+                case TextureTarget::Texture2DArray:
+                    textureObject = MakeShared<TextureObject2DArray>(index);
+                    break;
+                case TextureTarget::TextureCubeMapArray:
+                    textureObject = MakeShared<TextureObjectCubeMapArray>(index);
+                    break;
+                case TextureTarget::Texture2DMultisampleArray:
+                    textureObject = MakeShared<TextureObject2DMultisampleArray>(index);
+                    break;
                 default:
-                    // TODO: implement more texture types
+                    MOBILEGL_ASSERT(false, "Unimplemented texture type when creating texture object!: %d", (int)target);
                     return nullptr;
                 }
 
@@ -66,9 +97,8 @@ namespace MobileGL {
             }
 
             TextureUnit& TextureState::GetUnitObject(Int unit) {
-                if (unit < 0 || unit >= MAX_TEXTURE_IMAGE_UNITS) {
-                    THROW_EXCEPTION("Active texture unit is out of range");
-                }
+                MOBILEGL_ASSERT(unit >= 0 && unit < MAX_TEXTURE_IMAGE_UNITS, "Texture unit is out of range: %d > %d",
+                                unit, MAX_TEXTURE_IMAGE_UNITS - 1);
                 return m_textureUnits[unit];
             }
 

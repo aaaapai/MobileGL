@@ -1,14 +1,13 @@
 #include "GL_Getter.h"
-#include "GL/gl.h"
-#include "GL/glext.h"
-#include "MG_State/GLState/ErrorState/ErrorInfo.h"
-#include "MG_State/GLState/FramebufferState/FramebufferObject.h"
 #include <Config.h>
+#include <MGLGitHash.h>
 #include <MG_State/GLState/Core.h>
+#include <MG_State/GLState/ErrorState/ErrorInfo.h>
 #include <MG_Util/Converters/GLToStr/GLEnumConverter.h>
 #include <MG_Util/Converters/MGToGL/ErrorCodeConverter.h>
 #include <MG_Util/Converters/MGToStr/GLExtensionConverter.h>
 #include <MG_Util/Converters/MGToGL/RenderStateEnumConverter.h>
+#include <MG_State/GLState/FramebufferState/FramebufferObject.h>
 #if MOBILEGL_BACKEND == MOBILEGL_BACKEND_TYPE_DIRECT_GLES
 #include <MG_Backend/DirectGLES/DirectGLES.h>
 #endif
@@ -19,6 +18,34 @@ namespace MobileGL {
 #if MOBILEGL_BACKEND == MOBILEGL_BACKEND_TYPE_DIRECT_GLES
             return MG_Backend::DirectGLES::GetString(name);
 #endif
+        }
+
+        inline String GetFormattedBackendGLVersion() {
+            const char* raw = reinterpret_cast<const char*>(GetString_Backend(GL_VERSION));
+            if (!raw || raw[0] == '\0') {
+                return "Unknown";
+            }
+
+            constexpr SizeT kOpenGLESLen = 9; // "OpenGL ES"
+            if (std::strncmp(raw, "OpenGL ES", kOpenGLESLen) == 0) {
+                std::istringstream iss(raw);
+                String a, b, c;
+                if (iss >> a >> b >> c) {
+                    return a + " " + b + " " + c; // e.g. "OpenGL ES 3.2"
+                } else {
+                    return "OpenGL ES ?";
+                }
+            }
+
+            {
+                std::istringstream iss(raw);
+                String ver;
+                if (iss >> ver) {
+                    return String("OpenGL ") + ver; // e.g. "OpenGL 4.6"
+                }
+            }
+
+            return "Unknown";
         }
 
         /* @INSERTION_POINT:FUNCTION_IMPLEMENTATION@ */
@@ -43,7 +70,7 @@ namespace MobileGL {
             case GL_VERSION: {
                 if (versionStr.empty()) {
                     versionStr =
-                        std::format("{} {} {}, {} Backend",
+                        std::format("{} {} {}, {} Backend, GIT@" GIT_COMMIT_HASH_SHORT,
                                     MG_Config::RendererInfoPtr->RendererGLInfo.TargetGLVersion.toString().c_str(),
                                     MG_Config::ProjectName.c_str(), MG_Config::CoreVersion.toString().c_str(),
                                     MG_Config::RendererInfoPtr->BackendName.c_str());
@@ -54,18 +81,19 @@ namespace MobileGL {
             case GL_RENDERER: {
                 if (rendererString.empty()) {
                     const char* backendStr = (const char*)GetString_Backend(GL_RENDERER);
-                    const char* backendVersionStr = (const char*)GetString_Backend(GL_VERSION);
-                    rendererString =
-                        std::format("{} ({}) ({} | {})", MG_Config::RendererInfoPtr->RendererName.c_str(),
-                                    MG_Config::CoreName.c_str(), backendStr ? backendStr : "<unknown GPU>", backendVersionStr ? backendVersionStr : "<unknown version>");
+                    String backendVersionStr = GetFormattedBackendGLVersion();
+                    rendererString = std::format("{} ({}) ({}, {})", MG_Config::RendererInfoPtr->RendererName.c_str(),
+                                                 MG_Config::CoreName.c_str(), backendStr ? backendStr : "<Unknown GPU>",
+                                                 !backendVersionStr.empty() ? backendVersionStr : "<Unknown Version>");
                 }
                 return (const GLubyte*)rendererString.c_str();
             }
             case GL_SHADING_LANGUAGE_VERSION:
                 if (shadingLanguageVersion.empty()) {
                     shadingLanguageVersion = std::format(
-                        "{} MobileGL",
-                        MG_Config::RendererInfoPtr->RendererGLInfo.TargetGLSLVersion.toString({true, false}).c_str());
+                        "{} {}",
+                        MG_Config::RendererInfoPtr->RendererGLInfo.TargetGLSLVersion.toString({true, false}).c_str(),
+                        MG_Config::ProjectName.c_str());
                 }
                 return (const GLubyte*)shadingLanguageVersion.c_str();
             case GL_EXTENSIONS:
@@ -78,7 +106,7 @@ namespace MobileGL {
                 }
                 return (const GLubyte*)extensionsString.c_str();
             default:
-                return (const GLubyte*)"Unknown enum";
+                return (const GLubyte*)"Unknown Enum";
             }
         }
 
@@ -109,7 +137,9 @@ namespace MobileGL {
         void GetIntegerv(GLenum pname, GLint* params) {
             MGLOG_D("glGetIntegerv, pname: %s", MG_Util::ConvertGLEnumToString(pname).c_str());
             if (!params) {
-                // TODO: report GL_INVALID_VALUE.
+                MG_State::pGLContext->RecordError(
+                    ErrorCode::InvalidValue,
+                    MakeShared<GenericErrorInfo>("MG_Impl/GLImpl", "GetIntegerv", "params pointer cannot be null"));
                 return;
             }
 

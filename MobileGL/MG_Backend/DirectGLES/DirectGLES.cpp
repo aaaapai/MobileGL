@@ -1,39 +1,48 @@
 #include "DirectGLES.h"
 #include "Utils.h"
 #include "Managers.h"
-#include "MG_Util/Converters/GLToMG/TextureEnumConverter.h"
-#include "MG_Util/Classifiers/TextureEnumClassifier.h"
-#include "MG_Util/Metrics/TextureMetrics.h"
+#include <MG_Util/Converters/GLToMG/TextureEnumConverter.h>
+#include <MG_Util/Classifiers/TextureEnumClassifier.h>
+#include <MG_Util/Metrics/TextureMetrics.h>
 #include <MG_State/GLState/Core.h>
 #include <MG_Impl/GLImpl/Framebuffer/GL_Framebuffer.h>
 #include <MG_Util/BackendLoaders/OpenGL/Loader.h>
 #include <MG_Util/Converters/GLToStr/GLEnumConverter.h>
 #include <MG_Util/Converters/MGToGL/TextureEnumConverter.h>
+#include <MG_Util/Converters/MGToStr/TextureEnumConverter.h>
 #include <MG_Util/Converters/MGToGL/RenderStateEnumConverter.h>
 
 namespace MobileGL::MG_Backend::DirectGLES {
     namespace DebugImpl {
         void ErrorLopper::Loop(std::function<void(GLenum)> func) {
+#if MOBILEGL_LOG_ACTIVE_LEVEL <= MOBILEGL_LOG_LEVEL_DEBUG
             GLenum err = MG_External::GLES::glGetError();
             while (err != GL_NO_ERROR) {
                 func(err);
                 err = MG_External::GLES::glGetError();
             }
+#endif
         }
 
         void ErrorLopper::Clear() {
+#if MOBILEGL_LOG_ACTIVE_LEVEL <= MOBILEGL_LOG_LEVEL_DEBUG
             GLenum err = MG_External::GLES::glGetError();
             while (err != GL_NO_ERROR) {
                 MGLOG_D("Stray GL Error cleared: %s", MG_Util::ConvertGLEnumToString(err).c_str());
                 err = MG_External::GLES::glGetError();
             }
+#endif
         }
 
-        ErrorLopper::ErrorLopper() { Clear(); }
-        ErrorLopper::~ErrorLopper() { Clear(); }
-    }
+        ErrorLopper::ErrorLopper() {
+            Clear();
+        }
+        ErrorLopper::~ErrorLopper() {
+            Clear();
+        }
+    } // namespace DebugImpl
 
-    // TODO: deletion of deleted objects
+    // TODO: deletion for deleted objects
 
     namespace BufferImpl {
         void SyncNeccessaryBuffers() {
@@ -52,14 +61,20 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 if (!attrib.Enabled) continue;
                 const auto& bufferObject = attrib.Buffer;
                 if (bufferObject) {
-                    buffersToSync.push_back(bufferObject);
+                    const auto& end = buffersToSync.end();
+                    if (std::find(buffersToSync.begin(), end, bufferObject) == end) {
+                        buffersToSync.push_back(bufferObject);
+                    }
                 }
             }
 
             // IBO
             const auto& possibleIBO = currentVAOObject->GetIndexBufferBindingSlot().GetBoundObject();
             if (possibleIBO) {
-                buffersToSync.push_back(possibleIBO);
+                const auto& end = buffersToSync.end();
+                if (std::find(buffersToSync.begin(), end, possibleIBO) == end) {
+                    buffersToSync.push_back(possibleIBO);
+                }
             }
 
             // UBO
@@ -67,13 +82,12 @@ namespace MobileGL::MG_Backend::DirectGLES {
             for (SizeT i = 0; i < uboBindingPointCnt; ++i) {
                 auto& point = MG_State::pGLContext->GetBufferBindingPoint(BufferTarget::Uniform, i);
                 auto obj = point.GetBoundObject();
-                if (obj) buffersToSync.push_back(obj);
-            }
-
-            // PBO
-            const auto& pbo = MG_State::pGLContext->GetBufferBindingSlot(BufferTarget::PixelUnpack).GetBoundObject();
-            if (pbo) {
-                buffersToSync.push_back(pbo);
+                if (obj) {
+                    const auto& end = buffersToSync.end();
+                    if (std::find(buffersToSync.begin(), end, obj) == end) {
+                        buffersToSync.push_back(obj);
+                    }
+                }
             }
 
             // Do real sync
@@ -112,7 +126,8 @@ namespace MobileGL::MG_Backend::DirectGLES {
     } // namespace VertexArrayImpl
 
     namespace TextureImpl {
-        SharedPtr<BackendTextureObject> SyncTextureObjectToBackend(SharedPtr<MG_State::GLState::ITextureObject>& textureObject) {
+        SharedPtr<BackendTextureObject> SyncTextureObjectToBackend(
+            SharedPtr<MG_State::GLState::ITextureObject>& textureObject) {
             const auto& backendTextureIt = g_backendTextureObjects.find(textureObject);
             SharedPtr<BackendTextureObject> backendTextureObject;
             if (backendTextureIt == g_backendTextureObjects.end()) {
@@ -138,7 +153,10 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 for (const auto& bindingSlot : unit.GetAllBindingSlots()) {
                     const auto& textureObject = bindingSlot.GetBoundObject();
                     if (textureObject) {
-                        texturesToSync.push_back(textureObject);
+                        const auto& end = texturesToSync.end();
+                        if (std::find(texturesToSync.begin(), end, textureObject) == end) {
+                            texturesToSync.push_back(textureObject);
+                        }
                     }
                 }
             }
@@ -150,7 +168,10 @@ namespace MobileGL::MG_Backend::DirectGLES {
                     if (!attachment.IsTexture()) continue;
                     const auto& textureObject = attachment.GetTexture();
                     if (textureObject) {
-                        texturesToSync.push_back(textureObject);
+                        const auto& end = texturesToSync.end();
+                        if (std::find(texturesToSync.begin(), end, textureObject) == end) {
+                            texturesToSync.push_back(textureObject);
+                        }
                     }
                 }
             }
@@ -325,8 +346,6 @@ namespace MobileGL::MG_Backend::DirectGLES {
         Int maxTextureUnits = MG_State::GLState::TextureState::MAX_TEXTURE_IMAGE_UNITS;
         for (Int unit = 0; unit < maxTextureUnits; ++unit) {
             auto& textureUnit = MG_State::pGLContext->GetTextureUnitObject(unit);
-            if (!textureUnit.GetBindingSlot(TextureTarget::Texture2D).GetBoundObject()) continue;
-            // TODO
 
             MG_External::GLES::glActiveTexture(GL_TEXTURE0 + unit);
 
@@ -334,27 +353,34 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 const auto& textureObject = bindingSlot.GetBoundObject();
                 if (!textureObject) continue;
 
+                // Bind texture object
+                auto target = textureObject->GetTarget();
+                if (target == TextureTarget::TextureBuffer || target == TextureTarget::Texture1D ||
+                    target == TextureTarget::TextureRectangle || target == TextureTarget::Texture2DMultisampleArray ||
+                    target == TextureTarget::Texture1DArray || target == TextureTarget::Texture3D ||
+                    target == TextureTarget::Texture2DMultisample || target == TextureTarget::Texture2DArray) {
+                    MGLOG_D("    Texture target %s is not supported, skipping.",
+                            MG_Util::ConvertTextureTargetToString(target).c_str());
+                    continue;
+                }
                 const auto& backendTextureIt = TextureImpl::g_backendTextureObjects.find(textureObject);
                 if (backendTextureIt == TextureImpl::g_backendTextureObjects.end()) continue;
 
-                GLenum target = MG_Util::ConvertTextureTargetToGLEnum(textureObject->GetTarget());
-                backendTextureIt->second->Bind(target);
+                GLenum targetGL = MG_Util::ConvertTextureTargetToGLEnum(target);
+                backendTextureIt->second->Bind(targetGL);
+            }
 
-                const auto& samplerObj = textureObject->GetSamplerObject();
-                const auto minfilter = samplerObj->GetMinFilter();
-                const auto mipfilter = samplerObj->GetMipmapMode();
-                MG_External::GLES::glTexParameteri(target, GL_TEXTURE_MIN_FILTER,
-                                                   MG_Util::ConvertSamplerFilterModeToGLEnum(minfilter, mipfilter));
-                const auto magfilter = samplerObj->GetMagFilter();
-                MG_External::GLES::glTexParameteri(target, GL_TEXTURE_MAG_FILTER,
-                                                   MG_Util::ConvertSamplerFilterModeToGLEnum(magfilter, SamplerMipmapMode::None));
-                MG_External::GLES::glTexParameterf(target, GL_TEXTURE_MIN_LOD, samplerObj->GetMinLod());
-                MG_External::GLES::glTexParameterf(target, GL_TEXTURE_MAX_LOD, samplerObj->GetMaxLod());
+            // Bind sampler object
+            const auto& samplerObject = textureUnit.GetSamplerObject();
+            if (samplerObject) {
+                const auto& backendSamplerIt = SamplerImpl::g_backendSamplerObjects.find(samplerObject);
+                if (backendSamplerIt != SamplerImpl::g_backendSamplerObjects.end()) {
+                    backendSamplerIt->second->Bind(unit);
+                }
+            } else {
+                MG_External::GLES::glBindSampler(unit, 0);
             }
         }
-
-        Int originalActiveUnit = MG_State::pGLContext->GetActiveTextureUnit();
-        MG_External::GLES::glActiveTexture(GL_TEXTURE0 + originalActiveUnit);
 
         const auto& currentProgram = MG_State::pGLContext->GetCurrentProgram();
         if (currentProgram && currentProgram->GetLinkStatus()) {
@@ -547,18 +573,20 @@ namespace MobileGL::MG_Backend::DirectGLES {
         TextureImpl::GenerateTextureFormatInfo(mglInternalFormat, &internalformat, &format, &type);
         TexturePixelDataType texturePixelDataType = MG_Util::ConvertGLEnumToTexturePixelDataType(type);
 
-        bool isDepthFormat = MG_Util::IsDepthFormatInternalFormat(MG_Util::ConvertGLEnumToTextureInternalFormat(internalformat));
-        bool isStencilFormat = MG_Util::IsStencilFormatInternalFormat(MG_Util::ConvertGLEnumToTextureInternalFormat(internalformat));
+        bool isDepthFormat =
+            MG_Util::IsDepthFormatInternalFormat(MG_Util::ConvertGLEnumToTextureInternalFormat(internalformat));
+        bool isStencilFormat =
+            MG_Util::IsStencilFormatInternalFormat(MG_Util::ConvertGLEnumToTextureInternalFormat(internalformat));
 
         if (!isDepthFormat) {
-            MG_External::GLES::glCopyTexImage2D(
-                    target, level, internalformat, x, y, width, height, border);
+            MG_External::GLES::glCopyTexImage2D(target, level, internalformat, x, y, width, height, border);
             errorLopper.Loop([file = __FILE__, line = __LINE__](auto err) {
                 MGLOG_D("ES error (%s:%d): %s", file, line, MG_Util::ConvertGLEnumToString(err).c_str());
             });
         } else {
             MGLOG_D("%s: Backend depth", __func__);
-            MG_External::GLES::glTexImage2D(target, level, (GLint)internalformat, width, height, border, format, type, nullptr);
+            MG_External::GLES::glTexImage2D(target, level, (GLint)internalformat, width, height, border, format, type,
+                                            nullptr);
             FramebufferImpl::BackendFramebufferBindingProtector drawFboProtector(GL_DRAW_FRAMEBUFFER);
             FramebufferImpl::BackendFramebufferBindingProtector readFboProtector(GL_READ_FRAMEBUFFER);
             errorLopper.Loop([file = __FILE__, line = __LINE__](auto err) {
@@ -584,7 +612,9 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 return;
             }
 
-            MG_External::GLES::glBlitFramebuffer(x, y, x + width, y + height, 0, 0, width, height, GL_DEPTH_BUFFER_BIT | (isStencilFormat ? GL_STENCIL_BUFFER_BIT : 0), GL_NEAREST);
+            MG_External::GLES::glBlitFramebuffer(x, y, x + width, y + height, 0, 0, width, height,
+                                                 GL_DEPTH_BUFFER_BIT | (isStencilFormat ? GL_STENCIL_BUFFER_BIT : 0),
+                                                 GL_NEAREST);
             errorLopper.Loop([file = __FILE__, line = __LINE__](auto err) {
                 MGLOG_D("ES error (%s:%d): %s", file, line, MG_Util::ConvertGLEnumToString(err).c_str());
             });
@@ -592,26 +622,17 @@ namespace MobileGL::MG_Backend::DirectGLES {
         }
 
         // TODO: potential desync between MG_State and backend
-        auto activeUnit =
-                MG_State::pGLContext->GetTextureUnitObject(MG_State::pGLContext->GetActiveTextureUnit());
+        auto activeUnit = MG_State::pGLContext->GetTextureUnitObject(MG_State::pGLContext->GetActiveTextureUnit());
         TextureTarget textureTarget = MG_Util::ConvertGLEnumToTextureTarget(target);
         auto& bindingSlot = activeUnit.GetBindingSlot(textureTarget);
         auto textureObject = bindingSlot.GetBoundObject();
 
-
-        const SizeT bytesPerPixel = MG_Util::GetInputBytesPerPixel(mglInternalFormat, texturePixelDataType);
-        const SizeT totalBytes = width * height * bytesPerPixel;
-
-        MG_State::GLState::MipmapLevelInput mipmap =
-                MG_State::GLState::MipmapLevelInput({width, height, 1}, level, false, 0,
-                                                    {nullptr, totalBytes});
-
         textureObject->SetInternalFormat(mglInternalFormat);
-        textureObject->SetMipmapLevel(mipmap);
+        textureObject->AllocateStorage(TextureUploadTarget::Texture2D, level, {{width, height, 1}, 0});
     }
 
-    void CopyTexSubImage2D(GLenum target, GLint level, GLint xoffset, GLint yoffset, GLint x, GLint y,
-                           GLsizei width, GLsizei height) {
+    void CopyTexSubImage2D(GLenum target, GLint level, GLint xoffset, GLint yoffset, GLint x, GLint y, GLsizei width,
+                           GLsizei height) {
         DebugImpl::ErrorLopper errorLopper;
 
         MGLOG_D("%s: Backend", __func__);
@@ -628,11 +649,11 @@ namespace MobileGL::MG_Backend::DirectGLES {
             MGLOG_D("ES error (%s:%d): %s", file, line, MG_Util::ConvertGLEnumToString(err).c_str());
         });
 
-        auto activeUnit =
-                MG_State::pGLContext->GetTextureUnitObject(MG_State::pGLContext->GetActiveTextureUnit());
+        Int unit = MG_State::pGLContext->GetActiveTextureUnit();
+        auto& activeUnit = MG_State::pGLContext->GetTextureUnitObject(unit);
         TextureTarget textureTarget = MG_Util::ConvertGLEnumToTextureTarget(target);
         auto& bindingSlot = activeUnit.GetBindingSlot(textureTarget);
-        auto textureObject = bindingSlot.GetBoundObject();
+        const auto& textureObject = bindingSlot.GetBoundObject();
 
         const auto& backendTextureIt = TextureImpl::g_backendTextureObjects.find(textureObject);
         SharedPtr<TextureImpl::BackendTextureObject> backendTextureObject;
@@ -649,7 +670,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
             MGLOG_D("ES error (%s:%d): %s", file, line, MG_Util::ConvertGLEnumToString(err).c_str());
         });
         GLenum internalFormat;
-        MG_External::GLES::glGetTexLevelParameteriv(target, level, GL_TEXTURE_INTERNAL_FORMAT, (GLint *)&internalFormat);
+        MG_External::GLES::glGetTexLevelParameteriv(target, level, GL_TEXTURE_INTERNAL_FORMAT, (GLint*)&internalFormat);
         errorLopper.Loop([file = __FILE__, line = __LINE__](auto err) {
             MGLOG_D("ES error (%s:%d): %s", file, line, MG_Util::ConvertGLEnumToString(err).c_str());
         });
@@ -659,8 +680,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
         bool isStencilFormat = MG_Util::IsStencilFormatInternalFormat(mglInternalFormat);
 
         if (!isDepthFormat) {
-            MG_External::GLES::glCopyTexSubImage2D(
-                    target, level, xoffset, yoffset, x, y, width, height);
+            MG_External::GLES::glCopyTexSubImage2D(target, level, xoffset, yoffset, x, y, width, height);
             errorLopper.Loop([file = __FILE__, line = __LINE__](auto err) {
                 MGLOG_D("ES error (%s:%d): %s", file, line, MG_Util::ConvertGLEnumToString(err).c_str());
             });
@@ -690,8 +710,9 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 return;
             }
 
-            MG_External::GLES::glBlitFramebuffer(x, y, x + width, y + height, xoffset, yoffset, xoffset + width, yoffset + height,
-                                   GL_DEPTH_BUFFER_BIT | (isStencilFormat ? GL_STENCIL_BUFFER_BIT : 0), GL_NEAREST);
+            MG_External::GLES::glBlitFramebuffer(
+                x, y, x + width, y + height, xoffset, yoffset, xoffset + width, yoffset + height,
+                GL_DEPTH_BUFFER_BIT | (isStencilFormat ? GL_STENCIL_BUFFER_BIT : 0), GL_NEAREST);
             errorLopper.Loop([file = __FILE__, line = __LINE__](auto err) {
                 MGLOG_D("ES error (%s:%d): %s", file, line, MG_Util::ConvertGLEnumToString(err).c_str());
             });

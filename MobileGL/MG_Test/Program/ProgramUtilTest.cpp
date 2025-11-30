@@ -395,9 +395,8 @@ TEST_F(ProgramUtilTest, CompileAndLinkBlitProgram) {
     attribLocations["UV0"] = 2;
 
     ProgramAttrib programAttrib{// .shaderTypes = { GL_VERTEX_SHADER, GL_FRAGMENT_SHADER },
-        .shaders = {vs_res.value(), fs_res.value()},
-        .explicitVertexInLocations = attribLocations
-    };
+                                .shaders = {vs_res.value(), fs_res.value()},
+                                .explicitVertexInLocations = attribLocations};
 
     auto program_res = ShaderCompiler::LinkProgram(programAttrib);
     if (!program_res) {

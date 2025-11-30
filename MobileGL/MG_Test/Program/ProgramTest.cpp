@@ -725,117 +725,117 @@ TEST_F(ProgramTest, MinecraftBlitScreenLightmap) {
     ASSERT_GT(programObject->GetUBOSize(), 0);
 }
 
-//const char* minecraft_core_tex_color_1216_vs = R"(#version 150
+// const char* minecraft_core_tex_color_1216_vs = R"(#version 150
 //
 //// Can't moj_import in things used during startup, when resource packs don't exist.
 //// This is a copy of dynamicimports.glsl and projection.glsl
-//layout(std140) uniform DynamicTransforms {
-//    mat4 ModelViewMat;
-//    vec4 ColorModulator;
-//    vec3 ModelOffset;
-//    mat4 TextureMat;
-//    float LineWidth;
-//};
-//layout(std140) uniform Projection {
-//    mat4 ProjMat;
-//};
+// layout(std140) uniform DynamicTransforms {
+//     mat4 ModelViewMat;
+//     vec4 ColorModulator;
+//     vec3 ModelOffset;
+//     mat4 TextureMat;
+//     float LineWidth;
+// };
+// layout(std140) uniform Projection {
+//     mat4 ProjMat;
+// };
 //
-//in vec3 Position;
-//in vec2 UV0;
-//in vec4 Color;
+// in vec3 Position;
+// in vec2 UV0;
+// in vec4 Color;
 //
-//out vec2 texCoord0;
-//out vec4 vertexColor;
+// out vec2 texCoord0;
+// out vec4 vertexColor;
 //
-//void main() {
-//    gl_Position = ProjMat * ModelViewMat * vec4(Position, 1.0);
+// void main() {
+//     gl_Position = ProjMat * ModelViewMat * vec4(Position, 1.0);
 //
-//    texCoord0 = UV0;
-//    vertexColor = Color;
-//}
+//     texCoord0 = UV0;
+//     vertexColor = Color;
+// }
 //)";
 //
-//const char* minecraft_core_tex_color_1216_fs = R"(#version 150
+// const char* minecraft_core_tex_color_1216_fs = R"(#version 150
 //
 //// Can't moj_import in things used during startup, when resource packs don't exist.
 //// This is a copy of dynamicimports.glsl
-//layout(std140) uniform DynamicTransforms {
-//    mat4 ModelViewMat;
-//    vec4 ColorModulator;
-//    vec3 ModelOffset;
-//    mat4 TextureMat;
-//    float LineWidth;
-//};
+// layout(std140) uniform DynamicTransforms {
+//     mat4 ModelViewMat;
+//     vec4 ColorModulator;
+//     vec3 ModelOffset;
+//     mat4 TextureMat;
+//     float LineWidth;
+// };
 //
-//uniform sampler2D Sampler0;
+// uniform sampler2D Sampler0;
 //
-//in vec2 texCoord0;
-//in vec4 vertexColor;
+// in vec2 texCoord0;
+// in vec4 vertexColor;
 //
-//out vec4 fragColor;
+// out vec4 fragColor;
 //
-//void main() {
-//    vec4 color = texture(Sampler0, texCoord0) * vertexColor;
-//    if (color.a == 0.0) {
-//        discard;
-//    }
-//    fragColor = color * ColorModulator;
-//}
+// void main() {
+//     vec4 color = texture(Sampler0, texCoord0) * vertexColor;
+//     if (color.a == 0.0) {
+//         discard;
+//     }
+//     fragColor = color * ColorModulator;
+// }
 //)";
 //
-//TEST_F(ProgramTest, MinecraftTexColor1_21_6) {
-//    char infoLog[1024] = "";
+// TEST_F(ProgramTest, MinecraftTexColor1_21_6) {
+//     char infoLog[1024] = "";
 //
-//    GLuint vs = CreateShader(GL_VERTEX_SHADER);
-//    ShaderSource(vs, 1, &minecraft_core_tex_color_1216_vs, NULL);
-//    CompileShader(vs);
-//    GLint vsStatus = GL_FALSE;
-//    GetShaderiv(vs, GL_COMPILE_STATUS, &vsStatus);
-//    GetShaderInfoLog(vs, 1024, nullptr, infoLog);
-//    ASSERT_EQ(vsStatus, GL_TRUE) << infoLog;
+//     GLuint vs = CreateShader(GL_VERTEX_SHADER);
+//     ShaderSource(vs, 1, &minecraft_core_tex_color_1216_vs, NULL);
+//     CompileShader(vs);
+//     GLint vsStatus = GL_FALSE;
+//     GetShaderiv(vs, GL_COMPILE_STATUS, &vsStatus);
+//     GetShaderInfoLog(vs, 1024, nullptr, infoLog);
+//     ASSERT_EQ(vsStatus, GL_TRUE) << infoLog;
 //
-//    GLuint fs = CreateShader(GL_FRAGMENT_SHADER);
-//    ShaderSource(fs, 1, &minecraft_core_tex_color_1216_fs, NULL);
-//    CompileShader(fs);
-//    GLint fsStatus = GL_FALSE;
-//    GetShaderiv(fs, GL_COMPILE_STATUS, &fsStatus);
-//    GetShaderInfoLog(fs, 1024, nullptr, infoLog);
-//    ASSERT_EQ(fsStatus, GL_TRUE) << infoLog;
+//     GLuint fs = CreateShader(GL_FRAGMENT_SHADER);
+//     ShaderSource(fs, 1, &minecraft_core_tex_color_1216_fs, NULL);
+//     CompileShader(fs);
+//     GLint fsStatus = GL_FALSE;
+//     GetShaderiv(fs, GL_COMPILE_STATUS, &fsStatus);
+//     GetShaderInfoLog(fs, 1024, nullptr, infoLog);
+//     ASSERT_EQ(fsStatus, GL_TRUE) << infoLog;
 //
-//    GLuint program = CreateProgram();
-//    AttachShader(program, vs);
-//    AttachShader(program, fs);
+//     GLuint program = CreateProgram();
+//     AttachShader(program, vs);
+//     AttachShader(program, fs);
 //
-//    LinkProgram(program);
+//     LinkProgram(program);
 //
-//    UseProgram(program);
+//     UseProgram(program);
 //
-//    int uniformCount = 0;
-//    GetProgramiv(program, GL_ACTIVE_UNIFORMS, &uniformCount);
-//    ASSERT_LT(uniformCount, 4000);
+//     int uniformCount = 0;
+//     GetProgramiv(program, GL_ACTIVE_UNIFORMS, &uniformCount);
+//     ASSERT_LT(uniformCount, 4000);
 //
-//    auto transformuboIdx = GetUniformBlockIndex(program, "DynamicTransforms");
+//     auto transformuboIdx = GetUniformBlockIndex(program, "DynamicTransforms");
 //
-//    auto programObject = MG_State::pGLContext->GetCurrentProgram();
-//    ASSERT_EQ(programObject->GetUBOSize(), 0);
+//     auto programObject = MG_State::pGLContext->GetCurrentProgram();
+//     ASSERT_EQ(programObject->GetUBOSize(), 0);
 //
-//    // auto& spirvs = programObject->GetGeneratedSpirv();
-//    // for (auto spirv: spirvs) {
-//    //     MG_Util::ShaderTranspiler::SpvcSession spvcSession(spirv);
-//    //     spvc_compiler_options options;
-//    //     spvcSession.CreateOptions(&options);
-//    //
-//    //     spvc_compiler_options_set_uint(options, SPVC_COMPILER_OPTION_GLSL_VERSION, 320);
-//    //     spvc_compiler_options_set_bool(options, SPVC_COMPILER_OPTION_GLSL_ES, SPVC_TRUE);
-//    //     // spvc_compiler_options_set_bool(options, SPVC_COMPILER_OPTION_GLSL_VULKAN_SEMANTICS, SPVC_TRUE);
-//    //
-//    //     spvcSession.SetOptions(options);
-//    //
-//    //     const char* result = nullptr;
-//    //     spvcSession.Compile(&result);
-//    //     printf("%s\n\n", result);
-//    // }
-//}
+//     // auto& spirvs = programObject->GetGeneratedSpirv();
+//     // for (auto spirv: spirvs) {
+//     //     MG_Util::ShaderTranspiler::SpvcSession spvcSession(spirv);
+//     //     spvc_compiler_options options;
+//     //     spvcSession.CreateOptions(&options);
+//     //
+//     //     spvc_compiler_options_set_uint(options, SPVC_COMPILER_OPTION_GLSL_VERSION, 320);
+//     //     spvc_compiler_options_set_bool(options, SPVC_COMPILER_OPTION_GLSL_ES, SPVC_TRUE);
+//     //     // spvc_compiler_options_set_bool(options, SPVC_COMPILER_OPTION_GLSL_VULKAN_SEMANTICS, SPVC_TRUE);
+//     //
+//     //     spvcSession.SetOptions(options);
+//     //
+//     //     const char* result = nullptr;
+//     //     spvcSession.Compile(&result);
+//     //     printf("%s\n\n", result);
+//     // }
+// }
 
 const char* optifine_vs1 = R"(#version 460 core
 
@@ -931,10 +931,10 @@ TEST_F(ProgramTest, CompileAndLinkWithExplicitVertexIn) {
     spvcSession.Compile(&result);
     printf("%s\n\n", result);
     const char* ret = strstr(result, needle);
-    if (ret)
-        pSrcVertIn = (char*)ret;
+    if (ret) pSrcVertIn = (char*)ret;
     // }
-    ASSERT_TRUE(pSrcVertIn != nullptr) << "Not found expected string in generated shader.\n(Searching for \"" << needle << "\")";
+    ASSERT_TRUE(pSrcVertIn != nullptr) << "Not found expected string in generated shader.\n(Searching for \"" << needle
+                                       << "\")";
 }
 
 TEST_F(ProgramTest, CompileAndLinkWithExplicitFragmentOut) {
@@ -978,22 +978,239 @@ TEST_F(ProgramTest, CompileAndLinkWithExplicitFragmentOut) {
     char* pSrcfragOut = nullptr;
     const char* needle = "layout(location = 7) out vec4 fragColor;";
     // for (auto spirv: spirvs) {
-        MG_Util::ShaderTranspiler::SpvcSession spvcSession(fragSpirv);
-        spvc_compiler_options options;
-        spvcSession.CreateOptions(&options);
+    MG_Util::ShaderTranspiler::SpvcSession spvcSession(fragSpirv);
+    spvc_compiler_options options;
+    spvcSession.CreateOptions(&options);
 
-        spvc_compiler_options_set_uint(options, SPVC_COMPILER_OPTION_GLSL_VERSION, 460);
-        spvc_compiler_options_set_bool(options, SPVC_COMPILER_OPTION_GLSL_ES, SPVC_FALSE);
-        // spvc_compiler_options_set_bool(options, SPVC_COMPILER_OPTION_GLSL_VULKAN_SEMANTICS, SPVC_FALSE);
+    spvc_compiler_options_set_uint(options, SPVC_COMPILER_OPTION_GLSL_VERSION, 460);
+    spvc_compiler_options_set_bool(options, SPVC_COMPILER_OPTION_GLSL_ES, SPVC_FALSE);
+    // spvc_compiler_options_set_bool(options, SPVC_COMPILER_OPTION_GLSL_VULKAN_SEMANTICS, SPVC_FALSE);
 
-        spvcSession.SetOptions(options);
+    spvcSession.SetOptions(options);
 
-        const char* result = nullptr;
-        spvcSession.Compile(&result);
-        printf("%s\n\n", result);
-        const char* ret = strstr(result, needle);
-        if (ret)
-            pSrcfragOut = (char*)ret;
+    const char* result = nullptr;
+    spvcSession.Compile(&result);
+    printf("%s\n\n", result);
+    const char* ret = strstr(result, needle);
+    if (ret) pSrcfragOut = (char*)ret;
     // }
-    ASSERT_TRUE(pSrcfragOut != nullptr) << "Not found expected string in generated shader.\n(Searching for \"" << needle << "\")";
+    ASSERT_TRUE(pSrcfragOut != nullptr) << "Not found expected string in generated shader.\n(Searching for \"" << needle
+                                        << "\")";
+}
+
+const char* vs_sampler_as_varname = R"(#version 330
+in vec3 Position;
+out float sphericalVertexDistance;
+out float cylindricalVertexDistance;
+out vec4 vertexColor;
+out vec2 texCoord0;
+void main() {
+    gl_Position = vec4(Position, 1.0);
+    sphericalVertexDistance = 1.0;
+    cylindricalVertexDistance = 1.0;
+    vertexColor = vec4(Position, 1.0);
+    texCoord0 = Position.xy;
+}
+)";
+
+const char* fs_sampler_as_varname = R"(#version 330
+
+layout(std140) uniform Fog {
+    vec4 FogColor;
+    float FogEnvironmentalStart;
+    float FogEnvironmentalEnd;
+    float FogRenderDistanceStart;
+    float FogRenderDistanceEnd;
+    float FogSkyEnd;
+    float FogCloudsEnd;
+};
+
+float linear_fog_value(float vertexDistance, float fogStart, float fogEnd) {
+    if (vertexDistance <= fogStart) {
+        return 0.0;
+    } else if (vertexDistance >= fogEnd) {
+        return 1.0;
+    }
+
+    return (vertexDistance - fogStart) / (fogEnd - fogStart);
+}
+
+float total_fog_value(float sphericalVertexDistance, float cylindricalVertexDistance, float environmentalStart, float environmantalEnd, float renderDistanceStart, float renderDistanceEnd) {
+    return max(linear_fog_value(sphericalVertexDistance, environmentalStart, environmantalEnd), linear_fog_value(cylindricalVertexDistance, renderDistanceStart, renderDistanceEnd));
+}
+
+vec4 apply_fog(vec4 inColor, float sphericalVertexDistance, float cylindricalVertexDistance, float environmentalStart, float environmantalEnd, float renderDistanceStart, float renderDistanceEnd, vec4 fogColor) {
+    float fogValue = total_fog_value(sphericalVertexDistance, cylindricalVertexDistance, environmentalStart, environmantalEnd, renderDistanceStart, renderDistanceEnd);
+    return vec4(mix(inColor.rgb, fogColor.rgb, fogValue * fogColor.a), inColor.a);
+}
+
+float fog_spherical_distance(vec3 pos) {
+    return length(pos);
+}
+
+float fog_cylindrical_distance(vec3 pos) {
+    float distXZ = length(pos.xz);
+    float distY = abs(pos.y);
+    return max(distXZ, distY);
+}
+
+
+layout(std140) uniform Globals {
+    ivec3 CameraBlockPos;
+    vec3 CameraOffset;
+    vec2 ScreenSize;
+    float GlintAlpha;
+    float GameTime;
+    int MenuBlurRadius;
+    int UseRgss;
+};
+
+
+layout(std140) uniform ChunkSection {
+    mat4 ModelViewMat;
+    float ChunkVisibility;
+    ivec2 TextureSize;
+    ivec3 ChunkPosition;
+};
+
+uniform sampler2D Sampler0;
+
+in float sphericalVertexDistance;
+in float cylindricalVertexDistance;
+in vec4 vertexColor;
+in vec2 texCoord0;
+
+out vec4 fragColor;
+
+vec4 sampleNearest(sampler2D sampler, vec2 uv, vec2 pixelSize, vec2 du, vec2 dv, vec2 texelScreenSize) {
+    // Convert our UV back up to texel coordinates and find out how far over we are from the center of each pixel
+    vec2 uvTexelCoords = uv / pixelSize;
+    vec2 texelCenter = round(uvTexelCoords) - 0.5f;
+    vec2 texelOffset = uvTexelCoords - texelCenter;
+
+    // Move our offset closer to the texel center based on texel size on screen
+    texelOffset = (texelOffset - 0.5f) * pixelSize / texelScreenSize + 0.5f;
+    texelOffset = clamp(texelOffset, 0.0f, 1.0f);
+
+    uv = (texelCenter + texelOffset) * pixelSize;
+    return textureGrad(sampler, uv, du, dv);
+}
+
+vec4 sampleNearest(sampler2D source, vec2 uv, vec2 pixelSize) {
+    vec2 du = dFdx(uv);
+    vec2 dv = dFdy(uv);
+    vec2 texelScreenSize = sqrt(du * du + dv * dv);
+    return sampleNearest(source, uv, pixelSize, du, dv, texelScreenSize);
+}
+
+// Rotated Grid Super-Sampling
+vec4 sampleRGSS(sampler2D source, vec2 uv, vec2 pixelSize) {
+    vec2 du = dFdx(uv);
+    vec2 dv = dFdy(uv);
+
+    vec2 texelScreenSize = sqrt(du * du + dv * dv);
+    float maxTexelSize = max(texelScreenSize.x, texelScreenSize.y);
+
+    float minPixelSize = min(pixelSize.x, pixelSize.y);
+
+    float transitionStart = minPixelSize * 1.0;
+    float transitionEnd = minPixelSize * 2.0;
+    float blendFactor = smoothstep(transitionStart, transitionEnd, maxTexelSize);
+
+    float duLength = length(du);
+    float dvLength = length(dv);
+    float minDerivative = min(duLength, dvLength);
+    float maxDerivative = max(duLength, dvLength);
+
+    float effectiveDerivative = sqrt(minDerivative * maxDerivative);
+
+    float mipLevelExact = max(0.0, log2(effectiveDerivative / minPixelSize));
+
+    float mipLevelLow = floor(mipLevelExact);
+    float mipLevelHigh = mipLevelLow + 1.0;
+    float mipBlend = fract(mipLevelExact);
+
+    const vec2 offsets[4] = vec2[](
+    vec2(0.125, 0.375),
+    vec2(-0.125, -0.375),
+    vec2(0.375, -0.125),
+    vec2(-0.375, 0.125)
+    );
+
+    vec4 rgssColorLow = vec4(0.0);
+    vec4 rgssColorHigh = vec4(0.0);
+    for (int i = 0; i < 4; ++i) {
+        vec2 sampleUV = uv + offsets[i] * pixelSize;
+        rgssColorLow += textureLod(source, sampleUV, mipLevelLow);
+        rgssColorHigh += textureLod(source, sampleUV, mipLevelHigh);
+    }
+    rgssColorLow *= 0.25;
+    rgssColorHigh *= 0.25;
+
+    vec4 rgssColor = mix(rgssColorLow, rgssColorHigh, mipBlend);
+
+    vec4 nearestColor = sampleNearest(source, uv, pixelSize, du, dv, texelScreenSize);
+
+    return mix(nearestColor, rgssColor, blendFactor);
+}
+
+void main() {
+    vec4 color = (UseRgss == 1 ? sampleRGSS(Sampler0, texCoord0, 1.0f / TextureSize) : sampleNearest(Sampler0, texCoord0, 1.0f / TextureSize)) * vertexColor;
+    color = mix(FogColor * vec4(1, 1, 1, color.a), color, ChunkVisibility);
+#ifdef ALPHA_CUTOUT
+    if (color.a < ALPHA_CUTOUT) {
+        discard;
+    }
+#endif
+    fragColor = apply_fog(color, sphericalVertexDistance, cylindricalVertexDistance, FogEnvironmentalStart, FogEnvironmentalEnd, FogRenderDistanceStart, FogRenderDistanceEnd, FogColor);
+})";
+
+TEST_F(ProgramTest, CompileShaderWithSamplerAsVarName) {
+    char infoLog[1024] = "";
+
+    GLuint fs = CreateShader(GL_FRAGMENT_SHADER);
+    ShaderSource(fs, 1, &fs_sampler_as_varname, NULL);
+    CompileShader(fs);
+    GLint fsStatus = GL_FALSE;
+    GetShaderiv(fs, GL_COMPILE_STATUS, &fsStatus);
+    GetShaderInfoLog(fs, 1024, nullptr, infoLog);
+    ASSERT_EQ(fsStatus, GL_TRUE) << infoLog;
+
+    GLuint vs = CreateShader(GL_VERTEX_SHADER);
+    ShaderSource(vs, 1, &vs_sampler_as_varname, NULL);
+    CompileShader(vs);
+    GLint vsStatus = GL_FALSE;
+    GetShaderiv(vs, GL_COMPILE_STATUS, &vsStatus);
+    GetShaderInfoLog(vs, 1024, nullptr, infoLog);
+    ASSERT_EQ(vsStatus, GL_TRUE) << infoLog;
+
+    GLuint program = CreateProgram();
+    AttachShader(program, fs);
+    AttachShader(program, vs);
+
+    LinkProgram(program);
+    GLint linkStatus = GL_FALSE;
+    GetProgramiv(program, GL_LINK_STATUS, &linkStatus);
+    ASSERT_EQ(linkStatus, GL_TRUE);
+    printf("Program linked.\n");
+
+    UseProgram(program);
+
+    auto programObject = MG_State::pGLContext->GetCurrentProgram();
+    auto& spirvs = programObject->GetGeneratedSpirv();
+    auto& fragSpirv = spirvs[0]; // 0 - fragment, 1 - vertex
+    char* pSrcfragOut = nullptr;
+    MG_Util::ShaderTranspiler::SpvcSession spvcSession(fragSpirv);
+    spvc_compiler_options options;
+    spvcSession.CreateOptions(&options);
+
+    spvc_compiler_options_set_uint(options, SPVC_COMPILER_OPTION_GLSL_VERSION, 460);
+    spvc_compiler_options_set_bool(options, SPVC_COMPILER_OPTION_GLSL_ES, SPVC_TRUE);
+    // spvc_compiler_options_set_bool(options, SPVC_COMPILER_OPTION_GLSL_VULKAN_SEMANTICS, SPVC_FALSE);
+
+    spvcSession.SetOptions(options);
+
+    const char* result = nullptr;
+    spvcSession.Compile(&result);
+    printf("%s\n\n", result);
 }
