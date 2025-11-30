@@ -30,3 +30,11 @@ jobs:
         path: |
               **/libMobileGL.so
               **/libglslang.a
+
+    - name: Upload build output
+      if: failure()
+      uses: actions/upload-artifact@main
+      with:
+        name: glslanggggggggg
+        path: |
+              **/libglslang.a
