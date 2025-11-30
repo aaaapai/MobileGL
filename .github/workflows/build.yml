@@ -18,7 +18,7 @@ jobs:
     steps:
     - uses: actions/checkout@main
       with:
-         submodules: true
+         submodules: false
 
     - name: Configure CMake and Build
       run: bash android_ci_build.bash
@@ -29,4 +29,3 @@ jobs:
         name: MobileGGGGGGGGGGGGGL
         path: |
               **/libMobileGL.so
-              **/libglslang.a
