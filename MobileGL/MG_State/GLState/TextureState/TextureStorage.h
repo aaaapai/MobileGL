@@ -40,7 +40,7 @@ namespace MobileGL {
                     auto& targetData = m_data[targetIndex];
                     MOBILEGL_ASSERT(level < targetData.size(), "UpdateSubData: level out of range");
                     auto& levelData = targetData[level];
-                    MOBILEGL_ASSERT(levelData.size() < input.size, "UpdateSubData: input data larger than allocated");
+                    MOBILEGL_ASSERT(levelData.size() <= input.size, "UpdateSubData: input data larger than allocated");
 
                     if (input.data && input.size > 0) {
                         const Uint8* src = static_cast<const Uint8*>(input.data);
