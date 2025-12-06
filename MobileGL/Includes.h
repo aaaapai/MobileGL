@@ -43,10 +43,6 @@
 // Include spirv_cross
 #include <spirv_cross/spirv_cross_c.h>
 
-// Include glm
-#include <glm/glm.hpp>
-#include <glm/gtc/matrix_transform.hpp>
-
 // Include OpenGL and EGL headers
 #include <GL/gl.h>
 #include <EGL/egl.h>

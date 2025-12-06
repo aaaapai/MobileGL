@@ -11,6 +11,4 @@
 
 **unordered_dense** by **Martin Leitner-Ankerl** - [MIT License](https://github.com/martinus/unordered_dense/blob/main/LICENSE): [github](https://github.com/martinus/unordered_dense)
 
-**OpenGL Mathematics (*GLM*)** by **G-Truc Creation** - [The Happy Bunny License](https://github.com/g-truc/glm/blob/master/copying.txt): [github](https://github.com/g-truc/glm)
-
 **DiligentCore** by **Diligent Graphics** - [Apache License 2.0](https://github.com/DiligentGraphics/DiligentCore/blob/master/License.txt): [github](https://github.com/DiligentGraphics/DiligentCore)
