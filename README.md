@@ -9,6 +9,4 @@
 
 **glslang** by **KhronosGroup** - [Various Licenses](https://github.com/KhronosGroup/glslang/blob/main/LICENSE.txt): [github](https://github.com/KhronosGroup/glslang)
 
-**unordered_dense** by **Martin Leitner-Ankerl** - [MIT License](https://github.com/martinus/unordered_dense/blob/main/LICENSE): [github](https://github.com/martinus/unordered_dense)
-
 **DiligentCore** by **Diligent Graphics** - [Apache License 2.0](https://github.com/DiligentGraphics/DiligentCore/blob/master/License.txt): [github](https://github.com/DiligentGraphics/DiligentCore)

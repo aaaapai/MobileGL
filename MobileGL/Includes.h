@@ -37,9 +37,6 @@
 // Include FastSTL
 #include <FastSTL/UnorderedMap.h>
 
-// Include ankerl::unordered_dense
-#include <ankerl/unordered_dense.h>
-
 // Include spirv_cross
 #include <spirv_cross/spirv_cross_c.h>
 
