@@ -1,6 +1,6 @@
 #pragma once
 #include "TextureEnum.h"
-#include "TextureStorage.h"
+#include "MipmapUploadTargetArray.h"
 #include "MG_Util/Types.h"
 #include "../SamplerState/SamplerObject.h"
 #include <Includes.h>
@@ -106,7 +106,7 @@ namespace MobileGL {
                 Bool IsComplete() const override;
 
             protected:
-                TextureStorage<1> m_textureStorage;
+                MipmapUploadTargetArray<1> m_textureStorage;
             };
         } // namespace GLState
     } // namespace MG_State

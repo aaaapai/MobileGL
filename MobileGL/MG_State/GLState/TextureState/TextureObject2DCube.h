@@ -24,7 +24,7 @@ namespace MobileGL {
 
             protected:
                 Uint GetIndexOfTextureUploadTarget(TextureUploadTarget target) const override;
-                TextureStorage<6> m_textureStorage;
+                MipmapUploadTargetArray<6> m_textureStorage;
                 const Vector<TextureUploadTarget> m_uploadTargets{
                     TextureUploadTarget::CubeMapPositiveX, TextureUploadTarget::CubeMapNegativeX,
                     TextureUploadTarget::CubeMapPositiveY, TextureUploadTarget::CubeMapNegativeY,

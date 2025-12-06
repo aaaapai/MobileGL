@@ -18,7 +18,7 @@ namespace MobileGL {
     };
 
     // Don't tinker with order in this enum (especially CubeMap faces),
-    // it is used in TextureStorage
+    // it is used in MipmapUploadTargetArray
     enum class TextureUploadTarget {
         Texture1D,
         Texture2D,

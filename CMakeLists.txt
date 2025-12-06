@@ -159,6 +159,7 @@ set(SOURCE_FILES
     MobileGL/MG_State/GLState/BufferState/BufferObject.cpp
     MobileGL/MG_State/GLState/VertexArrayState/VertexArrayState.cpp
     MobileGL/MG_State/GLState/VertexArrayState/VertexArrayObject.cpp
+    MobileGL/MG_State/GLState/TextureState/MipmapStorage.cpp
     MobileGL/MG_State/GLState/TextureState/TextureObject.cpp
     MobileGL/MG_State/GLState/TextureState/TextureObject1D.cpp
     MobileGL/MG_State/GLState/TextureState/TextureObject2D.cpp
