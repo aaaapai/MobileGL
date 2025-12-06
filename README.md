@@ -1,8 +1,20 @@
-# MobileGL
+<h1 align="center">MobileGL</h1>
+
+<p align="center">
+  <img src="https://img.shields.io/badge/Language-C%2B%2B-00599c?style=flat&logo=c%2B%2B" alt="C++">
+  <img src="https://img.shields.io/badge/License-GNU%20LGPL%202.1-00399c?style=flat" alt="GNU LGPL 2.1">
+  <img src="https://img.shields.io/badge/Status-Development-0078d7?style=flat" alt="Development">
+</p>
+
+<p align="center"><em>
+A desktop OpenGL implementation
+</em></p>
 
 MobileGL is a *free (libre)* and *open-source* project that implements a desktop **OpenGL** API. The goal is to provide a complete OpenGL implementation with a state management layer and multiple backends.
 
-> **Status:** In development. Parts of the codebase are incomplete. Current short-term target: **OpenGL 3.3 Core Profile**.
+> [!NOTE]
+>
+> **Status:** In development. Parts of the codebase are incomplete. Current short-term target: **OpenGL 3.3 (Core Profile)**.
 
 ## Project positioning
 
