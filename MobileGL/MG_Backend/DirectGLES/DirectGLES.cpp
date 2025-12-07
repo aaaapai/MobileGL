@@ -546,40 +546,6 @@ namespace MobileGL::MG_Backend::DirectGLES {
     void MultiDrawElementsBaseVertex(GLenum mode, const GLsizei* count, GLenum type, 
                                  const GLvoid* const* indices, GLsizei drawcount, 
                                  const GLint* basevertex) {
-    // 1. 基本错误检查
-    if (drawcount <= 0) [[unlikely]] {
-        return;
-    }
-    
-    // 2. 检查是否有负数count，并统计有效绘制数量
-    bool hasInvalidCount = false;
-    bool hasNonZeroCount = false;
-    GLsizei validDrawCount = 0;
-    
-    for (GLsizei i = 0; i < drawcount; ++i) {
-        if (count[i] < 0) [[unlikely]] {
-            hasInvalidCount = true;
-            break;
-        }
-        if (count[i] > 0) [[likely]] {
-            hasNonZeroCount = true;
-            validDrawCount++;
-        }
-    }
-    
-    // 3. 处理错误情况
-    if (hasInvalidCount) [[unlikely]] {
-        // 设置GL错误（通过调用一次绘制）
-        DrawSyncBit syncBit = DrawSyncBit::IndexBuffer;
-        PrepareForDraw(syncBit);
-        MG_External::GLES::glDrawElementsBaseVertex(mode, 0, type, nullptr, 0);
-        return;
-    }
-    
-    // 4. 如果所有count都为0，直接返回
-    if (!hasNonZeroCount) [[unlikely]] {
-        return;
-    }
     
     // 5. 检查是否有用户索引（基于你的VAO状态）
     // 尝试从你的状态管理器中获取信息
@@ -617,19 +583,9 @@ namespace MobileGL::MG_Backend::DirectGLES {
     // 6. 一次性准备绘制
     PrepareForDraw(syncBit);
 
-    if (basevertex) [[likely]] {
-        // 有count=0的情况，跳过它们
-        for (GLsizei i = 0; i < drawcount; ++i) {
-            if (count[i] > 0) {
+    // 有count=0的情况，跳过它们
+    for (GLsizei i = 0; i < drawcount; ++i) {
                 MG_External::GLES::glDrawElementsBaseVertex(mode, count[i], type, indices[i], basevertex[i]);
-            }
-        }
-    } else {
-        for (GLsizei i = 0; i < drawcount; ++i) {
-            if (count[i] > 0) {
-                MG_External::GLES::glDrawElements(mode, count[i], type, indices[i]);
-            }
-        }
     }
 
     }
