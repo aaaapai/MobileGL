@@ -546,48 +546,34 @@ namespace MobileGL::MG_Backend::DirectGLES {
     void MultiDrawElementsBaseVertex(GLenum mode, const GLsizei* count, GLenum type, 
                                  const GLvoid* const* indices, GLsizei drawcount, 
                                  const GLint* basevertex) {
-    
-    // 5. 检查是否有用户索引（基于你的VAO状态）
-    // 尝试从你的状态管理器中获取信息
-    DrawSyncBit syncBit = DrawSyncBit::None;
-    
-    // 从你的代码看，你可以检查当前VAO的IndexBuffer
-    auto currentVAO = MG_State::pGLContext->GetBoundVertexArray();
-    if (currentVAO) {
-        const auto& indexBufferSlot = currentVAO->GetIndexBufferBindingSlot();
-        const auto& indexBuffer = indexBufferSlot.GetBoundObject();
-        
-        // 如果没有绑定索引缓冲区，说明indices是用户指针
-        if (!indexBuffer) {
-            syncBit = syncBit | DrawSyncBit::IndexBuffer;
-        }
-        
-        // 检查是否有instancing（如果有的话）
-        // 你可以检查VAO中是否有属性的divisor不为0
-        bool hasInstancing = false;
-        const auto& attribs = currentVAO->GetAllAttributes();
-        for (const auto& attrib : attribs) {
-            if (attrib.Enabled && attrib.Divisor > 0) {
-                hasInstancing = true;
-                break;
-            }
-        }
-        if (hasInstancing) {
-            syncBit = syncBit | DrawSyncBit::Instancing;
-        }
-    } else {
-        // 没有VAO，默认需要同步索引缓冲区
-        syncBit = syncBit | DrawSyncBit::IndexBuffer;
-    }
-    
-    // 6. 一次性准备绘制
-    PrepareForDraw(syncBit);
 
-    // 有count=0的情况，跳过它们
-    for (GLsizei i = 0; i < drawcount; ++i) {
-                MG_External::GLES::glDrawElementsBaseVertex(mode, count[i], type, indices[i], basevertex[i]);
-    }
+    DrawSyncBit syncBit = DrawSyncBit::IndexBuffer;
+        PrepareForDraw(syncBit);
 
+    // Get the currently bound program to check for drawID uniform
+    GLint currentProgram = 0;
+    MG_External::GLES::glGetIntegerv(GL_CURRENT_PROGRAM, &currentProgram);
+    
+    // Check if the program has a drawID uniform
+    GLint drawIDLoc = -1;
+    if (currentProgram != 0) {
+        drawIDLoc = MG_External::GLES::glGetUniformLocation(currentProgram, "gl_DrawID");
+    }
+    bool hasDrawID = (drawIDLoc != -1);
+    
+    for (GLsizei drawID = 0; drawID < drawcount; ++drawID) {
+        // Skip if count is 0 (no-op draw)
+        if (count[drawID] == 0) {
+            continue;
+        }
+        
+        // Set drawID uniform if needed
+        if (hasDrawID) {
+            MG_External::GLES::glUniform1i(drawIDLoc, drawID);
+        }
+        
+        // Perform the draw with base vertex
+        MG_External::GLES::glDrawElementsBaseVertex(mode, count[drawID], type, indices[drawID], basevertex[drawID]);
     }
 
     void MultiDrawElementsIndirect(GLenum mode, GLenum type, const void* indirect, GLsizei drawcount, GLsizei stride) {
