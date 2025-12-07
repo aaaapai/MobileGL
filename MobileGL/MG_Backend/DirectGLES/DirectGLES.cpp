@@ -624,17 +624,16 @@ namespace MobileGL::MG_Backend::DirectGLES {
                     }
                 }
             
-            } else {
-                MG_External::GLES::glDrawElements(
-                mode, count[current], type, indices[current]);
-
-                current++;
-
             }
         
             // 单个绘制调用
-            MG_External::GLES::glDrawElementsBaseVertex(
-                mode, count[current], type, indices[current], basevertex[current]);
+            if (basevertex) [[likely]] {
+              MG_External::GLES::glDrawElementsBaseVertex(
+                  mode, count[current], type, indices[current], basevertex[current]);
+            } else {
+                MG_External::GLES::glDrawElements(
+                  mode, count[current], type, indices[current]);
+            }
         
             current++;
         }
