@@ -575,6 +575,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
         // Perform the draw with base vertex
         MG_External::GLES::glDrawElementsBaseVertex(mode, count[drawID], type, indices[drawID], basevertex[drawID]);
     }
+    }
 
     void MultiDrawElementsIndirect(GLenum mode, GLenum type, const void* indirect, GLsizei drawcount, GLsizei stride) {
         DrawSyncBit syncBit = DrawSyncBit::IndexBuffer | DrawSyncBit::IndirectBuffer;
