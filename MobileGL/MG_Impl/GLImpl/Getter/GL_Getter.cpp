@@ -1,6 +1,6 @@
 #include "GL_Getter.h"
 #include <Config.h>
-#include <MGLGitHash.h>
+#include <MGGitHash.h>
 #include <MG_State/GLState/Core.h>
 #include <MG_State/GLState/ErrorState/ErrorInfo.h>
 #include <MG_Util/Converters/GLToStr/GLEnumConverter.h>
@@ -69,15 +69,15 @@ namespace MobileGL {
                 return (const GLubyte*)vendorString.c_str();
             case GL_VERSION: {
                 if (versionStr.empty()) {
-                    versionStr =
-                        std::format("{} {} {}, {} Backend, GIT@" GIT_COMMIT_HASH_SHORT,
-                                    MG_Config::RendererInfoPtr->RendererGLInfo.TargetGLVersion.toString().c_str(),
-                                    MG_Config::ProjectName.c_str(), MG_Config::CoreVersion.toString().c_str(),
-                                    MG_Config::RendererInfoPtr->BackendName.c_str());
+                    versionStr = std::format(
+                        "{} {} {}, {} Backend, GIT@" GIT_COMMIT_HASH_SHORT,
+                        MG_Config::RendererInfoPtr->RendererGLInfo.TargetGLVersion.toString().c_str(),
+                        MG_Config::ProjectName.c_str(),
+                        MG_Config::CoreVersion.toFormattedString(MG_Config::DefaultVersionStringFormatAttrib).c_str(),
+                        MG_Config::RendererInfoPtr->BackendName.c_str());
                 }
                 return (const GLubyte*)versionStr.c_str();
             }
-
             case GL_RENDERER: {
                 if (rendererString.empty()) {
                     const char* backendStr = (const char*)GetString_Backend(GL_RENDERER);
