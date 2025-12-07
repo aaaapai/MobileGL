@@ -624,26 +624,6 @@ namespace MobileGL::MG_Backend::DirectGLES {
                     }
                 }
             
-                // 如果有批量，调用批量版本
-                if (batchCount > 1 && IsExtensionSupported("GL_EXT_multi_draw_arrays")) {
-                    // 创建批量数组
-                    std::vector<GLsizei> batchCounts(batchCount);
-                    std::vector<const GLvoid*> batchIndices(batchCount);
-                    std::vector<GLint> batchBaseVertices(batchCount);
-                
-                    for (GLsizei i = 0; i < batchCount; ++i) {
-                        batchCounts[i] = count[current + i];
-                        batchIndices[i] = indices[current + i];
-                        batchBaseVertices[i] = basevertex[current + i];
-                    }
-                
-                    MG_External::GLES::glMultiDrawElementsBaseVertexEXT(
-                        mode, batchCounts.data(), type, batchIndices.data(), 
-                        batchCount, batchBaseVertices.data());
-                
-                    current += batchCount;
-                    continue;
-                }
             }
         
             // 单个绘制调用
