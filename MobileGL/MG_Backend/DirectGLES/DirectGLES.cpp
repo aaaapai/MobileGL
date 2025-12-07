@@ -543,100 +543,110 @@ namespace MobileGL::MG_Backend::DirectGLES {
         }
     }
 
-    void MultiDrawElementsBaseVertex(GLenum mode, const GLsizei* count, 
-                                     GLenum type, const GLvoid* const* indices,
-                                     GLsizei drawcount, const GLint* basevertex) 
-    {
-        // 参数验证
-        if (drawcount <= 0) [[unlikely]] {
-            return; // 无绘制操作
-        }
+    void MultiDrawElementsBaseVertex(GLenum mode, const GLsizei* count, GLenum type, 
+                                 const GLvoid* const* indices, GLsizei drawcount, 
+                                 const GLint* basevertex) {
+    // 1. 基本错误检查
+    if (drawcount <= 0) [[unlikely]] {
+        return;
+    }
     
-        // 检查是否所有绘制都有效
-        bool hasValidDraw = false;
-        for (GLsizei i = 0; i < drawcount; ++i) {
-            if (count[i] > 0) [[likely]] {
-                hasValidDraw = true;
+    // 2. 检查是否有负数count，并统计有效绘制数量
+    bool hasInvalidCount = false;
+    bool hasNonZeroCount = false;
+    GLsizei validDrawCount = 0;
+    
+    for (GLsizei i = 0; i < drawcount; ++i) {
+        if (count[i] < 0) [[unlikely]] {
+            hasInvalidCount = true;
+            break;
+        }
+        if (count[i] > 0) [[likely]] {
+            hasNonZeroCount = true;
+            validDrawCount++;
+        }
+    }
+    
+    // 3. 处理错误情况
+    if (hasInvalidCount) [[unlikely]] {
+        // 设置GL错误（通过调用一次绘制）
+        DrawSyncBit syncBit = DrawSyncBit::IndexBuffer;
+        PrepareForDraw(syncBit);
+        MG_External::GLES::glDrawElementsBaseVertex(mode, 0, type, nullptr, 0);
+        return;
+    }
+    
+    // 4. 如果所有count都为0，直接返回
+    if (!hasNonZeroCount) [[unlikely]] {
+        return;
+    }
+    
+    // 5. 检查是否有用户索引（基于你的VAO状态）
+    // 尝试从你的状态管理器中获取信息
+    DrawSyncBit syncBit = DrawSyncBit::None;
+    
+    // 从你的代码看，你可以检查当前VAO的IndexBuffer
+    auto currentVAO = MG_State::pGLContext->GetBoundVertexArray();
+    if (currentVAO) {
+        const auto& indexBufferSlot = currentVAO->GetIndexBufferBindingSlot();
+        const auto& indexBuffer = indexBufferSlot.GetBoundObject();
+        
+        // 如果没有绑定索引缓冲区，说明indices是用户指针
+        if (!indexBuffer) {
+            syncBit = syncBit | DrawSyncBit::IndexBuffer;
+        }
+        
+        // 检查是否有instancing（如果有的话）
+        // 你可以检查VAO中是否有属性的divisor不为0
+        bool hasInstancing = false;
+        const auto& attribs = currentVAO->GetAllAttributes();
+        for (const auto& attrib : attribs) {
+            if (attrib.Enabled && attrib.Divisor > 0) {
+                hasInstancing = true;
                 break;
             }
         }
-    
-        if (!hasValidDraw) [[unlikely]] {
-            return; // 所有绘制调用都是空的
+        if (hasInstancing) {
+            syncBit = syncBit | DrawSyncBit::Instancing;
         }
+    } else {
+        // 没有VAO，默认需要同步索引缓冲区
+        syncBit = syncBit | DrawSyncBit::IndexBuffer;
+    }
     
-        // 确定同步需求
-        DrawSyncBit syncBit = DrawSyncBit::None;
-        
-        // 执行同步准备
-        if (syncBit != DrawSyncBit::None) [[unlikely]] {
-            PrepareForDraw(syncBit);
+    // 6. 一次性准备绘制
+    PrepareForDraw(syncBit);
+
+    if (basevertex) [[likely]] {
+    // 7. 分批绘制优化
+    // 如果validDrawCount与drawcount相等（没有count=0的情况），直接循环
+    if (validDrawCount == drawcount) {
+        for (GLsizei i = 0; i < drawcount; ++i) {
+            MG_External::GLES::glDrawElementsBaseVertex(mode, count[i], type, indices[i], basevertex[i]);
         }
-    
-        // 批量处理优化
-        // 如果所有绘制使用相同的 basevertex（通常是 0），可以更高效处理
-        bool uniformBaseVertex = true;
-        const GLint firstBaseVertex = basevertex ? basevertex[0] : 0;
-    
-        if (basevertex) [[likely]] {
-            for (GLsizei i = 1; i < drawcount; ++i) {
-                if (basevertex[i] != firstBaseVertex) {
-                    uniformBaseVertex = false;
-                    break;
-                }
+    } else {
+        // 有count=0的情况，跳过它们
+        for (GLsizei i = 0; i < drawcount; ++i) {
+            if (count[i] > 0) {
+                MG_External::GLES::glDrawElementsBaseVertex(mode, count[i], type, indices[i], basevertex[i]);
             }
         }
-    
-        // 回退到循环调用单个绘制命令
-        // 优化：批量处理连续的相同参数绘制
-        GLsizei current = 0;
-        while (current < drawcount) {
-            // 跳过顶点数为0的绘制
-            if (count[current] == 0) [[unlikely]] {
-                current++;
-                continue;
-            }
-        
-            // 查找连续的可以使用相同调用的绘制
-            GLsizei batchCount = 1;
-        
-            // 如果可以批量处理，尝试合并更多绘制
-            if (basevertex) [[likely]] {
-                // 查找具有相同 basevertex 的连续绘制
-                GLint currentBaseVertex = basevertex[current];
-                for (GLsizei next = current + 1; 
-                     next < drawcount && batchCount < 16; // 限制批量大小
-                     ++next) 
-                {
-                    if (count[next] == 0) [[unlikely]] {
-                        continue;
-                    }
-                
-                    // 检查是否可以合并
-                    bool canBatch = (basevertex[next] == currentBaseVertex);
-                
-                    // 这里可以添加更多合并条件，比如检查其他状态是否一致
-                
-                    if (canBatch) [[likely]] {
-                        batchCount++;
-                    } else {
-                        break;
-                    }
-                }
-            
-            }
-        
-            // 单个绘制调用
-            if (basevertex) [[likely]] {
-              MG_External::GLES::glDrawElementsBaseVertex(
-                  mode, count[current], type, indices[current], basevertex[current]);
-            } else {
-                MG_External::GLES::glDrawElements(
-                  mode, count[current], type, indices[current]);
-            }
-        
-            current++;
+    }
+    } else {
+     if (validDrawCount == drawcount) {
+        for (GLsizei i = 0; i < drawcount; ++i) {
+            MG_External::GLES::glDrawElements(mode, count[i], type, indices[i]);
         }
+     } else {
+        // 有count=0的情况，跳过它们
+        for (GLsizei i = 0; i < drawcount; ++i) {
+            if (count[i] > 0) {
+                MG_External::GLES::glDrawElements(mode, count[i], type, indices[i]);
+            }
+        }
+     }
+    }
+
     }
 
     void MultiDrawElementsIndirect(GLenum mode, GLenum type, const void* indirect, GLsizei drawcount, GLsizei stride) {
