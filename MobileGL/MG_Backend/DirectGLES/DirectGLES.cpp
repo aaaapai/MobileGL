@@ -548,20 +548,20 @@ namespace MobileGL::MG_Backend::DirectGLES {
                                      GLsizei drawcount, const GLint* basevertex) 
     {
         // 参数验证
-        if (drawcount <= 0) {
+        if (drawcount <= 0) [[unlikely]] {
             return; // 无绘制操作
         }
     
         // 检查是否所有绘制都有效
         bool hasValidDraw = false;
         for (GLsizei i = 0; i < drawcount; ++i) {
-            if (count[i] > 0) {
+            if (count[i] > 0) [[likely]] {
                 hasValidDraw = true;
                 break;
             }
         }
     
-        if (!hasValidDraw) {
+        if (!hasValidDraw) [[unlikely]] {
             return; // 所有绘制调用都是空的
         }
     
@@ -569,7 +569,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
         DrawSyncBit syncBit = DrawSyncBit::None;
         
         // 执行同步准备
-        if (syncBit != DrawSyncBit::None) {
+        if (syncBit != DrawSyncBit::None) [[unlikely]] {
             PrepareForDraw(syncBit);
         }
     
@@ -578,7 +578,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
         bool uniformBaseVertex = true;
         const GLint firstBaseVertex = basevertex ? basevertex[0] : 0;
     
-        if (basevertex) {
+        if (basevertex) [[likely]] {
             for (GLsizei i = 1; i < drawcount; ++i) {
                 if (basevertex[i] != firstBaseVertex) {
                     uniformBaseVertex = false;
@@ -592,7 +592,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
         GLsizei current = 0;
         while (current < drawcount) {
             // 跳过顶点数为0的绘制
-            if (count[current] == 0) {
+            if (count[current] == 0) [[unlikely]] {
                 current++;
                 continue;
             }
@@ -601,14 +601,14 @@ namespace MobileGL::MG_Backend::DirectGLES {
             GLsizei batchCount = 1;
         
             // 如果可以批量处理，尝试合并更多绘制
-            if (basevertex) {
+            if (basevertex) [[likely]] {
                 // 查找具有相同 basevertex 的连续绘制
                 GLint currentBaseVertex = basevertex[current];
                 for (GLsizei next = current + 1; 
                      next < drawcount && batchCount < 16; // 限制批量大小
                      ++next) 
                 {
-                    if (count[next] == 0) {
+                    if (count[next] == 0) [[unlikely]] {
                         continue;
                     }
                 
@@ -617,19 +617,24 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 
                     // 这里可以添加更多合并条件，比如检查其他状态是否一致
                 
-                    if (canBatch) {
+                    if (canBatch) [[likely]] {
                         batchCount++;
                     } else {
                         break;
                     }
                 }
             
+            } else {
+                MG_External::GLES::glDrawElements(
+                mode, count[current], type, indices[current]);
+
+                current++;
+
             }
         
             // 单个绘制调用
             MG_External::GLES::glDrawElementsBaseVertex(
-                mode, count[current], type, indices[current], 
-                basevertex ? basevertex[current] : 0);
+                mode, count[current], type, indices[current], basevertex[current]);
         
             current++;
         }
