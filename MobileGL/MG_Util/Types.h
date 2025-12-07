@@ -204,16 +204,64 @@ using UnorderedMap = std::unordered_map<Key, T>;
         Range1D m_range;
     };
 
+    enum class VersionType {
+        Release,
+        Unstable,
+        Development
+    };
+
+    struct VersionStringFormatAttrib {
+        Int majorWidth = 0; // 0 = no formatting
+        Int minorWidth = 0;
+        Int patchWidth = 0;
+        Bool useSuffix = true;
+        Bool autoPatch = false; // If patch == 0, skip the patch part; else add normally
+    };
+
     struct Version {
         Int Major;
         Int Minor;
         Int Patch;
         Optional<String> Suffix;
+        Optional<VersionType> Type;
 
         String toString(Pair<Bool, Bool> dots = {true, true}, Bool useSuffix = true) const {
             StringStream result;
             result << Major << (dots.first ? "." : "") << Minor << (dots.second ? "." : "") << Patch
                    << (useSuffix && Suffix.has_value() ? *Suffix : "");
+            return result.str();
+        }
+
+        String toFormattedString(const VersionStringFormatAttrib& fmt) const {
+            auto formatNumber = [](Int value, Int width) {
+                String s = std::to_string(value);
+                if (width <= 0) return s;
+
+                if ((Int)s.size() > width) {
+                    return s.substr(s.size() - width);
+                } else if ((Int)s.size() < width) {
+                    return String(width - s.size(), '0') + s;
+                }
+                return s;
+            };
+
+            StringStream result;
+
+            result << formatNumber(Major, fmt.majorWidth) << "." << formatNumber(Minor, fmt.minorWidth);
+
+            Bool shouldShowPatch = true;
+            if (fmt.autoPatch) {
+                shouldShowPatch = (Patch != 0) || (Type != VersionType::Release);
+            }
+
+            if (shouldShowPatch) {
+                result << "." << formatNumber(Patch, fmt.patchWidth);
+            }
+
+            if (fmt.useSuffix && Suffix.has_value()) {
+                result << *Suffix;
+            }
+
             return result.str();
         }
     };

@@ -13,6 +13,7 @@ namespace MobileGL {
                 int Stride = 0;
                 SizeT Offset = 0;
                 Bool IsInteger = false;
+                Uint Divisor = 0;
                 SharedPtr<BufferObject> Buffer;
             };
 
@@ -39,6 +40,9 @@ namespace MobileGL {
                 const Vector<Uint>& GetDirtyAttributeIndices() const;
                 void ClearDirtyAttributes();
                 Uint GetExternalIndex() const;
+
+                void SetAttributeDivisor(Uint index, Uint divisor);
+                Uint GetAttributeDivisor(Uint index) const;
 
             private:
                 void MarkAttributeDirty(Uint index);

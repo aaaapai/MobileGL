@@ -13,6 +13,22 @@
 #include <MG_Util/Converters/MGToGL/RenderStateEnumConverter.h>
 
 namespace MobileGL::MG_Backend::DirectGLES {
+    enum class DrawSyncBit : Uint32 {
+        None = 0,
+        IndexBuffer = 1 << 0,
+        IndirectBuffer = 1 << 1,
+        Instancing = 1 << 2
+    };
+
+    inline DrawSyncBit operator|(DrawSyncBit a, DrawSyncBit b) {
+        return static_cast<DrawSyncBit>(static_cast<uint32_t>(a) | static_cast<uint32_t>(b));
+    }
+
+    inline DrawSyncBit& operator|=(DrawSyncBit& a, DrawSyncBit b) {
+        a = a | b;
+        return a;
+    }
+
     namespace DebugImpl {
         void ErrorLopper::Loop(std::function<void(GLenum)> func) {
 #if MOBILEGL_LOG_ACTIVE_LEVEL <= MOBILEGL_LOG_LEVEL_DEBUG
@@ -45,9 +61,10 @@ namespace MobileGL::MG_Backend::DirectGLES {
     // TODO: deletion for deleted objects
 
     namespace BufferImpl {
-        void SyncNeccessaryBuffers() {
+        void SyncNeccessaryBuffers(Bool includeIBO = false, Bool includeIndirectBuffer = false) {
             // All buffers we need are:
-            //   1.VBO 2.IBO 3.UBO 4.PBO 5.SSBO (TODO)
+            //   1.VBO 2.IBO (if needed) 3.UBO 4.IndirectBuffer (if needed) 5.SSBO (TODO)
+            // PBO is not needed since it should be handled in frontend
 
             Vector<SharedPtr<MG_State::GLState::BufferObject>> buffersToSync;
             const auto& currentVAOObject = MG_State::pGLContext->GetBoundVertexArray();
@@ -69,11 +86,25 @@ namespace MobileGL::MG_Backend::DirectGLES {
             }
 
             // IBO
-            const auto& possibleIBO = currentVAOObject->GetIndexBufferBindingSlot().GetBoundObject();
-            if (possibleIBO) {
-                const auto& end = buffersToSync.end();
-                if (std::find(buffersToSync.begin(), end, possibleIBO) == end) {
-                    buffersToSync.push_back(possibleIBO);
+            if (includeIBO) {
+                const auto& possibleIBO = currentVAOObject->GetIndexBufferBindingSlot().GetBoundObject();
+                if (possibleIBO) {
+                    const auto& end = buffersToSync.end();
+                    if (std::find(buffersToSync.begin(), end, possibleIBO) == end) {
+                        buffersToSync.push_back(possibleIBO);
+                    }
+                }
+            }
+
+            // Indirect Buffer Object
+            if (includeIndirectBuffer) {
+                const auto& possibleIndirectBuffer =
+                    MG_State::pGLContext->GetBufferBindingSlot(BufferTarget::DrawIndirect).GetBoundObject();
+                if (possibleIndirectBuffer) {
+                    const auto& end = buffersToSync.end();
+                    if (std::find(buffersToSync.begin(), end, possibleIndirectBuffer) == end) {
+                        buffersToSync.push_back(possibleIndirectBuffer);
+                    }
                 }
             }
 
@@ -106,7 +137,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
     } // namespace BufferImpl
 
     namespace VertexArrayImpl {
-        void SyncCurrentVAO() {
+        void SyncCurrentVAO(Bool needDivisor) {
             auto currentVAOObject = MG_State::pGLContext->GetBoundVertexArray();
             if (!currentVAOObject) {
                 MGLOG_E("No VAO is currently bound, cannot sync current VAO.");
@@ -121,7 +152,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
             } else {
                 backendVAOObject = backendVAOIt->second;
             }
-            backendVAOObject->SyncToBackend(currentVAOObject);
+            backendVAOObject->SyncToBackend(currentVAOObject, needDivisor);
         }
     } // namespace VertexArrayImpl
 
@@ -323,9 +354,9 @@ namespace MobileGL::MG_Backend::DirectGLES {
         }
     }
 
-    void PrepareForDraw() {
-        BufferImpl::SyncNeccessaryBuffers();
-        VertexArrayImpl::SyncCurrentVAO();
+    void PrepareForDraw(DrawSyncBit syncBit) {
+        BufferImpl::SyncNeccessaryBuffers(syncBit & DrawSyncBit::IndexBuffer, syncBit & DrawSyncBit::IndirectBuffer);
+        VertexArrayImpl::SyncCurrentVAO(syncBit & DrawSyncBit::Instancing);
         TextureImpl::SyncNeccessaryTextures();
         FramebufferImpl::SyncCurrentFBO();
         PrgramImpl::SyncCurrentProgram();
@@ -474,16 +505,6 @@ namespace MobileGL::MG_Backend::DirectGLES {
         }
     }
 
-    void DrawArrays(GLenum mode, GLint first, GLsizei count) {
-        PrepareForDraw();
-        MG_External::GLES::glDrawArrays(mode, first, count);
-    }
-
-    void DrawElements(GLenum mode, GLsizei count, GLenum type, const void* indices) {
-        PrepareForDraw();
-        MG_External::GLES::glDrawElements(mode, count, type, indices);
-    }
-
     void Clear(GLbitfield mask) {
         TextureImpl::SyncNeccessaryTextures();
         FramebufferImpl::SyncCurrentFBO();
@@ -494,25 +515,126 @@ namespace MobileGL::MG_Backend::DirectGLES {
         MG_External::GLES::glClear(mask);
     }
 
-    void DrawElementsBaseVertex(GLenum mode, GLsizei count, GLenum type, const void* indices, GLint baseVertex) {
-        PrepareForDraw();
-        MG_External::GLES::glDrawElementsBaseVertex(mode, count, type, indices, baseVertex);
+    void DrawElements(GLenum mode, GLsizei count, GLenum type, const void* indices) {
+        DrawSyncBit syncBit = DrawSyncBit::IndexBuffer;
+        PrepareForDraw(syncBit);
+        MG_External::GLES::glDrawElements(mode, count, type, indices);
     }
 
-    void MultiDrawElements(GLenum mode, const GLsizei* counts, GLenum type, const void* const* indices,
+    void DrawArrays(GLenum mode, GLint first, GLsizei count) {
+        DrawSyncBit syncBit = DrawSyncBit::None;
+        PrepareForDraw(syncBit);
+        MG_External::GLES::glDrawArrays(mode, first, count);
+    }
+
+    void DrawElementsBaseVertex(GLenum mode, GLsizei count, GLenum type, const GLvoid* indices, GLint basevertex) {
+        DrawSyncBit syncBit = DrawSyncBit::IndexBuffer;
+        PrepareForDraw(syncBit);
+        MG_External::GLES::glDrawElementsBaseVertex(mode, count, type, indices, basevertex);
+    }
+
+    void MultiDrawElements(GLenum mode, const GLsizei* count, GLenum type, const GLvoid* const* indices,
                            GLsizei drawcount) {
-        PrepareForDraw();
+        DrawSyncBit syncBit = DrawSyncBit::IndexBuffer;
+        PrepareForDraw(syncBit);
+
         for (GLsizei i = 0; i < drawcount; ++i) {
-            MG_External::GLES::glDrawElements(mode, counts[i], type, indices[i]);
+            MG_External::GLES::glDrawElements(mode, count[i], type, indices[i]);
         }
     }
 
-    void MultiDrawElementsBaseVertex(GLenum mode, const GLsizei* counts, GLenum type, const void* const* indices,
-                                     GLsizei drawcount, const GLint* baseVertices) {
-        PrepareForDraw();
+    void MultiDrawElementsBaseVertex(GLenum mode, const GLsizei* count, GLenum type, const GLvoid* const* indices,
+                                     GLsizei drawcount, const GLint* basevertex) {
+        DrawSyncBit syncBit = DrawSyncBit::IndexBuffer;
+        PrepareForDraw(syncBit);
+
         for (GLsizei i = 0; i < drawcount; ++i) {
-            MG_External::GLES::glDrawElementsBaseVertex(mode, counts[i], type, indices[i], baseVertices[i]);
+            MG_External::GLES::glDrawElementsBaseVertex(mode, count[i], type, indices[i], basevertex[i]);
         }
+    }
+
+    void MultiDrawElementsIndirect(GLenum mode, GLenum type, const void* indirect, GLsizei drawcount, GLsizei stride) {
+        DrawSyncBit syncBit = DrawSyncBit::IndexBuffer | DrawSyncBit::IndirectBuffer;
+        PrepareForDraw(syncBit);
+
+        for (GLsizei i = 0; i < drawcount; ++i) {
+            const GLvoid* cmd = reinterpret_cast<const GLvoid*>(reinterpret_cast<const uint8_t*>(indirect) +
+                                                                i * (stride ? stride : sizeof(GLsizei) * 4));
+            MG_External::GLES::glDrawElementsIndirect(mode, type, cmd);
+        }
+    }
+
+    void MultiDrawArraysIndirect(GLenum mode, const void* indirect, GLsizei drawcount, GLsizei stride) {
+        DrawSyncBit syncBit = DrawSyncBit::IndirectBuffer;
+        PrepareForDraw(syncBit);
+
+        for (GLsizei i = 0; i < drawcount; ++i) {
+            const GLvoid* cmd = reinterpret_cast<const GLvoid*>(reinterpret_cast<const uint8_t*>(indirect) +
+                                                                i * (stride ? stride : sizeof(GLsizei) * 4));
+            MG_External::GLES::glDrawArraysIndirect(mode, cmd);
+        }
+    }
+
+    void DrawRangeElementsBaseVertex(GLenum mode, GLuint start, GLuint end, GLsizei count, GLenum type,
+                                     const void* indices, GLint basevertex) {
+        DrawSyncBit syncBit = DrawSyncBit::IndexBuffer;
+        PrepareForDraw(syncBit);
+        MG_External::GLES::glDrawRangeElementsBaseVertex(mode, start, end, count, type, indices, basevertex);
+    }
+
+    void DrawRangeElements(GLenum mode, GLuint start, GLuint end, GLsizei count, GLenum type, const void* indices) {
+        DrawSyncBit syncBit = DrawSyncBit::IndexBuffer;
+        PrepareForDraw(syncBit);
+        MG_External::GLES::glDrawRangeElements(mode, start, end, count, type, indices);
+    }
+
+    void DrawElementsInstancedBaseVertexBaseInstance(GLenum mode, GLsizei count, GLenum type, const void* indices,
+                                                     GLsizei instancecount, GLint basevertex, GLuint baseinstance) {
+        // Not supported in OpenGL ES
+        MGLOG_W("DrawElementsInstancedBaseVertexBaseInstance is not supported in OpenGL ES.");
+    }
+
+    void DrawElementsInstancedBaseVertex(GLenum mode, GLsizei count, GLenum type, const void* indices,
+                                         GLsizei instancecount, GLint basevertex) {
+        DrawSyncBit syncBit = DrawSyncBit::IndexBuffer | DrawSyncBit::Instancing;
+        PrepareForDraw(syncBit);
+        MG_External::GLES::glDrawElementsInstancedBaseVertex(mode, count, type, indices, instancecount, basevertex);
+    }
+
+    void DrawElementsInstancedBaseInstance(GLenum mode, GLsizei count, GLenum type, const void* indices,
+                                           GLsizei instancecount, GLuint baseinstance) {
+        // Not supported in OpenGL ES
+        MGLOG_W("DrawElementsInstancedBaseInstance is not supported in OpenGL ES.");
+    }
+
+    void DrawElementsInstanced(GLenum mode, GLsizei count, GLenum type, const void* indices, GLsizei instancecount) {
+        DrawSyncBit syncBit = DrawSyncBit::IndexBuffer | DrawSyncBit::Instancing;
+        PrepareForDraw(syncBit);
+        MG_External::GLES::glDrawElementsInstanced(mode, count, type, indices, instancecount);
+    }
+
+    void DrawElementsIndirect(GLenum mode, GLenum type, const void* indirect) {
+        DrawSyncBit syncBit = DrawSyncBit::IndexBuffer | DrawSyncBit::IndirectBuffer;
+        PrepareForDraw(syncBit);
+        MG_External::GLES::glDrawElementsIndirect(mode, type, indirect);
+    }
+
+    void DrawArraysInstancedBaseInstance(GLenum mode, GLint first, GLsizei count, GLsizei instancecount,
+                                         GLuint baseinstance) {
+        // Not supported in OpenGL ES
+        MGLOG_W("DrawArraysInstancedBaseInstance is not supported in OpenGL ES.");
+    }
+
+    void DrawArraysInstanced(GLenum mode, GLint first, GLsizei count, GLsizei instancecount) {
+        DrawSyncBit syncBit = DrawSyncBit::Instancing;
+        PrepareForDraw(syncBit);
+        MG_External::GLES::glDrawArraysInstanced(mode, first, count, instancecount);
+    }
+
+    void DrawArraysIndirect(GLenum mode, const void* indirect) {
+        DrawSyncBit syncBit = DrawSyncBit::IndirectBuffer;
+        PrepareForDraw(syncBit);
+        MG_External::GLES::glDrawArraysIndirect(mode, indirect);
     }
 
     void BlitFramebuffer(GLint srcX0, GLint srcY0, GLint srcX1, GLint srcY1, GLint dstX0, GLint dstY0, GLint dstX1,

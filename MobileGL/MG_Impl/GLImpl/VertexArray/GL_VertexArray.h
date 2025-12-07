@@ -4,6 +4,7 @@
 namespace MobileGL {
     namespace MG_Impl::GLImpl {
         /* @INSERTION_POINT:FUNCTION_DECLARATION@ */
+        void VertexAttribDivisor(GLuint index, GLuint divisor);
         GLboolean IsVertexArray(GLuint array);
         void DisableVertexAttribArray(GLuint index);
         void EnableVertexAttribArray(GLuint index);

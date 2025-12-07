@@ -34,7 +34,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
         class BackendVertexArrayObject {
         public:
             BackendVertexArrayObject();
-            void SyncToBackend(SharedPtr<MG_State::GLState::VertexArrayObject>& stateVAOObject);
+            void SyncToBackend(SharedPtr<MG_State::GLState::VertexArrayObject>& stateVAOObject, Bool needDivisor);
             Uint GetBackendVertexArrayId() { return m_backendVAOId; }
             void Bind();
 

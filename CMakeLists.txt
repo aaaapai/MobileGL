@@ -23,7 +23,7 @@ if (MSVC)
     set(CMAKE_CXX_FLAGS "/EHsc ${CMAKE_CXX_FLAGS}")
 endif()
 
-# Generate MGLGitHash.h
+# Generate MGGitHash.h
 execute_process(
     COMMAND git rev-parse HEAD
     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
@@ -34,8 +34,8 @@ execute_process(
 string(SUBSTRING "${GIT_COMMIT_HASH_FULL}" 0 7 GIT_COMMIT_HASH_SHORT)
 
 configure_file(
-    ${CMAKE_SOURCE_DIR}/MobileGL/MG_Util/Miscellany/MGLGitHash.h.in
-    ${CMAKE_BINARY_DIR}/generated/MGLGitHash.h
+    ${CMAKE_SOURCE_DIR}/MobileGL/MG_Util/Miscellany/MGGitHash.h.in
+    ${CMAKE_BINARY_DIR}/generated/MGGitHash.h
     @ONLY
 )
 
@@ -123,6 +123,7 @@ set(SOURCE_FILES
     MobileGL/MG_State/GLState/BufferState/BufferObject.cpp
     MobileGL/MG_State/GLState/VertexArrayState/VertexArrayState.cpp
     MobileGL/MG_State/GLState/VertexArrayState/VertexArrayObject.cpp
+    MobileGL/MG_State/GLState/TextureState/MipmapStorage.cpp
     MobileGL/MG_State/GLState/TextureState/TextureObject.cpp
     MobileGL/MG_State/GLState/TextureState/TextureObject1D.cpp
     MobileGL/MG_State/GLState/TextureState/TextureObject2D.cpp

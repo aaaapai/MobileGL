@@ -37,15 +37,8 @@
 // Include FastSTL
 #include <FastSTL/UnorderedMap.h>
 
-// Include ankerl::unordered_dense
-#include <ankerl/unordered_dense.h>
-
 // Include spirv_cross
 #include <spirv_cross/spirv_cross_c.h>
-
-// Include glm
-#include <glm/glm.hpp>
-#include <glm/gtc/matrix_transform.hpp>
 
 // Include OpenGL and EGL headers
 #include <GL/gl.h>
