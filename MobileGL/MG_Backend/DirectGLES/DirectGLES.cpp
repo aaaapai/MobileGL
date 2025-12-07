@@ -618,33 +618,18 @@ namespace MobileGL::MG_Backend::DirectGLES {
     PrepareForDraw(syncBit);
 
     if (basevertex) [[likely]] {
-    // 7. 分批绘制优化
-    // 如果validDrawCount与drawcount相等（没有count=0的情况），直接循环
-    if (validDrawCount == drawcount) {
-        for (GLsizei i = 0; i < drawcount; ++i) {
-            MG_External::GLES::glDrawElementsBaseVertex(mode, count[i], type, indices[i], basevertex[i]);
-        }
-    } else {
         // 有count=0的情况，跳过它们
         for (GLsizei i = 0; i < drawcount; ++i) {
             if (count[i] > 0) {
                 MG_External::GLES::glDrawElementsBaseVertex(mode, count[i], type, indices[i], basevertex[i]);
             }
         }
-    }
     } else {
-     if (validDrawCount == drawcount) {
-        for (GLsizei i = 0; i < drawcount; ++i) {
-            MG_External::GLES::glDrawElements(mode, count[i], type, indices[i]);
-        }
-     } else {
-        // 有count=0的情况，跳过它们
         for (GLsizei i = 0; i < drawcount; ++i) {
             if (count[i] > 0) {
                 MG_External::GLES::glDrawElements(mode, count[i], type, indices[i]);
             }
         }
-     }
     }
 
     }
