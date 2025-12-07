@@ -156,7 +156,8 @@ namespace MobileGL::MG_Backend::DirectGLES {
             MG_External::GLES::glBindVertexArray(m_backendVAOId);
         }
 
-        void BackendVertexArrayObject::SyncToBackend(SharedPtr<MG_State::GLState::VertexArrayObject>& stateVAOObject) {
+        void BackendVertexArrayObject::SyncToBackend(SharedPtr<MG_State::GLState::VertexArrayObject>& stateVAOObject,
+                                                     Bool needDivisor) {
             if (!stateVAOObject) {
                 MGLOG_E("State VAO object is null, cannot sync to backend.");
                 return;
@@ -205,7 +206,9 @@ namespace MobileGL::MG_Backend::DirectGLES {
                                                               attrib.Stride, (const void*)attrib.Offset);
                 }
 
-                // TODO: divisor
+                if (needDivisor) {
+                    MG_External::GLES::glVertexAttribDivisor(attribIndex, attrib.Divisor);
+                }
             }
 
             const auto& indexBufferBinding = stateVAOObject->GetIndexBufferBindingSlot().GetBoundObject();

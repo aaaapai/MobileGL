@@ -137,7 +137,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
     } // namespace BufferImpl
 
     namespace VertexArrayImpl {
-        void SyncCurrentVAO() {
+        void SyncCurrentVAO(Bool needDivisor) {
             auto currentVAOObject = MG_State::pGLContext->GetBoundVertexArray();
             if (!currentVAOObject) {
                 MGLOG_E("No VAO is currently bound, cannot sync current VAO.");
@@ -152,7 +152,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
             } else {
                 backendVAOObject = backendVAOIt->second;
             }
-            backendVAOObject->SyncToBackend(currentVAOObject);
+            backendVAOObject->SyncToBackend(currentVAOObject, needDivisor);
         }
     } // namespace VertexArrayImpl
 
@@ -356,7 +356,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
 
     void PrepareForDraw(DrawSyncBit syncBit) {
         BufferImpl::SyncNeccessaryBuffers(syncBit & DrawSyncBit::IndexBuffer, syncBit & DrawSyncBit::IndirectBuffer);
-        VertexArrayImpl::SyncCurrentVAO(); // TODO: instancing
+        VertexArrayImpl::SyncCurrentVAO(syncBit & DrawSyncBit::Instancing);
         TextureImpl::SyncNeccessaryTextures();
         FramebufferImpl::SyncCurrentFBO();
         PrgramImpl::SyncCurrentProgram();
