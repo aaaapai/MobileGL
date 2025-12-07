@@ -267,7 +267,7 @@ DECLARE_GL_FUNCTION_HEAD(void, SamplerParameterf, GLuint sampler, GLenum pname, 
 DECLARE_GL_FUNCTION_HEAD(void, SamplerParameterfv, GLuint sampler, GLenum pname, const GLfloat* param) DECLARE_GL_FUNCTION_END_NO_RETURN(void, SamplerParameterfv, sampler, pname, param)
 DECLARE_GL_FUNCTION_HEAD(void, GetSamplerParameteriv, GLuint sampler, GLenum pname, GLint* params) DECLARE_GL_FUNCTION_END_NO_RETURN(void, GetSamplerParameteriv, sampler, pname, params)
 DECLARE_GL_FUNCTION_HEAD(void, GetSamplerParameterfv, GLuint sampler, GLenum pname, GLfloat* params) DECLARE_GL_FUNCTION_END_NO_RETURN(void, GetSamplerParameterfv, sampler, pname, params)
-DECLARE_GL_FUNCTION_STUB_HEAD(void, VertexAttribDivisor, GLuint index, GLuint divisor) DECLARE_GL_FUNCTION_STUB_END_NO_RETURN(void, VertexAttribDivisor, index, divisor)
+DECLARE_GL_FUNCTION_HEAD(void, VertexAttribDivisor, GLuint index, GLuint divisor) DECLARE_GL_FUNCTION_END_NO_RETURN(void, VertexAttribDivisor, index, divisor)
 DECLARE_GL_FUNCTION_STUB_HEAD(void, BindTransformFeedback, GLenum target, GLuint id) DECLARE_GL_FUNCTION_STUB_END_NO_RETURN(void, BindTransformFeedback, target, id)
 DECLARE_GL_FUNCTION_STUB_HEAD(void, DeleteTransformFeedbacks, GLsizei n, const GLuint* ids) DECLARE_GL_FUNCTION_STUB_END_NO_RETURN(void, DeleteTransformFeedbacks, n, ids)
 DECLARE_GL_FUNCTION_STUB_HEAD(void, GenTransformFeedbacks, GLsizei n, GLuint* ids) DECLARE_GL_FUNCTION_STUB_END_NO_RETURN(void, GenTransformFeedbacks, n, ids)

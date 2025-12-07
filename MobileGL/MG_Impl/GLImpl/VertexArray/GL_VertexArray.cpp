@@ -169,7 +169,26 @@ namespace MobileGL {
             return GL_TRUE;
         }
 
+        void VertexAttribDivisor_State(GLuint index, GLuint divisor) {
+            if (!VertexArrayImpl::ValidateVertexAttributeIndex(index)) return;
+
+            auto vao = MG_State::pGLContext->GetBoundVertexArray();
+            if (!vao) {
+                MG_State::pGLContext->RecordError(ErrorCode::InvalidOperation,
+                                                  MakeShared<GenericErrorInfo>("MG_Impl/GLImpl",
+                                                                               "VertexAttribDivisor_State",
+                                                                               "No vertex array object is bound."));
+                return;
+            }
+
+            vao->SetAttributeDivisor(index, divisor);
+        }
+
         /* @INSERTION_POINT:FUNCTION_IMPLEMENTATION@ */
+        void VertexAttribDivisor(GLuint index, GLuint divisor) {
+            VertexAttribDivisor_State(index, divisor);
+        }
+
         GLboolean IsVertexArray(GLuint array) {
             return IsVertexArray_State(array);
         }
