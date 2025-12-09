@@ -49,6 +49,11 @@ namespace MobileGL {
         Unknown = -1
     };
 
+    enum class TextureStorageType {
+        Mipmap,
+        Buffer
+    };
+
     enum class TextureInputFormat {
         Red,
         RG,

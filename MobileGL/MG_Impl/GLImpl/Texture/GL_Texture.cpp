@@ -64,9 +64,14 @@ namespace MobileGL {
             if (!TextureImpl::ValidateTextureSubImageOffsets(textureObject, xoffset, width, yoffset, height)) return;
 
             // ======================= Processing ================================
-            // auto& mipmap = textureObject->GetMipmap(level);
-            // Vector<Uint8>& data = mipmap.data;
-            auto texelSize = textureObject->GetMipmapTexelSize(textureUploadingTarget, level);
+            // Texture object here should always be an object with mipmap
+            // Assert this for extra safety.
+            // This should automatically compiled out in release,
+            // so that we don't take the perf hit of dyn-cast.
+            MOBILEGL_ASSERT(nullptr != dynamic_cast<MG_State::GLState::TextureMipmapObject*>(textureObject.get()),
+                "Texture object here should always be an object with mipmap");
+            auto textureMipmapObject = static_cast<MG_State::GLState::TextureMipmapObject*>(textureObject.get());
+            auto texelSize = textureMipmapObject->GetMipmapTexelSize(textureUploadingTarget, level);
 
             SizeT imageSize = 0;
             const SizeT bytesPerPixel = MG_Util::GetInputBytesPerPixel(textureInternalFormat, texturePixelDataType);
@@ -107,7 +112,7 @@ namespace MobileGL {
             }
 
             const auto* srcData = static_cast<const Uint8*>(processedPixels);
-            Uint8* destData = (Uint8*)textureObject->MapMipmapData(textureUploadingTarget, level);
+            Uint8* destData = (Uint8*)textureMipmapObject->MapMipmapData(textureUploadingTarget, level);
             // No allocation should be done here
             // if (data.empty()) {
             //     SizeT totalSize = texelSize.x() * texelSize.y() * bytesPerPixel;
@@ -122,7 +127,7 @@ namespace MobileGL {
 
             free(processedPixels);
 
-            textureObject->MarkStorageDirty(textureUploadingTarget, level, true);
+            textureMipmapObject->MarkStorageDirty(textureUploadingTarget, level, true);
             // mipmap.dirty = true;
             // mipmap.hasData = true;
         }
@@ -398,8 +403,13 @@ namespace MobileGL {
                                  reinterpret_cast<SizeT>(pixels);
             }
 
+            MOBILEGL_ASSERT(nullptr != dynamic_cast<MG_State::GLState::TextureMipmapObject*>(textureObject.get()),
+                "Texture object here should always be an object with mipmap");
+            auto textureMipmapObject = static_cast<MG_State::GLState::TextureMipmapObject*>(textureObject.get());
+
+
             // Allocate in TextureObject
-            textureObject->AllocateStorage(textureUploadingTarget, level, {{width, height, 1}, totalBytes});
+            textureMipmapObject->AllocateStorage(textureUploadingTarget, level, {{width, height, 1}, totalBytes});
 
             if (!originalPixels) {
                 MGLOG_D("TexImage2D_State: No input pixel and no PBO bound, no pixel transfer");
@@ -420,7 +430,7 @@ namespace MobileGL {
 
                 const SizeT copySize = std::min(imageSize, totalBytes);
                 DataPtr texelInput{processedPixels, copySize};
-                textureObject->UpdateMipmapSubData(textureUploadingTarget, level, texelInput);
+                textureMipmapObject->UpdateMipmapSubData(textureUploadingTarget, level, texelInput);
             }
 
             free(processedPixels);
@@ -648,17 +658,41 @@ namespace MobileGL {
             switch (pname) {
             case GL_TEXTURE_WIDTH:
                 if (params) {
-                    *params = textureObject->GetMipmapTexelSize(textureUploadingTarget, level).x();
+                    switch (textureObject->GetStorageType()) {
+                        case TextureStorageType::Mipmap: {
+                            const auto textureMipmapObject = static_cast<MG_State::GLState::TextureMipmapObject*>(textureObject.get());
+                            *params = textureMipmapObject->GetMipmapTexelSize(textureUploadingTarget, level).x();
+                            break;
+                        }
+                        default:
+                            THROW_UNIMPL_EXCEPTION;
+                    }
                 }
                 break;
             case GL_TEXTURE_HEIGHT:
                 if (params) {
-                    *params = textureObject->GetMipmapTexelSize(textureUploadingTarget, level).y();
+                    switch (textureObject->GetStorageType()) {
+                        case TextureStorageType::Mipmap: {
+                            const auto textureMipmapObject = static_cast<MG_State::GLState::TextureMipmapObject*>(textureObject.get());
+                            *params = textureMipmapObject->GetMipmapTexelSize(textureUploadingTarget, level).y();
+                            break;
+                        }
+                        default:
+                            THROW_UNIMPL_EXCEPTION;
+                    }
                 }
                 break;
             case GL_TEXTURE_DEPTH:
                 if (params) {
-                    *params = textureObject->GetMipmapTexelSize(textureUploadingTarget, level).z();
+                    switch (textureObject->GetStorageType()) {
+                        case TextureStorageType::Mipmap: {
+                            const auto textureMipmapObject = static_cast<MG_State::GLState::TextureMipmapObject*>(textureObject.get());
+                            *params = textureMipmapObject->GetMipmapTexelSize(textureUploadingTarget, level).z();
+                            break;
+                        }
+                        default:
+                            THROW_UNIMPL_EXCEPTION;
+                    }
                 }
                 break;
             case GL_TEXTURE_INTERNAL_FORMAT:
@@ -714,18 +748,41 @@ namespace MobileGL {
             switch (pname) {
             case GL_TEXTURE_WIDTH:
                 if (params) {
-                    *params = textureObject->GetMipmapTexelSize(textureUploadingTarget, level).x();
+                    switch (textureObject->GetStorageType()) {
+                        case TextureStorageType::Mipmap: {
+                            const auto textureMipmapObject = static_cast<MG_State::GLState::TextureMipmapObject*>(textureObject.get());
+                            *params = textureMipmapObject->GetMipmapTexelSize(textureUploadingTarget, level).x();
+                            break;
+                        }
+                        default:
+                            THROW_UNIMPL_EXCEPTION;
+                        }
                 }
                 break;
             case GL_TEXTURE_HEIGHT:
                 if (params) {
-                    *params = textureObject->GetMipmapTexelSize(textureUploadingTarget, level).y();
+                    switch (textureObject->GetStorageType()) {
+                    case TextureStorageType::Mipmap: {
+                        const auto textureMipmapObject = static_cast<MG_State::GLState::TextureMipmapObject*>(textureObject.get());
+                        *params = textureMipmapObject->GetMipmapTexelSize(textureUploadingTarget, level).y();
+                        break;
+                    }
+                    default:
+                        THROW_UNIMPL_EXCEPTION;
+                    }
                 }
                 break;
             case GL_TEXTURE_DEPTH:
                 if (params) {
-                    *params = textureObject->GetMipmapTexelSize(textureUploadingTarget, level).z();
-                }
+                    switch (textureObject->GetStorageType()) {
+                    case TextureStorageType::Mipmap: {
+                        const auto textureMipmapObject = static_cast<MG_State::GLState::TextureMipmapObject*>(textureObject.get());
+                        *params = textureMipmapObject->GetMipmapTexelSize(textureUploadingTarget, level).z();
+                        break;
+                    }
+                    default:
+                        THROW_UNIMPL_EXCEPTION;
+                    }                }
                 break;
             case GL_TEXTURE_INTERNAL_FORMAT:
                 if (params) {
