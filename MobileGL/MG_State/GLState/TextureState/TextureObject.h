@@ -69,9 +69,9 @@ namespace MobileGL {
                 UintVec2 m_levelRange = {0, 1000};
             };
 
-            class TextureMipmapObject : public TextureObjectBase {
+            class TextureObjectMipmap : public TextureObjectBase {
             public:
-                TextureMipmapObject(TextureTarget target, Uint externalIndex): TextureObjectBase(target, externalIndex) {}
+                TextureObjectMipmap(TextureTarget target, Uint externalIndex): TextureObjectBase(target, externalIndex) {}
 
                 TextureStorageType GetStorageType() const override { return TextureStorageType::Mipmap; }
 
@@ -85,10 +85,10 @@ namespace MobileGL {
                 virtual bool IsStorageDirty(TextureUploadTarget uploadTarget, Uint mipmapLevel) const = 0;
             };
 
-            class TextureObjectWithOneMipmap : public TextureMipmapObject {
+            class TextureObjectWithOneMipmap : public TextureObjectMipmap {
             public:
                 TextureObjectWithOneMipmap(TextureTarget target, Uint externalIndex)
-                    : TextureMipmapObject(target, externalIndex) {}
+                    : TextureObjectMipmap(target, externalIndex) {}
                 virtual ~TextureObjectWithOneMipmap() = default;
 
                 Uint GetMipmapLevelCount() const override;

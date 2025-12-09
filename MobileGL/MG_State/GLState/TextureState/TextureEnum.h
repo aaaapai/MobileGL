@@ -38,6 +38,7 @@ namespace MobileGL {
         CubeMapNegativeY,
         CubeMapPositiveZ,
         CubeMapNegativeZ,
+        TextureBuffer,
         ProxyCubeMap,
         CubeMapArray,
         ProxyCubeMapArray,

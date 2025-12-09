@@ -750,9 +750,9 @@ namespace MobileGL::MG_Backend::DirectGLES {
         auto textureObject = bindingSlot.GetBoundObject();
 
         textureObject->SetInternalFormat(mglInternalFormat);
-        MOBILEGL_ASSERT(nullptr != dynamic_cast<MG_State::GLState::TextureMipmapObject*>(textureObject.get()),
+        MOBILEGL_ASSERT(nullptr != dynamic_cast<MG_State::GLState::TextureObjectMipmap*>(textureObject.get()),
                 "Texture object here should always be an object with mipmap");
-        auto textureMipmapObject = static_cast<MG_State::GLState::TextureMipmapObject*>(textureObject.get());
+        auto textureMipmapObject = static_cast<MG_State::GLState::TextureObjectMipmap*>(textureObject.get());
         textureMipmapObject->AllocateStorage(TextureUploadTarget::Texture2D, level, {{width, height, 1}, 0});
     }
 

@@ -295,7 +295,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 static_cast<SizeT>(baseSize.z()), 0};
             switch (stateTextureObject->GetStorageType()) {
                 case TextureStorageType::Mipmap: {
-                    auto* textureMipmapObject = static_cast<MG_State::GLState::TextureMipmapObject*>(stateTextureObject.get());
+                    auto* textureMipmapObject = static_cast<MG_State::GLState::TextureObjectMipmap*>(stateTextureObject.get());
                     const auto mipmapCount = textureMipmapObject->GetMipmapLevelCount();
                     currentTextureInfo.mipmapLevels = mipmapCount;
 
