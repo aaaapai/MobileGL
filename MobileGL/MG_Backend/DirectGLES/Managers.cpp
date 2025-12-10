@@ -2,6 +2,8 @@
 #include "MG_Backend/Backends.h"
 #include "Utils.h"
 #include "DirectGLES.h"
+#include "MG_State/GLState/TextureState/TextureObjectBuffer.h"
+
 #include <MG_Util/BackendLoaders/OpenGL/Loader.h>
 #include <MG_Util/Converters/GLToStr/GLEnumConverter.h>
 #include <MG_Util/Converters/MGToStr/TextureEnumConverter.h>
@@ -262,7 +264,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
             auto targetInternal = stateTextureObject->GetTarget();
             MGLOG_D("    Texture target for syncing is %s",
                     MG_Util::ConvertTextureTargetToString(targetInternal).c_str());
-            if (targetInternal == TextureTarget::TextureBuffer || targetInternal == TextureTarget::Texture1D ||
+            if (targetInternal == TextureTarget::Texture1D ||
                 targetInternal == TextureTarget::TextureRectangle ||
                 targetInternal == TextureTarget::Texture2DMultisampleArray ||
                 targetInternal == TextureTarget::Texture1DArray || targetInternal == TextureTarget::Texture3D ||
@@ -292,7 +294,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
             const auto baseSize = stateTextureObject->GetBaseSize();
             StateTextureBasicInfo currentTextureInfo = {
                 stateTextureObject->GetFormat(), static_cast<SizeT>(baseSize.x()), static_cast<SizeT>(baseSize.y()),
-                static_cast<SizeT>(baseSize.z()), 0};
+                static_cast<SizeT>(baseSize.z()), 0, 0};
             switch (stateTextureObject->GetStorageType()) {
                 case TextureStorageType::Mipmap: {
                     auto* textureMipmapObject = static_cast<MG_State::GLState::TextureObjectMipmap*>(stateTextureObject.get());
@@ -383,6 +385,39 @@ namespace MobileGL::MG_Backend::DirectGLES {
                             }
                         }
                     }
+                    break;
+                }
+                case TextureStorageType::Buffer: {
+                    auto* textureBufferObject = static_cast<MG_State::GLState::TextureObjectBuffer*>(stateTextureObject.get());
+                    auto& slot = textureBufferObject->GetBufferBindingSlot();
+                    auto buffer = slot.GetBoundObject();
+                    auto bufferIndex = buffer->GetExternalIndex();
+                    currentTextureInfo.bufferExternalIndex = bufferIndex;
+
+                    Bool needsRegeneration = !m_isInitialized || (currentTextureInfo != m_prevTextureInfo);
+                    MGLOG_D("Texture state changed significantly or not initialized, regenerating texture (tex buffer) with ID: %u",
+                                m_backendTextureId);
+
+                    // Need to sync texture buffer if not synced yet
+                    auto& backendBuffers = BufferImpl::g_backendBufferObjects;
+                    SharedPtr<BufferImpl::BackendBufferObject> backendBufferObject;
+                    const auto& backendBufferIt = backendBuffers.find(buffer);
+                    if (backendBufferIt == backendBuffers.end()) {
+                        backendBufferObject = MakeShared<BufferImpl::BackendBufferObject>();
+                        backendBuffers[buffer] = backendBufferObject;
+                    } else {
+                        backendBufferObject = backendBufferIt->second;
+                    }
+                    backendBufferObject->SyncToBackend(buffer);
+
+                    // Bind buffer to texture
+                    auto backendId = backendBufferObject->GetBackendBufferId();
+
+                    GLenum glInternalFormat, glType, glFormat;
+                    TextureImpl::GenerateTextureFormatInfo(textureBufferObject->GetFormat(), &glInternalFormat, &glType,
+                                                           &glFormat);
+
+                    MG_External::GLES::glTexBuffer(GL_TEXTURE_BUFFER, glInternalFormat, backendId);
                     break;
                 }
                 default: THROW_UNIMPL_EXCEPTION;
