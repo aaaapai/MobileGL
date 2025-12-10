@@ -17,7 +17,7 @@ if (NOT CMAKE_BUILD_TYPE STREQUAL "Debug" OR MOBILEGL_FORCE_RELEASE_OPT)
     elseif (CMAKE_CXX_COMPILER_ID MATCHES "MSVC")
         add_compile_options(/O2 /GL)
     else ()
-        add_compile_options(-O3)
+        add_compile_options(-O2)
     endif()
 endif()
 
