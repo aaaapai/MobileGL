@@ -65,6 +65,9 @@ namespace MobileGL::MG_Backend::DirectGLES {
 
     namespace BufferImpl {
         void SyncNeccessaryBuffers(Bool includeIBO = false, Bool includeIndirectBuffer = false) {
+#ifdef TRACY_ENABLE
+            ZoneScopedC(TRACY_ZONECOLOR_BACKEND);
+#endif
             // All buffers we need are:
             //   1.VBO 2.IBO (if needed) 3.UBO 4.IndirectBuffer (if needed) 5.SSBO (TODO)
             // PBO is not needed since it should be handled in frontend
@@ -141,6 +144,9 @@ namespace MobileGL::MG_Backend::DirectGLES {
 
     namespace VertexArrayImpl {
         void SyncCurrentVAO(Bool needDivisor) {
+#ifdef TRACY_ENABLE
+            ZoneScopedC(TRACY_ZONECOLOR_BACKEND);
+#endif
             auto currentVAOObject = MG_State::pGLContext->GetBoundVertexArray();
             if (!currentVAOObject) {
                 MGLOG_E("No VAO is currently bound, cannot sync current VAO.");
@@ -162,6 +168,9 @@ namespace MobileGL::MG_Backend::DirectGLES {
     namespace TextureImpl {
         SharedPtr<BackendTextureObject> SyncTextureObjectToBackend(
             SharedPtr<MG_State::GLState::ITextureObject>& textureObject) {
+#ifdef TRACY_ENABLE
+            ZoneScopedC(TRACY_ZONECOLOR_BACKEND);
+#endif
             const auto& backendTextureIt = g_backendTextureObjects.find(textureObject);
             SharedPtr<BackendTextureObject> backendTextureObject;
             if (backendTextureIt == g_backendTextureObjects.end()) {
@@ -175,6 +184,9 @@ namespace MobileGL::MG_Backend::DirectGLES {
         }
 
         void SyncNeccessaryTextures() {
+#ifdef TRACY_ENABLE
+            ZoneScopedC(TRACY_ZONECOLOR_BACKEND);
+#endif
             // All textures we need are:
             //   1. textures bound to texture units (TODO: only sync ones that are used in current program)
             //   2. textures used in current FBO
@@ -219,6 +231,9 @@ namespace MobileGL::MG_Backend::DirectGLES {
 
     namespace FramebufferImpl {
         void SyncCurrentFBO() {
+#ifdef TRACY_ENABLE
+            ZoneScopedC(TRACY_ZONECOLOR_BACKEND);
+#endif
             const FramebufferTarget fboTargets[] = {FramebufferTarget::Draw, FramebufferTarget::Read};
 
             MG_State::GLState::FramebufferObject* lastUpdatedFBO = nullptr;
@@ -260,6 +275,9 @@ namespace MobileGL::MG_Backend::DirectGLES {
 
     namespace RenderStateImpl {
         void SyncRenderState() {
+#ifdef TRACY_ENABLE
+            ZoneScopedC(TRACY_ZONECOLOR_BACKEND);
+#endif
             MG_External::GLES::glViewport(
                 MG_State::pGLContext->GetViewport().x(), MG_State::pGLContext->GetViewport().y(),
                 MG_State::pGLContext->GetViewport().z(), MG_State::pGLContext->GetViewport().w());
@@ -320,6 +338,9 @@ namespace MobileGL::MG_Backend::DirectGLES {
 
     namespace PrgramImpl {
         void SyncCurrentProgram() {
+#ifdef TRACY_ENABLE
+            ZoneScopedC(TRACY_ZONECOLOR_BACKEND);
+#endif
             auto currentProgram = MG_State::pGLContext->GetCurrentProgram();
             if (!currentProgram || !currentProgram->GetLinkStatus()) {
                 MG_External::GLES::glUseProgram(0);
@@ -341,6 +362,9 @@ namespace MobileGL::MG_Backend::DirectGLES {
     } // namespace PrgramImpl
 
     void BindCurrentFBO(FramebufferTarget target) {
+#ifdef TRACY_ENABLE
+        ZoneScopedC(TRACY_ZONECOLOR_BACKEND);
+#endif
         const auto& currentFBO = MG_State::pGLContext->GetFramebufferBindingSlot(target).GetBoundObject();
         if (currentFBO && currentFBO != MG_Impl::GLImpl::FramebufferImpl::pDefaultFramebufferInfo->defaultFBO) {
             const auto& backendFBOIt = FramebufferImpl::g_backendFramebufferObjects.find(currentFBO);
@@ -358,6 +382,9 @@ namespace MobileGL::MG_Backend::DirectGLES {
     }
 
     void PrepareForDraw(DrawSyncBit syncBit) {
+#ifdef TRACY_ENABLE
+        ZoneScopedC(TRACY_ZONECOLOR_BACKEND);
+#endif
         BufferImpl::SyncNeccessaryBuffers(syncBit & DrawSyncBit::IndexBuffer, syncBit & DrawSyncBit::IndirectBuffer);
         VertexArrayImpl::SyncCurrentVAO(syncBit & DrawSyncBit::Instancing);
         TextureImpl::SyncNeccessaryTextures();

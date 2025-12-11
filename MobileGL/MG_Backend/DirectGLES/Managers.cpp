@@ -18,6 +18,9 @@
 namespace MobileGL::MG_Backend::DirectGLES {
     namespace BufferImpl {
         BackendBufferObject::BackendBufferObject() {
+#ifdef TRACY_ENABLE
+            ZoneScopedC(TRACY_ZONECOLOR_BACKEND);
+#endif
             MG_External::GLES::glGenBuffers(1, &m_backendBufferId);
             if (m_backendBufferId == 0) {
                 MGLOG_E("Failed to generate buffer object.");
@@ -29,6 +32,9 @@ namespace MobileGL::MG_Backend::DirectGLES {
 
         const GLenum TempBufferTarget = GL_ARRAY_BUFFER;
         void BackendBufferObject::SyncToBackend(SharedPtr<MG_State::GLState::BufferObject>& stateBufferObject) {
+#ifdef TRACY_ENABLE
+            ZoneScopedC(TRACY_ZONECOLOR_BACKEND);
+#endif
             if (!stateBufferObject) {
                 MGLOG_E("State buffer object is null, cannot sync to backend.");
                 return;
@@ -74,6 +80,9 @@ namespace MobileGL::MG_Backend::DirectGLES {
 
         void BackendBufferObject::SyncToBackend_glBufferData(
             SharedPtr<MG_State::GLState::BufferObject>& stateBufferObject) {
+#ifdef TRACY_ENABLE
+            ZoneScopedC(TRACY_ZONECOLOR_BACKEND);
+#endif
             BackendBufferBindingProtector backendBufferBindingProtector(TempBufferTarget);
 
             MGLOG_D("Syncing buffer data (glBufferData) for object with ID : %u", m_backendBufferId);
@@ -90,6 +99,9 @@ namespace MobileGL::MG_Backend::DirectGLES {
 
         void BackendBufferObject::SyncToBackend_glBufferSubData(
             SharedPtr<MG_State::GLState::BufferObject>& stateBufferObject) {
+#ifdef TRACY_ENABLE
+            ZoneScopedC(TRACY_ZONECOLOR_BACKEND);
+#endif
             BackendBufferBindingProtector backendBufferBindingProtector(TempBufferTarget);
 
             MGLOG_D("Syncing buffer sub-data (glBufferSubData) for object with ID : %u", m_backendBufferId);
@@ -109,6 +121,9 @@ namespace MobileGL::MG_Backend::DirectGLES {
 
         void BackendBufferObject::SyncToBackend_glMapBufferRange(
             SharedPtr<MG_State::GLState::BufferObject>& stateBufferObject, Bool invalidate) {
+#ifdef TRACY_ENABLE
+            ZoneScopedC(TRACY_ZONECOLOR_BACKEND);
+#endif
             BackendBufferBindingProtector backendBufferBindingProtector(TempBufferTarget);
 
             MGLOG_D("Syncing buffer map (glMapBuffer) for object with ID : %u", m_backendBufferId);
@@ -133,10 +148,16 @@ namespace MobileGL::MG_Backend::DirectGLES {
         }
 
         void BackendBufferObject::Bind() {
+#ifdef TRACY_ENABLE
+            ZoneScopedC(TRACY_ZONECOLOR_BACKEND);
+#endif
             MG_External::GLES::glBindBuffer(TempBufferTarget, m_backendBufferId);
         }
 
         void BackendBufferObject::Bind(GLenum target) {
+#ifdef TRACY_ENABLE
+            ZoneScopedC(TRACY_ZONECOLOR_BACKEND);
+#endif
             MG_External::GLES::glBindBuffer(target, m_backendBufferId);
         }
 
@@ -145,6 +166,9 @@ namespace MobileGL::MG_Backend::DirectGLES {
 
     namespace VertexArrayImpl {
         BackendVertexArrayObject::BackendVertexArrayObject() {
+#ifdef TRACY_ENABLE
+            ZoneScopedC(TRACY_ZONECOLOR_BACKEND);
+#endif
             MG_External::GLES::glGenVertexArrays(1, &m_backendVAOId);
             if (m_backendVAOId == 0) {
                 MGLOG_E("Failed to generate vertex array object.");
@@ -155,11 +179,17 @@ namespace MobileGL::MG_Backend::DirectGLES {
         }
 
         void BackendVertexArrayObject::Bind() {
+#ifdef TRACY_ENABLE
+            ZoneScopedC(TRACY_ZONECOLOR_BACKEND);
+#endif
             MG_External::GLES::glBindVertexArray(m_backendVAOId);
         }
 
         void BackendVertexArrayObject::SyncToBackend(SharedPtr<MG_State::GLState::VertexArrayObject>& stateVAOObject,
                                                      Bool needDivisor) {
+#ifdef TRACY_ENABLE
+            ZoneScopedC(TRACY_ZONECOLOR_BACKEND);
+#endif
             if (!stateVAOObject) {
                 MGLOG_E("State VAO object is null, cannot sync to backend.");
                 return;
@@ -233,6 +263,9 @@ namespace MobileGL::MG_Backend::DirectGLES {
 
     namespace TextureImpl {
         BackendTextureObject::BackendTextureObject() {
+#ifdef TRACY_ENABLE
+            ZoneScopedC(TRACY_ZONECOLOR_BACKEND);
+#endif
             MG_External::GLES::glGenTextures(1, &m_backendTextureId);
             if (m_backendTextureId == 0) {
                 MGLOG_E("Failed to generate texture object.");
@@ -243,14 +276,23 @@ namespace MobileGL::MG_Backend::DirectGLES {
         }
 
         void BackendTextureObject::Bind(GLenum target) {
+#ifdef TRACY_ENABLE
+            ZoneScopedC(TRACY_ZONECOLOR_BACKEND);
+#endif
             MG_External::GLES::glBindTexture(target, m_backendTextureId);
         }
 
         Uint BackendTextureObject::GetBackendTextureId() {
+#ifdef TRACY_ENABLE
+            ZoneScopedC(TRACY_ZONECOLOR_BACKEND);
+#endif
             return m_backendTextureId;
         }
 
         void BackendTextureObject::SyncToBackend(SharedPtr<MG_State::GLState::ITextureObject>& stateTextureObject) {
+#ifdef TRACY_ENABLE
+            ZoneScopedC(TRACY_ZONECOLOR_BACKEND);
+#endif
             DebugImpl::ErrorLopper errorLopper;
             if (!stateTextureObject) {
                 MGLOG_E("State texture object is null, cannot sync to backend.");
@@ -329,8 +371,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
                                 MGLOG_D("%s: target: %s: syncing mip %d: %dx%dx%d, byteSize = %d, pData = %p", __func__,
                                         MG_Util::ConvertTextureUploadTargetToString(uploadTarget).c_str(), level,
                                         levelTexelSize.x(), levelTexelSize.y(), levelTexelSize.z(), levelByteSize, pData);
-                                BufferImpl::BackendBufferBindingProtector pixelUnpackProtector =
-                                    BufferImpl::BackendBufferBindingProtector(GL_PIXEL_UNPACK_BUFFER);
+
                                 errorLopper.Clear();
                                 MG_External::GLES::glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
                                 MG_External::GLES::glTexImage2D(glUploadTarget, static_cast<GLint>(level), glInternalFormat,
@@ -367,9 +408,6 @@ namespace MobileGL::MG_Backend::DirectGLES {
                                 }
 
                                 auto glUploadTarget = MG_Util::ConvertTextureUploadTargetToGLEnum(uploadTarget);
-
-                                BufferImpl::BackendBufferBindingProtector pixelUnpackProtector =
-                                    BufferImpl::BackendBufferBindingProtector(GL_PIXEL_UNPACK_BUFFER);
                                 MG_External::GLES::glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
                                 errorLopper.Loop([file = __FILE__, line = __LINE__, func = __func__](GLenum err) {
                                     MGLOG_D("%s(%s:%d) ES error: %s", func, file, line,
@@ -541,6 +579,9 @@ namespace MobileGL::MG_Backend::DirectGLES {
 
     namespace FramebufferImpl {
         BackendFramebufferObject::BackendFramebufferObject() {
+#ifdef TRACY_ENABLE
+            ZoneScopedC(TRACY_ZONECOLOR_BACKEND);
+#endif
             MG_External::GLES::glGenFramebuffers(1, &m_backendFBOId);
             if (m_backendFBOId == 0) {
                 MGLOG_E("Failed to generate framebuffer object.");
@@ -551,6 +592,9 @@ namespace MobileGL::MG_Backend::DirectGLES {
         }
 
         void BackendFramebufferObject::Bind(FramebufferTarget target) {
+#ifdef TRACY_ENABLE
+            ZoneScopedC(TRACY_ZONECOLOR_BACKEND);
+#endif
             if (target == FramebufferTarget::Read)
                 MG_External::GLES::glBindFramebuffer(GL_READ_FRAMEBUFFER, m_backendFBOId);
             else
@@ -559,6 +603,9 @@ namespace MobileGL::MG_Backend::DirectGLES {
 
         void BackendFramebufferObject::SyncToBackend(SharedPtr<MG_State::GLState::FramebufferObject>& stateFBOObject,
                                                      FramebufferTarget asTarget) {
+#ifdef TRACY_ENABLE
+            ZoneScopedC(TRACY_ZONECOLOR_BACKEND);
+#endif
             if (!stateFBOObject) {
                 MGLOG_E("State FBO object is null, cannot sync to backend.");
                 return;
@@ -664,6 +711,9 @@ namespace MobileGL::MG_Backend::DirectGLES {
             g_backendProgramObjects;
 
         BackendProgramObjectImpl::BackendProgramObjectImpl() {
+#ifdef TRACY_ENABLE
+            ZoneScopedC(TRACY_ZONECOLOR_BACKEND);
+#endif
             m_backendProgramId = MG_External::GLES::glCreateProgram();
             if (m_backendProgramId == 0) {
                 MGLOG_E("Failed to create program object in backend.");
@@ -675,6 +725,9 @@ namespace MobileGL::MG_Backend::DirectGLES {
         }
 
         BackendProgramObjectImpl::~BackendProgramObjectImpl() {
+#ifdef TRACY_ENABLE
+            ZoneScopedC(TRACY_ZONECOLOR_BACKEND);
+#endif
             if (m_backendProgramId != 0) {
                 MGLOG_D("Deleting backend program object with ID: %u", m_backendProgramId);
                 MG_External::GLES::glDeleteProgram(m_backendProgramId);
@@ -682,6 +735,9 @@ namespace MobileGL::MG_Backend::DirectGLES {
         }
 
         void BackendProgramObjectImpl::SyncToBackend(SharedPtr<MG_State::GLState::ProgramObject>& stateProgramObject) {
+#ifdef TRACY_ENABLE
+            ZoneScopedC(TRACY_ZONECOLOR_BACKEND);
+#endif
             if (!stateProgramObject) {
                 MGLOG_E("State program object is null, skipping backend sync.");
                 return;
@@ -822,6 +878,9 @@ namespace MobileGL::MG_Backend::DirectGLES {
         }
 
         void BackendProgramObjectImpl::Use() {
+#ifdef TRACY_ENABLE
+            ZoneScopedC(TRACY_ZONECOLOR_BACKEND);
+#endif
             MGLOG_D("Using program %u", m_backendProgramId);
             MG_External::GLES::glUseProgram(m_backendProgramId);
         }
@@ -829,6 +888,9 @@ namespace MobileGL::MG_Backend::DirectGLES {
 
     namespace SamplerImpl {
         BackendSamplerObject::BackendSamplerObject() {
+#ifdef TRACY_ENABLE
+            ZoneScopedC(TRACY_ZONECOLOR_BACKEND);
+#endif
             MG_External::GLES::glGenSamplers(1, &m_backendSamplerId);
             if (m_backendSamplerId == 0) {
                 MGLOG_E("Failed to generate sampler object.");
@@ -839,6 +901,9 @@ namespace MobileGL::MG_Backend::DirectGLES {
         }
 
         void BackendSamplerObject::SyncToBackend(SharedPtr<MG_State::GLState::SamplerObject>& stateSamplerObject) {
+#ifdef TRACY_ENABLE
+            ZoneScopedC(TRACY_ZONECOLOR_BACKEND);
+#endif
             if (!stateSamplerObject) {
                 MGLOG_E("State sampler object is null, cannot sync to backend.");
                 return;
@@ -889,10 +954,16 @@ namespace MobileGL::MG_Backend::DirectGLES {
         }
 
         void BackendSamplerObject::Bind(Uint unit) {
+#ifdef TRACY_ENABLE
+            ZoneScopedC(TRACY_ZONECOLOR_BACKEND);
+#endif
             MG_External::GLES::glBindSampler(static_cast<GLenum>(unit), m_backendSamplerId);
         }
 
         Uint BackendSamplerObject::GetBackendSamplerId() {
+#ifdef TRACY_ENABLE
+            ZoneScopedC(TRACY_ZONECOLOR_BACKEND);
+#endif
             return m_backendSamplerId;
         }
 
