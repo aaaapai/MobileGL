@@ -43,7 +43,7 @@
 #define MOBILEGL_LOG_FILE_PATH ""
 #endif
 
-#if _MSC_VER
+#if defined _MSC_VER or defined __MINGW32__ or defined __MINGW64__
 #define TRAP assert(false)
 #elif __clang__
 #define TRAP __builtin_debugtrap()
