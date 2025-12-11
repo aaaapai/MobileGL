@@ -76,6 +76,10 @@
 #include <vulkan/vulkan_android.h>
 #endif
 
+#ifdef TRACY_ENABLE
+#include <tracy/Tracy.hpp>
+#endif
+
 // Post-includes for significant project headers
 #include "MG_Util/Debug/Log.h"
 #include "MG_Util/Types.h"

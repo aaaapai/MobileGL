@@ -15,7 +15,7 @@ if (NOT CMAKE_BUILD_TYPE STREQUAL "Debug" OR MOBILEGL_FORCE_RELEASE_OPT)
         add_compile_options(-O3 -ffunction-sections -fdata-sections)
         add_link_options(-Wl,--gc-sections)
     elseif (CMAKE_CXX_COMPILER_ID MATCHES "MSVC")
-        add_compile_options(/O2 /GL)
+#        add_compile_options(/O2)
     else ()
         add_compile_options(-O2)
     endif()
@@ -76,6 +76,12 @@ set(SPIRV_CROSS_STATIC         ON  CACHE BOOL "Prefer static libs" FORCE)
 # add_subdirectory(3rdparty/DiligentCore)
 add_subdirectory(3rdparty/glslang)
 add_subdirectory(3rdparty/SPIRV-Cross)
+
+option(TRACY_ENABLE "Enable Tracy" OFF)
+option(TRACY_ON_DEMAND "Enable profiling only connected" ON)
+option(TRACY_NO_EXIT "Don't exit Tracy until connected" OFF)
+
+add_subdirectory(3rdparty/tracy)
 
 set(SOURCE_FILES
     MobileGL/Init.cpp
@@ -249,6 +255,13 @@ target_link_libraries(${CMAKE_PROJECT_NAME}_s
     glslang::glslang
     spirv-cross-c
 )
+
+if (TRACY_ENABLE)
+    target_link_libraries(${CMAKE_PROJECT_NAME} PUBLIC Tracy::TracyClient)
+    target_link_libraries(${CMAKE_PROJECT_NAME}_s PUBLIC Tracy::TracyClient)
+    target_compile_definitions(${CMAKE_PROJECT_NAME} PUBLIC -DTRACY_ENABLE)
+    target_compile_definitions(${CMAKE_PROJECT_NAME}_s PUBLIC -DTRACY_ENABLE)
+endif ()
 
 if (ANDROID)
     target_link_libraries(${CMAKE_PROJECT_NAME} PUBLIC
