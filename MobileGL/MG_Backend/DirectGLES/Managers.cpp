@@ -328,7 +328,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 return;
             }
 
-            BackendTextureBindingProtector backendTextureBindingProtector(target);
+            // BackendTextureBindingProtector backendTextureBindingProtector(target);
             Bind(target);
             errorLopper.Loop([file = __FILE__, line = __LINE__, func = __func__](GLenum err) {
                 MGLOG_D("%s(%s:%d) ES error: %s", func, file, line, MG_Util::ConvertGLEnumToString(err).c_str());

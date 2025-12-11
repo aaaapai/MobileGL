@@ -33,6 +33,7 @@
 #include <string_view>
 #include <unordered_map>
 #include <mutex>
+#include <bitset>
 
 // Include FastSTL
 #include <FastSTL/UnorderedMap.h>
