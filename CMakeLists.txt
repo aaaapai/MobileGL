@@ -89,7 +89,7 @@ if (TRACY_ENABLE)
     set(TRACY_MANUAL_LIFETIME      ON  CACHE BOOL "Manually control Tracy lifetime" FORCE)
     set(TRACY_NO_CRASH_HANDLER     ON  CACHE BOOL "Disable crash handling" FORCE)
 
-    add_subdirectory(3rdparty/tracy)
+    # add_subdirectory(3rdparty/tracy)
 endif ()
 
 set(SOURCE_FILES
