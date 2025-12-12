@@ -21,7 +21,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
     };
 
     inline DrawSyncBit operator|(DrawSyncBit a, DrawSyncBit b) {
-        return static_cast<DrawSyncBit>(static_cast<uint32_t>(a) | static_cast<uint32_t>(b));
+        return static_cast<DrawSyncBit>(static_cast<std::uint32_t>(a) | static_cast<std::uint32_t>(b));
     }
 
     inline DrawSyncBit& operator|=(DrawSyncBit& a, DrawSyncBit b) {
