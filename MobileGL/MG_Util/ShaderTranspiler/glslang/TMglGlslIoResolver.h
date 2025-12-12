@@ -16,7 +16,7 @@
 namespace MobileGL {
     class TMglGlslIoResolver : public glslang::TDefaultGlslIoResolver {
     public:
-        using ExplicitVarSlotMap = UnorderedMap<String, uint32_t>;
+        using ExplicitVarSlotMap = UnorderedMap<String, Uint>;
         TMglGlslIoResolver(const glslang::TIntermediate& intermediate, const ExplicitVarSlotMap& vertexIns,
                            const ExplicitVarSlotMap& fragOuts)
             : TDefaultGlslIoResolver(intermediate), m_explicitVertexIns(vertexIns), m_explicitFragOuts(fragOuts) {}
