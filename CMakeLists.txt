@@ -78,12 +78,16 @@ add_subdirectory(3rdparty/glslang)
 add_subdirectory(3rdparty/SPIRV-Cross)
 
 set(TRACY_ENABLE               ON  CACHE BOOL "Enable Tracy" FORCE)
-set(TRACY_ON_DEMAND            ON  CACHE BOOL "Enable profiling only connected" FORCE)
-set(TRACY_NO_EXIT              OFF CACHE BOOL "Don't exit Tracy until connected" FORCE)
-set(TRACY_DELAYED_INIT         ON  CACHE BOOL "Don't init Tracy on library load" FORCE)
-set(TRACY_MANUAL_LIFETIME      ON  CACHE BOOL "Manually control Tracy lifetime" FORCE)
 
-add_subdirectory(3rdparty/tracy)
+if (TRACY_ENABLE)
+    set(TRACY_ON_DEMAND            ON  CACHE BOOL "Enable profiling only connected" FORCE)
+    set(TRACY_NO_EXIT              OFF CACHE BOOL "Don't exit Tracy until connected" FORCE)
+    set(TRACY_DELAYED_INIT         ON  CACHE BOOL "Don't init Tracy on library load" FORCE)
+    set(TRACY_MANUAL_LIFETIME      ON  CACHE BOOL "Manually control Tracy lifetime" FORCE)
+    set(TRACY_NO_CRASH_HANDLER     ON  CACHE BOOL "Disable crash handling" FORCE)
+
+    add_subdirectory(3rdparty/tracy)
+endif ()
 
 set(SOURCE_FILES
     MobileGL/Init.cpp
