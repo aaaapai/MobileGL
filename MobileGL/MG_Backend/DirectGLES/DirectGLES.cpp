@@ -547,34 +547,32 @@ namespace MobileGL::MG_Backend::DirectGLES {
                                  const GLvoid* const* indices, GLsizei drawcount, 
                                  const GLint* basevertex) {
 
-    DrawSyncBit syncBit = DrawSyncBit::IndexBuffer;
+        DrawSyncBit syncBit = DrawSyncBit::IndexBuffer;
         PrepareForDraw(syncBit);
+    
+        GLsizei i = 0;
+    
+        for (; i + 7 < drawcount; i += 8) {
+            int32x4_t counts0 = vld1q_s32(count + i);
+            int32x4_t counts1 = vld1q_s32(count + i + 4);
+        
+            (void)counts0;
+            (void)counts1;
+        
+            MG_External::GLES::glDrawElementsBaseVertex(mode, count[i], type, indices[i], basevertex[i]);
+            MG_External::GLES::glDrawElementsBaseVertex(mode, count[i+1], type, indices[i+1], basevertex[i+1]);
+            MG_External::GLES::glDrawElementsBaseVertex(mode, count[i+2], type, indices[i+2], basevertex[i+2]);
+            MG_External::GLES::glDrawElementsBaseVertex(mode, count[i+3], type, indices[i+3], basevertex[i+3]);
+            MG_External::GLES::glDrawElementsBaseVertex(mode, count[i+4], type, indices[i+4], basevertex[i+4]);
+            MG_External::GLES::glDrawElementsBaseVertex(mode, count[i+5], type, indices[i+5], basevertex[i+5]);
+            MG_External::GLES::glDrawElementsBaseVertex(mode, count[i+6], type, indices[i+6], basevertex[i+6]);
+            MG_External::GLES::glDrawElementsBaseVertex(mode, count[i+7], type, indices[i+7], basevertex[i+7]);
+        }
+    
+        for (; i < drawcount; ++i) {
+            MG_External::GLES::glDrawElementsBaseVertex(mode, count[i], type, indices[i], basevertex[i]);
+        }
 
-    // Get the currently bound program to check for drawID uniform
-    GLint currentProgram = 0;
-    MG_External::GLES::glGetIntegerv(GL_CURRENT_PROGRAM, &currentProgram);
-    
-    // Check if the program has a drawID uniform
-    GLint drawIDLoc = -1;
-    if (currentProgram != 0) {
-        drawIDLoc = MG_External::GLES::glGetUniformLocation(currentProgram, "gl_DrawID");
-    }
-    bool hasDrawID = (drawIDLoc != -1);
-    
-    for (GLsizei drawID = 0; drawID < drawcount; ++drawID) {
-        // Skip if count is 0 (no-op draw)
-        if (count[drawID] == 0) {
-            continue;
-        }
-        
-        // Set drawID uniform if needed
-        if (hasDrawID) {
-            MG_External::GLES::glUniform1i(drawIDLoc, drawID);
-        }
-        
-        // Perform the draw with base vertex
-        MG_External::GLES::glDrawElementsBaseVertex(mode, count[drawID], type, indices[drawID], basevertex[drawID]);
-    }
     }
 
     void MultiDrawElementsIndirect(GLenum mode, GLenum type, const void* indirect, GLsizei drawcount, GLsizei stride) {
