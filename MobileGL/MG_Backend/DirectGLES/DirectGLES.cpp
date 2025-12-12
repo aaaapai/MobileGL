@@ -409,63 +409,79 @@ namespace MobileGL::MG_Backend::DirectGLES {
 
         BindCurrentFBO(FramebufferTarget::Draw);
 
-        const auto& currentVAO = MG_State::pGLContext->GetBoundVertexArray();
-        if (currentVAO) {
-            const auto& backendVAOIt = VertexArrayImpl::g_backendVertexArrayObjects.find(currentVAO);
-            if (backendVAOIt != VertexArrayImpl::g_backendVertexArrayObjects.end()) {
-                backendVAOIt->second->Bind();
-            }
-        } else {
-            MG_External::GLES::glBindVertexArray(0);
-        }
-
-        Int maxTextureUnits = MG_State::GLState::TextureState::MAX_TEXTURE_IMAGE_UNITS;
-        for (Int unit = 0; unit < maxTextureUnits; ++unit) {
-            auto& textureUnit = MG_State::pGLContext->GetTextureUnitObject(unit);
-
-            MG_External::GLES::glActiveTexture(GL_TEXTURE0 + unit);
-
-            for (const auto& bindingSlot : textureUnit.GetAllBindingSlots()) {
-                const auto& textureObject = bindingSlot.GetBoundObject();
-                if (!textureObject) continue;
-
-                // Bind texture object
-                auto target = textureObject->GetTarget();
-                if (target == TextureTarget::Texture1D ||
-                    target == TextureTarget::TextureRectangle || target == TextureTarget::Texture2DMultisampleArray ||
-                    target == TextureTarget::Texture1DArray || target == TextureTarget::Texture3D ||
-                    target == TextureTarget::Texture2DMultisample || target == TextureTarget::Texture2DArray) {
-                    MGLOG_D("    Texture target %s is not supported, skipping.",
-                            MG_Util::ConvertTextureTargetToString(target).c_str());
-                    continue;
-                }
-                const auto& backendTextureIt = TextureImpl::g_backendTextureObjects.find(textureObject);
-                if (backendTextureIt == TextureImpl::g_backendTextureObjects.end()) continue;
-
-                GLenum targetGL = MG_Util::ConvertTextureTargetToGLEnum(target);
-                backendTextureIt->second->Bind(targetGL);
-            }
-
-            // Bind sampler object
-            const auto& samplerObject = textureUnit.GetSamplerObject();
-            if (samplerObject) {
-                const auto& backendSamplerIt = SamplerImpl::g_backendSamplerObjects.find(samplerObject);
-                if (backendSamplerIt != SamplerImpl::g_backendSamplerObjects.end()) {
-                    backendSamplerIt->second->Bind(unit);
+        {
+#ifdef TRACY_ENABLE
+        ZoneScopedNC("BindCurrentVAO", TRACY_ZONECOLOR_BACKEND);
+#endif
+            const auto& currentVAO = MG_State::pGLContext->GetBoundVertexArray();
+            if (currentVAO) {
+                const auto& backendVAOIt = VertexArrayImpl::g_backendVertexArrayObjects.find(currentVAO);
+                if (backendVAOIt != VertexArrayImpl::g_backendVertexArrayObjects.end()) {
+                    backendVAOIt->second->Bind();
                 }
             } else {
-                MG_External::GLES::glBindSampler(unit, 0);
+                MG_External::GLES::glBindVertexArray(0);
+            }
+        }
+
+        {
+#ifdef TRACY_ENABLE
+            ZoneScopedNC("BindCurrentTextures", TRACY_ZONECOLOR_BACKEND);
+#endif
+            Int maxTextureUnits = MG_State::GLState::TextureState::MAX_TEXTURE_IMAGE_UNITS;
+            for (Int unit = 0; unit < maxTextureUnits; ++unit) {
+                auto& textureUnit = MG_State::pGLContext->GetTextureUnitObject(unit);
+
+                MG_External::GLES::glActiveTexture(GL_TEXTURE0 + unit);
+
+                for (const auto& bindingSlot : textureUnit.GetAllBindingSlots()) {
+                    const auto& textureObject = bindingSlot.GetBoundObject();
+                    if (!textureObject) continue;
+
+                    // Bind texture object
+                    auto target = textureObject->GetTarget();
+                    if (target == TextureTarget::Texture1D ||
+                        target == TextureTarget::TextureRectangle || target == TextureTarget::Texture2DMultisampleArray ||
+                        target == TextureTarget::Texture1DArray || target == TextureTarget::Texture3D ||
+                        target == TextureTarget::Texture2DMultisample || target == TextureTarget::Texture2DArray) {
+                        MGLOG_D("    Texture target %s is not supported, skipping.",
+                                MG_Util::ConvertTextureTargetToString(target).c_str());
+                        continue;
+                        }
+                    const auto& backendTextureIt = TextureImpl::g_backendTextureObjects.find(textureObject);
+                    if (backendTextureIt == TextureImpl::g_backendTextureObjects.end()) continue;
+
+                    GLenum targetGL = MG_Util::ConvertTextureTargetToGLEnum(target);
+                    backendTextureIt->second->Bind(targetGL);
+                }
+
+                // Bind sampler object
+                const auto& samplerObject = textureUnit.GetSamplerObject();
+                if (samplerObject) {
+                    const auto& backendSamplerIt = SamplerImpl::g_backendSamplerObjects.find(samplerObject);
+                    if (backendSamplerIt != SamplerImpl::g_backendSamplerObjects.end()) {
+                        backendSamplerIt->second->Bind(unit);
+                    }
+                } else {
+                    MG_External::GLES::glBindSampler(unit, 0);
+                }
             }
         }
 
         const auto& currentProgram = MG_State::pGLContext->GetCurrentProgram();
         if (currentProgram && currentProgram->GetLinkStatus()) {
+#ifdef TRACY_ENABLE
+            ZoneScopedNC("BindCurrentProgram", TRACY_ZONECOLOR_BACKEND);
+#endif
             const auto& backendProgramIt = PrgramImpl::g_backendProgramObjects.find(currentProgram);
             if (backendProgramIt != PrgramImpl::g_backendProgramObjects.end()) {
                 backendProgramIt->second->Use();
                 auto backendProgramId = backendProgramIt->second->GetBackendProgramId();
                 // Global UBO
                 if (currentProgram->GetUBOSize() > 0) {
+#ifdef TRACY_ENABLE
+            ZoneScopedNC("UpdateGlobalUBO", TRACY_ZONECOLOR_BACKEND);
+#endif
                     MG_External::GLES::glBindBuffer(GL_UNIFORM_BUFFER,
                                                     backendProgramIt->second->GetBackendGlobalUBOId());
                     MG_External::GLES::glBufferSubData(GL_UNIFORM_BUFFER, 0, currentProgram->GetUBOSize(),
@@ -480,67 +496,78 @@ namespace MobileGL::MG_Backend::DirectGLES {
                     MG_External::GLES::glBindBufferBase(GL_UNIFORM_BUFFER, 0,
                                                         backendProgramIt->second->GetBackendGlobalUBOId());
                 }
-                // Normal UBO
-                auto uboCount = currentProgram->GetActiveUniformBlocksCount();
-                Uint lastUBOBinding = 0; // to prevent overlapping bindings between global UBO and normal UBOs
-                for (Int i = 0; i < uboCount; ++i) {
-                    ++lastUBOBinding;
-                    // program state binding index == backend binding index
 
-                    // Connect program ubo index to backend binding point
-                    auto binding = currentProgram->GetUniformBlockBinding(i);
-                    auto& name = currentProgram->GetUniformBlockName(i);
-                    GLuint backendBlkIdx = MG_External::GLES::glGetUniformBlockIndex(backendProgramId, name.c_str());
-                    MG_External::GLES::glUniformBlockBinding(backendProgramId, backendBlkIdx, lastUBOBinding);
+                {
+#ifdef TRACY_ENABLE
+            ZoneScopedNC("UpdateUBO", TRACY_ZONECOLOR_BACKEND);
+#endif
+                    // Normal UBO
+                    auto uboCount = currentProgram->GetActiveUniformBlocksCount();
+                    Uint lastUBOBinding = 0; // to prevent overlapping bindings between global UBO and normal UBOs
+                    for (Int i = 0; i < uboCount; ++i) {
+                        ++lastUBOBinding;
+                        // program state binding index == backend binding index
 
-                    // Connect buffer to backend binding point
-                    auto& point = MG_State::pGLContext->GetBufferBindingPoint(BufferTarget::Uniform, binding);
-                    auto bufferObj = point.GetBoundObject();
-                    auto range = point.GetRange();
+                        // Connect program ubo index to backend binding point
+                        auto binding = currentProgram->GetUniformBlockBinding(i);
+                        auto& name = currentProgram->GetUniformBlockName(i);
+                        GLuint backendBlkIdx = MG_External::GLES::glGetUniformBlockIndex(backendProgramId, name.c_str());
+                        MG_External::GLES::glUniformBlockBinding(backendProgramId, backendBlkIdx, lastUBOBinding);
 
-                    if (bufferObj) {
-                        const auto& backendBufferIt = BufferImpl::g_backendBufferObjects.find(bufferObj);
-                        if (backendBufferIt != BufferImpl::g_backendBufferObjects.end()) {
-                            const auto& backendBufferObject = backendBufferIt->second;
-                            backendBufferObject->Bind(GL_UNIFORM_BUFFER);
-                            if (range.end == 0) {
-                                MG_External::GLES::glBindBufferBase(GL_UNIFORM_BUFFER, lastUBOBinding,
-                                                                    backendBufferObject->GetBackendBufferId());
+                        // Connect buffer to backend binding point
+                        auto& point = MG_State::pGLContext->GetBufferBindingPoint(BufferTarget::Uniform, binding);
+                        auto bufferObj = point.GetBoundObject();
+                        auto range = point.GetRange();
+
+                        if (bufferObj) {
+                            const auto& backendBufferIt = BufferImpl::g_backendBufferObjects.find(bufferObj);
+                            if (backendBufferIt != BufferImpl::g_backendBufferObjects.end()) {
+                                const auto& backendBufferObject = backendBufferIt->second;
+                                backendBufferObject->Bind(GL_UNIFORM_BUFFER);
+                                if (range.end == 0) {
+                                    MG_External::GLES::glBindBufferBase(GL_UNIFORM_BUFFER, lastUBOBinding,
+                                                                        backendBufferObject->GetBackendBufferId());
+                                } else {
+                                    MG_External::GLES::glBindBufferRange(GL_UNIFORM_BUFFER, lastUBOBinding,
+                                                                         backendBufferObject->GetBackendBufferId(),
+                                                                         range.start, range.end - range.start);
+                                }
                             } else {
-                                MG_External::GLES::glBindBufferRange(GL_UNIFORM_BUFFER, lastUBOBinding,
-                                                                     backendBufferObject->GetBackendBufferId(),
-                                                                     range.start, range.end - range.start);
+                                MGLOG_E("No backend buffer found for UBO binding, cannot bind UBO.");
                             }
-                        } else {
-                            MGLOG_E("No backend buffer found for UBO binding, cannot bind UBO.");
                         }
                     }
                 }
 
-                // Sampler unit binding
-                auto maxUniformLoc = currentProgram->GetMaxUniformLocation();
-                for (int loc = 0; loc < maxUniformLoc; ++loc) {
-                    auto unit = currentProgram->GetUniformSamplerOrImageUnitIndex(loc);
-                    if (unit == -1) continue;
-                    auto& name = currentProgram->GetUniformName(loc);
-                    auto locAtBackend = MG_External::GLES::glGetUniformLocation(
-                        backendProgramIt->second->GetBackendProgramId(), name.c_str());
-                    MG_External::GLES::glUniform1i(locAtBackend, unit);
+                {
+#ifdef TRACY_ENABLE
+            ZoneScopedNC("BindSamplerUnit", TRACY_ZONECOLOR_BACKEND);
+#endif
+                    // Sampler unit binding
+                    auto maxUniformLoc = currentProgram->GetMaxUniformLocation();
+                    for (int loc = 0; loc < maxUniformLoc; ++loc) {
+                        auto unit = currentProgram->GetUniformSamplerOrImageUnitIndex(loc);
+                        if (unit == -1) continue;
+                        auto& name = currentProgram->GetUniformName(loc);
+                        auto locAtBackend = MG_External::GLES::glGetUniformLocation(
+                            backendProgramIt->second->GetBackendProgramId(), name.c_str());
+                        MG_External::GLES::glUniform1i(locAtBackend, unit);
 
-                    auto samplerObject = MG_State::pGLContext->GetTextureUnitObject(unit).GetSamplerObject();
+                        auto samplerObject = MG_State::pGLContext->GetTextureUnitObject(unit).GetSamplerObject();
 
-                    if (samplerObject) {
-                        const auto& backendSamplerIt = SamplerImpl::g_backendSamplerObjects.find(samplerObject);
-                        SharedPtr<SamplerImpl::BackendSamplerObject> backendSamplerObject;
-                        if (backendSamplerIt == SamplerImpl::g_backendSamplerObjects.end()) {
-                            backendSamplerObject = MakeShared<SamplerImpl::BackendSamplerObject>();
-                            SamplerImpl::g_backendSamplerObjects[samplerObject] = backendSamplerObject;
+                        if (samplerObject) {
+                            const auto& backendSamplerIt = SamplerImpl::g_backendSamplerObjects.find(samplerObject);
+                            SharedPtr<SamplerImpl::BackendSamplerObject> backendSamplerObject;
+                            if (backendSamplerIt == SamplerImpl::g_backendSamplerObjects.end()) {
+                                backendSamplerObject = MakeShared<SamplerImpl::BackendSamplerObject>();
+                                SamplerImpl::g_backendSamplerObjects[samplerObject] = backendSamplerObject;
+                            } else {
+                                backendSamplerObject = backendSamplerIt->second;
+                            }
+                            backendSamplerObject->SyncToBackend(samplerObject);
                         } else {
-                            backendSamplerObject = backendSamplerIt->second;
+                            MG_External::GLES::glBindSampler(unit, 0);
                         }
-                        backendSamplerObject->SyncToBackend(samplerObject);
-                    } else {
-                        MG_External::GLES::glBindSampler(unit, 0);
                     }
                 }
             } else {
