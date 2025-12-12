@@ -12,16 +12,16 @@
 namespace MobileGL {
     using String = std::string;
     using StringStream = std::stringstream;
-    using Int8 = int8_t;
-    using Uint8 = uint8_t;
-    using Int16 = int16_t;
-    using Uint16 = uint16_t;
-    using Int32 = int32_t;
-    using Uint32 = uint32_t;
+    using Int8 = std::int8_t;
+    using Uint8 = std::uint8_t;
+    using Int16 = std::int16_t;
+    using Uint16 = std::uint16_t;
+    using Int32 = std::int32_t;
+    using Uint32 = std::uint32_t;
     using Int = Int32;
     using Uint = Uint32;
-    using Int64 = int64_t;
-    using Uint64 = uint64_t;
+    using Int64 = std::int64_t;
+    using Uint64 = std::uint64_t;
     using Bool = bool;
     using Float = float;
     using Double = double;
