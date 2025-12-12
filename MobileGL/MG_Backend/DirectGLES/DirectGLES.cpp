@@ -559,14 +559,14 @@ namespace MobileGL::MG_Backend::DirectGLES {
             int32x4_t counts0 = vld1q_s32(count + i);
             int32x4_t counts1 = vld1q_s32(count + i + 4);
 
-            int32x4_t base0 = vld1q_s32(basevertex + i);
-            int32x4_t base1 = vld1q_s32(basevertex + i + 4);
+            int32x4_t bases0 = vld1q_s32(basevertex + i);
+            int32x4_t bases1 = vld1q_s32(basevertex + i + 4);
 
             (void)counts0;
             (void)counts1;
 
-            (void)base0;
-            (void)base1;
+            (void)bases0;
+            (void)bases1;
         
             MG_External::GLES::glDrawElementsBaseVertex(mode, vgetq_lane_s32(counts0, 0), type, indices[i], vgetq_lane_s32(bases0, 0));
             MG_External::GLES::glDrawElementsBaseVertex(mode, vgetq_lane_s32(counts0, 1), type, indices[i+1], vgetq_lane_s32(bases0, 1));
