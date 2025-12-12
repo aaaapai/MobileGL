@@ -74,6 +74,7 @@
 #include <vulkan/vulkan.h>
 #include <android/native_window.h>
 #include <vulkan/vulkan_android.h>
+#include <arm_neon.h>
 #endif
 
 // Post-includes for significant project headers
