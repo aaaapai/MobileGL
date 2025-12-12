@@ -2,38 +2,22 @@ cmake_minimum_required(VERSION 3.22.1)
 
 project("MobileGL")
 
-option(MOBILEGL_FORCE_RELEASE_OPT "Enable Release optimization flags in Debug build" ON)
-
-if (NOT CMAKE_BUILD_TYPE STREQUAL "Debug" OR MOBILEGL_FORCE_RELEASE_OPT)
-    include(CheckIPOSupported)
-    check_ipo_supported(RESULT LTOSupported OUTPUT LTOError)
-    if (LTOSupported)
-        set(CMAKE_INTERPROCEDURAL_OPTIMIZATION TRUE)
-    endif()
-
-    if (CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang" AND NOT MATCHES "AppleClang")
-        add_compile_options(-O3 -ffunction-sections -fdata-sections)
-        add_link_options(-Wl,--gc-sections)
-    elseif (CMAKE_CXX_COMPILER_ID MATCHES "MSVC")
-#        add_compile_options(/O2)
-    else ()
-        add_compile_options(-O2)
-    endif()
-endif()
-
-if (CMAKE_CXX_COMPILER_ID MATCHES "MSVC")
-    add_compile_options(/Zc:preprocessor)
-endif()
-
+enable_language(C)
 enable_language(CXX)
 
+set(CMAKE_C_STANDARD 23)
 set(CMAKE_CXX_STANDARD 23)
 
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
-
-set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
-
+set(CMAKE_ANDROID_LD "lld")
+set(CMAKE_BUILD_TYPE Release)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+
+option(MOBILEGL_FORCE_RELEASE_OPT "Enable Release optimization flags in Debug build" ON)
+set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -O3 -pipe -integrated-as -mllvm -polly -mllvm -polly-vectorizer=stripmine -mllvm -polly-invariant-load-hoisting -mllvm -polly-run-inliner -mllvm -polly-run-dce -mllvm -polly-invariant-load-hoisting -flto -mllvm -polly-run-inliner -mllvm -polly-run-dce -fno-emulated-tls -fwhole-program-vtables -fdata-sections -ffunction-sections -fmerge-all-constants -mllvm -polly-detect-keep-going -mllvm -polly-ast-use-context -march=armv8-a+simd -fvisibility=hidden -Wall -Wextra -ferror-limit=0 -Wno-return-type -Wno-unused-parameter -Wno-c++98-compat -Wno-c++98-compat-pedantic -DGLM_FORCE_INTRINSICS -Wno-unicode-whitespace -Wno-format -Wno-unused-function -DUseFastSTL")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O3 -pipe -integrated-as -mllvm -polly -mllvm -polly-vectorizer=stripmine -mllvm -polly-invariant-load-hoisting -mllvm -polly-run-inliner -mllvm -polly-run-dce -mllvm -polly-invariant-load-hoisting -flto -mllvm -polly-run-inliner -mllvm -polly-run-dce -fno-emulated-tls -fwhole-program-vtables -fdata-sections -ffunction-sections -fmerge-all-constants -mllvm -polly-detect-keep-going -mllvm -polly-ast-use-context -march=armv8-a+simd -fvisibility=hidden -Wall -Wextra -ferror-limit=0 -Wno-return-type -Wno-unused-parameter -Wno-c++98-compat -Wno-c++98-compat-pedantic -DGLM_FORCE_INTRINSICS -fno-rtti -stdlib=libc++ -Wno-unicode-whitespace -Wno-format -Wno-unused-function -Wno-vla-cxx-extension -DUseFastSTL")
+set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -fuse-ld=lld -flto -O3 -Wl,-plugin-opt=-emulated-tls=0 -Wl,--strip-all -fvisibility=hidden -Wl,-O3 -Wl,--gc-sections -Wl,--as-needed -static-libstdc++")
+# -DUseFastSTL -DUseStandard -DUseAnkerl
 
 if (MSVC)
     set(CMAKE_CXX_FLAGS "/EHsc ${CMAKE_CXX_FLAGS}")
@@ -56,38 +40,6 @@ configure_file(
 )
 
 include_directories(${CMAKE_BINARY_DIR}/generated)
-
-set(ENABLE_RTTI                ON  CACHE BOOL "Enables RTTI (will be took by glslang)" FORCE)
-
-set(ENABLE_GLSLANG_BINARIES    OFF CACHE BOOL "Disable glslangValidator/spirv-remap" FORCE)
-set(ENABLE_SPVREMAPPER         OFF CACHE BOOL "Disable SPVRemapper" FORCE)
-set(ENABLE_OPT                 OFF CACHE BOOL "Disable SPIRV-Tools opt usage in glslang" FORCE)
-set(BUILD_EXTERNAL             OFF CACHE BOOL "Don't build external deps in External/" FORCE)
-set(ENABLE_GLSLANG_INSTALL     OFF CACHE BOOL "Don't install glslang targets" FORCE)
-
-set(SPIRV_CROSS_C_API          ON  CACHE BOOL "Enable C API" FORCE)
-set(SPIRV_CROSS_ENABLE_GLSL    ON  CACHE BOOL "Enable GLSL backend" FORCE)
-set(SPIRV_CROSS_ENABLE_HLSL    OFF CACHE BOOL "Disable HLSL backend" FORCE)
-set(SPIRV_CROSS_ENABLE_MSL     OFF CACHE BOOL "Disable MSL backend" FORCE)
-set(SPIRV_CROSS_ENABLE_CPP     OFF CACHE BOOL "Disable C++ API target" FORCE)
-set(SPIRV_CROSS_CLI            OFF CACHE BOOL "Disable CLI binary" FORCE)
-set(SPIRV_CROSS_STATIC         ON  CACHE BOOL "Prefer static libs" FORCE)
-
-# add_subdirectory(3rdparty/DiligentCore)
-add_subdirectory(3rdparty/glslang)
-add_subdirectory(3rdparty/SPIRV-Cross)
-
-set(TRACY_ENABLE               ON  CACHE BOOL "Enable Tracy" FORCE)
-
-if (TRACY_ENABLE)
-    set(TRACY_ON_DEMAND            ON  CACHE BOOL "Enable profiling only connected" FORCE)
-    set(TRACY_NO_EXIT              OFF CACHE BOOL "Don't exit Tracy until connected" FORCE)
-    set(TRACY_DELAYED_INIT         ON  CACHE BOOL "Don't init Tracy on library load" FORCE)
-    set(TRACY_MANUAL_LIFETIME      ON  CACHE BOOL "Manually control Tracy lifetime" FORCE)
-    set(TRACY_NO_CRASH_HANDLER     ON  CACHE BOOL "Disable crash handling" FORCE)
-
-    add_subdirectory(3rdparty/tracy)
-endif ()
 
 set(SOURCE_FILES
     MobileGL/Init.cpp
@@ -190,101 +142,60 @@ set(SOURCE_FILES
     MobileGL/MG_State/GLState/SamplerState/SamplerState.cpp
 )
 
-add_library(${CMAKE_PROJECT_NAME} SHARED 
+add_library(${CMAKE_PROJECT_NAME} SHARED
     ${SOURCE_FILES}
 )
-
-if (CMAKE_BUILD_TYPE STREQUAL "Debug")
-    set_target_properties(${CMAKE_PROJECT_NAME} PROPERTIES
-        C_VISIBILITY_PRESET default
-        CXX_VISIBILITY_PRESET default
-        VISIBILITY_INLINES_HIDDEN OFF
-    )
-else()
-    set_target_properties(${CMAKE_PROJECT_NAME} PROPERTIES
-        C_VISIBILITY_PRESET hidden
-        CXX_VISIBILITY_PRESET hidden
-        VISIBILITY_INLINES_HIDDEN ON
-    )
-endif()
 
 target_include_directories(${CMAKE_PROJECT_NAME} PUBLIC
     ${CMAKE_SOURCE_DIR}/include
     ${CMAKE_SOURCE_DIR}/MobileGL
 )
 
-target_link_libraries(${CMAKE_PROJECT_NAME}
-    PRIVATE
-    # Diligent-Common
-    # Diligent-GraphicsEngineOpenGL-shared
-    # Diligent-GraphicsEngineVk-shared
-)
+if (NOT CMAKE_BUILD_TYPE STREQUAL "Debug" OR MOBILEGL_FORCE_RELEASE_OPT)
+    include(CheckIPOSupported)
+    check_ipo_supported(RESULT LTOSupported OUTPUT LTOError)
+    if (LTOSupported)
+        set(CMAKE_INTERPROCEDURAL_OPTIMIZATION TRUE)
+    endif()
 
-target_link_libraries(${CMAKE_PROJECT_NAME}
-    PRIVATE
-    glslang::glslang
-    spirv-cross-c
-)
-
-add_library(${CMAKE_PROJECT_NAME}_s STATIC 
-    ${SOURCE_FILES}
-)
+    if (CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang" AND NOT MATCHES "AppleClang")
+        add_compile_options(-O3 -ffunction-sections -fdata-sections)
+        add_link_options(-Wl,--gc-sections)
+    elseif (CMAKE_CXX_COMPILER_ID MATCHES "MSVC")
+        add_compile_options(/O2 /GL)
+    else ()
+        add_compile_options(-O3)
+    endif()
+endif()
 
 if (CMAKE_BUILD_TYPE STREQUAL "Debug")
-    set_target_properties(${CMAKE_PROJECT_NAME}_s PROPERTIES
+    set_target_properties(${CMAKE_PROJECT_NAME} PROPERTIES
         C_VISIBILITY_PRESET default
         CXX_VISIBILITY_PRESET default
         VISIBILITY_INLINES_HIDDEN OFF
     )
 else()
-    set_target_properties(${CMAKE_PROJECT_NAME}_s PROPERTIES
+    set_target_properties(${CMAKE_PROJECT_NAME} PROPERTIES
         C_VISIBILITY_PRESET hidden
         CXX_VISIBILITY_PRESET hidden
         VISIBILITY_INLINES_HIDDEN ON
     )
 endif()
 
-target_include_directories(${CMAKE_PROJECT_NAME}_s PUBLIC
-    ${CMAKE_SOURCE_DIR}/include
-    ${CMAKE_SOURCE_DIR}/MobileGL
-)
-
-target_link_libraries(${CMAKE_PROJECT_NAME}_s
-    PRIVATE
-    # Diligent-Common
-    # Diligent-GraphicsEngineOpenGL-shared
-    # Diligent-GraphicsEngineVk-shared
-)
-
-target_link_libraries(${CMAKE_PROJECT_NAME}_s
-    PRIVATE
-    glslang::glslang
-    spirv-cross-c
-)
-
-if (TRACY_ENABLE)
-    target_link_libraries(${CMAKE_PROJECT_NAME} PUBLIC Tracy::TracyClient)
-    target_link_libraries(${CMAKE_PROJECT_NAME}_s PUBLIC Tracy::TracyClient)
-    target_compile_definitions(${CMAKE_PROJECT_NAME} PUBLIC -DTRACY_ENABLE)
-    target_compile_definitions(${CMAKE_PROJECT_NAME}_s PUBLIC -DTRACY_ENABLE)
-endif ()
-
 if (ANDROID)
-    target_link_libraries(${CMAKE_PROJECT_NAME} PUBLIC
-        android
-        log
-    )
-    target_link_libraries(${CMAKE_PROJECT_NAME}_s PUBLIC
-        android
-        log)
-endif()
+target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE
+    ${CMAKE_SOURCE_DIR}/library/android/${ANDROID_ABI}/libspirv-cross-c.a
+    ${CMAKE_SOURCE_DIR}/library/android/${ANDROID_ABI}/libglslang.a
+    ${CMAKE_SOURCE_DIR}/library/android/${ANDROID_ABI}/libspirv-cross-core.a
+    ${CMAKE_SOURCE_DIR}/library/android/${ANDROID_ABI}/libspirv-cross-cpp.a
+    ${CMAKE_SOURCE_DIR}/library/android/${ANDROID_ABI}/libspirv-cross-glsl.a
+    android
+    log
+)
 
-if (NOT ANDROID)
-
-    set(BUILD_TEST ON CACHE BOOL "Build the tests")
-    set(BUILD_BENCHMARK ON CACHE BOOL "Build the benchmarks")
-
-    add_subdirectory(MobileGL/MG_Test)
-    add_subdirectory(MobileGL/MG_Benchmark)
+# 版本脚本针对特定目标设置
+target_link_options(${CMAKE_PROJECT_NAME} PRIVATE 
+    "LINKER:--version-script=${CMAKE_SOURCE_DIR}/MobileGL/mgl-version.script"
+)
 
 endif()
