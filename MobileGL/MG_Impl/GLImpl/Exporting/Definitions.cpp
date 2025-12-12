@@ -24,15 +24,29 @@ MOBILEGL_GL_API type gl##name(__VA_ARGS__) {
 #define DECLARE_GL_FUNCTION_HEAD(type,name,...)                             \
 MOBILEGL_GL_API type gl##name(__VA_ARGS__) {
 
-#define DECLARE_GL_FUNCTION_END(type,name,...)                              \
-    MGLOG_D("Implementing function: %s(...)", __FUNCTION__);                \
-    return MobileGL::MG_Impl::GLImpl::name(__VA_ARGS__);                    \
-}
+#ifdef TRACY_ENABLE
+    #define DECLARE_GL_FUNCTION_END(type,name,...)                              \
+        ZoneScopedC(TRACY_ZONECOLOR_ENTRY);                                     \
+        MGLOG_D("Implementing function: %s(...)", __FUNCTION__);                \
+        return MobileGL::MG_Impl::GLImpl::name(__VA_ARGS__);                    \
+    }
 
-#define DECLARE_GL_FUNCTION_END_NO_RETURN(type,name,...)                    \
-    MGLOG_D("Implementing function: %s(...)", __FUNCTION__);                \
-    MobileGL::MG_Impl::GLImpl::name(__VA_ARGS__);                           \
-}
+    #define DECLARE_GL_FUNCTION_END_NO_RETURN(type,name,...)                    \
+        ZoneScopedC(TRACY_ZONECOLOR_ENTRY);                                     \
+        MGLOG_D("Implementing function: %s(...)", __FUNCTION__);                \
+        MobileGL::MG_Impl::GLImpl::name(__VA_ARGS__);                           \
+    }
+#else
+    #define DECLARE_GL_FUNCTION_END(type,name,...)                              \
+        MGLOG_D("Implementing function: %s(...)", __FUNCTION__);                \
+        return MobileGL::MG_Impl::GLImpl::name(__VA_ARGS__);                    \
+    }
+
+    #define DECLARE_GL_FUNCTION_END_NO_RETURN(type,name,...)                    \
+        MGLOG_D("Implementing function: %s(...)", __FUNCTION__);                \
+        MobileGL::MG_Impl::GLImpl::name(__VA_ARGS__);                           \
+    }
+#endif
 
 DECLARE_GL_FUNCTION_HEAD(const GLubyte*, GetStringi, GLenum name, GLuint index) DECLARE_GL_FUNCTION_END(const GLubyte*, GetStringi, name, index)
 DECLARE_GL_FUNCTION_HEAD(const GLubyte*, GetString, GLenum name) DECLARE_GL_FUNCTION_END(const GLubyte*, GetString, name)

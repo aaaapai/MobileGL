@@ -6,6 +6,7 @@
 #include "TextureObject2D.h"
 #include "TextureObject3D.h"
 #include "TextureObject2DCube.h"
+#include "TextureObjectBuffer.h"
 #include "TextureObjectStubs.h"
 
 namespace MobileGL {
@@ -46,6 +47,9 @@ namespace MobileGL {
                 case TextureTarget::Texture3D:
                     textureObject = MakeShared<TextureObject3D>(index);
                     break;
+                case TextureTarget::TextureBuffer:
+                    textureObject = MakeShared<TextureObjectBuffer>(index);
+                    break;
 
                     // These texture types are stubbed:
                 case TextureTarget::TextureRectangle:
@@ -53,9 +57,6 @@ namespace MobileGL {
                     break;
                 case TextureTarget::Texture2DMultisample:
                     textureObject = MakeShared<TextureObject2DMultisample>(index);
-                    break;
-                case TextureTarget::TextureBuffer:
-                    textureObject = MakeShared<TextureObjectBuffer>(index);
                     break;
                 case TextureTarget::Texture1DArray:
                     textureObject = MakeShared<TextureObject1DArray>(index);

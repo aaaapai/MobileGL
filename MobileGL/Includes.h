@@ -33,6 +33,7 @@
 #include <string_view>
 #include <unordered_map>
 #include <mutex>
+#include <bitset>
 
 // Include FastSTL
 #include <FastSTL/UnorderedMap.h>
@@ -75,6 +76,13 @@
 #include <android/native_window.h>
 #include <vulkan/vulkan_android.h>
 #include <arm_neon.h>
+#endif
+
+#ifdef TRACY_ENABLE
+#include <tracy/Tracy.hpp>
+#define TRACY_ZONECOLOR_ENTRY 0xFF0000
+#define TRACY_ZONECOLOR_FRONTEND 0x00FF00
+#define TRACY_ZONECOLOR_BACKEND 0x00FF00
 #endif
 
 // Post-includes for significant project headers

@@ -52,7 +52,9 @@ namespace MobileGL {
             IntVec3 FramebufferAttachment::GetSize() const {
                 if (IsTexture()) {
                     // TODO: get correct upload target
-                    return m_texture->GetMipmapTexelSize(TextureUploadTarget::Texture2D, m_textureLevel);
+                    MOBILEGL_ASSERT(nullptr != dynamic_cast<MG_State::GLState::TextureObjectMipmap*>(m_texture.get()), "Texture object here should always be an object with mipmap");
+                    auto textureMipmapObject = static_cast<MG_State::GLState::TextureObjectMipmap*>(m_texture.get());
+                    return textureMipmapObject->GetMipmapTexelSize(TextureUploadTarget::Texture2D, m_textureLevel);
                 } else if (IsRenderbuffer()) {
                     // TODO
                 }
