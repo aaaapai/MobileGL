@@ -77,7 +77,7 @@ set(SPIRV_CROSS_STATIC         ON  CACHE BOOL "Prefer static libs" FORCE)
 add_subdirectory(3rdparty/glslang)
 add_subdirectory(3rdparty/SPIRV-Cross)
 
-set(TRACY_ENABLE               ON  CACHE BOOL "Enable Tracy" FORCE)
+option(TRACY_ENABLE            "Enable Tracy" OFF)
 
 if (TRACY_ENABLE)
     set(TRACY_ON_DEMAND            ON  CACHE BOOL "Enable profiling only connected" FORCE)

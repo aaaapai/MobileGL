@@ -8,6 +8,12 @@ android {
         minSdk 26
 
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+
+//         externalNativeBuild {
+//             cmake {
+//                 arguments "-DTRACY_ENABLE=ON"
+//             }
+//         }
     }
 
     buildTypes {
