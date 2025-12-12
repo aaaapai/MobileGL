@@ -551,22 +551,31 @@ namespace MobileGL::MG_Backend::DirectGLES {
         PrepareForDraw(syncBit);
     
         GLsizei i = 0;
-    
+
+        __builtin_assume_aligned(count, 16);
+        __builtin_assume_aligned(basevertex, 16);
+
         for (; i + 7 < drawcount; i += 8) {
             int32x4_t counts0 = vld1q_s32(count + i);
             int32x4_t counts1 = vld1q_s32(count + i + 4);
-        
+
+            int32x4_t base0 = vld1q_s32(basevertex + i);
+            int32x4_t base1 = vld1q_s32(basevertex + i + 4);
+
             (void)counts0;
             (void)counts1;
+
+            (void)base0;
+            (void)base1;
         
-            MG_External::GLES::glDrawElementsBaseVertex(mode, count[i], type, indices[i], basevertex[i]);
-            MG_External::GLES::glDrawElementsBaseVertex(mode, count[i+1], type, indices[i+1], basevertex[i+1]);
-            MG_External::GLES::glDrawElementsBaseVertex(mode, count[i+2], type, indices[i+2], basevertex[i+2]);
-            MG_External::GLES::glDrawElementsBaseVertex(mode, count[i+3], type, indices[i+3], basevertex[i+3]);
-            MG_External::GLES::glDrawElementsBaseVertex(mode, count[i+4], type, indices[i+4], basevertex[i+4]);
-            MG_External::GLES::glDrawElementsBaseVertex(mode, count[i+5], type, indices[i+5], basevertex[i+5]);
-            MG_External::GLES::glDrawElementsBaseVertex(mode, count[i+6], type, indices[i+6], basevertex[i+6]);
-            MG_External::GLES::glDrawElementsBaseVertex(mode, count[i+7], type, indices[i+7], basevertex[i+7]);
+            MG_External::GLES::glDrawElementsBaseVertex(mode, vgetq_lane_s32(counts0, 0), type, indices[i], vgetq_lane_s32(bases0, 0));
+            MG_External::GLES::glDrawElementsBaseVertex(mode, vgetq_lane_s32(counts0, 1), type, indices[i+1], vgetq_lane_s32(bases0, 1));
+            MG_External::GLES::glDrawElementsBaseVertex(mode, vgetq_lane_s32(counts0, 2), type, indices[i+2], vgetq_lane_s32(bases0, 2));
+            MG_External::GLES::glDrawElementsBaseVertex(mode, vgetq_lane_s32(counts0, 3), type, indices[i+3], vgetq_lane_s32(bases0, 3));
+            MG_External::GLES::glDrawElementsBaseVertex(mode, vgetq_lane_s32(counts1, 0), type, indices[i+4], vgetq_lane_s32(bases1, 0));
+            MG_External::GLES::glDrawElementsBaseVertex(mode, vgetq_lane_s32(counts1, 1), type, indices[i+5], vgetq_lane_s32(bases1, 1));
+            MG_External::GLES::glDrawElementsBaseVertex(mode, vgetq_lane_s32(counts1, 2), type, indices[i+6], vgetq_lane_s32(bases1, 2));
+            MG_External::GLES::glDrawElementsBaseVertex(mode, vgetq_lane_s32(counts1, 3), type, indices[i+7], vgetq_lane_s32(bases1, 3));
         }
     
         for (; i < drawcount; ++i) {
