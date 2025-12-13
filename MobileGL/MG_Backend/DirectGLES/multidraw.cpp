@@ -250,7 +250,6 @@ void MultiDrawElementsBaseVertex::uploadBatchDataToGPU(const GLsizei* count,
                                                       const void* const* indices,
                                                       const GLint* basevertex,
                                                       GLsizei drawcount) {
-    if (drawcount <= 0) return;
     
     GLuint typeSize = getTypeSize(type);
     
