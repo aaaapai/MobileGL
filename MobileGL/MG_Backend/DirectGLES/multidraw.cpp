@@ -332,20 +332,3 @@ GLuint MultiDrawElementsBaseVertex::getTypeSize(GLenum type) const {
             return 0;
     }
 }
-
-bool MultiDrawElementsBaseVertex::isTypeSupported(GLenum type) const {
-    return type == GL_UNSIGNED_BYTE || type == GL_UNSIGNED_SHORT || type == GL_UNSIGNED_INT;
-}
-
-// 包装函数，模拟原版API
-extern "C" GLAPI void GLAPIENTRY mg_glMultiDrawElementsBaseVertex(
-    GLenum mode,
-    const GLsizei* count,
-    GLenum type,
-    const void* const* indices,
-    GLsizei drawcount,
-    const GLint* basevertex) {
-    
-    g_multiDrawElementsBaseVertex_shader.multiDrawElementsBaseVertex(
-        mode, count, type, indices, drawcount, basevertex);
-}
