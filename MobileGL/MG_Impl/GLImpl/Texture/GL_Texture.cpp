@@ -305,6 +305,72 @@ namespace MobileGL {
             }
         }
 
+        // Quick and dirty TexParameter*v implementation to make NeoForge happy.
+        // TODO: implement the missing part
+        void TexParameterfv_State(GLenum target, GLenum pname, const GLfloat * params) {
+            switch (pname) {
+                case GL_TEXTURE_BORDER_COLOR: {
+                    THROW_UNIMPL_EXCEPTION;
+                    break;
+                }
+                case GL_TEXTURE_SWIZZLE_RGBA: {
+                    THROW_UNIMPL_EXCEPTION;
+                    break;
+                }
+                default:
+                    TexParameterf_State(target, pname, *params);
+                    break;
+            }
+        }
+
+        void TexParameteriv_State(GLenum target, GLenum pname, const GLint * params) {
+            switch (pname) {
+                case GL_TEXTURE_BORDER_COLOR: {
+                    THROW_UNIMPL_EXCEPTION;
+                    break;
+                }
+                case GL_TEXTURE_SWIZZLE_RGBA: {
+                    THROW_UNIMPL_EXCEPTION;
+                    break;
+                }
+                default:
+                    TexParameteri_State(target, pname, *params);
+                    break;
+            }
+        }
+
+        void TexParameterIiv_State(GLenum target, GLenum pname, const GLint * params) {
+            switch (pname) {
+                case GL_TEXTURE_BORDER_COLOR: {
+                    THROW_UNIMPL_EXCEPTION;
+                    break;
+                }
+                case GL_TEXTURE_SWIZZLE_RGBA: {
+                    THROW_UNIMPL_EXCEPTION;
+                    break;
+                }
+                default:
+                    TexParameteri_State(target, pname, *params);
+                    break;
+            }
+        }
+
+        void TexParameterIuiv_State(GLenum target, GLenum pname, const GLuint * params) {
+            switch (pname) {
+                case GL_TEXTURE_BORDER_COLOR: {
+                    THROW_UNIMPL_EXCEPTION;
+                    break;
+                }
+                case GL_TEXTURE_SWIZZLE_RGBA: {
+                    THROW_UNIMPL_EXCEPTION;
+                    break;
+                }
+                default:
+                    TexParameteri_State(target, pname, static_cast<GLint>(*params));
+                    break;
+            }
+        }
+
         void TexImage3DMultisample_State(GLenum target, GLsizei samples, GLenum internalformat, GLsizei width,
                                          GLsizei height, GLsizei depth, GLboolean fixedsamplelocations) {
             // TODO: implement
@@ -1031,6 +1097,22 @@ namespace MobileGL {
 
         void TexParameteri(GLenum target, GLenum pname, GLint param) {
             TexParameteri_State(target, pname, param);
+        }
+
+        void TexParameterfv(GLenum target, GLenum pname, const GLfloat * params) {
+            TexParameterfv_State(target, pname, params);
+        }
+
+        void TexParameteriv(GLenum target, GLenum pname, const GLint * params) {
+            TexParameteriv_State(target, pname, params);
+        }
+
+        void TexParameterIiv(GLenum target, GLenum pname, const GLint * params) {
+            TexParameterIiv_State(target, pname, params);
+        }
+
+        void TexParameterIuiv(GLenum target, GLenum pname, const GLuint * params) {
+            TexParameterIuiv_State(target, pname, params);
         }
 
         void TexImage3DMultisample(GLenum target, GLsizei samples, GLenum internalformat, GLsizei width, GLsizei height,
