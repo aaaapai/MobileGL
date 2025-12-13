@@ -18,7 +18,6 @@ private:
     bool m_initialized{false};
     bool m_dataDirty{true};
     
-    // 着色器源代码 - 支持多种类型
     static constexpr std::string_view COMPUTE_SHADER_SOURCE_UINT = R"(#version 310 es
 layout(local_size_x = 64) in;
 
@@ -40,26 +39,32 @@ layout(std430, binding = 4) writeonly buffer Output {
 
 void main() {
     uint outIdx = gl_GlobalInvocationID.x;
+    
+    // 需要检查是否有有效的批次数据
+    if (prefixSums.length() == 0u) {
+        return;
+    }
+    
     uint totalIndices = prefixSums[prefixSums.length() - 1u];
     
     if (outIdx >= totalIndices) {
         return;
     }
     
-    // 二分查找批次
-    int low = 0;
-    int high = int(prefixSums.length() - 1u);
+    // 二分查找批次 - 使用uint以避免类型不匹配
+    uint low = 0u;
+    uint high = prefixSums.length() - 1u;
     
     while (low < high) {
-        int mid = low + (high - low) / 2;
+        uint mid = low + (high - low) / 2u;
         if (prefixSums[mid] > outIdx) {
             high = mid; // next [low, mid)
         } else {
-            low = mid + 1; // next [mid + 1, high)
+            low = mid + 1u; // next [mid + 1, high)
         }
     }
     
-    uint batchID = uint(low);
+    uint batchID = low;
     
     // 计算本地索引
     uint batchStart = (batchID == 0u) ? 0u : prefixSums[batchID - 1u];
@@ -107,26 +112,32 @@ uint extractUShort(uint packedValue, uint indexInUint) {
 
 void main() {
     uint outIdx = gl_GlobalInvocationID.x;
+    
+    // 需要检查是否有有效的批次数据
+    if (prefixSums.length() == 0u) {
+        return;
+    }
+    
     uint totalIndices = prefixSums[prefixSums.length() - 1u];
     
     if (outIdx >= totalIndices) {
         return;
     }
     
-    // 二分查找批次
-    int low = 0;
-    int high = int(prefixSums.length() - 1u);
+    // 二分查找批次 - 使用uint以避免类型不匹配
+    uint low = 0u;
+    uint high = prefixSums.length() - 1u;
     
     while (low < high) {
-        int mid = low + (high - low) / 2;
+        uint mid = low + (high - low) / 2u;
         if (prefixSums[mid] > outIdx) {
             high = mid; // next [low, mid)
         } else {
-            low = mid + 1; // next [mid + 1, high)
+            low = mid + 1u; // next [mid + 1, high)
         }
     }
     
-    uint batchID = uint(low);
+    uint batchID = low;
     
     // 计算本地索引
     uint batchStart = (batchID == 0u) ? 0u : prefixSums[batchID - 1u];
@@ -177,26 +188,32 @@ uint extractUByte(uint packedValue, uint indexInUint) {
 
 void main() {
     uint outIdx = gl_GlobalInvocationID.x;
+    
+    // 需要检查是否有有效的批次数据
+    if (prefixSums.length() == 0u) {
+        return;
+    }
+    
     uint totalIndices = prefixSums[prefixSums.length() - 1u];
     
     if (outIdx >= totalIndices) {
         return;
     }
     
-    // 二分查找批次
-    int low = 0;
-    int high = int(prefixSums.length() - 1u);
+    // 二分查找批次 - 使用uint以避免类型不匹配
+    uint low = 0u;
+    uint high = prefixSums.length() - 1u;
     
     while (low < high) {
-        int mid = low + (high - low) / 2;
+        uint mid = low + (high - low) / 2u;
         if (prefixSums[mid] > outIdx) {
             high = mid; // next [low, mid)
         } else {
-            low = mid + 1; // next [mid + 1, high)
+            low = mid + 1u; // next [mid + 1, high)
         }
     }
     
-    uint batchID = uint(low);
+    uint batchID = low;
     
     // 计算本地索引
     uint batchStart = (batchID == 0u) ? 0u : prefixSums[batchID - 1u];
