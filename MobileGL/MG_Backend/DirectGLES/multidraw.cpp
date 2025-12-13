@@ -1,5 +1,17 @@
 #include "multidraw.h"
-#include "MG_External.h"
+#include "DirectGLES.h"
+#include "Utils.h"
+#include "Managers.h"
+#include <MG_Util/Converters/GLToMG/TextureEnumConverter.h>
+#include <MG_Util/Classifiers/TextureEnumClassifier.h>
+#include <MG_Util/Metrics/TextureMetrics.h>
+#include <MG_State/GLState/Core.h>
+#include <MG_Impl/GLImpl/Framebuffer/GL_Framebuffer.h>
+#include <MG_Util/BackendLoaders/OpenGL/Loader.h>
+#include <MG_Util/Converters/GLToStr/GLEnumConverter.h>
+#include <MG_Util/Converters/MGToGL/TextureEnumConverter.h>
+#include <MG_Util/Converters/MGToStr/TextureEnumConverter.h>
+#include <MG_Util/Converters/MGToGL/RenderStateEnumConverter.h>
 
 // 全局实例
 MultiDrawElementsBaseVertex g_multiDrawElementsBaseVertex_shader;
