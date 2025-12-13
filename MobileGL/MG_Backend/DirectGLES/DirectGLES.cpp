@@ -615,7 +615,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
         }
     }
 
-    void MultiDrawElementsBaseVertex(GLenum mode, const GLsizei* count, GLenum type, 
+    /*void MultiDrawElementsBaseVertex(GLenum mode, const GLsizei* count, GLenum type, 
                                  const GLvoid* const* indices, GLsizei drawcount, 
                                  const GLint* basevertex) {
 
@@ -654,6 +654,15 @@ namespace MobileGL::MG_Backend::DirectGLES {
             MG_External::GLES::glDrawElementsBaseVertex(mode, count[i], type, indices[i], basevertex[i]);
         }
 
+    }*/
+    void MultiDrawElementsBaseVertex(GLenum mode, const GLsizei* count, GLenum type, const GLvoid* const* indices,
+                                     GLsizei drawcount, const GLint* basevertex) {
+        DrawSyncBit syncBit = DrawSyncBit::IndexBuffer;
+        PrepareForDraw(syncBit);
+
+        for (GLsizei i = 0; i < drawcount; ++i) {
+            MG_External::GLES::glDrawElementsBaseVertex(mode, count[i], type, indices[i], basevertex[i]);
+        }
     }
 
     void MultiDrawElementsIndirect(GLenum mode, GLenum type, const void* indirect, GLsizei drawcount, GLsizei stride) {
