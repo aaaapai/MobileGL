@@ -266,4 +266,4 @@ private:
 };
 
 // 全局实例
-extern multiDrawElementsBaseVertex g_multiDrawElementsBaseVertex_shader;
+extern MultiDrawElementsBaseVertex g_multiDrawElementsBaseVertex_shader;
