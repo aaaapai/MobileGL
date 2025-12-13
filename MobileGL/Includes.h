@@ -35,8 +35,6 @@
 #include <mutex>
 #include <bitset>
 
-#include <omp.h>
-
 // Include FastSTL
 #include <FastSTL/UnorderedMap.h>
 
@@ -77,7 +75,7 @@
 #include <vulkan/vulkan.h>
 #include <android/native_window.h>
 #include <vulkan/vulkan_android.h>
-//#include <arm_neon.h>
+#include <arm_neon.h>
 #endif
 
 #ifdef TRACY_ENABLE
