@@ -221,7 +221,7 @@ void main() {
 )";
 
     // 类型到着色器的映射
-    UnorderedMap<GLenum, GLuint> m_typeToProgram;
+    MobileGL::UnorderedMap<GLenum, GLuint> m_typeToProgram;
     
 public:
     // 构造函数/析构函数
