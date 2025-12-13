@@ -35,6 +35,8 @@
 #include <mutex>
 #include <bitset>
 
+#include <omp.h>
+
 // Include FastSTL
 #include <FastSTL/UnorderedMap.h>
 
