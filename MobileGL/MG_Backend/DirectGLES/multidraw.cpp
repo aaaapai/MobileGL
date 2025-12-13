@@ -26,11 +26,11 @@ MultiDrawElementsBaseVertex::~MultiDrawElementsBaseVertex() {
     if (m_initialized) {
         GLuint buffers[] = {m_prefixSumBuffer, m_firstIndexBuffer, 
                            m_baseVertexBuffer, m_outputIBO};
-        MG_External::GLES::glDeleteBuffers(4, buffers);
+        MobileGL::MG_External::GLES::glDeleteBuffers(4, buffers);
         
         for (auto& pair : m_typeToProgram) {
             if (pair.second) {
-                MG_External::GLES::glDeleteProgram(pair.second);
+                MobileGL::MG_External::GLES::glDeleteProgram(pair.second);
             }
         }
         m_typeToProgram.clear();
@@ -55,11 +55,11 @@ MultiDrawElementsBaseVertex& MultiDrawElementsBaseVertex::operator=(MultiDrawEle
         if (m_initialized) {
             GLuint buffers[] = {m_prefixSumBuffer, m_firstIndexBuffer, 
                                m_baseVertexBuffer, m_outputIBO};
-            MG_External::GLES::glDeleteBuffers(4, buffers);
+            MobileGL::MG_External::GLES::glDeleteBuffers(4, buffers);
             
             for (auto& pair : m_typeToProgram) {
                 if (pair.second) {
-                    MG_External::GLES::glDeleteProgram(pair.second);
+                    MobileGL::MG_External::GLES::glDeleteProgram(pair.second);
                 }
             }
             m_typeToProgram.clear();
@@ -99,7 +99,7 @@ void MultiDrawElementsBaseVertex::multiDrawElementsBaseVertex(GLenum mode,
     
     // 获取当前绑定的IBO
     GLint currentIBO = 0;
-    MG_External::GLES::glGetIntegerv(GL_ELEMENT_ARRAY_BUFFER_BINDING, &currentIBO);
+    MobileGL::MG_External::GLES::glGetIntegerv(GL_ELEMENT_ARRAY_BUFFER_BINDING, &currentIBO);
     
     if (currentIBO == 0) {
         std::cerr << "Error: No IBO bound to current context.\n";
@@ -111,9 +111,9 @@ void MultiDrawElementsBaseVertex::multiDrawElementsBaseVertex(GLenum mode,
     GLint prevArrayBuffer = 0;
     GLint prevElementArrayBuffer = 0;
     
-    MG_External::GLES::glGetIntegerv(GL_CURRENT_PROGRAM, &prevProgram);
-    MG_External::GLES::glGetIntegerv(GL_ARRAY_BUFFER_BINDING, &prevArrayBuffer);
-    MG_External::GLES::glGetIntegerv(GL_ELEMENT_ARRAY_BUFFER_BINDING, &prevElementArrayBuffer);
+    MobileGL::MG_External::GLES::glGetIntegerv(GL_CURRENT_PROGRAM, &prevProgram);
+    MobileGL::MG_External::GLES::glGetIntegerv(GL_ARRAY_BUFFER_BINDING, &prevArrayBuffer);
+    MobileGL::MG_External::GLES::glGetIntegerv(GL_ELEMENT_ARRAY_BUFFER_BINDING, &prevElementArrayBuffer);
     
     // 确保输出缓冲区足够大
     ensureCapacity();
@@ -122,13 +122,13 @@ void MultiDrawElementsBaseVertex::multiDrawElementsBaseVertex(GLenum mode,
     runComputeShader(type, static_cast<GLuint>(currentIBO), m_totalIndices);
     
     // 绑定输出IBO进行绘制
-    MG_External::GLES::glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, m_outputIBO);
-    MG_External::GLES::glDrawElements(mode, static_cast<GLsizei>(m_totalIndices), GL_UNSIGNED_INT, 0);
+    MobileGL::MG_External::GLES::glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, m_outputIBO);
+    MobileGL::MG_External::GLES::glDrawElements(mode, static_cast<GLsizei>(m_totalIndices), GL_UNSIGNED_INT, 0);
     
     // 恢复状态
-    MG_External::GLES::glUseProgram(static_cast<GLuint>(prevProgram));
-    MG_External::GLES::glBindBuffer(GL_ARRAY_BUFFER, static_cast<GLuint>(prevArrayBuffer));
-    MG_External::GLES::glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, static_cast<GLuint>(prevElementArrayBuffer));
+    MobileGL::MG_External::GLES::glUseProgram(static_cast<GLuint>(prevProgram));
+    MobileGL::MG_External::GLES::glBindBuffer(GL_ARRAY_BUFFER, static_cast<GLuint>(prevArrayBuffer));
+    MobileGL::MG_External::GLES::glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, static_cast<GLuint>(prevElementArrayBuffer));
 }
 
 void MultiDrawElementsBaseVertex::clear() {
@@ -138,10 +138,10 @@ void MultiDrawElementsBaseVertex::clear() {
 }
 
 void MultiDrawElementsBaseVertex::initializeGPUResources() {
-    MG_External::GLES::glGenBuffers(1, &m_prefixSumBuffer);
-    MG_External::GLES::glGenBuffers(1, &m_firstIndexBuffer);
-    MG_External::GLES::glGenBuffers(1, &m_baseVertexBuffer);
-    MG_External::GLES::glGenBuffers(1, &m_outputIBO);
+    MobileGL::MG_External::GLES::glGenBuffers(1, &m_prefixSumBuffer);
+    MobileGL::MG_External::GLES::glGenBuffers(1, &m_firstIndexBuffer);
+    MobileGL::MG_External::GLES::glGenBuffers(1, &m_baseVertexBuffer);
+    MobileGL::MG_External::GLES::glGenBuffers(1, &m_outputIBO);
     
     compileComputePrograms();
 }
@@ -175,21 +175,21 @@ void MultiDrawElementsBaseVertex::compileComputePrograms() {
 }
 
 GLuint MultiDrawElementsBaseVertex::compileShader(GLenum type, const char* source) {
-    GLuint shader = MG_External::GLES::glCreateShader(type);
+    GLuint shader = MobileGL::MG_External::GLES::glCreateShader(type);
     
-    MG_Impl::GLImpl::ShaderSource(shader, 1, &source, nullptr);
-    MG_External::GLES::glCompileShader(shader);
+    MobileGL::MG_Impl::GLImpl::ShaderSource(shader, 1, &source, nullptr);
+    MobileGL::MG_External::GLES::glCompileShader(shader);
     
     // 检查编译状态
     GLint compileStatus = 0;
-    MG_External::GLES::glGetShaderiv(shader, GL_COMPILE_STATUS, &compileStatus);
+    MobileGL::MG_External::GLES::glGetShaderiv(shader, GL_COMPILE_STATUS, &compileStatus);
     
     if (compileStatus != GL_TRUE) {
         GLchar infoLog[1024];
         GLsizei logLength = 0;
-        MG_External::GLES::glGetShaderInfoLog(shader, sizeof(infoLog), &logLength, infoLog);
+        MobileGL::MG_External::GLES::glGetShaderInfoLog(shader, sizeof(infoLog), &logLength, infoLog);
         std::cerr << "Shader compilation failed: " << infoLog << std::endl;
-        MG_External::GLES::glDeleteShader(shader);
+        MobileGL::MG_External::GLES::glDeleteShader(shader);
         return 0;
     }
     
@@ -197,23 +197,23 @@ GLuint MultiDrawElementsBaseVertex::compileShader(GLenum type, const char* sourc
 }
 
 GLuint MultiDrawElementsBaseVertex::linkProgram(GLuint shader) {
-    GLuint program = MG_External::GLES::glCreateProgram();
-    MG_External::GLES::glAttachShader(program, shader);
-    MG_External::GLES::glLinkProgram(program);
+    GLuint program = MobileGL::MG_External::GLES::glCreateProgram();
+    MobileGL::MG_External::GLES::glAttachShader(program, shader);
+    MobileGL::MG_External::GLES::glLinkProgram(program);
     
     GLint linkStatus = 0;
-    MG_External::GLES::glGetProgramiv(program, GL_LINK_STATUS, &linkStatus);
+    MobileGL::MG_External::GLES::glGetProgramiv(program, GL_LINK_STATUS, &linkStatus);
     
     if (linkStatus != GL_TRUE) {
         GLchar infoLog[1024];
         GLsizei logLength = 0;
-        MG_External::GLES::glGetProgramInfoLog(program, sizeof(infoLog), &logLength, infoLog);
+        MobileGL::MG_External::GLES::glGetProgramInfoLog(program, sizeof(infoLog), &logLength, infoLog);
         std::cerr << "Program linking failed: " << infoLog << std::endl;
-        MG_External::GLES::glDeleteProgram(program);
+        MobileGL::MG_External::GLES::glDeleteProgram(program);
         program = 0;
     }
     
-    MG_External::GLES::glDeleteShader(shader);
+    MobileGL::MG_External::GLES::glDeleteShader(shader);
     return program;
 }
 
@@ -262,29 +262,29 @@ void MultiDrawElementsBaseVertex::uploadBatchDataToGPU(const GLsizei* count,
     }
     
     // 上传firstIndex数据
-    MG_External::GLES::glBindBuffer(GL_SHADER_STORAGE_BUFFER, m_firstIndexBuffer);
-    MG_External::GLES::glBufferData(GL_SHADER_STORAGE_BUFFER, 
+    MobileGL::MG_External::GLES::glBindBuffer(GL_SHADER_STORAGE_BUFFER, m_firstIndexBuffer);
+    MobileGL::MG_External::GLES::glBufferData(GL_SHADER_STORAGE_BUFFER, 
                                     static_cast<GLsizeiptr>(firstIndices.size() * sizeof(GLuint)),
                                     firstIndices.data(), GL_DYNAMIC_DRAW);
     
     // 上传baseVertex数据
-    MG_External::GLES::glBindBuffer(GL_SHADER_STORAGE_BUFFER, m_baseVertexBuffer);
-    MG_External::GLES::glBufferData(GL_SHADER_STORAGE_BUFFER,
+    MobileGL::MG_External::GLES::glBindBuffer(GL_SHADER_STORAGE_BUFFER, m_baseVertexBuffer);
+    MobileGL::MG_External::GLES::glBufferData(GL_SHADER_STORAGE_BUFFER,
                                     static_cast<GLsizeiptr>(drawcount * sizeof(GLint)),
                                     basevertex, GL_DYNAMIC_DRAW);
     
     // 上传前缀和数据
-    MG_External::GLES::glBindBuffer(GL_SHADER_STORAGE_BUFFER, m_prefixSumBuffer);
-    MG_External::GLES::glBufferData(GL_SHADER_STORAGE_BUFFER,
+    MobileGL::MG_External::GLES::glBindBuffer(GL_SHADER_STORAGE_BUFFER, m_prefixSumBuffer);
+    MobileGL::MG_External::GLES::glBufferData(GL_SHADER_STORAGE_BUFFER,
                                     static_cast<GLsizeiptr>(m_prefixSums.size() * sizeof(GLuint)),
                                     m_prefixSums.data(), GL_DYNAMIC_DRAW);
 }
 
 void MultiDrawElementsBaseVertex::ensureCapacity() {
     if (m_totalIndices > 0) {
-        MG_External::GLES::glBindBuffer(GL_SHADER_STORAGE_BUFFER, m_outputIBO);
+        MobileGL::MG_External::GLES::glBindBuffer(GL_SHADER_STORAGE_BUFFER, m_outputIBO);
         GLint currentSize = 0;
-        MG_External::GLES::glGetBufferParameteriv(GL_SHADER_STORAGE_BUFFER, GL_BUFFER_SIZE, &currentSize);
+        MobileGL::MG_External::GLES::glGetBufferParameteriv(GL_SHADER_STORAGE_BUFFER, GL_BUFFER_SIZE, &currentSize);
         
         std::size_t requiredSize = m_totalIndices * sizeof(GLuint);
         if (static_cast<std::size_t>(currentSize) < requiredSize) {
@@ -293,7 +293,7 @@ void MultiDrawElementsBaseVertex::ensureCapacity() {
             while (newSize < requiredSize) {
                 newSize *= 2;
             }
-            MG_External::GLES::glBufferData(GL_SHADER_STORAGE_BUFFER, 
+            MobileGL::MG_External::GLES::glBufferData(GL_SHADER_STORAGE_BUFFER, 
                                             static_cast<GLsizeiptr>(newSize), 
                                             nullptr, GL_DYNAMIC_DRAW);
         }
@@ -310,26 +310,26 @@ void MultiDrawElementsBaseVertex::runComputeShader(GLenum type, GLuint inputIBO,
     GLuint program = it->second;
     
     // 绑定输入IBO到计算着色器
-    MG_External::GLES::glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, inputIBO);       // 原始索引数据
-    MG_External::GLES::glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, m_firstIndexBuffer);
-    MG_External::GLES::glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, m_baseVertexBuffer);
-    MG_External::GLES::glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 3, m_prefixSumBuffer);
-    MG_External::GLES::glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 4, m_outputIBO);    // 输出索引数据
+    MobileGL::MG_External::GLES::glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, inputIBO);       // 原始索引数据
+    MobileGL::MG_External::GLES::glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, m_firstIndexBuffer);
+    MobileGL::MG_External::GLES::glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, m_baseVertexBuffer);
+    MobileGL::MG_External::GLES::glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 3, m_prefixSumBuffer);
+    MobileGL::MG_External::GLES::glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 4, m_outputIBO);    // 输出索引数据
     
     // 使用计算着色器
-    MG_External::GLES::glUseProgram(program);
+    MobileGL::MG_External::GLES::glUseProgram(program);
     
     // 分发计算着色器
     const GLuint groupSize = 64;
     const GLuint numGroups = (totalIndices + groupSize - 1) / groupSize;
     
-    MG_External::GLES::glDispatchCompute(numGroups, 1, 1);
+    MobileGL::MG_External::GLES::glDispatchCompute(numGroups, 1, 1);
     
     // 等待计算完成
-    MG_External::GLES::glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
+    MobileGL::MG_External::GLES::glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
     
     // 恢复到默认程序
-    MG_External::GLES::glUseProgram(0);
+    MobileGL::MG_External::GLES::glUseProgram(0);
 }
 
 GLuint MultiDrawElementsBaseVertex::getTypeSize(GLenum type) const {
