@@ -177,7 +177,7 @@ void MultiDrawElementsBaseVertex::compileComputePrograms() {
 GLuint MultiDrawElementsBaseVertex::compileShader(GLenum type, const char* source) {
     GLuint shader = MG_External::GLES::glCreateShader(type);
     
-    MG_External::GLES::glShaderSource(shader, 1, &source, nullptr);
+    MG_Impl::GLImpl::ShaderSource(shader, 1, &source, nullptr);
     MG_External::GLES::glCompileShader(shader);
     
     // 检查编译状态
