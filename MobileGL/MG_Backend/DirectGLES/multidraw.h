@@ -41,40 +41,41 @@ void main() {
     uint outIdx = gl_GlobalInvocationID.x;
     
     // 需要检查是否有有效的批次数据
-    if (prefixSums.length() == 0u) {
+    int prefixLength = prefixSums.length();
+    if (prefixLength == 0) {
         return;
     }
     
-    uint totalIndices = prefixSums[prefixSums.length() - 1u];
+    uint totalIndices = prefixSums[prefixLength - 1];
     
     if (outIdx >= totalIndices) {
         return;
     }
     
-    // 二分查找批次 - 使用uint以避免类型不匹配
-    uint low = 0u;
-    uint high = prefixSums.length() - 1u;
+    // 二分查找批次 - 使用int类型进行数组索引
+    int low = 0;
+    int high = prefixLength - 1;
     
     while (low < high) {
-        uint mid = low + (high - low) / 2u;
+        int mid = low + (high - low) / 2;
         if (prefixSums[mid] > outIdx) {
             high = mid; // next [low, mid)
         } else {
-            low = mid + 1u; // next [mid + 1, high)
+            low = mid + 1; // next [mid + 1, high)
         }
     }
     
-    uint batchID = low;
+    int batchID = low;
     
     // 计算本地索引
-    uint batchStart = (batchID == 0u) ? 0u : prefixSums[batchID - 1u];
+    uint batchStart = (batchID == 0) ? 0u : prefixSums[batchID - 1];
     uint localIdx = outIdx - batchStart;
     
     // 读取原始索引（firstIndex是元素索引）
     uint inIndex = localIdx + firstIndex[batchID];
     uint originalIndex = in_indices[inIndex];
     
-    // 应用基顶点偏移 - 需要将int转换为uint进行计算
+    // 应用基顶点偏移
     int baseVertexValue = baseVertex[batchID];
     uint finalIndex;
     if (baseVertexValue >= 0) {
@@ -124,33 +125,34 @@ void main() {
     uint outIdx = gl_GlobalInvocationID.x;
     
     // 需要检查是否有有效的批次数据
-    if (prefixSums.length() == 0u) {
+    int prefixLength = prefixSums.length();
+    if (prefixLength == 0) {
         return;
     }
     
-    uint totalIndices = prefixSums[prefixSums.length() - 1u];
+    uint totalIndices = prefixSums[prefixLength - 1];
     
     if (outIdx >= totalIndices) {
         return;
     }
     
-    // 二分查找批次 - 使用uint以避免类型不匹配
-    uint low = 0u;
-    uint high = prefixSums.length() - 1u;
+    // 二分查找批次
+    int low = 0;
+    int high = prefixLength - 1;
     
     while (low < high) {
-        uint mid = low + (high - low) / 2u;
+        int mid = low + (high - low) / 2;
         if (prefixSums[mid] > outIdx) {
             high = mid; // next [low, mid)
         } else {
-            low = mid + 1u; // next [mid + 1, high)
+            low = mid + 1; // next [mid + 1, high)
         }
     }
     
-    uint batchID = low;
+    int batchID = low;
     
     // 计算本地索引
-    uint batchStart = (batchID == 0u) ? 0u : prefixSums[batchID - 1u];
+    uint batchStart = (batchID == 0) ? 0u : prefixSums[batchID - 1];
     uint localIdx = outIdx - batchStart;
     
     // 读取原始索引（firstIndex是ushort元素索引）
@@ -163,7 +165,7 @@ void main() {
     uint packedValue = in_indices[uintIndex];
     uint originalIndex = extractUShort(packedValue, offsetInUint);
     
-    // 应用基顶点偏移 - 需要将int转换为uint进行计算
+    // 应用基顶点偏移
     int baseVertexValue = baseVertex[batchID];
     uint finalIndex;
     if (baseVertexValue >= 0) {
@@ -210,33 +212,34 @@ void main() {
     uint outIdx = gl_GlobalInvocationID.x;
     
     // 需要检查是否有有效的批次数据
-    if (prefixSums.length() == 0u) {
+    int prefixLength = prefixSums.length();
+    if (prefixLength == 0) {
         return;
     }
     
-    uint totalIndices = prefixSums[prefixSums.length() - 1u];
+    uint totalIndices = prefixSums[prefixLength - 1];
     
     if (outIdx >= totalIndices) {
         return;
     }
     
-    // 二分查找批次 - 使用uint以避免类型不匹配
-    uint low = 0u;
-    uint high = prefixSums.length() - 1u;
+    // 二分查找批次
+    int low = 0;
+    int high = prefixLength - 1;
     
     while (low < high) {
-        uint mid = low + (high - low) / 2u;
+        int mid = low + (high - low) / 2;
         if (prefixSums[mid] > outIdx) {
             high = mid; // next [low, mid)
         } else {
-            low = mid + 1u; // next [mid + 1, high)
+            low = mid + 1; // next [mid + 1, high)
         }
     }
     
-    uint batchID = low;
+    int batchID = low;
     
     // 计算本地索引
-    uint batchStart = (batchID == 0u) ? 0u : prefixSums[batchID - 1u];
+    uint batchStart = (batchID == 0) ? 0u : prefixSums[batchID - 1];
     uint localIdx = outIdx - batchStart;
     
     // 读取原始索引（firstIndex是ubyte元素索引）
@@ -249,7 +252,7 @@ void main() {
     uint packedValue = in_indices[uintIndex];
     uint originalIndex = extractUByte(packedValue, offsetInUint);
     
-    // 应用基顶点偏移 - 需要将int转换为uint进行计算
+    // 应用基顶点偏移
     int baseVertexValue = baseVertex[batchID];
     uint finalIndex;
     if (baseVertexValue >= 0) {
