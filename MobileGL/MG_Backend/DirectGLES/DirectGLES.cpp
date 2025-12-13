@@ -664,7 +664,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
             MG_External::GLES::glDrawElementsBaseVertex(mode, count[i], type, indices[i], basevertex[i]);
         }*/
 
-        MG_External::GLES::glMultiDrawElementsBaseVertex(mode, count, type, indices, drawcount, basevertex);
+        MG_External::GLES::glMultiDrawElementsBaseVertexEXT(mode, count, type, indices, drawcount, basevertex);
         
     }
 
