@@ -12,6 +12,7 @@
 #include <MG_Util/Converters/MGToGL/TextureEnumConverter.h>
 #include <MG_Util/Converters/MGToStr/TextureEnumConverter.h>
 #include <MG_Util/Converters/MGToGL/RenderStateEnumConverter.h>
+#include <MG_Impl/GLImpl/Program/GL_Program.h>
 
 // 全局实例
 MultiDrawElementsBaseVertex g_multiDrawElementsBaseVertex_shader;
