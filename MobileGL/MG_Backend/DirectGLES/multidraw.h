@@ -236,7 +236,7 @@ public:
     MultiDrawElementsBaseVertex(MultiDrawElementsBaseVertex&& other) noexcept;
     MultiDrawElementsBaseVertex& operator=(MultiDrawElementsBaseVertex&& other) noexcept;
     
-    void multiDrawElementsBaseVertex_shader(GLenum mode, 
+    void multiDrawElementsBaseVertex(GLenum mode, 
                                     const GLsizei* count,
                                     GLenum type,
                                     const void* const* indices,
@@ -263,8 +263,7 @@ private:
     
     // 类型辅助函数
     GLuint getTypeSize(GLenum type) const;
-    bool isTypeSupported(GLenum type) const;
 };
 
 // 全局实例
-extern multiDrawElementsBaseVertex g_multiDrawElementsBaseVertex_shader;
+extern MultiDrawElementsBaseVertex g_multiDrawElementsBaseVertex_shader;
