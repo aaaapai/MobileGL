@@ -19,7 +19,7 @@ private:
     bool m_dataDirty{true};
     
     // 着色器源代码 - 支持多种类型
-    static constexpr std::string_view COMPUTE_SHADER_SOURCE_UINT = R"(#version 330 core
+    static constexpr std::string_view COMPUTE_SHADER_SOURCE_UINT = R"(#version 310 es
 layout(local_size_x = 64) in;
 
 layout(std430, binding = 0) readonly buffer Input { 
@@ -77,7 +77,7 @@ void main() {
 }
 )";
 
-    static constexpr std::string_view COMPUTE_SHADER_SOURCE_USHORT = R"(#version 330 core
+    static constexpr std::string_view COMPUTE_SHADER_SOURCE_USHORT = R"(#version 310 es
 layout(local_size_x = 64) in;
 
 layout(std430, binding = 0) readonly buffer Input { 
@@ -150,7 +150,7 @@ void main() {
 }
 )";
 
-    static constexpr std::string_view COMPUTE_SHADER_SOURCE_UBYTE = R"(#version 320 es
+    static constexpr std::string_view COMPUTE_SHADER_SOURCE_UBYTE = R"(#version 310 es
 layout(local_size_x = 64) in;
 
 layout(std430, binding = 0) readonly buffer Input { 
