@@ -13,4 +13,4 @@ cmake_build () {
   $ANDROID_NDK_LATEST_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-strip $GITHUB_WORKSPACE/**/libMobileGL.so
 }
 
-cmake_build arm64-v8a x86_64
+cmake_build arm64-v8a
