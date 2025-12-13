@@ -1,3 +1,5 @@
+#pragma once
+#include <Includes.h>
 
 class MultiDrawElementsBaseVertex {
 private:
