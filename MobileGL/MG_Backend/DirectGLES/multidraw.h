@@ -74,8 +74,18 @@ void main() {
     uint inIndex = localIdx + firstIndex[batchID];
     uint originalIndex = in_indices[inIndex];
     
-    // 应用基顶点偏移
-    uint finalIndex = uint(int(originalIndex) + baseVertex[batchID]);
+    // 应用基顶点偏移 - 需要将int转换为uint进行计算
+    int baseVertexValue = baseVertex[batchID];
+    uint finalIndex;
+    if (baseVertexValue >= 0) {
+        finalIndex = originalIndex + uint(baseVertexValue);
+    } else {
+        // 处理负偏移
+        int originalInt = int(originalIndex);
+        int result = originalInt + baseVertexValue;
+        if (result < 0) result = 0;
+        finalIndex = uint(result);
+    }
     
     // 写入输出
     out_indices[outIdx] = finalIndex;
@@ -153,8 +163,18 @@ void main() {
     uint packedValue = in_indices[uintIndex];
     uint originalIndex = extractUShort(packedValue, offsetInUint);
     
-    // 应用基顶点偏移
-    uint finalIndex = uint(int(originalIndex) + baseVertex[batchID]);
+    // 应用基顶点偏移 - 需要将int转换为uint进行计算
+    int baseVertexValue = baseVertex[batchID];
+    uint finalIndex;
+    if (baseVertexValue >= 0) {
+        finalIndex = originalIndex + uint(baseVertexValue);
+    } else {
+        // 处理负偏移
+        int originalInt = int(originalIndex);
+        int result = originalInt + baseVertexValue;
+        if (result < 0) result = 0;
+        finalIndex = uint(result);
+    }
     
     // 写入输出
     out_indices[outIdx] = finalIndex;
@@ -229,8 +249,18 @@ void main() {
     uint packedValue = in_indices[uintIndex];
     uint originalIndex = extractUByte(packedValue, offsetInUint);
     
-    // 应用基顶点偏移
-    uint finalIndex = uint(int(originalIndex) + baseVertex[batchID]);
+    // 应用基顶点偏移 - 需要将int转换为uint进行计算
+    int baseVertexValue = baseVertex[batchID];
+    uint finalIndex;
+    if (baseVertexValue >= 0) {
+        finalIndex = originalIndex + uint(baseVertexValue);
+    } else {
+        // 处理负偏移
+        int originalInt = int(originalIndex);
+        int result = originalInt + baseVertexValue;
+        if (result < 0) result = 0;
+        finalIndex = uint(result);
+    }
     
     // 写入输出
     out_indices[outIdx] = finalIndex;
