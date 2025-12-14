@@ -30,5 +30,14 @@ namespace MobileGL {
             }
         }
 
+        GLenum ConvertRenderbufferTargetToGLEnum(RenderbufferTarget target) {
+            switch (target) {
+            case RenderbufferTarget::Renderbuffer:
+                return GL_RENDERBUFFER;
+            default:
+                return GL_RENDERBUFFER;
+            }
+        }
+
     } // namespace MG_Util
 } // namespace MobileGL

@@ -6,5 +6,6 @@ namespace MobileGL {
     namespace MG_Util {
         GLenum ConvertFramebufferTargetToGLEnum(FramebufferTarget bufferTarget);
         GLenum ConvertFramebufferAttachmentTypeToGLEnum(FramebufferAttachmentType attachment);
+        GLenum ConvertRenderbufferTargetToGLEnum(RenderbufferTarget target);
     } // namespace MG_Util
 } // namespace MobileGL
