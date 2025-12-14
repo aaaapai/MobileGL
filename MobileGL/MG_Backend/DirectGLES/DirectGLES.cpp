@@ -621,11 +621,9 @@ namespace MobileGL::MG_Backend::DirectGLES {
         DrawSyncBit syncBit = DrawSyncBit::IndexBuffer;
         PrepareForDraw(syncBit);
 
-        /*for (GLsizei i = 0; i < drawcount; ++i) {
+        for (GLsizei i = 0; i < drawcount; ++i) {
             MG_External::GLES::glDrawElementsBaseVertex(mode, count[i], type, indices[i], basevertex[i]);
-        }*/
-
-        g_multiDrawElementsBaseVertex_shader.multiDrawElementsBaseVertex(mode, count, type, indices, drawcount, basevertex);
+        }
         
     }
 
