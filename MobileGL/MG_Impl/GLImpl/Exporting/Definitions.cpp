@@ -118,7 +118,7 @@ DECLARE_GL_FUNCTION_HEAD(void, GetFramebufferAttachmentParameteriv, GLenum targe
 DECLARE_GL_FUNCTION_HEAD(void, GetIntegerv, GLenum pname, GLint* data) DECLARE_GL_FUNCTION_END_NO_RETURN(void, GetIntegerv, pname, data)
 DECLARE_GL_FUNCTION_HEAD(void, GetProgramiv, GLuint program, GLenum pname, GLint* params) DECLARE_GL_FUNCTION_END_NO_RETURN(void, GetProgramiv, program, pname, params)
 DECLARE_GL_FUNCTION_HEAD(void, GetProgramInfoLog, GLuint program, GLsizei bufSize, GLsizei* length, GLchar* infoLog) DECLARE_GL_FUNCTION_END_NO_RETURN(void, GetProgramInfoLog, program, bufSize, length, infoLog)
-DECLARE_GL_FUNCTION_STUB_HEAD(void, GetRenderbufferParameteriv, GLenum target, GLenum pname, GLint* params) DECLARE_GL_FUNCTION_STUB_END_NO_RETURN(void, GetRenderbufferParameteriv, target, pname, params)
+DECLARE_GL_FUNCTION_HEAD(void, GetRenderbufferParameteriv, GLenum target, GLenum pname, GLint* params) DECLARE_GL_FUNCTION_END_NO_RETURN(void, GetRenderbufferParameteriv, target, pname, params)
 DECLARE_GL_FUNCTION_HEAD(void, GetShaderiv, GLuint shader, GLenum pname, GLint* params) DECLARE_GL_FUNCTION_END_NO_RETURN(void, GetShaderiv, shader, pname, params)
 DECLARE_GL_FUNCTION_HEAD(void, GetShaderInfoLog, GLuint shader, GLsizei bufSize, GLsizei* length, GLchar* infoLog) DECLARE_GL_FUNCTION_END_NO_RETURN(void, GetShaderInfoLog, shader, bufSize, length, infoLog)
 DECLARE_GL_FUNCTION_STUB_HEAD(void, GetShaderPrecisionFormat, GLenum shadertype, GLenum precisiontype, GLint* range, GLint* precision) DECLARE_GL_FUNCTION_STUB_END_NO_RETURN(void, GetShaderPrecisionFormat, shadertype, precisiontype, range, precision)
