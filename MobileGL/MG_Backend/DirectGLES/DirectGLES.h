@@ -6,6 +6,10 @@
     operation Utils::CheckGLESError();
 
 namespace MobileGL::MG_Backend::DirectGLES {
+    void ClearBufferfi(GLenum buffer, GLint drawbuffer, GLfloat depth, GLint stencil);
+    void ClearBufferfv(GLenum buffer, GLint drawbuffer, const GLfloat* value);
+    void ClearBufferuiv(GLenum buffer, GLint drawbuffer, const GLuint* value);
+    void ClearBufferiv(GLenum buffer, GLint drawbuffer, const GLint* value);
     void Clear(GLbitfield mask);
     void DrawElements(GLenum mode, GLsizei count, GLenum type, const void* indices);
     void DrawArrays(GLenum mode, GLint first, GLsizei count);

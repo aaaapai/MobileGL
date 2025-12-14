@@ -58,7 +58,8 @@ namespace MobileGL::MG_Backend::DirectGLES {
 
             bool operator==(const StateTextureBasicInfo& other) const {
                 return internalFormat == other.internalFormat && width == other.width && height == other.height &&
-                       depth == other.depth && mipmapLevels == other.mipmapLevels && bufferExternalIndex == other.bufferExternalIndex;
+                       depth == other.depth && mipmapLevels == other.mipmapLevels &&
+                       bufferExternalIndex == other.bufferExternalIndex;
             }
 
             bool operator!=(const StateTextureBasicInfo& other) const { return !(*this == other); }
@@ -94,6 +95,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
                                FramebufferTarget asTarget);
             Uint GetBackendFramebufferId() { return m_backendFBOId; }
             void Bind(FramebufferTarget target);
+            FramebufferAttachmentType GetCompactedAttachmentTypeAtDrawBufferIndex(Int index);
 
         private:
             Uint m_backendFBOId = 0;
