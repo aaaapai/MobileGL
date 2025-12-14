@@ -433,7 +433,7 @@ namespace MobileGL {
                 DestroyTempEGLCtx();
             }
 
-            *libEGL = nullptr;
+            void *libEGL = nullptr;
 
             static const char* LibPathPrefixes[] = {"", "/opt/vc/lib/", "/usr/local/lib/", "/usr/lib/", nullptr};
             static const char* LibExts[] = {"so", "so.1", "so.2", "dylib", "dll", nullptr};
