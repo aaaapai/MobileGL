@@ -13,6 +13,9 @@ MOBILEGL_EGL_API EGLBoolean eglChooseConfig(EGLDisplay dpy, const EGLint* attrib
 
 MOBILEGL_EGL_API EGLContext eglCreateContext(EGLDisplay dpy, EGLConfig config, EGLContext shareCtx,
                                              const EGLint* attrib_list) {
+#ifdef TRACY_ENABLE
+    tracy::StartupProfiler();
+#endif
     return MobileGL::MG_Impl::EGLImpl::CreateContext(dpy, config, shareCtx, attrib_list);
 }
 
@@ -33,6 +36,9 @@ MOBILEGL_EGL_API EGLBoolean eglMakeCurrent(EGLDisplay dpy, EGLSurface draw, EGLS
 }
 
 MOBILEGL_EGL_API EGLBoolean eglDestroyContext(EGLDisplay dpy, EGLContext ctx) {
+#ifdef TRACY_ENABLE
+    tracy::ShutdownProfiler();
+#endif
     return MobileGL::MG_Impl::EGLImpl::DestroyContext(dpy, ctx);
 }
 
@@ -73,6 +79,9 @@ MOBILEGL_EGL_API EGLBoolean eglSwapInterval(EGLDisplay dpy, EGLint interval) {
 }
 
 MOBILEGL_EGL_API EGLBoolean eglSwapBuffers(EGLDisplay dpy, EGLSurface draw) {
+#ifdef TRACY_ENABLE
+    FrameMark;
+#endif
     return MobileGL::MG_Impl::EGLImpl::SwapBuffers(dpy, draw);
 }
 

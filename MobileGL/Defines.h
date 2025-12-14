@@ -31,7 +31,7 @@
 #define MOBILEGL_BACKEND_TYPE_DIRECT_GLES 3
 
 // ====================== MobileGL configurations ======================= //
-#define MOBILEGL_LOG_ACTIVE_LEVEL MOBILEGL_LOG_LEVEL_DEBUG
+#define MOBILEGL_LOG_ACTIVE_LEVEL MOBILEGL_LOG_LEVEL_FATAL
 
 #define MOBILEGL_LOG_ENABLE_CONSOLE 0
 #define MOBILEGL_LOG_ENABLE_FILE 1
@@ -43,7 +43,7 @@
 #define MOBILEGL_LOG_FILE_PATH ""
 #endif
 
-#if _MSC_VER
+#if defined _MSC_VER or defined __MINGW32__ or defined __MINGW64__
 #define TRAP assert(false)
 #elif __clang__
 #define TRAP __builtin_debugtrap()

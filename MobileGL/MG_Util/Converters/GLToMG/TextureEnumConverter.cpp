@@ -317,6 +317,8 @@ namespace MobileGL {
                 return TextureUploadTarget::CubeMapPositiveZ;
             case GL_TEXTURE_CUBE_MAP_NEGATIVE_Z:
                 return TextureUploadTarget::CubeMapNegativeZ;
+            case GL_TEXTURE_BUFFER:
+                return TextureUploadTarget::TextureBuffer;
             case GL_PROXY_TEXTURE_CUBE_MAP:
                 return TextureUploadTarget::ProxyCubeMap;
             case GL_TEXTURE_2D_MULTISAMPLE:

@@ -24,15 +24,29 @@ MOBILEGL_GL_API type gl##name(__VA_ARGS__) {
 #define DECLARE_GL_FUNCTION_HEAD(type,name,...)                             \
 MOBILEGL_GL_API type gl##name(__VA_ARGS__) {
 
-#define DECLARE_GL_FUNCTION_END(type,name,...)                              \
-    MGLOG_D("Implementing function: %s(...)", __FUNCTION__);                \
-    return MobileGL::MG_Impl::GLImpl::name(__VA_ARGS__);                    \
-}
+#ifdef TRACY_ENABLE
+    #define DECLARE_GL_FUNCTION_END(type,name,...)                              \
+        ZoneScopedC(TRACY_ZONECOLOR_ENTRY);                                     \
+        MGLOG_D("Implementing function: %s(...)", __FUNCTION__);                \
+        return MobileGL::MG_Impl::GLImpl::name(__VA_ARGS__);                    \
+    }
 
-#define DECLARE_GL_FUNCTION_END_NO_RETURN(type,name,...)                    \
-    MGLOG_D("Implementing function: %s(...)", __FUNCTION__);                \
-    MobileGL::MG_Impl::GLImpl::name(__VA_ARGS__);                           \
-}
+    #define DECLARE_GL_FUNCTION_END_NO_RETURN(type,name,...)                    \
+        ZoneScopedC(TRACY_ZONECOLOR_ENTRY);                                     \
+        MGLOG_D("Implementing function: %s(...)", __FUNCTION__);                \
+        MobileGL::MG_Impl::GLImpl::name(__VA_ARGS__);                           \
+    }
+#else
+    #define DECLARE_GL_FUNCTION_END(type,name,...)                              \
+        MGLOG_D("Implementing function: %s(...)", __FUNCTION__);                \
+        return MobileGL::MG_Impl::GLImpl::name(__VA_ARGS__);                    \
+    }
+
+    #define DECLARE_GL_FUNCTION_END_NO_RETURN(type,name,...)                    \
+        MGLOG_D("Implementing function: %s(...)", __FUNCTION__);                \
+        MobileGL::MG_Impl::GLImpl::name(__VA_ARGS__);                           \
+    }
+#endif
 
 DECLARE_GL_FUNCTION_HEAD(const GLubyte*, GetStringi, GLenum name, GLuint index) DECLARE_GL_FUNCTION_END(const GLubyte*, GetStringi, name, index)
 DECLARE_GL_FUNCTION_HEAD(const GLubyte*, GetString, GLenum name) DECLARE_GL_FUNCTION_END(const GLubyte*, GetString, name)
@@ -144,9 +158,9 @@ DECLARE_GL_FUNCTION_HEAD(void, StencilOp, GLenum fail, GLenum zfail, GLenum zpas
 DECLARE_GL_FUNCTION_HEAD(void, StencilOpSeparate, GLenum face, GLenum sfail, GLenum dpfail, GLenum dppass) DECLARE_GL_FUNCTION_END_NO_RETURN(void, StencilOpSeparate, face, sfail, dpfail, dppass)
 DECLARE_GL_FUNCTION_HEAD(void, TexImage2D, GLenum target, GLint level, GLint internalformat, GLsizei width, GLsizei height, GLint border, GLenum format, GLenum type, const void* pixels) DECLARE_GL_FUNCTION_END_NO_RETURN(void, TexImage2D, target, level, internalformat, width, height, border, format, type, pixels)
 DECLARE_GL_FUNCTION_HEAD(void, TexParameterf, GLenum target, GLenum pname, GLfloat param) DECLARE_GL_FUNCTION_END_NO_RETURN(void, TexParameterf, target, pname, param)
-DECLARE_GL_FUNCTION_STUB_HEAD(void, TexParameterfv, GLenum target, GLenum pname, const GLfloat* params) DECLARE_GL_FUNCTION_STUB_END_NO_RETURN(void, TexParameterfv, target, pname, params)
+DECLARE_GL_FUNCTION_HEAD(void, TexParameterfv, GLenum target, GLenum pname, const GLfloat* params) DECLARE_GL_FUNCTION_END_NO_RETURN(void, TexParameterfv, target, pname, params)
 DECLARE_GL_FUNCTION_HEAD(void, TexParameteri, GLenum target, GLenum pname, GLint param) DECLARE_GL_FUNCTION_END_NO_RETURN(void, TexParameteri, target, pname, param)
-DECLARE_GL_FUNCTION_STUB_HEAD(void, TexParameteriv, GLenum target, GLenum pname, const GLint* params) DECLARE_GL_FUNCTION_STUB_END_NO_RETURN(void, TexParameteriv, target, pname, params)
+DECLARE_GL_FUNCTION_HEAD(void, TexParameteriv, GLenum target, GLenum pname, const GLint* params) DECLARE_GL_FUNCTION_END_NO_RETURN(void, TexParameteriv, target, pname, params)
 DECLARE_GL_FUNCTION_HEAD(void, TexSubImage2D, GLenum target, GLint level, GLint xoffset, GLint yoffset, GLsizei width, GLsizei height, GLenum format, GLenum type, const void* pixels) DECLARE_GL_FUNCTION_END_NO_RETURN(void, TexSubImage2D, target, level, xoffset, yoffset, width, height, format, type, pixels)
 DECLARE_GL_FUNCTION_HEAD(void, Uniform1f, GLint location, GLfloat v0) DECLARE_GL_FUNCTION_END_NO_RETURN(void, Uniform1f, location, v0)
 DECLARE_GL_FUNCTION_HEAD(void, Uniform1fv, GLint location, GLsizei count, const GLfloat* value) DECLARE_GL_FUNCTION_END_NO_RETURN(void, Uniform1fv, location, count, value)
@@ -387,8 +401,8 @@ DECLARE_GL_FUNCTION_STUB_HEAD(void, GetnUniformiv, GLuint program, GLint locatio
 DECLARE_GL_FUNCTION_STUB_HEAD(void, GetnUniformuiv, GLuint program, GLint location, GLsizei bufSize, GLuint* params) DECLARE_GL_FUNCTION_STUB_END_NO_RETURN(void, GetnUniformuiv, program, location, bufSize, params)
 DECLARE_GL_FUNCTION_STUB_HEAD(void, MinSampleShading, GLfloat value) DECLARE_GL_FUNCTION_STUB_END_NO_RETURN(void, MinSampleShading, value)
 DECLARE_GL_FUNCTION_STUB_HEAD(void, PatchParameteri, GLenum pname, GLint value) DECLARE_GL_FUNCTION_STUB_END_NO_RETURN(void, PatchParameteri, pname, value)
-DECLARE_GL_FUNCTION_STUB_HEAD(void, TexParameterIiv, GLenum target, GLenum pname, const GLint* params) DECLARE_GL_FUNCTION_STUB_END_NO_RETURN(void, TexParameterIiv, target, pname, params)
-DECLARE_GL_FUNCTION_STUB_HEAD(void, TexParameterIuiv, GLenum target, GLenum pname, const GLuint* params) DECLARE_GL_FUNCTION_STUB_END_NO_RETURN(void, TexParameterIuiv, target, pname, params)
+DECLARE_GL_FUNCTION_HEAD(void, TexParameterIiv, GLenum target, GLenum pname, const GLint* params) DECLARE_GL_FUNCTION_END_NO_RETURN(void, TexParameterIiv, target, pname, params)
+DECLARE_GL_FUNCTION_HEAD(void, TexParameterIuiv, GLenum target, GLenum pname, const GLuint* params) DECLARE_GL_FUNCTION_END_NO_RETURN(void, TexParameterIuiv, target, pname, params)
 DECLARE_GL_FUNCTION_HEAD(void, GetTexParameterIiv, GLenum target, GLenum pname, GLint* params) DECLARE_GL_FUNCTION_END_NO_RETURN(void, GetTexParameterIiv, target, pname, params)
 DECLARE_GL_FUNCTION_HEAD(void, GetTexParameterIuiv, GLenum target, GLenum pname, GLuint* params) DECLARE_GL_FUNCTION_END_NO_RETURN(void, GetTexParameterIuiv, target, pname, params)
 DECLARE_GL_FUNCTION_HEAD(void, SamplerParameterIiv, GLuint sampler, GLenum pname, const GLint* param) DECLARE_GL_FUNCTION_END_NO_RETURN(void, SamplerParameterIiv, sampler, pname, param)

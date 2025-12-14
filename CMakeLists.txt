@@ -15,9 +15,9 @@ if (NOT CMAKE_BUILD_TYPE STREQUAL "Debug" OR MOBILEGL_FORCE_RELEASE_OPT)
         add_compile_options(-O3 -ffunction-sections -fdata-sections)
         add_link_options(-Wl,--gc-sections)
     elseif (CMAKE_CXX_COMPILER_ID MATCHES "MSVC")
-        add_compile_options(/O2 /GL)
+#        add_compile_options(/O2)
     else ()
-        add_compile_options(-O3)
+        add_compile_options(-O2)
     endif()
 endif()
 
@@ -76,6 +76,18 @@ set(SPIRV_CROSS_STATIC         ON  CACHE BOOL "Prefer static libs" FORCE)
 # add_subdirectory(3rdparty/DiligentCore)
 add_subdirectory(3rdparty/glslang)
 add_subdirectory(3rdparty/SPIRV-Cross)
+
+option(TRACY_ENABLE            "Enable Tracy" OFF)
+
+if (TRACY_ENABLE)
+    set(TRACY_ON_DEMAND            ON  CACHE BOOL "Enable profiling only connected" FORCE)
+    set(TRACY_NO_EXIT              OFF CACHE BOOL "Don't exit Tracy until connected" FORCE)
+    set(TRACY_DELAYED_INIT         ON  CACHE BOOL "Don't init Tracy on library load" FORCE)
+    set(TRACY_MANUAL_LIFETIME      ON  CACHE BOOL "Manually control Tracy lifetime" FORCE)
+    set(TRACY_NO_CRASH_HANDLER     ON  CACHE BOOL "Disable crash handling" FORCE)
+
+    add_subdirectory(3rdparty/tracy)
+endif ()
 
 set(SOURCE_FILES
     MobileGL/Init.cpp
@@ -165,6 +177,7 @@ set(SOURCE_FILES
     MobileGL/MG_State/GLState/TextureState/TextureObject2D.cpp
     MobileGL/MG_State/GLState/TextureState/TextureObject2DCube.cpp
     MobileGL/MG_State/GLState/TextureState/TextureObject3D.cpp
+    MobileGL/MG_State/GLState/TextureState/TextureObjectBuffer.cpp
     MobileGL/MG_State/GLState/TextureState/TextureUnit.cpp
     MobileGL/MG_State/GLState/TextureState/TextureState.cpp
     MobileGL/MG_State/GLState/ProgramState/ProgramObject.cpp
@@ -248,6 +261,13 @@ target_link_libraries(${CMAKE_PROJECT_NAME}_s
     glslang::glslang
     spirv-cross-c
 )
+
+if (TRACY_ENABLE)
+    target_link_libraries(${CMAKE_PROJECT_NAME} PUBLIC Tracy::TracyClient)
+    target_link_libraries(${CMAKE_PROJECT_NAME}_s PUBLIC Tracy::TracyClient)
+    target_compile_definitions(${CMAKE_PROJECT_NAME} PUBLIC -DTRACY_ENABLE)
+    target_compile_definitions(${CMAKE_PROJECT_NAME}_s PUBLIC -DTRACY_ENABLE)
+endif ()
 
 if (ANDROID)
     target_link_libraries(${CMAKE_PROJECT_NAME} PUBLIC

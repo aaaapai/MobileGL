@@ -31,8 +31,8 @@ namespace MobileGL {
             STUB_TEXTURE_OBJECT_CLASS_DEFINITION(TextureObject2DMultisample, TextureTarget::Texture2DMultisample,
                                                  {TextureUploadTarget::Texture2DMultisample});
 
-            STUB_TEXTURE_OBJECT_CLASS_DEFINITION(TextureObjectBuffer, TextureTarget::TextureBuffer,
-                                                 {TextureUploadTarget::Unknown});
+            // STUB_TEXTURE_OBJECT_CLASS_DEFINITION(TextureObjectBuffer, TextureTarget::TextureBuffer,
+            //                                      {TextureUploadTarget::Unknown});
 
             STUB_TEXTURE_OBJECT_CLASS_DEFINITION(TextureObject1DArray, TextureTarget::Texture1DArray,
                                                  {TextureUploadTarget::Texture1DArray});

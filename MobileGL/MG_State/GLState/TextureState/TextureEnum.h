@@ -2,7 +2,7 @@
 
 namespace MobileGL {
     enum class TextureTarget {
-        Texture1D,
+        Texture1D = 0,
         Texture2D,
         Texture3D,
         TextureCubeMap,
@@ -20,7 +20,7 @@ namespace MobileGL {
     // Don't tinker with order in this enum (especially CubeMap faces),
     // it is used in MipmapUploadTargetArray
     enum class TextureUploadTarget {
-        Texture1D,
+        Texture1D = 0,
         Texture2D,
         Texture3D,
         ProxyTexture1D,
@@ -38,6 +38,7 @@ namespace MobileGL {
         CubeMapNegativeY,
         CubeMapPositiveZ,
         CubeMapNegativeZ,
+        TextureBuffer,
         ProxyCubeMap,
         CubeMapArray,
         ProxyCubeMapArray,
@@ -47,6 +48,11 @@ namespace MobileGL {
         ProxyTexture2DMultisampleArray,
         TextureUploadTargetCount,
         Unknown = -1
+    };
+
+    enum class TextureStorageType {
+        Mipmap,
+        Buffer
     };
 
     enum class TextureInputFormat {

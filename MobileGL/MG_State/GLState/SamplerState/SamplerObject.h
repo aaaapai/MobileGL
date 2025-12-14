@@ -51,7 +51,7 @@ namespace MobileGL {
         SamplerWrapMode wrapS = SamplerWrapMode::Repeat;
         SamplerWrapMode wrapT = SamplerWrapMode::Repeat;
         SamplerWrapMode wrapR = SamplerWrapMode::Repeat;
-        SamplerFilterMode minFilter = SamplerFilterMode::Linear;
+        SamplerFilterMode minFilter = SamplerFilterMode::Nearest;
         SamplerFilterMode magFilter = SamplerFilterMode::Linear;
         SamplerMipmapMode mipmapMode = SamplerMipmapMode::Linear;
         Float minLod = -1000.0f;

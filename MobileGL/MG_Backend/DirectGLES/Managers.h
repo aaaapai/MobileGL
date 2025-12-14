@@ -54,10 +54,11 @@ namespace MobileGL::MG_Backend::DirectGLES {
             SizeT height = 0;
             SizeT depth = 0;
             SizeT mipmapLevels = 0;
+            Uint bufferExternalIndex = 0;
 
             bool operator==(const StateTextureBasicInfo& other) const {
                 return internalFormat == other.internalFormat && width == other.width && height == other.height &&
-                       depth == other.depth && mipmapLevels == other.mipmapLevels;
+                       depth == other.depth && mipmapLevels == other.mipmapLevels && bufferExternalIndex == other.bufferExternalIndex;
             }
 
             bool operator!=(const StateTextureBasicInfo& other) const { return !(*this == other); }
