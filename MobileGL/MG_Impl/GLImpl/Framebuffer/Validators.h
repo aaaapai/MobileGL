@@ -7,5 +7,7 @@ namespace MobileGL::MG_Impl::GLImpl {
         Bool ValidateFramebufferTarget(FramebufferTarget target);
         Bool ValidateFramebufferName(Uint index, Bool allowZero = true);
         Bool ValidateFramebufferAttachmentType(FramebufferAttachmentType attachment);
+        Bool ValidateRenderbufferTarget(RenderbufferTarget target);
+        Bool ValidateRenderbufferName(Uint index, Bool allowZero = true);
     } // namespace FramebufferImpl
 } // namespace MobileGL::MG_Impl::GLImpl

@@ -6,6 +6,18 @@
 namespace MobileGL {
     namespace MG_Impl::GLImpl {
         /* @INSERTION_POINT:FUNCTION_DECLARATION@ */
+        void ClearBufferfi(GLenum buffer, GLint drawbuffer, GLfloat depth, GLint stencil);
+        void ClearBufferfv(GLenum buffer, GLint drawbuffer, const GLfloat* value);
+        void ClearBufferuiv(GLenum buffer, GLint drawbuffer, const GLuint* value);
+        void ClearBufferiv(GLenum buffer, GLint drawbuffer, const GLint* value);
+        void RenderbufferStorageMultisample(GLenum target, GLsizei samples, GLenum internalformat, GLsizei width, GLsizei height);
+        void RenderbufferStorage(GLenum target, GLenum internalformat, GLsizei width, GLsizei height);
+        GLboolean IsRenderbuffer(GLuint renderbuffer);
+        void GetRenderbufferParameteriv(GLenum target, GLenum pname, GLint* params);
+        void GenRenderbuffers(GLsizei n, GLuint* renderbuffers);
+        void FramebufferRenderbuffer(GLenum target, GLenum attachment, GLenum renderbuffertarget, GLuint renderbuffer);
+        void DeleteRenderbuffers(GLsizei n, const GLuint* renderbuffers);
+        void BindRenderbuffer(GLenum target, GLuint renderbuffer);
         void SampleMaski(GLuint maskNumber, GLbitfield mask);
         void RenderbufferStorageMultisample(GLenum target, GLsizei samples, GLenum internalformat, GLsizei width,
                                             GLsizei height);

@@ -58,7 +58,7 @@ If you want to try the project right now, you’ll need to build it yourself:
 1. Clone the repository:
 
    ```sh
-   git clone https://github.com/your/project.git
+   git clone https://github.com/MobileGL-Dev/MobileGL.git
    ```
 
 2. Initialize and update all submodules recursively:

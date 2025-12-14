@@ -53,5 +53,37 @@ namespace MobileGL::MG_Impl::GLImpl {
             }
             return true;
         }
+
+        Bool ValidateRenderbufferTarget(RenderbufferTarget target) {
+            if (target == RenderbufferTarget::Unknown) {
+                using namespace MG_Util;
+                String renderbufferTargetStr = ConvertRenderbufferTargetToString(target);
+                String glTargetStr = ConvertGLEnumToString(ConvertRenderbufferTargetToGLEnum(target));
+                MG_State::pGLContext->RecordError(
+                    ErrorCode::InvalidEnum,
+                    MakeShared<GenericErrorInfo>(
+                        "MG_Impl/GLImpl/FramebufferImpl", "ValidateRenderbufferTarget",
+                        std::format("Target {} ({}) is not valid.", renderbufferTargetStr, glTargetStr)));
+                return false;
+            }
+            return true;
+        }
+
+        Bool ValidateRenderbufferName(Uint index, Bool allowZero) {
+            if (index == 0 && !allowZero) {
+                MG_State::pGLContext->RecordError(
+                    ErrorCode::InvalidValue,
+                    MakeShared<GenericErrorInfo>("MG_Impl/GLImpl/FramebufferImpl", "ValidateRenderbufferName",
+                                                 "Renderbuffer name 0 is not valid in this situation."));
+                return false;
+            }
+            Bool isValid = MG_State::pGLContext->ValidateRenderbufferName(index);
+            if (isValid) return true;
+            MG_State::pGLContext->RecordError(
+                ErrorCode::InvalidOperation,
+                MakeShared<GenericErrorInfo>("MG_Impl/GLImpl/FramebufferImpl", "ValidateRenderbufferName",
+                                             std::format("Renderbuffer name {} is not valid.", index)));
+            return false;
+        }
     } // namespace FramebufferImpl
 } // namespace MobileGL::MG_Impl::GLImpl

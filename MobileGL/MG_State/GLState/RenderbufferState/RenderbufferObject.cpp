@@ -1,16 +1,10 @@
 #include "RenderbufferObject.h"
+#include <MG_Util/Metrics/TextureMetrics.h>
 
 namespace MobileGL {
     namespace MG_State {
         namespace GLState {
             RenderbufferObject::RenderbufferObject(Uint externalIndex) : m_externalIndex(externalIndex) {}
-
-            void RenderbufferObject::Storage(Int internalFormat, Int width, Int height) {
-                m_internalFormat = internalFormat;
-                m_width = width;
-                m_height = height;
-                m_allocated = true;
-            }
 
             Int RenderbufferObject::GetWidth() const {
                 return m_width;
@@ -20,12 +14,55 @@ namespace MobileGL {
                 return m_height;
             }
 
-            Int RenderbufferObject::GetInternalFormat() const {
+            TextureInternalFormat RenderbufferObject::GetInternalFormat() const {
                 return m_internalFormat;
             }
 
             Bool RenderbufferObject::IsAllocated() const {
                 return m_allocated;
+            }
+
+            Int RenderbufferObject::GetRedSize() const {
+                return m_componentSizes.Red;
+            }
+
+            Int RenderbufferObject::GetGreenSize() const {
+                return m_componentSizes.Green;
+            }
+
+            Int RenderbufferObject::GetBlueSize() const {
+                return m_componentSizes.Blue;
+            }
+
+            Int RenderbufferObject::GetAlphaSize() const {
+                return m_componentSizes.Alpha;
+            }
+
+            Int RenderbufferObject::GetDepthSize() const {
+                return m_componentSizes.Depth;
+            }
+
+            Int RenderbufferObject::GetStencilSize() const {
+                return m_componentSizes.Stencil;
+            }
+
+            Int RenderbufferObject::GetSamples() const {
+                return m_samples;
+            }
+
+            const ComponentSizes& RenderbufferObject::GetComponentSizes() const {
+                return m_componentSizes;
+            }
+
+            void RenderbufferObject::SetInternalFormat(TextureInternalFormat format) {
+                m_internalFormat = format;
+                m_componentSizes = MG_Util::GetComponentSizesForInternalFormat(format);
+            }
+
+            void RenderbufferObject::AllocateStorage(IntVec2 size) {
+                m_width = size.x();
+                m_height = size.y();
+                m_allocated = true;
             }
         } // namespace GLState
     } // namespace MG_State

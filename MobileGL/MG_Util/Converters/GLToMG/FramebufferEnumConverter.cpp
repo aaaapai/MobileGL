@@ -31,5 +31,15 @@ namespace MobileGL {
                 return FramebufferAttachmentType::Unknown;
             }
         }
+
+        RenderbufferTarget ConvertGLEnumToRenderbufferTarget(GLenum renderbufferTarget) {
+            switch (renderbufferTarget) {
+            case GL_RENDERBUFFER:
+                return RenderbufferTarget::Renderbuffer;
+            case GL_UNKNOWN_MGL:
+            default:
+                return RenderbufferTarget::Unknown;
+            }
+        }
     } // namespace MG_Util
 } // namespace MobileGL

@@ -30,5 +30,15 @@ namespace MobileGL {
                 return "Unknown";
             }
         }
+
+        String ConvertRenderbufferTargetToString(RenderbufferTarget target) {
+            switch (target) {
+            case RenderbufferTarget::Renderbuffer:
+                return "Renderbuffer";
+            case RenderbufferTarget::Unknown:
+            default:
+                return "Unknown";
+            }
+        }
     } // namespace MG_Util
 } // namespace MobileGL

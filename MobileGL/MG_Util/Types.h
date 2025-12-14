@@ -204,6 +204,15 @@ using UnorderedMap = std::unordered_map<Key, T>;
         Range1D m_range;
     };
 
+    struct ComponentSizes {
+        Int Red = 0;
+        Int Green = 0;
+        Int Blue = 0;
+        Int Alpha = 0;
+        Int Depth = 0;
+        Int Stencil = 0;
+    };
+
     enum class VersionType {
         Release,
         Unstable,
