@@ -17,7 +17,7 @@ namespace MobileGL {
             case GL_GEOMETRY_SHADER:
                 return EShLanguage::EShLangGeometry;
             default:
-                return EShLanguage::EShLangVertex;
+                return EShLanguage::EShLangCount;
             }
         }
     } // namespace MG_Util
