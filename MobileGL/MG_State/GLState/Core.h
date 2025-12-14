@@ -1,14 +1,16 @@
 #pragma once
 #include <Includes.h>
-#include "MG_Util/Types.h"
 #include "ErrorState/Error.h"
 #include "BufferState/BufferState.h"
+#include "MG_State/GLState/RenderbufferState/RenderbufferObject.h"
+#include "MG_State/GLState/RenderbufferState/RenderbufferState.h"
+#include "RenderState/RenderState.h"
 #include "ProgramState/ProgramState.h"
 #include "SamplerState/SamplerState.h"
 #include "TextureState/TextureState.h"
 #include "FramebufferState/FramebufferState.h"
 #include "VertexArrayState/VertexArrayState.h"
-#include "MG_State/GLState/RenderState/RenderState.h"
+#include "RenderbufferState/RenderbufferState.h"
 
 namespace MobileGL {
     namespace MG_State {
@@ -118,30 +120,26 @@ namespace MobileGL {
                 Bool ValidateSamplerName(Uint index) const;
                 Bool ValidateSamplerObject(Uint index) const;
 
+                // Renderbuffer
+                Vector<Uint> GenRenderbufferNames(Uint number);
+                SharedPtr<RenderbufferObject> GetRenderbufferObject(Uint index);
+                BindingSlot<RenderbufferObject>& GetRenderbufferBindingSlot(RenderbufferTarget target);
+                SharedPtr<RenderbufferObject> CreateRenderbufferObject(Uint index);
+                void MarkRenderbufferObjectForDeletion(Uint index);
+                Bool ValidateRenderbufferName(Uint index) const;
+                Bool ValidateRenderbufferObject(Uint index) const;
+
             private:
-                // Error
+                // State Components
                 ErrorState m_errorState;
-
-                // Buffer
                 BufferState m_bufferState;
-
-                // VertexArray
                 VertexArrayState m_vertexArrayState;
-
-                // Texture
                 TextureState m_textureState;
-
-                // Program
                 ProgramState m_programState;
-
-                // RenderState
                 RenderState m_renderState;
-
-                // Framebuffer
                 FramebufferState m_framebufferState;
-
-                // Sampler
                 SamplerState m_samplerState;
+                RenderbufferState m_renderbufferState;
             };
         } // namespace GLState
 

@@ -1,7 +1,7 @@
 #pragma once
-#include "MG_Util/Types.h"
 #include <Includes.h>
 #include <MG_State/GLState/TextureState/TextureObject.h>
+#include <MG_State/GLState/RenderbufferState/RenderbufferObject.h>
 
 namespace MobileGL {
     enum class FramebufferTarget {
@@ -61,20 +61,18 @@ namespace MobileGL {
 
     namespace MG_State {
         namespace GLState {
-            class RenderbufferObjectStub {}; // TODO
-
             class FramebufferAttachment {
             public:
                 // TODO: add Renderbuffer when it is implemented
                 explicit FramebufferAttachment(SharedPtr<MG_State::GLState::ITextureObject> texture, Int level = 0);
-                explicit FramebufferAttachment(SharedPtr<RenderbufferObjectStub> renderbuffer);
+                explicit FramebufferAttachment(SharedPtr<RenderbufferObject> renderbuffer);
                 explicit FramebufferAttachment(Bool IsValid = true);
 
                 Bool IsTexture() const;
                 Bool IsRenderbuffer() const;
                 Bool IsEmpty() const;
                 SharedPtr<MG_State::GLState::ITextureObject> GetTexture() const;
-                SharedPtr<RenderbufferObjectStub> GetRenderbuffer() const;
+                SharedPtr<RenderbufferObject> GetRenderbuffer() const;
                 Int GetTextureLevel() const;
                 Bool IsComplete() const;
                 IntVec3 GetSize() const;
@@ -82,7 +80,7 @@ namespace MobileGL {
 
             private:
                 SharedPtr<MG_State::GLState::ITextureObject> m_texture = nullptr;
-                SharedPtr<RenderbufferObjectStub> m_renderbuffer = nullptr;
+                SharedPtr<RenderbufferObject> m_renderbuffer = nullptr;
                 Int m_textureLevel = 0;
                 Bool m_isValid = true;
             };
@@ -96,7 +94,7 @@ namespace MobileGL {
 
                 void AttachTexture(FramebufferAttachmentType type, SharedPtr<ITextureObject> texture, int level = 0);
                 void AttachRenderbuffer(FramebufferAttachmentType type,
-                                        std::shared_ptr<RenderbufferObjectStub> renderbuffer);
+                                        std::shared_ptr<RenderbufferObject> renderbuffer);
                 void Detach(FramebufferAttachmentType type);
                 const FramebufferAttachment& GetAttachment(FramebufferAttachmentType type) const;
                 const Array<FramebufferAttachment,
