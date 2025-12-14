@@ -11,6 +11,7 @@
 #include <MG_Util/Converters/MGToGL/TextureEnumConverter.h>
 #include <MG_Util/Converters/MGToStr/TextureEnumConverter.h>
 #include <MG_Util/Converters/MGToGL/RenderStateEnumConverter.h>
+#include "multidraw.h"
 
 namespace MobileGL::MG_Backend::DirectGLES {
     enum class DrawSyncBit : Uint32 {
@@ -21,7 +22,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
     };
 
     inline DrawSyncBit operator|(DrawSyncBit a, DrawSyncBit b) {
-        return static_cast<DrawSyncBit>(static_cast<uint32_t>(a) | static_cast<uint32_t>(b));
+        return static_cast<DrawSyncBit>(static_cast<std::uint32_t>(a) | static_cast<std::uint32_t>(b));
     }
 
     inline DrawSyncBit& operator|=(DrawSyncBit& a, DrawSyncBit b) {
@@ -623,6 +624,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
         for (GLsizei i = 0; i < drawcount; ++i) {
             MG_External::GLES::glDrawElementsBaseVertex(mode, count[i], type, indices[i], basevertex[i]);
         }
+        
     }
 
     void MultiDrawElementsIndirect(GLenum mode, GLenum type, const void* indirect, GLsizei drawcount, GLsizei stride) {
@@ -630,7 +632,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
         PrepareForDraw(syncBit);
 
         for (GLsizei i = 0; i < drawcount; ++i) {
-            const GLvoid* cmd = reinterpret_cast<const GLvoid*>(reinterpret_cast<const uint8_t*>(indirect) +
+            const GLvoid* cmd = reinterpret_cast<const GLvoid*>(reinterpret_cast<const std::uint8_t*>(indirect) +
                                                                 i * (stride ? stride : sizeof(GLsizei) * 4));
             MG_External::GLES::glDrawElementsIndirect(mode, type, cmd);
         }
@@ -641,7 +643,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
         PrepareForDraw(syncBit);
 
         for (GLsizei i = 0; i < drawcount; ++i) {
-            const GLvoid* cmd = reinterpret_cast<const GLvoid*>(reinterpret_cast<const uint8_t*>(indirect) +
+            const GLvoid* cmd = reinterpret_cast<const GLvoid*>(reinterpret_cast<const std::uint8_t*>(indirect) +
                                                                 i * (stride ? stride : sizeof(GLsizei) * 4));
             MG_External::GLES::glDrawArraysIndirect(mode, cmd);
         }
