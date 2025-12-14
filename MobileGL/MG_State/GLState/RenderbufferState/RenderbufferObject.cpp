@@ -46,6 +46,10 @@ namespace MobileGL {
                 return m_componentSizes.Stencil;
             }
 
+            Int RenderbufferObject::GetSamples() const {
+                return m_samples;
+            }
+
             const ComponentSizes& RenderbufferObject::GetComponentSizes() const {
                 return m_componentSizes;
             }
