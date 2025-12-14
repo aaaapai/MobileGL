@@ -446,7 +446,47 @@ namespace MobileGL {
             }
         }
 
+        void ClearBufferfi_Backend(GLenum buffer, GLint drawbuffer, GLfloat depth, GLint stencil) {
+#if MOBILEGL_BACKEND == MOBILEGL_BACKEND_TYPE_DIRECT_GLES
+            MG_Backend::DirectGLES::ClearBufferfi(buffer, drawbuffer, depth, stencil);
+#endif
+        }
+
+        void ClearBufferfv_Backend(GLenum buffer, GLint drawbuffer, const GLfloat* value) {
+#if MOBILEGL_BACKEND == MOBILEGL_BACKEND_TYPE_DIRECT_GLES
+            MG_Backend::DirectGLES::ClearBufferfv(buffer, drawbuffer, value);
+#endif
+        }
+
+        void ClearBufferuiv_Backend(GLenum buffer, GLint drawbuffer, const GLuint* value) {
+#if MOBILEGL_BACKEND == MOBILEGL_BACKEND_TYPE_DIRECT_GLES
+            MG_Backend::DirectGLES::ClearBufferuiv(buffer, drawbuffer, value);
+#endif
+        }
+
+        void ClearBufferiv_Backend(GLenum buffer, GLint drawbuffer, const GLint* value) {
+#if MOBILEGL_BACKEND == MOBILEGL_BACKEND_TYPE_DIRECT_GLES
+            MG_Backend::DirectGLES::ClearBufferiv(buffer, drawbuffer, value);
+#endif
+        }
+
         /* @INSERTION_POINT:FUNCTION_IMPLEMENTATION@ */
+        void ClearBufferfi(GLenum buffer, GLint drawbuffer, GLfloat depth, GLint stencil) {
+            ClearBufferfi_Backend(buffer, drawbuffer, depth, stencil);
+        }
+
+        void ClearBufferfv(GLenum buffer, GLint drawbuffer, const GLfloat* value) {
+            ClearBufferfv_Backend(buffer, drawbuffer, value);
+        }
+
+        void ClearBufferuiv(GLenum buffer, GLint drawbuffer, const GLuint* value) {
+            ClearBufferuiv_Backend(buffer, drawbuffer, value);
+        }
+
+        void ClearBufferiv(GLenum buffer, GLint drawbuffer, const GLint* value) {
+            ClearBufferiv_Backend(buffer, drawbuffer, value);
+        }
+
         void SampleMaski(GLuint maskNumber, GLbitfield mask) {
             SampleMaski_State(maskNumber, mask);
         }
