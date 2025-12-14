@@ -20,6 +20,24 @@
 
 namespace MobileGL {
     namespace MG_Impl::GLImpl {
+        SharedPtr<MG_State::GLState::ITextureObject> GetTextureObjectByTarget(TextureUploadTarget textureUploadingTarget, TextureTarget textureTarget) {
+            SharedPtr<MG_State::GLState::ITextureObject> textureObject = nullptr;
+            if (TextureImpl::IsProxyTextureTarget(textureUploadingTarget)) {
+                textureObject =
+                    TextureImpl::pProxyTextureManager->CreateOrReplaceProxyTextureObject(textureUploadingTarget);
+            } else {
+                auto activeUnit =
+                    MG_State::pGLContext->GetTextureUnitObject(MG_State::pGLContext->GetActiveTextureUnit());
+                auto& bindingSlot = activeUnit.GetBindingSlot(textureTarget);
+                textureObject = bindingSlot.GetBoundObject();
+            }
+
+            if (!TextureImpl::ValidateTextureObject(textureObject))
+                return nullptr;
+
+            return textureObject;
+        }
+
         void TexSubImage3D_State(GLenum target, GLint level, GLint xoffset, GLint yoffset, GLint zoffset, GLsizei width,
                                  GLsizei height, GLsizei depth, GLenum format, GLenum type, const void* pixels) {
             // TODO: implement
@@ -147,18 +165,10 @@ namespace MobileGL {
             TextureTarget textureTarget = MG_Util::ConvertGLEnumToTextureTarget(target);
 
             // ======================= Processing ================================
-            SharedPtr<MG_State::GLState::ITextureObject> textureObject = nullptr;
-            if (TextureImpl::IsProxyTextureTarget(textureUploadingTarget)) {
-                textureObject =
-                    TextureImpl::pProxyTextureManager->CreateOrReplaceProxyTextureObject(textureUploadingTarget);
-            } else {
-                auto activeUnit =
-                    MG_State::pGLContext->GetTextureUnitObject(MG_State::pGLContext->GetActiveTextureUnit());
-                auto& bindingSlot = activeUnit.GetBindingSlot(textureTarget);
-                textureObject = bindingSlot.GetBoundObject();
-            }
-
-            if (!TextureImpl::ValidateTextureObject(textureObject)) return;
+            SharedPtr<MG_State::GLState::ITextureObject> textureObject =
+                        GetTextureObjectByTarget(textureUploadingTarget, textureTarget);
+            if (!textureObject)
+                return;
 
             switch (pname) {
             case GL_TEXTURE_MAG_FILTER:
@@ -193,12 +203,6 @@ namespace MobileGL {
                 textureObject->SetSwizzleParam(swizzleParam, swizzleValue);
                 break;
             }
-            case GL_TEXTURE_SWIZZLE_RGBA:
-                // Not supported in this function
-                break;
-            case GL_TEXTURE_BORDER_COLOR:
-                // Not supported in this function
-                break;
             case GL_TEXTURE_WRAP_S:
                 textureObject->GetSamplerObject()->SetWrapS(MG_Util::ConvertGLEnumToSamplerWrapMode(param));
                 break;
@@ -215,6 +219,10 @@ namespace MobileGL {
                 textureObject->GetSamplerObject()->SetSamplerCompareFunc(
                     MG_Util::ConvertGLEnumToSamplerCompareFunc(param));
                 break;
+            case GL_TEXTURE_SWIZZLE_RGBA:
+                // Not supported in this function
+            case GL_TEXTURE_BORDER_COLOR:
+                // Not supported in this function
             default:
                 MG_State::pGLContext->RecordError(
                     ErrorCode::InvalidEnum, MakeShared<GenericErrorInfo>("MG_Impl/GLImpl", "TexParameteri_State",
@@ -229,18 +237,10 @@ namespace MobileGL {
             TextureTarget textureTarget = MG_Util::ConvertGLEnumToTextureTarget(target);
 
             // ======================= Processing ================================
-            SharedPtr<MG_State::GLState::ITextureObject> textureObject = nullptr;
-            if (TextureImpl::IsProxyTextureTarget(textureUploadingTarget)) {
-                textureObject =
-                    TextureImpl::pProxyTextureManager->CreateOrReplaceProxyTextureObject(textureUploadingTarget);
-            } else {
-                auto activeUnit =
-                    MG_State::pGLContext->GetTextureUnitObject(MG_State::pGLContext->GetActiveTextureUnit());
-                auto& bindingSlot = activeUnit.GetBindingSlot(textureTarget);
-                textureObject = bindingSlot.GetBoundObject();
-            }
-
-            if (!TextureImpl::ValidateTextureObject(textureObject)) return;
+            SharedPtr<MG_State::GLState::ITextureObject> textureObject =
+                        GetTextureObjectByTarget(textureUploadingTarget, textureTarget);
+            if (!textureObject)
+                return;
 
             switch (pname) {
             case GL_TEXTURE_MAG_FILTER:
@@ -275,12 +275,6 @@ namespace MobileGL {
                 textureObject->SetSwizzleParam(swizzleParam, swizzleValue);
                 break;
             }
-            case GL_TEXTURE_SWIZZLE_RGBA:
-                // Not supported in this function
-                break;
-            case GL_TEXTURE_BORDER_COLOR:
-                // Not supported in this function
-                break;
             case GL_TEXTURE_WRAP_S:
                 textureObject->GetSamplerObject()->SetWrapS(MG_Util::ConvertGLEnumToSamplerWrapMode(param));
                 break;
@@ -297,11 +291,180 @@ namespace MobileGL {
                 textureObject->GetSamplerObject()->SetSamplerCompareFunc(
                     MG_Util::ConvertGLEnumToSamplerCompareFunc(param));
                 break;
+            case GL_TEXTURE_SWIZZLE_RGBA:
+                // Not supported in this function
+            case GL_TEXTURE_BORDER_COLOR:
+                // Not supported in this function
             default:
                 MG_State::pGLContext->RecordError(
                     ErrorCode::InvalidEnum, MakeShared<GenericErrorInfo>("MG_Impl/GLImpl", "TexParameteri_State",
                                                                          "pname is not a valid texture parameter."));
                 return;
+            }
+        }
+
+        // Quick and dirty TexParameter*v implementation to make NeoForge happy.
+        // TODO: implement the missing part
+        void TexParameterfv_State(GLenum target, GLenum pname, const GLfloat * params) {
+            switch (pname) {
+                case GL_TEXTURE_BORDER_COLOR: {
+                    // ======================= Converting ================================
+                    TextureUploadTarget textureUploadingTarget = MG_Util::ConvertGLEnumToTextureUploadTarget(target);
+                    TextureTarget textureTarget = MG_Util::ConvertGLEnumToTextureTarget(target);
+
+                    // ======================= Processing ================================
+                    SharedPtr<MG_State::GLState::ITextureObject> textureObject =
+                        GetTextureObjectByTarget(textureUploadingTarget, textureTarget);
+                    if (!textureObject)
+                        return;
+                    THROW_UNIMPL_EXCEPTION;
+                    break;
+                }
+                case GL_TEXTURE_SWIZZLE_RGBA: {
+                    // ======================= Converting ================================
+                    TextureUploadTarget textureUploadingTarget = MG_Util::ConvertGLEnumToTextureUploadTarget(target);
+                    TextureTarget textureTarget = MG_Util::ConvertGLEnumToTextureTarget(target);
+
+                    // ======================= Processing ================================
+                    SharedPtr<MG_State::GLState::ITextureObject> textureObject =
+                        GetTextureObjectByTarget(textureUploadingTarget, textureTarget);
+                    if (!textureObject)
+                        return;
+
+                    Vec4<TextureSwizzleParam> swizzleParams;
+                    for (int i = 0; i < 4; i++) {
+                        swizzleParams[i] = MG_Util::ConvertGLEnumToTextureSwizzleParam(static_cast<GLint>(params[i]));
+                        if (TextureSwizzleParam::Unknown == swizzleParams[i]) {
+                            MG_State::pGLContext->RecordError(
+                            ErrorCode::InvalidEnum, MakeShared<GenericErrorInfo>("MG_Impl/GLImpl", __func__,
+                                                                                 "`params` is not valid."));
+                            return;
+                        }
+                    }
+                    textureObject->SetSwizzleParamRGBA(swizzleParams);
+                    break;
+                }
+                default:
+                    TexParameterf_State(target, pname, *params);
+                    break;
+            }
+        }
+
+        void TexParameteriv_State(GLenum target, GLenum pname, const GLint * params) {
+            switch (pname) {
+                case GL_TEXTURE_BORDER_COLOR: {
+                    // ======================= Converting ================================
+                    TextureUploadTarget textureUploadingTarget = MG_Util::ConvertGLEnumToTextureUploadTarget(target);
+                    TextureTarget textureTarget = MG_Util::ConvertGLEnumToTextureTarget(target);
+
+                    // ======================= Processing ================================
+                    SharedPtr<MG_State::GLState::ITextureObject> textureObject =
+                        GetTextureObjectByTarget(textureUploadingTarget, textureTarget);
+                    if (!textureObject)
+                        return;
+
+                    THROW_UNIMPL_EXCEPTION;
+                    break;
+                }
+                case GL_TEXTURE_SWIZZLE_RGBA: {
+                    // ======================= Converting ================================
+                    TextureUploadTarget textureUploadingTarget = MG_Util::ConvertGLEnumToTextureUploadTarget(target);
+                    TextureTarget textureTarget = MG_Util::ConvertGLEnumToTextureTarget(target);
+
+                    // ======================= Processing ================================
+                    SharedPtr<MG_State::GLState::ITextureObject> textureObject =
+                        GetTextureObjectByTarget(textureUploadingTarget, textureTarget);
+                    if (!textureObject)
+                        return;
+
+                    Vec4<TextureSwizzleParam> swizzleParams;
+                    for (int i = 0; i < 4; i++) {
+                        swizzleParams[i] = MG_Util::ConvertGLEnumToTextureSwizzleParam(static_cast<GLint>(params[i]));
+                        if (TextureSwizzleParam::Unknown == swizzleParams[i]) {
+                            MG_State::pGLContext->RecordError(
+                            ErrorCode::InvalidEnum, MakeShared<GenericErrorInfo>("MG_Impl/GLImpl", __func__,
+                                                                                 "`params` is not valid."));
+                            return;
+                        }
+                    }
+                    textureObject->SetSwizzleParamRGBA(swizzleParams);
+                    break;
+                }
+                default:
+                    TexParameteri_State(target, pname, *params);
+                    break;
+            }
+        }
+
+        void TexParameterIiv_State(GLenum target, GLenum pname, const GLint * params) {
+            switch (pname) {
+                case GL_TEXTURE_BORDER_COLOR: {
+                    THROW_UNIMPL_EXCEPTION;
+                    break;
+                }
+                case GL_TEXTURE_SWIZZLE_RGBA: {
+                    // ======================= Converting ================================
+                    TextureUploadTarget textureUploadingTarget = MG_Util::ConvertGLEnumToTextureUploadTarget(target);
+                    TextureTarget textureTarget = MG_Util::ConvertGLEnumToTextureTarget(target);
+
+                    // ======================= Processing ================================
+                    SharedPtr<MG_State::GLState::ITextureObject> textureObject =
+                        GetTextureObjectByTarget(textureUploadingTarget, textureTarget);
+                    if (!textureObject)
+                        return;
+
+                    Vec4<TextureSwizzleParam> swizzleParams;
+                    for (int i = 0; i < 4; i++) {
+                        swizzleParams[i] = MG_Util::ConvertGLEnumToTextureSwizzleParam(static_cast<GLint>(params[i]));
+                        if (TextureSwizzleParam::Unknown == swizzleParams[i]) {
+                            MG_State::pGLContext->RecordError(
+                            ErrorCode::InvalidEnum, MakeShared<GenericErrorInfo>("MG_Impl/GLImpl", __func__,
+                                                                                 "`params` is not valid."));
+                            return;
+                        }
+                    }
+                    textureObject->SetSwizzleParamRGBA(swizzleParams);
+                    break;
+                }
+                default:
+                    TexParameteri_State(target, pname, *params);
+                    break;
+            }
+        }
+
+        void TexParameterIuiv_State(GLenum target, GLenum pname, const GLuint * params) {
+            switch (pname) {
+                case GL_TEXTURE_BORDER_COLOR: {
+                    THROW_UNIMPL_EXCEPTION;
+                    break;
+                }
+                case GL_TEXTURE_SWIZZLE_RGBA: {
+                    // ======================= Converting ================================
+                    TextureUploadTarget textureUploadingTarget = MG_Util::ConvertGLEnumToTextureUploadTarget(target);
+                    TextureTarget textureTarget = MG_Util::ConvertGLEnumToTextureTarget(target);
+
+                    // ======================= Processing ================================
+                    SharedPtr<MG_State::GLState::ITextureObject> textureObject =
+                        GetTextureObjectByTarget(textureUploadingTarget, textureTarget);
+                    if (!textureObject)
+                        return;
+
+                    Vec4<TextureSwizzleParam> swizzleParams;
+                    for (int i = 0; i < 4; i++) {
+                        swizzleParams[i] = MG_Util::ConvertGLEnumToTextureSwizzleParam(static_cast<GLint>(params[i]));
+                        if (TextureSwizzleParam::Unknown == swizzleParams[i]) {
+                            MG_State::pGLContext->RecordError(
+                            ErrorCode::InvalidEnum, MakeShared<GenericErrorInfo>("MG_Impl/GLImpl", __func__,
+                                                                                 "`params` is not valid."));
+                            return;
+                        }
+                    }
+                    textureObject->SetSwizzleParamRGBA(swizzleParams);
+                    break;
+                }
+                default:
+                    TexParameteri_State(target, pname, static_cast<GLint>(*params));
+                    break;
             }
         }
 
@@ -1031,6 +1194,22 @@ namespace MobileGL {
 
         void TexParameteri(GLenum target, GLenum pname, GLint param) {
             TexParameteri_State(target, pname, param);
+        }
+
+        void TexParameterfv(GLenum target, GLenum pname, const GLfloat * params) {
+            TexParameterfv_State(target, pname, params);
+        }
+
+        void TexParameteriv(GLenum target, GLenum pname, const GLint * params) {
+            TexParameteriv_State(target, pname, params);
+        }
+
+        void TexParameterIiv(GLenum target, GLenum pname, const GLint * params) {
+            TexParameterIiv_State(target, pname, params);
+        }
+
+        void TexParameterIuiv(GLenum target, GLenum pname, const GLuint * params) {
+            TexParameterIuiv_State(target, pname, params);
         }
 
         void TexImage3DMultisample(GLenum target, GLsizei samples, GLenum internalformat, GLsizei width, GLsizei height,

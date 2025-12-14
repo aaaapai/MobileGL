@@ -28,6 +28,7 @@ namespace MobileGL {
                 virtual void SetBorderColor(const FloatVec4& color) = 0;
                 virtual TextureSwizzleParam GetSwizzleParam(TextureSwizzleParam param) const = 0;
                 virtual void SetSwizzleParam(TextureSwizzleParam param, TextureSwizzleParam value) = 0;
+                virtual void SetSwizzleParamRGBA(const Vec4<TextureSwizzleParam>& values) = 0;
                 virtual const Vec4<TextureSwizzleParam>& GetAllSwizzleParams() const = 0;
                 virtual const UintVec2& GetLevelRange() const = 0;
                 virtual void SetBaseLevel(Uint baseLevel) = 0;
@@ -54,6 +55,7 @@ namespace MobileGL {
                 TextureSwizzleParam GetSwizzleParam(TextureSwizzleParam param) const override;
                 const Vec4<TextureSwizzleParam>& GetAllSwizzleParams() const override;
                 void SetSwizzleParam(TextureSwizzleParam param, TextureSwizzleParam value) override;
+                void SetSwizzleParamRGBA(const Vec4<TextureSwizzleParam>& values) override;
                 const UintVec2& GetLevelRange() const override;
                 void SetBaseLevel(Uint baseLevel) override;
                 void SetMaxLevel(Uint maxLevel) override;

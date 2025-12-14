@@ -91,6 +91,9 @@ namespace MobileGL {
                     break;
                 }
             }
+            void TextureObjectBase::SetSwizzleParamRGBA(const Vec4<TextureSwizzleParam>& values) {
+                m_swizzleParams = values;
+            }
 
             const UintVec2& TextureObjectBase::GetLevelRange() const {
                 return m_levelRange;

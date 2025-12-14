@@ -140,6 +140,8 @@ set(SOURCE_FILES
     MobileGL/MG_State/GLState/FramebufferState/FramebufferState.cpp
     MobileGL/MG_State/GLState/SamplerState/SamplerObject.cpp
     MobileGL/MG_State/GLState/SamplerState/SamplerState.cpp
+    MobileGL/MG_State/GLState/RenderbufferState/RenderbufferObject.cpp
+    MobileGL/MG_State/GLState/RenderbufferState/RenderbufferState.cpp
 )
 
 add_library(${CMAKE_PROJECT_NAME} SHARED
