@@ -51,7 +51,7 @@ namespace MobileGL {
             TextureTarget textureTarget = MG_Util::ConvertGLEnumToTextureTarget(target);
             TextureInputFormat textureInputFormat = MG_Util::ConvertGLEnumToTextureInputFormat(format);
             TexturePixelDataType texturePixelDataType = MG_Util::ConvertGLEnumToTexturePixelDataType(type);
-            TextureInternalFormat textureInternalFormat = MG_Util::ConvertGLEnumToTextureInternalFormat(format);
+//            TextureInternalFormat textureInternalFormat = MG_Util::ConvertGLEnumToTextureInternalFormat(format);
 
             // ===================== Error Checking ==============================
             if (!TextureImpl::ValidateTexturePixelDataType(texturePixelDataType)) return;
@@ -60,10 +60,6 @@ namespace MobileGL {
             if (!TextureImpl::ValidateTextureLevelNumber(level)) return;
             if (!TextureImpl::ValidateTextureSizeWithTextureUploadTarget(textureUploadingTarget, width, height)) return;
             if (!TextureImpl::ValidateTextureSizeRange(width, height)) return;
-            if (!TextureImpl::ValidateTextureInternalFormat(textureInternalFormat)) return;
-            if (!TextureImpl::ValidateTextureFormatWithType(textureInputFormat, textureInternalFormat,
-                                                            texturePixelDataType))
-                return;
             if (!TextureImpl::ValidateTextureLevelWithUploadTarget(textureUploadingTarget, level)) return;
             if (!pixels) return;
 
@@ -79,10 +75,15 @@ namespace MobileGL {
             auto activeUnit = MG_State::pGLContext->GetTextureUnitObject(MG_State::pGLContext->GetActiveTextureUnit());
             auto& bindingSlot = activeUnit.GetBindingSlot(textureTarget);
             auto textureObject = bindingSlot.GetBoundObject();
+            TextureInternalFormat textureInternalFormat = textureObject->GetFormat();
 
             // ===================== Error Checking ==============================
             if (!TextureImpl::ValidateTextureObject(textureObject)) return;
             if (!TextureImpl::ValidateTextureSubImageOffsets(textureObject, xoffset, width, yoffset, height)) return;
+            if (!TextureImpl::ValidateTextureInternalFormatCompatibleWithInput(textureInputFormat,
+                                                                               textureInternalFormat,
+                                                                               texturePixelDataType))
+                return;
 
             // ======================= Processing ================================
             // Texture object here should always be an object with mipmap
@@ -94,8 +95,7 @@ namespace MobileGL {
             auto textureMipmapObject = static_cast<MG_State::GLState::TextureObjectMipmap*>(textureObject.get());
             auto texelSize = textureMipmapObject->GetMipmapTexelSize(textureUploadingTarget, level);
 
-            SizeT imageSize = 0;
-            const SizeT bytesPerPixel = MG_Util::GetInputBytesPerPixel(textureInternalFormat, texturePixelDataType);
+            SizeT inputSize = 0;
 
             const void* originalPixels = pixels;
 
@@ -110,18 +110,20 @@ namespace MobileGL {
             }
 
             void* processedPixels = MG_Util::PixelStoreProcessor::ProcessTexturePixelsDataUnpack(
-                originalPixels, MG_State::pGLContext->GetPixelStoreParameters(true), bytesPerPixel, {width, height, 1},
-                false /*TODO*/, imageSize);
+                    originalPixels, MG_State::pGLContext->GetPixelStoreParameters(true), textureInternalFormat, textureInputFormat, texturePixelDataType, {width, height, 1},
+                    false /*TODO*/, inputSize);
 
-            if (!processedPixels || imageSize == 0) {
+            if (!processedPixels || inputSize == 0) {
                 MGLOG_E("TexSubImage2D_State: Failed to process pixel data for TexSubImage2D, width: %d, height: %d",
                         width, height);
                 if (processedPixels) free(processedPixels);
                 return;
             }
 
-            const SizeT srcRowSize = width * bytesPerPixel;
-            const SizeT destRowSize = texelSize.x() * bytesPerPixel;
+            const SizeT internalBpp = MG_Util::GetInternalBytesPerPixel(textureInternalFormat, texturePixelDataType);
+
+            const SizeT srcRowSize = width * internalBpp;
+            const SizeT destRowSize = texelSize.x() * internalBpp;
 
             if (xoffset + width > static_cast<GLsizei>(texelSize.x()) ||
                 yoffset + height > static_cast<GLsizei>(texelSize.y())) {
@@ -141,7 +143,7 @@ namespace MobileGL {
             // }
 
             for (GLsizei y = 0; y < height; y++) {
-                const SizeT destRowOffset = (yoffset + y) * destRowSize + xoffset * bytesPerPixel;
+                const SizeT destRowOffset = (yoffset + y) * destRowSize + xoffset * internalBpp;
                 const SizeT srcRowOffset = y * srcRowSize;
                 Memcpy(destData + destRowOffset, srcData + srcRowOffset, srcRowSize);
             }
@@ -522,8 +524,9 @@ namespace MobileGL {
             if (!TextureImpl::ValidateTextureSizeRange(width, height)) return;
             if (!TextureImpl::ValidateTextureInternalFormat(textureInternalFormat)) return;
             if (!TextureImpl::ValidateTextureBorderNumber(border)) return;
-            if (!TextureImpl::ValidateTextureFormatWithType(textureInputFormat, textureInternalFormat,
-                                                            texturePixelDataType))
+            if (!TextureImpl::ValidateTextureInternalFormatCompatibleWithInput(textureInputFormat,
+                                                                               textureInternalFormat,
+                                                                               texturePixelDataType))
                 return;
             if (!TextureImpl::ValidateTextureLevelWithUploadTarget(textureUploadingTarget, level)) return;
 
@@ -555,8 +558,9 @@ namespace MobileGL {
             // ======================= Processing ================================
 
             SizeT imageSize = 0;
-            const SizeT bytesPerPixel = MG_Util::GetInputBytesPerPixel(textureInternalFormat, texturePixelDataType);
-            const SizeT totalBytes = width * height * bytesPerPixel;
+            const SizeT inputBpp = MG_Util::GetInputBytesPerPixel(textureInputFormat, texturePixelDataType);
+            const SizeT internalBpp = MG_Util::GetInternalBytesPerPixel(textureInternalFormat, texturePixelDataType);
+            const SizeT internalBytes = width * height * internalBpp;
 
             textureObject->SetInternalFormat(textureInternalFormat);
 
@@ -581,7 +585,7 @@ namespace MobileGL {
 
 
             // Allocate in TextureObject
-            textureMipmapObject->AllocateStorage(textureUploadingTarget, level, {{width, height, 1}, totalBytes});
+            textureMipmapObject->AllocateStorage(textureUploadingTarget, level, {{width, height, 1}, internalBytes});
 
             if (!originalPixels) {
                 MGLOG_D("TexImage2D_State: No input pixel and no PBO bound, no pixel transfer");
@@ -590,17 +594,19 @@ namespace MobileGL {
 
             void* processedPixels = nullptr;
             processedPixels = MG_Util::PixelStoreProcessor::ProcessTexturePixelsDataUnpack(
-                originalPixels, MG_State::pGLContext->GetPixelStoreParameters(true), bytesPerPixel, {width, height, 1},
+                originalPixels, MG_State::pGLContext->GetPixelStoreParameters(true),
+                textureInternalFormat, textureInputFormat, texturePixelDataType,
+                {width, height, 1},
                 false, imageSize);
 
             if (processedPixels && imageSize > 0) {
-                if (imageSize != totalBytes) {
+                if (imageSize != internalBytes) {
                     MGLOG_W("TexImage2D_State: Processed pixel data size (%zu) does not match expected size (%zu). "
                             "This may indicate an alignment or processing issue.",
-                            imageSize, totalBytes);
+                            imageSize, internalBytes);
                 }
 
-                const SizeT copySize = std::min(imageSize, totalBytes);
+                const SizeT copySize = std::min(imageSize, internalBytes);
                 DataPtr texelInput{processedPixels, copySize};
                 textureMipmapObject->UpdateMipmapSubData(textureUploadingTarget, level, texelInput);
             }

@@ -85,6 +85,34 @@ namespace MobileGL {
             }
         }
 
+        SizeT GetBaseInputFormatComponentCount(TextureInputFormat format) {
+            switch (format) {
+                case TextureInputFormat::Red:
+                case TextureInputFormat::RInteger:
+                    return 1;
+                case TextureInputFormat::RG:
+                case TextureInputFormat::RGInteger:
+                    return 2;
+                case TextureInputFormat::RGB:
+                case TextureInputFormat::BGR:
+                case TextureInputFormat::RGBInteger:
+                case TextureInputFormat::BGRInteger:
+                    return 3;
+                case TextureInputFormat::RGBA:
+                case TextureInputFormat::BGRA:
+                case TextureInputFormat::RGBAInteger:
+                case TextureInputFormat::BGRAInteger:
+                    return 4;
+                case TextureInputFormat::StencilIndex:
+                case TextureInputFormat::DepthComponent:
+                case TextureInputFormat::DepthStencil:
+                    return 1;
+                default:
+                    MGLOG_D("%s: Unknown input format!", __func__);
+                    return 0;
+            }
+        }
+
         SizeT GetBaseInternalFormatComponentCount(TextureInternalFormat format) {
             switch (format) {
             case TextureInternalFormat::DepthComponent:
@@ -208,17 +236,17 @@ namespace MobileGL {
             return chCount * bytesPerChannel;
         }
 
-        SizeT GetInputBytesPerPixel(TextureInternalFormat internalformat, TexturePixelDataType type) {
+        SizeT GetInputBytesPerPixel(TextureInputFormat inputFormat, TexturePixelDataType type) {
             SizeT sizedPixelFormatSize = GetSizedTexturePixelDataTypeSize(type);
             if (sizedPixelFormatSize > 0) return sizedPixelFormatSize;
             SizeT bytesPerChannel = GetBaseTexturePixelDataTypeSize(type);
-            SizeT chCount = GetBaseInternalFormatComponentCount(internalformat);
+            SizeT chCount = GetBaseInputFormatComponentCount(inputFormat);
             return chCount * bytesPerChannel;
         }
 
-        SizeT CalculateInputTextureImageSize(TextureInternalFormat internalFormat, TexturePixelDataType pixelDataType,
+        SizeT CalculateInputTextureImageSize(TextureInputFormat inputFormat, TexturePixelDataType pixelDataType,
                                              IntVec3 size) {
-            return GetInputBytesPerPixel(internalFormat, pixelDataType) * size.x() * size.y() * size.z();
+            return GetInputBytesPerPixel(inputFormat, pixelDataType) * size.x() * size.y() * size.z();
         }
 
         ComponentSizes GetComponentSizesForInternalFormat(TextureInternalFormat internal) {

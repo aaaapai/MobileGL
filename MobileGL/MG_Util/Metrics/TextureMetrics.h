@@ -11,8 +11,8 @@ namespace MobileGL {
         // This should respect internal format more
         SizeT GetInternalBytesPerPixel(TextureInternalFormat internalformat, TexturePixelDataType type);
         // This should respect type more, representing data passed in
-        SizeT GetInputBytesPerPixel(TextureInternalFormat internalformat, TexturePixelDataType type);
-        SizeT CalculateInputTextureImageSize(TextureInternalFormat internalFormat, TexturePixelDataType pixelDataType,
+        SizeT GetInputBytesPerPixel(TextureInputFormat inputFormat, TexturePixelDataType type);
+        SizeT CalculateInputTextureImageSize(TextureInputFormat inputFormat, TexturePixelDataType pixelDataType,
                                              IntVec3 size);
         ComponentSizes GetComponentSizesForInternalFormat(TextureInternalFormat internal);
     } // namespace MG_Util

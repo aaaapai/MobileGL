@@ -43,12 +43,10 @@ namespace MobileGL::MG_Util::PixelStoreProcessor {
         }
     }
 
-    void* ProcessTexturePixelsDataUnpack(const void* inputPixels, const PixelStoreParameters& params, SizeT pixelSize,
+    void* ProcessTexturePixelsDataUnpack(const void* inputPixels, const PixelStoreParameters& params,
+                                         TextureInternalFormat targetInternalFormat, TextureInputFormat textureInputFormat, TexturePixelDataType inputDataType,
                                          IntVec3 dimension, Bool isBitmap, SizeT& outSize) {
-        if (pixelSize == 0) {
-            outSize = 0;
-            return nullptr;
-        }
+        const SizeT pixelSize = MG_Util::GetInputBytesPerPixel(textureInputFormat, inputDataType);
 
         Int width = dimension.x();
         Int height = dimension.y();
