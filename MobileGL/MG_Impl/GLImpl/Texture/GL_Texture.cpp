@@ -8,6 +8,7 @@
 #include "Validators.h"
 #include "ProxyTexture.h"
 #include "MG_State/GLState/TextureState/TextureObjectBuffer.h"
+#include "MG_Util/Converters/GLToStr/GLEnumConverter.h"
 
 #include <MG_State/GLState/Core.h>
 #include <MG_Util/Metrics/TextureMetrics.h>
@@ -219,14 +220,17 @@ namespace MobileGL {
                 textureObject->GetSamplerObject()->SetSamplerCompareFunc(
                     MG_Util::ConvertGLEnumToSamplerCompareFunc(param));
                 break;
+            case GL_TEXTURE_LOD_BIAS:
+                textureObject->GetSamplerObject()->SetLodBias(param);
+                break;
             case GL_TEXTURE_SWIZZLE_RGBA:
                 // Not supported in this function
             case GL_TEXTURE_BORDER_COLOR:
                 // Not supported in this function
             default:
                 MG_State::pGLContext->RecordError(
-                    ErrorCode::InvalidEnum, MakeShared<GenericErrorInfo>("MG_Impl/GLImpl", "TexParameteri_State",
-                                                                         "pname is not a valid texture parameter."));
+                        ErrorCode::InvalidEnum, MakeShared<GenericErrorInfo>("MG_Impl/GLImpl", __func__,
+                                                                             std::format("pname {} is not a valid texture parameter.", MG_Util::ConvertGLEnumToString(pname))));
                 return;
             }
         }
@@ -291,14 +295,17 @@ namespace MobileGL {
                 textureObject->GetSamplerObject()->SetSamplerCompareFunc(
                     MG_Util::ConvertGLEnumToSamplerCompareFunc(param));
                 break;
+            case GL_TEXTURE_LOD_BIAS:
+                textureObject->GetSamplerObject()->SetLodBias((GLfloat)param);
+                break;
             case GL_TEXTURE_SWIZZLE_RGBA:
                 // Not supported in this function
             case GL_TEXTURE_BORDER_COLOR:
                 // Not supported in this function
             default:
                 MG_State::pGLContext->RecordError(
-                    ErrorCode::InvalidEnum, MakeShared<GenericErrorInfo>("MG_Impl/GLImpl", "TexParameteri_State",
-                                                                         "pname is not a valid texture parameter."));
+                        ErrorCode::InvalidEnum, MakeShared<GenericErrorInfo>("MG_Impl/GLImpl", __func__,
+                                                                             std::format("pname {} is not a valid texture parameter.", MG_Util::ConvertGLEnumToString(pname))));
                 return;
             }
         }
