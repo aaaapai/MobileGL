@@ -162,15 +162,15 @@ namespace MobileGL::MG_Impl::GLImpl {
             }
             return true;
         }
-        Bool ValidateTextureFormatWithType(TextureInputFormat format, TextureInternalFormat internalFormat,
-                                           TexturePixelDataType type) {
+        Bool ValidateTextureInternalFormatCompatibleWithInput(TextureInputFormat format, TextureInternalFormat internalFormat,
+                                                              TexturePixelDataType type) {
             if (type == TexturePixelDataType::UnsignedByte332 || type == TexturePixelDataType::UnsignedByte233Rev ||
                 type == TexturePixelDataType::UnsignedShort565 || type == TexturePixelDataType::UnsignedShort565Rev ||
                 type == TexturePixelDataType::UnsignedInt101111Rev) {
                 if (format != TextureInputFormat::RGB) {
                     MG_State::pGLContext->RecordError(
                         ErrorCode::InvalidOperation,
-                        MakeShared<GenericErrorInfo>("MG_Impl/GLImpl", "ValidateTextureFormatWithType",
+                        MakeShared<GenericErrorInfo>("MG_Impl/GLImpl", "ValidateTextureInternalFormatCompatibleWithInput",
                                                      "Invalid format for the given type"));
                     return false;
                 }
@@ -185,7 +185,7 @@ namespace MobileGL::MG_Impl::GLImpl {
                 if (format != TextureInputFormat::RGBA && format != TextureInputFormat::BGRA) {
                     MG_State::pGLContext->RecordError(
                         ErrorCode::InvalidOperation,
-                        MakeShared<GenericErrorInfo>("MG_Impl/GLImpl", "ValidateTextureFormatWithType",
+                        MakeShared<GenericErrorInfo>("MG_Impl/GLImpl", "ValidateTextureInternalFormatCompatibleWithInput",
                                                      "Invalid format for the given type"));
                     return false;
                 }
@@ -198,7 +198,7 @@ namespace MobileGL::MG_Impl::GLImpl {
                 if (format != TextureInputFormat::DepthComponent) {
                     MG_State::pGLContext->RecordError(
                         ErrorCode::InvalidOperation,
-                        MakeShared<GenericErrorInfo>("MG_Impl/GLImpl", "ValidateTextureFormatWithType",
+                        MakeShared<GenericErrorInfo>("MG_Impl/GLImpl", "ValidateTextureInternalFormatCompatibleWithInput",
                                                      "Invalid format for depth component internal format"));
                     return false;
                 }
@@ -213,7 +213,7 @@ namespace MobileGL::MG_Impl::GLImpl {
                  )) {
                 MG_State::pGLContext->RecordError(
                     ErrorCode::InvalidOperation,
-                    MakeShared<GenericErrorInfo>("MG_Impl/GLImpl", "ValidateTextureFormatWithType",
+                    MakeShared<GenericErrorInfo>("MG_Impl/GLImpl", "ValidateTextureInternalFormatCompatibleWithInput",
                                                  "Invalid internal format for depth component format"));
                 return false;
             }
