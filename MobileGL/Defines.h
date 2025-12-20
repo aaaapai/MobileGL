@@ -33,9 +33,9 @@
 // ====================== MobileGL configurations ======================= //
 #define MOBILEGL_LOG_ACTIVE_LEVEL MOBILEGL_LOG_LEVEL_DEBUG
 
-#define MOBILEGL_LOG_ENABLE_CONSOLE 0
+#define MOBILEGL_LOG_ENABLE_CONSOLE 1
 #define MOBILEGL_LOG_ENABLE_FILE 1
-#define MOBILEGL_LOG_ENABLE_ANDROID 0
+#define MOBILEGL_LOG_ENABLE_ANDROID 1
 
 #ifdef __ANDROID__
 #define MOBILEGL_LOG_FILE_PATH "/sdcard/MGL/latest.log"
