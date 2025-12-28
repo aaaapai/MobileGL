@@ -5,6 +5,11 @@
 #include "settings.h"
 #include "config.h"
 
+#include "Includes.h"
+#include <MG_Impl/Init.h>
+#include <MG_Backend/Backends.h>
+#include <MG_State/GLState/Core.h>
+
 #define DEBUG 0
 
 global_settings_t global_settings;
@@ -29,7 +34,7 @@ void init_settings() {
     if (!success) {
         success = config_refresh();
         if (!success) {
-            LOG_V("Failed to load config. Use default config.")
+            MGLOG_W("Failed to load config. Use default config.")
         }
     }
 
@@ -98,17 +103,17 @@ void init_settings() {
     switch (angleConfig) {
     case AngleConfig::ForceDisable:
         finalAngleMode = AngleMode::Disabled;
-        LOG_D("ANGLE: Force disabled");
+        MGLOG_D("ANGLE: Force disabled");
         break;
 
     case AngleConfig::ForceEnable:
         finalAngleMode = AngleMode::Enabled;
-        LOG_D("ANGLE: Force enabled");
+        MGLOG_D("ANGLE: Force enabled");
         break;
 
     case AngleConfig::EnableIfPossible: {
         finalAngleMode = isANGLESupported ? AngleMode::Enabled : AngleMode::Disabled;
-        LOG_D("ANGLE: Conditionally %s", (finalAngleMode == AngleMode::Enabled) ? "enabled" : "disabled");
+        MGLOG_D("ANGLE: Conditionally %s", (finalAngleMode == AngleMode::Enabled) ? "enabled" : "disabled");
         break;
     }
 
@@ -158,16 +163,16 @@ void init_settings() {
     global_settings.hide_mg_env_level = hideMGEnvLevel;
 #endif
 
-    LOG_V("[MobileGlues] Setting: enableAngle                 = %s",
+    MGLOG_D("[MobileGlues] Setting: enableAngle                 = %s",
           global_settings.angle == AngleMode::Enabled ? "true" : "false")
-    LOG_V("[MobileGlues] Setting: ignoreError                 = %i", static_cast<int>(global_settings.ignore_error))
-    LOG_V("[MobileGL] Setting: enableExtComputeShader is unsupported.")
-    LOG_V("[MobileGL] Setting: enableExtGL43 is unsupported.")
-    LOG_V("[MobileGL] Setting: enableExtTimerQuery is unsupported.")
-    LOG_V("[MobileGL] Setting: enableExtDirectStateAccess is unsupported.")
-    LOG_V("[MobileGL] Setting: maxGlslCacheSize is unsupported.")
-    LOG_V("[MobileGL] Setting: angleDepthClearFixMode is unsupported.")
-    LOG_V("[MobileGL] Setting: bufferCoherentAsFlush is unsupported.")
+    MGLOG_D("[MobileGlues] Setting: ignoreError                 = %i", static_cast<int>(global_settings.ignore_error))
+    MGLOG_D("[MobileGL] Setting: enableExtComputeShader is unsupported.")
+    MGLOG_D("[MobileGL] Setting: enableExtGL43 is unsupported.")
+    MGLOG_D("[MobileGL] Setting: enableExtTimerQuery is unsupported.")
+    MGLOG_D("[MobileGL] Setting: enableExtDirectStateAccess is unsupported.")
+    MGLOG_D("[MobileGL] Setting: maxGlslCacheSize is unsupported.")
+    MGLOG_D("[MobileGL] Setting: angleDepthClearFixMode is unsupported.")
+    MGLOG_D("[MobileGL] Setting: bufferCoherentAsFlush is unsupported.")
     if (global_settings.custom_gl_version.isEmpty()) {
         LOG_V("[MobileGL] Setting: customGLVersion is unsupported.");
     } else {
@@ -215,7 +220,7 @@ void set_multidraw_setting() { // should be called after init_gles_target()
         global_settings.multidraw_mode = multidraw_mode_t::Auto;
         break;
     }
-    LOG_V("[MobileGL] Setting: multidrawMode is unsupported. Fallback to BaseVertex."/*, draw_mode_str.c_str()*/)
+    MGLOG_D("[MobileGL] Setting: multidrawMode is unsupported. Fallback to BaseVertex."/*, draw_mode_str.c_str()*/)
 }
 
 void init_settings_post() {
@@ -261,7 +266,6 @@ void init_settings_post() {
             global_settings.multidraw_mode = multidraw_mode_t::PreferIndirect;
         } else {
             global_settings.multidraw_mode = multidraw_mode_t::DrawElements;
-            LOG_V("    -> DrawElements (Auto detected)")
         }
         break;
     }
