@@ -471,7 +471,7 @@ namespace MobileGL {
 
             void LoadLibs() {
                 // 只加载EGL库，GL函数将通过EGL获取
-                if (std::getenv("MGL_USE_ANGLE")) {
+                if (std::getenv("LIBGL_USE_ANGLE")) {
                     libEGL = OpenLib(EGLANGLELibs, nullptr);
                 } else {
                     libEGL = OpenLib(EGLLibs, nullptr);
