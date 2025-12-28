@@ -18,11 +18,16 @@ namespace MobileGL {
         MGLOG_D("glslang initialized");
         MGLOG_I("MobileGL initialized");
 
-        const char* mgl_config_in_plugin = nullptr;
-        if (mgl_config_in_plugin == "true") {
-            if (check_path()) config_refresh();
-            init_settings();
+        const char* mgl_config_in_plugin = std::getenv("MGL_CONFIG_IN_PLUGIN");
+        
+        if (mgl_config_in_plugin != nullptr) {
+            std::string_view sv(mgl_config_in_plugin);
+            if (sv == "true") {
+                if (check_path()) config_refresh();
+                init_settings();
+            }
         }
+
     }
 
     void MG_Destroy() {
