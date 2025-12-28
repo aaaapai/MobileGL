@@ -1,4 +1,5 @@
 #include "Includes.h"
+#include <MG_Util/Config/settings.h>
 #include <MG_Impl/Init.h>
 #include <MG_Backend/Backends.h>
 #include <MG_State/GLState/Core.h>
@@ -16,6 +17,12 @@ namespace MobileGL {
         glslang::InitializeProcess();
         MGLOG_D("glslang initialized");
         MGLOG_I("MobileGL initialized");
+
+        const char* mgl_config_in_plugin = nullptr;
+        if (mgl_config_in_plugin == "true") {
+            if (check_path()) config_refresh();
+            init_settings();
+        }
     }
 
     void MG_Destroy() {
