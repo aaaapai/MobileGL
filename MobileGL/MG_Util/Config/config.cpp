@@ -46,16 +46,16 @@ int check_path(void) {
     glsl_cache_file_path = concatenate(mg_directory_path, "/glsl_cache.tmp");
 
     if (mkdir(mg_directory_path, 0755) != 0 && errno != EEXIST) {
-        LOG_E("Error creating MG directory.\n")
+        MGLOG_E("Error creating MG directory.\n");
         return 0;
     }
     return 1;
 }
 
 int config_refresh(void) {
-    MGLOG_D("MGL_DIRECTORY_PATH=%s", mg_directory_path)
-    MGLOG_D("CONFIG_FILE_PATH=%s", config_file_path)
-    MGLOG_D("LOG_FILE_PATH=%s", log_file_path)
+    MGLOG_D("MGL_DIRECTORY_PATH=%s", mg_directory_path);
+    MGLOG_D("CONFIG_FILE_PATH=%s", config_file_path);
+    MGLOG_D("LOG_FILE_PATH=%s", log_file_path);
 
     FILE* file = fopen(config_file_path, "r");
     if (file == nullptr) {
