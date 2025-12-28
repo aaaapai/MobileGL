@@ -92,15 +92,7 @@ void init_settings() {
     LOG_V("MG_DIR_PATH = %s", mg_directory_path ? mg_directory_path : "(default)")
 
     AngleMode finalAngleMode = AngleMode::Disabled;
-    std::string gpuString = getGPUInfo();
-    const char* gpu_cstr = gpuString.c_str();
-    LOG_D("GPU: %s", gpu_cstr ? gpu_cstr : "(unknown)")
 
-    int hasVk12 = 0;
-    int isQcom = 0;
-    int is730 = 0;
-    int is740 = 0;
-    int is830 = 0;
     bool isANGLESupported = true;
 
     switch (angleConfig) {
