@@ -1,7 +1,5 @@
 #include "config.h"
 
-#include "../gl/log.h"
-#include "../gl/mg.h"
 #include "cJSON.h"
 #include <cerrno>
 #include <stdio.h>
@@ -33,7 +31,7 @@ const char* concatenate(const char* str1, const char* str2) {
 
 int check_path(void) {
     if (!mg_directory_path) {
-        char* var = getenv("MGL_DIR_PATH");
+        char* var = std::getenv("MGL_DIR_PATH");
         is_custom_mg_dir = var ? true : false;
         mg_directory_path = var ? strdup(var) : DEFAULT_MG_DIRECTORY_PATH;
         unsetenv("MGL_DIR_PATH");
@@ -50,14 +48,13 @@ int check_path(void) {
 }
 
 int config_refresh(void) {
-    LOG_D("MGL_DIRECTORY_PATH=%s", mg_directory_path)
-    LOG_D("CONFIG_FILE_PATH=%s", config_file_path)
-    LOG_D("LOG_FILE_PATH=%s", log_file_path)
-    LOG_D("GLSL_CACHE_FILE_PATH=%s", glsl_cache_file_path)
+    MGLOG_D("MGL_DIRECTORY_PATH=%s", mg_directory_path)
+    MGLOG_D("CONFIG_FILE_PATH=%s", config_file_path)
+    MGLOG_D("LOG_FILE_PATH=%s", log_file_path)
 
     FILE* file = fopen(config_file_path, "r");
     if (file == nullptr) {
-        LOG_E("Unable to open config file %s", config_file_path);
+        MGLOG_E("Unable to open config file %s", config_file_path);
         return 0;
     }
 
@@ -67,7 +64,7 @@ int config_refresh(void) {
 
     char* file_content = (char*)malloc(file_size + 1);
     if (file_content == nullptr) {
-        LOG_E("Unable to allocate memory for file content");
+        MGLOG_E("Unable to allocate memory for file content");
         fclose(file);
         return 0;
     }
@@ -80,7 +77,7 @@ int config_refresh(void) {
     free(file_content);
 
     if (config_json == nullptr) {
-        LOG_E("Error parsing config JSON: %s\n", cJSON_GetErrorPtr());
+        MGLOG_E("Error parsing config JSON: %s\n", cJSON_GetErrorPtr());
         return 0;
     }
 
@@ -95,7 +92,7 @@ int config_get_int(const char* name) {
 
     cJSON* item = cJSON_GetObjectItem(config_json, name);
     if (item == nullptr || !cJSON_IsNumber(item)) {
-        LOG_D("Config item '%s' not found or not an integer.\n", name);
+        MGLOG_D("Config item '%s' not found or not an integer.\n", name);
         return -1;
     }
 
@@ -109,7 +106,7 @@ const char* config_get_string(const char* name) {
 
     cJSON* item = cJSON_GetObjectItem(config_json, name);
     if (item == nullptr || !cJSON_IsString(item)) {
-        LOG_D("Config item '%s' not found or not a string.\n", name);
+        MGLOG_D("Config item '%s' not found or not a string.\n", name);
         return "";
     }
 
