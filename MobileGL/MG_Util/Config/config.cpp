@@ -12,7 +12,7 @@
 
 #define DEBUG 0
 
-const char* DEFAULT_MG_DIRECTORY_PATH = "/sdcard/MG";
+const char* DEFAULT_MG_DIRECTORY_PATH = "/sdcard/MGL";
 
 bool is_custom_mg_dir = false;
 const char* mg_directory_path = nullptr;
@@ -33,10 +33,10 @@ const char* concatenate(const char* str1, const char* str2) {
 
 int check_path(void) {
     if (!mg_directory_path) {
-        char* var = getenv("MG_DIR_PATH");
+        char* var = getenv("MGL_DIR_PATH");
         is_custom_mg_dir = var ? true : false;
         mg_directory_path = var ? strdup(var) : DEFAULT_MG_DIRECTORY_PATH;
-        unsetenv("MG_DIR_PATH");
+        unsetenv("MGL_DIR_PATH");
     }
     config_file_path = concatenate(mg_directory_path, "/config.json");
     log_file_path = concatenate(mg_directory_path, "/latest.log");
@@ -50,7 +50,7 @@ int check_path(void) {
 }
 
 int config_refresh(void) {
-    LOG_D("MG_DIRECTORY_PATH=%s", mg_directory_path)
+    LOG_D("MGL_DIRECTORY_PATH=%s", mg_directory_path)
     LOG_D("CONFIG_FILE_PATH=%s", config_file_path)
     LOG_D("LOG_FILE_PATH=%s", log_file_path)
     LOG_D("GLSL_CACHE_FILE_PATH=%s", glsl_cache_file_path)
