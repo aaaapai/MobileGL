@@ -1,5 +1,6 @@
 #include "Includes.h"
 #include <MG_Util/Config/settings.h>
+#include <MG_Util/Config/config.h>
 #include <MG_Impl/Init.h>
 #include <MG_Backend/Backends.h>
 #include <MG_State/GLState/Core.h>
