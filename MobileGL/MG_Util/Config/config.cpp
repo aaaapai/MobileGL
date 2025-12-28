@@ -8,6 +8,11 @@
 #include <string>
 #include <sys/stat.h>
 
+#include "Includes.h"
+#include <MG_Impl/Init.h>
+#include <MG_Backend/Backends.h>
+#include <MG_State/GLState/Core.h>
+
 #define DEBUG 0
 
 const char* DEFAULT_MG_DIRECTORY_PATH = "/sdcard/MGL";
