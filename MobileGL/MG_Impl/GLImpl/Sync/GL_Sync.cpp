@@ -25,13 +25,16 @@ namespace MobileGL {
         void DeleteSync_State(GLsync sync) {}
 
         GLsync FenceSync(GLenum condition, GLbitfield flags) {
-            return 0;
+            return MG_External::GLES::glFenceSync(condition, flags);
         }
 
         GLenum ClientWaitSync(GLsync sync, GLbitfield flags, GLuint64 timeout) {
-            return 0;
+            return MG_External::GLES::glClientWaitSync(sync, flags, timeout);
         }
 
-        void DeleteSync(GLsync sync) {}
+        void DeleteSync(GLsync sync) {
+            MG_External::GLES::glDeleteSync(sync);
+        }
+
     } // namespace MG_Impl::GLImpl
 } // namespace MobileGL
