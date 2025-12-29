@@ -156,6 +156,7 @@ namespace MobileGL {
                     break;
                 case PixelStoreParam::UnpackSwapBytes:
                     m_unpackParameters.SwapBytes = value != 0;
+                    MGLOG_D("%s: SwapBytes = %s", __func__, value ? "true" : "false");
                     break;
                 case PixelStoreParam::UnpackLsbFirst:
                     m_unpackParameters.LSBFirst = value != 0;
