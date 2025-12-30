@@ -6,7 +6,7 @@ namespace MobileGL {
             void PreprocessShaderSource(ShaderStage stage, String& source) {
                 // remove multi-line comment
                 size_t commentStartPos = source.find("/*");
-                while (commentStartPos != std::string::npos) {
+                while (commentStartPos != String::npos) {
                     size_t commentEndPos = source.find("*/", commentStartPos);
                     // + length of "*/"
                     source = source.replace(commentStartPos, commentEndPos - commentStartPos + 2, "");
@@ -15,7 +15,7 @@ namespace MobileGL {
 
                 // remove #line directives
                 SizeT linedirPos = source.find("#line");
-                while (linedirPos != std::string::npos) {
+                while (linedirPos != String::npos) {
                     SizeT newlinePos = source.find('\n', linedirPos);
                     // + length of "\n"
                     source = source.replace(linedirPos, newlinePos - linedirPos + 1, "");
@@ -26,7 +26,7 @@ namespace MobileGL {
                 const char* str_np = "noperspective";
                 const SizeT len_np = strlen(str_np);
                 SizeT noperspectivePos = source.find(str_np);
-                while (noperspectivePos != std::string::npos) {
+                while (noperspectivePos != String::npos) {
                     // + length of "\n"
                     source = source.replace(noperspectivePos, len_np, "");
                     noperspectivePos = source.find(str_np);
@@ -35,9 +35,9 @@ namespace MobileGL {
                 // force #version
                 ShaderProfile profile = ShaderProfile::Core;
                 SizeT versionPos = source.find("#version");
+                SizeT lineEnd = source.find('\n', versionPos);
 
                 if (versionPos != String::npos) {
-                    SizeT lineEnd = source.find('\n', versionPos);
                     String versionLine = source.substr(versionPos, lineEnd - versionPos);
 
                     if (versionLine.find("ES") != String::npos)
@@ -52,7 +52,7 @@ namespace MobileGL {
                     return;
                 }
 
-                SizeT firstLineEnd = source.find('\n');
+                SizeT firstLineEnd = lineEnd;
 
                 if (profile != ShaderProfile::ES) {
                     constexpr const char* versionDirectiveCore = "#version 460 core\n";
@@ -61,8 +61,8 @@ namespace MobileGL {
                     const char* replacement =
                         (profile == ShaderProfile::Compatibility) ? versionDirectiveCompat : versionDirectiveCore;
 
-                    if (firstLineEnd != std::string::npos) {
-                        source.replace(0, firstLineEnd + 1, replacement);
+                    if (firstLineEnd != String::npos) {
+                        source.replace(versionPos, firstLineEnd - versionPos + 1, replacement);
                     } else {
                         source = replacement;
                     }
