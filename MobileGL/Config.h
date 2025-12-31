@@ -14,7 +14,7 @@ namespace MobileGL {
         inline const String ProjectName = "MobileGL";
         inline const String CoreName = "MobileGL Core";
         inline const String CoreVendor = "MobileGL-Dev";
-        inline const Version CoreVersion = {25, 12, 0, "-dev", VersionType::Development};
+        inline const Version CoreVersion = {26, 1, 0, "-dev", VersionType::Development};
         inline const VersionStringFormatAttrib DefaultVersionStringFormatAttrib = {2, 2, 0, true, true};
         extern UniquePtr<RendererInfo> RendererInfoPtr;
 
