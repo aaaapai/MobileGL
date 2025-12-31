@@ -14,13 +14,12 @@
 #include <MG_Impl/GLImpl/Framebuffer/GL_Framebuffer.h>
 
 namespace MobileGL {
-    void MG_Initialize() {
+    void MG_Initialize(Bool loadExternalLibraries) {
         MG_Util::Debug::InitFile();
         MGLOG_I("Initializing MobileGL...");
         MG_State::Init();
         MGLOG_D("MobileGL State initialized");
-        // return;
-        MG_Backend::Init();
+        MG_Backend::Init(loadExternalLibraries);
         MGLOG_D("MobileGL Backend initialized");
         MG_Impl::Init();
         MGLOG_D("MobileGL Implementation initialized");

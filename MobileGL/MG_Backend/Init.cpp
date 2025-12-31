@@ -53,7 +53,7 @@ namespace MobileGL {
 #endif
         }
 
-        void Init() {
+        void Init(Bool loadExternalLibraries) {
             MGLOG_D("Initializing MobileGL Backend...");
 
 #if MOBILEGL_BACKEND == MOBILEGL_BACKEND_DILIGENT
@@ -72,6 +72,12 @@ namespace MobileGL {
 #else
             MG_Config::RendererInfoPtr = MakeUnique<RendererInfo>(Unknown::RendererInfoUnknown);
 #endif
+
+            if (!loadExternalLibraries) {
+                MGLOG_W("Skipping external library loading. Calling functions that call external libraries may cause "
+                        "crashes.");
+                return;
+            }
 
             InitSpecificBackendLibs();
             LogBackendInfo();

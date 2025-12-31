@@ -9,6 +9,6 @@
 #include "Includes.h"
 
 namespace MobileGL {
-    void MG_Initialize();
+    void MG_Initialize(Bool loadExternalLibraries = true);
     void MG_Destroy();
 } // namespace MobileGL

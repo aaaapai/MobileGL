@@ -32,7 +32,7 @@ protected:
 
         return vbo;
     }
-    void SetUp() override { MobileGL::MG_Initialize(); }
+    void SetUp() override { MobileGL::MG_Initialize(false); }
 
     void TearDown() override {}
 };
