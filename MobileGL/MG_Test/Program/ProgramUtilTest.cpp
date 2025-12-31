@@ -8,6 +8,7 @@
 #include <gtest/gtest.h>
 
 #include "Includes.h"
+#include "Init.h"
 #include <MG_Util/Converters/GLToStr/GLEnumConverter.h>
 #include <MG_Util/ShaderTranspiler/ShaderCompiler.h>
 #include <MG_Util/ShaderTranspiler/Types.h>
@@ -17,6 +18,9 @@ using namespace MobileGL;
 
 class ProgramUtilTest : public ::testing::Test {
 protected:
+    void SetUp() override { MobileGL::MG_Initialize(); }
+
+    void TearDown() override {}
 };
 
 TEST_F(ProgramUtilTest, Sanity) {

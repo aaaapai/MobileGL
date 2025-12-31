@@ -8,6 +8,7 @@
 #include <cstring>
 #include <benchmark/benchmark.h>
 
+#include "Init.h"
 #include "MG_Impl/GLImpl/Program/GL_Program.h"
 #include "MG_State/GLState/Core.h"
 
@@ -89,9 +90,6 @@ void main() {
 })";
 
 static void BM_CompileVertexShader(benchmark::State& state) {
-    // Initialize GL context
-    MG_State::pGLContext = new MG_State::GLState::GLContext();
-
     SizeT vsLen = strlen(vsSrc);
 
     for (auto _ : state) {
@@ -107,16 +105,10 @@ static void BM_CompileVertexShader(benchmark::State& state) {
     // Set the counter for Compiles/Second
     state.counters["VS_Compiles/Second"] = state.iterations();
     state.counters["VS_Bytes/Second"] = state.iterations() * vsLen;
-
-    // Cleanup GL context
-    delete MG_State::pGLContext;
 }
 BENCHMARK(BM_CompileVertexShader)->Unit(benchmark::kMillisecond);
 
 static void BM_CompileFragmentShader(benchmark::State& state) {
-    // Initialize GL context
-    MG_State::pGLContext = new MG_State::GLState::GLContext();
-
     SizeT fsLen = strlen(fsSrc);
 
     for (auto _ : state) {
@@ -132,15 +124,10 @@ static void BM_CompileFragmentShader(benchmark::State& state) {
     // Set the counter for Compiles/Second
     state.counters["FS_Compiles/Second"] = state.iterations();
     state.counters["FS_Bytes/Second"] = state.iterations() * fsLen;
-
-    // Cleanup GL context
-    delete MG_State::pGLContext;
 }
 BENCHMARK(BM_CompileFragmentShader)->Unit(benchmark::kMillisecond);
 
 static void BM_CompileBothShaders(benchmark::State& state) {
-    // Initialize GL context
-    MG_State::pGLContext = new MG_State::GLState::GLContext();
     SizeT vsLen = strlen(vsSrc);
     SizeT fsLen = strlen(fsSrc);
 
@@ -165,16 +152,10 @@ static void BM_CompileBothShaders(benchmark::State& state) {
     state.counters["FS_Compiles/Second"] = state.iterations();
     state.counters["VS_Bytes/Second"] = state.iterations() * vsLen;
     state.counters["FS_Bytes/Second"] = state.iterations() * fsLen;
-
-    // Cleanup GL context
-    delete MG_State::pGLContext;
 }
 BENCHMARK(BM_CompileBothShaders)->Unit(benchmark::kMillisecond);
 
 static void BM_LinkProgram(benchmark::State& state) {
-    // Initialize GL context
-    MG_State::pGLContext = new MG_State::GLState::GLContext();
-
     // Create and compile vertex shader
     GLuint vs = CreateShader(GL_VERTEX_SHADER);
     ShaderSource(vs, 1, &vsSrc, NULL);
@@ -199,16 +180,10 @@ static void BM_LinkProgram(benchmark::State& state) {
 
     // Set the counter for Compiles/Second
     state.counters["Links/Second"] = state.iterations();
-
-    // Cleanup GL context
-    delete MG_State::pGLContext;
 }
 BENCHMARK(BM_LinkProgram)->Unit(benchmark::kMillisecond);
 
 static void BM_CompileAndLink(benchmark::State& state) {
-    // Initialize GL context
-    MG_State::pGLContext = new MG_State::GLState::GLContext();
-
     SizeT vsLen = strlen(vsSrc);
     SizeT fsLen = strlen(fsSrc);
 
@@ -240,11 +215,22 @@ static void BM_CompileAndLink(benchmark::State& state) {
     state.counters["VS_Bytes/Second"] = state.iterations() * vsLen;
     state.counters["FS_Bytes/Second"] = state.iterations() * fsLen;
     state.counters["Links/Second"] = state.iterations();
-
-    // Cleanup GL context
-    delete MG_State::pGLContext;
 }
 
 BENCHMARK(BM_CompileAndLink)->Unit(benchmark::kMillisecond);
 
-BENCHMARK_MAIN();
+int main(int argc, char** argv) {
+    MG_Initialize();
+    benchmark ::MaybeReenterWithoutASLR(argc, argv);
+    char arg0_default[] = "benchmark";
+    char* args_default = reinterpret_cast<char*>(arg0_default);
+    if (!argv) {
+        argc = 1;
+        argv = &args_default;
+    }
+    ::benchmark ::Initialize(&argc, argv);
+    if (::benchmark ::ReportUnrecognizedArguments(argc, argv)) return 1;
+    ::benchmark ::RunSpecifiedBenchmarks();
+    ::benchmark ::Shutdown();
+    return 0;
+}

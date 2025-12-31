@@ -6,7 +6,10 @@
 // End of Source File Header
 
 #include <gtest/gtest.h>
+
 #include "Includes.h"
+#include "Init.h"
+
 #include <MG_Impl/GLImpl/Buffer/GL_Buffer.h>
 #include <MG_Impl/GLImpl/Getter/GL_Getter.h>
 #include <MG_Impl/GLImpl/VertexArray/GL_VertexArray.h>
@@ -16,12 +19,10 @@ using namespace MobileGL;
 
 class VertexArrayTest : public ::testing::Test {
 protected:
-    MG_State::GLState::GLContext glContext;
-
     SharedPtr<MG_State::GLState::BufferObject> CreateTestVBO() {
-        auto bufferNames = glContext.GenBufferNames(1);
-        auto vbo = glContext.CreateBufferObject(bufferNames[0]);
-        glContext.GetBufferBindingSlot(BufferTarget::Vertex).Bind(vbo);
+        auto bufferNames = MobileGL::MG_State::pGLContext->GenBufferNames(1);
+        auto vbo = MobileGL::MG_State::pGLContext->CreateBufferObject(bufferNames[0]);
+        MobileGL::MG_State::pGLContext->GetBufferBindingSlot(BufferTarget::Vertex).Bind(vbo);
 
         Vector<float> vertexData = {0.0f, 0.0f, 0.0f, 1.0f, 1.0f, 0.0f, 0.0f, 1.0f};
         SizeT byteSize = vertexData.size() * sizeof(float);
@@ -31,28 +32,31 @@ protected:
 
         return vbo;
     }
+    void SetUp() override { MobileGL::MG_Initialize(); }
+
+    void TearDown() override {}
 };
 
 TEST_F(VertexArrayTest, GenerateAndBindVAO) {
-    auto vaoNames = glContext.GenVertexArrayNames(2);
-    auto vao0 = glContext.CreateVertexArrayObject(vaoNames[0]);
-    auto vao1 = glContext.CreateVertexArrayObject(vaoNames[1]);
+    auto vaoNames = MobileGL::MG_State::pGLContext->GenVertexArrayNames(2);
+    auto vao0 = MobileGL::MG_State::pGLContext->CreateVertexArrayObject(vaoNames[0]);
+    auto vao1 = MobileGL::MG_State::pGLContext->CreateVertexArrayObject(vaoNames[1]);
 
-    glContext.BindVertexArray(vaoNames[0]);
-    ASSERT_EQ(glContext.GetBoundVertexArray(), vao0);
+    MobileGL::MG_State::pGLContext->BindVertexArray(vaoNames[0]);
+    ASSERT_EQ(MobileGL::MG_State::pGLContext->GetBoundVertexArray(), vao0);
 
-    glContext.BindVertexArray(vaoNames[1]);
-    ASSERT_EQ(glContext.GetBoundVertexArray(), vao1);
+    MobileGL::MG_State::pGLContext->BindVertexArray(vaoNames[1]);
+    ASSERT_EQ(MobileGL::MG_State::pGLContext->GetBoundVertexArray(), vao1);
 
-    // glContext.BindVertexArray(0);
-    // ASSERT_EQ(glContext.GetBoundVertexArray(), nullptr);
+    // MobileGL::MG_State::pGLContext->BindVertexArray(0);
+    // ASSERT_EQ(MobileGL::MG_State::pGLContext->GetBoundVertexArray(), nullptr);
     // Do not detect if it supports default VAO
 }
 
 TEST_F(VertexArrayTest, VertexAttributeSetup) {
-    auto vaoNames = glContext.GenVertexArrayNames(1);
-    auto vao = glContext.CreateVertexArrayObject(vaoNames[0]);
-    glContext.BindVertexArray(vaoNames[0]);
+    auto vaoNames = MobileGL::MG_State::pGLContext->GenVertexArrayNames(1);
+    auto vao = MobileGL::MG_State::pGLContext->CreateVertexArrayObject(vaoNames[0]);
+    MobileGL::MG_State::pGLContext->BindVertexArray(vaoNames[0]);
 
     auto vbo = CreateTestVBO();
 
@@ -81,13 +85,13 @@ TEST_F(VertexArrayTest, VertexAttributeSetup) {
 }
 
 TEST_F(VertexArrayTest, IndexBufferBinding) {
-    auto vaoNames = glContext.GenVertexArrayNames(1);
-    auto vao = glContext.CreateVertexArrayObject(vaoNames[0]);
-    glContext.BindVertexArray(vaoNames[0]);
+    auto vaoNames = MobileGL::MG_State::pGLContext->GenVertexArrayNames(1);
+    auto vao = MobileGL::MG_State::pGLContext->CreateVertexArrayObject(vaoNames[0]);
+    MobileGL::MG_State::pGLContext->BindVertexArray(vaoNames[0]);
 
-    auto bufferNames = glContext.GenBufferNames(1);
-    auto ebo = glContext.CreateBufferObject(bufferNames[0]);
-    glContext.GetBufferBindingSlot(BufferTarget::Index).Bind(ebo);
+    auto bufferNames = MobileGL::MG_State::pGLContext->GenBufferNames(1);
+    auto ebo = MobileGL::MG_State::pGLContext->CreateBufferObject(bufferNames[0]);
+    MobileGL::MG_State::pGLContext->GetBufferBindingSlot(BufferTarget::Index).Bind(ebo);
 
     Vector<Uint> indices = {0, 1, 2};
     SizeT byteSize = indices.size() * sizeof(Uint);
@@ -95,57 +99,57 @@ TEST_F(VertexArrayTest, IndexBufferBinding) {
     DataPtr ptr{.data = indices.data(), .size = byteSize};
     ebo->UploadData(ptr, 0);
 
-    glContext.GetBufferBindingSlot(BufferTarget::Index).Bind(ebo);
-    ASSERT_EQ(glContext.GetBufferBindingSlot(BufferTarget::Index).GetBoundObject(), ebo);
+    MobileGL::MG_State::pGLContext->GetBufferBindingSlot(BufferTarget::Index).Bind(ebo);
+    ASSERT_EQ(MobileGL::MG_State::pGLContext->GetBufferBindingSlot(BufferTarget::Index).GetBoundObject(), ebo);
 
-    auto newEboNames = glContext.GenBufferNames(1);
-    auto newEbo = glContext.CreateBufferObject(newEboNames[0]);
-    glContext.GetBufferBindingSlot(BufferTarget::Index).Bind(newEbo);
-    ASSERT_EQ(glContext.GetBufferBindingSlot(BufferTarget::Index).GetBoundObject(), newEbo);
+    auto newEboNames = MobileGL::MG_State::pGLContext->GenBufferNames(1);
+    auto newEbo = MobileGL::MG_State::pGLContext->CreateBufferObject(newEboNames[0]);
+    MobileGL::MG_State::pGLContext->GetBufferBindingSlot(BufferTarget::Index).Bind(newEbo);
+    ASSERT_EQ(MobileGL::MG_State::pGLContext->GetBufferBindingSlot(BufferTarget::Index).GetBoundObject(), newEbo);
 }
 
 TEST_F(VertexArrayTest, DeleteVAO) {
-    auto vaoNames = glContext.GenVertexArrayNames(1);
-    auto vao = glContext.CreateVertexArrayObject(vaoNames[0]);
+    auto vaoNames = MobileGL::MG_State::pGLContext->GenVertexArrayNames(1);
+    auto vao = MobileGL::MG_State::pGLContext->CreateVertexArrayObject(vaoNames[0]);
 
-    glContext.BindVertexArray(vaoNames[0]);
-    ASSERT_EQ(glContext.GetBoundVertexArray(), vao);
+    MobileGL::MG_State::pGLContext->BindVertexArray(vaoNames[0]);
+    ASSERT_EQ(MobileGL::MG_State::pGLContext->GetBoundVertexArray(), vao);
 
-    glContext.MarkVertexArrayForDeletion(vaoNames[0]);
+    MobileGL::MG_State::pGLContext->MarkVertexArrayForDeletion(vaoNames[0]);
 
-    ASSERT_FALSE(glContext.ValidateVertexArrayObject(vaoNames[0]));
-    ASSERT_EQ(glContext.GetVertexArrayObject(vaoNames[0]), nullptr);
-    ASSERT_EQ(glContext.GetBoundVertexArray(), nullptr);
+    ASSERT_FALSE(MobileGL::MG_State::pGLContext->ValidateVertexArrayObject(vaoNames[0]));
+    ASSERT_EQ(MobileGL::MG_State::pGLContext->GetVertexArrayObject(vaoNames[0]), nullptr);
+    ASSERT_EQ(MobileGL::MG_State::pGLContext->GetBoundVertexArray(), nullptr);
 }
 
 TEST_F(VertexArrayTest, ValidateNamesAndObjects) {
     const Uint count = 5;
-    auto vaoNames = glContext.GenVertexArrayNames(count);
+    auto vaoNames = MobileGL::MG_State::pGLContext->GenVertexArrayNames(count);
 
     for (Uint i = 0; i < count; i++) {
-        ASSERT_TRUE(glContext.ValidateVertexArrayName(vaoNames[i]));
-        ASSERT_FALSE(glContext.ValidateVertexArrayObject(vaoNames[i]));
+        ASSERT_TRUE(MobileGL::MG_State::pGLContext->ValidateVertexArrayName(vaoNames[i]));
+        ASSERT_FALSE(MobileGL::MG_State::pGLContext->ValidateVertexArrayObject(vaoNames[i]));
     }
 
     for (Uint i = 0; i < count; i += 2) {
-        glContext.CreateVertexArrayObject(vaoNames[i]);
-        ASSERT_TRUE(glContext.ValidateVertexArrayObject(vaoNames[i]));
+        MobileGL::MG_State::pGLContext->CreateVertexArrayObject(vaoNames[i]);
+        ASSERT_TRUE(MobileGL::MG_State::pGLContext->ValidateVertexArrayObject(vaoNames[i]));
     }
 
     for (Uint i = 1; i < count; i += 2) {
-        glContext.MarkVertexArrayForDeletion(vaoNames[i]);
-        ASSERT_FALSE(glContext.ValidateVertexArrayName(vaoNames[i]));
+        MobileGL::MG_State::pGLContext->MarkVertexArrayForDeletion(vaoNames[i]);
+        ASSERT_FALSE(MobileGL::MG_State::pGLContext->ValidateVertexArrayName(vaoNames[i]));
     }
 }
 
 TEST_F(VertexArrayTest, MultipleAttributes) {
-    auto vaoNames = glContext.GenVertexArrayNames(1);
-    auto vao = glContext.CreateVertexArrayObject(vaoNames[0]);
-    glContext.BindVertexArray(vaoNames[0]);
+    auto vaoNames = MobileGL::MG_State::pGLContext->GenVertexArrayNames(1);
+    auto vao = MobileGL::MG_State::pGLContext->CreateVertexArrayObject(vaoNames[0]);
+    MobileGL::MG_State::pGLContext->BindVertexArray(vaoNames[0]);
 
     auto vboPos = CreateTestVBO();
-    auto vboNormalNames = glContext.GenBufferNames(1);
-    auto vboNormal = glContext.CreateBufferObject(vboNormalNames[0]);
+    auto vboNormalNames = MobileGL::MG_State::pGLContext->GenBufferNames(1);
+    auto vboNormal = MobileGL::MG_State::pGLContext->CreateBufferObject(vboNormalNames[0]);
 
     Vector<float> normals(12, 0.5f);
     SizeT byteSize = normals.size() * sizeof(float);
@@ -182,22 +186,22 @@ TEST_F(VertexArrayTest, MultipleAttributes) {
 }
 
 TEST_F(VertexArrayTest, BoundVAOPreservesState) {
-    auto vaoNames = glContext.GenVertexArrayNames(2);
-    auto vao1 = glContext.CreateVertexArrayObject(vaoNames[0]);
-    auto vao2 = glContext.CreateVertexArrayObject(vaoNames[1]);
+    auto vaoNames = MobileGL::MG_State::pGLContext->GenVertexArrayNames(2);
+    auto vao1 = MobileGL::MG_State::pGLContext->CreateVertexArrayObject(vaoNames[0]);
+    auto vao2 = MobileGL::MG_State::pGLContext->CreateVertexArrayObject(vaoNames[1]);
 
     auto vbo = CreateTestVBO();
 
-    glContext.BindVertexArray(vaoNames[0]);
+    MobileGL::MG_State::pGLContext->BindVertexArray(vaoNames[0]);
     vao1->EnableAttribute(0);
     vao1->SetAttributeFormat(0, 4, DataType::Float32, false, 0, 0, false);
     vao1->BindAttributeBuffer(0, vbo);
 
-    glContext.BindVertexArray(vaoNames[1]);
+    MobileGL::MG_State::pGLContext->BindVertexArray(vaoNames[1]);
     vao2->EnableAttribute(1);
     vao2->SetAttributeFormat(1, 3, DataType::Float32, true, 0, 0, false);
 
-    glContext.BindVertexArray(vaoNames[0]);
+    MobileGL::MG_State::pGLContext->BindVertexArray(vaoNames[0]);
 
     const auto& attr = vao1->GetAttribute(0);
     ASSERT_TRUE(attr.Enabled);

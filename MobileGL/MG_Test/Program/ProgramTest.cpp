@@ -7,6 +7,7 @@
 
 #include <gtest/gtest.h>
 #include "Includes.h"
+#include "Init.h"
 #include "MG_Impl/GLImpl/Program/GL_Program.h"
 #include "MG_State/GLState/Core.h"
 #include "MG_Util/ShaderTranspiler/ShaderCompiler.h"
@@ -16,9 +17,9 @@ using namespace MobileGL::MG_Impl::GLImpl;
 
 class ProgramTest : public ::testing::Test {
 protected:
-    void SetUp() override { MG_State::pGLContext = new MG_State::GLState::GLContext(); }
+    void SetUp() override { MobileGL::MG_Initialize(); }
 
-    void TearDown() override { delete MG_State::pGLContext; }
+    void TearDown() override {}
 };
 
 TEST_F(ProgramTest, Sanity) {
