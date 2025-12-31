@@ -24,7 +24,7 @@ namespace MobileGL {
                         .Extensions = {},               //   OpenGL Extensions
                         .IsCompatibilityProfile = false //   Is Compatibility Profile
                     },
-                .BackendCapability = {} // Backend Capability
+                .BackendCapability = {.AllowVSOnlyPrograms = false} // Backend Capability
             };
         }
 
@@ -47,7 +47,7 @@ namespace MobileGL {
                                        V_OpenGL33},
                         .IsCompatibilityProfile = false //   Is Compatibility Profile
                     },
-                .BackendCapability = {} // Backend Capability
+                .BackendCapability = {.AllowVSOnlyPrograms = false} // Backend Capability
             };
 
             inline RendererInfo RendererInfoMetal = {
@@ -63,7 +63,7 @@ namespace MobileGL {
                                        V_OpenGL33},
                         .IsCompatibilityProfile = false //   Is Compatibility Profile
                     },
-                .BackendCapability = {} // Backend Capability
+                .BackendCapability = {.AllowVSOnlyPrograms = false} // Backend Capability
             };
         } // namespace Diligent
 
@@ -81,7 +81,7 @@ namespace MobileGL {
                                        V_OpenGL33, E_GL_ARB_draw_buffers_blend},
                         .IsCompatibilityProfile = false //   Is Compatibility Profile
                     },
-                .BackendCapability = {} // Backend Capability
+                .BackendCapability = {.AllowVSOnlyPrograms = false} // Backend Capability
             };
         } // namespace DirectGLES
 

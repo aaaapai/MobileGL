@@ -248,7 +248,9 @@ namespace MobileGL {
         }
     };
 
-    struct BackendCap {};
+    struct BackendCap {
+        Bool AllowVSOnlyPrograms = false;
+    };
 
     struct GLInfo {
         Version TargetGLVersion;

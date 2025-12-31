@@ -21,7 +21,7 @@ namespace MobileGL {
                 bool AttachShader(SharedPtr<ShaderObject> shader);
                 SizeT DetachShader(SharedPtr<ShaderObject> shader);
                 SizeT RemoveShader(SharedPtr<ShaderObject> shader);
-                void Link();
+                void Link(Bool addDefaultFSIfMissingForRenderingPipelineProgram = false);
                 void MarkAsDeleted();
 
                 void SetExplicitVertexInLocation(Uint index, const char* name);
@@ -120,6 +120,7 @@ namespace MobileGL {
                 void DoReflection();
                 void GenerateBinary();
                 void WaitUntilGenerationCompleted();
+                void AddDefaultFragmentShaderIfMissing();
 
                 const Uint m_externalIndex = 0;
                 Vector<SharedPtr<ShaderObject>> m_shaders;
