@@ -9,6 +9,7 @@
 #include <Includes.h>
 #include "DirectGLES.h"
 #include "MG_State/GLState/SamplerState/SamplerObject.h"
+#include "MG_State/GLState/TextureState/TextureEnum.h"
 #include <MG_State/GLState/TextureState/TextureObject.h>
 #include <MG_State/GLState/Core.h>
 
@@ -185,6 +186,9 @@ namespace MobileGL::MG_Backend::DirectGLES {
         private:
             Uint m_backendRBOId = 0;
             Bool m_isInitialized = false;
+            TextureInternalFormat m_cacheInternalFormat = TextureInternalFormat::Unknown;
+            Int m_cacheWidth = 0;
+            Int m_cacheHeight = 0;
         };
 
         extern UnorderedMap<SharedPtr<MG_State::GLState::RenderbufferObject>, SharedPtr<BackendRenderbufferObject>>

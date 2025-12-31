@@ -1048,18 +1048,31 @@ namespace MobileGL::MG_Backend::DirectGLES {
             MGLOG_D("Syncing RBO with backend ID %u to backend for state ID %u", m_backendRBOId,
                     stateRBOObject->GetExternalIndex());
 
+            if (m_isInitialized && m_cacheInternalFormat == stateRBOObject->GetInternalFormat() &&
+                m_cacheWidth == stateRBOObject->GetWidth() && m_cacheHeight == stateRBOObject->GetHeight()) {
+                MGLOG_D("RBO %u already initialized with matching parameters, skipping re-allocation.",
+                        stateRBOObject->GetExternalIndex());
+                return;
+            }
+
             Bind();
 
             // Allocate storage
+            TextureInternalFormat internalFormat = stateRBOObject->GetInternalFormat();
+            Int width = static_cast<Int>(stateRBOObject->GetWidth());
+            Int height = static_cast<Int>(stateRBOObject->GetHeight());
             GLenum glInternalFormat, glType, glFormat;
-            TextureImpl::GenerateTextureFormatInfo(stateRBOObject->GetInternalFormat(), &glInternalFormat, &glType,
-                                                   &glFormat);
+            TextureImpl::GenerateTextureFormatInfo(internalFormat, &glInternalFormat, &glType, &glFormat);
 
-            MG_External::GLES::glRenderbufferStorage(GL_RENDERBUFFER, glInternalFormat,
-                                                     static_cast<GLsizei>(stateRBOObject->GetWidth()),
-                                                     static_cast<GLsizei>(stateRBOObject->GetHeight()));
+            MG_External::GLES::glRenderbufferStorage(GL_RENDERBUFFER, glInternalFormat, static_cast<GLsizei>(width),
+                                                     static_cast<GLsizei>(height));
+
+            m_cacheInternalFormat = internalFormat;
+            m_cacheWidth = width;
+            m_cacheHeight = height;
 
             m_isInitialized = true;
+            MGLOG_D("RBO %u sync completed. backend ID %u", stateRBOObject->GetExternalIndex(), m_backendRBOId);
         }
 
         UnorderedMap<SharedPtr<MG_State::GLState::RenderbufferObject>, SharedPtr<BackendRenderbufferObject>>
