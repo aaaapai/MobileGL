@@ -25,6 +25,7 @@ namespace MobileGL {
 
                 RenderbufferObject(Uint externalIndex);
 
+                Uint GetExternalIndex() const;
                 void SetInternalFormat(TextureInternalFormat format);
                 void AllocateStorage(IntVec2 size);
                 Int GetWidth() const;

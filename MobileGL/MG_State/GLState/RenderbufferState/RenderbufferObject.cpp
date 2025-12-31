@@ -13,6 +13,10 @@ namespace MobileGL {
         namespace GLState {
             RenderbufferObject::RenderbufferObject(Uint externalIndex) : m_externalIndex(externalIndex) {}
 
+            Uint RenderbufferObject::GetExternalIndex() const {
+                return m_externalIndex;
+            }
+
             Int RenderbufferObject::GetWidth() const {
                 return m_width;
             }
