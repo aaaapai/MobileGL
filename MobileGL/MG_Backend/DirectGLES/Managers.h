@@ -173,4 +173,21 @@ namespace MobileGL::MG_Backend::DirectGLES {
         extern UnorderedMap<SharedPtr<MG_State::GLState::SamplerObject>, SharedPtr<BackendSamplerObject>>
             g_backendSamplerObjects;
     } // namespace SamplerImpl
+
+    namespace RenderbufferImpl {
+        class BackendRenderbufferObject {
+        public:
+            BackendRenderbufferObject();
+            void SyncToBackend(const SharedPtr<MG_State::GLState::RenderbufferObject>& stateRBOObject);
+            Uint GetBackendRenderbufferId() { return m_backendRBOId; }
+            void Bind();
+
+        private:
+            Uint m_backendRBOId = 0;
+            Bool m_isInitialized = false;
+        };
+
+        extern UnorderedMap<SharedPtr<MG_State::GLState::RenderbufferObject>, SharedPtr<BackendRenderbufferObject>>
+            g_backendRenderbufferObjects;
+    } // namespace RenderbufferImpl
 } // namespace MobileGL::MG_Backend::DirectGLES
