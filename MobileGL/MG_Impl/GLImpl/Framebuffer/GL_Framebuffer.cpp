@@ -58,6 +58,7 @@ namespace MobileGL {
                 return;
             }
             renderbufferObject->AllocateStorage({width, height});
+            renderbufferObject->SetInternalFormat(format);
         }
 
         GLboolean IsRenderbuffer_State(GLuint renderbuffer) {

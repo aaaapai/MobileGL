@@ -70,7 +70,6 @@ namespace MobileGL {
         namespace GLState {
             class FramebufferAttachment {
             public:
-                // TODO: add Renderbuffer when it is implemented
                 explicit FramebufferAttachment(SharedPtr<MG_State::GLState::ITextureObject> texture, Int level = 0);
                 explicit FramebufferAttachment(SharedPtr<RenderbufferObject> renderbuffer);
                 explicit FramebufferAttachment(Bool IsValid = true);

@@ -17,7 +17,8 @@ namespace MobileGL {
         void ClearBufferfv(GLenum buffer, GLint drawbuffer, const GLfloat* value);
         void ClearBufferuiv(GLenum buffer, GLint drawbuffer, const GLuint* value);
         void ClearBufferiv(GLenum buffer, GLint drawbuffer, const GLint* value);
-        void RenderbufferStorageMultisample(GLenum target, GLsizei samples, GLenum internalformat, GLsizei width, GLsizei height);
+        void RenderbufferStorageMultisample(GLenum target, GLsizei samples, GLenum internalformat, GLsizei width,
+                                            GLsizei height);
         void RenderbufferStorage(GLenum target, GLenum internalformat, GLsizei width, GLsizei height);
         GLboolean IsRenderbuffer(GLuint renderbuffer);
         void GetRenderbufferParameteriv(GLenum target, GLenum pname, GLint* params);
