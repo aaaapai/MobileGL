@@ -233,7 +233,7 @@ namespace MobileGL {
 
             Bool shouldShowPatch = true;
             if (fmt.autoPatch) {
-                shouldShowPatch = (Patch != 0) || (Type != VersionType::Release);
+                shouldShowPatch = (Patch != 0);
             }
 
             if (shouldShowPatch) {
