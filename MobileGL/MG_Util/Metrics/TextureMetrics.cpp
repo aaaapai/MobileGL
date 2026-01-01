@@ -1,4 +1,12 @@
+// MobileGL - MobileGL/MG_Util/Metrics/TextureMetrics.cpp
+// Copyright (c) 2025-2026 MobileGL-Dev
+// Licensed under the GNU Lesser General Public License v2.1:
+// http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html
+// SPDX-License-Identifier: LGPL-2.1-only
+// End of Source File Header
+
 #include "TextureMetrics.h"
+#include "Defines.h"
 #include "MG_Util/Math/VectorTypes.h"
 
 namespace MobileGL {
@@ -80,6 +88,34 @@ namespace MobileGL {
                 return 4;
 
             default:
+                return 0;
+            }
+        }
+
+        SizeT GetBaseInputFormatComponentCount(TextureInputFormat format) {
+            switch (format) {
+            case TextureInputFormat::Red:
+            case TextureInputFormat::RInteger:
+                return 1;
+            case TextureInputFormat::RG:
+            case TextureInputFormat::RGInteger:
+                return 2;
+            case TextureInputFormat::RGB:
+            case TextureInputFormat::BGR:
+            case TextureInputFormat::RGBInteger:
+            case TextureInputFormat::BGRInteger:
+                return 3;
+            case TextureInputFormat::RGBA:
+            case TextureInputFormat::BGRA:
+            case TextureInputFormat::RGBAInteger:
+            case TextureInputFormat::BGRAInteger:
+                return 4;
+            case TextureInputFormat::StencilIndex:
+            case TextureInputFormat::DepthComponent:
+            case TextureInputFormat::DepthStencil:
+                return 1;
+            default:
+                MGLOG_D("%s: Unknown input format!", __func__);
                 return 0;
             }
         }
@@ -174,6 +210,9 @@ namespace MobileGL {
             case TexturePixelDataType::UnsignedInt2101010Rev:
             case TexturePixelDataType::UnsignedInt101111Rev:
             case TexturePixelDataType::UnsignedInt5999Rev:
+            case TexturePixelDataType::UnsignedInt248:
+            case TexturePixelDataType::Float32UnsignedInt248Rev:
+                return 4;
                 return 4;
             default:
                 return 0;
@@ -186,11 +225,12 @@ namespace MobileGL {
             case TexturePixelDataType::Byte:
                 return 1;
             case TexturePixelDataType::UnsignedShort:
+            case TexturePixelDataType::HalfFloat:
             case TexturePixelDataType::Short:
                 return 2;
             case TexturePixelDataType::UnsignedInt:
-            case TexturePixelDataType::Int:
             case TexturePixelDataType::Float:
+            case TexturePixelDataType::Int:
                 return 4;
             default:
                 return 0;
@@ -207,17 +247,202 @@ namespace MobileGL {
             return chCount * bytesPerChannel;
         }
 
-        SizeT GetInputBytesPerPixel(TextureInternalFormat internalformat, TexturePixelDataType type) {
+        SizeT GetInputBytesPerPixel(TextureInputFormat inputFormat, TexturePixelDataType type) {
             SizeT sizedPixelFormatSize = GetSizedTexturePixelDataTypeSize(type);
             if (sizedPixelFormatSize > 0) return sizedPixelFormatSize;
             SizeT bytesPerChannel = GetBaseTexturePixelDataTypeSize(type);
-            SizeT chCount = GetBaseInternalFormatComponentCount(internalformat);
+            SizeT chCount = GetBaseInputFormatComponentCount(inputFormat);
             return chCount * bytesPerChannel;
         }
 
-        SizeT CalculateInputTextureImageSize(TextureInternalFormat internalFormat, TexturePixelDataType pixelDataType,
+        SizeT CalculateInputTextureImageSize(TextureInputFormat inputFormat, TexturePixelDataType pixelDataType,
                                              IntVec3 size) {
-            return GetInputBytesPerPixel(internalFormat, pixelDataType) * size.x() * size.y() * size.z();
+            return GetInputBytesPerPixel(inputFormat, pixelDataType) * size.x() * size.y() * size.z();
+        }
+
+        ComponentSizes GetComponentSizesForInternalFormat(TextureInternalFormat internal) {
+            ComponentSizes s = {};
+
+            switch (internal) {
+            case TextureInternalFormat::R8:
+            case TextureInternalFormat::Red:
+            case TextureInternalFormat::R8Snorm:
+            case TextureInternalFormat::R8I:
+            case TextureInternalFormat::R8UI:
+                s.Red = 8;
+                break;
+
+            case TextureInternalFormat::R16:
+            case TextureInternalFormat::R16Snorm:
+            case TextureInternalFormat::R16I:
+            case TextureInternalFormat::R16UI:
+            case TextureInternalFormat::R16F:
+                s.Red = 16;
+                break;
+
+            case TextureInternalFormat::RG8:
+            case TextureInternalFormat::RG8Snorm:
+            case TextureInternalFormat::RG8I:
+            case TextureInternalFormat::RG8UI:
+            case TextureInternalFormat::RG:
+                s.Red = 8;
+                s.Green = 8;
+                break;
+
+            case TextureInternalFormat::RG16:
+            case TextureInternalFormat::RG16Snorm:
+            case TextureInternalFormat::RG16I:
+            case TextureInternalFormat::RG16UI:
+            case TextureInternalFormat::RG16F:
+                s.Red = 16;
+                s.Green = 16;
+                break;
+
+            case TextureInternalFormat::RGB4:
+            case TextureInternalFormat::RGB5:
+            case TextureInternalFormat::RGB8:
+            case TextureInternalFormat::RGB8Snorm:
+            case TextureInternalFormat::SRGB8:
+            case TextureInternalFormat::RGB8I:
+            case TextureInternalFormat::RGB8UI:
+            case TextureInternalFormat::RGB:
+                s.Red = 8;
+                s.Green = 8;
+                s.Blue = 8;
+                break;
+
+            case TextureInternalFormat::R3G3B2:
+                s.Red = 3;
+                s.Green = 3;
+                s.Blue = 2;
+                break;
+
+            case TextureInternalFormat::RGBA2:
+                s.Red = 2;
+                s.Green = 2;
+                s.Blue = 2;
+                s.Alpha = 2;
+                break;
+            case TextureInternalFormat::RGBA4:
+                s.Red = 4;
+                s.Green = 4;
+                s.Blue = 4;
+                s.Alpha = 4;
+                break;
+            case TextureInternalFormat::RGB5A1:
+                s.Red = 5;
+                s.Green = 5;
+                s.Blue = 5;
+                s.Alpha = 1;
+                break;
+            case TextureInternalFormat::RGBA8:
+            case TextureInternalFormat::RGBA8Snorm:
+            case TextureInternalFormat::RGBA8I:
+            case TextureInternalFormat::RGBA8UI:
+            case TextureInternalFormat::SRGB8Alpha8:
+            case TextureInternalFormat::RGBA:
+                break;
+                s.Red = 8;
+                s.Green = 8;
+                s.Blue = 8;
+                s.Alpha = 8;
+                break;
+            case TextureInternalFormat::RGB10A2:
+            case TextureInternalFormat::RGB10A2UI:
+                s.Red = 10;
+                s.Green = 10;
+                s.Blue = 10;
+                s.Alpha = 2;
+                break;
+
+            case TextureInternalFormat::R32F:
+                s.Red = 32;
+                break;
+            case TextureInternalFormat::RG32F:
+            case TextureInternalFormat::RG32I:
+            case TextureInternalFormat::RG32UI:
+                s.Red = 32;
+                s.Green = 32;
+                break;
+
+            case TextureInternalFormat::RGBA12:
+                s.Red = 12;
+                s.Green = 12;
+                s.Blue = 12;
+                s.Alpha = 12;
+                break;
+            case TextureInternalFormat::RGBA16:
+            case TextureInternalFormat::RGBA16I:
+            case TextureInternalFormat::RGBA16UI:
+            case TextureInternalFormat::RGBA16F:
+                s.Red = 16;
+                s.Green = 16;
+                s.Blue = 16;
+                s.Alpha = 16;
+                break;
+
+            case TextureInternalFormat::RGB16F:
+            case TextureInternalFormat::RGB16I:
+            case TextureInternalFormat::RGB16UI:
+                s.Red = 16;
+                s.Green = 16;
+                s.Blue = 16;
+                break;
+            case TextureInternalFormat::RGB32F:
+            case TextureInternalFormat::RGB32I:
+            case TextureInternalFormat::RGB32UI:
+                s.Red = 32;
+                s.Green = 32;
+                s.Blue = 32;
+                break;
+
+            case TextureInternalFormat::RGBA32F:
+            case TextureInternalFormat::RGBA32I:
+            case TextureInternalFormat::RGBA32UI:
+                s.Red = 32;
+                s.Green = 32;
+                s.Blue = 32;
+                s.Alpha = 32;
+                break;
+
+            case TextureInternalFormat::R11FG11FB10F:
+                s.Red = 11;
+                s.Green = 11;
+                s.Blue = 10;
+                break;
+            case TextureInternalFormat::RGB9E5:
+                s.Red = 9;
+                s.Green = 9;
+                s.Blue = 9;
+                break;
+
+            case TextureInternalFormat::DepthComponent:
+            case TextureInternalFormat::DepthComponent16:
+                s.Depth = 16;
+                break;
+            case TextureInternalFormat::DepthComponent24:
+                s.Depth = 24;
+                break;
+            case TextureInternalFormat::DepthComponent32:
+            case TextureInternalFormat::DepthComponent32F:
+                s.Depth = 32;
+                break;
+            case TextureInternalFormat::DepthStencil:
+            case TextureInternalFormat::Depth24Stencil8:
+                s.Depth = 24;
+                s.Stencil = 8;
+                break;
+            case TextureInternalFormat::Depth32FStencil8:
+                s.Depth = 32;
+                s.Stencil = 8;
+                break;
+            default:
+                MOBILEGL_ASSERT(false, "Unimplemented internal format in GetComponentSizesForInternalFormat: %d",
+                                static_cast<Int>(internal));
+                break;
+            }
+
+            return s;
         }
 
     } // namespace MG_Util

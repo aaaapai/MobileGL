@@ -1,9 +1,18 @@
+// MobileGL - MobileGL/MG_Impl/GLImpl/Framebuffer/GL_Framebuffer.cpp
+// Copyright (c) 2025-2026 MobileGL-Dev
+// Licensed under the GNU Lesser General Public License v2.1:
+// http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html
+// SPDX-License-Identifier: LGPL-2.1-only
+// End of Source File Header
+
 #include "GL_Framebuffer.h"
 #include "Validators.h"
 #include "Config.h"
-#include "MG_Util/Converters/GLToStr/GLEnumConverter.h"
 #include <MG_Impl/GLImpl/Texture/Validators.h>
 #include <MG_State/GLState/ErrorState/Error.h>
+#include <MG_Util/Converters/GLToStr/GLEnumConverter.h>
+#include <MG_Util/Converters/GLToMG/TextureEnumConverter.h>
+#include <MG_Util/Converters/MGToGL/TextureEnumConverter.h>
 #include <MG_Util/Converters/GLToMG/FramebufferEnumConverter.h>
 #if MOBILEGL_BACKEND == MOBILEGL_BACKEND_TYPE_DIRECT_GLES
 #include <MG_Backend/DirectGLES/DirectGLES.h>
@@ -29,17 +38,35 @@ namespace MobileGL {
         }
 
         void RenderbufferStorage_State(GLenum target, GLenum internalformat, GLsizei width, GLsizei height) {
-            // TODO: implement
+            RenderbufferTarget rbTarget = MG_Util::ConvertGLEnumToRenderbufferTarget(target);
+            if (!FramebufferImpl::ValidateRenderbufferTarget(rbTarget)) return;
+            auto& bindingSlot = MG_State::pGLContext->GetRenderbufferBindingSlot(rbTarget);
+            auto renderbufferObject = bindingSlot.GetBoundObject();
+            if (!renderbufferObject) {
+                MG_State::pGLContext->RecordError(
+                    ErrorCode::InvalidOperation,
+                    MakeShared<GenericErrorInfo>("MG_Impl/GLImpl", "RenderbufferStorage_State",
+                                                 "Renderbuffer target is bound to no renderbuffer object."));
+                return;
+            }
+            TextureInternalFormat format = MG_Util::ConvertGLEnumToTextureInternalFormat(internalformat);
+            if (!TextureImpl::ValidateTextureInternalFormat(format)) return;
+            if (width < 0 || height < 0) {
+                MG_State::pGLContext->RecordError(
+                    ErrorCode::InvalidValue, MakeShared<GenericErrorInfo>("MG_Impl/GLImpl", "RenderbufferStorage_State",
+                                                                          "Width and height must be non-negative."));
+                return;
+            }
+            renderbufferObject->AllocateStorage({width, height});
+            renderbufferObject->SetInternalFormat(format);
         }
 
         GLboolean IsRenderbuffer_State(GLuint renderbuffer) {
-            // TODO: implement
-            return GL_FALSE;
+            return MG_State::pGLContext->ValidateRenderbufferName(renderbuffer);
         }
 
         GLboolean IsFramebuffer_State(GLuint framebuffer) {
-            // TODO: implement
-            return GL_FALSE;
+            return MG_State::pGLContext->ValidateFramebufferName(framebuffer);
         }
 
         void GetFramebufferAttachmentParameteriv_State(GLenum target, GLenum attachment, GLenum pname, GLint* params) {
@@ -53,7 +80,14 @@ namespace MobileGL {
         }
 
         void GenRenderbuffers_State(GLsizei n, GLuint* renderbuffers) {
-            // TODO: implement
+            if (n < 0) {
+                MG_State::pGLContext->RecordError(
+                    ErrorCode::InvalidValue,
+                    MakeShared<GenericErrorInfo>("MG_Impl/GLImpl", "GenRenderbuffers_State", "n must be non-negative"));
+                return;
+            }
+            auto renderbufferNames = MG_State::pGLContext->GenRenderbufferNames(n);
+            Memcpy(renderbuffers, renderbufferNames.data(), sizeof(GLuint) * static_cast<SizeT>(n));
         }
 
         void GenFramebuffers_State(GLsizei n, GLuint* framebuffers) {
@@ -64,7 +98,7 @@ namespace MobileGL {
                 return;
             }
             auto framebuffersNames = MG_State::pGLContext->GenFramebufferNames(n);
-            Copy(framebuffersNames.data(), framebuffers, framebuffersNames.size());
+            Memcpy(framebuffers, framebuffersNames.data(), sizeof(GLuint) * static_cast<SizeT>(n));
         }
 
         void FramebufferTextureLayer_State(GLenum target, GLenum attachment, GLuint texture, GLint level, GLint layer) {
@@ -132,7 +166,41 @@ namespace MobileGL {
 
         void FramebufferRenderbuffer_State(GLenum target, GLenum attachment, GLenum renderbuffertarget,
                                            GLuint renderbuffer) {
-            // TODO: implement
+            if (target == GL_FRAMEBUFFER) {
+                target = GL_DRAW_FRAMEBUFFER;
+            }
+
+            FramebufferAttachmentType attachmentType = MG_Util::ConvertGLEnumToFramebufferAttachmentType(attachment);
+            FramebufferTarget framebufferTarget = MG_Util::ConvertGLEnumToFramebufferTarget(target);
+            RenderbufferTarget rbTarget = MG_Util::ConvertGLEnumToRenderbufferTarget(renderbuffertarget);
+            if (!FramebufferImpl::ValidateFramebufferAttachmentType(attachmentType)) return;
+            if (!FramebufferImpl::ValidateFramebufferTarget(framebufferTarget)) return;
+            if (!FramebufferImpl::ValidateRenderbufferName(renderbuffer)) return;
+            auto& bindingSlot = MG_State::pGLContext->GetFramebufferBindingSlot(framebufferTarget);
+            auto framebufferObject = bindingSlot.GetBoundObject();
+            if (!framebufferObject) {
+                MG_State::pGLContext->RecordError(
+                    ErrorCode::InvalidOperation,
+                    MakeShared<GenericErrorInfo>("MG_Impl/GLImpl", "FramebufferRenderbuffer_State",
+                                                 "Framebuffer target is bound to no framebuffer object."));
+                return;
+            }
+
+            if (renderbuffer == 0) {
+                framebufferObject->Detach(attachmentType);
+                return;
+            }
+
+            auto renderbufferObject = MG_State::pGLContext->GetRenderbufferObject(renderbuffer);
+            if (!renderbufferObject) {
+                MG_State::pGLContext->RecordError(
+                    ErrorCode::InvalidOperation,
+                    MakeShared<GenericErrorInfo>("MG_Impl/GLImpl", "FramebufferRenderbuffer_State",
+                                                 std::format("Renderbuffer object {} is not valid.", renderbuffer)));
+                return;
+            }
+
+            framebufferObject->AttachRenderbuffer(attachmentType, renderbufferObject);
         }
 
         void DrawBuffers_State(GLsizei n, const GLenum* bufs) {
@@ -227,7 +295,26 @@ namespace MobileGL {
         }
 
         void DeleteRenderbuffers_State(GLsizei n, const GLuint* renderbuffers) {
-            // TODO: implement
+            if (n < 0) {
+                MG_State::pGLContext->RecordError(
+                    ErrorCode::InvalidValue, MakeShared<GenericErrorInfo>("MG_Impl/GLImpl", "DeleteRenderbuffers_State",
+                                                                          "n must be non-negative."));
+                return;
+            }
+
+            if (!renderbuffers) {
+                MG_State::pGLContext->RecordError(
+                    ErrorCode::InvalidValue, MakeShared<GenericErrorInfo>("MG_Impl/GLImpl", "DeleteRenderbuffers_State",
+                                                                          "Renderbuffer names array cannot be null."));
+                return;
+            }
+
+            for (SizeT i = 0; i < static_cast<SizeT>(n); ++i) {
+                Uint bufferName = renderbuffers[i];
+                if (bufferName == 0) continue;
+                if (!FramebufferImpl::ValidateRenderbufferName(bufferName)) continue;
+                MG_State::pGLContext->MarkRenderbufferObjectForDeletion(bufferName);
+            }
         }
 
         void DeleteFramebuffers_State(GLsizei n, const GLuint* framebuffers) {
@@ -280,7 +367,18 @@ namespace MobileGL {
         }
 
         void BindRenderbuffer_State(GLenum target, GLuint renderbuffer) {
-            // TODO: implement
+            if (!FramebufferImpl::ValidateRenderbufferName(renderbuffer)) return;
+            RenderbufferTarget renderbufferTarget = MG_Util::ConvertGLEnumToRenderbufferTarget(target);
+            if (!FramebufferImpl::ValidateRenderbufferTarget(renderbufferTarget)) return;
+
+            auto renderbufferObject = MG_State::pGLContext->GetRenderbufferObject(renderbuffer);
+            if (!renderbufferObject) {
+                MG_State::pGLContext->CreateRenderbufferObject(renderbuffer);
+                renderbufferObject = MG_State::pGLContext->GetRenderbufferObject(renderbuffer);
+            }
+
+            auto& bindingSlot = MG_State::pGLContext->GetRenderbufferBindingSlot(renderbufferTarget);
+            bindingSlot.Bind(renderbufferObject);
         }
 
         void BindFramebuffer_State(GLenum target, GLuint framebuffer) {
@@ -304,7 +402,103 @@ namespace MobileGL {
             bindingSlot.Bind(framebufferObject);
         }
 
+        void GetRenderbufferParameteriv_State(GLenum target, GLenum pname, GLint* params) {
+            if (!params) return;
+
+            RenderbufferTarget renderbufferTarget = MG_Util::ConvertGLEnumToRenderbufferTarget(target);
+            if (!FramebufferImpl::ValidateRenderbufferTarget(renderbufferTarget)) return;
+            auto& bindingSlot = MG_State::pGLContext->GetRenderbufferBindingSlot(renderbufferTarget);
+            auto renderbufferObject = bindingSlot.GetBoundObject();
+            if (!renderbufferObject) {
+                MG_State::pGLContext->RecordError(
+                    ErrorCode::InvalidOperation,
+                    MakeShared<GenericErrorInfo>("MG_Impl/GLImpl", "GetRenderbufferParameteriv_State",
+                                                 "Renderbuffer target is bound to no renderbuffer object."));
+                return;
+            }
+
+            switch (pname) {
+            case GL_RENDERBUFFER_WIDTH:
+                *params = static_cast<GLint>(renderbufferObject->GetWidth());
+                break;
+            case GL_RENDERBUFFER_HEIGHT:
+                *params = static_cast<GLint>(renderbufferObject->GetHeight());
+                break;
+            case GL_RENDERBUFFER_INTERNAL_FORMAT:
+                *params = MG_Util::ConvertTextureInternalFormatToGLEnum(renderbufferObject->GetInternalFormat());
+                break;
+            case GL_RENDERBUFFER_RED_SIZE:
+                *params = static_cast<GLint>(renderbufferObject->GetRedSize());
+                break;
+            case GL_RENDERBUFFER_GREEN_SIZE:
+                *params = static_cast<GLint>(renderbufferObject->GetGreenSize());
+                break;
+            case GL_RENDERBUFFER_BLUE_SIZE:
+                *params = static_cast<GLint>(renderbufferObject->GetBlueSize());
+                break;
+            case GL_RENDERBUFFER_ALPHA_SIZE:
+                *params = static_cast<GLint>(renderbufferObject->GetAlphaSize());
+                break;
+            case GL_RENDERBUFFER_DEPTH_SIZE:
+                *params = static_cast<GLint>(renderbufferObject->GetDepthSize());
+                break;
+            case GL_RENDERBUFFER_STENCIL_SIZE:
+                *params = static_cast<GLint>(renderbufferObject->GetStencilSize());
+                break;
+            case GL_RENDERBUFFER_SAMPLES:
+                *params = static_cast<GLint>(renderbufferObject->GetSamples());
+                break;
+            default:
+                MG_State::pGLContext->RecordError(
+                    ErrorCode::InvalidEnum,
+                    MakeShared<GenericErrorInfo>(
+                        "MG_Impl/GLImpl", "GetRenderbufferParameteriv_State",
+                        std::format("pname %s is not an accepted value.", MG_Util::ConvertGLEnumToString(pname))));
+                return;
+            }
+        }
+
+        void ClearBufferfi_Backend(GLenum buffer, GLint drawbuffer, GLfloat depth, GLint stencil) {
+#if MOBILEGL_BACKEND == MOBILEGL_BACKEND_TYPE_DIRECT_GLES
+            MG_Backend::DirectGLES::ClearBufferfi(buffer, drawbuffer, depth, stencil);
+#endif
+        }
+
+        void ClearBufferfv_Backend(GLenum buffer, GLint drawbuffer, const GLfloat* value) {
+#if MOBILEGL_BACKEND == MOBILEGL_BACKEND_TYPE_DIRECT_GLES
+            MG_Backend::DirectGLES::ClearBufferfv(buffer, drawbuffer, value);
+#endif
+        }
+
+        void ClearBufferuiv_Backend(GLenum buffer, GLint drawbuffer, const GLuint* value) {
+#if MOBILEGL_BACKEND == MOBILEGL_BACKEND_TYPE_DIRECT_GLES
+            MG_Backend::DirectGLES::ClearBufferuiv(buffer, drawbuffer, value);
+#endif
+        }
+
+        void ClearBufferiv_Backend(GLenum buffer, GLint drawbuffer, const GLint* value) {
+#if MOBILEGL_BACKEND == MOBILEGL_BACKEND_TYPE_DIRECT_GLES
+            MG_Backend::DirectGLES::ClearBufferiv(buffer, drawbuffer, value);
+#endif
+        }
+
         /* @INSERTION_POINT:FUNCTION_IMPLEMENTATION@ */
+        void ClearBufferfi(GLenum buffer, GLint drawbuffer, GLfloat depth, GLint stencil) {
+            ClearBufferfi_Backend(buffer, drawbuffer, depth, stencil);
+        }
+
+        void ClearBufferfv(GLenum buffer, GLint drawbuffer, const GLfloat* value) {
+            ClearBufferfv_Backend(buffer, drawbuffer, value);
+        }
+
+        void ClearBufferuiv(GLenum buffer, GLint drawbuffer, const GLuint* value) {
+            ClearBufferuiv_Backend(buffer, drawbuffer, value);
+        }
+
+        void ClearBufferiv(GLenum buffer, GLint drawbuffer, const GLint* value) {
+            ClearBufferiv_Backend(buffer, drawbuffer, value);
+        }
+
         void SampleMaski(GLuint maskNumber, GLbitfield mask) {
             SampleMaski_State(maskNumber, mask);
         }
@@ -394,6 +588,10 @@ namespace MobileGL {
 
         void BindFramebuffer(GLenum target, GLuint framebuffer) {
             BindFramebuffer_State(target, framebuffer);
+        }
+
+        void GetRenderbufferParameteriv(GLenum target, GLenum pname, GLint* params) {
+            GetRenderbufferParameteriv_State(target, pname, params);
         }
 
         namespace FramebufferImpl {

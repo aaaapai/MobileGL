@@ -1,3 +1,10 @@
+// MobileGL - MobileGL/MG_Backend/DirectGLES/DirectGLES.h
+// Copyright (c) 2025-2026 MobileGL-Dev
+// Licensed under the GNU Lesser General Public License v2.1:
+// http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html
+// SPDX-License-Identifier: LGPL-2.1-only
+// End of Source File Header
+
 #pragma once
 #include <Includes.h>
 
@@ -6,6 +13,10 @@
     operation Utils::CheckGLESError();
 
 namespace MobileGL::MG_Backend::DirectGLES {
+    void ClearBufferfi(GLenum buffer, GLint drawbuffer, GLfloat depth, GLint stencil);
+    void ClearBufferfv(GLenum buffer, GLint drawbuffer, const GLfloat* value);
+    void ClearBufferuiv(GLenum buffer, GLint drawbuffer, const GLuint* value);
+    void ClearBufferiv(GLenum buffer, GLint drawbuffer, const GLint* value);
     void Clear(GLbitfield mask);
     void DrawElements(GLenum mode, GLsizei count, GLenum type, const void* indices);
     void DrawArrays(GLenum mode, GLint first, GLsizei count);

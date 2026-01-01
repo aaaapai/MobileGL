@@ -1,9 +1,21 @@
+// MobileGL - MobileGL/MG_State/GLState/ProgramState/ProgramObject.cpp
+// Copyright (c) 2025-2026 MobileGL-Dev
+// Licensed under the GNU Lesser General Public License v2.1:
+// http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html
+// SPDX-License-Identifier: LGPL-2.1-only
+// End of Source File Header
+
 #include "ProgramObject.h"
 #include "MG_Util/Converters/GLToStr/GLEnumConverter.h"
 #include "MG_Util/ShaderTranspiler/Types.h"
 #include <MG_Util/ShaderTranspiler/ShaderCompiler.h>
 #include <MG_Util/Converters/MGToGL/ProgramEnumConverter.h>
 #include <MG_Util/Converters/SPIRVCrossToGL/SpvcTypeConverter.h>
+
+const char* kDefaultFragmentShaderSource = R"(#version 460 core
+layout(location = 0) out vec4 FragColor;
+void main() {}
+)";
 
 namespace MobileGL {
     namespace MG_State {
@@ -51,7 +63,38 @@ namespace MobileGL {
                 return count;
             }
 
-            void ProgramObject::Link() {
+            void ProgramObject::AddDefaultFragmentShaderIfMissing() {
+                Bool needsDefaultFS = false;
+                for (const auto& shader : m_shaders) {
+                    auto stage = shader->GetShaderStage();
+                    if (stage == ShaderStage::Vertex) {
+                        needsDefaultFS = true;
+                        continue;
+                    }
+                    if (stage == ShaderStage::Fragment) {
+                        needsDefaultFS = false;
+                        return;
+                    }
+                }
+
+                if (!needsDefaultFS) return;
+
+                MGLOG_D("ProgramObject %u: No fragment shader attached, adding default fragment shader.",
+                        m_externalIndex);
+                SharedPtr<ShaderObject> defaultFS = MakeShared<ShaderObject>(ShaderStage::Fragment, 0);
+                defaultFS->SetShaderSource(kDefaultFragmentShaderSource);
+                defaultFS->Compile(); // TODO: use a global default FS object.
+                auto status = defaultFS->GetCompileStatus();
+                if (!status) {
+                    MGLOG_E("ProgramObject %u: Failed to compile default fragment shader. InfoLog:\n%s",
+                            m_externalIndex, defaultFS->GetInfoLog().c_str());
+                    return;
+                }
+                m_shaders.push_back(defaultFS);
+                MGLOG_D("ProgramObject %u: Default fragment shader added.", m_externalIndex);
+            }
+
+            void ProgramObject::Link(Bool addDefaultFSIfMissingForRenderingPipelineProgram) {
                 MGLOG_D("ProgramObject %u: Link start, shaders to link: %zu", m_externalIndex, m_shaders.size());
                 // Remove detached shaders first
                 for (const auto& detachedShader : m_detachedShaders) {
@@ -61,6 +104,10 @@ namespace MobileGL {
 
                 Vector<GLenum> shaderTypes(m_shaders.size());
                 Vector<SharedPtr<glslang::TShader>> shaders(m_shaders.size());
+
+                if (addDefaultFSIfMissingForRenderingPipelineProgram) {
+                    AddDefaultFragmentShaderIfMissing();
+                }
 
                 for (SizeT i = 0; i < m_shaders.size(); i++) {
                     shaderTypes[i] = MG_Util::ConvertShaderStageToGLEnum(m_shaders[i]->GetShaderStage());

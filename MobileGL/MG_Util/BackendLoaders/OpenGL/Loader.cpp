@@ -1,3 +1,10 @@
+// MobileGL - MobileGL/MG_Util/BackendLoaders/OpenGL/Loader.cpp
+// Copyright (c) 2025-2026 MobileGL-Dev
+// Licensed under the GNU Lesser General Public License v2.1:
+// http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html
+// SPDX-License-Identifier: LGPL-2.1-only
+// End of Source File Header
+
 #include "Loader.h"
 
 #define GL_FUNC_DECL(name) name##_PTR name;
@@ -380,6 +387,7 @@ namespace MobileGL {
         } // namespace GLES
 
         namespace EGL {
+            EGL_FUNC_DECL(eglGetProcAddress)
             EGL_FUNC_DECL(eglBindAPI)
             EGL_FUNC_DECL(eglBindTexImage)
             EGL_FUNC_DECL(eglChooseConfig)
@@ -400,7 +408,6 @@ namespace MobileGL {
             EGL_FUNC_DECL(eglGetDisplay)
             EGL_FUNC_DECL(eglGetPlatformDisplay)
             EGL_FUNC_DECL(eglGetError)
-            EGL_FUNC_DECL(eglGetProcAddress)
             EGL_FUNC_DECL(eglInitialize)
             EGL_FUNC_DECL(eglMakeCurrent)
             EGL_FUNC_DECL(eglQueryAPI)
@@ -426,20 +433,25 @@ namespace MobileGL {
 
     namespace MG_Util {
         namespace BackendLoader::GLES {
-            void Init() {
+            Bool Init() {
                 LoadLibs();
+                /*if (libEGL == nullptr ||
+                    (glGetError_PTR)ProcAddress("glGetError") == nullptr) {
+                    return false;
+                }*/
                 InitEGL();
                 InitGLES();
                 DestroyTempEGLCtx();
+                return true;
             }
 
-            void *libGLES = nullptr, *libEGL = nullptr;
+            void *libEGL = nullptr;
 
-            static const char* LibPathPrefixes[] = {"", "/opt/vc/lib/", "/usr/local/lib/", "/usr/lib/", nullptr};
+            static const char* LibPathPrefixes[] = {
+                "", "/opt/vc/lib/", "/usr/local/lib/", "/usr/lib/", "/usr/lib/x86_64-linux-gnu/", nullptr};
+          
             static const char* LibExts[] = {"so", "so.1", "so.2", "dylib", "dll", nullptr};
-            static const char* GLES3Libs[] = {"libGLESv3_CM", "libGLESv3", "libGLESv2_angle", nullptr};
             static const char* EGLLibs[] = {"libEGL", "libEGL_angle", nullptr};
-            static const char* GLES3ANGLELibs[] = {"libGLESv2_angle", nullptr};
             static const char* EGLANGLELibs[] = {"libEGL_angle", nullptr};
 
 
@@ -472,22 +484,26 @@ namespace MobileGL {
             }
 
             void LoadLibs() {
-                // TODO: Add ANGLE override?
-                if (std::getenv("MGL_USE_ANGLE")) {
-                    libGLES = OpenLib(GLES3ANGLELibs, nullptr);
+                // 只加载EGL库，GL函数将通过EGL获取
+                if (std::getenv("LIBGL_ANGLE")) {
                     libEGL = OpenLib(EGLANGLELibs, nullptr);
                 } else {
-                    libGLES = OpenLib(GLES3Libs, nullptr);
                     libEGL = OpenLib(EGLLibs, nullptr);
                 }
             }
 
-            void* ProcAddress(void* lib, const char* name) {
-#if !defined(__WIN32) && !defined(_WIN32) && !defined(__APPLE__)
-                return dlsym(lib, name);
-#else
+            void* ProcAddress(const char* name) {
+                // 优先使用EGL的GetProcAddress
+                if (MG_External::EGL::eglGetProcAddress) {
+                    void* func = (void*)MG_External::EGL::eglGetProcAddress(name);
+                    if (func) return func;
+                }
+                
+                // 回退到dlsym
+                if (libEGL) {
+                    return dlsym(libEGL, name);
+                }
                 return nullptr;
-#endif
             }
 
             void InitGLESCapabilities() {
@@ -886,9 +902,10 @@ namespace MobileGL {
 
 #define INIT_EGL_FUNC(name)                                                                                            \
     if (libEGL != NULL) {                                                                                              \
-        MG_External::EGL::name = (MG_External::EGL::name##_PTR)ProcAddress(libEGL, #name);                             \
+        MG_External::EGL::name = (MG_External::EGL::name##_PTR)ProcAddress(#name);                             \
     }
             void InitEGL() {
+                INIT_EGL_FUNC(eglGetProcAddress)
                 INIT_EGL_FUNC(eglBindAPI)
                 INIT_EGL_FUNC(eglBindTexImage)
                 INIT_EGL_FUNC(eglChooseConfig)
@@ -909,7 +926,6 @@ namespace MobileGL {
                 INIT_EGL_FUNC(eglGetDisplay)
                 INIT_EGL_FUNC(eglGetPlatformDisplay)
                 INIT_EGL_FUNC(eglGetError)
-                INIT_EGL_FUNC(eglGetProcAddress)
                 INIT_EGL_FUNC(eglInitialize)
                 INIT_EGL_FUNC(eglMakeCurrent)
                 INIT_EGL_FUNC(eglQueryAPI)

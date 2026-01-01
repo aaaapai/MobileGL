@@ -1,3 +1,10 @@
+// MobileGL - MobileGL/MG_State/GLState/SamplerState/SamplerObject.h
+// Copyright (c) 2025-2026 MobileGL-Dev
+// Licensed under the GNU Lesser General Public License v2.1:
+// http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html
+// SPDX-License-Identifier: LGPL-2.1-only
+// End of Source File Header
+
 #pragma once
 #include <Includes.h>
 
@@ -51,7 +58,7 @@ namespace MobileGL {
         SamplerWrapMode wrapS = SamplerWrapMode::Repeat;
         SamplerWrapMode wrapT = SamplerWrapMode::Repeat;
         SamplerWrapMode wrapR = SamplerWrapMode::Repeat;
-        SamplerFilterMode minFilter = SamplerFilterMode::Linear;
+        SamplerFilterMode minFilter = SamplerFilterMode::Nearest;
         SamplerFilterMode magFilter = SamplerFilterMode::Linear;
         SamplerMipmapMode mipmapMode = SamplerMipmapMode::Linear;
         Float minLod = -1000.0f;

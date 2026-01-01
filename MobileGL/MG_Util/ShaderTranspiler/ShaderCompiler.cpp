@@ -1,3 +1,10 @@
+// MobileGL - MobileGL/MG_Util/ShaderTranspiler/ShaderCompiler.cpp
+// Copyright (c) 2025-2026 MobileGL-Dev
+// Licensed under the GNU Lesser General Public License v2.1:
+// http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html
+// SPDX-License-Identifier: LGPL-2.1-only
+// End of Source File Header
+
 #include "ShaderCompiler.h"
 #include <MG_Util/Converters/GLToStr/GLEnumConverter.h>
 #include <MG_Util/Converters/GLToGlslang/ProgramEnumConverter.h>
@@ -218,9 +225,13 @@ namespace MobileGL {
                 spvc_compiler_options options;
                 session.CreateOptions(&options);
 
-                spvc_compiler_options_set_uint(options, SPVC_COMPILER_OPTION_GLSL_VERSION, 320);
+                if (lang == EShLanguage::EShLangCompute) {
+                    spvc_compiler_options_set_uint(options, SPVC_COMPILER_OPTION_GLSL_VERSION, 310);
+                } else {
+                    spvc_compiler_options_set_uint(options, SPVC_COMPILER_OPTION_GLSL_VERSION, 320);
+                }
                 spvc_compiler_options_set_bool(options, SPVC_COMPILER_OPTION_GLSL_ES, SPVC_TRUE);
-                spvc_compiler_options_set_bool(options, SPVC_COMPILER_OPTION_GLSL_VULKAN_SEMANTICS, SPVC_FALSE);
+                //spvc_compiler_options_set_bool(options, SPVC_COMPILER_OPTION_GLSL_VULKAN_SEMANTICS, SPVC_FALSE);
 
                 session.SetOptions(options);
 

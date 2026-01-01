@@ -1,3 +1,10 @@
+// MobileGL - MobileGL/MG_Impl/GLImpl/Texture/GL_Texture.cpp
+// Copyright (c) 2025-2026 MobileGL-Dev
+// Licensed under the GNU Lesser General Public License v2.1:
+// http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html
+// SPDX-License-Identifier: LGPL-2.1-only
+// End of Source File Header
+
 #include "GL_Texture.h"
 #include "GL/gl.h"
 #include "Config.h"
@@ -8,6 +15,7 @@
 #include "Validators.h"
 #include "ProxyTexture.h"
 #include "MG_State/GLState/TextureState/TextureObjectBuffer.h"
+#include "MG_Util/Converters/GLToStr/GLEnumConverter.h"
 
 #include <MG_State/GLState/Core.h>
 #include <MG_Util/Metrics/TextureMetrics.h>
@@ -20,6 +28,24 @@
 
 namespace MobileGL {
     namespace MG_Impl::GLImpl {
+        SharedPtr<MG_State::GLState::ITextureObject> GetTextureObjectByTarget(TextureUploadTarget textureUploadingTarget, TextureTarget textureTarget) {
+            SharedPtr<MG_State::GLState::ITextureObject> textureObject = nullptr;
+            if (TextureImpl::IsProxyTextureTarget(textureUploadingTarget)) {
+                textureObject =
+                    TextureImpl::pProxyTextureManager->CreateOrReplaceProxyTextureObject(textureUploadingTarget);
+            } else {
+                auto activeUnit =
+                    MG_State::pGLContext->GetTextureUnitObject(MG_State::pGLContext->GetActiveTextureUnit());
+                auto& bindingSlot = activeUnit.GetBindingSlot(textureTarget);
+                textureObject = bindingSlot.GetBoundObject();
+            }
+
+            if (!TextureImpl::ValidateTextureObject(textureObject))
+                return nullptr;
+
+            return textureObject;
+        }
+
         void TexSubImage3D_State(GLenum target, GLint level, GLint xoffset, GLint yoffset, GLint zoffset, GLsizei width,
                                  GLsizei height, GLsizei depth, GLenum format, GLenum type, const void* pixels) {
             // TODO: implement
@@ -32,8 +58,10 @@ namespace MobileGL {
             TextureTarget textureTarget = MG_Util::ConvertGLEnumToTextureTarget(target);
             TextureInputFormat textureInputFormat = MG_Util::ConvertGLEnumToTextureInputFormat(format);
             TexturePixelDataType texturePixelDataType = MG_Util::ConvertGLEnumToTexturePixelDataType(type);
-            TextureInternalFormat textureInternalFormat = MG_Util::ConvertGLEnumToTextureInternalFormat(format);
-
+//            TextureInternalFormat textureInternalFormat = MG_Util::ConvertGLEnumToTextureInternalFormat(format);
+            MGLOG_D("TexSubImage2D_State: (%d, %d), format = %s, pixels = %p", width, height,
+                        MG_Util::ConvertTextureInputFormatToString(textureInputFormat).c_str(),
+                        pixels);
             // ===================== Error Checking ==============================
             if (!TextureImpl::ValidateTexturePixelDataType(texturePixelDataType)) return;
             if (!TextureImpl::ValidateTextureInputFormat(textureInputFormat)) return;
@@ -41,12 +69,7 @@ namespace MobileGL {
             if (!TextureImpl::ValidateTextureLevelNumber(level)) return;
             if (!TextureImpl::ValidateTextureSizeWithTextureUploadTarget(textureUploadingTarget, width, height)) return;
             if (!TextureImpl::ValidateTextureSizeRange(width, height)) return;
-            if (!TextureImpl::ValidateTextureInternalFormat(textureInternalFormat)) return;
-            if (!TextureImpl::ValidateTextureFormatWithType(textureInputFormat, textureInternalFormat,
-                                                            texturePixelDataType))
-                return;
             if (!TextureImpl::ValidateTextureLevelWithUploadTarget(textureUploadingTarget, level)) return;
-            if (!pixels) return;
 
             // TODO: GL_INVALID_OPERATION is generated if a non-zero buffer object name is bound to the
             // GL_PIXEL_UNPACK_BUFFER target and the buffer object's data store is currently mapped.
@@ -60,10 +83,15 @@ namespace MobileGL {
             auto activeUnit = MG_State::pGLContext->GetTextureUnitObject(MG_State::pGLContext->GetActiveTextureUnit());
             auto& bindingSlot = activeUnit.GetBindingSlot(textureTarget);
             auto textureObject = bindingSlot.GetBoundObject();
+            TextureInternalFormat textureInternalFormat = textureObject->GetFormat();
 
             // ===================== Error Checking ==============================
             if (!TextureImpl::ValidateTextureObject(textureObject)) return;
             if (!TextureImpl::ValidateTextureSubImageOffsets(textureObject, xoffset, width, yoffset, height)) return;
+            if (!TextureImpl::ValidateTextureInternalFormatCompatibleWithInput(textureInputFormat,
+                                                                               textureInternalFormat,
+                                                                               texturePixelDataType))
+                return;
 
             // ======================= Processing ================================
             // Texture object here should always be an object with mipmap
@@ -75,8 +103,7 @@ namespace MobileGL {
             auto textureMipmapObject = static_cast<MG_State::GLState::TextureObjectMipmap*>(textureObject.get());
             auto texelSize = textureMipmapObject->GetMipmapTexelSize(textureUploadingTarget, level);
 
-            SizeT imageSize = 0;
-            const SizeT bytesPerPixel = MG_Util::GetInputBytesPerPixel(textureInternalFormat, texturePixelDataType);
+            SizeT inputSize = 0;
 
             const void* originalPixels = pixels;
 
@@ -89,20 +116,29 @@ namespace MobileGL {
                 originalPixels = reinterpret_cast<const char*>(pixelUnpackBufferObject->GetDataReadOnly()->data()) +
                                  reinterpret_cast<SizeT>(pixels);
             }
+            
+            if (!originalPixels) {
+                MG_State::pGLContext->RecordError(
+                    ErrorCode::InvalidOperation,
+                    MakeShared<GenericErrorInfo>("MG_Impl/GLImpl", __func__, "No data supplied from pixels parameter and no PBO bound."));
+                return;
+            }
 
             void* processedPixels = MG_Util::PixelStoreProcessor::ProcessTexturePixelsDataUnpack(
-                originalPixels, MG_State::pGLContext->GetPixelStoreParameters(true), bytesPerPixel, {width, height, 1},
-                false /*TODO*/, imageSize);
+                    originalPixels, MG_State::pGLContext->GetPixelStoreParameters(true), textureInternalFormat, textureInputFormat, texturePixelDataType, {width, height, 1},
+                    false /*TODO*/, inputSize);
 
-            if (!processedPixels || imageSize == 0) {
+            if (!processedPixels || inputSize == 0) {
                 MGLOG_E("TexSubImage2D_State: Failed to process pixel data for TexSubImage2D, width: %d, height: %d",
                         width, height);
                 if (processedPixels) free(processedPixels);
                 return;
             }
 
-            const SizeT srcRowSize = width * bytesPerPixel;
-            const SizeT destRowSize = texelSize.x() * bytesPerPixel;
+            const SizeT internalBpp = MG_Util::GetInternalBytesPerPixel(textureInternalFormat, texturePixelDataType);
+
+            const SizeT srcRowSize = width * internalBpp;
+            const SizeT destRowSize = texelSize.x() * internalBpp;
 
             if (xoffset + width > static_cast<GLsizei>(texelSize.x()) ||
                 yoffset + height > static_cast<GLsizei>(texelSize.y())) {
@@ -122,7 +158,7 @@ namespace MobileGL {
             // }
 
             for (GLsizei y = 0; y < height; y++) {
-                const SizeT destRowOffset = (yoffset + y) * destRowSize + xoffset * bytesPerPixel;
+                const SizeT destRowOffset = (yoffset + y) * destRowSize + xoffset * internalBpp;
                 const SizeT srcRowOffset = y * srcRowSize;
                 Memcpy(destData + destRowOffset, srcData + srcRowOffset, srcRowSize);
             }
@@ -147,18 +183,10 @@ namespace MobileGL {
             TextureTarget textureTarget = MG_Util::ConvertGLEnumToTextureTarget(target);
 
             // ======================= Processing ================================
-            SharedPtr<MG_State::GLState::ITextureObject> textureObject = nullptr;
-            if (TextureImpl::IsProxyTextureTarget(textureUploadingTarget)) {
-                textureObject =
-                    TextureImpl::pProxyTextureManager->CreateOrReplaceProxyTextureObject(textureUploadingTarget);
-            } else {
-                auto activeUnit =
-                    MG_State::pGLContext->GetTextureUnitObject(MG_State::pGLContext->GetActiveTextureUnit());
-                auto& bindingSlot = activeUnit.GetBindingSlot(textureTarget);
-                textureObject = bindingSlot.GetBoundObject();
-            }
-
-            if (!TextureImpl::ValidateTextureObject(textureObject)) return;
+            SharedPtr<MG_State::GLState::ITextureObject> textureObject =
+                        GetTextureObjectByTarget(textureUploadingTarget, textureTarget);
+            if (!textureObject)
+                return;
 
             switch (pname) {
             case GL_TEXTURE_MAG_FILTER:
@@ -193,12 +221,6 @@ namespace MobileGL {
                 textureObject->SetSwizzleParam(swizzleParam, swizzleValue);
                 break;
             }
-            case GL_TEXTURE_SWIZZLE_RGBA:
-                // Not supported in this function
-                break;
-            case GL_TEXTURE_BORDER_COLOR:
-                // Not supported in this function
-                break;
             case GL_TEXTURE_WRAP_S:
                 textureObject->GetSamplerObject()->SetWrapS(MG_Util::ConvertGLEnumToSamplerWrapMode(param));
                 break;
@@ -215,10 +237,17 @@ namespace MobileGL {
                 textureObject->GetSamplerObject()->SetSamplerCompareFunc(
                     MG_Util::ConvertGLEnumToSamplerCompareFunc(param));
                 break;
+            case GL_TEXTURE_LOD_BIAS:
+                textureObject->GetSamplerObject()->SetLodBias(param);
+                break;
+            case GL_TEXTURE_SWIZZLE_RGBA:
+                // Not supported in this function
+            case GL_TEXTURE_BORDER_COLOR:
+                // Not supported in this function
             default:
                 MG_State::pGLContext->RecordError(
-                    ErrorCode::InvalidEnum, MakeShared<GenericErrorInfo>("MG_Impl/GLImpl", "TexParameteri_State",
-                                                                         "pname is not a valid texture parameter."));
+                        ErrorCode::InvalidEnum, MakeShared<GenericErrorInfo>("MG_Impl/GLImpl", __func__,
+                                                                             std::format("pname {} is not a valid texture parameter.", MG_Util::ConvertGLEnumToString(pname))));
                 return;
             }
         }
@@ -229,18 +258,10 @@ namespace MobileGL {
             TextureTarget textureTarget = MG_Util::ConvertGLEnumToTextureTarget(target);
 
             // ======================= Processing ================================
-            SharedPtr<MG_State::GLState::ITextureObject> textureObject = nullptr;
-            if (TextureImpl::IsProxyTextureTarget(textureUploadingTarget)) {
-                textureObject =
-                    TextureImpl::pProxyTextureManager->CreateOrReplaceProxyTextureObject(textureUploadingTarget);
-            } else {
-                auto activeUnit =
-                    MG_State::pGLContext->GetTextureUnitObject(MG_State::pGLContext->GetActiveTextureUnit());
-                auto& bindingSlot = activeUnit.GetBindingSlot(textureTarget);
-                textureObject = bindingSlot.GetBoundObject();
-            }
-
-            if (!TextureImpl::ValidateTextureObject(textureObject)) return;
+            SharedPtr<MG_State::GLState::ITextureObject> textureObject =
+                        GetTextureObjectByTarget(textureUploadingTarget, textureTarget);
+            if (!textureObject)
+                return;
 
             switch (pname) {
             case GL_TEXTURE_MAG_FILTER:
@@ -275,12 +296,6 @@ namespace MobileGL {
                 textureObject->SetSwizzleParam(swizzleParam, swizzleValue);
                 break;
             }
-            case GL_TEXTURE_SWIZZLE_RGBA:
-                // Not supported in this function
-                break;
-            case GL_TEXTURE_BORDER_COLOR:
-                // Not supported in this function
-                break;
             case GL_TEXTURE_WRAP_S:
                 textureObject->GetSamplerObject()->SetWrapS(MG_Util::ConvertGLEnumToSamplerWrapMode(param));
                 break;
@@ -297,11 +312,183 @@ namespace MobileGL {
                 textureObject->GetSamplerObject()->SetSamplerCompareFunc(
                     MG_Util::ConvertGLEnumToSamplerCompareFunc(param));
                 break;
+            case GL_TEXTURE_LOD_BIAS:
+                textureObject->GetSamplerObject()->SetLodBias((GLfloat)param);
+                break;
+            case GL_TEXTURE_SWIZZLE_RGBA:
+                // Not supported in this function
+            case GL_TEXTURE_BORDER_COLOR:
+                // Not supported in this function
             default:
                 MG_State::pGLContext->RecordError(
-                    ErrorCode::InvalidEnum, MakeShared<GenericErrorInfo>("MG_Impl/GLImpl", "TexParameteri_State",
-                                                                         "pname is not a valid texture parameter."));
+                        ErrorCode::InvalidEnum, MakeShared<GenericErrorInfo>("MG_Impl/GLImpl", __func__,
+                                                                             std::format("pname {} is not a valid texture parameter.", MG_Util::ConvertGLEnumToString(pname))));
                 return;
+            }
+        }
+
+        // Quick and dirty TexParameter*v implementation to make NeoForge happy.
+        // TODO: implement the missing part
+        void TexParameterfv_State(GLenum target, GLenum pname, const GLfloat * params) {
+            switch (pname) {
+                case GL_TEXTURE_BORDER_COLOR: {
+                    // ======================= Converting ================================
+                    TextureUploadTarget textureUploadingTarget = MG_Util::ConvertGLEnumToTextureUploadTarget(target);
+                    TextureTarget textureTarget = MG_Util::ConvertGLEnumToTextureTarget(target);
+
+                    // ======================= Processing ================================
+                    SharedPtr<MG_State::GLState::ITextureObject> textureObject =
+                        GetTextureObjectByTarget(textureUploadingTarget, textureTarget);
+                    if (!textureObject)
+                        return;
+                    THROW_UNIMPL_EXCEPTION;
+                    break;
+                }
+                case GL_TEXTURE_SWIZZLE_RGBA: {
+                    // ======================= Converting ================================
+                    TextureUploadTarget textureUploadingTarget = MG_Util::ConvertGLEnumToTextureUploadTarget(target);
+                    TextureTarget textureTarget = MG_Util::ConvertGLEnumToTextureTarget(target);
+
+                    // ======================= Processing ================================
+                    SharedPtr<MG_State::GLState::ITextureObject> textureObject =
+                        GetTextureObjectByTarget(textureUploadingTarget, textureTarget);
+                    if (!textureObject)
+                        return;
+
+                    Vec4<TextureSwizzleParam> swizzleParams;
+                    for (int i = 0; i < 4; i++) {
+                        swizzleParams[i] = MG_Util::ConvertGLEnumToTextureSwizzleParam(static_cast<GLint>(params[i]));
+                        if (TextureSwizzleParam::Unknown == swizzleParams[i]) {
+                            MG_State::pGLContext->RecordError(
+                            ErrorCode::InvalidEnum, MakeShared<GenericErrorInfo>("MG_Impl/GLImpl", __func__,
+                                                                                 "`params` is not valid."));
+                            return;
+                        }
+                    }
+                    textureObject->SetSwizzleParamRGBA(swizzleParams);
+                    break;
+                }
+                default:
+                    TexParameterf_State(target, pname, *params);
+                    break;
+            }
+        }
+
+        void TexParameteriv_State(GLenum target, GLenum pname, const GLint * params) {
+            switch (pname) {
+                case GL_TEXTURE_BORDER_COLOR: {
+                    // ======================= Converting ================================
+                    TextureUploadTarget textureUploadingTarget = MG_Util::ConvertGLEnumToTextureUploadTarget(target);
+                    TextureTarget textureTarget = MG_Util::ConvertGLEnumToTextureTarget(target);
+
+                    // ======================= Processing ================================
+                    SharedPtr<MG_State::GLState::ITextureObject> textureObject =
+                        GetTextureObjectByTarget(textureUploadingTarget, textureTarget);
+                    if (!textureObject)
+                        return;
+
+                    THROW_UNIMPL_EXCEPTION;
+                    break;
+                }
+                case GL_TEXTURE_SWIZZLE_RGBA: {
+                    // ======================= Converting ================================
+                    TextureUploadTarget textureUploadingTarget = MG_Util::ConvertGLEnumToTextureUploadTarget(target);
+                    TextureTarget textureTarget = MG_Util::ConvertGLEnumToTextureTarget(target);
+
+                    // ======================= Processing ================================
+                    SharedPtr<MG_State::GLState::ITextureObject> textureObject =
+                        GetTextureObjectByTarget(textureUploadingTarget, textureTarget);
+                    if (!textureObject)
+                        return;
+
+                    Vec4<TextureSwizzleParam> swizzleParams;
+                    for (int i = 0; i < 4; i++) {
+                        swizzleParams[i] = MG_Util::ConvertGLEnumToTextureSwizzleParam(static_cast<GLint>(params[i]));
+                        if (TextureSwizzleParam::Unknown == swizzleParams[i]) {
+                            MG_State::pGLContext->RecordError(
+                            ErrorCode::InvalidEnum, MakeShared<GenericErrorInfo>("MG_Impl/GLImpl", __func__,
+                                                                                 "`params` is not valid."));
+                            return;
+                        }
+                    }
+                    textureObject->SetSwizzleParamRGBA(swizzleParams);
+                    break;
+                }
+                default:
+                    TexParameteri_State(target, pname, *params);
+                    break;
+            }
+        }
+
+        void TexParameterIiv_State(GLenum target, GLenum pname, const GLint * params) {
+            switch (pname) {
+                case GL_TEXTURE_BORDER_COLOR: {
+                    THROW_UNIMPL_EXCEPTION;
+                    break;
+                }
+                case GL_TEXTURE_SWIZZLE_RGBA: {
+                    // ======================= Converting ================================
+                    TextureUploadTarget textureUploadingTarget = MG_Util::ConvertGLEnumToTextureUploadTarget(target);
+                    TextureTarget textureTarget = MG_Util::ConvertGLEnumToTextureTarget(target);
+
+                    // ======================= Processing ================================
+                    SharedPtr<MG_State::GLState::ITextureObject> textureObject =
+                        GetTextureObjectByTarget(textureUploadingTarget, textureTarget);
+                    if (!textureObject)
+                        return;
+
+                    Vec4<TextureSwizzleParam> swizzleParams;
+                    for (int i = 0; i < 4; i++) {
+                        swizzleParams[i] = MG_Util::ConvertGLEnumToTextureSwizzleParam(static_cast<GLint>(params[i]));
+                        if (TextureSwizzleParam::Unknown == swizzleParams[i]) {
+                            MG_State::pGLContext->RecordError(
+                            ErrorCode::InvalidEnum, MakeShared<GenericErrorInfo>("MG_Impl/GLImpl", __func__,
+                                                                                 "`params` is not valid."));
+                            return;
+                        }
+                    }
+                    textureObject->SetSwizzleParamRGBA(swizzleParams);
+                    break;
+                }
+                default:
+                    TexParameteri_State(target, pname, *params);
+                    break;
+            }
+        }
+
+        void TexParameterIuiv_State(GLenum target, GLenum pname, const GLuint * params) {
+            switch (pname) {
+                case GL_TEXTURE_BORDER_COLOR: {
+                    THROW_UNIMPL_EXCEPTION;
+                    break;
+                }
+                case GL_TEXTURE_SWIZZLE_RGBA: {
+                    // ======================= Converting ================================
+                    TextureUploadTarget textureUploadingTarget = MG_Util::ConvertGLEnumToTextureUploadTarget(target);
+                    TextureTarget textureTarget = MG_Util::ConvertGLEnumToTextureTarget(target);
+
+                    // ======================= Processing ================================
+                    SharedPtr<MG_State::GLState::ITextureObject> textureObject =
+                        GetTextureObjectByTarget(textureUploadingTarget, textureTarget);
+                    if (!textureObject)
+                        return;
+
+                    Vec4<TextureSwizzleParam> swizzleParams;
+                    for (int i = 0; i < 4; i++) {
+                        swizzleParams[i] = MG_Util::ConvertGLEnumToTextureSwizzleParam(static_cast<GLint>(params[i]));
+                        if (TextureSwizzleParam::Unknown == swizzleParams[i]) {
+                            MG_State::pGLContext->RecordError(
+                            ErrorCode::InvalidEnum, MakeShared<GenericErrorInfo>("MG_Impl/GLImpl", __func__,
+                                                                                 "`params` is not valid."));
+                            return;
+                        }
+                    }
+                    textureObject->SetSwizzleParamRGBA(swizzleParams);
+                    break;
+                }
+                default:
+                    TexParameteri_State(target, pname, static_cast<GLint>(*params));
+                    break;
             }
         }
 
@@ -352,8 +539,9 @@ namespace MobileGL {
             if (!TextureImpl::ValidateTextureSizeRange(width, height)) return;
             if (!TextureImpl::ValidateTextureInternalFormat(textureInternalFormat)) return;
             if (!TextureImpl::ValidateTextureBorderNumber(border)) return;
-            if (!TextureImpl::ValidateTextureFormatWithType(textureInputFormat, textureInternalFormat,
-                                                            texturePixelDataType))
+            if (!TextureImpl::ValidateTextureInternalFormatCompatibleWithInput(textureInputFormat,
+                                                                               textureInternalFormat,
+                                                                               texturePixelDataType))
                 return;
             if (!TextureImpl::ValidateTextureLevelWithUploadTarget(textureUploadingTarget, level)) return;
 
@@ -385,8 +573,9 @@ namespace MobileGL {
             // ======================= Processing ================================
 
             SizeT imageSize = 0;
-            const SizeT bytesPerPixel = MG_Util::GetInputBytesPerPixel(textureInternalFormat, texturePixelDataType);
-            const SizeT totalBytes = width * height * bytesPerPixel;
+            const SizeT inputBpp = MG_Util::GetInputBytesPerPixel(textureInputFormat, texturePixelDataType);
+            const SizeT internalBpp = MG_Util::GetInternalBytesPerPixel(textureInternalFormat, texturePixelDataType);
+            const SizeT internalBytes = width * height * internalBpp;
 
             textureObject->SetInternalFormat(textureInternalFormat);
 
@@ -411,7 +600,7 @@ namespace MobileGL {
 
 
             // Allocate in TextureObject
-            textureMipmapObject->AllocateStorage(textureUploadingTarget, level, {{width, height, 1}, totalBytes});
+            textureMipmapObject->AllocateStorage(textureUploadingTarget, level, {{width, height, 1}, internalBytes});
 
             if (!originalPixels) {
                 MGLOG_D("TexImage2D_State: No input pixel and no PBO bound, no pixel transfer");
@@ -420,17 +609,19 @@ namespace MobileGL {
 
             void* processedPixels = nullptr;
             processedPixels = MG_Util::PixelStoreProcessor::ProcessTexturePixelsDataUnpack(
-                originalPixels, MG_State::pGLContext->GetPixelStoreParameters(true), bytesPerPixel, {width, height, 1},
+                originalPixels, MG_State::pGLContext->GetPixelStoreParameters(true),
+                textureInternalFormat, textureInputFormat, texturePixelDataType,
+                {width, height, 1},
                 false, imageSize);
 
             if (processedPixels && imageSize > 0) {
-                if (imageSize != totalBytes) {
+                if (imageSize != internalBytes) {
                     MGLOG_W("TexImage2D_State: Processed pixel data size (%zu) does not match expected size (%zu). "
                             "This may indicate an alignment or processing issue.",
-                            imageSize, totalBytes);
+                            imageSize, internalBytes);
                 }
 
-                const SizeT copySize = std::min(imageSize, totalBytes);
+                const SizeT copySize = std::min(imageSize, internalBytes);
                 DataPtr texelInput{processedPixels, copySize};
                 textureMipmapObject->UpdateMipmapSubData(textureUploadingTarget, level, texelInput);
             }
@@ -1031,6 +1222,22 @@ namespace MobileGL {
 
         void TexParameteri(GLenum target, GLenum pname, GLint param) {
             TexParameteri_State(target, pname, param);
+        }
+
+        void TexParameterfv(GLenum target, GLenum pname, const GLfloat * params) {
+            TexParameterfv_State(target, pname, params);
+        }
+
+        void TexParameteriv(GLenum target, GLenum pname, const GLint * params) {
+            TexParameteriv_State(target, pname, params);
+        }
+
+        void TexParameterIiv(GLenum target, GLenum pname, const GLint * params) {
+            TexParameterIiv_State(target, pname, params);
+        }
+
+        void TexParameterIuiv(GLenum target, GLenum pname, const GLuint * params) {
+            TexParameterIuiv_State(target, pname, params);
         }
 
         void TexImage3DMultisample(GLenum target, GLsizei samples, GLenum internalformat, GLsizei width, GLsizei height,
