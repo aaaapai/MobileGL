@@ -31,13 +31,25 @@ jobs:
         working-directory: ${{env.BENCH_ROOT}}/3rdparty/glslang
         run: python update_glslang_sources.py
 
+      - name: Install clang-20
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang-20 clang++-20 lld-20 libc++-20-dev libc++abi-20-dev
+
+      - name: Show installed toolchain
+        run: |
+          clang-20 --version
+          clang++-20 --version
+          ld.lld-20 --version || ld.lld --version || true
+          dpkg -l 'libc++*' || true
+
       - name: Configure CMake
         working-directory: ${{env.BENCH_ROOT}}
-        run: cmake -S . -B build-bench -DCMAKE_BUILD_TYPE=Release -DBENCHMARK_DOWNLOAD_DEPENDENCIES=ON -DBENCHMARK_ENABLE_TESTING=OFF -DBUILD_TEST=OFF -DBUILD_BENCHMARK=ON -DCMAKE_POLICY_VERSION_MINIMUM=3.5
+        run: cmake -S . -B build-bench -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER=clang-20 -DCMAKE_CXX_COMPILER=clang++-20 -DBENCHMARK_DOWNLOAD_DEPENDENCIES=ON -DBENCHMARK_ENABLE_TESTING=OFF -DBUILD_TEST=OFF -DBUILD_BENCHMARK=ON -DCMAKE_POLICY_VERSION_MINIMUM=3.5
 
       - name: Build
         working-directory: ${{env.BENCH_ROOT}}/build-bench
-        run: cmake --build . --parallel 4
+        run: cmake --build .
 
       - name: Benchmark
         working-directory: ${{env.BENCH_ROOT}}/build-bench/MobileGL/MG_Benchmark
