@@ -34,7 +34,7 @@ void init_settings() {
     if (!success) {
         success = config_refresh();
         if (!success) {
-            MGLOG_W("Failed to load config. Use default config.")
+            MGLOG_W("Failed to load config. Use default config.");
         }
     }
 
@@ -136,19 +136,19 @@ void init_settings() {
     switch (noErrorConfig) {
     case NoErrorConfig::Level1:
         global_settings.ignore_error = IgnoreErrorLevel::Partial;
-        LOG_D("Error ignoring: Level 1 (Partial)");
+        MGLOG_D("Error ignoring: Level 1 (Partial)");
         break;
 
     case NoErrorConfig::Level2:
         global_settings.ignore_error = IgnoreErrorLevel::Full;
-        LOG_D("Error ignoring: Level 2 (Full)");
+        MGLOG_D("Error ignoring: Level 2 (Full)");
         break;
 
     case NoErrorConfig::Auto:
     case NoErrorConfig::Disable:
     default:
         global_settings.ignore_error = IgnoreErrorLevel::None;
-        LOG_D("Error ignoring: Disabled");
+        MGLOG_D("Error ignoring: Disabled");
         break;
     }
 
@@ -163,23 +163,23 @@ void init_settings() {
     global_settings.hide_mg_env_level = hideMGEnvLevel;
 #endif
 
-    MGLOG_D("[MobileGlues] Setting: enableAngle                 = %s",
-          global_settings.angle == AngleMode::Enabled ? "true" : "false")
-    MGLOG_D("[MobileGlues] Setting: ignoreError                 = %i", static_cast<int>(global_settings.ignore_error))
-    MGLOG_D("[MobileGL] Setting: enableExtComputeShader is unsupported.")
-    MGLOG_D("[MobileGL] Setting: enableExtGL43 is unsupported.")
-    MGLOG_D("[MobileGL] Setting: enableExtTimerQuery is unsupported.")
-    MGLOG_D("[MobileGL] Setting: enableExtDirectStateAccess is unsupported.")
-    MGLOG_D("[MobileGL] Setting: maxGlslCacheSize is unsupported.")
-    MGLOG_D("[MobileGL] Setting: angleDepthClearFixMode is unsupported.")
-    MGLOG_D("[MobileGL] Setting: bufferCoherentAsFlush is unsupported.")
+    MGLOG_D("[MobileGL] Setting: enableAngle                 = %s",
+          global_settings.angle == AngleMode::Enabled ? "true" : "false");
+    MGLOG_D("[MobileGlues] Setting: ignoreError                 = %i", static_cast<int>(global_settings.ignore_error));
+    MGLOG_D("[MobileGL] Setting: enableExtComputeShader is unsupported.");
+    MGLOG_D("[MobileGL] Setting: enableExtGL43 is unsupported.");
+    MGLOG_D("[MobileGL] Setting: enableExtTimerQuery is unsupported.");
+    MGLOG_D("[MobileGL] Setting: enableExtDirectStateAccess is unsupported.");
+    MGLOG_D("[MobileGL] Setting: maxGlslCacheSize is unsupported.");
+    MGLOG_D("[MobileGL] Setting: angleDepthClearFixMode is unsupported.");
+    MGLOG_D("[MobileGL] Setting: bufferCoherentAsFlush is unsupported.");
     if (global_settings.custom_gl_version.isEmpty()) {
-        LOG_V("[MobileGL] Setting: customGLVersion is unsupported.");
+        MGLOG_D("[MobileGL] Setting: customGLVersion is unsupported.");
     } else {
-        LOG_V("[MobileGL] Setting: customGLVersion is unsupported.");
+        MGLOG_D("[MobileGL] Setting: customGLVersion is unsupported.");
     }
-    LOG_V("[MobileGL] Setting: fsr1Setting is unsupported.")
-    LOG_V("[MobileGL] Setting: hideMGEnvLevel is unsupported.")
+    MGLOG_D("[MobileGL] Setting: fsr1Setting is unsupported.");
+    MGLOG_D("[MobileGL] Setting: hideMGEnvLevel is unsupported.");
 
     GLVersion =
         global_settings.custom_gl_version.isEmpty() ? Version(DEFAULT_GL_VERSION) : global_settings.custom_gl_version;
@@ -220,14 +220,13 @@ void set_multidraw_setting() { // should be called after init_gles_target()
         global_settings.multidraw_mode = multidraw_mode_t::Auto;
         break;
     }
-    MGLOG_D("[MobileGL] Setting: multidrawMode is unsupported. Fallback to BaseVertex."/*, draw_mode_str.c_str()*/)
+    MGLOG_D("[MobileGL] Setting: multidrawMode is unsupported. Fallback to BaseVertex."/*, draw_mode_str.c_str()*/);
 }
 
 void init_settings_post() {
-    bool multidraw = g_gles_caps.GL_EXT_multi_draw_indirect;
-    bool basevertex = g_gles_caps.GL_EXT_draw_elements_base_vertex || g_gles_caps.GL_OES_draw_elements_base_vertex ||
-                      (g_gles_caps.major == 3 && g_gles_caps.minor >= 2) || (g_gles_caps.major > 3);
-    bool indirect = (g_gles_caps.major == 3 && g_gles_caps.minor >= 1) || (g_gles_caps.major > 3);
+    bool multidraw = true;
+    bool basevertex = true;
+    bool indirect = true;
 
     switch (global_settings.multidraw_mode) {
     case multidraw_mode_t::PreferIndirect:
