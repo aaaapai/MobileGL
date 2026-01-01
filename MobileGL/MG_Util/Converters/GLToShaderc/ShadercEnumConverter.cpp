@@ -24,7 +24,7 @@ namespace MobileGL {
             case GL_GEOMETRY_SHADER:
                 return shaderc_glsl_geometry_shader;
             default:
-                return shaderc_glsl_vertex_shader;
+                return shaderc_glsl_infer_from_source;
             }
         }
     } // namespace MG_Util
