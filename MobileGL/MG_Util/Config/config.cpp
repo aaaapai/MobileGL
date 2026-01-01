@@ -18,16 +18,16 @@
 const char* DEFAULT_MG_DIRECTORY_PATH = "/sdcard/MGL";
 
 bool is_custom_mg_dir = false;
-const char* mg_directory_path = nullptr;
-const char* config_file_path = nullptr;
-const char* log_file_path = nullptr;
-const char* glsl_cache_file_path = nullptr;
+char* mg_directory_path = nullptr;
+char* config_file_path = nullptr;
+char* log_file_path = nullptr;
+char* glsl_cache_file_path = nullptr;
 
 static cJSON* config_json = nullptr;
 
 int initialized = 0;
 
-const char* concatenate(const char* str1, const char* str2) {
+char* concatenate(const char* str1, const char* str2) {
     std::string str = std::string(str1) + str2;
     char* result = new char[str.size() + 1];
     strcpy(result, str.c_str());
