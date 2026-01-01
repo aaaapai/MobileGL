@@ -18,7 +18,7 @@ using namespace MobileGL;
 
 class ProgramUtilTest : public ::testing::Test {
 protected:
-    void SetUp() override { MobileGL::MG_Initialize(false); }
+    void SetUp() override { MobileGL::MG_Initialize(); }
 
     void TearDown() override {}
 };

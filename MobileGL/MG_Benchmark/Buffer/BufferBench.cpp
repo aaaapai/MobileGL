@@ -60,7 +60,7 @@ static void BM_CreateBufferObjectsAndBindBuffer(benchmark::State& state) {
 BENCHMARK(BM_CreateBufferObjectsAndBindBuffer)->Unit(benchmark::kMillisecond)->UseRealTime();
 
 static void BM_DeleteBufferObjects(benchmark::State& state) {
-    MG_Initialize(false);
+    MG_Initialize();
     std::vector<GLuint> buffers(BUFFER_COUNT);
 
     for (auto _ : state) {
@@ -178,7 +178,7 @@ static void BM_UpdateDataPartially(benchmark::State& state) {
 BENCHMARK(BM_UpdateDataPartially)->Unit(benchmark::kMillisecond)->UseRealTime();
 
 int main(int argc, char** argv) {
-    MG_Initialize(false);
+    MG_Initialize();
     benchmark ::MaybeReenterWithoutASLR(argc, argv);
     char arg0_default[] = "benchmark";
     char* args_default = reinterpret_cast<char*>(arg0_default);

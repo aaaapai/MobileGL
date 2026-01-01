@@ -85,6 +85,6 @@ namespace MobileGL {
             };
         } // namespace DirectGLES
 
-        void Init(Bool loadExternalLibraries);
+        void Init();
     } // namespace MG_Backend
 } // namespace MobileGL
