@@ -57,6 +57,7 @@ set(SOURCE_FILES
     MobileGL/MG_Util/Converters/MGToStr/FramebufferEnumConverter.cpp
     MobileGL/MG_Util/Converters/MGToStr/TextureEnumConverter.cpp
     MobileGL/MG_Util/Converters/GLToGlslang/ProgramEnumConverter.cpp
+    MobileGL/MG_Util/Converters/GLToShaderc/ShadercEnumConverter.cpp
     MobileGL/MG_Util/Converters/MGToGL/ErrorCodeConverter.cpp
     MobileGL/MG_Util/Converters/MGToGL/BufferEnumConverter.cpp
     MobileGL/MG_Util/Converters/MGToGL/FramebufferEnumConverter.cpp
