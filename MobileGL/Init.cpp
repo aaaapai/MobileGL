@@ -15,9 +15,6 @@
 
 namespace MobileGL {
     void MG_Initialize(Bool loadExternalLibraries) {
-#ifdef MOBILEGL_FORCE_SKIP_EXTERNAL_LIB_LOADING
-        loadExternalLibraries = false;
-#endif
         MG_Util::Debug::InitFile();
         MGLOG_I("Initializing MobileGL...");
         MG_State::Init();

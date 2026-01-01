@@ -3,7 +3,6 @@ cmake_minimum_required(VERSION 3.22.1)
 project("MobileGL")
 
 option(MOBILEGL_FORCE_RELEASE_OPT "Enable Release optimization flags in Debug build" ON)
-option(MOBILEGL_FORCE_SKIP_EXTERNAL_LIB_LOADING "Force skip loading external libraries" OFF)
 
 if (NOT CMAKE_BUILD_TYPE STREQUAL "Debug" OR MOBILEGL_FORCE_RELEASE_OPT)
     include(CheckIPOSupported)
@@ -20,11 +19,6 @@ if (NOT CMAKE_BUILD_TYPE STREQUAL "Debug" OR MOBILEGL_FORCE_RELEASE_OPT)
     else ()
         add_compile_options(-O2)
     endif()
-endif()
-
-if(MOBILEGL_FORCE_SKIP_EXTERNAL_LIB_LOADING)
-    message(STATUS "MOBILEGL_FORCE_SKIP_EXTERNAL_LIB_LOADING enabled")
-    add_compile_definitions(MOBILEGL_FORCE_SKIP_EXTERNAL_LIB_LOADING)
 endif()
 
 if (CMAKE_CXX_COMPILER_ID MATCHES "MSVC")
