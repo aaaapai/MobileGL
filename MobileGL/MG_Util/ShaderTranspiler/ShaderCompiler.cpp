@@ -149,12 +149,13 @@ namespace MobileGL {
                 auto shaderc_lang = MG_Util::ConvertGLEnumToShadercGlsl(shaderType);
                 shaderc_compilation_result_t shaderc_src = shaderc_compile_into_preprocessed_text(
                         shaderc_compiler, 
-                        *src,
+                        src[0],
                         sourceStr.length(),
                         shaderc_lang,
                         "shaderc_src", "main", shaderc_opts);
 
                 shaderc_compile_options_release(shaderc_opts);
+                shaderc_opts = nullptr;
                 if(shaderc_result_get_compilation_status(shaderc_src) != shaderc_compilation_status_success) {
                         ResultInfo r;
                         r.log += "There is a problem with shaderc: %s", shaderc_result_get_error_message(shaderc_src);
@@ -164,7 +165,8 @@ namespace MobileGL {
                         return std::unexpected(r);
                 }
 
-                const char* shaderc_glsl_src[] = shaderc_result_get_bytes(shaderc_src);
+                const char* shaderc_glsl_src = shaderc_result_get_bytes(shaderc_src);
+                const char* shaderc_glsl_src_array[] = {shaderc_glsl_src};
                 
                 auto lang = MG_Util::ConvertGLEnumToEShLanguage(shaderType);
                 if (lang == EShLanguage::EShLangCount) {
@@ -179,7 +181,7 @@ namespace MobileGL {
                 SharedPtr<glslang::TShader> res;
                 auto& tshader = res;
                 tshader = MakeShared<glslang::TShader>(lang);
-                tshader->setStrings(shaderc_glsl_src, 1);
+                tshader->setStrings(shaderc_glsl_src_array, 1);
                 tshader->setInvertY(true);
                 if (attrib.flags & ShaderCompileBits::CompileForOpenGL) {
                     tshader->setEnvInput(glslang::EShSourceGlsl, lang, glslang::EShClientVulkan, 450);
