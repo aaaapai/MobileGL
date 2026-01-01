@@ -12,6 +12,19 @@
 
 #define DEBUG 0
 
+static const char* GetEnvVar(const char *name)
+{
+	return getenv(name);
+}
+
+static int GetEnvVarInt(const char *name,int *i,int def)
+{
+	const char *s=GetEnvVar(name);
+	*i=s ? atoi(s) : def;
+	return s!=NULL;
+}
+
+
 global_settings_t global_settings;
 
 void init_settings() {
