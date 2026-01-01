@@ -33,7 +33,7 @@ namespace MobileGL {
                 const char* str_np = "noperspective";
                 const SizeT len_np = strlen(str_np);
                 SizeT noperspectivePos = source.find(str_np);
-                while (noperspectivePos != String::npos) {
+                while (noperspectivePos != String::npos && !std::getenv("LIBGL_ANGLE")) { //允许ANGLE支持？
                     // + length of "\n"
                     source = source.replace(noperspectivePos, len_np, "");
                     noperspectivePos = source.find(str_np);
@@ -55,15 +55,15 @@ namespace MobileGL {
                         profile = ShaderProfile::Core;
                 } else {
                     profile = ShaderProfile::Core;
-                    source.insert(0, "#version 460 core\n");
+                    source.insert(0, "#version 450 core\n");
                     return;
                 }
 
                 SizeT firstLineEnd = lineEnd;
 
                 if (profile != ShaderProfile::ES) {
-                    constexpr const char* versionDirectiveCore = "#version 460 core\n";
-                    constexpr const char* versionDirectiveCompat = "#version 460 compatibility\n";
+                    constexpr const char* versionDirectiveCore = "#version 450 core\n";
+                    constexpr const char* versionDirectiveCompat = "#version 450 compatibility\n";
 
                     const char* replacement =
                         (profile == ShaderProfile::Compatibility) ? versionDirectiveCompat : versionDirectiveCore;
