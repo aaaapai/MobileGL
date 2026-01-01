@@ -8,7 +8,7 @@
 #include "ShaderCompiler.h"
 #include <MG_Util/Converters/GLToStr/GLEnumConverter.h>
 #include <MG_Util/Converters/GLToGlslang/ProgramEnumConverter.h>
-#include <MG_Util/Converters/GLToGlslang/ShadercEnumConverter.h>
+#include <MG_Util/Converters/GLToShaderc/ShadercEnumConverter.h>
 
 namespace MobileGL {
     namespace MG_Util {
