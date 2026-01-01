@@ -10,7 +10,7 @@
 #include <MG_Util/Converters/GLToGlslang/ProgramEnumConverter.h>
 #include <MG_Util/Converters/GLToShaderc/ShadercEnumConverter.h>
 
-static bool isComuteType = false;
+bool ShaderTranspiler_isComuteType = false;
 
 namespace MobileGL {
     namespace MG_Util {
@@ -180,7 +180,9 @@ namespace MobileGL {
                     return std::unexpected(r);
                 }
                 if (lang == EShLanguage::EShLangCompute) {
-                    bool isComuteType = true;
+                    ShaderTranspiler_isComuteType = true;
+                } else {
+                    ShaderTranspiler_isComuteType = false;
                 }
 
                 SharedPtr<glslang::TShader> res;
@@ -282,7 +284,7 @@ namespace MobileGL {
                 spvc_compiler_options options;
                 session.CreateOptions(&options);
 
-                if (lang == ) {
+                if (ShaderTranspiler_isComuteType == true) {
                     spvc_compiler_options_set_uint(options, SPVC_COMPILER_OPTION_GLSL_VERSION, 310);
                 } else {
                     spvc_compiler_options_set_uint(options, SPVC_COMPILER_OPTION_GLSL_VERSION, 320);
