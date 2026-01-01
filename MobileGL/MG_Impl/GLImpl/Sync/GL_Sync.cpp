@@ -2,6 +2,8 @@
 
 #include "MG_State/GLState/Core.h"
 
+#include <MG_Util/BackendLoaders/OpenGL/Loader.h>
+
 namespace MobileGL {
     namespace MG_Impl::GLImpl {
         GLsync FenceSync_Backend(GLenum condition, GLbitfield flags) {
