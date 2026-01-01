@@ -1,10 +1,7 @@
 name: Benchmark
 
 on:
-  push:
-    branches: 
-      - dev
-      - Feat/Backend-Direct-GLES
+  workflow_dispatch:
 
 jobs:
   benchmark:

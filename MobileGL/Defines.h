@@ -38,14 +38,14 @@
 #define MOBILEGL_BACKEND_TYPE_DIRECT_GLES 3
 
 // ====================== MobileGL configurations ======================= //
-#define MOBILEGL_LOG_ACTIVE_LEVEL MOBILEGL_LOG_LEVEL_INFO
+#define MOBILEGL_LOG_ACTIVE_LEVEL MOBILEGL_LOG_LEVEL_FATAL
 
-#define MOBILEGL_LOG_ENABLE_CONSOLE 0
+#define MOBILEGL_LOG_ENABLE_CONSOLE 1
 #define MOBILEGL_LOG_ENABLE_FILE 1
 #define MOBILEGL_LOG_ENABLE_ANDROID 1
 
 #ifdef __ANDROID__
-#define MOBILEGL_LOG_FILE_PATH "/sdcard/MG/latest.log"
+#define MOBILEGL_LOG_FILE_PATH "/sdcard/MGL/latest.log"
 #else
 #define MOBILEGL_LOG_FILE_PATH ""
 #endif
