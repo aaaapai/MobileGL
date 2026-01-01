@@ -137,7 +137,8 @@ namespace MobileGL {
                         }
                 }
 
-                shaderc_compile_options_t shaderc_opts = shaderc_compile_options_initialize();
+                shaderc_compile_options_t shaderc_opts = nullptr;
+                shaderc_opts = shaderc_compile_options_initialize();
                 shaderc_compile_options_set_forced_version_profile(shaderc_opts, 450, shaderc_profile_core);
                 shaderc_compile_options_set_auto_map_locations(shaderc_opts, true);
                 shaderc_compile_options_set_auto_bind_uniforms(shaderc_opts, true);
