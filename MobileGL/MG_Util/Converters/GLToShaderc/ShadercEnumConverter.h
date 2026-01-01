@@ -10,6 +10,6 @@
 
 namespace MobileGL {
     namespace MG_Util {
-        GLenum ConvertGLEnumToShadercGlsl(GLenum shaderType);
+        shaderc_shader_kind ConvertGLEnumToShadercGlsl(GLenum shaderType);
     }
 } // namespace MobileGL
