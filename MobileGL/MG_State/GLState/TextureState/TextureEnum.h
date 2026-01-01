@@ -171,6 +171,8 @@ namespace MobileGL {
         UnsignedInt,
         Int,
         Float,
+        HalfFloat,
+        UnsignedInt248,
         UnsignedByte332,
         UnsignedByte233Rev,
         UnsignedShort565,

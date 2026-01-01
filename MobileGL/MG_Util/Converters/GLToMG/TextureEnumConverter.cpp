@@ -253,6 +253,10 @@ namespace MobileGL {
                 return TexturePixelDataType::Int;
             case GL_FLOAT:
                 return TexturePixelDataType::Float;
+            case GL_HALF_FLOAT:
+                return TexturePixelDataType::HalfFloat;
+            case GL_UNSIGNED_INT_24_8:
+                return TexturePixelDataType::UnsignedInt248;
             case GL_UNSIGNED_BYTE_3_3_2:
                 return TexturePixelDataType::UnsignedByte332;
             case GL_UNSIGNED_BYTE_2_3_3_REV:

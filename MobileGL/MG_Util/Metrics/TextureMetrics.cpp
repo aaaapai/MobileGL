@@ -94,29 +94,29 @@ namespace MobileGL {
 
         SizeT GetBaseInputFormatComponentCount(TextureInputFormat format) {
             switch (format) {
-                case TextureInputFormat::Red:
-                case TextureInputFormat::RInteger:
-                    return 1;
-                case TextureInputFormat::RG:
-                case TextureInputFormat::RGInteger:
-                    return 2;
-                case TextureInputFormat::RGB:
-                case TextureInputFormat::BGR:
-                case TextureInputFormat::RGBInteger:
-                case TextureInputFormat::BGRInteger:
-                    return 3;
-                case TextureInputFormat::RGBA:
-                case TextureInputFormat::BGRA:
-                case TextureInputFormat::RGBAInteger:
-                case TextureInputFormat::BGRAInteger:
-                    return 4;
-                case TextureInputFormat::StencilIndex:
-                case TextureInputFormat::DepthComponent:
-                case TextureInputFormat::DepthStencil:
-                    return 1;
-                default:
-                    MGLOG_D("%s: Unknown input format!", __func__);
-                    return 0;
+            case TextureInputFormat::Red:
+            case TextureInputFormat::RInteger:
+                return 1;
+            case TextureInputFormat::RG:
+            case TextureInputFormat::RGInteger:
+                return 2;
+            case TextureInputFormat::RGB:
+            case TextureInputFormat::BGR:
+            case TextureInputFormat::RGBInteger:
+            case TextureInputFormat::BGRInteger:
+                return 3;
+            case TextureInputFormat::RGBA:
+            case TextureInputFormat::BGRA:
+            case TextureInputFormat::RGBAInteger:
+            case TextureInputFormat::BGRAInteger:
+                return 4;
+            case TextureInputFormat::StencilIndex:
+            case TextureInputFormat::DepthComponent:
+            case TextureInputFormat::DepthStencil:
+                return 1;
+            default:
+                MGLOG_D("%s: Unknown input format!", __func__);
+                return 0;
             }
         }
 
@@ -210,6 +210,9 @@ namespace MobileGL {
             case TexturePixelDataType::UnsignedInt2101010Rev:
             case TexturePixelDataType::UnsignedInt101111Rev:
             case TexturePixelDataType::UnsignedInt5999Rev:
+            case TexturePixelDataType::UnsignedInt248:
+            case TexturePixelDataType::Float32UnsignedInt248Rev:
+                return 4;
                 return 4;
             default:
                 return 0;
@@ -222,11 +225,12 @@ namespace MobileGL {
             case TexturePixelDataType::Byte:
                 return 1;
             case TexturePixelDataType::UnsignedShort:
+            case TexturePixelDataType::HalfFloat:
             case TexturePixelDataType::Short:
                 return 2;
             case TexturePixelDataType::UnsignedInt:
-            case TexturePixelDataType::Int:
             case TexturePixelDataType::Float:
+            case TexturePixelDataType::Int:
                 return 4;
             default:
                 return 0;
