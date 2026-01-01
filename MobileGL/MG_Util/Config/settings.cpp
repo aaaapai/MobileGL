@@ -137,7 +137,7 @@ void init_settings() {
     }
 
     global_settings.angle = finalAngleMode;
-    LOG_D("Final ANGLE setting: %d", static_cast<int>(global_settings.angle))
+    MGLOG_D("Final ANGLE setting: %d", static_cast<int>(global_settings.angle));
     global_settings.buffer_coherent_as_flush = (global_settings.angle == AngleMode::Disabled);
 
     if (global_settings.angle == AngleMode::Enabled) {
@@ -193,9 +193,6 @@ void init_settings() {
     }
     MGLOG_D("[MobileGL] Setting: fsr1Setting is unsupported.");
     MGLOG_D("[MobileGL] Setting: hideMGEnvLevel is unsupported.");
-
-    GLVersion =
-        global_settings.custom_gl_version.isEmpty() ? Version(DEFAULT_GL_VERSION) : global_settings.custom_gl_version;
 }
 
 void set_multidraw_setting() { // should be called after init_gles_target()
