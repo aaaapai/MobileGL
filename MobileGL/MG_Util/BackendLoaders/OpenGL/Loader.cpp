@@ -435,8 +435,8 @@ namespace MobileGL {
         namespace BackendLoader::GLES {
             Bool Init() {
                 LoadLibs();
-                if (libGLES == nullptr || libEGL == nullptr ||
-                    (glGetError_PTR)ProcAddress(libGLES, "glGetError") == nullptr) {
+                if (libEGL == nullptr ||
+                    (glGetError_PTR)ProcAddress("glGetError") == nullptr) {
                     return false;
                 }
                 InitEGL();
