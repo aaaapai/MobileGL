@@ -10,6 +10,8 @@
 #include <MG_Util/Converters/GLToGlslang/ProgramEnumConverter.h>
 #include <MG_Util/Converters/GLToShaderc/ShadercEnumConverter.h>
 
+static bool isComuteType = false;
+
 namespace MobileGL {
     namespace MG_Util {
         namespace ShaderTranspiler {
@@ -154,12 +156,11 @@ namespace MobileGL {
                         shaderc_lang,
                         "shaderc_src", "main", shaderc_opts);
 
-                shaderc_compile_options_release(shaderc_opts);
-                shaderc_opts = nullptr;
                 if(shaderc_result_get_compilation_status(shaderc_src) != shaderc_compilation_status_success) {
                         ResultInfo r;
                         r.log += "There is a problem with shaderc: %s", shaderc_result_get_error_message(shaderc_src);
                         shaderc_result_release(shaderc_src);
+                        shaderc_compile_options_release(shaderc_opts);
                         shaderc_opts = nullptr;
                         r.errc = -2;
                         return std::unexpected(r);
@@ -174,8 +175,12 @@ namespace MobileGL {
                     r.log += "Error: [Preprocess] Unsupported shader type: " + ConvertGLEnumToString(shaderType);
                     r.errc = -3;
                     shaderc_result_release(shaderc_src);
+                    shaderc_compile_options_release(shaderc_opts);
                     shaderc_opts = nullptr;
                     return std::unexpected(r);
+                }
+                if (lang == EShLanguage::EShLangCompute) {
+                    bool isComuteType = true;
                 }
 
                 SharedPtr<glslang::TShader> res;
@@ -208,10 +213,15 @@ namespace MobileGL {
                              std::string(tshader->getInfoLog());
                     r.errc = -4;
                     shaderc_result_release(shaderc_src);
+                    shaderc_compile_options_release(shaderc_opts);
                     shaderc_opts = nullptr;
                     return std::unexpected(r);
                 }
 
+                shaderc_result_release(shaderc_src);
+                shaderc_compile_options_release(shaderc_opts);
+                shaderc_opts = nullptr;
+        
                 return res;
             }
 
@@ -225,8 +235,6 @@ namespace MobileGL {
                     ResultInfo r;
                     r.log = "Error: [glslang] Cannot link the program:\n" + std::string(program->getInfoLog());
                     r.errc = -5;
-                    shaderc_result_release(shaderc_src);
-                    shaderc_opts = nullptr;
                     return std::unexpected(r);
                 }
 
@@ -249,13 +257,9 @@ namespace MobileGL {
                     ResultInfo r;
                     r.log = "Error: [glslang] Cannot mapIO:\n" + std::string(program->getInfoLog());
                     r.errc = -6;
-                    shaderc_result_release(shaderc_src);
-                    shaderc_opts = nullptr;
                     return std::unexpected(r);
                 }
 
-                shaderc_result_release(shaderc_src);
-                shaderc_opts = nullptr;
                 return program;
             }
 
@@ -278,7 +282,7 @@ namespace MobileGL {
                 spvc_compiler_options options;
                 session.CreateOptions(&options);
 
-                if (lang == EShLanguage::EShLangCompute) {
+                if (lang == ) {
                     spvc_compiler_options_set_uint(options, SPVC_COMPILER_OPTION_GLSL_VERSION, 310);
                 } else {
                     spvc_compiler_options_set_uint(options, SPVC_COMPILER_OPTION_GLSL_VERSION, 320);
