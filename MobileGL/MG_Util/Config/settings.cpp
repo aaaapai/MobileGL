@@ -107,7 +107,7 @@ void init_settings() {
     int pgwVersion = 0;
     GetEnvVarInt("PGW_VERSION_CODE", &pgwVersion, 0);
 
-    LOG_V("MG_DIR_PATH = %s", mg_directory_path ? mg_directory_path : "(default)")
+    MGLOG_D("MG_DIR_PATH = %s", mg_directory_path ? mg_directory_path : "(default)");
 
     AngleMode finalAngleMode = AngleMode::Disabled;
 
