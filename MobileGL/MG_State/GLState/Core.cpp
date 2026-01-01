@@ -1,4 +1,12 @@
+// MobileGL - MobileGL/MG_State/GLState/Core.cpp
+// Copyright (c) 2025-2026 MobileGL-Dev
+// Licensed under the GNU Lesser General Public License v2.1:
+// http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html
+// SPDX-License-Identifier: LGPL-2.1-only
+// End of Source File Header
+
 #include "Core.h"
+#include "MG_State/GLState/RenderbufferState/RenderbufferObject.h"
 
 namespace MobileGL {
     namespace MG_State {
@@ -367,6 +375,31 @@ namespace MobileGL {
 
             Bool GLContext::ValidateSamplerObject(Uint index) const {
                 return m_samplerState.ValidateSamplerObject(index);
+            }
+
+            // Renderbuffer
+            Vector<Uint> GLContext::GenRenderbufferNames(Uint number) {
+                return m_renderbufferState.GenerateNames(number);
+            }
+
+            SharedPtr<RenderbufferObject> GLContext::GetRenderbufferObject(Uint index) {
+                return m_renderbufferState.GetRenderbufferObject(index);
+            }
+
+            BindingSlot<RenderbufferObject>& GLContext::GetRenderbufferBindingSlot(RenderbufferTarget target) {
+                return m_renderbufferState.GetBindingSlot(target);
+            }
+
+            SharedPtr<RenderbufferObject> GLContext::CreateRenderbufferObject(Uint index) {
+                return m_renderbufferState.CreateRenderbufferObject(index);
+            }
+
+            void GLContext::MarkRenderbufferObjectForDeletion(Uint index) {
+                m_renderbufferState.MarkRenderbufferObjectForDeletion(index);
+            }
+
+            Bool GLContext::ValidateRenderbufferName(Uint index) const {
+                return m_renderbufferState.ValidateName(index);
             }
         } // namespace GLState
 

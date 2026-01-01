@@ -1,4 +1,12 @@
+// MobileGL - MobileGL/MG_State/GLState/FramebufferState/FramebufferObject.cpp
+// Copyright (c) 2025-2026 MobileGL-Dev
+// Licensed under the GNU Lesser General Public License v2.1:
+// http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html
+// SPDX-License-Identifier: LGPL-2.1-only
+// End of Source File Header
+
 #include "FramebufferObject.h"
+#include "MG_Util/Types.h"
 
 namespace MobileGL {
     namespace MG_State {
@@ -7,7 +15,7 @@ namespace MobileGL {
             FramebufferAttachment::FramebufferAttachment(SharedPtr<MG_State::GLState::ITextureObject> texture,
                                                          Int level)
                 : m_texture(texture), m_textureLevel(level) {}
-            FramebufferAttachment::FramebufferAttachment(SharedPtr<RenderbufferObjectStub> renderbuffer)
+            FramebufferAttachment::FramebufferAttachment(SharedPtr<RenderbufferObject> renderbuffer)
                 : m_renderbuffer(renderbuffer) {}
             FramebufferAttachment::FramebufferAttachment(Bool IsValid) : m_texture(nullptr), m_renderbuffer(nullptr) {
                 m_isValid = IsValid;
@@ -18,7 +26,7 @@ namespace MobileGL {
             }
 
             Bool FramebufferAttachment::IsRenderbuffer() const {
-                return false;
+                return m_renderbuffer != nullptr;
             }
 
             Bool FramebufferAttachment::IsEmpty() const {
@@ -29,7 +37,7 @@ namespace MobileGL {
                 return m_texture;
             }
 
-            SharedPtr<RenderbufferObjectStub> FramebufferAttachment::GetRenderbuffer() const {
+            SharedPtr<RenderbufferObject> FramebufferAttachment::GetRenderbuffer() const {
                 return m_renderbuffer;
             }
 
@@ -42,8 +50,8 @@ namespace MobileGL {
                     Bool complete = m_texture->IsComplete();
                     return complete;
                 } else if (IsRenderbuffer()) {
-                    // TODO
-                    return false;
+                    Bool complete = m_renderbuffer->IsAllocated();
+                    return complete;
                 }
 
                 return false;
@@ -52,11 +60,14 @@ namespace MobileGL {
             IntVec3 FramebufferAttachment::GetSize() const {
                 if (IsTexture()) {
                     // TODO: get correct upload target
-                    return m_texture->GetMipmapTexelSize(TextureUploadTarget::Texture2D, m_textureLevel);
+                    MOBILEGL_ASSERT(nullptr != dynamic_cast<MG_State::GLState::TextureObjectMipmap*>(m_texture.get()),
+                                    "Texture object here should always be an object with mipmap");
+                    auto textureMipmapObject = static_cast<MG_State::GLState::TextureObjectMipmap*>(m_texture.get());
+                    return textureMipmapObject->GetMipmapTexelSize(TextureUploadTarget::Texture2D, m_textureLevel);
                 } else if (IsRenderbuffer()) {
-                    // TODO
+                    return IntVec3(m_renderbuffer->GetWidth(), m_renderbuffer->GetHeight(), 1);
                 }
-                return {0, 0};
+                return {0, 0, 0};
             }
 
             Bool FramebufferAttachment::IsValid() const {
@@ -77,7 +88,7 @@ namespace MobileGL {
             }
 
             void FramebufferObject::AttachRenderbuffer(FramebufferAttachmentType type,
-                                                       std::shared_ptr<RenderbufferObjectStub> renderbuffer) {
+                                                       std::shared_ptr<RenderbufferObject> renderbuffer) {
                 m_attachments[static_cast<SizeT>(type)] = FramebufferAttachment(renderbuffer);
                 m_drawBuffersDirty = true;
             }

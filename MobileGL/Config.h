@@ -1,3 +1,10 @@
+// MobileGL - MobileGL/Config.h
+// Copyright (c) 2025-2026 MobileGL-Dev
+// Licensed under the GNU Lesser General Public License v2.1:
+// http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html
+// SPDX-License-Identifier: LGPL-2.1-only
+// End of Source File Header
+
 #pragma once
 #include <Includes.h>
 #include <MG_Backend/Backends.h>
@@ -7,7 +14,8 @@ namespace MobileGL {
         inline const String ProjectName = "MobileGL";
         inline const String CoreName = "MobileGL Core";
         inline const String CoreVendor = "MobileGL-Dev";
-        inline const Version CoreVersion = {1, 0, 0, "-Dev"};
+        inline const Version CoreVersion = {26, 1, 0, "-dev", VersionType::Development};
+        inline const VersionStringFormatAttrib DefaultVersionStringFormatAttrib = {2, 2, 0, true, true};
         extern UniquePtr<RendererInfo> RendererInfoPtr;
 
         namespace Backend {

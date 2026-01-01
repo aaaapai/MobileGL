@@ -1,3 +1,10 @@
+// MobileGL - MobileGL/MG_Backend/Init.cpp
+// Copyright (c) 2025-2026 MobileGL-Dev
+// Licensed under the GNU Lesser General Public License v2.1:
+// http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html
+// SPDX-License-Identifier: LGPL-2.1-only
+// End of Source File Header
+
 #include "Backends.h"
 #include "MG_Util/Types.h"
 #include <Config.h>
@@ -33,16 +40,19 @@ namespace MobileGL {
             }
         }
 
-        void InitSpecificBackendLibs() {
+        Bool InitSpecificBackendLibs() {
 #if MOBILEGL_BACKEND == MOBILEGL_BACKEND_DILIGENT
             // Nothing to do
             MGLOG_D("Diligent Engine backend loaded");
+            return true;
 #elif MOBILEGL_BACKEND == MOBILEGL_BACKEND_TYPE_DIRECT_GLES
-            MG_Util::BackendLoader::GLES::Init();
+            Bool result = MG_Util::BackendLoader::GLES::Init();
             MGLOG_D("DirectGLES backend loaded, GLES version: %d.%d", MG_External::GLES::g_glesCaps.version.Major,
                     MG_External::GLES::g_glesCaps.version.Minor);
+            return result;
 #else
             MGLOG_W("Unknown backend, skipping backend initialization");
+            return false;
 #endif
         }
 
@@ -66,7 +76,11 @@ namespace MobileGL {
             MG_Config::RendererInfoPtr = MakeUnique<RendererInfo>(Unknown::RendererInfoUnknown);
 #endif
 
-            InitSpecificBackendLibs();
+            Bool result = InitSpecificBackendLibs();
+            if (!result) {
+                MGLOG_W("Failed to initialize MobileGL backend libraries");
+                return;
+            }
             LogBackendInfo();
         }
     } // namespace MG_Backend

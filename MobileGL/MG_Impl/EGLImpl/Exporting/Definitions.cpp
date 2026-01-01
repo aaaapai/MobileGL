@@ -1,3 +1,10 @@
+// MobileGL - MobileGL/MG_Impl/EGLImpl/Exporting/Definitions.cpp
+// Copyright (c) 2025-2026 MobileGL-Dev
+// Licensed under the GNU Lesser General Public License v2.1:
+// http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html
+// SPDX-License-Identifier: LGPL-2.1-only
+// End of Source File Header
+
 #include <Includes.h>
 #include "../Temporary/TemporaryEGLImpl.h"
 
@@ -13,6 +20,9 @@ MOBILEGL_EGL_API EGLBoolean eglChooseConfig(EGLDisplay dpy, const EGLint* attrib
 
 MOBILEGL_EGL_API EGLContext eglCreateContext(EGLDisplay dpy, EGLConfig config, EGLContext shareCtx,
                                              const EGLint* attrib_list) {
+#ifdef TRACY_ENABLE
+    tracy::StartupProfiler();
+#endif
     return MobileGL::MG_Impl::EGLImpl::CreateContext(dpy, config, shareCtx, attrib_list);
 }
 
@@ -33,6 +43,9 @@ MOBILEGL_EGL_API EGLBoolean eglMakeCurrent(EGLDisplay dpy, EGLSurface draw, EGLS
 }
 
 MOBILEGL_EGL_API EGLBoolean eglDestroyContext(EGLDisplay dpy, EGLContext ctx) {
+#ifdef TRACY_ENABLE
+    tracy::ShutdownProfiler();
+#endif
     return MobileGL::MG_Impl::EGLImpl::DestroyContext(dpy, ctx);
 }
 
@@ -73,6 +86,9 @@ MOBILEGL_EGL_API EGLBoolean eglSwapInterval(EGLDisplay dpy, EGLint interval) {
 }
 
 MOBILEGL_EGL_API EGLBoolean eglSwapBuffers(EGLDisplay dpy, EGLSurface draw) {
+#ifdef TRACY_ENABLE
+    FrameMark;
+#endif
     return MobileGL::MG_Impl::EGLImpl::SwapBuffers(dpy, draw);
 }
 

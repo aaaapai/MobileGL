@@ -1,3 +1,10 @@
+// MobileGL - MobileGL/MG_State/GLState/VertexArrayState/VertexArrayObject.cpp
+// Copyright (c) 2025-2026 MobileGL-Dev
+// Licensed under the GNU Lesser General Public License v2.1:
+// http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html
+// SPDX-License-Identifier: LGPL-2.1-only
+// End of Source File Header
+
 #include "VertexArrayObject.h"
 
 namespace MobileGL {
@@ -93,6 +100,18 @@ namespace MobileGL {
 
             Uint VertexArrayObject::GetExternalIndex() const {
                 return m_externalIndex;
+            }
+
+            void VertexArrayObject::SetAttributeDivisor(Uint index, Uint divisor) {
+                if (index >= MAX_VERTEX_ATTRIBS) return;
+                if (m_attributes[index].Divisor == divisor) return;
+                m_attributes[index].Divisor = divisor;
+                MarkAttributeDirty(index);
+            }
+
+            Uint VertexArrayObject::GetAttributeDivisor(Uint index) const {
+                if (index >= MAX_VERTEX_ATTRIBS) return 0;
+                return m_attributes[index].Divisor;
             }
         } // namespace GLState
     } // namespace MG_State

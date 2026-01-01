@@ -1,3 +1,10 @@
+// MobileGL - MobileGL/Includes.h
+// Copyright (c) 2025-2026 MobileGL-Dev
+// Licensed under the GNU Lesser General Public License v2.1:
+// http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html
+// SPDX-License-Identifier: LGPL-2.1-only
+// End of Source File Header
+
 #pragma once
 
 // Include significant project headers
@@ -33,19 +40,13 @@
 #include <string_view>
 #include <unordered_map>
 #include <mutex>
+#include <bitset>
 
 // Include FastSTL
 #include <FastSTL/UnorderedMap.h>
 
-// Include ankerl::unordered_dense
-#include <ankerl/unordered_dense.h>
-
 // Include spirv_cross
 #include <spirv_cross/spirv_cross_c.h>
-
-// Include glm
-#include <glm/glm.hpp>
-#include <glm/gtc/matrix_transform.hpp>
 
 // Include OpenGL and EGL headers
 #include <GL/gl.h>
@@ -81,6 +82,14 @@
 #include <vulkan/vulkan.h>
 #include <android/native_window.h>
 #include <vulkan/vulkan_android.h>
+#include <arm_neon.h>
+#endif
+
+#ifdef TRACY_ENABLE
+#include <tracy/Tracy.hpp>
+#define TRACY_ZONECOLOR_ENTRY 0xFF0000
+#define TRACY_ZONECOLOR_FRONTEND 0x00FF00
+#define TRACY_ZONECOLOR_BACKEND 0x00FF00
 #endif
 
 // Post-includes for significant project headers

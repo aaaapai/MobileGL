@@ -1,8 +1,15 @@
+// MobileGL - MobileGL/MG_State/GLState/TextureState/TextureEnum.h
+// Copyright (c) 2025-2026 MobileGL-Dev
+// Licensed under the GNU Lesser General Public License v2.1:
+// http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html
+// SPDX-License-Identifier: LGPL-2.1-only
+// End of Source File Header
+
 #pragma once
 
 namespace MobileGL {
     enum class TextureTarget {
-        Texture1D,
+        Texture1D = 0,
         Texture2D,
         Texture3D,
         TextureCubeMap,
@@ -18,9 +25,9 @@ namespace MobileGL {
     };
 
     // Don't tinker with order in this enum (especially CubeMap faces),
-    // it is used in TextureStorage
+    // it is used in MipmapUploadTargetArray
     enum class TextureUploadTarget {
-        Texture1D,
+        Texture1D = 0,
         Texture2D,
         Texture3D,
         ProxyTexture1D,
@@ -38,6 +45,7 @@ namespace MobileGL {
         CubeMapNegativeY,
         CubeMapPositiveZ,
         CubeMapNegativeZ,
+        TextureBuffer,
         ProxyCubeMap,
         CubeMapArray,
         ProxyCubeMapArray,
@@ -47,6 +55,11 @@ namespace MobileGL {
         ProxyTexture2DMultisampleArray,
         TextureUploadTargetCount,
         Unknown = -1
+    };
+
+    enum class TextureStorageType {
+        Mipmap,
+        Buffer
     };
 
     enum class TextureInputFormat {
@@ -158,6 +171,8 @@ namespace MobileGL {
         UnsignedInt,
         Int,
         Float,
+        HalfFloat,
+        UnsignedInt248,
         UnsignedByte332,
         UnsignedByte233Rev,
         UnsignedShort565,

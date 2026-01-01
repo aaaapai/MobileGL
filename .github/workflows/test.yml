@@ -27,18 +27,30 @@ jobs:
         working-directory: ${{env.TEST_ROOT}}/3rdparty/glslang
         run: python update_glslang_sources.py
 
+      - name: Install clang-20
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang-20 clang++-20 lld-20 libc++-20-dev libc++abi-20-dev
+
+      - name: Show installed toolchain
+        run: |
+          clang-20 --version
+          clang++-20 --version
+          ld.lld-20 --version || ld.lld --version || true
+          dpkg -l 'libc++*' || true
+          
       - name: Configure CMake
         working-directory: ${{env.TEST_ROOT}}
         run: |
           if [ "${{ secrets.ACTIONS_STEP_DEBUG }}" == "true" ]; then
-            cmake -S . -B build-test -DCMAKE_BUILD_TYPE=Debug -DBUILD_TEST=ON -DBUILD_BENCHMARK=OFF -DCMAKE_POLICY_VERSION_MINIMUM=3.5
+            cmake -S . -B build-test -G Ninja -DCMAKE_C_COMPILER=clang-20 -DCMAKE_CXX_COMPILER=clang++-20 -DCMAKE_BUILD_TYPE=Debug -DBUILD_TEST=ON -DBUILD_BENCHMARK=OFF -DCMAKE_POLICY_VERSION_MINIMUM=3.5
           else
-            cmake -S . -B build-test -DCMAKE_BUILD_TYPE=Release -DBUILD_TEST=ON -DBUILD_BENCHMARK=OFF -DCMAKE_POLICY_VERSION_MINIMUM=3.5
+            cmake -S . -B build-test -G Ninja -DCMAKE_C_COMPILER=clang-20 -DCMAKE_CXX_COMPILER=clang++-20 -DCMAKE_BUILD_TYPE=Release -DBUILD_TEST=ON -DBUILD_BENCHMARK=OFF -DCMAKE_POLICY_VERSION_MINIMUM=3.5
           fi
           
       - name: Build
         working-directory: ${{env.TEST_ROOT}}/build-test
-        run: cmake --build . --parallel 4
+        run: cmake --build .
 
       - name: Test
         working-directory: ${{env.TEST_ROOT}}/build-test/MobileGL/MG_Test

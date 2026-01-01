@@ -1,10 +1,17 @@
+// MobileGL - MobileGL/MG_State/GLState/TextureState/TextureObject2DCube.cpp
+// Copyright (c) 2025-2026 MobileGL-Dev
+// Licensed under the GNU Lesser General Public License v2.1:
+// http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html
+// SPDX-License-Identifier: LGPL-2.1-only
+// End of Source File Header
+
 #include "TextureObject2DCube.h"
 
 namespace MobileGL {
     namespace MG_State {
         namespace GLState {
             TextureObject2DCube::TextureObject2DCube(Uint externalIndex)
-                : TextureObjectBase(TextureTarget::TextureCubeMap, externalIndex) {}
+                : TextureObjectMipmap(TextureTarget::TextureCubeMap, externalIndex) {}
 
             Uint TextureObject2DCube::GetMipmapLevelCount() const {
                 return m_textureStorage.GetLevelCount();

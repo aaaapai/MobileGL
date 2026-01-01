@@ -1,3 +1,10 @@
+// MobileGL - MobileGL/MG_State/GLState/TextureState/TextureState.cpp
+// Copyright (c) 2025-2026 MobileGL-Dev
+// Licensed under the GNU Lesser General Public License v2.1:
+// http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html
+// SPDX-License-Identifier: LGPL-2.1-only
+// End of Source File Header
+
 #include "TextureState.h"
 #include "Defines.h"
 #include "TextureEnum.h"
@@ -6,6 +13,7 @@
 #include "TextureObject2D.h"
 #include "TextureObject3D.h"
 #include "TextureObject2DCube.h"
+#include "TextureObjectBuffer.h"
 #include "TextureObjectStubs.h"
 
 namespace MobileGL {
@@ -46,6 +54,9 @@ namespace MobileGL {
                 case TextureTarget::Texture3D:
                     textureObject = MakeShared<TextureObject3D>(index);
                     break;
+                case TextureTarget::TextureBuffer:
+                    textureObject = MakeShared<TextureObjectBuffer>(index);
+                    break;
 
                     // These texture types are stubbed:
                 case TextureTarget::TextureRectangle:
@@ -53,9 +64,6 @@ namespace MobileGL {
                     break;
                 case TextureTarget::Texture2DMultisample:
                     textureObject = MakeShared<TextureObject2DMultisample>(index);
-                    break;
-                case TextureTarget::TextureBuffer:
-                    textureObject = MakeShared<TextureObjectBuffer>(index);
                     break;
                 case TextureTarget::Texture1DArray:
                     textureObject = MakeShared<TextureObject1DArray>(index);

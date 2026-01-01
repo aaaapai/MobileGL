@@ -1,3 +1,10 @@
+// MobileGL - MobileGL/MG_Util/Types.h
+// Copyright (c) 2025-2026 MobileGL-Dev
+// Licensed under the GNU Lesser General Public License v2.1:
+// http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html
+// SPDX-License-Identifier: LGPL-2.1-only
+// End of Source File Header
+
 #pragma once
 
 #include <Includes.h>
@@ -12,16 +19,16 @@
 namespace MobileGL {
     using String = std::string;
     using StringStream = std::stringstream;
-    using Int8 = int8_t;
-    using Uint8 = uint8_t;
-    using Int16 = int16_t;
-    using Uint16 = uint16_t;
-    using Int32 = int32_t;
-    using Uint32 = uint32_t;
+    using Int8 = std::int8_t;
+    using Uint8 = std::uint8_t;
+    using Int16 = std::int16_t;
+    using Uint16 = std::uint16_t;
+    using Int32 = std::int32_t;
+    using Uint32 = std::uint32_t;
     using Int = Int32;
     using Uint = Uint32;
-    using Int64 = int64_t;
-    using Uint64 = uint64_t;
+    using Int64 = std::int64_t;
+    using Uint64 = std::uint64_t;
     using Bool = bool;
     using Float = float;
     using Double = double;
@@ -204,11 +211,35 @@ using UnorderedMap = std::unordered_map<Key, T>;
         Range1D m_range;
     };
 
+    struct ComponentSizes {
+        Int Red = 0;
+        Int Green = 0;
+        Int Blue = 0;
+        Int Alpha = 0;
+        Int Depth = 0;
+        Int Stencil = 0;
+    };
+
+    enum class VersionType {
+        Release,
+        Unstable,
+        Development
+    };
+
+    struct VersionStringFormatAttrib {
+        Int majorWidth = 0; // 0 = no formatting
+        Int minorWidth = 0;
+        Int patchWidth = 0;
+        Bool useSuffix = true;
+        Bool autoPatch = false; // If patch == 0, skip the patch part; else add normally
+    };
+
     struct Version {
         Int Major;
         Int Minor;
         Int Patch;
         Optional<String> Suffix;
+        Optional<VersionType> Type;
 
         String toString(Pair<Bool, Bool> dots = {true, true}, Bool useSuffix = true) const {
             StringStream result;
@@ -216,9 +247,44 @@ using UnorderedMap = std::unordered_map<Key, T>;
                    << (useSuffix && Suffix.has_value() ? *Suffix : "");
             return result.str();
         }
+
+        String toFormattedString(const VersionStringFormatAttrib& fmt) const {
+            auto formatNumber = [](Int value, Int width) {
+                String s = std::to_string(value);
+                if (width <= 0) return s;
+
+                if ((Int)s.size() > width) {
+                    return s.substr(s.size() - width);
+                } else if ((Int)s.size() < width) {
+                    return String(width - s.size(), '0') + s;
+                }
+                return s;
+            };
+
+            StringStream result;
+
+            result << formatNumber(Major, fmt.majorWidth) << "." << formatNumber(Minor, fmt.minorWidth);
+
+            Bool shouldShowPatch = true;
+            if (fmt.autoPatch) {
+                shouldShowPatch = (Patch != 0);
+            }
+
+            if (shouldShowPatch) {
+                result << "." << formatNumber(Patch, fmt.patchWidth);
+            }
+
+            if (fmt.useSuffix && Suffix.has_value()) {
+                result << *Suffix;
+            }
+
+            return result.str();
+        }
     };
 
-    struct BackendCap {};
+    struct BackendCap {
+        Bool AllowVSOnlyPrograms = false;
+    };
 
     struct GLInfo {
         Version TargetGLVersion;
