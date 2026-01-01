@@ -19,7 +19,6 @@ namespace MobileGL {
         MGLOG_I("Initializing MobileGL...");
         MG_State::Init();
         MGLOG_D("MobileGL State initialized");
-        // return;
         MG_Backend::Init();
         MGLOG_D("MobileGL Backend initialized");
         MG_Impl::Init();

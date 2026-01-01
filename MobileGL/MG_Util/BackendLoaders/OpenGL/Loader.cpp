@@ -433,11 +433,16 @@ namespace MobileGL {
 
     namespace MG_Util {
         namespace BackendLoader::GLES {
-            void Init() {
+            Bool Init() {
                 LoadLibs();
+                if (libGLES == nullptr || libEGL == nullptr ||
+                    (glGetError_PTR)ProcAddress(libGLES, "glGetError") == nullptr) {
+                    return false;
+                }
                 InitEGL();
                 InitGLES();
                 DestroyTempEGLCtx();
+                return true;
             }
 
             void *libGLES = nullptr, *libEGL = nullptr;

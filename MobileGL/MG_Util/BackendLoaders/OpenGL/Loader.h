@@ -940,7 +940,7 @@ namespace MobileGL {
     namespace MG_Util {
         namespace BackendLoader {
             namespace GLES {
-                void Init();
+                Bool Init();
                 extern void *libGLES, *libEGL;
 
                 void* ProcAddress(void* lib, const char* name);
