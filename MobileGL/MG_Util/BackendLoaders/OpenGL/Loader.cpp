@@ -1,3 +1,10 @@
+// MobileGL - MobileGL/MG_Util/BackendLoaders/OpenGL/Loader.cpp
+// Copyright (c) 2025-2026 MobileGL-Dev
+// Licensed under the GNU Lesser General Public License v2.1:
+// http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html
+// SPDX-License-Identifier: LGPL-2.1-only
+// End of Source File Header
+
 #include "Loader.h"
 
 #define GL_FUNC_DECL(name) name##_PTR name;
@@ -426,16 +433,23 @@ namespace MobileGL {
 
     namespace MG_Util {
         namespace BackendLoader::GLES {
-            void Init() {
+            Bool Init() {
                 LoadLibs();
+                if (libGLES == nullptr || libEGL == nullptr ||
+                    (glGetError_PTR)ProcAddress(libGLES, "glGetError") == nullptr) {
+                    return false;
+                }
                 InitEGL();
                 InitGLES();
                 DestroyTempEGLCtx();
+                return true;
             }
 
             void *libEGL = nullptr;
 
-            static const char* LibPathPrefixes[] = {"", "/opt/vc/lib/", "/usr/local/lib/", "/usr/lib/", nullptr};
+            static const char* LibPathPrefixes[] = {
+                "", "/opt/vc/lib/", "/usr/local/lib/", "/usr/lib/", "/usr/lib/x86_64-linux-gnu/", nullptr};
+          
             static const char* LibExts[] = {"so", "so.1", "so.2", "dylib", "dll", nullptr};
             static const char* EGLLibs[] = {"libEGL", "libEGL_angle", nullptr};
             static const char* EGLANGLELibs[] = {"libEGL_angle", nullptr};

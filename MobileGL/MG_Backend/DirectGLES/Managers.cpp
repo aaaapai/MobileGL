@@ -1,3 +1,10 @@
+// MobileGL - MobileGL/MG_Backend/DirectGLES/Managers.cpp
+// Copyright (c) 2025-2026 MobileGL-Dev
+// Licensed under the GNU Lesser General Public License v2.1:
+// http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html
+// SPDX-License-Identifier: LGPL-2.1-only
+// End of Source File Header
+
 #include "Managers.h"
 #include "MG_Backend/Backends.h"
 #include "Utils.h"
@@ -645,7 +652,21 @@ namespace MobileGL::MG_Backend::DirectGLES {
                                                               backendTextureObject->GetBackendTextureId(),
                                                               static_cast<GLint>(attachment.GetTextureLevel()));
                 } else if (attachment.IsRenderbuffer()) {
-                    // TODO: renderbuffer support
+                    const auto& renderbufferObject = attachment.GetRenderbuffer();
+                    const auto& backendRenderbufferIt =
+                        RenderbufferImpl::g_backendRenderbufferObjects.find(renderbufferObject);
+                    SharedPtr<RenderbufferImpl::BackendRenderbufferObject> backendRenderbufferObject;
+                    if (backendRenderbufferIt == RenderbufferImpl::g_backendRenderbufferObjects.end()) {
+                        backendRenderbufferObject = MakeShared<RenderbufferImpl::BackendRenderbufferObject>();
+                        RenderbufferImpl::g_backendRenderbufferObjects[renderbufferObject] = backendRenderbufferObject;
+                    } else {
+                        backendRenderbufferObject = backendRenderbufferIt->second;
+                    }
+
+                    backendRenderbufferObject->SyncToBackend(renderbufferObject);
+                    backendRenderbufferObject->Bind();
+                    MG_External::GLES::glFramebufferRenderbuffer(glFBOTarget, glAttachment, GL_RENDERBUFFER,
+                                                                 backendRenderbufferObject->GetBackendRenderbufferId());
                 }
             }
             // Handle draw buffers for DRAW_FRAMEBUFFER
@@ -702,7 +723,21 @@ namespace MobileGL::MG_Backend::DirectGLES {
                                                               backendTextureObject->GetBackendTextureId(),
                                                               static_cast<GLint>(readAttachment.GetTextureLevel()));
                 } else if (readAttachment.IsRenderbuffer()) {
-                    // TODO: renderbuffer support
+                    const auto& renderbufferObject = readAttachment.GetRenderbuffer();
+                    const auto& backendRenderbufferIt =
+                        RenderbufferImpl::g_backendRenderbufferObjects.find(renderbufferObject);
+                    SharedPtr<RenderbufferImpl::BackendRenderbufferObject> backendRenderbufferObject;
+                    if (backendRenderbufferIt == RenderbufferImpl::g_backendRenderbufferObjects.end()) {
+                        backendRenderbufferObject = MakeShared<RenderbufferImpl::BackendRenderbufferObject>();
+                        RenderbufferImpl::g_backendRenderbufferObjects[renderbufferObject] = backendRenderbufferObject;
+                    } else {
+                        backendRenderbufferObject = backendRenderbufferIt->second;
+                    }
+
+                    backendRenderbufferObject->SyncToBackend(renderbufferObject);
+                    backendRenderbufferObject->Bind();
+                    MG_External::GLES::glFramebufferRenderbuffer(glFBOTarget, glAttachment, GL_RENDERBUFFER,
+                                                                 backendRenderbufferObject->GetBackendRenderbufferId());
                 }
                 MG_External::GLES::glReadBuffer(glAttachment);
             }
@@ -980,6 +1015,69 @@ namespace MobileGL::MG_Backend::DirectGLES {
         UnorderedMap<SharedPtr<MG_State::GLState::SamplerObject>, SharedPtr<BackendSamplerObject>>
             g_backendSamplerObjects;
     } // namespace SamplerImpl
+
+    namespace RenderbufferImpl {
+        BackendRenderbufferObject::BackendRenderbufferObject() {
+#ifdef TRACY_ENABLE
+            ZoneScopedC(TRACY_ZONECOLOR_BACKEND);
+#endif
+            MG_External::GLES::glGenRenderbuffers(1, &m_backendRBOId);
+            if (m_backendRBOId == 0) {
+                MGLOG_E("Failed to generate renderbuffer object.");
+                MGLOG_E("ES glGetError(): %s", MG_Util::ConvertGLEnumToString(MG_External::GLES::glGetError()).c_str());
+            }
+        }
+
+        void BackendRenderbufferObject::Bind() {
+#ifdef TRACY_ENABLE
+            ZoneScopedC(TRACY_ZONECOLOR_BACKEND);
+#endif
+            MG_External::GLES::glBindRenderbuffer(GL_RENDERBUFFER, m_backendRBOId);
+        }
+
+        void BackendRenderbufferObject::SyncToBackend(
+            const SharedPtr<MG_State::GLState::RenderbufferObject>& stateRBOObject) {
+#ifdef TRACY_ENABLE
+            ZoneScopedC(TRACY_ZONECOLOR_BACKEND);
+#endif
+            if (!stateRBOObject) {
+                MGLOG_E("State RBO object is null, cannot sync to backend.");
+                return;
+            }
+
+            MGLOG_D("Syncing RBO with backend ID %u to backend for state ID %u", m_backendRBOId,
+                    stateRBOObject->GetExternalIndex());
+
+            if (m_isInitialized && m_cacheInternalFormat == stateRBOObject->GetInternalFormat() &&
+                m_cacheWidth == stateRBOObject->GetWidth() && m_cacheHeight == stateRBOObject->GetHeight()) {
+                MGLOG_D("RBO %u already initialized with matching parameters, skipping re-allocation.",
+                        stateRBOObject->GetExternalIndex());
+                return;
+            }
+
+            Bind();
+
+            // Allocate storage
+            TextureInternalFormat internalFormat = stateRBOObject->GetInternalFormat();
+            Int width = static_cast<Int>(stateRBOObject->GetWidth());
+            Int height = static_cast<Int>(stateRBOObject->GetHeight());
+            GLenum glInternalFormat, glType, glFormat;
+            TextureImpl::GenerateTextureFormatInfo(internalFormat, &glInternalFormat, &glType, &glFormat);
+
+            MG_External::GLES::glRenderbufferStorage(GL_RENDERBUFFER, glInternalFormat, static_cast<GLsizei>(width),
+                                                     static_cast<GLsizei>(height));
+
+            m_cacheInternalFormat = internalFormat;
+            m_cacheWidth = width;
+            m_cacheHeight = height;
+
+            m_isInitialized = true;
+            MGLOG_D("RBO %u sync completed. backend ID %u", stateRBOObject->GetExternalIndex(), m_backendRBOId);
+        }
+
+        UnorderedMap<SharedPtr<MG_State::GLState::RenderbufferObject>, SharedPtr<BackendRenderbufferObject>>
+            g_backendRenderbufferObjects;
+    } // namespace RenderbufferImpl
 
     namespace Utils {} // namespace Utils
 } // namespace MobileGL::MG_Backend::DirectGLES

@@ -1,3 +1,10 @@
+// MobileGL - MobileGL/Defines.h
+// Copyright (c) 2025-2026 MobileGL-Dev
+// Licensed under the GNU Lesser General Public License v2.1:
+// http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html
+// SPDX-License-Identifier: LGPL-2.1-only
+// End of Source File Header
+
 #pragma once
 
 // ============== Platform-specific definitions and macros ============== //
@@ -31,7 +38,7 @@
 #define MOBILEGL_BACKEND_TYPE_DIRECT_GLES 3
 
 // ====================== MobileGL configurations ======================= //
-#define MOBILEGL_LOG_ACTIVE_LEVEL MOBILEGL_LOG_LEVEL_DEBUG
+#define MOBILEGL_LOG_ACTIVE_LEVEL MOBILEGL_LOG_LEVEL_FATAL
 
 #define MOBILEGL_LOG_ENABLE_CONSOLE 1
 #define MOBILEGL_LOG_ENABLE_FILE 1

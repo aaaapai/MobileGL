@@ -1,3 +1,10 @@
+// MobileGL - MobileGL/MG_Util/Texture/PixelStoreProcessor.cpp
+// Copyright (c) 2025-2026 MobileGL-Dev
+// Licensed under the GNU Lesser General Public License v2.1:
+// http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html
+// SPDX-License-Identifier: LGPL-2.1-only
+// End of Source File Header
+
 #include "PixelStoreProcessor.h"
 
 namespace MobileGL::MG_Util::PixelStoreProcessor {
@@ -40,6 +47,40 @@ namespace MobileGL::MG_Util::PixelStoreProcessor {
                 bytes[i] = ReverseByteBits(bytes[i]);
             }
             bytes += rowBytes;
+        }
+    }
+    
+    static Uint8 GetSwizzledChannelValue(Uint8* pixel, TextureSwizzleParam param) {
+        switch (param) {
+            case TextureSwizzleParam::Red:
+                return pixel[0];
+            case TextureSwizzleParam::Green:
+                return pixel[1];
+            case TextureSwizzleParam::Blue:
+                return pixel[2];
+            case TextureSwizzleParam::Alpha:
+                return pixel[3];
+            case TextureSwizzleParam::Zero:
+                return 0;
+            case TextureSwizzleParam::One:
+                return 0xFF;
+            default:
+                return 0xBD;
+        }
+    }
+    
+    // assume 8 bit per channel
+    // swizzle.size() == channel count
+    static void ProcessColorSwizzle(void* data, SizeT pixelCount, const Vector<TextureSwizzleParam>& swizzle) {
+        const auto bpp = swizzle.size();
+        Uint8* bytes = static_cast<Uint8*>(data);
+        static Uint8 pixelScratch[4];
+        for (SizeT i = 0; i < pixelCount; ++i) {
+            Uint8* pixel = bytes + i * bpp;
+            for (SizeT ch = 0; ch < bpp; ++ch) {
+                pixelScratch[ch] = GetSwizzledChannelValue(pixel, swizzle[ch]);
+            }
+            Memcpy(pixel, pixelScratch, bpp);
         }
     }
 
@@ -90,14 +131,29 @@ namespace MobileGL::MG_Util::PixelStoreProcessor {
 
             for (Int y = 0; y < copyHeight; ++y) {
                 Memcpy(layerDst, layerSrc, static_cast<SizeT>(copyWidth) * pixelSize);
-
+                
                 if (params.SwapBytes && pixelSize > 1) {
+                    MGLOG_D("%s: SwapBytes", __func__);
                     SwapBytes(layerDst, pixelSize, static_cast<SizeT>(copyWidth));
                 }
 
                 if (params.LSBFirst && isBitmap) {
+                    MGLOG_D("%s: LSBFirst", __func__);
                     ProcessLSBFirst(layerDst, static_cast<SizeT>(copyWidth), 1);
                 }
+                
+                if (textureInputFormat == TextureInputFormat::BGRA && targetInternalFormat == TextureInternalFormat::RGBA8) {
+                    MGLOG_D("%s: Swizzle (BGRA)", __func__);
+                    MGLOG_D("%s: pixel0 before = %x", __func__, *((Uint32*)layerDst));
+                    ProcessColorSwizzle(layerDst, static_cast<SizeT>(copyWidth), {
+                        TextureSwizzleParam::Green,
+                        TextureSwizzleParam::Blue,
+                        TextureSwizzleParam::Alpha,
+                        TextureSwizzleParam::Red
+                    });
+                    MGLOG_D("%s: pixel0 after  = %x", __func__, *((Uint32*)layerDst));
+                } else
+                    MGLOG_D("%s: pixel0        = %x", __func__, *((Uint32*)layerDst));
 
                 layerSrc += inputStride;
                 layerDst += static_cast<SizeT>(copyWidth) * pixelSize;

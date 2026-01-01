@@ -1,4 +1,4 @@
-// MobileGL - MobileGL/MG_Util/Converters/MGToGL/ProgramEnumConverter.h
+// MobileGL - MobileGL/Init.h
 // Copyright (c) 2025-2026 MobileGL-Dev
 // Licensed under the GNU Lesser General Public License v2.1:
 // http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html
@@ -6,11 +6,9 @@
 // End of Source File Header
 
 #pragma once
-#include <Includes.h>
-#include <MG_State/GLState/ProgramState/ShaderObject.h>
+#include "Includes.h"
 
 namespace MobileGL {
-    namespace MG_Util {
-        GLenum ConvertShaderStageToGLEnum(ShaderStage stage);
-    }
+    void MG_Initialize();
+    void MG_Destroy();
 } // namespace MobileGL

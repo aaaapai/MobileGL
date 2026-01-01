@@ -1,3 +1,10 @@
+// MobileGL - MobileGL/MG_Impl/GLImpl/Texture/GL_Texture.cpp
+// Copyright (c) 2025-2026 MobileGL-Dev
+// Licensed under the GNU Lesser General Public License v2.1:
+// http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html
+// SPDX-License-Identifier: LGPL-2.1-only
+// End of Source File Header
+
 #include "GL_Texture.h"
 #include "GL/gl.h"
 #include "Config.h"
@@ -52,7 +59,9 @@ namespace MobileGL {
             TextureInputFormat textureInputFormat = MG_Util::ConvertGLEnumToTextureInputFormat(format);
             TexturePixelDataType texturePixelDataType = MG_Util::ConvertGLEnumToTexturePixelDataType(type);
 //            TextureInternalFormat textureInternalFormat = MG_Util::ConvertGLEnumToTextureInternalFormat(format);
-
+            MGLOG_D("TexSubImage2D_State: (%d, %d), format = %s, pixels = %p", width, height,
+                        MG_Util::ConvertTextureInputFormatToString(textureInputFormat).c_str(),
+                        pixels);
             // ===================== Error Checking ==============================
             if (!TextureImpl::ValidateTexturePixelDataType(texturePixelDataType)) return;
             if (!TextureImpl::ValidateTextureInputFormat(textureInputFormat)) return;
@@ -61,7 +70,6 @@ namespace MobileGL {
             if (!TextureImpl::ValidateTextureSizeWithTextureUploadTarget(textureUploadingTarget, width, height)) return;
             if (!TextureImpl::ValidateTextureSizeRange(width, height)) return;
             if (!TextureImpl::ValidateTextureLevelWithUploadTarget(textureUploadingTarget, level)) return;
-            if (!pixels) return;
 
             // TODO: GL_INVALID_OPERATION is generated if a non-zero buffer object name is bound to the
             // GL_PIXEL_UNPACK_BUFFER target and the buffer object's data store is currently mapped.
@@ -107,6 +115,13 @@ namespace MobileGL {
                         pixelUnpackBufferObject->GetExternalIndex());
                 originalPixels = reinterpret_cast<const char*>(pixelUnpackBufferObject->GetDataReadOnly()->data()) +
                                  reinterpret_cast<SizeT>(pixels);
+            }
+            
+            if (!originalPixels) {
+                MG_State::pGLContext->RecordError(
+                    ErrorCode::InvalidOperation,
+                    MakeShared<GenericErrorInfo>("MG_Impl/GLImpl", __func__, "No data supplied from pixels parameter and no PBO bound."));
+                return;
             }
 
             void* processedPixels = MG_Util::PixelStoreProcessor::ProcessTexturePixelsDataUnpack(
