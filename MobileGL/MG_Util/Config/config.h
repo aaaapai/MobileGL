@@ -6,14 +6,14 @@ extern "C"
 {
 #endif
 
-extern const char* mg_directory_path;
-extern const char* config_file_path;
-extern const char* log_file_path;
-extern const char* glsl_cache_file_path;
+extern char* mg_directory_path;
+extern char* config_file_path;
+extern char* log_file_path;
+extern char* glsl_cache_file_path;
 
-    extern int initialized;
+extern int initialized;
 
-const char* concatenate(const char* str1, const char* str2);
+char* concatenate(const char* str1, const char* str2);
 
 int check_path(void);
 
