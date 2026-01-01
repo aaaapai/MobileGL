@@ -9,7 +9,7 @@
 
 namespace MobileGL {
     namespace MG_Util {
-        EShLanguage ConvertGLEnumToShadercGlsl(GLenum shaderType) {
+        GLenum ConvertGLEnumToShadercGlsl(GLenum shaderType) {
             switch (shaderType) {
             case GL_VERTEX_SHADER:
                 return shaderc_glsl_vertex_shader;
