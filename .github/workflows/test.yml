@@ -43,9 +43,9 @@ jobs:
         working-directory: ${{env.TEST_ROOT}}
         run: |
           if [ "${{ secrets.ACTIONS_STEP_DEBUG }}" == "true" ]; then
-            cmake -S . -B build-test -G Ninja -DCMAKE_C_COMPILER=clang-20 -DCMAKE_CXX_COMPILER=clang++-20 -DCMAKE_BUILD_TYPE=Debug -DBUILD_TEST=ON -DBUILD_BENCHMARK=OFF -DCMAKE_POLICY_VERSION_MINIMUM=3.5
+            cmake -S . -B build-test -G Ninja -DCMAKE_C_COMPILER=clang-20 -DCMAKE_CXX_COMPILER=clang++-20 -DCMAKE_BUILD_TYPE=Debug -DMOBILEGL_BUILD_TEST=ON -DMOBILEGL_BUILD_BENCHMARK=OFF -DCMAKE_POLICY_VERSION_MINIMUM=3.5
           else
-            cmake -S . -B build-test -G Ninja -DCMAKE_C_COMPILER=clang-20 -DCMAKE_CXX_COMPILER=clang++-20 -DCMAKE_BUILD_TYPE=Release -DBUILD_TEST=ON -DBUILD_BENCHMARK=OFF -DCMAKE_POLICY_VERSION_MINIMUM=3.5
+            cmake -S . -B build-test -G Ninja -DCMAKE_C_COMPILER=clang-20 -DCMAKE_CXX_COMPILER=clang++-20 -DCMAKE_BUILD_TYPE=Release -DMOBILEGL_BUILD_TEST=ON -DMOBILEGL_BUILD_BENCHMARK=OFF -DCMAKE_POLICY_VERSION_MINIMUM=3.5
           fi
           
       - name: Build

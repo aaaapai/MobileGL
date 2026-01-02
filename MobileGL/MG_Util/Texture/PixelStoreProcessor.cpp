@@ -49,32 +49,32 @@ namespace MobileGL::MG_Util::PixelStoreProcessor {
             bytes += rowBytes;
         }
     }
-    
+
     static Uint8 GetSwizzledChannelValue(Uint8* pixel, TextureSwizzleParam param) {
         switch (param) {
-            case TextureSwizzleParam::Red:
-                return pixel[0];
-            case TextureSwizzleParam::Green:
-                return pixel[1];
-            case TextureSwizzleParam::Blue:
-                return pixel[2];
-            case TextureSwizzleParam::Alpha:
-                return pixel[3];
-            case TextureSwizzleParam::Zero:
-                return 0;
-            case TextureSwizzleParam::One:
-                return 0xFF;
-            default:
-                return 0xBD;
+        case TextureSwizzleParam::Red:
+            return pixel[0];
+        case TextureSwizzleParam::Green:
+            return pixel[1];
+        case TextureSwizzleParam::Blue:
+            return pixel[2];
+        case TextureSwizzleParam::Alpha:
+            return pixel[3];
+        case TextureSwizzleParam::Zero:
+            return 0;
+        case TextureSwizzleParam::One:
+            return 0xFF;
+        default:
+            return 0xBD;
         }
     }
-    
+
     // assume 8 bit per channel
     // swizzle.size() == channel count
     static void ProcessColorSwizzle(void* data, SizeT pixelCount, const Vector<TextureSwizzleParam>& swizzle) {
         const auto bpp = swizzle.size();
         Uint8* bytes = static_cast<Uint8*>(data);
-        static Uint8 pixelScratch[4];
+        Uint8 pixelScratch[4];
         for (SizeT i = 0; i < pixelCount; ++i) {
             Uint8* pixel = bytes + i * bpp;
             for (SizeT ch = 0; ch < bpp; ++ch) {
@@ -85,7 +85,8 @@ namespace MobileGL::MG_Util::PixelStoreProcessor {
     }
 
     void* ProcessTexturePixelsDataUnpack(const void* inputPixels, const PixelStoreParameters& params,
-                                         TextureInternalFormat targetInternalFormat, TextureInputFormat textureInputFormat, TexturePixelDataType inputDataType,
+                                         TextureInternalFormat targetInternalFormat,
+                                         TextureInputFormat textureInputFormat, TexturePixelDataType inputDataType,
                                          IntVec3 dimension, Bool isBitmap, SizeT& outSize) {
         const SizeT pixelSize = MG_Util::GetInputBytesPerPixel(textureInputFormat, inputDataType);
 
@@ -125,14 +126,16 @@ namespace MobileGL::MG_Util::PixelStoreProcessor {
         src += static_cast<SizeT>(startY) * inputStride;
         src += static_cast<SizeT>(startX) * pixelSize;
 
+        Bool isByteType =
+            (inputDataType == TexturePixelDataType::UnsignedByte || inputDataType == TexturePixelDataType::Byte);
         for (Int z = 0; z < copyDepth; ++z) {
             const Uint8* layerSrc = src;
             Uint8* layerDst = dst;
 
             for (Int y = 0; y < copyHeight; ++y) {
                 Memcpy(layerDst, layerSrc, static_cast<SizeT>(copyWidth) * pixelSize);
-                
-                if (params.SwapBytes && pixelSize > 1) {
+
+                if (params.SwapBytes && pixelSize > 1 && !isByteType) {
                     MGLOG_D("%s: SwapBytes", __func__);
                     SwapBytes(layerDst, pixelSize, static_cast<SizeT>(copyWidth));
                 }
@@ -141,16 +144,14 @@ namespace MobileGL::MG_Util::PixelStoreProcessor {
                     MGLOG_D("%s: LSBFirst", __func__);
                     ProcessLSBFirst(layerDst, static_cast<SizeT>(copyWidth), 1);
                 }
-                
-                if (textureInputFormat == TextureInputFormat::BGRA && targetInternalFormat == TextureInternalFormat::RGBA8) {
+
+                if (textureInputFormat == TextureInputFormat::BGRA &&
+                    targetInternalFormat == TextureInternalFormat::RGBA8) {
                     MGLOG_D("%s: Swizzle (BGRA)", __func__);
                     MGLOG_D("%s: pixel0 before = %x", __func__, *((Uint32*)layerDst));
-                    ProcessColorSwizzle(layerDst, static_cast<SizeT>(copyWidth), {
-                        TextureSwizzleParam::Green,
-                        TextureSwizzleParam::Blue,
-                        TextureSwizzleParam::Alpha,
-                        TextureSwizzleParam::Red
-                    });
+                    ProcessColorSwizzle(layerDst, static_cast<SizeT>(copyWidth),
+                                        {TextureSwizzleParam::Green, TextureSwizzleParam::Blue,
+                                         TextureSwizzleParam::Alpha, TextureSwizzleParam::Red});
                     MGLOG_D("%s: pixel0 after  = %x", __func__, *((Uint32*)layerDst));
                 } else
                     MGLOG_D("%s: pixel0        = %x", __func__, *((Uint32*)layerDst));

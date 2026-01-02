@@ -76,7 +76,29 @@ If you want to try the project right now, you’ll need to build it yourself:
    cmake --build build
    ```
    
+   or do it in a modern way:
+   
+   ```sh
+   cmake -S . -B build -G Ninja -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++
+   cmake --build build
+   ```
+   
    Alternatively, you can use platform-specific build commands as needed.
+
+## Build Options
+
+| Option                       | Description                                           | Default |
+| ---------------------------- | ----------------------------------------------------- | ------- |
+| `MOBILEGL_BUILD_TEST`        | Build MobileGL tests (requires Clang)                 | ON      |
+| `MOBILEGL_BUILD_BENCHMARK`   | Build MobileGL benchmarks (requires Clang)            | ON      |
+| `MOBILEGL_FORCE_RELEASE_OPT` | Enable O3 and LTO in Debug build                      | ON      |
+| `MOBILEGL_ENABLE_TRANCY`     | Enable Tracy profiler for performance analysis        | OFF     |
+
+   **Notes:**
+
+* The project requires C++23.
+* `MG_Test` and `MG_Benchmark` can only be built with Clang, not GCC. To enforce Clang, use `-DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++`.
+* On Android, tests and benchmarks are always disabled.
 
 ## Notice
 

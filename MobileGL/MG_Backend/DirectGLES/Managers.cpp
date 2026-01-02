@@ -7,6 +7,7 @@
 
 #include "Managers.h"
 #include "MG_Backend/Backends.h"
+#include "MG_Util/Debug/Log.h"
 #include "Utils.h"
 #include "DirectGLES.h"
 #include "MG_State/GLState/TextureState/TextureObjectBuffer.h"
@@ -417,6 +418,13 @@ namespace MobileGL::MG_Backend::DirectGLES {
                                 continue;
                             }
 
+                            if (level > 0)
+                                MGLOG_D("%s: Updating dirty mip %d for texture ID %u, size: %dx%d, "
+                                        "byteSize: %d",
+                                        __func__, level, m_backendTextureId,
+                                        textureMipmapObject->GetMipmapTexelSize(uploadTarget, level).x(),
+                                        textureMipmapObject->GetMipmapTexelSize(uploadTarget, level).y(), byteSize);
+
                             auto glUploadTarget = MG_Util::ConvertTextureUploadTargetToGLEnum(uploadTarget);
                             MG_External::GLES::glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
                             errorLopper.Loop([file = __FILE__, line = __LINE__, func = __func__](GLenum err) {
@@ -428,7 +436,6 @@ namespace MobileGL::MG_Backend::DirectGLES {
                                                                static_cast<GLsizei>(texelSize.x()),
                                                                static_cast<GLsizei>(texelSize.y()), glFormat, glType,
                                                                textureMipmapObject->MapMipmapData(uploadTarget, level));
-
                             textureMipmapObject->MarkStorageDirty(uploadTarget, level, false);
                         }
                     }
