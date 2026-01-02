@@ -153,29 +153,7 @@ namespace MobileGL {
                 //shaderc_compile_options_set_preserve_bindings(shaderc_opts, true);
                 //shaderc_compile_options_set_vulkan_rules_relaxed(shaderc_opts, false);
                 //shaderc_compile_options_set_nan_clamp(shaderc_opts, true);
-                shaderc_compile_options_set_invert_y(shaderc_opts, true);
-                
-                shaderc_compile_options_add_macro_definition(shaderc_opts, "transpose(rot)", strlen("transpose(rot)"), 
-                    "mat3(rot[0][0], rot[1][0], rot[2][0], rot[0][1], rot[1][1], rot[2][1], rot[0][2], rot[1][2], rot[2][2])", 
-                    strlen("mat3(rot[0][0], rot[1][0], rot[2][0], rot[0][1], rot[1][1], rot[2][1], rot[0][2], rot[1][2], rot[2][2])"));
-
-                shaderc_compile_options_add_macro_definition(shaderc_opts, "vec3 reflection;", strlen("vec3 reflection;"), 
-                    "vec3 reflection=vec3(0,0,0);", strlen("vec3 reflection=vec3(0,0,0);"));
-                
-                shaderc_compile_options_add_macro_definition(shaderc_opts, "writeonly uniform image2D colorimg4;", strlen("writeonly uniform image2D colorimg4;"), 
-                    "layout (rgba16f) writeonly uniform image2D colorimg4;", strlen("layout (rgba16f) writeonly uniform image2D colorimg4;"));
-
-                shaderc_compile_options_add_macro_definition(shaderc_opts, "#error ", strlen("#error "), 
-                    "// #error ", strlen("// #error "));
-
-                shaderc_compile_options_add_macro_definition(shaderc_opts, "texture2D", strlen("texture2D"), 
-                    "texture", strlen("texture"));
-
-                shaderc_compile_options_add_macro_definition(shaderc_opts, "#ifdef GL_ARB_derivative_control", strlen("#ifdef GL_ARB_derivative_control"), 
-                    "#if 0", strlen("#if 0"));
-
-                shaderc_compile_options_add_macro_definition(shaderc_opts, "#ifndef GL_ARB_derivative_control", strlen("#ifndef GL_ARB_derivative_control"), 
-                    "#if 1", strlen("#if 1"));
+                //shaderc_compile_options_set_invert_y(shaderc_opts, true);
 
                 auto shaderc_lang = MG_Util::ConvertGLEnumToShadercGlsl(shaderType);
                 shaderc_compilation_result_t shaderc_src = shaderc_compile_into_preprocessed_text(
@@ -187,7 +165,7 @@ namespace MobileGL {
 
                 if(shaderc_result_get_compilation_status(shaderc_src) != shaderc_compilation_status_success) {
                         ResultInfo r;
-                        r.log += "There is a problem with shaderc: %s", shaderc_result_get_error_message(shaderc_src);
+                        r.log += std::format("There is a problem with shaderc: {}", shaderc_result_get_error_message(shaderc_src));
                         shaderc_result_release(shaderc_src);
                         shaderc_compile_options_release(shaderc_opts);
                         shaderc_opts = nullptr;
