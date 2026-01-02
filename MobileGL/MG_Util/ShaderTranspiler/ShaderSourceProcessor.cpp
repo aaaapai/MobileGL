@@ -6,6 +6,7 @@
 // End of Source File Header
 
 #include "ShaderSourceProcessor.h"
+#include "ShaderSourceProcessor_inline.h"
 
 namespace MobileGL {
     namespace MG_Util {
@@ -182,6 +183,8 @@ vec2 mg_textureQueryLod(sampler2D tex, vec2 uv) {
                         }
                     }
                 }
+
+                inject_glsl_replacements(source);
                 
                 // force #version
                 ShaderProfile profile = ShaderProfile::Core;
