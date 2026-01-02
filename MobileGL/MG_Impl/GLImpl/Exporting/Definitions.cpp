@@ -16,6 +16,7 @@
 #include "../RenderState/GL_RenderState.h"
 #include "../Framebuffer/GL_Framebuffer.h"
 #include "../VertexArray/GL_VertexArray.h"
+#include <MG_Util/BackendLoaders/OpenGL/Loader.h>
 
 #define DECLARE_GL_FUNCTION_STUB_HEAD(type,name,...)                        \
 MOBILEGL_GL_API type gl##name(__VA_ARGS__) {
