@@ -34,6 +34,7 @@ namespace MobileGL {
 
         Depth,
         Stencil,
+        DepthStencil,
 
         Color0,
         Color1,
