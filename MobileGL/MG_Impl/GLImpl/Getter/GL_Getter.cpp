@@ -918,27 +918,7 @@ namespace MobileGL {
                 break;
 
             case GL_MAX_COMBINED_SHADER_OUTPUT_RESOURCES:
-                *params = 16; // 图像单元 + SSBO 的总限制
-                break;
-                
-            case GL_MAX_IMAGE_DIMENSIONS_2D:
-                *params = 2048; // 最大2D图像尺寸
-                break;
-
-            case GL_MAX_IMAGE_DIMENSIONS_3D:
-                *params = 256; // 最大3D图像尺寸
-                break;
-
-            case GL_MAX_IMAGE_DIMENSIONS_CUBE_MAP:
-                *params = 2048; // 立方体贴图图像尺寸
-                break;
-
-            case GL_MAX_IMAGE_DIMENSIONS_1D:
-                *params = 2048; // 如果支持GL_EXT_texture_cube_map_array
-                break;
-
-            case GL_MAX_IMAGE_DIMENSIONS_2D_ARRAY:
-                *params = 256; // 2D数组纹理的层数
+                *params = 16; // 图像单元 + SSBO 的总限制          
                 break;
             default:
                 MGLOG_E("glGetIntegerv: Invalid enum %s (0x%X)", MG_Util::ConvertGLEnumToString(pname).c_str(), pname);
