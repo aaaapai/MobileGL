@@ -2,7 +2,15 @@ cmake_minimum_required(VERSION 3.22.1)
 
 project("MobileGL")
 
-option(MOBILEGL_FORCE_RELEASE_OPT "Enable Release optimization flags in Debug build" ON)
+option(MOBILEGL_BUILD_TEST        "Build MobileGL tests"                             ON )
+option(MOBILEGL_BUILD_BENCHMARK   "Build MobileGL benchmarks"                        ON )
+option(MOBILEGL_FORCE_RELEASE_OPT "Enable Release optimization flags in Debug build" ON )
+option(MOBILEGL_ENABLE_TRANCY     "Enable trancy for profiling"                      OFF)
+
+if (ANDROID)
+    set(MOBILEGL_BUILD_TEST       OFF CACHE BOOL "Build MobileGL tests"      FORCE)
+    set(MOBILEGL_BUILD_BENCHMARK  OFF CACHE BOOL "Build MobileGL benchmarks" FORCE)
+endif()
 
 if (NOT CMAKE_BUILD_TYPE STREQUAL "Debug" OR MOBILEGL_FORCE_RELEASE_OPT)
     include(CheckIPOSupported)
@@ -77,7 +85,7 @@ set(SPIRV_CROSS_STATIC         ON  CACHE BOOL "Prefer static libs" FORCE)
 add_subdirectory(3rdparty/glslang)
 add_subdirectory(3rdparty/SPIRV-Cross)
 
-option(TRACY_ENABLE            "Enable Tracy" OFF)
+set(TRACY_ENABLE ${MOBILEGL_ENABLE_TRACY} CACHE BOOL "Enable Tracy, this is an internal variable" FORCE)
 
 if (TRACY_ENABLE)
     set(TRACY_ON_DEMAND            ON  CACHE BOOL "Enable profiling only connected" FORCE)
@@ -281,12 +289,10 @@ if (ANDROID)
         log)
 endif()
 
-if (NOT ANDROID)
-
-    set(BUILD_TEST ON CACHE BOOL "Build the tests")
-    set(BUILD_BENCHMARK ON CACHE BOOL "Build the benchmarks")
-
+if (MOBILEGL_BUILD_TEST)
     add_subdirectory(MobileGL/MG_Test)
-    add_subdirectory(MobileGL/MG_Benchmark)
+endif()
 
+if (MOBILEGL_BUILD_BENCHMARK)
+    add_subdirectory(MobileGL/MG_Benchmark)
 endif()
