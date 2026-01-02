@@ -6,6 +6,7 @@
 // End of Source File Header
 
 #include <Includes.h>
+#include "../Sync/GL_Sync.h"
 #include "../Buffer/GL_Buffer.h"
 #include "../Getter/GL_Getter.h"
 #include "../Sampler/GL_Sampler.h"
