@@ -78,7 +78,7 @@ namespace MobileGL {
                         .TargetGLVersion = {3, 3, 0},                      //   Target OpenGL Version
                         .TargetGLSLVersion = {4, 6, 0},                    //   Target Shading Language Version
                         .Extensions = {V_OpenGL30, V_OpenGL31, V_OpenGL32, //   OpenGL Extensions
-                                       V_OpenGL33, V_OpenGL40, V_OpenGL41, V_OpenGL42, V_OpenGL43, E_GL_ARB_draw_buffers_blend},
+                                       V_OpenGL33, E_GL_ARB_draw_buffers_blend},
                         .IsCompatibilityProfile = false //   Is Compatibility Profile
                     },
                 .BackendCapability = {.AllowVSOnlyPrograms = false} // Backend Capability
