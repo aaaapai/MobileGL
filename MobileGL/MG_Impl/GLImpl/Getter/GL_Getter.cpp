@@ -898,6 +898,48 @@ namespace MobileGL {
             case GL_MAX_SAMPLES:
                 *params = 16; // TODO
                 break;
+            case GL_MAX_IMAGE_UNITS:
+                *params = 8; // 最小4，推荐8或16
+                break;
+            case GL_MAX_VERTEX_IMAGE_UNIFORMS:
+                *params = 4; // ES 3.2 最小要求
+                break;
+
+            case GL_MAX_FRAGMENT_IMAGE_UNIFORMS:
+                *params = 8; // 通常比顶点多
+                break;
+
+            case GL_MAX_COMPUTE_IMAGE_UNIFORMS:
+                *params = 8; // 如果支持计算着色器
+                break;
+
+            case GL_MAX_COMBINED_IMAGE_UNIFORMS:
+                *params = 12; // 顶点+片段的总和
+                break;
+
+            case GL_MAX_COMBINED_SHADER_OUTPUT_RESOURCES:
+                *params = 16; // 图像单元 + SSBO 的总限制
+                break;
+                
+            case GL_MAX_IMAGE_DIMENSIONS_2D:
+                *params = 2048; // 最大2D图像尺寸
+                break;
+
+            case GL_MAX_IMAGE_DIMENSIONS_3D:
+                *params = 256; // 最大3D图像尺寸
+                break;
+
+            case GL_MAX_IMAGE_DIMENSIONS_CUBE_MAP:
+                *params = 2048; // 立方体贴图图像尺寸
+                break;
+
+            case GL_MAX_IMAGE_DIMENSIONS_1D:
+                *params = 2048; // 如果支持GL_EXT_texture_cube_map_array
+                break;
+
+            case GL_MAX_IMAGE_DIMENSIONS_2D_ARRAY:
+                *params = 256; // 2D数组纹理的层数
+                break;
             default:
                 MGLOG_E("glGetIntegerv: Invalid enum %s (0x%X)", MG_Util::ConvertGLEnumToString(pname).c_str(), pname);
                 MG_State::pGLContext->RecordError(
