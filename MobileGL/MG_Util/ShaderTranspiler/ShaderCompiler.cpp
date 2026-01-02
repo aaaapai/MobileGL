@@ -148,6 +148,28 @@ namespace MobileGL {
 
                 shaderc_compile_options_set_optimization_level(shaderc_opts, shaderc_optimization_level_performance);
 
+                shaderc_compile_options_add_macro_definition(shaderc_opts, "transpose(rot)", strlen("transpose(rot)"), 
+                    "mat3(rot[0][0], rot[1][0], rot[2][0], rot[0][1], rot[1][1], rot[2][1], rot[0][2], rot[1][2], rot[2][2])", 
+                    strlen("mat3(rot[0][0], rot[1][0], rot[2][0], rot[0][1], rot[1][1], rot[2][1], rot[0][2], rot[1][2], rot[2][2])"));
+
+                shaderc_compile_options_add_macro_definition(shaderc_opts, "vec3 reflection;", strlen("vec3 reflection;"), 
+                    "vec3 reflection=vec3(0,0,0);", strlen("vec3 reflection=vec3(0,0,0);"));
+                
+                shaderc_compile_options_add_macro_definition(shaderc_opts, "writeonly uniform image2D colorimg4;", strlen("writeonly uniform image2D colorimg4;"), 
+                    "layout (rgba16f) writeonly uniform image2D colorimg4;", strlen("layout (rgba16f) writeonly uniform image2D colorimg4;"));
+
+                shaderc_compile_options_add_macro_definition(shaderc_opts, "#error ", strlen("#error "), 
+                    "// #error ", strlen("// #error "));
+
+                shaderc_compile_options_add_macro_definition(shaderc_opts, "texture2D", strlen("texture2D"), 
+                    "texture", strlen("texture"));
+
+                shaderc_compile_options_add_macro_definition(shaderc_opts, "#ifdef GL_ARB_derivative_control", strlen("#ifdef GL_ARB_derivative_control"), 
+                    "#if 0", strlen("#if 0"));
+
+                shaderc_compile_options_add_macro_definition(shaderc_opts, "#ifndef GL_ARB_derivative_control", strlen("#ifndef GL_ARB_derivative_control"), 
+                    "#if 1", strlen("#if 1"));
+
                 auto shaderc_lang = MG_Util::ConvertGLEnumToShadercGlsl(shaderType);
                 shaderc_compilation_result_t shaderc_src = shaderc_compile_into_preprocessed_text(
                         shaderc_compiler, 
@@ -179,6 +201,7 @@ namespace MobileGL {
                     shaderc_opts = nullptr;
                     return std::unexpected(r);
                 }
+    
                 if (lang == EShLanguage::EShLangCompute) {
                     ShaderTranspiler_isComuteType = true;
                 } else {
