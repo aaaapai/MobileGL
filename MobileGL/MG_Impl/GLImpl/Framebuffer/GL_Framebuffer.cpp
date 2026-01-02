@@ -294,7 +294,7 @@ namespace MobileGL {
             }
         }
 
-        void glDrawBuffer(GLenum buf) {
+        void DrawBuffer_State(GLenum buf) {
 
             // 获取绑定的绘制帧缓冲区
             auto& bindingSlot = MG_State::pGLContext->GetFramebufferBindingSlot(FramebufferTarget::Draw);
