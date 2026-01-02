@@ -1,10 +1,7 @@
 #pragma once
 #define GL_GLEXT_PROTOTYPES
-#include <GL/gl.h>
-#include <regex.h>
-#include <regex>
-#include <cstring>
-#include <iostream>
+#include <MG_Util/BackendLoaders/OpenGL/Loader.h>
+#include <Includes.h>
 
 extern "C" {
     GLAPI void glBindTextures(GLuint first, GLsizei count, const GLuint* textures);
