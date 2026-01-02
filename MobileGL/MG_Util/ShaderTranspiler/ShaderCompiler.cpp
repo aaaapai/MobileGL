@@ -148,6 +148,13 @@ namespace MobileGL {
 
                 shaderc_compile_options_set_optimization_level(shaderc_opts, shaderc_optimization_level_performance);
 
+                shaderc_compile_options_set_generate_debug_info(shaderc_opts);
+                shaderc_compile_options_set_auto_combined_image_sampler(shaderc_opts, true);
+                shaderc_compile_options_set_preserve_bindings(shaderc_opts, true);
+                shaderc_compile_options_set_vulkan_rules_relaxed(shaderc_opts, false);
+                shaderc_compile_options_set_nan_clamp(shaderc_opts, true);
+                shaderc_compile_options_set_invert_y(shaderc_opts, true);
+                
                 shaderc_compile_options_add_macro_definition(shaderc_opts, "transpose(rot)", strlen("transpose(rot)"), 
                     "mat3(rot[0][0], rot[1][0], rot[2][0], rot[0][1], rot[1][1], rot[2][1], rot[0][2], rot[1][2], rot[2][2])", 
                     strlen("mat3(rot[0][0], rot[1][0], rot[2][0], rot[0][1], rot[1][1], rot[2][1], rot[0][2], rot[1][2], rot[2][2])"));
