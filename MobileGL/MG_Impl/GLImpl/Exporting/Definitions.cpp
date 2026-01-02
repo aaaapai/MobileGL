@@ -61,23 +61,23 @@ MOBILEGL_GL_API type gl##name(__VA_ARGS__) {
     #define DECLARE_GL_NATIVE_FUNCTION_END(type,name,...)                              \
         ZoneScopedC(TRACY_ZONECOLOR_ENTRY);                                     \
         MGLOG_D("Implementing function: %s(...)", __FUNCTION__);                \
-        return MobileGL::MG_External::GLES::name(__VA_ARGS__);                    \
+        return MobileGL::MG_External::GLES::gl##name(__VA_ARGS__);                    \
     }
 
     #define DECLARE_GL_NATIVE_FUNCTION_END_NO_RETURN(type,name,...)                    \
         ZoneScopedC(TRACY_ZONECOLOR_ENTRY);                                     \
         MGLOG_D("Implementing function: %s(...)", __FUNCTION__);                \
-        MobileGL::MG_External::GLES::name(__VA_ARGS__);                           \
+        MobileGL::MG_External::GLES::gl##name(__VA_ARGS__);                           \
     }
 #else
     #define DECLARE_GL_NATIVE_FUNCTION_END(type,name,...)                              \
         MGLOG_D("Implementing function: %s(...)", __FUNCTION__);                \
-        return MobileGL::MG_External::GLES::name(__VA_ARGS__);                    \
+        return MobileGL::MG_External::GLES::gl##name(__VA_ARGS__);                    \
     }
 
     #define DECLARE_GL_NATIVE_FUNCTION_END_NO_RETURN(type,name,...)                    \
         MGLOG_D("Implementing function: %s(...)", __FUNCTION__);                \
-        MobileGL::MG_External::GLES::name(__VA_ARGS__);                           \
+        MobileGL::MG_External::GLES::gl##name(__VA_ARGS__);                           \
     }
 #endif
 
