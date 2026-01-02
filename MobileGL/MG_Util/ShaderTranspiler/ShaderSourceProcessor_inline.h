@@ -2,8 +2,13 @@
 #include <Includes.h>
 #include <MG_State/GLState/ProgramState/ShaderObject.h>
 
+namespace MobileGL {
+
+   namespace MG_Util {
+        namespace ShaderTranspiler {
+
 // 综合GLSL代码注入和替换函数
-static iniline void inject_glsl_replacements(std::string& source) {
+static inline void inject_glsl_replacements(std::string& source) {
 
     // ==================== 2. 注入gl_DepthRange替换 ====================
     const char* str_depthrange = "gl_DepthRange";
@@ -1055,4 +1060,9 @@ vec4 GI_TemporalFilter() {
             }
         }
     }
+}
+
+
+}
+}
 }
