@@ -657,8 +657,8 @@ namespace MobileGL {
             DrawBuffers_State(n, bufs);
         }
 
-        void DrawBuffer(GLenum bufs) {
-            DrawBuffer_State(bufs);
+        void DrawBuffer(GLenum buf) {
+            DrawBuffer_State(buf);
         }
 
 
