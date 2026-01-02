@@ -860,7 +860,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 const char* result = nullptr;
                 spvcSession.Compile(&result);
 
-                if (!result) {
+                if (!result && !(std::getenv("MGL_CHEAT_CHECKFRAMEBUFFERSTATUS"))) {
                     MG_Util::ShaderTranspiler::ResultInfo r;
                     r.log += "Failed to compile the shader to GLSL: \n";
                     r.log += spvcSession.GetLastErrorString();

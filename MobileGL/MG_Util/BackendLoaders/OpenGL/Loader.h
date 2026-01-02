@@ -458,6 +458,8 @@ GL_FUNC_TYPEDEF(void, glMultiDrawElementsBaseVertexEXT, GLenum mode, const GLsiz
 namespace MobileGL {
     namespace MG_External {
         namespace EGL {
+            
+            typedef __eglMustCastToProperFunctionPointerType (*eglGetProcAddress_PTR)(const char* procname);
             typedef EGLBoolean (*eglBindAPI_PTR)(EGLenum api);
             typedef EGLBoolean (*eglBindTexImage_PTR)(EGLDisplay dpy, EGLSurface surface, EGLint buffer);
             typedef EGLBoolean (*eglChooseConfig_PTR)(EGLDisplay dpy, const EGLint* attrib_list, EGLConfig* configs,
@@ -489,7 +491,6 @@ namespace MobileGL {
             typedef EGLDisplay (*eglGetPlatformDisplay_PTR)(EGLenum platform, void* native_display,
                                                             const EGLint* attrib_list);
             typedef EGLint (*eglGetError_PTR)();
-            typedef __eglMustCastToProperFunctionPointerType (*eglGetProcAddress_PTR)(const char* procname);
             typedef EGLBoolean (*eglInitialize_PTR)(EGLDisplay dpy, EGLint* major, EGLint* minor);
             typedef EGLBoolean (*eglMakeCurrent_PTR)(EGLDisplay dpy, EGLSurface draw, EGLSurface read, EGLContext ctx);
             typedef EGLenum (*eglQueryAPI_PTR)();
@@ -511,6 +512,7 @@ namespace MobileGL {
             typedef EGLBoolean (*eglWaitGL_PTR)();
             typedef EGLBoolean (*eglWaitNative_PTR)(EGLint engine);
 
+            EGL_FUNC_DECL(eglGetProcAddress)
             EGL_FUNC_DECL(eglBindAPI)
             EGL_FUNC_DECL(eglBindTexImage)
             EGL_FUNC_DECL(eglChooseConfig)
@@ -531,7 +533,6 @@ namespace MobileGL {
             EGL_FUNC_DECL(eglGetDisplay)
             EGL_FUNC_DECL(eglGetPlatformDisplay)
             EGL_FUNC_DECL(eglGetError)
-            EGL_FUNC_DECL(eglGetProcAddress)
             EGL_FUNC_DECL(eglInitialize)
             EGL_FUNC_DECL(eglMakeCurrent)
             EGL_FUNC_DECL(eglQueryAPI)
@@ -940,10 +941,10 @@ namespace MobileGL {
     namespace MG_Util {
         namespace BackendLoader {
             namespace GLES {
-                Bool Init();
-                extern void *libGLES, *libEGL;
+                bool Init();
+                extern void *libEGL;
 
-                void* ProcAddress(void* lib, const char* name);
+                void* ProcAddress(const char* name);
                 void InitGLES();
                 void InitEGL();
                 void DestroyTempEGLCtx();
@@ -955,5 +956,5 @@ namespace MobileGL {
     } // namespace MG_Util
 } // namespace MobileGL
 
-#define INIT_GLES_FUNC(name)                                                                                           \
-    { MG_External::GLES::name = (name##_PTR)ProcAddress(libGLES, #name); }
+#define INIT_GLES_FUNC(name) \
+    { MG_External::GLES::name = (name##_PTR)ProcAddress(#name); }
