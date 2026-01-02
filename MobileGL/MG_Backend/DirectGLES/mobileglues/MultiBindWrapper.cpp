@@ -4,7 +4,6 @@
 
 #include "MultiBindWrapper.h"
 #include <cassert>
-#include "../texture.h"
 
 #define DEBUG 0
 
