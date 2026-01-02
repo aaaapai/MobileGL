@@ -42,7 +42,7 @@ namespace MobileGL {
 
                 // 处理 GLSL 代码中的特殊关键字和函数
 
-                // 处理 isamplerBuffer 相关代码
+                /*// 处理 isamplerBuffer 相关代码
                 const char* str_isamplerBuffer = "isamplerBuffer";
                 const SizeT len_isamplerBuffer = strlen(str_isamplerBuffer);
                 if (source.find(str_isamplerBuffer) != std::string::npos) {
@@ -148,7 +148,7 @@ uniform int u_BufferTexHeight;
                             source = source.insert(lineEnd + 1, uniformDecl);
                         }
                     }
-                }
+                }*/
 
                 // 注入 textureQueryLod 实现
                 const char* str_textureQueryLod = "textureQueryLod";
