@@ -2,20 +2,17 @@
 #include <Includes.h>
 #include <MG_State/GLState/ProgramState/ShaderObject.h>
 
+namespace MobileGL {
+
+   namespace MG_Util {
+        namespace ShaderTranspiler {
+
 // 综合GLSL代码注入和替换函数
-static iniline void inject_glsl_replacements(std::string& source) {
-    // ==================== 1. 移除noperspective关键字 ====================
-    const char* str_np = "noperspective";
-    const SizeT len_np = strlen(str_np);
-    SizeT noperspectivePos = source.find(str_np);
-    while (noperspectivePos != String::npos) {
-        source = source.replace(noperspectivePos, len_np, "");
-        noperspectivePos = source.find(str_np);
-    }
+static inline void inject_glsl_replacements(std::string& source) {
 
     // ==================== 2. 注入gl_DepthRange替换 ====================
     const char* str_depthrange = "gl_DepthRange";
-    if (source.find(str_depthrange) != String::npos) {
+    if (source.find(str_depthrange) != String::npos && !std::getenv("LIBGL_ANGLE")) {
         // 检查是否已经定义了mg_DepthRange
         const char* str_mg_depthrange_def = "mg_DepthRangeParameters mg_DepthRange;";
         if (source.find(str_mg_depthrange_def) == String::npos) {
@@ -1063,4 +1060,9 @@ vec4 GI_TemporalFilter() {
             }
         }
     }
+}
+
+
+}
+}
 }

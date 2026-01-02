@@ -61,6 +61,12 @@
 #include <glslang/Include/intermediate.h>
 #include <glslang/MachineIndependent/localintermediate.h>
 
+// Include shaderc headers
+#include <shaderc/visibility.h>
+#include <shaderc/env.h>
+#include <shaderc/status.h>
+#include <shaderc/shader.h>
+
 // Include headers for platform-specific functionality
 #ifdef __linux__
 #include <dlfcn.h>

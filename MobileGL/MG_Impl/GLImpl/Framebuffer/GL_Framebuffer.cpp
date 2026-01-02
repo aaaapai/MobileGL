@@ -294,6 +294,98 @@ namespace MobileGL {
             }
         }
 
+        void DrawBuffer_State(GLenum buf) {
+
+            // 获取绑定的绘制帧缓冲区
+            auto& bindingSlot = MG_State::pGLContext->GetFramebufferBindingSlot(FramebufferTarget::Draw);
+            auto fbo = bindingSlot.GetBoundObject();
+            bool isDefaultFBO = (fbo == FramebufferImpl::pDefaultFramebufferInfo->defaultFBO);
+
+            // 将 GLenum 转换为 FramebufferAttachmentType
+            auto attType = MG_Util::ConvertGLEnumToFramebufferAttachmentType(buf);
+
+            // ------------------- 验证参数开始 ------------------------
+            /*if (attType == FramebufferAttachmentType::Unknown) {
+                MG_State::pGLContext->RecordError(
+                    ErrorCode::InvalidEnum,
+                    MakeShared<GenericErrorInfo>("MG_Impl/GLImpl", __func__,
+                                                 std::format("buf = {} is not an accepted value.",
+                                                             MG_Util::ConvertGLEnumToString(buf))));
+                return;
+            }*/
+
+            // 对于默认帧缓冲区
+            /*if (isDefaultFBO) {
+                // 检查是否试图使用 GL_COLOR_ATTACHMENTn
+                if (attType >= FramebufferAttachmentType::Color0 &&
+                    attType <= FramebufferAttachmentType::Color31) {
+                    MG_State::pGLContext->RecordError(
+                        ErrorCode::InvalidEnum,
+                        MakeShared<GenericErrorInfo>(
+                            "MG_Impl/GLImpl", __func__,
+                            std::format("FBO is default FBO, but buf = {} is one of the `GL_COLOR_ATTACHMENTn` tokens.",
+                                        MG_Util::ConvertGLEnumToString(buf))));
+                    return;
+                }
+        
+                // 检查是否是有效的默认帧缓冲区目标
+                if (attType != FramebufferAttachmentType::None &&
+                            !(attType >= FramebufferAttachmentType::FrontLeft && 
+                              attType <= FramebufferAttachmentType::BackRight) &&
+                            attType != FramebufferAttachmentType::FrontAndBack) {
+                            // 注意：FrontAndBack 可能不是 FramebufferAttachmentType 的一部分
+                            // 如果是这种情况，需要特殊处理
+                            MG_State::pGLContext->RecordError(
+                                ErrorCode::InvalidEnum,
+                                MakeShared<GenericErrorInfo>(
+                            "MG_Impl/GLImpl", __func__,
+                            std::format("For default FBO, buf = {} is not a valid value.",
+                                        MG_Util::ConvertGLEnumToString(buf))));
+                            return;
+                }
+            } 
+            // 对于帧缓冲区对象
+            else {
+                // 只能使用 GL_NONE 或 GL_COLOR_ATTACHMENTn
+                if (attType != FramebufferAttachmentType::None &&
+                    !(attType >= FramebufferAttachmentType::Color0 &&
+                      attType <= FramebufferAttachmentType::Color31)) {
+                    MG_State::pGLContext->RecordError(
+                        ErrorCode::InvalidEnum,
+                        MakeShared<GenericErrorInfo>(
+                            "MG_Impl/GLImpl", __func__,
+                            std::format("FBO is not default FBO, but buf = {} is not `GL_NONE` or one of the `GL_COLOR_ATTACHMENTn` tokens.",
+                                        MG_Util::ConvertGLEnumToString(buf))));
+                    return;
+                }
+        
+                // 检查颜色附件索引是否超出范围
+                if (attType >= FramebufferAttachmentType::Color0 &&
+                    attType <= FramebufferAttachmentType::Color31) {
+                    GLsizei index = static_cast<GLsizei>(attType) - static_cast<GLsizei>(FramebufferAttachmentType::Color0);
+                    if (index >= MG_State::GLState::FramebufferObject::MAX_DRAW_BUFFERS) {
+                        MG_State::pGLContext->RecordError(
+                            ErrorCode::InvalidOperation,
+                            MakeShared<GenericErrorInfo>("MG_Impl/GLImpl", __func__,
+                                                         std::format("buf = {} indicates a color buffer that does "
+                                                                     "not exist in the current GL context.",
+                                                                     MG_Util::ConvertGLEnumToString(buf))));
+                        return;
+                    }
+                }
+            }*/
+            // ------------------------- 验证参数结束 ----------------------------------
+
+            // 设置绘制缓冲区
+            // glDrawBuffer 设置第一个颜色缓冲区（索引0），并将其他所有缓冲区设置为 GL_NONE
+            fbo->SetDrawBuffer(0, attType);
+    
+            // 将所有其他颜色缓冲区设置为 GL_NONE
+            for (GLsizei i = 1; i < MG_State::GLState::FramebufferObject::MAX_DRAW_BUFFERS; ++i) {
+                fbo->SetDrawBuffer(i, FramebufferAttachmentType::None);
+            }
+        }
+
         void DeleteRenderbuffers_State(GLsizei n, const GLuint* renderbuffers) {
             if (n < 0) {
                 MG_State::pGLContext->RecordError(
@@ -564,6 +656,11 @@ namespace MobileGL {
         void DrawBuffers(GLsizei n, const GLenum* bufs) {
             DrawBuffers_State(n, bufs);
         }
+
+        void DrawBuffer(GLenum buf) {
+            DrawBuffer_State(buf);
+        }
+
 
         void DeleteRenderbuffers(GLsizei n, const GLuint* renderbuffers) {
             DeleteRenderbuffers_State(n, renderbuffers);
