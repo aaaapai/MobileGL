@@ -8,7 +8,7 @@ jobs:
     steps:
     - uses: actions/checkout@main
       with:
-        submodules: 'false'
+        submodules: 'recursive'
         
     - name: Update all submodules
       run: |
