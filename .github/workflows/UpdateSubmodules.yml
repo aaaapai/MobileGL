@@ -12,4 +12,6 @@ jobs:
         
     - name: Update all submodules
       run: |
+        chmod +x ./update.bash
         ./update.bash
+        
