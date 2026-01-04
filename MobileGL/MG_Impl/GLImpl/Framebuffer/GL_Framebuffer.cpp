@@ -234,7 +234,7 @@ namespace MobileGL {
                     MG_State::pGLContext->RecordError(
                         ErrorCode::InvalidEnum,
                         MakeShared<GenericErrorInfo>("MG_Impl/GLImpl", __func__,
-                                                     std::format("bufs[{}] = %s is not an accepted value.", i,
+                                                     std::format("bufs[{}] = {} is not an accepted value.", i,
                                                                  MG_Util::ConvertGLEnumToString(bufs[i]))));
                     return;
                 }
@@ -291,6 +291,15 @@ namespace MobileGL {
             }
             for (GLsizei i = n; i < MG_State::GLState::FramebufferObject::MAX_DRAW_BUFFERS; ++i) {
                 fbo->SetDrawBuffer(i, FramebufferAttachmentType::None);
+            }
+        }
+
+        void DrawBuffer_State(GLenum buf) {
+            if (buf == GL_NONE) {
+                DrawBuffers_State(0, nullptr);
+            } else {
+                static GLenum bufs[] = {buf};
+                DrawBuffers_State(1, bufs);
             }
         }
 
@@ -449,7 +458,7 @@ namespace MobileGL {
                     ErrorCode::InvalidEnum,
                     MakeShared<GenericErrorInfo>(
                         "MG_Impl/GLImpl", "GetRenderbufferParameteriv_State",
-                        std::format("pname %s is not an accepted value.", MG_Util::ConvertGLEnumToString(pname))));
+                        std::format("pname {} is not an accepted value.", MG_Util::ConvertGLEnumToString(pname))));
                 return;
             }
         }
@@ -555,6 +564,10 @@ namespace MobileGL {
 
         void FramebufferRenderbuffer(GLenum target, GLenum attachment, GLenum renderbuffertarget, GLuint renderbuffer) {
             FramebufferRenderbuffer_State(target, attachment, renderbuffertarget, renderbuffer);
+        }
+
+        void DrawBuffer(GLenum buf) {
+            DrawBuffer_State(buf);
         }
 
         void DrawBuffers(GLsizei n, const GLenum* bufs) {
