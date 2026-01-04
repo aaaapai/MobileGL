@@ -148,13 +148,14 @@ namespace MobileGL::MG_Util::PixelStoreProcessor {
                 if (textureInputFormat == TextureInputFormat::BGRA &&
                     targetInternalFormat == TextureInternalFormat::RGBA8) {
                     MGLOG_D("%s: Swizzle (BGRA)", __func__);
-                    MGLOG_D("%s: pixel0 before = %x", __func__, *((Uint32*)layerDst));
+//                    MGLOG_D("%s: pixel0 before = %x", __func__, *((Uint32*)layerDst));
                     ProcessColorSwizzle(layerDst, static_cast<SizeT>(copyWidth),
                                         {TextureSwizzleParam::Green, TextureSwizzleParam::Blue,
                                          TextureSwizzleParam::Alpha, TextureSwizzleParam::Red});
-                    MGLOG_D("%s: pixel0 after  = %x", __func__, *((Uint32*)layerDst));
-                } else
-                    MGLOG_D("%s: pixel0        = %x", __func__, *((Uint32*)layerDst));
+//                    MGLOG_D("%s: pixel0 after  = %x", __func__, *((Uint32*)layerDst));
+                }
+//                else
+//                    MGLOG_D("%s: pixel0        = %x", __func__, *((Uint32*)layerDst));
 
                 layerSrc += inputStride;
                 layerDst += static_cast<SizeT>(copyWidth) * pixelSize;

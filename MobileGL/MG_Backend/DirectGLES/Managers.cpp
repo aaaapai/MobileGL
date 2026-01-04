@@ -319,7 +319,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 targetInternal == TextureTarget::Texture1DArray || targetInternal == TextureTarget::Texture3D ||
                 targetInternal == TextureTarget::Texture2DMultisample ||
                 targetInternal == TextureTarget::Texture2DArray) {
-                MGLOG_D("    Texture target %s is not supported, skipping.",
+                MGLOG_E("    Texture target %s is not supported, skipping.",
                         MG_Util::ConvertTextureTargetToString(targetInternal).c_str());
                 return;
             }
