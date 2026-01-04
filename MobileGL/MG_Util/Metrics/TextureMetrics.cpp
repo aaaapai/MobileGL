@@ -60,6 +60,11 @@ namespace MobileGL {
             case TextureInternalFormat::RG16F:
                 return 4;
 
+            case TextureInternalFormat::RGB16F:
+            case TextureInternalFormat::RGB16I:
+            case TextureInternalFormat::RGB16UI:
+                return 6;
+
             case TextureInternalFormat::RGBA12:
             case TextureInternalFormat::RGBA16:
             case TextureInternalFormat::RGBA16I:
@@ -70,10 +75,7 @@ namespace MobileGL {
             case TextureInternalFormat::RG32UI:
                 return 8;
 
-            case TextureInternalFormat::RGB16F:
             case TextureInternalFormat::RGB32F:
-            case TextureInternalFormat::RGB16I:
-            case TextureInternalFormat::RGB16UI:
             case TextureInternalFormat::RGB32I:
             case TextureInternalFormat::RGB32UI:
                 return 12;
