@@ -449,7 +449,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
                     auto target = textureObject->GetTarget();
                     if (target == TextureTarget::Texture1D || target == TextureTarget::TextureRectangle ||
                         target == TextureTarget::Texture2DMultisampleArray || target == TextureTarget::Texture1DArray ||
-                        target == TextureTarget::Texture3D || target == TextureTarget::Texture2DMultisample ||
+                        target == TextureTarget::Texture2DMultisample ||
                         target == TextureTarget::Texture2DArray) {
                         MGLOG_D("    Texture target %s is not supported, skipping.",
                                 MG_Util::ConvertTextureTargetToString(target).c_str());
