@@ -257,7 +257,24 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 if (outType) *outType = GL_HALF_FLOAT;
                 if (outFormat) *outFormat = GL_RG;
                 break;
-
+            case GL_R16:
+                /* TODO: By using R16F as R16, we're losing ~5bit precision along the way,
+                 * deal with this later.
+                 * This R16F as R16 conversion should only be applied on ES,
+                 * see: https://registry.khronos.org/OpenGL/extensions/OES/OES_texture_buffer.txt
+                 * ```
+                 *   Issues:
+                 *   (6) Should the R16, RG16 and RGBA16 texture formats be supported?
+                         RESOLVED.  No. OpenGL ES 3.0 does not support these formats. They were
+                         considered for late addition to OpenGL ES 3.1 in Bug 11366, but didn't
+                         make the cut. In the absence of another extension to add them, they
+                         are not supported here either.
+                    ```
+                 */
+                if (outInternalFormat) *outInternalFormat = GL_R16F;
+                if (outType) *outType = GL_FLOAT;
+                if (outFormat) *outFormat = GL_RED;
+                break;
             case GL_R8:
                 if (outInternalFormat) *outInternalFormat = internalFormat;
                 if (outType) *outType = GL_UNSIGNED_BYTE;
@@ -370,6 +387,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 break;
 
             default:
+                MGLOG_E("NormalizePixelFormat: unhandled internalFormat: %s", MG_Util::ConvertGLEnumToString(internalFormat).c_str());
                 // Fallback handling for other formats
                 if (outInternalFormat) *outInternalFormat = internalFormat;
                 if (outType) *outType = GL_UNSIGNED_BYTE; // More reasonable default
