@@ -59,7 +59,6 @@ namespace MobileGL::MG_Backend::DirectGLES {
             GLint m_previousBinding = 0;
         };
 
-        void NormalizePixelFormat(GLenum internalFormat, GLenum* outInternalFormat, GLenum* outType, GLenum* outFormat);
         void GenerateTextureFormatInfo(TextureInternalFormat internalFormat, GLenum* outInternalFormat, GLenum* outType,
                                        GLenum* outFormat);
     } // namespace TextureImpl
