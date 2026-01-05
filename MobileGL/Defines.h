@@ -45,7 +45,8 @@
 #define MOBILEGL_LOG_ENABLE_ANDROID 1
 
 // Require C++23
-#if __cplusplus >= 202302L
+// Android NDK still doesn't have support for that :(
+#if __cplusplus >= 202302L && !__ANDROID__
 #define MOBILEGL_LOG_ENABLE_STACKTRACE 1
 #endif
 

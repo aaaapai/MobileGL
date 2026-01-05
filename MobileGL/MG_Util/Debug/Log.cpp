@@ -76,6 +76,11 @@ namespace MobileGL {
         void Log(const char* levelTag, android_LogPriority androidLogLevel, const char* fmt, ...) {
             std::lock_guard<std::mutex> lock(s_mutex);
 
+#if MOBILEGL_LOG_ENABLE_STACKTRACE
+            auto trace = std::stacktrace::current();
+            std::string padding(4 * trace.size(), ' ');
+#endif
+
             std::string header =
                 "[" + GetCurrentTime() + "] [" + GetOSName() + " " + GetThreadName() + "/" + levelTag + "]: ";
 
@@ -83,7 +88,11 @@ namespace MobileGL {
             va_list args;
             va_start(args, fmt);
             int n = std::vsnprintf(buffer, sizeof(buffer), fmt, args);
-            std::string out = header + std::string(buffer, n) + "\n";
+            std::string out = header +
+#if MOBILEGL_LOG_ENABLE_STACKTRACE
+                padding +
+#endif
+                std::string(buffer, n) + "\n";
 
 #if MOBILEGL_LOG_ENABLE_CONSOLE
             std::fwrite(out.c_str(), 1, out.size(), stdout);
