@@ -44,6 +44,11 @@
 #define MOBILEGL_LOG_ENABLE_FILE 1
 #define MOBILEGL_LOG_ENABLE_ANDROID 1
 
+// Require C++23
+#if __cplusplus >= 202302L
+#define MOBILEGL_LOG_ENABLE_STACKTRACE 1
+#endif
+
 #ifdef __ANDROID__
 #define MOBILEGL_LOG_FILE_PATH "/sdcard/MG/latest.log"
 #else

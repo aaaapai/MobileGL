@@ -31,6 +31,7 @@ endif()
 
 if (CMAKE_CXX_COMPILER_ID MATCHES "MSVC")
     add_compile_options(/Zc:preprocessor)
+    add_compile_options(/Zc:__cplusplus)
 endif()
 
 enable_language(CXX)
