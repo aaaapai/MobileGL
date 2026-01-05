@@ -386,15 +386,11 @@ namespace MobileGL::MG_Backend::DirectGLES {
 
                             errorLopper.Clear();
                             MG_External::GLES::glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
+                            auto textureTarget = stateTextureObject->GetTarget();
                             // TODO: handle more texture types
-                            switch (uploadTarget) {
-                                case TextureUploadTarget::Texture2D:
-                                case TextureUploadTarget::CubeMapPositiveX:
-                                case TextureUploadTarget::CubeMapNegativeX:
-                                case TextureUploadTarget::CubeMapPositiveY:
-                                case TextureUploadTarget::CubeMapNegativeY:
-                                case TextureUploadTarget::CubeMapPositiveZ:
-                                case TextureUploadTarget::CubeMapNegativeZ:
+                            switch (textureTarget) {
+                                case TextureTarget::Texture2D:
+                                case TextureTarget::TextureCubeMap:
                                 {
                                     MG_External::GLES::glTexImage2D(glUploadTarget, static_cast<GLint>(level), glInternalFormat,
                                                             static_cast<GLsizei>(levelTexelSize.x()),
@@ -402,7 +398,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
                                                             glType, pData);
                                     break;
                                 }
-                                case TextureUploadTarget::Texture3D: {
+                                case TextureTarget::Texture3D: {
                                     MG_External::GLES::glTexImage3D(glUploadTarget, static_cast<GLint>(level), glInternalFormat,
                                                             static_cast<GLsizei>(levelTexelSize.x()),
                                                             static_cast<GLsizei>(levelTexelSize.y()),
@@ -412,7 +408,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
                                     break;
                                 }
                                 default: {
-                                    MGLOG_E("Unhandled texture upload target %s", MG_Util::ConvertTextureUploadTargetToString(uploadTarget).c_str());
+                                    MGLOG_E("Unhandled texture target %s", MG_Util::ConvertTextureTargetToString(textureTarget).c_str());
                                 }
                             }
                             MGLOG_D("Regenerated mipmap level %d for texture with ID: %u", level, m_backendTextureId);
