@@ -826,18 +826,6 @@ namespace MobileGL::MG_Backend::DirectGLES {
             });
             // Protector will automatically revert to previous fbo states
         }
-
-        // TODO: potential desync between MG_State and backend
-        auto activeUnit = MG_State::pGLContext->GetTextureUnitObject(MG_State::pGLContext->GetActiveTextureUnit());
-        TextureTarget textureTarget = MG_Util::ConvertGLEnumToTextureTarget(target);
-        auto& bindingSlot = activeUnit.GetBindingSlot(textureTarget);
-        auto textureObject = bindingSlot.GetBoundObject();
-
-        textureObject->SetInternalFormat(mglInternalFormat);
-        MOBILEGL_ASSERT(nullptr != dynamic_cast<MG_State::GLState::TextureObjectMipmap*>(textureObject.get()),
-                        "Texture object here should always be an object with mipmap");
-        auto textureMipmapObject = static_cast<MG_State::GLState::TextureObjectMipmap*>(textureObject.get());
-        textureMipmapObject->AllocateStorage(TextureUploadTarget::Texture2D, level, {{width, height, 1}, 0});
     }
 
     void CopyTexSubImage2D(GLenum target, GLint level, GLint xoffset, GLint yoffset, GLint x, GLint y, GLsizei width,

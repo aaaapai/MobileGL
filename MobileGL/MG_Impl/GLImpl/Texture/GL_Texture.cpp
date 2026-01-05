@@ -16,6 +16,7 @@
 #include "ProxyTexture.h"
 #include "MG_State/GLState/TextureState/TextureObjectBuffer.h"
 #include "MG_Util/Converters/GLToStr/GLEnumConverter.h"
+#include "MG_Util/Texture/TextureFormatProcessor.h"
 
 #include <MG_State/GLState/Core.h>
 #include <MG_Util/Metrics/TextureMetrics.h>
@@ -1210,6 +1211,16 @@ namespace MobileGL {
             // TODO: implement
         }
 
+        void CopyTexImage2D_State(GLenum target, GLint level, GLenum internalformat, GLint x, GLint y, GLsizei width,
+                                    GLsizei height, GLint border) {
+            GLenum outInternalFormat, format, type;
+            MG_Util::TextureFormatProcessor::NormalizePixelFormat(internalformat, &outInternalFormat, &format, &type);
+            const auto pixelUnpackBufferObject =
+                    MG_State::pGLContext->GetBufferBindingSlot(BufferTarget::PixelUnpack).GetBoundObject();
+            TexImage2D_State(target, level, outInternalFormat, width, height, border, format, type, nullptr);
+            MG_State::pGLContext->GetBufferBindingSlot(BufferTarget::PixelUnpack).Bind(pixelUnpackBufferObject);
+        }
+
         void CopyTexImage2D_Backend(GLenum target, GLint level, GLenum internalformat, GLint x, GLint y, GLsizei width,
                                     GLsizei height, GLint border) {
 #if MOBILEGL_BACKEND == MOBILEGL_BACKEND_TYPE_DIRECT_GLES
@@ -1434,6 +1445,7 @@ namespace MobileGL {
 
         void CopyTexImage2D(GLenum target, GLint level, GLenum internalformat, GLint x, GLint y, GLsizei width,
                             GLsizei height, GLint border) {
+            CopyTexImage2D_State(target, level, internalformat, x, y, width, height, border);
             CopyTexImage2D_Backend(target, level, internalformat, x, y, width, height, border);
         }
 
