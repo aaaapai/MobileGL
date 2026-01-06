@@ -28,8 +28,8 @@ namespace MobileGL::MG_Util::TextureFormatProcessor {
                 break;
 
             case GL_DEPTH_COMPONENT32:
-                if (outInternalFormat) *outInternalFormat = GL_DEPTH_COMPONENT32F;
-                if (outType) *outType = GL_FLOAT;
+                if (outInternalFormat) *outInternalFormat = GL_DEPTH_COMPONENT;
+                if (outType) *outType = GL_UNSIGNED_INT;
                 if (outFormat) *outFormat = GL_DEPTH_COMPONENT;
                 break;
 
@@ -46,7 +46,7 @@ namespace MobileGL::MG_Util::TextureFormatProcessor {
                 break;
             case GL_DEPTH32F_STENCIL8:
             case GL_DEPTH_STENCIL:
-                if (outInternalFormat) *outInternalFormat = GL_DEPTH32F_STENCIL8;
+                if (outInternalFormat) *outInternalFormat = internalFormat;
                 if (outType) *outType = GL_FLOAT_32_UNSIGNED_INT_24_8_REV;
                 if (outFormat) *outFormat = GL_DEPTH_STENCIL;
                 break;
@@ -215,8 +215,8 @@ namespace MobileGL::MG_Util::TextureFormatProcessor {
                          are not supported here either.
                     ```
                  */
-                if (outInternalFormat) *outInternalFormat = GL_R16F;
-                if (outType) *outType = GL_FLOAT;
+                if (outInternalFormat) *outInternalFormat = GL_R16;
+                if (outType) *outType = GL_UNSIGNED_SHORT;
                 if (outFormat) *outFormat = GL_RED;
                 break;
             case GL_R8:
