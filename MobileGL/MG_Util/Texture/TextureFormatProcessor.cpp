@@ -154,8 +154,8 @@ namespace MobileGL::MG_Util::TextureFormatProcessor {
             case GL_RGBA16: {
                 // TODO: check for extension GL_EXT_texture_norm16 for eligibility of (GL_RGBA16, GL_UNSIGNED_SHORT)
                 // Most Mali does not support this (< Mali-G6xx, some G720?)
-                if (outInternalFormat) *outInternalFormat = GL_RGBA16F;
-                if (outType) *outType = GL_FLOAT;
+                if (outInternalFormat) *outInternalFormat = GL_RGBA16;
+                if (outType) *outType = GL_UNSIGNED_SHORT;
                 if (outFormat) *outFormat = GL_RGBA;
                 break;
             }
