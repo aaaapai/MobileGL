@@ -51,21 +51,7 @@ namespace MobileGL::MG_Util::TextureFormatProcessor {
                 if (outFormat) *outFormat = GL_DEPTH_STENCIL;
                 break;
 
-            case GL_RGB10_A2:
-                if (outInternalFormat) *outInternalFormat = internalFormat;
-                if (outType) *outType = GL_UNSIGNED_INT_2_10_10_10_REV;
-                if (outFormat) *outFormat = GL_RGBA;
-                break;
 
-            case GL_RGB5_A1:
-                if (outInternalFormat) *outInternalFormat = internalFormat;
-                if (outType) *outType = GL_UNSIGNED_SHORT_5_5_5_1;
-                if (outFormat) *outFormat = GL_RGBA;
-                break;
-
-            case GL_COMPRESSED_RED_RGTC1:
-            case GL_COMPRESSED_RG_RGTC2:
-                break;
 
             case GL_SRGB8:
                 if (outInternalFormat) *outInternalFormat = internalFormat;
@@ -93,18 +79,6 @@ namespace MobileGL::MG_Util::TextureFormatProcessor {
                             if (outFormat) *outFormat = GL_RED;
                             break;
                     }
-                break;
-
-            case GL_RGB9_E5:
-                if (outInternalFormat) *outInternalFormat = internalFormat;
-                if (outType) *outType = GL_UNSIGNED_INT_5_9_9_9_REV;
-                if (outFormat) *outFormat = GL_RGB;
-                break;
-
-            case GL_R11F_G11F_B10F:
-                if (outInternalFormat) *outInternalFormat = internalFormat;
-                if (outType) *outType = GL_UNSIGNED_INT_10F_11F_11F_REV;
-                if (outFormat) *outFormat = GL_RGB;
                 break;
 
             case GL_RGBA32UI:
@@ -225,12 +199,6 @@ namespace MobileGL::MG_Util::TextureFormatProcessor {
                 if (outFormat) *outFormat = GL_RED;
                 break;
 
-            case GL_R8_SNORM:
-                if (outInternalFormat) *outInternalFormat = internalFormat;
-                if (outType) *outType = GL_BYTE;
-                if (outFormat) *outFormat = GL_RED;
-                break;
-
             case GL_RED:
                 // For GL_RED, we need to infer based on type or use default
                 if (outInternalFormat) *outInternalFormat = GL_R8; // Default fallback
@@ -268,12 +236,6 @@ namespace MobileGL::MG_Util::TextureFormatProcessor {
                 if (outFormat) *outFormat = GL_RG;
                 break;
 
-            case GL_RG8_SNORM:
-                if (outInternalFormat) *outInternalFormat = internalFormat;
-                if (outType) *outType = GL_BYTE;
-                if (outFormat) *outFormat = GL_RG;
-                break;
-
             case GL_RG16F:
                 if (outInternalFormat) *outInternalFormat = internalFormat;
                 if (outType) *outType = GL_HALF_FLOAT;
@@ -305,18 +267,7 @@ namespace MobileGL::MG_Util::TextureFormatProcessor {
                 break;
 
 
-            case GL_RGB8_SNORM:
-            case GL_RGBA8_SNORM:
-                if (outInternalFormat) *outInternalFormat = internalFormat;
-                if (outType) *outType = GL_BYTE;
-                if (outFormat) {
-                    if (internalFormat == GL_RGB8_SNORM) {
-                        *outFormat = GL_RGB;
-                    } else {
-                        *outFormat = GL_RGBA;
-                    }
-                }
-                break;
+
 
             case GL_RGB8:
                 if (outInternalFormat) *outInternalFormat = internalFormat;
@@ -324,12 +275,59 @@ namespace MobileGL::MG_Util::TextureFormatProcessor {
                 if (outFormat) *outFormat = GL_RGB;
                 break;
 
+            // Color Snorm
+            // 16
             case GL_RGBA16_SNORM:
+                if (outFormat) *outFormat = GL_RGBA;
+            case GL_RGB16_SNORM:
+                if (outFormat) *outFormat = GL_RGB;
+            case GL_RG16_SNORM:
+                if (outFormat) *outFormat = GL_RG;
+            case GL_R16_SNORM:
+                if (outFormat) *outFormat = GL_RED;
+
                 if (outInternalFormat) *outInternalFormat = internalFormat;
                 if (outType) *outType = GL_SHORT;
-                if (outFormat) *outFormat = GL_RGBA;
                 break;
 
+            // 8
+            case GL_RGBA8_SNORM:
+                if (outFormat) *outFormat = GL_RGBA;
+            case GL_RGB8_SNORM:
+                if (outFormat) *outFormat = GL_RGB;
+            case GL_RG8_SNORM:
+                if (outFormat) *outFormat = GL_RG;
+            case GL_R8_SNORM:
+                if (outFormat) *outFormat = GL_RED;
+
+                if (outInternalFormat) *outInternalFormat = internalFormat;
+                if (outType) *outType = GL_BYTE;
+                break;
+
+            // Color sized formats
+            case GL_RGB9_E5:
+                if (outInternalFormat) *outInternalFormat = internalFormat;
+                if (outType) *outType = GL_UNSIGNED_INT_5_9_9_9_REV;
+                if (outFormat) *outFormat = GL_RGB;
+                break;
+            case GL_R11F_G11F_B10F:
+                if (outInternalFormat) *outInternalFormat = internalFormat;
+                if (outType) *outType = GL_UNSIGNED_INT_10F_11F_11F_REV;
+                if (outFormat) *outFormat = GL_RGB;
+                break;
+            case GL_RGB10_A2:
+                if (outInternalFormat) *outInternalFormat = internalFormat;
+                if (outType) *outType = GL_UNSIGNED_INT_2_10_10_10_REV;
+                if (outFormat) *outFormat = GL_RGBA;
+                break;
+            case GL_RGB5_A1:
+                if (outInternalFormat) *outInternalFormat = internalFormat;
+                if (outType) *outType = GL_UNSIGNED_SHORT_5_5_5_1;
+                if (outFormat) *outFormat = GL_RGBA;
+                break;
+            case GL_COMPRESSED_RED_RGTC1:
+            case GL_COMPRESSED_RG_RGTC2:
+                break;
             default:
                 MGLOG_E("NormalizePixelFormat: unhandled internalFormat: %s", MG_Util::ConvertGLEnumToString(internalFormat).c_str());
                 // Fallback handling for other formats
