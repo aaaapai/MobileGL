@@ -774,7 +774,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
 
         GLenum format = GL_DEPTH_COMPONENT;
         GLenum type = GL_UNSIGNED_INT;
-        TextureImpl::GenerateTextureFormatInfo(mglInternalFormat, &internalformat, &format, &type);
+        TextureImpl::GenerateTextureFormatInfo(mglInternalFormat, &internalformat, &type, &format);
         TexturePixelDataType texturePixelDataType = MG_Util::ConvertGLEnumToTexturePixelDataType(type);
 
         bool isDepthFormat =

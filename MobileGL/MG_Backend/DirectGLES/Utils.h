@@ -59,8 +59,8 @@ namespace MobileGL::MG_Backend::DirectGLES {
             GLint m_previousBinding = 0;
         };
 
-        void GenerateTextureFormatInfo(TextureInternalFormat internalFormat, GLenum* outInternalFormat, GLenum* outType,
-                                       GLenum* outFormat);
+        void GenerateTextureFormatInfo(TextureInternalFormat internalFormat, GLenum* outInternalFormat,
+                                       GLenum* outFormat, GLenum* outType);
     } // namespace TextureImpl
 
     namespace FramebufferImpl {

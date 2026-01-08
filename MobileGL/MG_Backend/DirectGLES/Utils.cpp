@@ -67,13 +67,14 @@ namespace MobileGL::MG_Backend::DirectGLES {
             MG_External::GLES::glBindTexture(m_target, m_previousBinding);
         }
 
-        void GenerateTextureFormatInfo(TextureInternalFormat internalFormat, GLenum* outInternalFormat, GLenum* outType,
-                                       GLenum* outFormat) {
+        void GenerateTextureFormatInfo(TextureInternalFormat internalFormat, GLenum* outInternalFormat,
+                                       GLenum* outFormat, GLenum* outType) {
 #ifdef TRACY_ENABLE
             ZoneScopedC(TRACY_ZONECOLOR_BACKEND);
 #endif
-            MG_Util::TextureFormatProcessor::NormalizePixelFormat(MG_Util::ConvertTextureInternalFormatToGLEnum(internalFormat), outInternalFormat,
-                                                                  outFormat, outType);
+            MG_Util::TextureFormatProcessor::NormalizePixelFormat(
+                    MG_Util::ConvertTextureInternalFormatToGLEnum(internalFormat), outInternalFormat,
+                    outFormat, outType);
         }
     } // namespace TextureImpl
 

@@ -367,8 +367,8 @@ namespace MobileGL::MG_Backend::DirectGLES {
 
                     // Regenerate all mipmap levels
                     GLenum glInternalFormat, glType, glFormat;
-                    TextureImpl::GenerateTextureFormatInfo(textureMipmapObject->GetFormat(), &glInternalFormat, &glType,
-                                                           &glFormat);
+                    TextureImpl::GenerateTextureFormatInfo(textureMipmapObject->GetFormat(), &glInternalFormat,
+                                                           &glFormat, &glType);
 
                     const auto& uploadTargets = textureMipmapObject->GetUploadTargets();
                     for (auto uploadTarget : uploadTargets) {
@@ -422,8 +422,8 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 { // Update all dirty mipmap levels
                     const auto mipmapCount = textureMipmapObject->GetMipmapLevelCount();
                     GLenum glInternalFormat, glType, glFormat;
-                    TextureImpl::GenerateTextureFormatInfo(textureMipmapObject->GetFormat(), &glInternalFormat, &glType,
-                                                           &glFormat);
+                    TextureImpl::GenerateTextureFormatInfo(textureMipmapObject->GetFormat(), &glInternalFormat,
+                                                           &glFormat, &glType);
                     const auto& uploadTargets = textureMipmapObject->GetUploadTargets();
                     for (auto uploadTarget : uploadTargets) {
                         for (SizeT level = 0; level < mipmapCount; ++level) {
@@ -490,8 +490,8 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 auto backendId = backendBufferObject->GetBackendBufferId();
 
                 GLenum glInternalFormat, glType, glFormat;
-                TextureImpl::GenerateTextureFormatInfo(textureBufferObject->GetFormat(), &glInternalFormat, &glType,
-                                                       &glFormat);
+                TextureImpl::GenerateTextureFormatInfo(textureBufferObject->GetFormat(), &glInternalFormat,
+                                                       &glFormat, &glType);
 
                 MG_External::GLES::glTexBuffer(GL_TEXTURE_BUFFER, glInternalFormat, backendId);
                 break;
@@ -1088,7 +1088,8 @@ namespace MobileGL::MG_Backend::DirectGLES {
             Int width = static_cast<Int>(stateRBOObject->GetWidth());
             Int height = static_cast<Int>(stateRBOObject->GetHeight());
             GLenum glInternalFormat, glType, glFormat;
-            TextureImpl::GenerateTextureFormatInfo(internalFormat, &glInternalFormat, &glType, &glFormat);
+            TextureImpl::GenerateTextureFormatInfo(internalFormat, &glInternalFormat,
+                                                   &glFormat, &glType);
 
             MG_External::GLES::glRenderbufferStorage(GL_RENDERBUFFER, glInternalFormat, static_cast<GLsizei>(width),
                                                      static_cast<GLsizei>(height));
