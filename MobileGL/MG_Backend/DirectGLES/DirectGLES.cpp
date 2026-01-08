@@ -66,6 +66,20 @@ namespace MobileGL::MG_Backend::DirectGLES {
         ErrorLopper::ErrorLopper() {}
         ErrorLopper::~ErrorLopper() {}
 #endif
+
+#if MOBILEGL_LOG_ACTIVE_LEVEL <= MOBILEGL_LOG_LEVEL_DEBUG
+        OpenGLScopeMarker::OpenGLScopeMarker(String scopeName) {
+            MG_External::GLES::glPushDebugGroup(GL_DEBUG_SOURCE_APPLICATION, 0, -1, scopeName.c_str());
+        }
+
+        OpenGLScopeMarker::~OpenGLScopeMarker() {
+            MG_External::GLES::glPopDebugGroup();
+        }
+#else
+        OpenGLScopeMarker::OpenGLScopeMarker(String scopeName) {}
+
+        OpenGLScopeMarker::~OpenGLScopeMarker() {}
+#endif
     } // namespace DebugImpl
 
     // TODO: deletion for deleted objects
@@ -719,6 +733,9 @@ namespace MobileGL::MG_Backend::DirectGLES {
 
     void BlitFramebuffer(GLint srcX0, GLint srcY0, GLint srcX1, GLint srcY1, GLint dstX0, GLint dstY0, GLint dstX1,
                          GLint dstY1, GLbitfield mask, GLenum filter) {
+#if MOBILEGL_LOG_ACTIVE_LEVEL <= MOBILEGL_LOG_LEVEL_DEBUG
+        DebugImpl::OpenGLScopeMarker marker(__func__);
+#endif
         DebugImpl::ErrorLopper errorLopper;
 
         TextureImpl::SyncNeccessaryTextures();
@@ -749,6 +766,9 @@ namespace MobileGL::MG_Backend::DirectGLES {
 
     void CopyTexImage2D(GLenum target, GLint level, GLenum internalformat, GLint x, GLint y, GLsizei width,
                         GLsizei height, GLint border) {
+#if MOBILEGL_LOG_ACTIVE_LEVEL <= MOBILEGL_LOG_LEVEL_DEBUG
+    DebugImpl::OpenGLScopeMarker marker(__func__);
+#endif
         DebugImpl::ErrorLopper errorLopper;
         MGLOG_D("%s: Backend", __func__);
         TextureImpl::SyncNeccessaryTextures();
