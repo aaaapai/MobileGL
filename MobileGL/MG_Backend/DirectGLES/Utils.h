@@ -18,6 +18,12 @@ namespace MobileGL::MG_Backend::DirectGLES {
             ErrorLopper();
             ~ErrorLopper();
         };
+
+        class OpenGLScopeMarker {
+        public:
+            explicit OpenGLScopeMarker(String scopeName);
+            ~OpenGLScopeMarker();
+        };
     } // namespace DebugImpl
 
     namespace BufferImpl {
