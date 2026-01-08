@@ -73,7 +73,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
             ZoneScopedC(TRACY_ZONECOLOR_BACKEND);
 #endif
             MG_Util::TextureFormatProcessor::NormalizePixelFormat(MG_Util::ConvertTextureInternalFormatToGLEnum(internalFormat), outInternalFormat,
-                                 outType, outFormat);
+                                                                  outFormat, outType);
         }
     } // namespace TextureImpl
 

@@ -9,8 +9,7 @@
 #include "MG_Util/Converters/GLToStr/GLEnumConverter.h"
 
 namespace MobileGL::MG_Util::TextureFormatProcessor {
-    void NormalizePixelFormat(GLenum internalFormat, GLenum* outInternalFormat, GLenum* outType,
-                              GLenum* outFormat) {
+    void NormalizePixelFormat(GLenum internalFormat, GLenum* outInternalFormat, GLenum* outFormat, GLenum* outType) {
 #ifdef TRACY_ENABLE
         ZoneScopedC(TRACY_ZONECOLOR_BACKEND);
 #endif

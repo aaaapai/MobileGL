@@ -612,24 +612,26 @@ namespace MobileGL {
 
         void TexImage2D_State(GLenum target, GLint level, GLint internalformat, GLsizei width, GLsizei height,
                               GLint border, GLenum format, GLenum type, const void* pixels) {
-            MGLOG_D(
-                "%s called with target: %s, level: %d, internalformat: %s, width: %d, height: %d, "
-                "border: %d, format: %s, type: %s (%u), pixels: %p", __func__,
-                MG_Util::ConvertTextureUploadTargetToString(MG_Util::ConvertGLEnumToTextureUploadTarget(target)).c_str(),
-                level,
-                MG_Util::ConvertTextureInternalFormatToString(
-                    MG_Util::ConvertGLEnumToTextureInternalFormat(internalformat)).c_str(),
-                width, height, border,
-                MG_Util::ConvertTextureInputFormatToString(MG_Util::ConvertGLEnumToTextureInputFormat(format)).c_str(),
-                MG_Util::ConvertTexturePixelDataTypeToString(MG_Util::ConvertGLEnumToTexturePixelDataType(type)).c_str(),
-                type, pixels);
             // ======================= Converting ================================
             TextureUploadTarget textureUploadingTarget = MG_Util::ConvertGLEnumToTextureUploadTarget(target);
             TextureTarget textureTarget = MG_Util::ConvertGLEnumToTextureTarget(target);
             TextureInputFormat textureInputFormat = MG_Util::ConvertGLEnumToTextureInputFormat(format);
             TexturePixelDataType texturePixelDataType = MG_Util::ConvertGLEnumToTexturePixelDataType(type);
             TextureInternalFormat textureInternalFormat = MG_Util::ConvertGLEnumToTextureInternalFormat(internalformat);
-
+            MGLOG_D(
+                    "%s called with target: %s (%s), level: %d, internalformat: %s (%s), width: %d, height: %d, "
+                    "border: %d, format: %s (%s), type: %s (%s), pixels: %p", __func__,
+                    MG_Util::ConvertTextureUploadTargetToString(textureUploadingTarget).c_str(),
+                    MG_Util::ConvertGLEnumToString(target).c_str(),
+                    level,
+                    MG_Util::ConvertTextureInternalFormatToString(textureInternalFormat).c_str(),
+                    MG_Util::ConvertGLEnumToString(internalformat).c_str(),
+                    width, height, border,
+                    MG_Util::ConvertTextureInputFormatToString(textureInputFormat).c_str(),
+                    MG_Util::ConvertGLEnumToString(format).c_str(),
+                    MG_Util::ConvertTexturePixelDataTypeToString(texturePixelDataType).c_str(),
+                    MG_Util::ConvertGLEnumToString(type).c_str(),
+                    pixels);
             // ===================== Error Checking ==============================
             if (!TextureImpl::ValidateTexturePixelDataType(texturePixelDataType)) return;
             if (!TextureImpl::ValidateTextureInputFormat(textureInputFormat)) return;
@@ -654,6 +656,7 @@ namespace MobileGL {
             // indicated by type.
 
             // ======================= Processing ================================
+            textureInternalFormat = MG_Util::ConvertInternalFormatToSized(textureInternalFormat, textureInputFormat, texturePixelDataType);
             SharedPtr<MG_State::GLState::ITextureObject> textureObject = nullptr;
             Bool isProxy = TextureImpl::IsProxyTextureTarget(textureUploadingTarget);
             if (isProxy) {

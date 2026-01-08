@@ -791,6 +791,9 @@ namespace MobileGL::MG_Backend::DirectGLES {
             MGLOG_D("%s: Backend depth", __func__);
             MG_External::GLES::glTexImage2D(target, level, (GLint)internalformat, width, height, border, format, type,
                                             nullptr);
+            errorLopper.Loop([file = __FILE__, line = __LINE__](auto err) {
+                MGLOG_D("ES error (%s:%d): %s", file, line, MG_Util::ConvertGLEnumToString(err).c_str());
+            });
             FramebufferImpl::BackendFramebufferBindingProtector drawFboProtector(GL_DRAW_FRAMEBUFFER);
             FramebufferImpl::BackendFramebufferBindingProtector readFboProtector(GL_READ_FRAMEBUFFER);
             errorLopper.Loop([file = __FILE__, line = __LINE__](auto err) {
