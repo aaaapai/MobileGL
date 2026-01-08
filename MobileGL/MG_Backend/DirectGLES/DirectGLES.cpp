@@ -784,6 +784,46 @@ namespace MobileGL::MG_Backend::DirectGLES {
             MGLOG_D("ES error (%s:%d): %s", file, line, MG_Util::ConvertGLEnumToString(err).c_str());
         });
 
+        {
+#ifdef TRACY_ENABLE
+            ZoneScopedNC("BindCurrentTexturesAtTarget", TRACY_ZONECOLOR_BACKEND);
+#endif
+            auto unit = MG_State::pGLContext->GetActiveTextureUnit();
+            auto& textureUnit = MG_State::pGLContext->GetTextureUnitObject(unit);
+
+            MG_External::GLES::glActiveTexture(GL_TEXTURE0 + unit);
+            auto textureTarget = MG_Util::ConvertGLEnumToTextureTarget(target);
+            if (textureTarget == TextureTarget::Texture1D ||
+                textureTarget == TextureTarget::TextureRectangle ||
+                textureTarget == TextureTarget::Texture2DMultisampleArray ||
+                textureTarget == TextureTarget::Texture1DArray ||
+                textureTarget == TextureTarget::Texture2DMultisample ||
+                textureTarget == TextureTarget::Texture2DArray) {
+                MOBILEGL_ASSERT(false, "    Texture target %s is not supported, skipping.",
+                                MG_Util::ConvertTextureTargetToString(textureTarget).c_str());
+                return;
+            }
+
+            const auto& bindingSlot = textureUnit.GetBindingSlot(textureTarget);
+            {
+                const auto &textureObject = bindingSlot.GetBoundObject();
+                if (!textureObject) {
+                    MGLOG_W("%s: Texture target %s does not have texture bound.", __func__,
+                            MG_Util::ConvertTextureTargetToString(textureTarget).c_str());
+                }
+
+                const auto &backendTextureIt = TextureImpl::g_backendTextureObjects.find(
+                        textureObject);
+                if (backendTextureIt == TextureImpl::g_backendTextureObjects.end()) {
+                    MGLOG_W("%s: No backend texture object found for frontend texture object %d.", __func__,
+                            textureObject->GetExternalIndex());
+                    return;
+                }
+
+                backendTextureIt->second->Bind(target);
+            }
+        }
+
 //        GLint realInternalFormat;
 //        MG_External::GLES::glGetTexLevelParameteriv(target, level, GL_TEXTURE_INTERNAL_FORMAT, &realInternalFormat);
 //        errorLopper.Loop([file = __FILE__, line = __LINE__](auto err) {
@@ -794,7 +834,12 @@ namespace MobileGL::MG_Backend::DirectGLES {
 
         GLenum format = GL_DEPTH_COMPONENT;
         GLenum type = GL_UNSIGNED_INT;
-        TextureImpl::GenerateTextureFormatInfo(mglInternalFormat, &internalformat, &type, &format);
+        TextureImpl::GenerateTextureFormatInfo(mglInternalFormat, &internalformat, &format, &type);
+        MOBILEGL_ASSERT(format != GL_NONE && type != GL_NONE, "%s: cannot GenerateTextureFormatInfo(%s): out internalformat=%s, format=%s, type=%s",
+                        MG_Util::ConvertTextureInternalFormatToString(mglInternalFormat).c_str(),
+                        MG_Util::ConvertGLEnumToString(internalformat).c_str(),
+                        MG_Util::ConvertGLEnumToString(format).c_str(),
+                        MG_Util::ConvertGLEnumToString(type).c_str());
         TexturePixelDataType texturePixelDataType = MG_Util::ConvertGLEnumToTexturePixelDataType(type);
 
         bool isDepthFormat =

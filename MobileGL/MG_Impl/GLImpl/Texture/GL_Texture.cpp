@@ -679,6 +679,9 @@ namespace MobileGL {
             const SizeT internalBpp = MG_Util::GetInternalBytesPerPixel(textureInternalFormat, texturePixelDataType);
             const SizeT internalBytes = width * height * internalBpp;
 
+            MGLOG_D("%s: texture object had internal format %s, new format %s", __func__,
+                    MG_Util::ConvertTextureInternalFormatToString(textureObject->GetFormat()).c_str(),
+                    MG_Util::ConvertTextureInternalFormatToString(textureInternalFormat).c_str());
             textureObject->SetInternalFormat(textureInternalFormat);
 
             // if isProxy, no more pixel transfer needed below
