@@ -314,12 +314,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
             auto targetInternal = stateTextureObject->GetTarget();
             MGLOG_D("    Texture target for syncing is %s",
                     MG_Util::ConvertTextureTargetToString(targetInternal).c_str());
-            if (targetInternal == TextureTarget::Texture1D ||
-                targetInternal == TextureTarget::TextureRectangle ||
-                targetInternal == TextureTarget::Texture2DMultisampleArray ||
-                targetInternal == TextureTarget::Texture1DArray ||
-                targetInternal == TextureTarget::Texture2DMultisample ||
-                targetInternal == TextureTarget::Texture2DArray) {
+            if (!IsSupportedTextureTarget(targetInternal)) {
                 MGLOG_E("    Texture target %s is not supported, skipping.",
                         MG_Util::ConvertTextureTargetToString(targetInternal).c_str());
                 return;

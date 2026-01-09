@@ -461,10 +461,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
 
                     // Bind texture object
                     auto target = textureObject->GetTarget();
-                    if (target == TextureTarget::Texture1D || target == TextureTarget::TextureRectangle ||
-                        target == TextureTarget::Texture2DMultisampleArray || target == TextureTarget::Texture1DArray ||
-                        target == TextureTarget::Texture2DMultisample ||
-                        target == TextureTarget::Texture2DArray) {
+                    if (!TextureImpl::IsSupportedTextureTarget(target)) {
                         MGLOG_D("    Texture target %s is not supported, skipping.",
                                 MG_Util::ConvertTextureTargetToString(target).c_str());
                         continue;
@@ -733,9 +730,6 @@ namespace MobileGL::MG_Backend::DirectGLES {
 
     void BlitFramebuffer(GLint srcX0, GLint srcY0, GLint srcX1, GLint srcY1, GLint dstX0, GLint dstY0, GLint dstX1,
                          GLint dstY1, GLbitfield mask, GLenum filter) {
-#if MOBILEGL_LOG_ACTIVE_LEVEL <= MOBILEGL_LOG_LEVEL_DEBUG
-        DebugImpl::OpenGLScopeMarker marker(__func__);
-#endif
         DebugImpl::ErrorLopper errorLopper;
 
         TextureImpl::SyncNeccessaryTextures();
@@ -764,6 +758,42 @@ namespace MobileGL::MG_Backend::DirectGLES {
         });
     }
 
+    bool UpdateTextureBindingAtTarget(GLenum target) {
+#ifdef TRACY_ENABLE
+        ZoneScopedNC(__func__, TRACY_ZONECOLOR_BACKEND);
+#endif
+        auto unit = MG_State::pGLContext->GetActiveTextureUnit();
+        auto& textureUnit = MG_State::pGLContext->GetTextureUnitObject(unit);
+
+        MG_External::GLES::glActiveTexture(GL_TEXTURE0 + unit);
+        auto textureTarget = MG_Util::ConvertGLEnumToTextureTarget(target);
+        if (!TextureImpl::IsSupportedTextureTarget(textureTarget)) {
+            MOBILEGL_ASSERT(false, "    Texture target %s is not supported, skipping.",
+                            MG_Util::ConvertTextureTargetToString(textureTarget).c_str());
+            return false;
+        }
+
+        const auto& bindingSlot = textureUnit.GetBindingSlot(textureTarget);
+        {
+            const auto& textureObject = bindingSlot.GetBoundObject();
+            if (!textureObject) {
+                MGLOG_W("%s: Texture target %s does not have texture bound.", __func__,
+                        MG_Util::ConvertTextureTargetToString(textureTarget).c_str());
+            }
+
+            const auto& backendTextureIt = TextureImpl::g_backendTextureObjects.find(textureObject);
+            SharedPtr<TextureImpl::BackendTextureObject> backendTextureObject;
+            if (backendTextureIt == TextureImpl::g_backendTextureObjects.end()) {
+                backendTextureObject = MakeShared<TextureImpl::BackendTextureObject>();
+                TextureImpl::g_backendTextureObjects[textureObject] = backendTextureObject;
+            } else {
+                backendTextureObject = backendTextureIt->second;
+            }
+            backendTextureObject->Bind(target);
+        }
+        return true;
+    }
+
     void CopyTexImage2D(GLenum target, GLint level, GLenum internalformat, GLint x, GLint y, GLsizei width,
                         GLsizei height, GLint border) {
 #if MOBILEGL_LOG_ACTIVE_LEVEL <= MOBILEGL_LOG_LEVEL_DEBUG
@@ -784,45 +814,8 @@ namespace MobileGL::MG_Backend::DirectGLES {
             MGLOG_D("ES error (%s:%d): %s", file, line, MG_Util::ConvertGLEnumToString(err).c_str());
         });
 
-        {
-#ifdef TRACY_ENABLE
-            ZoneScopedNC("BindCurrentTexturesAtTarget", TRACY_ZONECOLOR_BACKEND);
-#endif
-            auto unit = MG_State::pGLContext->GetActiveTextureUnit();
-            auto& textureUnit = MG_State::pGLContext->GetTextureUnitObject(unit);
-
-            MG_External::GLES::glActiveTexture(GL_TEXTURE0 + unit);
-            auto textureTarget = MG_Util::ConvertGLEnumToTextureTarget(target);
-            if (textureTarget == TextureTarget::Texture1D ||
-                textureTarget == TextureTarget::TextureRectangle ||
-                textureTarget == TextureTarget::Texture2DMultisampleArray ||
-                textureTarget == TextureTarget::Texture1DArray ||
-                textureTarget == TextureTarget::Texture2DMultisample ||
-                textureTarget == TextureTarget::Texture2DArray) {
-                MOBILEGL_ASSERT(false, "    Texture target %s is not supported, skipping.",
-                                MG_Util::ConvertTextureTargetToString(textureTarget).c_str());
-                return;
-            }
-
-            const auto& bindingSlot = textureUnit.GetBindingSlot(textureTarget);
-            {
-                const auto &textureObject = bindingSlot.GetBoundObject();
-                if (!textureObject) {
-                    MGLOG_W("%s: Texture target %s does not have texture bound.", __func__,
-                            MG_Util::ConvertTextureTargetToString(textureTarget).c_str());
-                }
-
-                const auto &backendTextureIt = TextureImpl::g_backendTextureObjects.find(
-                        textureObject);
-                if (backendTextureIt == TextureImpl::g_backendTextureObjects.end()) {
-                    MGLOG_W("%s: No backend texture object found for frontend texture object %d.", __func__,
-                            textureObject->GetExternalIndex());
-                    return;
-                }
-
-                backendTextureIt->second->Bind(target);
-            }
-        }
+        if (!UpdateTextureBindingAtTarget(target))
+            return;
 
 //        GLint realInternalFormat;
 //        MG_External::GLES::glGetTexLevelParameteriv(target, level, GL_TEXTURE_INTERNAL_FORMAT, &realInternalFormat);
@@ -914,21 +907,8 @@ namespace MobileGL::MG_Backend::DirectGLES {
             MGLOG_D("ES error (%s:%d): %s", file, line, MG_Util::ConvertGLEnumToString(err).c_str());
         });
 
-        Int unit = MG_State::pGLContext->GetActiveTextureUnit();
-        auto& activeUnit = MG_State::pGLContext->GetTextureUnitObject(unit);
-        TextureTarget textureTarget = MG_Util::ConvertGLEnumToTextureTarget(target);
-        auto& bindingSlot = activeUnit.GetBindingSlot(textureTarget);
-        const auto& textureObject = bindingSlot.GetBoundObject();
-
-        const auto& backendTextureIt = TextureImpl::g_backendTextureObjects.find(textureObject);
-        SharedPtr<TextureImpl::BackendTextureObject> backendTextureObject;
-        if (backendTextureIt == TextureImpl::g_backendTextureObjects.end()) {
-            backendTextureObject = MakeShared<TextureImpl::BackendTextureObject>();
-            TextureImpl::g_backendTextureObjects[textureObject] = backendTextureObject;
-        } else {
-            backendTextureObject = backendTextureIt->second;
-        }
-        backendTextureObject->Bind(target);
+        if (!UpdateTextureBindingAtTarget(target))
+            return;
 
         BindCurrentFBO(FramebufferTarget::Read);
         errorLopper.Loop([file = __FILE__, line = __LINE__](auto err) {
