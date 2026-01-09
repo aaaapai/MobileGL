@@ -889,6 +889,23 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 source = ProcessOutColorLocations(source);
                 source = ForceSupporterOutput(source);
 
+                // TODO: probably a patch system?
+                String findStr = "if (distance_weight_sum == 0.0)";
+                String replaceStr = "if (distance_weight_sum <= 0.0001)";
+                auto pos = source.find(findStr);
+                if (pos != String::npos) {
+                    MGLOG_D("Applying patch #1 to Photon...");
+                    source.replace(pos, findStr.length(), replaceStr);
+                }
+
+                findStr = "1000000.0";
+                replaceStr = "65500.0";
+                pos = source.find(findStr);
+                if (pos != String::npos) {
+                    MGLOG_D("Applying patch #2 to Photon...");
+                    source.replace(pos, findStr.length(), replaceStr);
+                }
+
                 const char* sourceCStr = source.c_str();
                 MGLOG_D("Setting shader source for backend shader ID: %u\nsrc:\n%s", backendShaderId, sourceCStr);
                 MG_External::GLES::glShaderSource(backendShaderId, 1, &sourceCStr, nullptr);
