@@ -893,17 +893,19 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 String findStr = "if (distance_weight_sum == 0.0)";
                 String replaceStr = "if (distance_weight_sum <= 0.0001)";
                 auto pos = source.find(findStr);
-                if (pos != String::npos) {
+                while (pos != String::npos) {
                     MGLOG_D("Applying patch #1 to Photon...");
                     source.replace(pos, findStr.length(), replaceStr);
+                    pos = source.find(findStr, pos);
                 }
 
                 findStr = "1000000.0";
                 replaceStr = "65500.0";
                 pos = source.find(findStr);
-                if (pos != String::npos) {
+                while (pos != String::npos) {
                     MGLOG_D("Applying patch #2 to Photon...");
                     source.replace(pos, findStr.length(), replaceStr);
+                    pos = source.find(findStr, pos);
                 }
 
                 const char* sourceCStr = source.c_str();
