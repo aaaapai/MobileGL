@@ -232,7 +232,7 @@ namespace MobileGL {
             case GL_RGBA:
                 return TextureInternalFormat::RGBA;
             default:
-                MGLOG_D("%s: unknown internal format %s", MG_Util::ConvertGLEnumToString(internalformat).c_str());
+                MGLOG_D("%s: unknown internal format %s", __func__, MG_Util::ConvertGLEnumToString(internalformat).c_str());
                 return TextureInternalFormat::Unknown;
             }
         }
