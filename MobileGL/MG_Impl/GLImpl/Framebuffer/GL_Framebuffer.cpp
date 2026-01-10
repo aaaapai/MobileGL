@@ -570,10 +570,6 @@ namespace MobileGL {
             FramebufferRenderbuffer_State(target, attachment, renderbuffertarget, renderbuffer);
         }
 
-        void DrawBuffer(GLenum buf) {
-            DrawBuffer_State(buf);
-        }
-
         void DrawBuffers(GLsizei n, const GLenum* bufs) {
             DrawBuffers_State(n, bufs);
         }
