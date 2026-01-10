@@ -513,6 +513,9 @@ namespace MobileGL {
                         if (std::strcmp(extension, "GL_EXT_buffer_storage") == 0) {
                             MG_External::GLES::g_glesCaps.hasPersistentMapping = true;
                         }
+                        if (std::strcmp(extension, "GL_EXT_texture_norm16") == 0) {
+                            MG_External::GLES::g_glesCaps.hasNorm16Texture = true;
+                        }
                     }
                 }
             }

@@ -557,6 +557,7 @@ namespace MobileGL {
                 struct GLESCaps {
                     Version version;
                     Bool hasPersistentMapping;
+                    Bool hasNorm16Texture;
                 };
             } // namespace Caps
 
