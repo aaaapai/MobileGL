@@ -114,6 +114,7 @@ namespace MobileGL {
                 return 4 * 3 * sizeof(GLdouble);
 
             default:
+                MOBILEGL_ASSERT(false, "Unknown GL Type!");
                 return -1;
             }
         }

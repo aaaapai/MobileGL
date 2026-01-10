@@ -41,6 +41,9 @@
 #include <unordered_map>
 #include <mutex>
 #include <bitset>
+#if __cplusplus >= 202302L && MOBILEGL_LOG_ENABLE_STACKTRACE
+#include <stacktrace>
+#endif
 
 // Include FastSTL
 #include <FastSTL/UnorderedMap.h>

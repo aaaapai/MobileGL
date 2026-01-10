@@ -314,12 +314,8 @@ namespace MobileGL::MG_Backend::DirectGLES {
             auto targetInternal = stateTextureObject->GetTarget();
             MGLOG_D("    Texture target for syncing is %s",
                     MG_Util::ConvertTextureTargetToString(targetInternal).c_str());
-            if (targetInternal == TextureTarget::Texture1D || targetInternal == TextureTarget::TextureRectangle ||
-                targetInternal == TextureTarget::Texture2DMultisampleArray ||
-                targetInternal == TextureTarget::Texture1DArray || targetInternal == TextureTarget::Texture3D ||
-                targetInternal == TextureTarget::Texture2DMultisample ||
-                targetInternal == TextureTarget::Texture2DArray) {
-                MGLOG_D("    Texture target %s is not supported, skipping.",
+            if (!IsSupportedTextureTarget(targetInternal)) {
+                MGLOG_E("    Texture target %s is not supported, skipping.",
                         MG_Util::ConvertTextureTargetToString(targetInternal).c_str());
                 return;
             }
@@ -366,8 +362,8 @@ namespace MobileGL::MG_Backend::DirectGLES {
 
                     // Regenerate all mipmap levels
                     GLenum glInternalFormat, glType, glFormat;
-                    TextureImpl::GenerateTextureFormatInfo(textureMipmapObject->GetFormat(), &glInternalFormat, &glType,
-                                                           &glFormat);
+                    TextureImpl::GenerateTextureFormatInfo(textureMipmapObject->GetFormat(), &glInternalFormat,
+                                                           &glFormat, &glType);
 
                     const auto& uploadTargets = textureMipmapObject->GetUploadTargets();
                     for (auto uploadTarget : uploadTargets) {
@@ -385,13 +381,38 @@ namespace MobileGL::MG_Backend::DirectGLES {
 
                             errorLopper.Clear();
                             MG_External::GLES::glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
-                            MG_External::GLES::glTexImage2D(glUploadTarget, static_cast<GLint>(level), glInternalFormat,
+                            auto textureTarget = stateTextureObject->GetTarget();
+                            // TODO: handle more texture types
+                            switch (textureTarget) {
+                                case TextureTarget::Texture2D:
+                                case TextureTarget::TextureCubeMap:
+                                {
+                                    MG_External::GLES::glTexImage2D(glUploadTarget, static_cast<GLint>(level), glInternalFormat,
                                                             static_cast<GLsizei>(levelTexelSize.x()),
                                                             static_cast<GLsizei>(levelTexelSize.y()), 0, glFormat,
                                                             glType, pData);
-
-                            // TODO: handle more texture types
-
+                                    break;
+                                }
+                                case TextureTarget::Texture3D: {
+                                    MG_External::GLES::glTexImage3D(glUploadTarget, static_cast<GLint>(level), glInternalFormat,
+                                                            static_cast<GLsizei>(levelTexelSize.x()),
+                                                            static_cast<GLsizei>(levelTexelSize.y()),
+                                                            static_cast<GLsizei>(levelTexelSize.z()),
+                                                            0, glFormat,
+                                                            glType, pData);
+                                    break;
+                                }
+                                default: {
+                                    MGLOG_E("Unhandled texture target %s", MG_Util::ConvertTextureTargetToString(textureTarget).c_str());
+                                }
+                            }
+                            errorLopper.Loop([file = __FILE__, line = __LINE__, func = __func__, glUploadTarget, glInternalFormat, glFormat, glType, pData](GLenum err) {
+                                MGLOG_D("%s(%s:%d) ES error: %s. glTexImage*: target=%s, internalformat=%s, format=%s, type=%s, pixels=%p", func, file, line, MG_Util::ConvertGLEnumToString(err).c_str(),
+                                        MG_Util::ConvertGLEnumToString(glUploadTarget).c_str(),
+                                        MG_Util::ConvertGLEnumToString(glInternalFormat).c_str(),
+                                        MG_Util::ConvertGLEnumToString(glFormat).c_str(),
+                                        MG_Util::ConvertGLEnumToString(glType).c_str(), pData);
+                            });
                             MGLOG_D("Regenerated mipmap level %d for texture with ID: %u", level, m_backendTextureId);
                             textureMipmapObject->MarkStorageDirty(uploadTarget, level, false);
                         }
@@ -403,8 +424,8 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 { // Update all dirty mipmap levels
                     const auto mipmapCount = textureMipmapObject->GetMipmapLevelCount();
                     GLenum glInternalFormat, glType, glFormat;
-                    TextureImpl::GenerateTextureFormatInfo(textureMipmapObject->GetFormat(), &glInternalFormat, &glType,
-                                                           &glFormat);
+                    TextureImpl::GenerateTextureFormatInfo(textureMipmapObject->GetFormat(), &glInternalFormat,
+                                                           &glFormat, &glType);
                     const auto& uploadTargets = textureMipmapObject->GetUploadTargets();
                     for (auto uploadTarget : uploadTargets) {
                         for (SizeT level = 0; level < mipmapCount; ++level) {
@@ -471,8 +492,8 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 auto backendId = backendBufferObject->GetBackendBufferId();
 
                 GLenum glInternalFormat, glType, glFormat;
-                TextureImpl::GenerateTextureFormatInfo(textureBufferObject->GetFormat(), &glInternalFormat, &glType,
-                                                       &glFormat);
+                TextureImpl::GenerateTextureFormatInfo(textureBufferObject->GetFormat(), &glInternalFormat,
+                                                       &glFormat, &glType);
 
                 MG_External::GLES::glTexBuffer(GL_TEXTURE_BUFFER, glInternalFormat, backendId);
                 break;
@@ -875,6 +896,25 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 source = ProcessOutColorLocations(source);
                 source = ForceSupporterOutput(source);
 
+                // TODO: probably a patch system?
+                String findStr = "if (distance_weight_sum == 0.0)";
+                String replaceStr = "if (distance_weight_sum <= 0.0001)";
+                auto pos = source.find(findStr);
+                while (pos != String::npos) {
+                    MGLOG_D("Applying patch #1 to Photon...");
+                    source.replace(pos, findStr.length(), replaceStr);
+                    pos = source.find(findStr, pos);
+                }
+
+                findStr = "1000000.0";
+                replaceStr = "65500.0";
+                pos = source.find(findStr);
+                while (pos != String::npos) {
+                    MGLOG_D("Applying patch #2 to Photon...");
+                    source.replace(pos, findStr.length(), replaceStr);
+                    pos = source.find(findStr, pos);
+                }
+
                 const char* sourceCStr = source.c_str();
                 MGLOG_D("Setting shader source for backend shader ID: %u\nsrc:\n%s", backendShaderId, sourceCStr);
                 MG_External::GLES::glShaderSource(backendShaderId, 1, &sourceCStr, nullptr);
@@ -1069,7 +1109,8 @@ namespace MobileGL::MG_Backend::DirectGLES {
             Int width = static_cast<Int>(stateRBOObject->GetWidth());
             Int height = static_cast<Int>(stateRBOObject->GetHeight());
             GLenum glInternalFormat, glType, glFormat;
-            TextureImpl::GenerateTextureFormatInfo(internalFormat, &glInternalFormat, &glType, &glFormat);
+            TextureImpl::GenerateTextureFormatInfo(internalFormat, &glInternalFormat,
+                                                   &glFormat, &glType);
 
             MG_External::GLES::glRenderbufferStorage(GL_RENDERBUFFER, glInternalFormat, static_cast<GLsizei>(width),
                                                      static_cast<GLsizei>(height));

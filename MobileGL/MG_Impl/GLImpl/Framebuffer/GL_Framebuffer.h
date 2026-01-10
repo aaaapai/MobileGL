@@ -43,6 +43,7 @@ namespace MobileGL {
         void FramebufferTexture1D(GLenum target, GLenum attachment, GLenum textarget, GLuint texture, GLint level);
         void FramebufferTexture(GLenum target, GLenum attachment, GLuint texture, GLint level);
         void FramebufferRenderbuffer(GLenum target, GLenum attachment, GLenum renderbuffertarget, GLuint renderbuffer);
+        void DrawBuffer(GLenum buf);
         void DrawBuffers(GLsizei n, const GLenum* bufs);
         void DrawBuffer(GLenum buf);
         void DeleteRenderbuffers(GLsizei n, const GLuint* renderbuffers);

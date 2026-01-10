@@ -83,6 +83,7 @@ set(SOURCE_FILES
     MobileGL/MG_Util/BackendLoaders/OpenGL/Loader.cpp
 
     MobileGL/MG_Util/Texture/PixelStoreProcessor.cpp
+    MobileGL/MG_Util/Texture/TextureFormatProcessor.cpp
 
     MobileGL/MG_Util/Config/cJSON.c
     MobileGL/MG_Util/Config/config.cpp

@@ -507,16 +507,25 @@ namespace MobileGL {
             }
 
             void InitGLESCapabilities() {
+                auto* vendorName = MG_External::GLES::glGetString(GL_VENDOR);
+                MGLOG_I("GL_VENDOR: %s", vendorName);
+                auto* gpuName = MG_External::GLES::glGetString(GL_RENDERER);
+                MGLOG_I("GL_RENDERER: %s", gpuName);
                 MG_External::GLES::glGetIntegerv(GL_MAJOR_VERSION, &MG_External::GLES::g_glesCaps.version.Major);
                 MG_External::GLES::glGetIntegerv(GL_MINOR_VERSION, &MG_External::GLES::g_glesCaps.version.Minor);
 
                 GLint extCount = 0;
                 MG_External::GLES::glGetIntegerv(GL_NUM_EXTENSIONS, &extCount);
+                MGLOG_I("Detected %d OpenGL ES extensions:", extCount);
                 for (GLint i = 0; i < extCount; ++i) {
                     const char* extension = (const char*)MG_External::GLES::glGetStringi(GL_EXTENSIONS, i);
                     if (extension) {
+                        MGLOG_I("    %s", extension);
                         if (std::strcmp(extension, "GL_EXT_buffer_storage") == 0) {
                             MG_External::GLES::g_glesCaps.hasPersistentMapping = true;
+                        }
+                        if (std::strcmp(extension, "GL_EXT_texture_norm16") == 0) {
+                            MG_External::GLES::g_glesCaps.hasNorm16Texture = true;
                         }
                     }
                 }

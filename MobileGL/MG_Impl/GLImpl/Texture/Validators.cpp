@@ -134,8 +134,8 @@ namespace MobileGL::MG_Impl::GLImpl {
             return true;
         }
 
-        Bool ValidateTextureSizeRange(SizeT width, SizeT height) {
-            if (width < 0 || height < 0) {
+        Bool ValidateTextureSizeRange(SizeT width, SizeT height, SizeT depth) {
+            if (width < 0 || height < 0 || depth < 0) {
                 MG_State::pGLContext->RecordError(
                     ErrorCode::InvalidValue,
                     MakeShared<GenericErrorInfo>("MG_Impl/GLImpl", "ValidateTextureSizeRange",

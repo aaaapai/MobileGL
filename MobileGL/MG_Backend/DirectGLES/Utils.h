@@ -18,6 +18,12 @@ namespace MobileGL::MG_Backend::DirectGLES {
             ErrorLopper();
             ~ErrorLopper();
         };
+
+        class OpenGLScopeMarker {
+        public:
+            explicit OpenGLScopeMarker(String scopeName);
+            ~OpenGLScopeMarker();
+        };
     } // namespace DebugImpl
 
     namespace BufferImpl {
@@ -59,9 +65,8 @@ namespace MobileGL::MG_Backend::DirectGLES {
             GLint m_previousBinding = 0;
         };
 
-        void NormalizePixelFormat(GLenum internalFormat, GLenum* outInternalFormat, GLenum* outType, GLenum* outFormat);
-        void GenerateTextureFormatInfo(TextureInternalFormat internalFormat, GLenum* outInternalFormat, GLenum* outType,
-                                       GLenum* outFormat);
+        void GenerateTextureFormatInfo(TextureInternalFormat internalFormat, GLenum* outInternalFormat,
+                                       GLenum* outFormat, GLenum* outType);
     } // namespace TextureImpl
 
     namespace FramebufferImpl {

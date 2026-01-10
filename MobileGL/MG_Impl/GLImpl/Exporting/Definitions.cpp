@@ -459,7 +459,7 @@ DECLARE_GL_FUNCTION_STUB_HEAD(void, EdgeFlag, GLboolean flag) DECLARE_GL_FUNCTIO
 DECLARE_GL_FUNCTION_STUB_HEAD(void, EdgeFlagv, const GLboolean* flag) DECLARE_GL_FUNCTION_STUB_END_NO_RETURN(void, EdgeFlagv, flag)
 DECLARE_GL_FUNCTION_STUB_HEAD(void, ClipPlane, GLenum plane, const GLdouble* equation) DECLARE_GL_FUNCTION_STUB_END_NO_RETURN(void, ClipPlane, plane, equation)
 DECLARE_GL_FUNCTION_STUB_HEAD(void, GetClipPlane, GLenum plane, GLdouble* equation) DECLARE_GL_FUNCTION_STUB_END_NO_RETURN(void, GetClipPlane, plane, equation)
-DECLARE_GL_FUNCTION_HEAD(void, DrawBuffer, GLenum buf) DECLARE_GL_FUNCTION_END_NO_RETURN(void, DrawBuffer, buf)
+DECLARE_GL_FUNCTION_HEAD(void, DrawBuffer, GLenum mode) DECLARE_GL_FUNCTION_END_NO_RETURN(void, DrawBuffer, mode)
 DECLARE_GL_FUNCTION_STUB_HEAD(void, EnableClientState, GLenum cap) DECLARE_GL_FUNCTION_STUB_END_NO_RETURN(void, EnableClientState, cap)
 DECLARE_GL_FUNCTION_STUB_HEAD(void, DisableClientState, GLenum cap) DECLARE_GL_FUNCTION_STUB_END_NO_RETURN(void, DisableClientState, cap)
 DECLARE_GL_FUNCTION_STUB_HEAD(void, GetDoublev, GLenum pname, GLdouble* params) DECLARE_GL_FUNCTION_STUB_END_NO_RETURN(void, GetDoublev, pname, params)
