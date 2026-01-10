@@ -406,6 +406,13 @@ namespace MobileGL::MG_Backend::DirectGLES {
                                     MGLOG_E("Unhandled texture target %s", MG_Util::ConvertTextureTargetToString(textureTarget).c_str());
                                 }
                             }
+                            errorLopper.Loop([file = __FILE__, line = __LINE__, func = __func__, glUploadTarget, glInternalFormat, glFormat, glType, pData](GLenum err) {
+                                MGLOG_D("%s(%s:%d) ES error: %s. glTexImage*: target=%s, internalformat=%s, format=%s, type=%s, pixels=%p", func, file, line, MG_Util::ConvertGLEnumToString(err).c_str(),
+                                        MG_Util::ConvertGLEnumToString(glUploadTarget).c_str(),
+                                        MG_Util::ConvertGLEnumToString(glInternalFormat).c_str(),
+                                        MG_Util::ConvertGLEnumToString(glFormat).c_str(),
+                                        MG_Util::ConvertGLEnumToString(glType).c_str(), pData);
+                            });
                             MGLOG_D("Regenerated mipmap level %d for texture with ID: %u", level, m_backendTextureId);
                             textureMipmapObject->MarkStorageDirty(uploadTarget, level, false);
                         }
