@@ -350,6 +350,10 @@ namespace MobileGL {
         }
 
         GLenum CheckFramebufferStatus_State(GLenum target) {
+            if (std::getenv("MGL_CHEAT_CHECKFRAMEBUFFERSTATUS")) {
+                return GL_FRAMEBUFFER_COMPLETE;
+            }
+        
             FramebufferTarget framebufferTarget = MG_Util::ConvertGLEnumToFramebufferTarget(target);
             if (!FramebufferImpl::ValidateFramebufferTarget(framebufferTarget)) return GL_FRAMEBUFFER_UNDEFINED;
 
@@ -573,6 +577,11 @@ namespace MobileGL {
         void DrawBuffers(GLsizei n, const GLenum* bufs) {
             DrawBuffers_State(n, bufs);
         }
+
+        void DrawBuffer(GLenum buf) {
+            DrawBuffer_State(buf);
+        }
+
 
         void DeleteRenderbuffers(GLsizei n, const GLuint* renderbuffers) {
             DeleteRenderbuffers_State(n, renderbuffers);
