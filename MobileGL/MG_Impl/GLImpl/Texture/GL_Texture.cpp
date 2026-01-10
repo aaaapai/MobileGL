@@ -1220,7 +1220,7 @@ namespace MobileGL {
         void CopyTexImage2D_State(GLenum target, GLint level, GLenum internalformat, GLint x, GLint y, GLsizei width,
                                     GLsizei height, GLint border) {
             GLenum outInternalFormat, format, type;
-            MG_Util::TextureFormatProcessor::NormalizePixelFormat(internalformat, &outInternalFormat, &format, &type);
+            MG_Util::TextureFormatProcessor::NormalizePixelFormat(internalformat, 0, &outInternalFormat, &format, &type);
             const auto pixelUnpackBufferObject =
                     MG_State::pGLContext->GetBufferBindingSlot(BufferTarget::PixelUnpack).GetBoundObject();
             TexImage2D_State(target, level, outInternalFormat, width, height, border, format, type, nullptr);

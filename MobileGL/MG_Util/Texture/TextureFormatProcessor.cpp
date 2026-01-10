@@ -9,7 +9,7 @@
 #include "MG_Util/Converters/GLToStr/GLEnumConverter.h"
 
 namespace MobileGL::MG_Util::TextureFormatProcessor {
-    void NormalizePixelFormat(GLenum internalFormat, GLenum* outInternalFormat, GLenum* outFormat, GLenum* outType) {
+    void NormalizePixelFormat(GLenum internalFormat, Flags<PixelFormatNormalizeOptionBit> options, GLenum* outInternalFormat, GLenum* outFormat, GLenum* outType) {
 #ifdef TRACY_ENABLE
         ZoneScopedC(TRACY_ZONECOLOR_BACKEND);
 #endif
@@ -19,6 +19,26 @@ namespace MobileGL::MG_Util::TextureFormatProcessor {
                 case GL_DEPTH_COMPONENT32:
                     *outInternalFormat = GL_DEPTH_COMPONENT;
                     break;
+                case GL_RGBA16:
+                    if (options & PixelFormatNormalizeOptionBit::NoNorm16) {
+                        *outInternalFormat = GL_RGBA32F;
+                        break;
+                    }
+                case GL_RGB16:
+                    if (options & PixelFormatNormalizeOptionBit::NoNorm16) {
+                        *outInternalFormat = GL_RGB32F;
+                        break;
+                    }
+                case GL_RG16:
+                    if (options & PixelFormatNormalizeOptionBit::NoNorm16) {
+                        *outInternalFormat = GL_RG32F;
+                        break;
+                    }
+                case GL_R16:
+                    if (options & PixelFormatNormalizeOptionBit::NoNorm16) {
+                        *outInternalFormat = GL_R32F;
+                        break;
+                    }
                 default:
                     *outInternalFormat = internalFormat;
                     break;
@@ -188,9 +208,14 @@ namespace MobileGL::MG_Util::TextureFormatProcessor {
                 case GL_RGB16:
                 case GL_RG16:
                 case GL_R16:
-                    *outType = GL_UNSIGNED_SHORT;
-                    break;
-
+                    if (options & PixelFormatNormalizeOptionBit::NoNorm16) {
+                        // converted to GL_RGBA32F
+                        *outType = GL_FLOAT;
+                        break;
+                    } else {
+                        *outType = GL_UNSIGNED_SHORT;
+                        break;
+                    }
                 case GL_RGBA8:
                 case GL_RGB8:
                 case GL_RG8:

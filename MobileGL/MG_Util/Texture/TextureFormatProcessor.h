@@ -9,5 +9,9 @@
 #include <Includes.h>
 
 namespace MobileGL::MG_Util::TextureFormatProcessor {
-    void NormalizePixelFormat(GLenum internalFormat, GLenum* outInternalFormat, GLenum* outFormat, GLenum* outType);
+    enum class PixelFormatNormalizeOptionBit : Uint {
+        NoNorm16 = 1 << 0,
+        None = 0,
+    };
+    void NormalizePixelFormat(GLenum internalFormat, Flags<PixelFormatNormalizeOptionBit> options, GLenum* outInternalFormat, GLenum* outFormat, GLenum* outType);
 } // namespace MobileGL::MG_Util::TextureFormatProcessor
