@@ -146,6 +146,12 @@ void init_settings() {
         setenv("LIBGL_ANGLE", "1", 1);
     }
 
+   if (global_settings.ext_gl43 == true) {
+           // setenv("LIBGL_GLES", "libGLESv2_angle.so", 1);
+           // setenv("LIBGL_EGL", "libEGL_angle.so", 1);
+           setenv("LIBGL_GL", "43", 1);
+    }
+
     switch (noErrorConfig) {
     case NoErrorConfig::Level1:
         global_settings.ignore_error = IgnoreErrorLevel::Partial;
@@ -178,9 +184,9 @@ void init_settings() {
 
     MGLOG_D("[MobileGL] Setting: enableAngle                 = %s",
           global_settings.angle == AngleMode::Enabled ? "true" : "false");
-    MGLOG_D("[MobileGlues] Setting: ignoreError                 = %i", static_cast<int>(global_settings.ignore_error));
+    MGLOG_D("[MobileGL] Setting: ignoreError                 = %i", static_cast<int>(global_settings.ignore_error));
     MGLOG_D("[MobileGL] Setting: enableExtComputeShader is unsupported.");
-    MGLOG_D("[MobileGL] Setting: enableExtGL43 is unsupported.");
+    MGLOG_D("[MobileGL] Setting: enableExtGL43               = %s", global_settings.ext_gl43 ? "true" : "false");
     MGLOG_D("[MobileGL] Setting: enableExtTimerQuery is unsupported.");
     MGLOG_D("[MobileGL] Setting: enableExtDirectStateAccess is unsupported.");
     MGLOG_D("[MobileGL] Setting: maxGlslCacheSize is unsupported.");
