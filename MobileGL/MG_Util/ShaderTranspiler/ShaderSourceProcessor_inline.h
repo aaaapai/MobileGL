@@ -993,29 +993,38 @@ void mg_subgroupMemoryBarrier() {
         }
     }
 
-    // ==================== 5. 注入shaderDrawParameters ====================
-    const char* drawParamKeywords[] = {
-        "gl_DrawID", "gl_DrawIDARB", "gl_BaseInstanceARB", "gl_BaseVertexARB"
+    const char* arbKeywords[] = {
+        "gl_DrawIDARB",
+        "gl_BaseVertexARB", 
+        "gl_BaseInstanceARB"
     };
-    
-    bool hasDrawParameters = false;
-    for (const char* keyword : drawParamKeywords) {
-        if (source.find(keyword) != String::npos) {
-            hasDrawParameters = true;
-            break;
-        }
-    }
-    
-    if (hasDrawParameters) {
-        const char* str_draw_extension = "#extension GL_ARB_shader_draw_parameters : enable";
-        if (source.find(str_draw_extension) == String::npos) {
-            // 在#version行后插入扩展指令
-            SizeT versionPos = source.find("#version");
-            if (versionPos != String::npos) {
-                SizeT lineEnd = source.find("\n", versionPos);
-                if (lineEnd != String::npos) {
-                    source.insert(lineEnd + 1, std::string(str_draw_extension) + "\n");
-                }
+
+    const char* standardKeywords[] = {
+        "gl_DrawID",
+        "gl_BaseVertex",
+        "gl_BaseInstance"
+    };
+
+    // 直接替换ARB后缀为标准名
+    for (int i = 0; i < 3; i++) {
+        size_t pos = 0;
+        while ((pos = source.find(arbKeywords[i], pos)) != String::npos) {
+            // 简单检查一下是不是独立标识符
+            bool isWord = true;
+            if (pos > 0) {
+                char prev = source[pos - 1];
+                isWord = !(isalnum(prev) || prev == '_');
+            }
+            if (isWord && pos + strlen(arbKeywords[i]) < source.length()) {
+                char next = source[pos + strlen(arbKeywords[i])];
+                isWord = !(isalnum(next) || next == '_');
+            }
+        
+            if (isWord) {
+                source.replace(pos, strlen(arbKeywords[i]), standardKeywords[i]);
+                pos += strlen(standardKeywords[i]);
+            } else {
+                pos += strlen(arbKeywords[i]);
             }
         }
     }
