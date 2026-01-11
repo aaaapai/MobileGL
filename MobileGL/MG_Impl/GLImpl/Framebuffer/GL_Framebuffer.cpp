@@ -204,7 +204,7 @@ namespace MobileGL {
         }
 
         void DrawBuffers_State(GLsizei n, const GLenum* bufs) {
-            if (n < 0) {
+            /*if (n < 0) {
                 MG_State::pGLContext->RecordError(
                     ErrorCode::InvalidValue,
                     MakeShared<GenericErrorInfo>("MG_Impl/GLImpl", __func__, "`n` is less than 0."));
@@ -215,20 +215,23 @@ namespace MobileGL {
                     MakeShared<GenericErrorInfo>("MG_Impl/GLImpl", __func__,
                                                  "`n` is greater than `GL_MAX_DRAW_BUFFERS`."));
                 return;
-            }
+            }*/
 
             // Get bound framebuffer
-            auto& bindingSlot = MG_State::pGLContext->GetFramebufferBindingSlot(FramebufferTarget::Draw);
+            /*auto& bindingSlot = MG_State::pGLContext->GetFramebufferBindingSlot(FramebufferTarget::Draw);
             auto fbo = bindingSlot.GetBoundObject();
-            bool isDefaultFBO = (fbo == FramebufferImpl::pDefaultFramebufferInfo->defaultFBO);
+            bool isDefaultFBO = (fbo == FramebufferImpl::pDefaultFramebufferInfo->defaultFBO);*/
 
-            int existenceMap[(SizeT)FramebufferAttachmentType::FramebufferAttachmentTypeCount];
-            std::fill_n(existenceMap, (SizeT)FramebufferAttachmentType::FramebufferAttachmentTypeCount, -1);
+           /*static constexpr std::array<int, (SizeT)FramebufferAttachmentType::FramebufferAttachmentTypeCount> existenceMap = []() consteval {
+               std::array<int, (SizeT)FramebufferAttachmentType::FramebufferAttachmentTypeCount> arr{};
+               arr.fill(-1);
+               return arr;
+            }();*/
 
             for (GLsizei i = 0; i < n; ++i) {
                 auto attType = MG_Util::ConvertGLEnumToFramebufferAttachmentType(bufs[i]);
 
-                // ------------------- Check validity begin ------------------------
+                /*// ------------------- Check validity begin ------------------------
                 if (attType == FramebufferAttachmentType::Unknown) {
                     MG_State::pGLContext->RecordError(
                         ErrorCode::InvalidEnum,
@@ -285,7 +288,7 @@ namespace MobileGL {
                                                                  i, MG_Util::ConvertGLEnumToString(bufs[i]))));
                     return;
                 }
-                // ------------------------- Check validity end ----------------------------------
+                // ------------------------- Check validity end ----------------------------------*/
                 fbo->SetDrawBuffer(i, attType);
             }
             for (GLsizei i = n; i < MG_State::GLState::FramebufferObject::MAX_DRAW_BUFFERS; ++i) {
@@ -294,11 +297,6 @@ namespace MobileGL {
         }
 
         void DrawBuffer_State(GLenum buf) {
-
-            // 获取绑定的绘制帧缓冲区
-            auto& bindingSlot = MG_State::pGLContext->GetFramebufferBindingSlot(FramebufferTarget::Draw);
-            auto fbo = bindingSlot.GetBoundObject();
-            bool isDefaultFBO = (fbo == FramebufferImpl::pDefaultFramebufferInfo->defaultFBO);
 
             // 将 GLenum 转换为 FramebufferAttachmentType
             auto attType = MG_Util::ConvertGLEnumToFramebufferAttachmentType(buf);
