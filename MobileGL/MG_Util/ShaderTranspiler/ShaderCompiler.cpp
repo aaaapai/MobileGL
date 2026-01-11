@@ -10,7 +10,7 @@
 #include <MG_Util/Converters/GLToGlslang/ProgramEnumConverter.h>
 #include <MG_Util/Converters/GLToShaderc/ShadercEnumConverter.h>
 
-bool ShaderTranspiler_isComuteType = false;
+//bool ShaderTranspiler_isComuteType = false;
 
 namespace MobileGL {
     namespace MG_Util {
@@ -128,7 +128,7 @@ namespace MobileGL {
                 auto& sourceStr = attrib.sourceStr;
                 const char* src[] = {sourceStr.data()};
 
-                static shaderc_compiler_t shaderc_compiler = nullptr;
+                /*static shaderc_compiler_t shaderc_compiler = nullptr;
                 if(shaderc_compiler == nullptr) {
                         shaderc_compiler = shaderc_compiler_initialize();
                         if(shaderc_compiler == nullptr) {
@@ -174,34 +174,28 @@ namespace MobileGL {
                 }
 
                 const char* shaderc_glsl_src = shaderc_result_get_bytes(shaderc_src);
-                const char* shaderc_glsl_src_array[] = {shaderc_glsl_src};
+                const char* shaderc_glsl_src_array[] = {shaderc_glsl_src};*/
                 
                 auto lang = MG_Util::ConvertGLEnumToEShLanguage(shaderType);
                 if (lang == EShLanguage::EShLangCount) {
                     ResultInfo r;
                     r.log += "Error: [Preprocess] Unsupported shader type: " + ConvertGLEnumToString(shaderType);
                     r.errc = -3;
-                    shaderc_result_release(shaderc_src);
-                    shaderc_compile_options_release(shaderc_opts);
-                    shaderc_opts = nullptr;
+                    //shaderc_result_release(shaderc_src);
+                    //shaderc_compile_options_release(shaderc_opts);
+                    //shaderc_opts = nullptr;
                     return std::unexpected(r);
-                }
-    
-                if (lang == EShLanguage::EShLangCompute) {
-                    ShaderTranspiler_isComuteType = true;
-                } else {
-                    ShaderTranspiler_isComuteType = false;
                 }
 
                 SharedPtr<glslang::TShader> res;
                 auto& tshader = res;
                 tshader = MakeShared<glslang::TShader>(lang);
-                tshader->setStrings(shaderc_glsl_src_array, 1);
+                tshader->setStrings(/*shaderc_glsl_src_array*/src, 1);
                 tshader->setInvertY(true);
                 if (attrib.flags & ShaderCompileBits::CompileForOpenGL) {
                     tshader->setEnvInput(glslang::EShSourceGlsl, lang, glslang::EShClientVulkan, 450);
                     tshader->setEnvClient(glslang::EShClientOpenGL, glslang::EShTargetOpenGL_450);
-                    tshader->setEnvTarget(glslang::EShTargetSpv, glslang::EShTargetSpv_1_6);
+                    tshader->setEnvTarget(glslang::EShTargetSpv, glslang::EShTargetSpv_1_5);
                 } else {
                     tshader->setEnvInput(glslang::EShSourceGlsl, lang, glslang::EShClientVulkan, 450);
                     tshader->setEnvClient(glslang::EShClientVulkan, glslang::EShTargetVulkan_1_3);
@@ -215,22 +209,22 @@ namespace MobileGL {
                 tshader->setAutoMapLocations(true);
                 tshader->setAutoMapBindings(true);
                 tshader->setGlobalUniformBlockName(GLOBAL_UBO_NAME);
-                if (!tshader->parse(&GetTBuiltInResourceInstance(), 450, ECoreProfile,
+                if (!tshader->parse(&GetTBuiltInResourceInstance(), 460, ECoreProfile,
                                     /*forceDefaultVersionAndProfile: */ false,
                                     /*forwardCompatible: */ true, EShMsgDefault)) {
                     ResultInfo r;
                     r.log += "Error: [glslang] Cannot compile " + ConvertGLEnumToString(shaderType) + ":\n" +
                              std::string(tshader->getInfoLog());
                     r.errc = -4;
-                    shaderc_result_release(shaderc_src);
-                    shaderc_compile_options_release(shaderc_opts);
-                    shaderc_opts = nullptr;
+                    //shaderc_result_release(shaderc_src);
+                   // shaderc_compile_options_release(shaderc_opts);
+                 //   shaderc_opts = nullptr;
                     return std::unexpected(r);
                 }
 
-                shaderc_result_release(shaderc_src);
-                shaderc_compile_options_release(shaderc_opts);
-                shaderc_opts = nullptr;
+               // shaderc_result_release(shaderc_src);
+               // shaderc_compile_options_release(shaderc_opts);
+               // shaderc_opts = nullptr;
         
                 return res;
             }
