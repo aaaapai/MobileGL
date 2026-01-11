@@ -146,12 +146,6 @@ void init_settings() {
         setenv("LIBGL_ANGLE", "1", 1);
     }
 
-   if (global_settings.ext_gl43 == true) {
-           // setenv("LIBGL_GLES", "libGLESv2_angle.so", 1);
-           // setenv("LIBGL_EGL", "libEGL_angle.so", 1);
-           setenv("LIBGL_GL", "43", 1);
-    }
-
     switch (noErrorConfig) {
     case NoErrorConfig::Level1:
         global_settings.ignore_error = IgnoreErrorLevel::Partial;
@@ -199,6 +193,11 @@ void init_settings() {
     }
     MGLOG_D("[MobileGL] Setting: fsr1Setting is unsupported.");
     MGLOG_D("[MobileGL] Setting: hideMGEnvLevel is unsupported.");
+
+	if (global_settings.ext_gl43) {
+        setenv("LIBGL_GL", "43", 1);
+	}
+
 }
 
 void set_multidraw_setting() { // should be called after init_gles_target()
