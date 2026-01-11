@@ -218,9 +218,9 @@ namespace MobileGL {
             }*/
 
             // Get bound framebuffer
-            /*auto& bindingSlot = MG_State::pGLContext->GetFramebufferBindingSlot(FramebufferTarget::Draw);
+            auto& bindingSlot = MG_State::pGLContext->GetFramebufferBindingSlot(FramebufferTarget::Draw);
             auto fbo = bindingSlot.GetBoundObject();
-            bool isDefaultFBO = (fbo == FramebufferImpl::pDefaultFramebufferInfo->defaultFBO);*/
+            //bool isDefaultFBO = (fbo == FramebufferImpl::pDefaultFramebufferInfo->defaultFBO);
 
            /*static constexpr std::array<int, (SizeT)FramebufferAttachmentType::FramebufferAttachmentTypeCount> existenceMap = []() consteval {
                std::array<int, (SizeT)FramebufferAttachmentType::FramebufferAttachmentTypeCount> arr{};
@@ -297,6 +297,9 @@ namespace MobileGL {
         }
 
         void DrawBuffer_State(GLenum buf) {
+
+            auto& bindingSlot = MG_State::pGLContext->GetFramebufferBindingSlot(FramebufferTarget::Draw);
+            auto fbo = bindingSlot.GetBoundObject();
 
             // 将 GLenum 转换为 FramebufferAttachmentType
             auto attType = MG_Util::ConvertGLEnumToFramebufferAttachmentType(buf);
