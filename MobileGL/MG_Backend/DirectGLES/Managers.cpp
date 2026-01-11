@@ -924,6 +924,15 @@ namespace MobileGL::MG_Backend::DirectGLES {
                     pos = source.find(findStr, pos);
                 }
 
+                findStr = "== 0.0";
+                replaceStr = "<= 0.00001";
+                pos = source.find(findStr);
+                while (pos != String::npos) {
+                    MGLOG_D("Applying patch #4 to Photon...");
+                    source.replace(pos, findStr.length(), replaceStr);
+                    pos = source.find(findStr, pos);
+                }
+
                 const char* sourceCStr = source.c_str();
                 MGLOG_D("Setting shader source for backend shader ID: %u\nsrc:\n%s", backendShaderId, sourceCStr);
                 MG_External::GLES::glShaderSource(backendShaderId, 1, &sourceCStr, nullptr);
