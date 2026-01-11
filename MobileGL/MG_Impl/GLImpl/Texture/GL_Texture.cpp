@@ -61,7 +61,9 @@ namespace MobileGL {
             TexturePixelDataType texturePixelDataType = MG_Util::ConvertGLEnumToTexturePixelDataType(type);
             //            TextureInternalFormat textureInternalFormat =
             //            MG_Util::ConvertGLEnumToTextureInternalFormat(format);
-            MGLOG_D("TexSubImage2D_State: (%d, %d), format = %s, pixels = %p", width, height,
+            MGLOG_D("TexSubImage2D_State: target = %s, level = %d, (%d, %d), format = %s, pixels = %p",
+                    MG_Util::ConvertGLEnumToString(target).c_str(), level,
+                    width, height,
                     MG_Util::ConvertTextureInputFormatToString(textureInputFormat).c_str(), pixels);
             // ===================== Error Checking ==============================
             if (!TextureImpl::ValidateTexturePixelDataType(texturePixelDataType)) return;
