@@ -1072,7 +1072,7 @@ vec4 GI_TemporalFilter() {
 
 // ==================== 替换已弃用语法和修复问题 ====================
     // 替换attribute/varying关键字
-    if (stage == Vertex) {
+    if (stage == ShaderStage::Vertex) {
         // 替换attribute为in
         size_t pos = 0;
         while ((pos = source.find("attribute", pos)) != String::npos) {
@@ -1086,7 +1086,7 @@ vec4 GI_TemporalFilter() {
             source.replace(pos, 7, "out");
             pos += 3; // "out"的长度
         }
-    } else if (stage == Fragment) {
+    } else if (stage == ShaderStage::Fragment) {
         // 替换varying为in
         size_t pos = 0;
         while ((pos = source.find("varying", pos)) != String::npos) {
