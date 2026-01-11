@@ -74,7 +74,7 @@ vec2 mg_textureQueryLod(sampler2D tex, vec2 uv) {
                     }
                 }
 
-                inject_glsl_replacements(source);
+                inject_glsl_replacements(stage, source);
                 
                 // force #version
                 ShaderProfile profile = ShaderProfile::Core;
