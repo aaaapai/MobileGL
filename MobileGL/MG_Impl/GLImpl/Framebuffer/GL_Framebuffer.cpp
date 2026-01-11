@@ -222,9 +222,8 @@ namespace MobileGL {
             auto fbo = bindingSlot.GetBoundObject();
             bool isDefaultFBO = (fbo == FramebufferImpl::pDefaultFramebufferInfo->defaultFBO);
 
-            static int existenceMap[(SizeT)FramebufferAttachmentType::FramebufferAttachmentTypeCount] = {-1};
-            std::fill(existenceMap, existenceMap + (SizeT)FramebufferAttachmentType::FramebufferAttachmentTypeCount,
-                      -1);
+            int existenceMap[(SizeT)FramebufferAttachmentType::FramebufferAttachmentTypeCount];
+            std::fill_n(existenceMap, (SizeT)FramebufferAttachmentType::FramebufferAttachmentTypeCount, -1);
 
             for (GLsizei i = 0; i < n; ++i) {
                 auto attType = MG_Util::ConvertGLEnumToFramebufferAttachmentType(bufs[i]);
@@ -234,7 +233,7 @@ namespace MobileGL {
                     MG_State::pGLContext->RecordError(
                         ErrorCode::InvalidEnum,
                         MakeShared<GenericErrorInfo>("MG_Impl/GLImpl", __func__,
-                                                     std::format("bufs[{}] = {} is not an accepted value.", i,
+                                                     std::format("bufs[{}] = %s is not an accepted value.", i,
                                                                  MG_Util::ConvertGLEnumToString(bufs[i]))));
                     return;
                 }
@@ -295,11 +294,22 @@ namespace MobileGL {
         }
 
         void DrawBuffer_State(GLenum buf) {
-            if (buf == GL_NONE) {
-                DrawBuffers_State(0, nullptr);
-            } else {
-                static GLenum bufs[] = {buf};
-                DrawBuffers_State(1, bufs);
+
+            // 获取绑定的绘制帧缓冲区
+            auto& bindingSlot = MG_State::pGLContext->GetFramebufferBindingSlot(FramebufferTarget::Draw);
+            auto fbo = bindingSlot.GetBoundObject();
+            bool isDefaultFBO = (fbo == FramebufferImpl::pDefaultFramebufferInfo->defaultFBO);
+
+            // 将 GLenum 转换为 FramebufferAttachmentType
+            auto attType = MG_Util::ConvertGLEnumToFramebufferAttachmentType(buf);
+
+            // 设置绘制缓冲区
+            // glDrawBuffer 设置第一个颜色缓冲区（索引0），并将其他所有缓冲区设置为 GL_NONE
+            fbo->SetDrawBuffer(0, attType);
+    
+            // 将所有其他颜色缓冲区设置为 GL_NONE
+            for (GLsizei i = 1; i < MG_State::GLState::FramebufferObject::MAX_DRAW_BUFFERS; ++i) {
+                fbo->SetDrawBuffer(i, FramebufferAttachmentType::None);
             }
         }
 
