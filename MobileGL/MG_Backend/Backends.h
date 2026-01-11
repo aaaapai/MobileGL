@@ -68,46 +68,46 @@ namespace MobileGL {
         } // namespace Diligent
 
         namespace DirectGLES {
-            inline RendererInfo RendererInfo = []() -> RendererInfo {
-               // 默认值（对应LIBGL_GL=33的情况）
-               RendererInfo info = {
-                   .RendererName = "Espryt",
-                   .BackendName = "Direct (OpenGL ES)",
-                   .ExtraVendor = Nullopt,
-                   .RendererGLInfo =
-                       {
-                           .TargetGLVersion = {3, 3, 0},
-                           .TargetGLSLVersion = {4, 6, 0},
-                           .Extensions = {V_OpenGL30, V_OpenGL31, V_OpenGL32,
-                                          V_OpenGL33, E_GL_ARB_shader_image_load_store, 
-                                          E_GL_ARB_draw_buffers_blend, E_GL_ARB_shader_storage_buffer_object},
-                           .IsCompatibilityProfile = false
-                       },
-                   .BackendCapability = {.AllowVSOnlyPrograms = false}
-               };
+            inline RendererInfo RendererInfoObj = []() -> RendererInfo {
+                // 默认值（对应LIBGL_GL=33的情况）
+                RendererInfo info = {
+                    .RendererName = "Espryt",
+                    .BackendName = "Direct (OpenGL ES)",
+                    .ExtraVendor = Nullopt,
+                    .RendererGLInfo =
+                        {
+                            .TargetGLVersion = {3, 3, 0},
+                            .TargetGLSLVersion = {4, 6, 0},
+                            .Extensions = {V_OpenGL30, V_OpenGL31, V_OpenGL32,
+                                           V_OpenGL33, E_GL_ARB_shader_image_load_store, 
+                                           E_GL_ARB_draw_buffers_blend, E_GL_ARB_shader_storage_buffer_object},
+                            .IsCompatibilityProfile = false
+                        },
+                    .BackendCapability = {.AllowVSOnlyPrograms = false}
+                };
         
-               // 检查环境变量LIBGL_GL
-               const char* envLibGL = std::getenv("LIBGL_GL");
-               if (envLibGL != nullptr) {
-                   std::string libglValue = envLibGL;
+                // 检查环境变量LIBGL_GL
+                const char* envLibGL = std::getenv("LIBGL_GL");
+                if (envLibGL != nullptr) {
+                    std::string libglValue = envLibGL;
             
-                   // 如果设置为"43"，则使用OpenGL 4.3
-                   if (libglValue == "43") {
-                       // 修改OpenGL版本
-                       info.RendererGLInfo.TargetGLVersion = {4, 3, 0};
+                    // 如果设置为"43"，则使用OpenGL 4.3
+                    if (libglValue == "43") {
+                        // 修改OpenGL版本
+                        info.RendererGLInfo.TargetGLVersion = {4, 3, 0};
                 
-                       // 添加OpenGL 4.x扩展
-                       auto& extensions = info.RendererGLInfo.Extensions;
-                       extensions.push_back(V_OpenGL40);
-                       extensions.push_back(V_OpenGL41);
-                       extensions.push_back(V_OpenGL42);
-                       extensions.push_back(V_OpenGL43);
-                   }
-               }
+                        // 添加OpenGL 4.x扩展
+                        auto& extensions = info.RendererGLInfo.Extensions;
+                        extensions.push_back(V_OpenGL40);
+                        extensions.push_back(V_OpenGL41);
+                        extensions.push_back(V_OpenGL42);
+                        extensions.push_back(V_OpenGL43);
+                    }
+                }
         
-        return info;
-    }();
-} // namespace DirectGLES
+                return info;
+            }();
+        } // namespace DirectGLES
 
         void Init();
     } // namespace MG_Backend
