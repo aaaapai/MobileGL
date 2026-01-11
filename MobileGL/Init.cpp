@@ -18,7 +18,7 @@
 
 namespace MobileGL {
     void MG_Initialize() {
-        MG_Util::Debug::InitFile();
+        /*MG_Util::Debug::InitFile();
         MGLOG_I("Initializing MobileGL...");
         MG_State::Init();
         MGLOG_D("MobileGL State initialized");
@@ -38,18 +38,14 @@ namespace MobileGL {
                 if (check_path()) config_refresh();
                 init_settings();
             }
-        }
+        }*/
+
+        printf("man");
 
     }
 
     void MG_Destroy() {
-        MGLOG_I("MobileGL closing...");
-        glslang::FinalizeProcess();
-        delete MG_State::pGLContext;
-        MG_Config::RendererInfoPtr.reset();
-        delete MG_Impl::GLImpl::TextureImpl::pProxyTextureManager;
-        delete MG_Impl::GLImpl::FramebufferImpl::pDefaultFramebufferInfo;
-        MG_Util::Debug::Close();
+        printf("man");
 
         // TODO: add and use Destroy functions for other subsystems
     }
