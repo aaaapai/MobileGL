@@ -677,10 +677,10 @@ namespace MobileGL {
                 *params = 0; // TODO
                 break;
             case GL_SHADER_STORAGE_BUFFER_BINDING:
-                *params = 0; // TODO
+                *params = 32; // TODO
                 break;
             case GL_SHADER_STORAGE_BUFFER_OFFSET_ALIGNMENT:
-                *params = 0; // TODO
+                *params = 32; // TODO
                 break;
             case GL_SHADER_STORAGE_BUFFER_START:
                 *params = 0; // TODO
