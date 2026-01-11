@@ -188,12 +188,12 @@ namespace MobileGL::MG_Backend::DirectGLES {
 
         void BackendVertexArrayObject::Bind() {
 #ifdef TRACY_ENABLE
-            ZoneScopedC(TRACY_ZONECOLOR_BACKEND);
+                    ZoneScopedC(TRACY_ZONECOLOR_BACKEND);
 #endif
-            MG_External::GLES::glBindVertexArray(m_backendVAOId);
-        }
+                    MG_External::GLES::glBindVertexArray(m_backendVAOId);
+                }
 
-        void BackendVertexArrayObject::SyncToBackend(SharedPtr<MG_State::GLState::VertexArrayObject>& stateVAOObject,
+                void BackendVertexArrayObject::SyncToBackend(SharedPtr<MG_State::GLState::VertexArrayObject>& stateVAOObject,
                                                      Bool needDivisor) {
 #ifdef TRACY_ENABLE
             ZoneScopedC(TRACY_ZONECOLOR_BACKEND);
@@ -211,6 +211,31 @@ namespace MobileGL::MG_Backend::DirectGLES {
 
             Bind();
 
+            // 辅助函数：确保缓冲区有后端对象
+            auto ensureBackendBuffer = [](SharedPtr<MG_State::GLState::BufferObject> buffer) 
+                -> SharedPtr<BufferImpl::BackendBufferObject> {
+                if (!buffer) {
+                    return nullptr;
+                }
+        
+                auto it = BufferImpl::g_backendBufferObjects.find(buffer);
+                if (it != BufferImpl::g_backendBufferObjects.end()) {
+                    return it->second;
+                }
+        
+                // 动态创建后端缓冲区对象
+                MGLOG_D("Creating backend buffer object for buffer %p (state ID: %u)", 
+                        buffer.get(), buffer->GetExternalIndex());
+                auto backendBuffer = MakeShared<BufferImpl::BackendBufferObject>();
+                BufferImpl::g_backendBufferObjects[buffer] = backendBuffer;
+        
+                // 同步数据到后端
+                backendBuffer->SyncToBackend(buffer);
+        
+                return backendBuffer;
+            };
+
+            // 处理顶点属性
             for (const auto& attribIndex : stateVAOObject->GetDirtyAttributeIndices()) {
                 const auto& attrib = stateVAOObject->GetAttribute(attribIndex);
                 if (attrib.Enabled) {
@@ -228,12 +253,11 @@ namespace MobileGL::MG_Backend::DirectGLES {
                     continue;
                 }
 
-                const auto& backendBufferIt = BufferImpl::g_backendBufferObjects.find(bufferObject);
-                if (backendBufferIt == BufferImpl::g_backendBufferObjects.end()) {
-                    MGLOG_E("No backend buffer found for attribute's buffer, cannot bind attribute.");
+                auto backendBufferObject = ensureBackendBuffer(bufferObject);
+                if (!backendBufferObject) {
+                    MGLOG_E("Failed to ensure backend buffer for attribute's buffer.");
                     continue;
                 }
-                const auto& backendBufferObject = backendBufferIt->second;
 
                 backendBufferObject->Bind(GL_ARRAY_BUFFER);
                 if (!attrib.IsInteger) {
@@ -251,15 +275,21 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 }
             }
 
+            // 处理索引缓冲区
             const auto& indexBufferBinding = stateVAOObject->GetIndexBufferBindingSlot().GetBoundObject();
             if (indexBufferBinding) {
-                const auto& backendBufferIt = BufferImpl::g_backendBufferObjects.find(indexBufferBinding);
-                if (backendBufferIt != BufferImpl::g_backendBufferObjects.end()) {
-                    const auto& backendBufferObject = backendBufferIt->second;
+                MGLOG_D("Found index buffer for VAO ID: %u, buffer state ID: %u", 
+                        m_backendVAOId, indexBufferBinding->GetExternalIndex());
+        
+                auto backendBufferObject = ensureBackendBuffer(indexBufferBinding);
+                if (backendBufferObject) {
                     backendBufferObject->Bind(GL_ELEMENT_ARRAY_BUFFER);
+                    MGLOG_D("Successfully bound index buffer to GL_ELEMENT_ARRAY_BUFFER for VAO ID: %u", m_backendVAOId);
                 } else {
-                    MGLOG_E("No backend buffer found for index buffer binding, cannot bind index buffer.");
+                    MGLOG_E("Failed to ensure backend buffer for index buffer binding.");
                 }
+            } else {
+                MGLOG_D("No index buffer binding found for VAO ID: %u", m_backendVAOId);
             }
 
             stateVAOObject->ClearDirtyAttributes();
