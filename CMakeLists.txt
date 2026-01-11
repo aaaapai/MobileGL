@@ -95,18 +95,7 @@ endif()
 
 if (ANDROID)
 target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE
-    ${CMAKE_SOURCE_DIR}/library/android/${ANDROID_ABI}/libspirv-cross-c.a
-    ${CMAKE_SOURCE_DIR}/library/android/${ANDROID_ABI}/libglslang.a
-    ${CMAKE_SOURCE_DIR}/library/android/${ANDROID_ABI}/libspirv-cross-core.a
-    ${CMAKE_SOURCE_DIR}/library/android/${ANDROID_ABI}/libspirv-cross-cpp.a
-    ${CMAKE_SOURCE_DIR}/library/android/${ANDROID_ABI}/libspirv-cross-glsl.a
-    android
     log
-)
-
-# 版本脚本针对特定目标设置
-target_link_options(${CMAKE_PROJECT_NAME} PRIVATE 
-    "LINKER:--version-script=${CMAKE_SOURCE_DIR}/MobileGL/mgl-version.script"
 )
 
 endif()
