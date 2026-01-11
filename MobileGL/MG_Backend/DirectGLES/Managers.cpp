@@ -900,7 +900,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 source = ProcessOutColorLocations(source);
                 source = ForceSupporterOutput(source);
 
-                /*// TODO: probably a patch system?
+                // TODO: probably a patch system?
                 String findStr = "if (distance_weight_sum == 0.0)";
                 String replaceStr = "if (distance_weight_sum <= 0.0001)";
                 auto pos = source.find(findStr);
@@ -910,14 +910,14 @@ namespace MobileGL::MG_Backend::DirectGLES {
                     pos = source.find(findStr, pos);
                 }
 
-                findStr = "1000000.0";
+                /*findStr = "1000000.0";
                 replaceStr = "65500.0";
                 pos = source.find(findStr);
                 while (pos != String::npos) {
                     MGLOG_D("Applying patch #2 to Photon...");
                     source.replace(pos, findStr.length(), replaceStr);
                     pos = source.find(findStr, pos);
-                }
+                }*/
 
                 findStr = "if (gtao.w == 0.0)";
                 replaceStr = "if (abs(gtao.w) <= 0.00001)";
@@ -928,7 +928,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
                     pos = source.find(findStr, pos);
                 }
 
-                findStr = "== 0.0";
+                /*findStr = "== 0.0";
                 replaceStr = "<= 0.00001";
                 pos = source.find(findStr);
                 while (pos != String::npos) {
