@@ -25,6 +25,8 @@ set(ENABLE_OPT                 ON  CACHE BOOL "Enable SPIRV-Tools opt usage in g
 set(BUILD_EXTERNAL             ON  CACHE BOOL "Build external deps in External/" FORCE)
 set(ENABLE_GLSLANG_INSTALL     OFF CACHE BOOL "Install glslang targets" FORCE)
 
+add_subdirectory(3rdparty/glslang)
+
 if (MSVC)
     set(CMAKE_CXX_FLAGS "/EHsc ${CMAKE_CXX_FLAGS}")
 endif()
