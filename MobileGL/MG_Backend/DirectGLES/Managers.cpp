@@ -50,8 +50,24 @@ namespace MobileGL::MG_Backend::DirectGLES {
 
             SizeT bufferSize = stateBufferObject->GetSize();
             if (bufferSize == 0) {
-                MGLOG_W("Buffer size is zero, skipping sync for object with ID: %u", m_backendBufferId);
-                return;
+                MGLOG_D("Buffer size is zero, handling zero-sized buffer for ID: %u", m_backendBufferId);
+        
+                // 确保即使缓冲区大小为0，也进行必要的初始化
+                if (!m_isInitialized) {
+                    // 如果未初始化，创建空的GL缓冲区
+                    if (m_backendBufferId == 0) {
+                        MG_External::GLES::glGenBuffers(1, &m_backendBufferId);
+                    }
+                    MG_External::GLES::glBindBuffer(TempBufferTarget, m_backendBufferId);
+                    MG_External::GLES::glBufferData(TempBufferTarget, 0, nullptr, 
+                    MG_Util::ConvertBufferUsageToGLEnum(stateBufferObject->GetUsage()));
+                    MG_External::GLES::glBindBuffer(TempBufferTarget, 0);
+                    m_isInitialized = true;
+                }
+        
+                m_prevBufferSize = 0;
+                stateBufferObject->ClearDirty();  // 重要：清除脏标记
+                return;  // 零大小缓冲区不需要数据更新，可以return
             }
 
             MGLOG_D("Syncing buffer object with backend ID %u to backend for state ID %u", m_backendBufferId,
