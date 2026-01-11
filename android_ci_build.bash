@@ -1,7 +1,12 @@
 #!/bin/bash
 # set -e
 
-git clone --depth 1 https://github.com/aaaapai/FastSTL.git ./include/FastSTL
+# git clone --depth 1 https://github.com/aaaapai/FastSTL.git ./include/FastSTL
+
+cd ./3rdparty/glslang
+python3 update_glslang_sources.py
+cd ../..
+
 cmake_build () {
   ANDROID_ABI=$1
   mkdir -p build
