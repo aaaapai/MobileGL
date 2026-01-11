@@ -8,7 +8,7 @@ namespace MobileGL {
         namespace ShaderTranspiler {
 
 // 综合GLSL代码注入和替换函数
-static inline void inject_glsl_replacements(std::string& source) {
+static inline void inject_glsl_replacements(ShaderStage stage, std::string& source) {
 
     // ==================== 2. 注入gl_DepthRange替换 ====================
     const char* str_depthrange = "gl_DepthRange";
@@ -1072,7 +1072,7 @@ vec4 GI_TemporalFilter() {
 
 // ==================== 替换已弃用语法和修复问题 ====================
     // 替换attribute/varying关键字
-    if (shaderType == GL_VERTEX_SHADER) {
+    if (stage == Vertex) {
         // 替换attribute为in
         size_t pos = 0;
         while ((pos = source.find("attribute", pos)) != String::npos) {
@@ -1086,7 +1086,7 @@ vec4 GI_TemporalFilter() {
             source.replace(pos, 7, "out");
             pos += 3; // "out"的长度
         }
-    } else if (shaderType == GL_FRAGMENT_SHADER) {
+    } else if (stage == Fragment) {
         // 替换varying为in
         size_t pos = 0;
         while ((pos = source.find("varying", pos)) != String::npos) {
