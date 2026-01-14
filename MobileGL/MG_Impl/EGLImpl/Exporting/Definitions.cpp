@@ -81,6 +81,10 @@ MOBILEGL_EGL_API EGLBoolean eglQuerySurface(EGLDisplay display, EGLSurface surfa
     return MobileGL::MG_Impl::EGLImpl::QuerySurface(display, surface, attribute, value);
 }
 
+MOBILEGL_EGL_API char const * eglQueryString(EGLDisplay display, EGLint name) {
+    return MobileGL::MG_Impl::EGLImpl::QueryString(display, name);
+}
+
 MOBILEGL_EGL_API EGLBoolean eglSwapInterval(EGLDisplay dpy, EGLint interval) {
     return MobileGL::MG_Impl::EGLImpl::SwapInterval(dpy, interval);
 }

@@ -80,6 +80,10 @@ namespace MobileGL {
             return MG_External::EGL::eglQuerySurface(display, surface, attribute, value);
         }
 
+        char const * QueryString(EGLDisplay display, EGLint name) {
+            return MG_External::EGL::eglQueryString(display, name);
+        }
+
         EGLBoolean SwapInterval(EGLDisplay dpy, EGLint interval) {
             return MG_External::EGL::eglSwapInterval(dpy, interval);
         }

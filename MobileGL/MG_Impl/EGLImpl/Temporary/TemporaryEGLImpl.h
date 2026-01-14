@@ -28,6 +28,7 @@ namespace MobileGL {
         EGLBoolean BindAPI(EGLenum api);
         EGLSurface GetCurrentSurface(EGLint readdraw);
         EGLBoolean QuerySurface(EGLDisplay display, EGLSurface surface, EGLint attribute, EGLint* value);
+        char const * QueryString(EGLDisplay display, EGLint name);
         EGLBoolean SwapInterval(EGLDisplay dpy, EGLint interval);
         EGLBoolean SwapBuffers(EGLDisplay dpy, EGLSurface draw);
         EGLSurface CreatePbufferSurface(EGLDisplay dpy, EGLConfig config, const EGLint* attrib_list);

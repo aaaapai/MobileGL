@@ -97,6 +97,10 @@ namespace MobileGL {
             return EGL_TRUE;
         }
 
+        char const * QueryString(EGLDisplay display, EGLint name) {
+            return "";
+        }
+
         EGLBoolean SwapInterval(EGLDisplay dpy, EGLint interval) {
             return EGL_TRUE;
         }
