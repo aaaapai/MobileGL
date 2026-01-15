@@ -52,8 +52,10 @@
 #include <spirv_cross/spirv_cross_c.h>
 
 // Include OpenGL and EGL headers
-#include <GL/gl.h>
 #include <EGL/egl.h>
+#define GL_GLEXT_PROTOTYPES
+#include <GL/glcorearb.h>
+#undef GL_GLEXT_PROTOTYPES
 #include <GL/glext.h>
 #include <GLES3/gl32.h>
 

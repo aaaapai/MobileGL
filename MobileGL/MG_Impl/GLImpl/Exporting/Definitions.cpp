@@ -1107,6 +1107,7 @@ DECLARE_GL_FUNCTION_STUB_HEAD(void, SpecializeShader, GLuint shader, const GLcha
 DECLARE_GL_FUNCTION_STUB_HEAD(void, MultiDrawArraysIndirectCount, GLenum mode, const void* indirect, GLintptr drawcount, GLsizei maxdrawcount, GLsizei stride) DECLARE_GL_FUNCTION_STUB_END_NO_RETURN(void, MultiDrawArraysIndirectCount, mode, indirect, drawcount, maxdrawcount, stride)
 DECLARE_GL_FUNCTION_STUB_HEAD(void, MultiDrawElementsIndirectCount, GLenum mode, GLenum type, const void* indirect, GLintptr drawcount, GLsizei maxdrawcount, GLsizei stride) DECLARE_GL_FUNCTION_STUB_END_NO_RETURN(void, MultiDrawElementsIndirectCount, mode, type, indirect, drawcount, maxdrawcount, stride)
 DECLARE_GL_FUNCTION_STUB_HEAD(void, PolygonOffsetClamp, GLfloat factor, GLfloat units, GLfloat clamp) DECLARE_GL_FUNCTION_STUB_END_NO_RETURN(void, PolygonOffsetClamp, factor, units, clamp)
+DECLARE_GL_FUNCTION_STUB_HEAD(void, PrimitiveBoundingBoxARB, GLfloat minX, GLfloat minY, GLfloat minZ, GLfloat minW, GLfloat maxX, GLfloat maxY, GLfloat maxZ, GLfloat maxW) DECLARE_GL_FUNCTION_STUB_END(void, PrimitiveBoundingBoxARB, minX, minY, minZ, minW, maxX, maxY, maxZ, maxW)
 DECLARE_GL_FUNCTION_STUB_HEAD(GLuint64, GetTextureHandleARB, GLuint texture) DECLARE_GL_FUNCTION_STUB_END(GLuint64, GetTextureHandleARB, texture)
 DECLARE_GL_FUNCTION_STUB_HEAD(GLuint64, GetTextureSamplerHandleARB, GLuint texture, GLuint sampler) DECLARE_GL_FUNCTION_STUB_END(GLuint64, GetTextureSamplerHandleARB, texture, sampler)
 DECLARE_GL_FUNCTION_STUB_HEAD(void, MakeTextureHandleResidentARB, GLuint64 handle) DECLARE_GL_FUNCTION_STUB_END_NO_RETURN(void, MakeTextureHandleResidentARB, handle)
@@ -2827,3 +2828,274 @@ DECLARE_GL_FUNCTION_STUB_HEAD(void, ReplacementCodeuiTexCoord2fNormal3fVertex3fS
 DECLARE_GL_FUNCTION_STUB_HEAD(void, ReplacementCodeuiTexCoord2fNormal3fVertex3fvSUN, const GLuint* rc, const GLfloat* tc, const GLfloat* n, const GLfloat* v) DECLARE_GL_FUNCTION_STUB_END_NO_RETURN(void, ReplacementCodeuiTexCoord2fNormal3fVertex3fvSUN, rc, tc, n, v)
 DECLARE_GL_FUNCTION_STUB_HEAD(void, ReplacementCodeuiTexCoord2fColor4fNormal3fVertex3fSUN, GLuint rc, GLfloat s, GLfloat t, GLfloat r, GLfloat g, GLfloat b, GLfloat a, GLfloat nx, GLfloat ny, GLfloat nz, GLfloat x, GLfloat y, GLfloat z) DECLARE_GL_FUNCTION_STUB_END_NO_RETURN(void, ReplacementCodeuiTexCoord2fColor4fNormal3fVertex3fSUN, rc, s, t, r, g, b, a, nx, ny, nz, x, y, z)
 DECLARE_GL_FUNCTION_STUB_HEAD(void, ReplacementCodeuiTexCoord2fColor4fNormal3fVertex3fvSUN, const GLuint* rc, const GLfloat* tc, const GLfloat* c, const GLfloat* n, const GLfloat* v) DECLARE_GL_FUNCTION_STUB_END_NO_RETURN(void, ReplacementCodeuiTexCoord2fColor4fNormal3fVertex3fvSUN, rc, tc, c, n, v)
+
+MOBILEGL_GL_API void glDebugMessageControlARB(GLenum source, GLenum type, GLenum severity, GLsizei count,
+                                              const GLuint* ids, GLboolean enabled) {
+    glDebugMessageControl(source, type, severity, count, ids, enabled);
+}
+
+MOBILEGL_GL_API void glDebugMessageInsertARB(GLenum source, GLenum type, GLuint id, GLenum severity, GLsizei length,
+                                             const GLchar* buf) {
+    glDebugMessageInsert(source, type, id, severity, length, buf);
+}
+
+MOBILEGL_GL_API void glDebugMessageCallbackARB(GLDEBUGPROC callback, const void* userParam) {
+    glDebugMessageCallback(callback, userParam);
+}
+
+MOBILEGL_GL_API GLuint glGetDebugMessageLogARB(GLuint count, GLsizei bufSize, GLenum* sources, GLenum* types,
+                                               GLuint* ids, GLenum* severities, GLsizei* lengths, GLchar* messageLog) {
+    return glGetDebugMessageLog(count, bufSize, sources, types, ids, severities, lengths, messageLog);
+}
+
+MOBILEGL_GL_API void glDrawArraysInstancedARB(GLenum mode, GLint first, GLsizei count, GLsizei instancecount) {
+    glDrawArraysInstanced(mode, first, count, instancecount);
+}
+
+MOBILEGL_GL_API void glDrawArraysInstancedEXT(GLenum mode, GLint first, GLsizei count, GLsizei instancecount) {
+    glDrawArraysInstanced(mode, first, count, instancecount);
+}
+
+MOBILEGL_GL_API void glDrawElementsInstancedARB(GLenum mode, GLsizei count, GLenum type, const void* indices,
+                                                GLsizei instancecount) {
+    glDrawElementsInstanced(mode, count, type, indices, instancecount);
+}
+
+MOBILEGL_GL_API void glDrawElementsInstancedEXT(GLenum mode, GLsizei count, GLenum type, const void* indices,
+                                                GLsizei instancecount) {
+    glDrawElementsInstanced(mode, count, type, indices, instancecount);
+}
+
+MOBILEGL_GL_API void glFramebufferTextureARB(GLenum target, GLenum attachment, GLuint texture, GLint level) {
+    glFramebufferTexture(target, attachment, texture, level);
+}
+
+MOBILEGL_GL_API void glFramebufferTextureLayerARB(GLenum target, GLenum attachment, GLuint texture, GLint level,
+                                                  GLint layer) {
+    glFramebufferTextureLayer(target, attachment, texture, level, layer);
+}
+
+MOBILEGL_GL_API void glGetFramebufferParameterivEXT(GLenum target, GLenum pname, GLint* params) {
+    glGetFramebufferParameteriv(target, pname, params);
+}
+
+MOBILEGL_GL_API GLenum glGetGraphicsResetStatusARB(void) {
+    return glGetGraphicsResetStatus();
+}
+
+MOBILEGL_GL_API void glGetnUniformfvARB(GLuint program, GLint location, GLsizei bufSize, GLfloat* params) {
+    glGetnUniformfv(program, location, bufSize, params);
+}
+
+MOBILEGL_GL_API void glGetnUniformivARB(GLuint program, GLint location, GLsizei bufSize, GLint* params) {
+    glGetnUniformiv(program, location, bufSize, params);
+}
+
+MOBILEGL_GL_API void glGetnUniformuivARB(GLuint program, GLint location, GLsizei bufSize, GLuint* params) {
+    glGetnUniformuiv(program, location, bufSize, params);
+}
+
+MOBILEGL_GL_API void glGetObjectLabelEXT(GLenum identifier, GLuint name, GLsizei bufSize, GLsizei* length,
+                                         GLchar* label) {
+    glGetObjectLabel(identifier, name, bufSize, length, label);
+}
+
+MOBILEGL_GL_API void* glMapNamedBuffer(GLuint buffer, GLenum access) {
+    MGLOG_W("Stub function: %s(...)", __FUNCTION__);
+    return nullptr;
+}
+
+MOBILEGL_GL_API void* glMapNamedBufferEXT(GLuint buffer, GLenum access) {
+    return glMapNamedBuffer(buffer, access);
+}
+
+MOBILEGL_GL_API void* glMapNamedBufferRange(GLuint buffer, GLintptr offset, GLsizeiptr length, GLbitfield access) {
+    MGLOG_W("Stub function: %s(...)", __FUNCTION__);
+    return nullptr;
+}
+
+MOBILEGL_GL_API void* glMapNamedBufferRangeEXT(GLuint buffer, GLintptr offset, GLsizeiptr length, GLbitfield access) {
+    return glMapNamedBufferRange(buffer, offset, length, access);
+}
+
+MOBILEGL_GL_API void glMinSampleShadingARB(GLfloat value) {
+    glMinSampleShading(value);
+}
+
+MOBILEGL_GL_API void glProgramParameteriARB(GLuint program, GLenum pname, GLint value) {
+    glProgramParameteri(program, pname, value);
+}
+
+MOBILEGL_GL_API void glProgramUniform1fEXT(GLuint program, GLint location, GLfloat v0) {
+    glProgramUniform1f(program, location, v0);
+}
+
+MOBILEGL_GL_API void glProgramUniform1fvEXT(GLuint program, GLint location, GLsizei count, const GLfloat* value) {
+    glProgramUniform1fv(program, location, count, value);
+}
+
+MOBILEGL_GL_API void glProgramUniform1iEXT(GLuint program, GLint location, GLint v0) {
+    glProgramUniform1i(program, location, v0);
+}
+
+MOBILEGL_GL_API void glProgramUniform1ivEXT(GLuint program, GLint location, GLsizei count, const GLint* value) {
+    glProgramUniform1iv(program, location, count, value);
+}
+
+MOBILEGL_GL_API void glProgramUniform1uiEXT(GLuint program, GLint location, GLuint v0) {
+    glProgramUniform1ui(program, location, v0);
+}
+
+MOBILEGL_GL_API void glProgramUniform1uivEXT(GLuint program, GLint location, GLsizei count, const GLuint* value) {
+    glProgramUniform1uiv(program, location, count, value);
+}
+
+MOBILEGL_GL_API void glProgramUniform2fEXT(GLuint program, GLint location, GLfloat v0, GLfloat v1) {
+    glProgramUniform2f(program, location, v0, v1);
+}
+
+MOBILEGL_GL_API void glProgramUniform2fvEXT(GLuint program, GLint location, GLsizei count, const GLfloat* value) {
+    glProgramUniform2fv(program, location, count, value);
+}
+
+MOBILEGL_GL_API void glProgramUniform2iEXT(GLuint program, GLint location, GLint v0, GLint v1) {
+    glProgramUniform2i(program, location, v0, v1);
+}
+
+MOBILEGL_GL_API void glProgramUniform2ivEXT(GLuint program, GLint location, GLsizei count, const GLint* value) {
+    glProgramUniform2iv(program, location, count, value);
+}
+
+MOBILEGL_GL_API void glProgramUniform2uiEXT(GLuint program, GLint location, GLuint v0, GLuint v1) {
+    glProgramUniform2ui(program, location, v0, v1);
+}
+
+MOBILEGL_GL_API void glProgramUniform2uivEXT(GLuint program, GLint location, GLsizei count, const GLuint* value) {
+    glProgramUniform2uiv(program, location, count, value);
+}
+
+MOBILEGL_GL_API void glProgramUniform3fEXT(GLuint program, GLint location, GLfloat v0, GLfloat v1, GLfloat v2) {
+    glProgramUniform3f(program, location, v0, v1, v2);
+}
+
+MOBILEGL_GL_API void glProgramUniform3fvEXT(GLuint program, GLint location, GLsizei count, const GLfloat* value) {
+    glProgramUniform3fv(program, location, count, value);
+}
+
+MOBILEGL_GL_API void glProgramUniform3iEXT(GLuint program, GLint location, GLint v0, GLint v1, GLint v2) {
+    glProgramUniform3i(program, location, v0, v1, v2);
+}
+
+MOBILEGL_GL_API void glProgramUniform3ivEXT(GLuint program, GLint location, GLsizei count, const GLint* value) {
+    glProgramUniform3iv(program, location, count, value);
+}
+
+MOBILEGL_GL_API void glProgramUniform3uiEXT(GLuint program, GLint location, GLuint v0, GLuint v1, GLuint v2) {
+    glProgramUniform3ui(program, location, v0, v1, v2);
+}
+
+MOBILEGL_GL_API void glProgramUniform3uivEXT(GLuint program, GLint location, GLsizei count, const GLuint* value) {
+    glProgramUniform3uiv(program, location, count, value);
+}
+
+MOBILEGL_GL_API void glProgramUniform4fEXT(GLuint program, GLint location, GLfloat v0, GLfloat v1, GLfloat v2,
+                                           GLfloat v3) {
+    glProgramUniform4f(program, location, v0, v1, v2, v3);
+}
+
+MOBILEGL_GL_API void glProgramUniform4fvEXT(GLuint program, GLint location, GLsizei count, const GLfloat* value) {
+    glProgramUniform4fv(program, location, count, value);
+}
+
+MOBILEGL_GL_API void glProgramUniform4iEXT(GLuint program, GLint location, GLint v0, GLint v1, GLint v2, GLint v3) {
+    glProgramUniform4i(program, location, v0, v1, v2, v3);
+}
+
+MOBILEGL_GL_API void glProgramUniform4ivEXT(GLuint program, GLint location, GLsizei count, const GLint* value) {
+    glProgramUniform4iv(program, location, count, value);
+}
+
+MOBILEGL_GL_API void glProgramUniform4uiEXT(GLuint program, GLint location, GLuint v0, GLuint v1, GLuint v2,
+                                            GLuint v3) {
+    glProgramUniform4ui(program, location, v0, v1, v2, v3);
+}
+
+MOBILEGL_GL_API void glProgramUniform4uivEXT(GLuint program, GLint location, GLsizei count, const GLuint* value) {
+    glProgramUniform4uiv(program, location, count, value);
+}
+
+MOBILEGL_GL_API void glProgramUniformMatrix2fvEXT(GLuint program, GLint location, GLsizei count,
+                                                  GLboolean transpose, const GLfloat* value) {
+    glProgramUniformMatrix2fv(program, location, count, transpose, value);
+}
+
+MOBILEGL_GL_API void glProgramUniformMatrix2x3fvEXT(GLuint program, GLint location, GLsizei count,
+                                                    GLboolean transpose, const GLfloat* value) {
+    glProgramUniformMatrix2x3fv(program, location, count, transpose, value);
+}
+
+MOBILEGL_GL_API void glProgramUniformMatrix2x4fvEXT(GLuint program, GLint location, GLsizei count,
+                                                    GLboolean transpose, const GLfloat* value) {
+    glProgramUniformMatrix2x4fv(program, location, count, transpose, value);
+}
+
+MOBILEGL_GL_API void glProgramUniformMatrix3fvEXT(GLuint program, GLint location, GLsizei count,
+                                                  GLboolean transpose, const GLfloat* value) {
+    glProgramUniformMatrix3fv(program, location, count, transpose, value);
+}
+
+MOBILEGL_GL_API void glProgramUniformMatrix3x2fvEXT(GLuint program, GLint location, GLsizei count,
+                                                    GLboolean transpose, const GLfloat* value) {
+    glProgramUniformMatrix3x2fv(program, location, count, transpose, value);
+}
+
+MOBILEGL_GL_API void glProgramUniformMatrix3x4fvEXT(GLuint program, GLint location, GLsizei count,
+                                                    GLboolean transpose, const GLfloat* value) {
+    glProgramUniformMatrix3x4fv(program, location, count, transpose, value);
+}
+
+MOBILEGL_GL_API void glProgramUniformMatrix4fvEXT(GLuint program, GLint location, GLsizei count,
+                                                  GLboolean transpose, const GLfloat* value) {
+    glProgramUniformMatrix4fv(program, location, count, transpose, value);
+}
+
+MOBILEGL_GL_API void glProgramUniformMatrix4x2fvEXT(GLuint program, GLint location, GLsizei count,
+                                                    GLboolean transpose, const GLfloat* value) {
+    glProgramUniformMatrix4x2fv(program, location, count, transpose, value);
+}
+
+MOBILEGL_GL_API void glProgramUniformMatrix4x3fvEXT(GLuint program, GLint location, GLsizei count,
+                                                    GLboolean transpose, const GLfloat* value) {
+    glProgramUniformMatrix4x3fv(program, location, count, transpose, value);
+}
+
+MOBILEGL_GL_API void glReadnPixelsARB(GLint x, GLint y, GLsizei width, GLsizei height, GLenum format, GLenum type,
+                                      GLsizei bufSize, void* data) {
+    glReadnPixels(x, y, width, height, format, type, bufSize, data);
+}
+
+MOBILEGL_GL_API void glTexBufferARB(GLenum target, GLenum internalformat, GLuint buffer) {
+    glTexBuffer(target, internalformat, buffer);
+}
+
+MOBILEGL_GL_API void glTexStorage1D(GLenum target, GLsizei levels, GLenum internalformat, GLsizei width) {
+    glTexStorage1DEXT(target, levels, internalformat, width);
+}
+
+MOBILEGL_GL_API void glTexStorage2DEXT(GLenum target, GLsizei levels, GLenum internalformat, GLsizei width,
+                                       GLsizei height) {
+    glTexStorage2D(target, levels, internalformat, width, height);
+}
+
+MOBILEGL_GL_API void glTexStorage3DEXT(GLenum target, GLsizei levels, GLenum internalformat, GLsizei width,
+                                       GLsizei height, GLsizei depth) {
+    glTexStorage3D(target, levels, internalformat, width, height, depth);
+}
+
+MOBILEGL_GL_API void glVertexAttribDivisorARB(GLuint index, GLuint divisor) {
+    glVertexAttribDivisor(index, divisor);
+}
+
+MOBILEGL_GL_API void glWindowRectanglesEXT(GLenum mode, GLsizei count, const GLint* box) {
+    MGLOG_W("Stub function: %s(...)", __FUNCTION__);
+}

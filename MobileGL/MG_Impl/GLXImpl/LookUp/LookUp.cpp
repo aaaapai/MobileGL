@@ -12,11 +12,7 @@ namespace MG_Impl::GLXImpl {
 
     void* GetProcAddress(const char* name) {
         MGLOG_D("glXGetProcAddress(\"%s\")", name);
-#if !defined(WIN32) && !defined(__APPLE__)
-        void* proc = dlsym(RTLD_DEFAULT, (const char*)name);
-#else
-        void* proc = NULL;
-#endif
+        void* proc = MobileGL::MG_Impl::GetProcAddress(name);
         if (!proc) {
             MGLOG_W("Failed to get function: %s", (const char*)name);
             return nullptr;

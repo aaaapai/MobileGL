@@ -1,4 +1,4 @@
-// MobileGL - MobileGL/MG_Impl/GLXImpl/LookUp/LookUp.h
+// MobileGL - MobileGL/MG_Impl/GetProcAddress.h
 // Copyright (c) 2025-2026 MobileGL-Dev
 // Licensed under the GNU Lesser General Public License v2.1:
 // http://www.gnu.org/licenses/old-licenses/lgpl-2.1.html
@@ -7,11 +7,9 @@
 
 #pragma once
 #include <Includes.h>
-#include "MG_Impl/GetProcAddress.h"
 
-namespace MG_Impl {
-    namespace GLXImpl {
+namespace MobileGL {
+    namespace MG_Impl {
         void* GetProcAddress(const char* name);
-        void* GetProcAddressARB(const char* name);
-    } // namespace GLXImpl
-} // namespace MG_Impl
+    } // namespace MG_Impl
+} // namespace MobileGL
