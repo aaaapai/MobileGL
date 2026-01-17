@@ -204,7 +204,7 @@ namespace MobileGL {
         }
 
         void DrawBuffers_State(GLsizei n, const GLenum* bufs) {
-            /*if (n < 0) {
+            if (n < 0) {
                 MG_State::pGLContext->RecordError(
                     ErrorCode::InvalidValue,
                     MakeShared<GenericErrorInfo>("MG_Impl/GLImpl", __func__, "`n` is less than 0."));
@@ -215,28 +215,28 @@ namespace MobileGL {
                     MakeShared<GenericErrorInfo>("MG_Impl/GLImpl", __func__,
                                                  "`n` is greater than `GL_MAX_DRAW_BUFFERS`."));
                 return;
-            }*/
+            }
 
             // Get bound framebuffer
             auto& bindingSlot = MG_State::pGLContext->GetFramebufferBindingSlot(FramebufferTarget::Draw);
             auto fbo = bindingSlot.GetBoundObject();
-            //bool isDefaultFBO = (fbo == FramebufferImpl::pDefaultFramebufferInfo->defaultFBO);
+            bool isDefaultFBO = (fbo == FramebufferImpl::pDefaultFramebufferInfo->defaultFBO);
 
-           /*static constexpr std::array<int, (SizeT)FramebufferAttachmentType::FramebufferAttachmentTypeCount> existenceMap = []() consteval {
+           static constexpr std::array<int, (SizeT)FramebufferAttachmentType::FramebufferAttachmentTypeCount> existenceMap = []() consteval {
                std::array<int, (SizeT)FramebufferAttachmentType::FramebufferAttachmentTypeCount> arr{};
                arr.fill(-1);
                return arr;
-            }();*/
+            }();
 
             for (GLsizei i = 0; i < n; ++i) {
                 auto attType = MG_Util::ConvertGLEnumToFramebufferAttachmentType(bufs[i]);
 
-                /*// ------------------- Check validity begin ------------------------
+                // ------------------- Check validity begin ------------------------
                 if (attType == FramebufferAttachmentType::Unknown) {
                     MG_State::pGLContext->RecordError(
                         ErrorCode::InvalidEnum,
                         MakeShared<GenericErrorInfo>("MG_Impl/GLImpl", __func__,
-                                                     std::format("bufs[{}] = %s is not an accepted value.", i,
+                                                     std::format("bufs[{}] = {} is not an accepted value.", i,
                                                                  MG_Util::ConvertGLEnumToString(bufs[i]))));
                     return;
                 }
@@ -288,7 +288,7 @@ namespace MobileGL {
                                                                  i, MG_Util::ConvertGLEnumToString(bufs[i]))));
                     return;
                 }
-                // ------------------------- Check validity end ----------------------------------*/
+                // ------------------------- Check validity end ----------------------------------
                 fbo->SetDrawBuffer(i, attType);
             }
             for (GLsizei i = n; i < MG_State::GLState::FramebufferObject::MAX_DRAW_BUFFERS; ++i) {
@@ -298,20 +298,13 @@ namespace MobileGL {
 
         void DrawBuffer_State(GLenum buf) {
 
-            auto& bindingSlot = MG_State::pGLContext->GetFramebufferBindingSlot(FramebufferTarget::Draw);
-            auto fbo = bindingSlot.GetBoundObject();
-
-            // 将 GLenum 转换为 FramebufferAttachmentType
-            auto attType = MG_Util::ConvertGLEnumToFramebufferAttachmentType(buf);
-
-            // 设置绘制缓冲区
-            // glDrawBuffer 设置第一个颜色缓冲区（索引0），并将其他所有缓冲区设置为 GL_NONE
-            fbo->SetDrawBuffer(0, attType);
-    
-            // 将所有其他颜色缓冲区设置为 GL_NONE
-            for (GLsizei i = 1; i < MG_State::GLState::FramebufferObject::MAX_DRAW_BUFFERS; ++i) {
-                fbo->SetDrawBuffer(i, FramebufferAttachmentType::None);
+            if (buf == GL_NONE) {
+                DrawBuffers_State(0, nullptr);
+            } else {
+                static GLenum bufs[] = {buf};
+                DrawBuffers_State(1, bufs);
             }
+
         }
 
         void DeleteRenderbuffers_State(GLsizei n, const GLuint* renderbuffers) {
