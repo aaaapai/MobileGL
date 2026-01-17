@@ -6,6 +6,7 @@
 // End of Source File Header
 
 #include "GLEnumConverter.h"
+#include <GL/gl.h>
 
 namespace MobileGL {
     namespace MG_Util {

@@ -97,6 +97,10 @@ namespace MobileGL {
             return EGL_TRUE;
         }
 
+        char const * QueryString(EGLDisplay display, EGLint name) {
+            return "";
+        }
+
         EGLBoolean SwapInterval(EGLDisplay dpy, EGLint interval) {
             return EGL_TRUE;
         }
@@ -107,6 +111,69 @@ namespace MobileGL {
 
         EGLSurface CreatePbufferSurface(EGLDisplay dpy, EGLConfig config, const EGLint* attrib_list) {
             return (EGLSurface)1;
+        }
+
+        EGLBoolean BindTexImage(EGLDisplay dpy, EGLSurface surface, EGLint buffer) {
+            return EGL_TRUE;
+        }
+
+        EGLBoolean ReleaseTexImage(EGLDisplay dpy, EGLSurface surface, EGLint buffer) {
+            return EGL_TRUE;
+        }
+
+        EGLBoolean CopyBuffers(EGLDisplay dpy, EGLSurface surface, EGLNativePixmapType target) {
+            return EGL_TRUE;
+        }
+
+        EGLSurface CreatePbufferFromClientBuffer(EGLDisplay dpy, EGLenum buftype, EGLClientBuffer buffer,
+                                                 EGLConfig config, const EGLint* attrib_list) {
+            return (EGLSurface)1;
+        }
+
+        EGLSurface CreatePixmapSurface(EGLDisplay dpy, EGLConfig config, EGLNativePixmapType pixmap,
+                                        const EGLint* attrib_list) {
+            return (EGLSurface)1;
+        }
+
+        EGLBoolean GetConfigs(EGLDisplay dpy, EGLConfig* configs, EGLint config_size, EGLint* num_config) {
+            if (num_config) {
+                *num_config = 1;
+            }
+            if (configs && config_size > 0) {
+                configs[0] = (EGLConfig)1;
+            }
+            return EGL_TRUE;
+        }
+
+        EGLDisplay GetCurrentDisplay(void) {
+            return (EGLDisplay)1;
+        }
+
+        EGLenum QueryAPI(void) {
+            return EGL_OPENGL_API;
+        }
+
+        EGLBoolean QueryContext(EGLDisplay dpy, EGLContext ctx, EGLint attribute, EGLint* value) {
+            if (value) {
+                *value = 0;
+            }
+            return EGL_TRUE;
+        }
+
+        EGLBoolean SurfaceAttrib(EGLDisplay dpy, EGLSurface surface, EGLint attribute, EGLint value) {
+            return EGL_TRUE;
+        }
+
+        EGLBoolean WaitClient(void) {
+            return EGL_TRUE;
+        }
+
+        EGLBoolean WaitGL(void) {
+            return EGL_TRUE;
+        }
+
+        EGLBoolean WaitNative(EGLint engine) {
+            return EGL_TRUE;
         }
 
         __eglMustCastToProperFunctionPointerType GetProcAddress(const char* name) {

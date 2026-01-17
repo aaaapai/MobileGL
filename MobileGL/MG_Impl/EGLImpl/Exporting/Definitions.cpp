@@ -81,6 +81,10 @@ MOBILEGL_EGL_API EGLBoolean eglQuerySurface(EGLDisplay display, EGLSurface surfa
     return MobileGL::MG_Impl::EGLImpl::QuerySurface(display, surface, attribute, value);
 }
 
+MOBILEGL_EGL_API char const * eglQueryString(EGLDisplay display, EGLint name) {
+    return MobileGL::MG_Impl::EGLImpl::QueryString(display, name);
+}
+
 MOBILEGL_EGL_API EGLBoolean eglSwapInterval(EGLDisplay dpy, EGLint interval) {
     return MobileGL::MG_Impl::EGLImpl::SwapInterval(dpy, interval);
 }
@@ -98,4 +102,103 @@ MOBILEGL_EGL_API EGLSurface eglCreatePbufferSurface(EGLDisplay dpy, EGLConfig co
 
 MOBILEGL_EGL_API __eglMustCastToProperFunctionPointerType eglGetProcAddress(const char* name) {
     return MobileGL::MG_Impl::EGLImpl::GetProcAddress(name);
+}
+
+MOBILEGL_EGL_API EGLBoolean eglBindTexImage(EGLDisplay dpy, EGLSurface surface, EGLint buffer) {
+    return MobileGL::MG_Impl::EGLImpl::BindTexImage(dpy, surface, buffer);
+}
+
+MOBILEGL_EGL_API EGLBoolean eglReleaseTexImage(EGLDisplay dpy, EGLSurface surface, EGLint buffer) {
+    return MobileGL::MG_Impl::EGLImpl::ReleaseTexImage(dpy, surface, buffer);
+}
+
+MOBILEGL_EGL_API EGLBoolean eglCopyBuffers(EGLDisplay dpy, EGLSurface surface, EGLNativePixmapType target) {
+    return MobileGL::MG_Impl::EGLImpl::CopyBuffers(dpy, surface, target);
+}
+
+MOBILEGL_EGL_API EGLSurface eglCreatePbufferFromClientBuffer(EGLDisplay dpy, EGLenum buftype,
+                                                             EGLClientBuffer buffer, EGLConfig config,
+                                                             const EGLint* attrib_list) {
+    return MobileGL::MG_Impl::EGLImpl::CreatePbufferFromClientBuffer(dpy, buftype, buffer, config, attrib_list);
+}
+
+MOBILEGL_EGL_API EGLSurface eglCreatePixmapSurface(EGLDisplay dpy, EGLConfig config, EGLNativePixmapType pixmap,
+                                                   const EGLint* attrib_list) {
+    return MobileGL::MG_Impl::EGLImpl::CreatePixmapSurface(dpy, config, pixmap, attrib_list);
+}
+
+MOBILEGL_EGL_API EGLBoolean eglGetConfigs(EGLDisplay dpy, EGLConfig* configs, EGLint config_size, EGLint* num_config) {
+    return MobileGL::MG_Impl::EGLImpl::GetConfigs(dpy, configs, config_size, num_config);
+}
+
+MOBILEGL_EGL_API EGLDisplay eglGetCurrentDisplay(void) {
+    return MobileGL::MG_Impl::EGLImpl::GetCurrentDisplay();
+}
+
+MOBILEGL_EGL_API EGLenum eglQueryAPI(void) {
+    return MobileGL::MG_Impl::EGLImpl::QueryAPI();
+}
+
+MOBILEGL_EGL_API EGLBoolean eglQueryContext(EGLDisplay dpy, EGLContext ctx, EGLint attribute, EGLint* value) {
+    return MobileGL::MG_Impl::EGLImpl::QueryContext(dpy, ctx, attribute, value);
+}
+
+MOBILEGL_EGL_API EGLBoolean eglSurfaceAttrib(EGLDisplay dpy, EGLSurface surface, EGLint attribute, EGLint value) {
+    return MobileGL::MG_Impl::EGLImpl::SurfaceAttrib(dpy, surface, attribute, value);
+}
+
+MOBILEGL_EGL_API EGLBoolean eglWaitClient(void) {
+    return MobileGL::MG_Impl::EGLImpl::WaitClient();
+}
+
+MOBILEGL_EGL_API EGLBoolean eglWaitGL(void) {
+    return MobileGL::MG_Impl::EGLImpl::WaitGL();
+}
+
+MOBILEGL_EGL_API EGLBoolean eglWaitNative(EGLint engine) {
+    return MobileGL::MG_Impl::EGLImpl::WaitNative(engine);
+}
+
+MOBILEGL_EGL_API EGLSync eglCreateSync(EGLDisplay dpy, EGLenum type, const EGLAttrib* attrib_list) {
+    return MobileGL::MG_Impl::EGLImpl::CreateSync(dpy, type, attrib_list);
+}
+
+MOBILEGL_EGL_API EGLBoolean eglDestroySync(EGLDisplay dpy, EGLSync sync) {
+    return MobileGL::MG_Impl::EGLImpl::DestroySync(dpy, sync);
+}
+
+MOBILEGL_EGL_API EGLint eglClientWaitSync(EGLDisplay dpy, EGLSync sync, EGLint flags, EGLTime timeout) {
+    return MobileGL::MG_Impl::EGLImpl::ClientWaitSync(dpy, sync, flags, timeout);
+}
+
+MOBILEGL_EGL_API EGLBoolean eglGetSyncAttrib(EGLDisplay dpy, EGLSync sync, EGLint attribute, EGLAttrib* value) {
+    return MobileGL::MG_Impl::EGLImpl::GetSyncAttrib(dpy, sync, attribute, value);
+}
+
+MOBILEGL_EGL_API EGLImage eglCreateImage(EGLDisplay dpy, EGLContext ctx, EGLenum target, EGLClientBuffer buffer,
+                                         const EGLAttrib* attrib_list) {
+    return MobileGL::MG_Impl::EGLImpl::CreateImage(dpy, ctx, target, buffer, attrib_list);
+}
+
+MOBILEGL_EGL_API EGLBoolean eglDestroyImage(EGLDisplay dpy, EGLImage image) {
+    return MobileGL::MG_Impl::EGLImpl::DestroyImage(dpy, image);
+}
+
+MOBILEGL_EGL_API EGLDisplay eglGetPlatformDisplay(EGLenum platform, void* native_display,
+                                                  const EGLAttrib* attrib_list) {
+    return MobileGL::MG_Impl::EGLImpl::GetPlatformDisplay(platform, native_display, attrib_list);
+}
+
+MOBILEGL_EGL_API EGLSurface eglCreatePlatformWindowSurface(EGLDisplay dpy, EGLConfig config, void* native_window,
+                                                           const EGLAttrib* attrib_list) {
+    return MobileGL::MG_Impl::EGLImpl::CreatePlatformWindowSurface(dpy, config, native_window, attrib_list);
+}
+
+MOBILEGL_EGL_API EGLSurface eglCreatePlatformPixmapSurface(EGLDisplay dpy, EGLConfig config, void* native_pixmap,
+                                                           const EGLAttrib* attrib_list) {
+    return MobileGL::MG_Impl::EGLImpl::CreatePlatformPixmapSurface(dpy, config, native_pixmap, attrib_list);
+}
+
+MOBILEGL_EGL_API EGLBoolean eglWaitSync(EGLDisplay dpy, EGLSync sync, EGLint flags) {
+    return MobileGL::MG_Impl::EGLImpl::WaitSync(dpy, sync, flags);
 }

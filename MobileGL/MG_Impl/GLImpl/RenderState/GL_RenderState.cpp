@@ -86,7 +86,7 @@ namespace MobileGL {
         }
 
         void PixelStorei_State(GLenum pname, GLint param) {
-            MGLOG_D("%s: %s, ...", __func__, MG_Util::ConvertGLEnumToString(pname).c_str());
+            MGLOG_D("%s: %s = %d", __func__, MG_Util::ConvertGLEnumToString(pname).c_str(), param);
             PixelStoreParam pixelStoreParam = MG_Util::ConvertGLEnumToPixelStoreParam(pname);
             if (pixelStoreParam == PixelStoreParam::Unknown) {
                 MG_State::pGLContext->RecordError(

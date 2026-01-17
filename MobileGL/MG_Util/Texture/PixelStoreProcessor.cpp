@@ -107,6 +107,9 @@ namespace MobileGL::MG_Util::PixelStoreProcessor {
         const Int copyHeight = height;
         const Int copyDepth = depth;
 
+        MGLOG_D("%s: start at: (%d, %d, %d), copy size: (%d, %d, %d)", __func__,
+                startX, startY, startZ, copyWidth, copyHeight, copyDepth);
+
         if (copyWidth <= 0 || copyHeight <= 0 || copyDepth <= 0) {
             outSize = 0;
             return nullptr;

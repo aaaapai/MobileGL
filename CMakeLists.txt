@@ -116,6 +116,7 @@ set(SOURCE_FILES
     MobileGL/MG_Impl/GLImpl/Sync/GL_Sync.cpp
 
     MobileGL/MG_Impl/Init.cpp
+    MobileGL/MG_Impl/GetProcAddress.cpp
 
     MobileGL/MG_Backend/Init.cpp
 
