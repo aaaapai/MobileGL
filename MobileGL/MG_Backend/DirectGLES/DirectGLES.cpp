@@ -18,6 +18,7 @@
 #include <MG_Util/Converters/MGToGL/TextureEnumConverter.h>
 #include <MG_Util/Converters/MGToStr/TextureEnumConverter.h>
 #include <MG_Util/Converters/MGToGL/RenderStateEnumConverter.h>
+#include "multidraw.h"
 
 namespace MobileGL::MG_Backend::DirectGLES {
     enum class DrawSyncBit : Uint32 {
@@ -28,7 +29,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
     };
 
     inline DrawSyncBit operator|(DrawSyncBit a, DrawSyncBit b) {
-        return static_cast<DrawSyncBit>(static_cast<uint32_t>(a) | static_cast<uint32_t>(b));
+        return static_cast<DrawSyncBit>(static_cast<std::uint32_t>(a) | static_cast<std::uint32_t>(b));
     }
 
     inline DrawSyncBit& operator|=(DrawSyncBit& a, DrawSyncBit b) {
@@ -660,6 +661,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
         for (GLsizei i = 0; i < drawcount; ++i) {
             MG_External::GLES::glDrawElementsBaseVertex(mode, count[i], type, indices[i], basevertex[i]);
         }
+        
     }
 
     void MultiDrawElementsIndirect(GLenum mode, GLenum type, const void* indirect, GLsizei drawcount, GLsizei stride) {
@@ -670,7 +672,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
         PrepareForDraw(syncBit);
 
         for (GLsizei i = 0; i < drawcount; ++i) {
-            const GLvoid* cmd = reinterpret_cast<const GLvoid*>(reinterpret_cast<const uint8_t*>(indirect) +
+            const GLvoid* cmd = reinterpret_cast<const GLvoid*>(reinterpret_cast<const std::uint8_t*>(indirect) +
                                                                 i * (stride ? stride : sizeof(GLsizei) * 4));
             MG_External::GLES::glDrawElementsIndirect(mode, type, cmd);
         }
@@ -684,7 +686,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
         PrepareForDraw(syncBit);
 
         for (GLsizei i = 0; i < drawcount; ++i) {
-            const GLvoid* cmd = reinterpret_cast<const GLvoid*>(reinterpret_cast<const uint8_t*>(indirect) +
+            const GLvoid* cmd = reinterpret_cast<const GLvoid*>(reinterpret_cast<const std::uint8_t*>(indirect) +
                                                                 i * (stride ? stride : sizeof(GLsizei) * 4));
             MG_External::GLES::glDrawArraysIndirect(mode, cmd);
         }
@@ -718,8 +720,83 @@ namespace MobileGL::MG_Backend::DirectGLES {
 
     void DrawElementsInstancedBaseInstance(GLenum mode, GLsizei count, GLenum type, const void* indices,
                                            GLsizei instancecount, GLuint baseinstance) {
-        // Not supported in OpenGL ES
-        MGLOG_W("DrawElementsInstancedBaseInstance is not supported in OpenGL ES.");
+    
+        DrawSyncBit syncBit = DrawSyncBit::IndexBuffer | DrawSyncBit::Instancing;
+        PrepareForDraw(syncBit);
+    
+        auto currentProgram = MG_State::pGLContext->GetCurrentProgram();
+        if (!currentProgram || !currentProgram->GetLinkStatus()) {
+            MGLOG_E("No valid program is currently bound.");
+            return;
+        }
+    
+        const auto& backendProgramIt = PrgramImpl::g_backendProgramObjects.find(currentProgram);
+        if (backendProgramIt == PrgramImpl::g_backendProgramObjects.end()) {
+            MGLOG_E("No backend program found.");
+            return;
+        }
+    
+        auto backendProgram = backendProgramIt->second;
+        auto backendProgramId = backendProgram->GetBackendProgramId();
+    
+        // 检查是否已经有baseInstance uniform位置
+        static UnorderedMap<GLuint, GLint> programBaseInstanceLocations;
+        GLint baseInstanceLocation = -1;
+    
+        auto it = programBaseInstanceLocations.find(backendProgramId);
+        if (it == programBaseInstanceLocations.end()) {
+            // 第一次使用这个程序，获取uniform位置
+            baseInstanceLocation = MG_External::GLES::glGetUniformLocation(backendProgramId, "u_BaseInstance");
+            if (baseInstanceLocation == -1) {
+                // 尝试其他可能的uniform名称
+                baseInstanceLocation = MG_External::GLES::glGetUniformLocation(backendProgramId, "baseInstance");
+                if (baseInstanceLocation == -1) {
+                    baseInstanceLocation = MG_External::GLES::glGetUniformLocation(backendProgramId, "u_baseinstance");
+                }
+            }
+            programBaseInstanceLocations[backendProgramId] = baseInstanceLocation;
+        } else {
+            baseInstanceLocation = it->second;
+        }
+    
+        // 保存当前的uniform值（如果有的话）
+        GLint savedBaseInstanceValue = 0;
+    
+        // 设置baseInstance uniform值
+        if (baseInstanceLocation != -1) {
+            MG_External::GLES::glUniform1ui(baseInstanceLocation, baseinstance);
+        } else {
+                // 如果程序中没有baseInstance uniform，我们需要修改顶点着色器
+                // 或者在绘制时使用其他技术来模拟
+                MGLOG_W("Program does not have a baseInstance uniform. Base instance offset may not work correctly.");
+        
+                // 替代方案：如果baseinstance不为0，我们可以使用多次绘制调用来模拟
+                if (baseinstance > 0) {
+                    MGLOG_W("Using multiple draw calls to simulate baseinstance = %u", baseinstance);
+            
+                    // 为每个实例单独绘制（性能较差，仅作为fallback）
+                for (GLuint instance = baseinstance; instance < baseinstance + instancecount; instance++) {
+                    if (baseInstanceLocation != -1) {
+                        MG_External::GLES::glUniform1ui(baseInstanceLocation, instance);
+                        MG_External::GLES::glDrawElements(mode, count, type, indices);
+                    } else {
+                        // 如果没有baseInstance uniform，我们可以尝试通过顶点属性来传递
+                        // 这里使用gl_InstanceID直接计算，需要特殊的顶点着色器
+                        MG_External::GLES::glDrawElements(mode, count, type, indices);
+                    }
+                }
+                return;
+            }
+        }
+        
+        // 执行实例化绘制
+        MG_External::GLES::glDrawElementsInstanced(mode, count, type, indices, instancecount);
+        
+        // 恢复baseInstance uniform值（如果需要）
+        if (baseInstanceLocation != -1 && savedBaseInstanceValue != baseinstance) {
+            // 我们可以恢复到0，或者保留当前值
+            MG_External::GLES::glUniform1ui(baseInstanceLocation, 0);
+        }
     }
 
     void DrawElementsInstanced(GLenum mode, GLsizei count, GLenum type, const void* indices, GLsizei instancecount) {

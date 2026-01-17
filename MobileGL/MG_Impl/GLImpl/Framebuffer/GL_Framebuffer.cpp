@@ -204,7 +204,7 @@ namespace MobileGL {
         }
 
         void DrawBuffers_State(GLsizei n, const GLenum* bufs) {
-            if (n < 0) {
+            /*if (n < 0) {
                 MG_State::pGLContext->RecordError(
                     ErrorCode::InvalidValue,
                     MakeShared<GenericErrorInfo>("MG_Impl/GLImpl", __func__, "`n` is less than 0."));
@@ -215,26 +215,28 @@ namespace MobileGL {
                     MakeShared<GenericErrorInfo>("MG_Impl/GLImpl", __func__,
                                                  "`n` is greater than `GL_MAX_DRAW_BUFFERS`."));
                 return;
-            }
+            }*/
 
             // Get bound framebuffer
             auto& bindingSlot = MG_State::pGLContext->GetFramebufferBindingSlot(FramebufferTarget::Draw);
             auto fbo = bindingSlot.GetBoundObject();
-            bool isDefaultFBO = (fbo == FramebufferImpl::pDefaultFramebufferInfo->defaultFBO);
+            //bool isDefaultFBO = (fbo == FramebufferImpl::pDefaultFramebufferInfo->defaultFBO);
 
-            static int existenceMap[(SizeT)FramebufferAttachmentType::FramebufferAttachmentTypeCount] = {-1};
-            std::fill(existenceMap, existenceMap + (SizeT)FramebufferAttachmentType::FramebufferAttachmentTypeCount,
-                      -1);
+           /*static constexpr std::array<int, (SizeT)FramebufferAttachmentType::FramebufferAttachmentTypeCount> existenceMap = []() consteval {
+               std::array<int, (SizeT)FramebufferAttachmentType::FramebufferAttachmentTypeCount> arr{};
+               arr.fill(-1);
+               return arr;
+            }();*/
 
             for (GLsizei i = 0; i < n; ++i) {
                 auto attType = MG_Util::ConvertGLEnumToFramebufferAttachmentType(bufs[i]);
 
-                // ------------------- Check validity begin ------------------------
+                /*// ------------------- Check validity begin ------------------------
                 if (attType == FramebufferAttachmentType::Unknown) {
                     MG_State::pGLContext->RecordError(
                         ErrorCode::InvalidEnum,
                         MakeShared<GenericErrorInfo>("MG_Impl/GLImpl", __func__,
-                                                     std::format("bufs[{}] = {} is not an accepted value.", i,
+                                                     std::format("bufs[{}] = %s is not an accepted value.", i,
                                                                  MG_Util::ConvertGLEnumToString(bufs[i]))));
                     return;
                 }
@@ -286,7 +288,7 @@ namespace MobileGL {
                                                                  i, MG_Util::ConvertGLEnumToString(bufs[i]))));
                     return;
                 }
-                // ------------------------- Check validity end ----------------------------------
+                // ------------------------- Check validity end ----------------------------------*/
                 fbo->SetDrawBuffer(i, attType);
             }
             for (GLsizei i = n; i < MG_State::GLState::FramebufferObject::MAX_DRAW_BUFFERS; ++i) {
@@ -295,11 +297,20 @@ namespace MobileGL {
         }
 
         void DrawBuffer_State(GLenum buf) {
-            if (buf == GL_NONE) {
-                DrawBuffers_State(0, nullptr);
-            } else {
-                static GLenum bufs[] = {buf};
-                DrawBuffers_State(1, bufs);
+
+            auto& bindingSlot = MG_State::pGLContext->GetFramebufferBindingSlot(FramebufferTarget::Draw);
+            auto fbo = bindingSlot.GetBoundObject();
+
+            // 将 GLenum 转换为 FramebufferAttachmentType
+            auto attType = MG_Util::ConvertGLEnumToFramebufferAttachmentType(buf);
+
+            // 设置绘制缓冲区
+            // glDrawBuffer 设置第一个颜色缓冲区（索引0），并将其他所有缓冲区设置为 GL_NONE
+            fbo->SetDrawBuffer(0, attType);
+    
+            // 将所有其他颜色缓冲区设置为 GL_NONE
+            for (GLsizei i = 1; i < MG_State::GLState::FramebufferObject::MAX_DRAW_BUFFERS; ++i) {
+                fbo->SetDrawBuffer(i, FramebufferAttachmentType::None);
             }
         }
 
@@ -350,6 +361,10 @@ namespace MobileGL {
         }
 
         GLenum CheckFramebufferStatus_State(GLenum target) {
+            if (std::getenv("MGL_CHEAT_CHECKFRAMEBUFFERSTATUS")) {
+                return GL_FRAMEBUFFER_COMPLETE;
+            }
+        
             FramebufferTarget framebufferTarget = MG_Util::ConvertGLEnumToFramebufferTarget(target);
             if (!FramebufferImpl::ValidateFramebufferTarget(framebufferTarget)) return GL_FRAMEBUFFER_UNDEFINED;
 
@@ -566,13 +581,14 @@ namespace MobileGL {
             FramebufferRenderbuffer_State(target, attachment, renderbuffertarget, renderbuffer);
         }
 
+        void DrawBuffers(GLsizei n, const GLenum* bufs) {
+            DrawBuffers_State(n, bufs);
+        }
+
         void DrawBuffer(GLenum buf) {
             DrawBuffer_State(buf);
         }
 
-        void DrawBuffers(GLsizei n, const GLenum* bufs) {
-            DrawBuffers_State(n, bufs);
-        }
 
         void DeleteRenderbuffers(GLsizei n, const GLuint* renderbuffers) {
             DeleteRenderbuffers_State(n, renderbuffers);

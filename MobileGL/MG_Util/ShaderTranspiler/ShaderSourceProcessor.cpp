@@ -6,6 +6,7 @@
 // End of Source File Header
 
 #include "ShaderSourceProcessor.h"
+#include "ShaderSourceProcessor_inline.h"
 
 namespace MobileGL {
     namespace MG_Util {
@@ -33,12 +34,48 @@ namespace MobileGL {
                 const char* str_np = "noperspective";
                 const SizeT len_np = strlen(str_np);
                 SizeT noperspectivePos = source.find(str_np);
-                while (noperspectivePos != String::npos) {
+                while (noperspectivePos != String::npos && !std::getenv("LIBGL_ANGLE")) { //允许ANGLE支持？
                     // + length of "\n"
                     source = source.replace(noperspectivePos, len_np, "");
                     noperspectivePos = source.find(str_np);
                 }
 
+                // 注入 textureQueryLod 实现
+                const char* str_textureQueryLod = "textureQueryLod";
+                if (source.find(str_textureQueryLod) != std::string::npos && !std::getenv("LIBGL_ANGLE")) {
+                    // 检查是否已经定义了 mg_textureQueryLod
+                    const char* str_mg_textureQueryLod = "mg_textureQueryLod";
+                    if (source.find(str_mg_textureQueryLod) == std::string::npos) {
+                        // 检查是否已经有 #define textureQueryLod
+                        const char* str_textureQueryLodDefine = "#define textureQueryLod";
+                        if (source.find(str_textureQueryLodDefine) == std::string::npos) {
+                            // 在顶部插入 textureQueryLod 实现
+                            const char* textureQueryLodImpl = R"(
+#define textureQueryLod mg_textureQueryLod
+
+vec2 mg_textureQueryLod(sampler2D tex, vec2 uv) {
+    vec2 texSizeF = vec2(textureSize(tex, 0));
+    vec2 dFdx_uv = dFdx(uv * texSizeF);
+    vec2 dFdy_uv = dFdy(uv * texSizeF);
+    float maxDerivative = max(length(dFdx_uv), length(dFdy_uv));
+    float lod = log2(maxDerivative);
+    return vec2(lod);
+}
+)";
+            
+                            SizeT versionPos = source.find("#version");
+                            if (versionPos != std::string::npos) {
+                                SizeT lineEnd = source.find('\n', versionPos);
+                                if (lineEnd != std::string::npos) {
+                                    source = source.insert(lineEnd + 1, textureQueryLodImpl);
+                                }
+                            }
+                        }
+                    }
+                }
+
+                inject_glsl_replacements(stage, source);
+                
                 // force #version
                 ShaderProfile profile = ShaderProfile::Core;
                 SizeT versionPos = source.find("#version");

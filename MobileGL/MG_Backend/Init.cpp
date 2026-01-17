@@ -10,6 +10,7 @@
 #include <Config.h>
 #include <MG_Util/BackendLoaders/OpenGL/Loader.h>
 #include <MG_Util/Converters/MGToStr/GLExtensionConverter.h>
+#include <cstdlib>  // 添加头文件用于std::getenv
 
 namespace MobileGL {
     namespace MG_Config {
@@ -71,7 +72,31 @@ namespace MobileGL {
                 throw RuntimeError("Unsupported renderer type");
             }
 #elif MOBILEGL_BACKEND == MOBILEGL_BACKEND_TYPE_DIRECT_GLES
-            MG_Config::RendererInfoPtr = MakeUnique<RendererInfo>(DirectGLES::RendererInfo);
+            RendererInfo directGLESInfo = DirectGLES::RendererInfo;
+            
+            // 检查环境变量LIBGL_GL
+            const char* envLibGL = std::getenv("LIBGL_GL");
+            if (envLibGL != nullptr) {
+                std::string libglValue = envLibGL;
+                
+                // 如果设置为"43"，则使用OpenGL 4.3
+                if (libglValue == "43") {
+                    MGLOG_I("LIBGL_GL=43 detected, using OpenGL 4.3 configuration");
+                    
+                    // 修改OpenGL版本
+                    directGLESInfo.RendererGLInfo.TargetGLVersion = {4, 3, 0};
+                    
+                    // 添加OpenGL 4.x扩展
+                    auto& extensions = directGLESInfo.RendererGLInfo.Extensions;
+                    extensions.push_back(V_OpenGL40);
+                    extensions.push_back(V_OpenGL41);
+                    extensions.push_back(V_OpenGL42);
+                    extensions.push_back(V_OpenGL43);
+                    
+                }
+            }
+            
+            MG_Config::RendererInfoPtr = MakeUnique<RendererInfo>(directGLESInfo);
 #else
             MG_Config::RendererInfoPtr = MakeUnique<RendererInfo>(Unknown::RendererInfoUnknown);
 #endif
