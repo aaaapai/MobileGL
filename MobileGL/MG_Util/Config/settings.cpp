@@ -143,8 +143,10 @@ void init_settings() {
     if (global_settings.angle == AngleMode::Enabled) {
         // setenv("LIBGL_GLES", "libGLESv2_angle.so", 1);
         // setenv("LIBGL_EGL", "libEGL_angle.so", 1);
-        setenv("LIBGL_ANGLE", "1", 1);
-    }
+        setenv("LIBGL_EGL", "libEGL_angle.so", 1);
+    } else if (angleConfig == AngleConfig::EnableIfPossible) {
+		setenv("LIBGL_EGL", "libEGL_mesa.so", 1);
+	}
 
     switch (noErrorConfig) {
     case NoErrorConfig::Level1:
