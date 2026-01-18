@@ -223,9 +223,11 @@ namespace MobileGL {
             auto fbo = bindingSlot.GetBoundObject();
             bool isDefaultFBO = (fbo == FramebufferImpl::pDefaultFramebufferInfo->defaultFBO);
 
-            static int existenceMap[(SizeT)FramebufferAttachmentType::FramebufferAttachmentTypeCount] = {-1};
-            std::fill(existenceMap, existenceMap + (SizeT)FramebufferAttachmentType::FramebufferAttachmentTypeCount,
-                      -1);
+           static constexpr std::array<int, (SizeT)FramebufferAttachmentType::FramebufferAttachmentTypeCount> existenceMap = []() consteval {
+               std::array<int, (SizeT)FramebufferAttachmentType::FramebufferAttachmentTypeCount> arr{};
+               arr.fill(-1);
+               return arr;
+            }();
 
             for (GLsizei i = 0; i < n; ++i) {
                 auto attType = MG_Util::ConvertGLEnumToFramebufferAttachmentType(bufs[i]);
@@ -296,12 +298,14 @@ namespace MobileGL {
         }
 
         void DrawBuffer_State(GLenum buf) {
+
             if (buf == GL_NONE) {
                 DrawBuffers_State(0, nullptr);
             } else {
                 static GLenum bufs[] = {buf};
                 DrawBuffers_State(1, bufs);
             }
+
         }
 
         void DeleteRenderbuffers_State(GLsizei n, const GLuint* renderbuffers) {
@@ -351,6 +355,10 @@ namespace MobileGL {
         }
 
         GLenum CheckFramebufferStatus_State(GLenum target) {
+            if (std::getenv("MGL_CHEAT_CHECKFRAMEBUFFERSTATUS")) {
+                return GL_FRAMEBUFFER_COMPLETE;
+            }
+        
             FramebufferTarget framebufferTarget = MG_Util::ConvertGLEnumToFramebufferTarget(target);
             if (!FramebufferImpl::ValidateFramebufferTarget(framebufferTarget)) return GL_FRAMEBUFFER_UNDEFINED;
 
@@ -567,13 +575,14 @@ namespace MobileGL {
             FramebufferRenderbuffer_State(target, attachment, renderbuffertarget, renderbuffer);
         }
 
+        void DrawBuffers(GLsizei n, const GLenum* bufs) {
+            DrawBuffers_State(n, bufs);
+        }
+
         void DrawBuffer(GLenum buf) {
             DrawBuffer_State(buf);
         }
 
-        void DrawBuffers(GLsizei n, const GLenum* bufs) {
-            DrawBuffers_State(n, bufs);
-        }
 
         void DeleteRenderbuffers(GLsizei n, const GLuint* renderbuffers) {
             DeleteRenderbuffers_State(n, renderbuffers);
