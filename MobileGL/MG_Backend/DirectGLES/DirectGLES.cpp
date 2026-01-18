@@ -19,7 +19,6 @@
 #include <MG_Util/Converters/MGToGL/TextureEnumConverter.h>
 #include <MG_Util/Converters/MGToStr/TextureEnumConverter.h>
 #include <MG_Util/Converters/MGToGL/RenderStateEnumConverter.h>
-#include "multidraw.h"
 
 namespace MobileGL::MG_Backend::DirectGLES {
     enum class DrawSyncBit : Uint32 {
