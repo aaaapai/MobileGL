@@ -457,8 +457,9 @@ namespace MobileGL {
             void *libGLES = nullptr, *libEGL = nullptr;
 
             static const char* LibPathPrefixes[] = {
-                /*"", */ // We should never search in the current directory to avoid breaking LD_LIBRARY_PATH usage
-                "/opt/vc/lib/", "/usr/local/lib/", "/usr/lib/", "/usr/lib/x86_64-linux-gnu/", nullptr};
+                "/opt/vc/lib/", "/usr/local/lib/", "/usr/lib/", "/usr/lib/x86_64-linux-gnu/",
+                "", // We should put this to the end of the list to avoid breaking `LD_LIBRARY_PATH` usage
+                nullptr};
             static const char* LibExts[] = {"so", "so.1", "so.2", "dylib", "dll", nullptr};
             static const char* GLES3Libs[] = {"libGLESv3_CM", "libGLESv3", "libGLESv2_CM", "libGLESv2", nullptr};
             static const char* EGLLibs[] = {"libEGL", nullptr};
