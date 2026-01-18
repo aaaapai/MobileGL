@@ -149,6 +149,7 @@ namespace MobileGL {
 
                 shaderc_compile_options_set_optimization_level(shaderc_opts, shaderc_optimization_level_performance);
 
+                shaderc_compile_options_add_macro_definition(opts, "noperspective", strlen("noperspective"), "", 0);
                 //shaderc_compile_options_set_generate_debug_info(shaderc_opts);
                 //shaderc_compile_options_set_auto_combined_image_sampler(shaderc_opts, true);
                 //shaderc_compile_options_set_preserve_bindings(shaderc_opts, true);
