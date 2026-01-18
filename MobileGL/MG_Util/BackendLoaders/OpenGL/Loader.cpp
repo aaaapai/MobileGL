@@ -461,9 +461,7 @@ namespace MobileGL {
                 "", // We should put this to the end of the list to avoid breaking `LD_LIBRARY_PATH` usage
                 nullptr};
             static const char* LibExts[] = {"so", "so.1", "so.2", "dylib", "dll", nullptr};
-            static const char* EGLLibs[] = {"libEGL", "libEGL_angle", nullptr};
-            static const char* EGLANGLELibs[] = {"libEGL_angle", nullptr};
-
+            static const char* EGLLibs[] = {"libEGL", "libEGL_angle", "libEGL_mesa", nullptr};
 
             void* OpenLib(const char** names, const char* override) {
 #if !defined(__WIN32) && !defined(_WIN32) && !defined(__APPLE__)
@@ -494,9 +492,16 @@ namespace MobileGL {
             }
 
             void LoadLibs() {
-                // 只加载EGL库，GL函数将通过EGL获取
-                if (std::getenv("LIBGL_ANGLE")) {
-                    libEGL = OpenLib(EGLANGLELibs, nullptr);
+                const char* libgl_egl = std::getenv("LIBGL_EGL");
+                if (libgl_egl && strcmp(libgl_egl, "libEGL_mesa.so") == 0 && !std::getenv("GALLIUM_DRIVER")) {
+                    setenv("GALLIUM_DRIVER", "zink", 1);
+                    setenv("MESA_LOADER_DRIVER_OVERRIDE", "zink", 1);
+                    setenv("MESA_GL_VERSION_OVERRIDE", "3.2", 1);
+                    setenv("MESA_GLSL_VERSION_OVERRIDE", "320", 1);
+                    setenv("mesa_glthread", "true", 1);
+                }
+                if (libgl_egl) {
+                    libEGL = OpenLib(EGLLibs, libgl_egl);
                 } else {
                     libEGL = OpenLib(EGLLibs, nullptr);
                 }
