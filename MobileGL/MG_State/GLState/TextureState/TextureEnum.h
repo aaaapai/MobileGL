@@ -100,6 +100,7 @@ namespace MobileGL {
         RGB8Snorm,
         RGB10,
         RGB12,
+        RGB16,
         RGB16Snorm,
         RGBA2,
         RGBA4,
