@@ -112,6 +112,8 @@ vec2 mg_textureQueryLod(sampler2D tex, vec2 uv) {
                         source = replacement;
                     }
             
+                 }
+
             }
 
         } // namespace ShaderTranspiler
