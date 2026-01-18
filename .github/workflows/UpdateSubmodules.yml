@@ -14,7 +14,7 @@ jobs:
       run: |
         # git submodule update --remote --recursive
         cd library/android/arm64-v8a
-        # rm libglslang.a
+        rm libglslang.a
         tar -xf lang.tar.xz
         rm lang.tar.xz
         git config --global user.name "GitHub Actions"
