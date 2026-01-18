@@ -12,7 +12,7 @@ static inline void inject_glsl_replacements(ShaderStage stage, std::string& sour
 
     // ==================== 2. 注入gl_DepthRange替换 ====================
     const char* str_depthrange = "gl_DepthRange";
-    if (source.find(str_depthrange) != String::npos && !std::getenv("LIBGL_ANGLE")) {
+    if (source.find(str_depthrange) != String::npos) {
         // 检查是否已经定义了mg_DepthRange
         const char* str_mg_depthrange_def = "mg_DepthRangeParameters mg_DepthRange;";
         if (source.find(str_mg_depthrange_def) == String::npos) {
