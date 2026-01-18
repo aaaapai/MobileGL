@@ -35,7 +35,7 @@ namespace MobileGL {
                 const char* str_np = "noperspective";
                 const SizeT len_np = strlen(str_np);
                 SizeT noperspectivePos = source.find(str_np);
-                while (noperspectivePos != String::npos) {
+                while (noperspectivePos != String::npos && !std::getenv("LIBGL_ANGLE")) {
                     // + length of "\n"
                     source = source.replace(noperspectivePos, len_np, "");
                     noperspectivePos = source.find(str_np);
