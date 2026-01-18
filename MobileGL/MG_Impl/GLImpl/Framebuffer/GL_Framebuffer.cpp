@@ -223,11 +223,9 @@ namespace MobileGL {
             auto fbo = bindingSlot.GetBoundObject();
             bool isDefaultFBO = (fbo == FramebufferImpl::pDefaultFramebufferInfo->defaultFBO);
 
-           static constexpr std::array<int, (SizeT)FramebufferAttachmentType::FramebufferAttachmentTypeCount> existenceMap = []() consteval {
-               std::array<int, (SizeT)FramebufferAttachmentType::FramebufferAttachmentTypeCount> arr{};
-               arr.fill(-1);
-               return arr;
-            }();
+           static int existenceMap[(SizeT)FramebufferAttachmentType::FramebufferAttachmentTypeCount] = {-1};
+            std::fill(existenceMap, existenceMap + (SizeT)FramebufferAttachmentType::FramebufferAttachmentTypeCount,
+                      -1);
 
             for (GLsizei i = 0; i < n; ++i) {
                 auto attType = MG_Util::ConvertGLEnumToFramebufferAttachmentType(bufs[i]);
