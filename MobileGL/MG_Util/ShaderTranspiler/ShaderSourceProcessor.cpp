@@ -35,7 +35,7 @@ namespace MobileGL {
                 const char* str_np = "noperspective";
                 const SizeT len_np = strlen(str_np);
                 SizeT noperspectivePos = source.find(str_np);
-                while (noperspectivePos != String::npos && !std::getenv("LIBGL_ANGLE")) {
+                while (noperspectivePos != String::npos) {
                     // + length of "\n"
                     source = source.replace(noperspectivePos, len_np, "");
                     noperspectivePos = source.find(str_np);
@@ -43,7 +43,7 @@ namespace MobileGL {
 
                 // 注入 textureQueryLod 实现
                 const char* str_textureQueryLod = "textureQueryLod";
-                if (source.find(str_textureQueryLod) != std::string::npos) {
+                if (source.find(str_textureQueryLod) != std::string::npos && !std::getenv("LIBGL_ANGLE")) {
                     // 检查是否已经定义了 mg_textureQueryLod
                     const char* str_mg_textureQueryLod = "mg_textureQueryLod";
                     if (source.find(str_mg_textureQueryLod) == std::string::npos) {
@@ -112,19 +112,101 @@ vec2 mg_textureQueryLod(sampler2D tex, vec2 uv) {
                         source = replacement;
                     }
                     
-                    constexpr const char* precisionQualifiers = R"(
+                    // ===== 添加精度限定符和修复函数 =====
+                    constexpr const char* precisionAndFixes = R"(
 precision highp float;
 precision highp int;
 precision highp sampler2D;
 precision highp sampler3D;
 precision highp samplerCube;
+
+// 添加高精度版本的数学函数以解决重载问题
+highp float atan(highp float y, highp float x) {
+    return atan(y, x);
+}
+
+highp float atan(highp float y_over_x) {
+    return atan(y_over_x);
+}
+
+highp vec2 atan(highp vec2 y, highp vec2 x) {
+    return vec2(atan(y.x, x.x), atan(y.y, x.y));
+}
+
+highp vec3 atan(highp vec3 y, highp vec3 x) {
+    return vec3(atan(y.x, x.x), atan(y.y, x.y), atan(y.z, x.z));
+}
+
+highp vec4 atan(highp vec4 y, highp vec4 x) {
+    return vec4(atan(y.x, x.x), atan(y.y, x.y), atan(y.z, x.z), atan(y.w, x.w));
+}
+
+// 为常见数学函数添加高精度版本
+highp float log(highp float x) {
+    return log(x);
+}
+
+highp float exp(highp float x) {
+    return exp(x);
+}
+
+highp float pow(highp float x, highp float y) {
+    return pow(x, y);
+}
+
+highp float sqrt(highp float x) {
+    return sqrt(x);
+}
+
+highp float length(highp vec2 x) {
+    return length(x);
+}
+
+highp float length(highp vec3 x) {
+    return length(x);
+}
+
+highp float length(highp vec4 x) {
+    return length(x);
+}
+
+highp float dot(highp vec2 a, highp vec2 b) {
+    return dot(a, b);
+}
+
+highp float dot(highp vec3 a, highp vec3 b) {
+    return dot(a, b);
+}
+
+highp float dot(highp vec4 a, highp vec4 b) {
+    return dot(a, b);
+}
+
+// 添加高精度的 clamp 函数
+highp float clamp(highp float x, highp float minVal, highp float maxVal) {
+    return clamp(x, minVal, maxVal);
+}
+
+highp vec2 clamp(highp vec2 x, highp float minVal, highp float maxVal) {
+    return clamp(x, minVal, maxVal);
+}
+
+highp vec3 clamp(highp vec3 x, highp float minVal, highp float maxVal) {
+    return clamp(x, minVal, maxVal);
+}
+
+highp vec4 clamp(highp vec4 x, highp float minVal, highp float maxVal) {
+    return clamp(x, minVal, maxVal);
+}
 )";
                     
+                    // 找到版本指令后的位置
                     versionPos = source.find("#version");
                     if (versionPos != String::npos) {
                         lineEnd = source.find('\n', versionPos);
                         if (lineEnd != String::npos) {
-                            source = source.insert(lineEnd + 1, precisionQualifiers);
+                            // 在版本指令后插入精度限定符和修复函数
+                            source = source.insert(lineEnd + 1, precisionAndFixes);
                         }
                     }
                 }
