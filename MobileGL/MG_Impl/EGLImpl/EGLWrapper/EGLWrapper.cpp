@@ -73,7 +73,9 @@ namespace MobileGL {
         }
 
         EGLBoolean BindAPI(EGLenum api) {
-            return MG_External::EGL::eglBindAPI(api);
+            // We should accept `EGL_OPENGL_API`,
+            // and bind to `EGL_OPENGL_ES_API` at the backend
+            return MG_External::EGL::eglBindAPI(EGL_OPENGL_ES_API);
         }
 
         EGLSurface GetCurrentSurface(EGLint readdraw) {
