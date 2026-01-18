@@ -198,6 +198,10 @@ void init_settings() {
         setenv("LIBGL_GL", "43", 1);
 	}
 
+	if (global_settings.ignore_error != IgnoreErrorLevel::None) {
+		setenv("MGL_CHEAT_CHECKFRAMEBUFFERSTATUS", "true", 1);
+	}
+
 }
 
 void set_multidraw_setting() { // should be called after init_gles_target()
