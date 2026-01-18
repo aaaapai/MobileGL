@@ -132,7 +132,7 @@ namespace MobileGL {
                        case TexturePixelDataType::UnsignedInt8888:
                            return TextureInternalFormat::RGBA8;
                        case TexturePixelDataType::UnsignedShort:
-                           return TextureInternalFormat::GL_RGBA16;
+                           return TextureInternalFormat::RGBA16;
                        case TexturePixelDataType::UnsignedShort4444:
                        case TexturePixelDataType::UnsignedShort5551:
                            return TextureInternalFormat::RGBA4;
