@@ -2,7 +2,7 @@
 
 <p align="center">
   <img src="https://img.shields.io/badge/Language-C%2B%2B-00599c?style=flat&logo=c%2B%2B" alt="C++">
-  <img src="https://img.shields.io/badge/License-GNU%20LGPL%202.1-00399c?style=flat" alt="GNU LGPL 2.1">
+  <img src="https://img.shields.io/badge/License-GNU%20LGPL%203.0-00399c?style=flat" alt="GNU LGPL 3.0">
   <img src="https://img.shields.io/badge/Status-Development-0078d7?style=flat" alt="Development">
 </p>
 
@@ -108,4 +108,4 @@ If you want to try the project right now, you’ll need to build it yourself:
 
 ## License
 
-This project is distributed under **GNU LGPL v2.1**. See the `LICENSE` file in the repository for the full text.
+This project is distributed under **GNU LGPL v3.0**. See the `LICENSE` file in the repository for detailed information.
