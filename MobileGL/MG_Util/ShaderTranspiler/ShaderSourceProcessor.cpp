@@ -43,7 +43,7 @@ namespace MobileGL {
 
                 // 注入 textureQueryLod 实现
                 const char* str_textureQueryLod = "textureQueryLod";
-                if (source.find(str_textureQueryLod) != std::string::npos && !std::getenv("LIBGL_ANGLE")) {
+                if (source.find(str_textureQueryLod) != std::string::npos) {
                     // 检查是否已经定义了 mg_textureQueryLod
                     const char* str_mg_textureQueryLod = "mg_textureQueryLod";
                     if (source.find(str_mg_textureQueryLod) == std::string::npos) {
@@ -110,6 +110,22 @@ vec2 mg_textureQueryLod(sampler2D tex, vec2 uv) {
                         source.replace(versionPos, firstLineEnd - versionPos + 1, replacement);
                     } else {
                         source = replacement;
+                    }
+                    
+                    constexpr const char* precisionQualifiers = R"(
+precision highp float;
+precision highp int;
+precision highp sampler2D;
+precision highp sampler3D;
+precision highp samplerCube;
+)";
+                    
+                    versionPos = source.find("#version");
+                    if (versionPos != String::npos) {
+                        lineEnd = source.find('\n', versionPos);
+                        if (lineEnd != String::npos) {
+                            source = source.insert(lineEnd + 1, precisionQualifiers);
+                        }
                     }
                 }
             }
