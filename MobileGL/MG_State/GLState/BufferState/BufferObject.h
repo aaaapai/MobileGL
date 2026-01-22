@@ -106,13 +106,6 @@ namespace MobileGL {
                 Uint GetExternalIndex() const;
 
                 void AllocateImmutableStorage(SizeT size, BufferStorageFlags flags) {
-                 if (m_immutable) {
-                     throw std::runtime_error("Buffer already has immutable storage");
-                 }
-        
-                 if (m_mapped) {
-                     throw std::runtime_error("Cannot allocate immutable storage while buffer is mapped");
-                 }
         
                  m_size = size;
                  m_storageFlags = flags;
@@ -175,7 +168,7 @@ namespace MobileGL {
                 Vector<Uint8> m_stagingData;
                 Bool m_ownsStagingData;
 
-                Bool m_immutable = false;
+                bool m_immutable = false;
                 BufferStorageFlags m_storageFlags = BufferStorageFlags::None;
             };
         } // namespace GLState
