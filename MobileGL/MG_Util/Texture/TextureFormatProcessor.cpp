@@ -64,7 +64,6 @@ namespace MobileGL::MG_Util::TextureFormatProcessor {
                 case GL_R8:
                     *outInternalFormat = GL_RED;
                     break;
-
                 case GL_SRGB8:
                     *outInternalFormat = GL_SRGB;
                     break;
