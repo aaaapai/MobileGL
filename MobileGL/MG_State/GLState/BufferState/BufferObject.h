@@ -112,9 +112,9 @@ namespace MobileGL {
                  m_immutable = true;
         
                  // 根据标志设置适当的 usage 提示（用于回退到传统缓冲区）
-                 if (flags & BufferStorageFlags::MapRead) {
+                 if (static_cast<Uint32>(flags) & static_cast<Uint32>(BufferStorageFlags::MapRead)) {
                      m_usage = BufferUsage::StaticRead;
-                 } else if (flags & BufferStorageFlags::MapWrite) {
+                 } else if (static_cast<Uint32>(flags) & static_cast<Uint32>(BufferStorageFlags::MapWrite)) {
                      m_usage = BufferUsage::DynamicDraw;
                  } else {
                      m_usage = BufferUsage::StaticDraw;
@@ -133,27 +133,27 @@ namespace MobileGL {
     
              // 检查是否允许动态更新
              Bool AllowsDynamicUpdates() const {
-                 return m_immutable && (m_storageFlags & BufferStorageFlags::DynamicStorage);
+                 return m_immutable && (static_cast<Uint32>(m_storageFlags) & static_cast<Uint32>(BufferStorageFlags::DynamicStorage));
              }
     
              // 检查是否支持持久映射
              Bool SupportsPersistentMapping() const {
-                 return m_immutable && (m_storageFlags & BufferStorageFlags::MapPersistent);
+                 return m_immutable && (static_cast<Uint32>(m_storageFlags) & static_cast<Uint32>(BufferStorageFlags::MapPersistent));
              }
     
              // 检查是否支持连贯映射
              Bool SupportsCoherentMapping() const {
-                 return m_immutable && (m_storageFlags & BufferStorageFlags::MapCoherent);
+                 return m_immutable && (static_cast<Uint32>(m_storageFlags) & static_cast<Uint32>(BufferStorageFlags::MapCoherent));
              }
     
              // 检查是否支持读取映射
              Bool SupportsReadMapping() const {
-                 return m_immutable && (m_storageFlags & BufferStorageFlags::MapRead);
+                 return m_immutable && (static_cast<Uint32>(m_storageFlags) & static_cast<Uint32>(BufferStorageFlags::MapRead));
              }
     
              // 检查是否支持写入映射
              Bool SupportsWriteMapping() const {
-                 return m_immutable && (m_storageFlags & BufferStorageFlags::MapWrite);
+                 return m_immutable && (static_cast<Uint32>(m_storageFlags) & static_cast<Uint32>(BufferStorageFlags::MapWrite));
              }
 
             private:
@@ -168,7 +168,7 @@ namespace MobileGL {
                 Vector<Uint8> m_stagingData;
                 Bool m_ownsStagingData;
 
-                bool m_immutable = false;
+                Bool m_immutable = false;
                 BufferStorageFlags m_storageFlags = BufferStorageFlags::None;
             };
         } // namespace GLState
