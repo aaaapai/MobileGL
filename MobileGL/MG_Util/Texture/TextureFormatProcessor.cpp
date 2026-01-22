@@ -183,7 +183,8 @@ namespace MobileGL::MG_Util::TextureFormatProcessor {
                     break;
 
                 case: GL_FALSE:
-                   *outFormat = GL_RGBA;
+                   *outFormat = GL_RGBA8;
+                   break;
 
                 default:
                     MGLOG_E("NormalizePixelFormat: outFormat: unhandled internalFormat: %s", MG_Util::ConvertGLEnumToString(internalFormat).c_str());
