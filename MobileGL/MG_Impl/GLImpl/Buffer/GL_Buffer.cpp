@@ -241,16 +241,31 @@ namespace MobileGL {
                 }
             }
 
-            const auto storageFlags = BufferMappingAccessBit::Persistent | BufferMappingAccessBit::Coherent;
-            auto requiredFlags = accessBits & storageFlags;
-            if (requiredFlags) {
-                // TODO: check if the buffer data is created by BufferStorage and its flags after its
-                // implementation
-                MG_State::pGLContext->RecordError(
-                    ErrorCode::InvalidOperation,
-                    MakeShared<GenericErrorInfo>("MG_Impl/GLImpl", "MapBufferRange_State",
-                                                 "Access flags require matching storage flags in buffer."));
-                return nullptr;
+            if (accessBits & BufferMappingAccessBit::Persistent) {
+                // 检查缓冲区是否有不可变存储且设置了 MapPersistent 标志
+                if (!bufferObject->IsImmutable() || 
+                    !(bufferObject->GetStorageFlags() & BufferStorageFlags::MapPersistent)) {
+                    MG_State::pGLContext->RecordError(
+                        ErrorCode::InvalidOperation,
+                        MakeShared<GenericErrorInfo>("MG_Impl/GLImpl", "MapBufferRange_State",
+                                                     "GL_MAP_PERSISTENT_BIT requires buffer created with "
+                                                     "GL_MAP_PERSISTENT_BIT via glBufferStorage."));
+                    return nullptr;
+                }
+            }
+
+            // 检查连贯映射标志
+            if (accessBits & BufferMappingAccessBit::Coherent) {
+                // 检查缓冲区是否有不可变存储且设置了 MapCoherent 标志
+                if (!bufferObject->IsImmutable() || 
+                    !(bufferObject->GetStorageFlags() & BufferStorageFlags::MapCoherent)) {
+                    MG_State::pGLContext->RecordError(
+                        ErrorCode::InvalidOperation,
+                        MakeShared<GenericErrorInfo>("MG_Impl/GLImpl", "MapBufferRange_State",
+                                                     "GL_MAP_COHERENT_BIT requires buffer created with "
+                                                   "GL_MAP_COHERENT_BIT via glBufferStorage."));
+                    return nullptr;
+                }
             }
 
             if (bufferObject->IsMapped()) {
