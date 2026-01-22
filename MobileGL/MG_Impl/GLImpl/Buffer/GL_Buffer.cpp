@@ -538,6 +538,139 @@ namespace MobileGL {
             point.SetRange(Range1D(offset, offset + size));
         }
 
+        void BufferStorage_State(GLenum target, GLsizeiptr size,
+                         const GLvoid* data, GLbitfield flags) {
+            MGLOG_D("%s: target = %s, size = %lld, data = %p, flags = 0x%x", __func__,
+            MG_Util::ConvertGLEnumToString(target).c_str(), static_cast<long long>(size), data, flags);
+
+            if (size < 0) {
+                MG_State::pGLContext->RecordError(
+                    ErrorCode::InvalidValue,
+                    MakeShared<GenericErrorInfo>("MG_Impl/GLImpl", "BufferStorage_State",
+                                         "Size must be non-negative."));
+                return;
+            }
+
+            if (size == 0) {
+                // OpenGL 规范允许 size 为 0，但这样的缓冲区不能存储任何数据
+                MGLOG_D("BufferStorage called with size = 0, creating empty immutable buffer.");
+            }
+
+            // 验证 flags 组合
+            GLbitfield validFlags = GL_DYNAMIC_STORAGE_BIT | 
+                                   GL_MAP_READ_BIT | 
+                                   GL_MAP_WRITE_BIT | 
+                                   GL_MAP_PERSISTENT_BIT | 
+                                   GL_MAP_COHERENT_BIT | 
+                                   GL_CLIENT_STORAGE_BIT;
+    
+            if ((flags & ~validFlags) != 0) {
+                MG_State::pGLContext->RecordError(
+                    ErrorCode::InvalidValue,
+                    MakeShared<GenericErrorInfo>("MG_Impl/GLImpl", "BufferStorage_State",
+                                                 "Invalid flags combination."));
+                return;
+            }
+
+            // GL_MAP_COHERENT_BIT 必须与 GL_MAP_PERSISTENT_BIT 一起使用
+            if ((flags & GL_MAP_COHERENT_BIT) && !(flags & GL_MAP_PERSISTENT_BIT)) {
+                MG_State::pGLContext->RecordError(
+                    ErrorCode::InvalidOperation,
+                    MakeShared<GenericErrorInfo>("MG_Impl/GLImpl", "BufferStorage_State",
+                                                 "GL_MAP_COHERENT_BIT requires GL_MAP_PERSISTENT_BIT."));
+                return;
+            }
+
+            // 检查不兼容的标志组合
+            if ((flags & GL_MAP_PERSISTENT_BIT) && (flags & GL_CLIENT_STORAGE_BIT)) {
+                MGLOG_W("BufferStorage_State: GL_MAP_PERSISTENT_BIT and GL_CLIENT_STORAGE_BIT used together, "
+                        "this may have performance implications.");
+            }
+
+            BufferTarget bufferTarget = MG_Util::ConvertGLEnumToBufferTarget(target);
+            if (!BufferImpl::ValidateBufferTarget(bufferTarget)) return;
+    
+            auto& bindingSlot = MG_State::pGLContext->GetBufferBindingSlot(bufferTarget);
+            auto bufferObject = bindingSlot.GetBoundObject();
+    
+            if (!bufferObject) {
+                MG_State::pGLContext->RecordError(
+                    ErrorCode::InvalidOperation,
+                    MakeShared<GenericErrorInfo>("MG_Impl/GLImpl", "BufferStorage_State",
+                                         "Buffer target is bound to no buffer object."));
+                return;
+            }
+
+            // 检查缓冲区是否已经分配了不可变存储
+            if (bufferObject->IsImmutable()) {
+                MG_State::pGLContext->RecordError(
+                    ErrorCode::InvalidOperation,
+                    MakeShared<GenericErrorInfo>("MG_Impl/GLImpl", "BufferStorage_State",
+                                         "Buffer already has immutable storage."));
+                return;
+            }
+
+            // 检查缓冲区是否已映射
+            if (bufferObject->IsMapped()) {
+                MG_State::pGLContext->RecordError(
+                    ErrorCode::InvalidOperation,
+                    MakeShared<GenericErrorInfo>("MG_Impl/GLImpl", "BufferStorage_State",
+                                         "Cannot allocate immutable storage while buffer is mapped."));
+                return;
+            }
+
+            // 转换 flags 到内部格式
+            BufferStorageFlags storageFlags = BufferStorageFlags::None;
+    
+            if (flags & GL_DYNAMIC_STORAGE_BIT)
+                storageFlags |= BufferStorageFlags::DynamicStorage;
+            if (flags & GL_MAP_READ_BIT)
+                storageFlags |= BufferStorageFlags::MapRead;
+            if (flags & GL_MAP_WRITE_BIT)
+                storageFlags |= BufferStorageFlags::MapWrite;
+            if (flags & GL_MAP_PERSISTENT_BIT)
+                storageFlags |= BufferStorageFlags::MapPersistent;
+            if (flags & GL_MAP_COHERENT_BIT)
+                storageFlags |= BufferStorageFlags::MapCoherent;
+            if (flags & GL_CLIENT_STORAGE_BIT)
+                storageFlags |= BufferStorageFlags::ClientStorage;
+
+            try {
+                // 分配不可变存储
+                bufferObject->AllocateImmutableStorage(static_cast<SizeT>(size), storageFlags);
+        
+                // 如果有初始化数据，上传数据
+                if (data != nullptr && size > 0) {
+                    bufferObject->UploadData({const_cast<void*>(data), static_cast<SizeT>(size)}, 0);
+                }
+        
+                // 设置缓冲区为不可变状态
+                bufferObject->SetImmutable(true);
+        
+                MGLOG_D("BufferStorage_State: Successfully allocated immutable storage of size %lld with flags 0x%x",
+                        static_cast<long long>(size), flags);
+        
+            } catch (const std::bad_alloc& e) {
+                MG_State::pGLContext->RecordError(
+                    ErrorCode::OutOfMemory,
+                    MakeShared<GenericErrorInfo>("MG_Impl/GLImpl", "BufferStorage_State",
+                                         std::format("Failed to allocate buffer storage: {}", e.what())));
+                return;
+            } catch (const std::exception& e) {
+                MG_State::pGLContext->RecordError(
+                    ErrorCode::InvalidOperation,
+                    MakeShared<GenericErrorInfo>("MG_Impl/GLImpl", "BufferStorage_State",
+                                         std::format("Failed to allocate buffer storage: {}", e.what())));
+                return;
+            } catch (...) {
+                MG_State::pGLContext->RecordError(
+                    ErrorCode::OutOfMemory,
+                    MakeShared<GenericErrorInfo>("MG_Impl/GLImpl", "BufferStorage_State",
+                                                 "Failed to allocate buffer storage due to unknown error."));
+                return;
+            }
+        } //AI写的(((
+
         /* @INSERTION_POINT:FUNCTION_IMPLEMENTATION@ */
         void GetBufferParameteriv(GLenum target, GLenum pname, GLint* params) {
             GetBufferParameteriv_State(target, pname, params);
@@ -595,5 +728,11 @@ namespace MobileGL {
         void BindBufferRange(GLenum target, GLuint index, GLuint buffer, GLintptr offset, GLsizeiptr size) {
             BindBufferRange_State(target, index, buffer, offset, size);
         }
+
+        void BufferStorage(GLenum target, GLsizeiptr size,
+                          const GLvoid* data, GLbitfield flags) {
+           BufferStorage_State(target, size, data, flags);
+        }
+
     } // namespace MG_Impl::GLImpl
 } // namespace MobileGL
