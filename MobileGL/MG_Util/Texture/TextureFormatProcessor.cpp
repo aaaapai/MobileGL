@@ -24,20 +24,32 @@ namespace MobileGL::MG_Util::TextureFormatProcessor {
                     if (options & PixelFormatNormalizeOptionBit::NoNorm16) {
                         *outInternalFormat = GL_RGBA32F;
                         break;
+                    } else {
+                        *outInternalFormat = GL_RGBA;
+                        break;
                     }
                 case GL_RGB16:
                     if (options & PixelFormatNormalizeOptionBit::NoNorm16) {
                         *outInternalFormat = GL_RGB32F;
+                        break;
+                    } else {
+                        *outInternalFormat = GL_RGB;
                         break;
                     }
                 case GL_RG16:
                     if (options & PixelFormatNormalizeOptionBit::NoNorm16) {
                         *outInternalFormat = GL_RG32F;
                         break;
+                    } else {
+                        *outInternalFormat = GL_RG;
+                        break;
                     }
                 case GL_R16:
                     if (options & PixelFormatNormalizeOptionBit::NoNorm16) {
                         *outInternalFormat = GL_R32F;
+                        break;
+                    } else {
+                        *outInternalFormat = GL_RED;
                         break;
                     }
                 default:
@@ -182,7 +194,7 @@ namespace MobileGL::MG_Util::TextureFormatProcessor {
                     *outFormat = GL_DEPTH_STENCIL;
                     break;
 
-                case: GL_FALSE:
+                case GL_FALSE:
                    *outFormat = GL_RGBA8;
                    break;
 
