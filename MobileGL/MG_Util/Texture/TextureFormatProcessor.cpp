@@ -52,6 +52,23 @@ namespace MobileGL::MG_Util::TextureFormatProcessor {
                         *outInternalFormat = GL_RED;
                         break;
                     }
+                case GL_RGBA8:
+                    *outInternalFormat = GL_RGBA;
+                    break;
+                case GL_RGB8:
+                    *outInternalFormat = GL_RGB;
+                    break;
+                case GL_RG8:
+                    *outInternalFormat = GL_RG;
+                    break;
+                case GL_R8:
+                    *outInternalFormat = GL_RED;
+                    break;
+
+                case GL_SRGB8:
+                    *outInternalFormat = GL_SRGB;
+                    break;
+                
                 default:
                     *outInternalFormat = internalFormat;
                     break;
@@ -193,10 +210,6 @@ namespace MobileGL::MG_Util::TextureFormatProcessor {
                 case GL_DEPTH_STENCIL:
                     *outFormat = GL_DEPTH_STENCIL;
                     break;
-
-                case GL_FALSE:
-                   *outFormat = GL_RGBA8;
-                   break;
 
                 default:
                     MGLOG_E("NormalizePixelFormat: outFormat: unhandled internalFormat: %s", MG_Util::ConvertGLEnumToString(internalFormat).c_str());
