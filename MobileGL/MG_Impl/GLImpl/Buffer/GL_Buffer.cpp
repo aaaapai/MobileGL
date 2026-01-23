@@ -635,20 +635,20 @@ namespace MobileGL {
             }
 
             // 转换 flags 到内部格式
-            BufferStorageFlags storageFlags = BufferStorageFlags::None;
+            MobileGL::BufferStorageFlags storageFlags = MobileGL::BufferStorageFlags::None;
     
             if (flags & GL_DYNAMIC_STORAGE_BIT)
-                storageFlags |= BufferStorageFlags::DynamicStorage;
+                storageFlags |= MobileGL::BufferStorageFlags::DynamicStorage;
             if (flags & GL_MAP_READ_BIT)
-                storageFlags |= BufferStorageFlags::MapRead;
+                storageFlags |= MobileGL::BufferStorageFlags::MapRead;
             if (flags & GL_MAP_WRITE_BIT)
-                storageFlags |= BufferStorageFlags::MapWrite;
+                storageFlags |= MobileGL::BufferStorageFlags::MapWrite;
             if (flags & GL_MAP_PERSISTENT_BIT)
-                storageFlags |= BufferStorageFlags::MapPersistent;
+                storageFlags |= MobileGL::BufferStorageFlags::MapPersistent;
             if (flags & GL_MAP_COHERENT_BIT)
-                storageFlags |= BufferStorageFlags::MapCoherent;
+                storageFlags |= BMobileGL::ufferStorageFlags::MapCoherent;
             if (flags & GL_CLIENT_STORAGE_BIT)
-                storageFlags |= BufferStorageFlags::ClientStorage;
+                storageFlags |= MobileGL::BufferStorageFlags::ClientStorage;
 
             try {
                 // 分配不可变存储
