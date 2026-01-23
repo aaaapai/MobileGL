@@ -170,6 +170,10 @@ namespace MobileGL {
 
                 Bool m_immutable = false;
                 BufferStorageFlags m_storageFlags = BufferStorageFlags::None;
+
+            protected:
+                Vector<Vector<Uint8>> m_data;
+
             };
         } // namespace GLState
     } // namespace MG_State
