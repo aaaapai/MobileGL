@@ -646,7 +646,7 @@ namespace MobileGL {
             if (flags & GL_MAP_PERSISTENT_BIT)
                 storageFlags |= MobileGL::BufferStorageFlags::MapPersistent;
             if (flags & GL_MAP_COHERENT_BIT)
-                storageFlags |= BMobileGL::ufferStorageFlags::MapCoherent;
+                storageFlags |= MobileGL::BufferStorageFlags::MapCoherent;
             if (flags & GL_CLIENT_STORAGE_BIT)
                 storageFlags |= MobileGL::BufferStorageFlags::ClientStorage;
 
