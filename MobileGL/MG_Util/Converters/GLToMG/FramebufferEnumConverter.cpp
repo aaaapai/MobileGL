@@ -33,9 +33,7 @@ namespace MobileGL {
     
             // 处理默认帧缓冲区的枚举值
             switch (attachment) {
-                case GL_NONE:
-                    return FramebufferAttachmentType::None;
-            
+        
                 // 传统默认帧缓冲区枚举
                 case GL_FRONT_LEFT:
                     return FramebufferAttachmentType::FrontLeft;
@@ -64,7 +62,8 @@ namespace MobileGL {
                     return FramebufferAttachmentType::Stencil;
                 case GL_DEPTH_STENCIL_ATTACHMENT:
                     return FramebufferAttachmentType::DepthStencil;
-            
+
+                case GL_UNKNOWN_MGL:
                 default:
                     return FramebufferAttachmentType::Unknown;
             }
