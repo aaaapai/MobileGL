@@ -244,7 +244,7 @@ namespace MobileGL {
             if (accessBits & BufferMappingAccessBit::Persistent) {
                 // 检查缓冲区是否有不可变存储且设置了 MapPersistent 标志
                 if (!bufferObject->IsImmutable() || 
-                    !(bufferObject->GetStorageFlags() & BufferStorageFlags::MapPersistent)) {
+                    !(bufferObject->GetStorageFlags() & MobileGL::BufferStorageFlags::MapPersistent)) {
                     MG_State::pGLContext->RecordError(
                         ErrorCode::InvalidOperation,
                         MakeShared<GenericErrorInfo>("MG_Impl/GLImpl", "MapBufferRange_State",
@@ -258,7 +258,7 @@ namespace MobileGL {
             if (accessBits & BufferMappingAccessBit::Coherent) {
                 // 检查缓冲区是否有不可变存储且设置了 MapCoherent 标志
                 if (!bufferObject->IsImmutable() || 
-                    !(bufferObject->GetStorageFlags() & BufferStorageFlags::MapCoherent)) {
+                    !(bufferObject->GetStorageFlags() & MobileGL::BufferStorageFlags::MapCoherent)) {
                     MG_State::pGLContext->RecordError(
                         ErrorCode::InvalidOperation,
                         MakeShared<GenericErrorInfo>("MG_Impl/GLImpl", "MapBufferRange_State",
