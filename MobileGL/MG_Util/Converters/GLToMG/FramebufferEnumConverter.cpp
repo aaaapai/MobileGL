@@ -24,17 +24,13 @@ namespace MobileGL {
         }
 
         FramebufferAttachmentType ConvertGLEnumToFramebufferAttachmentType(GLenum attachment) {
-            // 处理 GL_COLOR_ATTACHMENTn
             if (attachment >= GL_COLOR_ATTACHMENT0 && attachment <= GL_COLOR_ATTACHMENT31) {
-                return static_cast<FramebufferAttachmentType>(
-                    static_cast<SizeT>(FramebufferAttachmentType::Color0) +
-                    (attachment - GL_COLOR_ATTACHMENT0));
+                return static_cast<FramebufferAttachmentType>(static_cast<SizeT>(FramebufferAttachmentType::Color0) +
+                                                              (attachment - GL_COLOR_ATTACHMENT0));
             }
     
-            // 处理默认帧缓冲区的枚举值
             switch (attachment) {
         
-                // 传统默认帧缓冲区枚举
                 case GL_FRONT_LEFT:
                     return FramebufferAttachmentType::FrontLeft;
                 case GL_FRONT_RIGHT:
@@ -44,17 +40,16 @@ namespace MobileGL {
                 case GL_BACK_RIGHT:
                     return FramebufferAttachmentType::BackRight;
             
-                // 如果 FramebufferAttachmentType 枚举没有以下值，需要添加
                 case GL_FRONT:
-                    return FramebufferAttachmentType::Front;  // 可能需要添加这个枚举值
+                    return FramebufferAttachmentType::Front;
                 case GL_BACK:
-                    return FramebufferAttachmentType::Back;   // 可能需要添加这个枚举值
+                    return FramebufferAttachmentType::Back;
                 case GL_LEFT:
-                    return FramebufferAttachmentType::Left;   // 可能需要添加这个枚举值
+                    return FramebufferAttachmentType::Left;
                 case GL_RIGHT:
-                    return FramebufferAttachmentType::Right;  // 可能需要添加这个枚举值
+                    return FramebufferAttachmentType::Right;
                 case GL_FRONT_AND_BACK:
-                    return FramebufferAttachmentType::FrontAndBack;  // 可能需要添加这个枚举值
+                    return FramebufferAttachmentType::FrontAndBack;
             
                 case GL_DEPTH_ATTACHMENT:
                     return FramebufferAttachmentType::Depth;
