@@ -65,8 +65,6 @@ namespace MobileGL {
         ClientStorage = 1 << 5     // GL_CLIENT_STORAGE_BIT
     };
 
-}
-
     inline BufferStorageFlags& operator|=(BufferStorageFlags& a, BufferStorageFlags b) {
         a = static_cast<BufferStorageFlags>(static_cast<Uint32>(a) | static_cast<Uint32>(b));
         return a;
