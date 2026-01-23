@@ -107,6 +107,7 @@ set(SOURCE_FILES
     MobileGL/MG_Util/Metrics/BufferMetrics.cpp
 
     MobileGL/MG_Util/Converters/GLToStr/GLEnumConverter.cpp
+    MobileGL/MG_Util/Converters/EGLToStr/EGLEnumConverter.cpp
     MobileGL/MG_Util/Converters/MGToStr/DataTypeConverter.cpp
     MobileGL/MG_Util/Converters/MGToStr/RenderStateEnumConverter.cpp
     MobileGL/MG_Util/Converters/MGToStr/GLExtensionConverter.cpp
