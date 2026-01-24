@@ -42,11 +42,24 @@ namespace MobileGL {
                         for (auto itInst = bb.begin(); itInst != bb.end(); ++itInst) {
                             auto& inst = *itInst;
 
-                            // Check if opcode is `OpFOrdEqual` or `OpFUnordEqual`
-                            if (inst.opcode() != spv::Op::OpFOrdEqual &&
-                                inst.opcode() != spv::Op::OpFUnordEqual) {
-                                continue;
+                            bool shouldSkip = true;
+
+                            // Check if opcode is `OpFOrdEqual`, `OpFUnordEqual`,
+                            // `OpFOrdNotEqual` or `OpFUnordNotEqual`,
+                            // simply skip if irrelevant
+                            switch (inst.opcode()) {
+                                case spv::Op::OpFOrdEqual:
+                                case spv::Op::OpFUnordEqual:
+                                case spv::Op::OpFOrdNotEqual:
+                                case spv::Op::OpFUnordNotEqual:
+                                    shouldSkip = false;
+                                    break;
+                                default:
+                                    break;
                             }
+
+                            if (shouldSkip)
+                                continue;
 
                             // check if operand is "float 0.0"
                             // OpFOrdEqual ResultType ResultID Operand1 Operand2
@@ -114,9 +127,10 @@ namespace MobileGL {
                             less_operands.push_back({spv_operand_type_t::SPV_OPERAND_TYPE_ID, {abs_inst->result_id()}});
                             less_operands.push_back({spv_operand_type_t::SPV_OPERAND_TYPE_ID, {eps_id}});
 
+                            bool isEqualOp = (inst.opcode() == spv::Op::OpFOrdEqual || inst.opcode() == spv::Op::OpFUnordEqual);
                             Instruction* less_than_inst = builder.AddInstruction(MakeUnique<Instruction>(
                                 context(),
-                                spv::Op::OpFOrdLessThan,
+                                isEqualOp ? spv::Op::OpFOrdLessThan : spv::Op::OpFOrdGreaterThanEqual,
                                 bool_type_id,
                                 context()->TakeNextId(),
                                 less_operands
