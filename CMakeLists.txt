@@ -156,6 +156,12 @@ set(SOURCE_FILES
 set(MOBILEGL_INCLUDE_DIR
         ${CMAKE_SOURCE_DIR}/include
         ${CMAKE_SOURCE_DIR}/MobileGL
+        ${CMAKE_SOURCE_DIR}/include/spirv/unified1
+        ${CMAKE_SOURCE_DIR}/include/spirv
+        ${CMAKE_SOURCE_DIR}/include/spirv-tools
+        ${CMAKE_SOURCE_DIR}/include/spirv-tools/source/opt
+        ${CMAKE_SOURCE_DIR}/include/spirv-tools/source/util
+        ${CMAKE_SOURCE_DIR}/include/spirv-tools/source
 )
 
 add_library(${CMAKE_PROJECT_NAME} SHARED 
