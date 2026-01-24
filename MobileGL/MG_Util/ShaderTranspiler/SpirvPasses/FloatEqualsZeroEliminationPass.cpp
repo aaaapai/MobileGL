@@ -72,6 +72,7 @@ namespace MobileGL {
                             }
 
                             // --- Found it, continue to patch it ---
+                            MGLOG_D("Found 1 occurrence of `FloatEqualsZero`, patching");
 
                             // 1. Get var type (Float) and result type (Bool)
                             uint32_t float_type_id = def_use_mgr->GetDef(var_id)->type_id();
