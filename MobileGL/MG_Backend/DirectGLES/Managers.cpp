@@ -259,7 +259,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
                     const auto& backendBufferObject = backendBufferIt->second;
                     backendBufferObject->Bind(GL_ELEMENT_ARRAY_BUFFER);
                 } else {
-                    MGLOG_E("No backend buffer found for index buffer binding, cannot bind index buffer.");
+                    MGLOG_W("No backend buffer found for index buffer binding, cannot bind index buffer.");
                 }
             }
 
@@ -873,6 +873,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 spvc_compiler_options options;
                 spvcSession.CreateOptions(&options);
 
+                // TODO: check ESSL version supported by backend driver
                 spvc_compiler_options_set_uint(options, SPVC_COMPILER_OPTION_GLSL_VERSION, 320);
                 spvc_compiler_options_set_bool(options, SPVC_COMPILER_OPTION_GLSL_ES, SPVC_TRUE);
                 //spvc_compiler_options_set_bool(options, SPVC_COMPILER_OPTION_GLSL_VULKAN_SEMANTICS, SPVC_FALSE);
@@ -898,41 +899,41 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 source = ForceSupporterOutput(source);
 
                 // TODO: probably a patch system?
-                String findStr = "if (distance_weight_sum == 0.0)";
-                String replaceStr = "if (distance_weight_sum <= 0.0001)";
-                auto pos = source.find(findStr);
-                while (pos != String::npos) {
-                    MGLOG_D("Applying patch #1 to Photon...");
-                    source.replace(pos, findStr.length(), replaceStr);
-                    pos = source.find(findStr, pos);
-                }
+                // String findStr = "if (distance_weight_sum == 0.0)";
+                // String replaceStr = "if (distance_weight_sum <= 0.0001)";
+                // auto pos = source.find(findStr);
+                // while (pos != String::npos) {
+                //     MGLOG_D("Applying patch #1 to Photon...");
+                //     source.replace(pos, findStr.length(), replaceStr);
+                //     pos = source.find(findStr, pos);
+                // }
 
-                findStr = "1000000.0";
-                replaceStr = "65500.0";
-                pos = source.find(findStr);
+                String findStr = "1000000.0";
+                String replaceStr = "65500.0";
+                auto pos = source.find(findStr);
                 while (pos != String::npos) {
                     MGLOG_D("Applying patch #2 to Photon...");
                     source.replace(pos, findStr.length(), replaceStr);
                     pos = source.find(findStr, pos);
                 }
 
-                findStr = "if (gtao.w == 0.0)";
-                replaceStr = "if (abs(gtao.w) <= 0.00001)";
-                pos = source.find(findStr);
-                while (pos != String::npos) {
-                    MGLOG_D("Applying patch #3 to Photon...");
-                    source.replace(pos, findStr.length(), replaceStr);
-                    pos = source.find(findStr, pos);
-                }
+                // findStr = "if (gtao.w == 0.0)";
+                // replaceStr = "if (abs(gtao.w) <= 0.00001)";
+                // pos = source.find(findStr);
+                // while (pos != String::npos) {
+                //     MGLOG_D("Applying patch #3 to Photon...");
+                //     source.replace(pos, findStr.length(), replaceStr);
+                //     pos = source.find(findStr, pos);
+                // }
 
-                findStr = "== 0.0";
-                replaceStr = "<= 0.00001";
-                pos = source.find(findStr);
-                while (pos != String::npos) {
-                    MGLOG_D("Applying patch #4 to Photon...");
-                    source.replace(pos, findStr.length(), replaceStr);
-                    pos = source.find(findStr, pos);
-                }
+                // findStr = "== 0.0";
+                // replaceStr = "<= 0.00001";
+                // pos = source.find(findStr);
+                // while (pos != String::npos) {
+                //     MGLOG_D("Applying patch #4 to Photon...");
+                //     source.replace(pos, findStr.length(), replaceStr);
+                //     pos = source.find(findStr, pos);
+                // }
 
                 const char* sourceCStr = source.c_str();
                 MGLOG_D("Setting shader source for backend shader ID: %u\nsrc:\n%s", backendShaderId, sourceCStr);

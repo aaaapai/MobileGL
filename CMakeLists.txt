@@ -80,6 +80,7 @@ set(SOURCE_FILES
     MobileGL/MG_Util/ShaderTranspiler/SpvcSession.cpp
     MobileGL/MG_Util/ShaderTranspiler/ShaderSourceProcessor.cpp
     MobileGL/MG_Util/ShaderTranspiler/glslang/TMglGlslIoResolver.cpp
+    MobileGL/MG_Util/ShaderTranspiler/SpirvPasses/FloatEqualsZeroEliminationPass.cpp
 
     MobileGL/MG_Util/BackendLoaders/OpenGL/Loader.cpp
 
@@ -152,13 +153,21 @@ set(SOURCE_FILES
     MobileGL/MG_State/GLState/RenderbufferState/RenderbufferState.cpp
 )
 
-add_library(${CMAKE_PROJECT_NAME} SHARED
+set(MOBILEGL_INCLUDE_DIR
+        ${CMAKE_SOURCE_DIR}/include
+        ${CMAKE_SOURCE_DIR}/MobileGL
+        ${spirv-tools_SOURCE_DIR}
+        ${spirv-tools_SOURCE_DIR}/include
+        ${spirv-tools_BINARY_DIR}
+        ${SPIRV-Headers_SOURCE_DIR}/include
+)
+
+add_library(${CMAKE_PROJECT_NAME} SHARED 
     ${SOURCE_FILES}
 )
 
 target_include_directories(${CMAKE_PROJECT_NAME} PUBLIC
-    ${CMAKE_SOURCE_DIR}/include
-    ${CMAKE_SOURCE_DIR}/MobileGL
+    ${MOBILEGL_INCLUDE_DIR}
 )
 
 if (NOT CMAKE_BUILD_TYPE STREQUAL "Debug" OR MOBILEGL_FORCE_RELEASE_OPT)
@@ -192,6 +201,10 @@ else()
     )
 endif()
 
+target_include_directories(${CMAKE_PROJECT_NAME}_s PUBLIC
+    ${MOBILEGL_INCLUDE_DIR}
+)
+
 if (ANDROID)
 target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE
     ${CMAKE_SOURCE_DIR}/library/android/${ANDROID_ABI}/libspirv-cross-c.a
@@ -199,6 +212,8 @@ target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE
     ${CMAKE_SOURCE_DIR}/library/android/${ANDROID_ABI}/libspirv-cross-core.a
     ${CMAKE_SOURCE_DIR}/library/android/${ANDROID_ABI}/libspirv-cross-cpp.a
     ${CMAKE_SOURCE_DIR}/library/android/${ANDROID_ABI}/libspirv-cross-glsl.a
+    ${CMAKE_SOURCE_DIR}/library/android/${ANDROID_ABI}/libSPIRV-Tools.a
+    ${CMAKE_SOURCE_DIR}/library/android/${ANDROID_ABI}/libSPIRV-Tools-opt.a
     ${CMAKE_SOURCE_DIR}/library/android/${ANDROID_ABI}/libshaderc.so
     android
     log

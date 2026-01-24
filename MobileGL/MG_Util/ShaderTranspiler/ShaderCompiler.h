@@ -20,6 +20,7 @@ namespace MobileGL {
                 static Result<SharedPtr<glslang::TShader>> CompileShader(const ShaderAttrib& attrib);
                 static Result<SharedPtr<glslang::TProgram>> LinkProgram(const ProgramAttrib& attrib);
                 static Result<Vector<Vector<unsigned>>> GetSpirvBinaryFromProgram(const ProgramBinaryAttrib& attrib);
+                static bool SanitizeBinary(const Vector<Uint32>& inputBinary, Vector<uint32_t>& outputBinary);
                 static Result<String> DecompileShader(SpvcSession& session);
             };
         } // namespace ShaderTranspiler
