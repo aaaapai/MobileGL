@@ -388,6 +388,7 @@ namespace MobileGL {
         } // namespace GLES
 
         namespace EGL {
+            EGL_FUNC_DECL(eglGetProcAddress)
             EGL_FUNC_DECL(eglBindAPI)
             EGL_FUNC_DECL(eglBindTexImage)
             EGL_FUNC_DECL(eglChooseConfig)
@@ -408,7 +409,6 @@ namespace MobileGL {
             EGL_FUNC_DECL(eglGetDisplay)
             EGL_FUNC_DECL(eglGetPlatformDisplay)
             EGL_FUNC_DECL(eglGetError)
-            EGL_FUNC_DECL(eglGetProcAddress)
             EGL_FUNC_DECL(eglInitialize)
             EGL_FUNC_DECL(eglMakeCurrent)
             EGL_FUNC_DECL(eglQueryAPI)
@@ -444,25 +444,24 @@ namespace MobileGL {
         namespace BackendLoader::GLES {
             Bool Init() {
                 LoadLibs();
-                if (libGLES == nullptr || libEGL == nullptr ||
-                    (glGetError_PTR)ProcAddress(libGLES, "glGetError") == nullptr) {
+                /*if (libEGL == nullptr ||
+                    (glGetError_PTR)ProcAddress("glGetError") == nullptr) {
                     return false;
-                }
+                }*/
                 InitEGL();
                 InitGLES();
                 DestroyTempEGLCtx();
                 return true;
             }
 
-            void *libGLES = nullptr, *libEGL = nullptr;
+            void *libEGL = nullptr;
 
             static const char* LibPathPrefixes[] = {
                 "/opt/vc/lib/", "/usr/local/lib/", "/usr/lib/", "/usr/lib/x86_64-linux-gnu/",
                 "", // We should put this to the end of the list to avoid breaking `LD_LIBRARY_PATH` usage
                 nullptr};
             static const char* LibExts[] = {"so", "so.1", "so.2", "dylib", "dll", nullptr};
-            static const char* GLES3Libs[] = {"libGLESv3_CM", "libGLESv3", "libGLESv2_CM", "libGLESv2", nullptr};
-            static const char* EGLLibs[] = {"libEGL", nullptr};
+            static const char* EGLLibs[] = {"libEGL", "libEGL_angle", "libEGL_mesa", nullptr};
 
             void* OpenLib(const char** names, const char* override) {
 #if !defined(__WIN32) && !defined(_WIN32) && !defined(__APPLE__)
@@ -493,17 +492,33 @@ namespace MobileGL {
             }
 
             void LoadLibs() {
-                // TODO: Add ANGLE override?
-                libGLES = OpenLib(GLES3Libs, nullptr);
-                libEGL = OpenLib(EGLLibs, nullptr);
+                const char* libgl_egl = std::getenv("LIBGL_EGL");
+                if (libgl_egl && strcmp(libgl_egl, "libEGL_mesa.so") == 0 && !std::getenv("GALLIUM_DRIVER")) {
+                    setenv("GALLIUM_DRIVER", "zink", 1);
+                    setenv("MESA_LOADER_DRIVER_OVERRIDE", "zink", 1);
+                    setenv("MESA_GL_VERSION_OVERRIDE", "3.2", 1);
+                    setenv("MESA_GLSL_VERSION_OVERRIDE", "320", 1);
+                    setenv("mesa_glthread", "true", 1);
+                }
+                if (libgl_egl) {
+                    libEGL = OpenLib(EGLLibs, libgl_egl);
+                } else {
+                    libEGL = OpenLib(EGLLibs, nullptr);
+                }
             }
 
-            void* ProcAddress(void* lib, const char* name) {
-#if !defined(__WIN32) && !defined(_WIN32) && !defined(__APPLE__)
-                return dlsym(lib, name);
-#else
+            void* ProcAddress(const char* name) {
+                // 优先使用EGL的GetProcAddress
+                if (MG_External::EGL::eglGetProcAddress) {
+                    void* func = (void*)MG_External::EGL::eglGetProcAddress(name);
+                    if (func) return func;
+                }
+                
+                // 回退到dlsym
+                if (libEGL) {
+                    return dlsym(libEGL, name);
+                }
                 return nullptr;
-#endif
             }
 
             void InitGLESCapabilities() {
@@ -911,9 +926,10 @@ namespace MobileGL {
 
 #define INIT_EGL_FUNC(name)                                                                                            \
     if (libEGL != NULL) {                                                                                              \
-        MG_External::EGL::name = (MG_External::EGL::name##_PTR)ProcAddress(libEGL, #name);                             \
+        MG_External::EGL::name = (MG_External::EGL::name##_PTR)ProcAddress(#name);                             \
     }
             void InitEGL() {
+                INIT_EGL_FUNC(eglGetProcAddress)
                 INIT_EGL_FUNC(eglBindAPI)
                 INIT_EGL_FUNC(eglBindTexImage)
                 INIT_EGL_FUNC(eglChooseConfig)
@@ -935,7 +951,6 @@ namespace MobileGL {
                 INIT_EGL_FUNC(eglGetDisplay)
                 INIT_EGL_FUNC(eglGetPlatformDisplay)
                 INIT_EGL_FUNC(eglGetError)
-                INIT_EGL_FUNC(eglGetProcAddress)
                 INIT_EGL_FUNC(eglInitialize)
                 INIT_EGL_FUNC(eglMakeCurrent)
                 INIT_EGL_FUNC(eglQueryAPI)
@@ -962,23 +977,18 @@ namespace MobileGL {
                 INIT_EGL_FUNC(eglGetPlatformDisplay)
                 INIT_EGL_FUNC(eglWaitSync)
 
-                EGLint configAttribs[] = {EGL_RED_SIZE,
-                                          8,
-                                          EGL_GREEN_SIZE,
-                                          8,
-                                          EGL_BLUE_SIZE,
-                                          8,
-                                          EGL_ALPHA_SIZE,
-                                          8,
-                                          EGL_SURFACE_TYPE,
-                                          EGL_PBUFFER_BIT,
-                                          EGL_RENDERABLE_TYPE,
-                                          EGL_OPENGL_ES2_BIT,
+                EGLint configAttribs[] = {EGL_RED_SIZE, 8,
+                                          EGL_GREEN_SIZE, 8,
+                                          EGL_BLUE_SIZE, 8,
+                                          EGL_ALPHA_SIZE, 8,
+                                          EGL_DEPTH_SIZE, 24,
+                                          EGL_SURFACE_TYPE, EGL_WINDOW_BIT|EGL_PBUFFER_BIT,
+                                          EGL_RENDERABLE_TYPE, EGL_OPENGL_ES3_BIT,
                                           EGL_NONE};
 
-                EGLint ctxAttribs[] = {EGL_CONTEXT_CLIENT_VERSION, 2, EGL_NONE};
+                EGLint ctxAttribs[] = {EGL_CONTEXT_CLIENT_VERSION, 3, EGL_NONE};
 
-                EGLint pbAttribs[] = {EGL_WIDTH, 32, EGL_HEIGHT, 32, EGL_NONE};
+                EGLint pbAttribs[] = {EGL_WIDTH, 10, EGL_HEIGHT, 10, EGL_NONE};
 
                 EGLConfig pbufConfig;
                 EGLint configsFound = 0;
