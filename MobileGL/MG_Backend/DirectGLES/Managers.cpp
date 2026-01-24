@@ -873,7 +873,8 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 spvc_compiler_options options;
                 spvcSession.CreateOptions(&options);
 
-                spvc_compiler_options_set_uint(options, SPVC_COMPILER_OPTION_GLSL_VERSION, 300);
+                // TODO: check ESSL version supported by backend driver
+                spvc_compiler_options_set_uint(options, SPVC_COMPILER_OPTION_GLSL_VERSION, 320);
                 spvc_compiler_options_set_bool(options, SPVC_COMPILER_OPTION_GLSL_ES, SPVC_TRUE);
                 spvc_compiler_options_set_bool(options, SPVC_COMPILER_OPTION_GLSL_VULKAN_SEMANTICS, SPVC_FALSE);
 
