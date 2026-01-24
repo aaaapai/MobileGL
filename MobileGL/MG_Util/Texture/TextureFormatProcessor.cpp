@@ -362,7 +362,7 @@ namespace MobileGL::MG_Util::TextureFormatProcessor {
                     *outType = GL_FLOAT_32_UNSIGNED_INT_24_8_REV;
                     break;
 
-                /*case GL_RGBA:
+                case GL_RGBA:
                 case GL_RGB:
                 case GL_RG:
                 case GL_RED:
@@ -376,7 +376,7 @@ namespace MobileGL::MG_Util::TextureFormatProcessor {
                 case GL_RG_INTEGER:
                 case GL_RED_INTEGER:
                     *outType = GL_UNSIGNED_INT; // 默认整数类型
-                    break;*/
+                    break;
 
                 default:
                     MGLOG_E("NormalizePixelFormat: outType: unhandled internalFormat: %s", MG_Util::ConvertGLEnumToString(internalFormat).c_str());
