@@ -156,10 +156,6 @@ set(SOURCE_FILES
 set(MOBILEGL_INCLUDE_DIR
         ${CMAKE_SOURCE_DIR}/include
         ${CMAKE_SOURCE_DIR}/MobileGL
-        ${spirv-tools_SOURCE_DIR}
-        ${spirv-tools_SOURCE_DIR}/include
-        ${spirv-tools_BINARY_DIR}
-        ${SPIRV-Headers_SOURCE_DIR}/include
 )
 
 add_library(${CMAKE_PROJECT_NAME} SHARED 
@@ -200,10 +196,6 @@ else()
         VISIBILITY_INLINES_HIDDEN ON
     )
 endif()
-
-target_include_directories(${CMAKE_PROJECT_NAME}_s PUBLIC
-    ${MOBILEGL_INCLUDE_DIR}
-)
 
 if (ANDROID)
 target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE
