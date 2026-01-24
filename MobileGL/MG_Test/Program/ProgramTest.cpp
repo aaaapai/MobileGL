@@ -922,26 +922,26 @@ TEST_F(ProgramTest, CompileAndLinkWithExplicitVertexIn) {
 
     auto programObject = MG_State::pGLContext->GetCurrentProgram();
     auto& spirvs = programObject->GetGeneratedSpirv();
-    auto& vertexSpirv = spirvs[1]; // 0 - fragment, 1 - vertex
+    // auto& vertexSpirv = spirvs[1]; // 0 - fragment, 1 - vertex
     char* pSrcVertIn = nullptr;
     const char* needle = "layout(location = 2) in vec2 UV0;";
-    // for (auto spirv: spirvs) {
-    MG_Util::ShaderTranspiler::SpvcSession spvcSession(vertexSpirv);
-    spvc_compiler_options options;
-    spvcSession.CreateOptions(&options);
+    for (auto spirv: spirvs) {
+        MG_Util::ShaderTranspiler::SpvcSession spvcSession(spirv);
+        spvc_compiler_options options;
+        spvcSession.CreateOptions(&options);
 
-    spvc_compiler_options_set_uint(options, SPVC_COMPILER_OPTION_GLSL_VERSION, 460);
-    spvc_compiler_options_set_bool(options, SPVC_COMPILER_OPTION_GLSL_ES, SPVC_FALSE);
-    // spvc_compiler_options_set_bool(options, SPVC_COMPILER_OPTION_GLSL_VULKAN_SEMANTICS, SPVC_FALSE);
+        spvc_compiler_options_set_uint(options, SPVC_COMPILER_OPTION_GLSL_VERSION, 460);
+        spvc_compiler_options_set_bool(options, SPVC_COMPILER_OPTION_GLSL_ES, SPVC_FALSE);
+        // spvc_compiler_options_set_bool(options, SPVC_COMPILER_OPTION_GLSL_VULKAN_SEMANTICS, SPVC_FALSE);
 
-    spvcSession.SetOptions(options);
+        spvcSession.SetOptions(options);
 
-    const char* result = nullptr;
-    spvcSession.Compile(&result);
-    printf("%s\n\n", result);
-    const char* ret = strstr(result, needle);
-    if (ret) pSrcVertIn = (char*)ret;
-    // }
+        const char* result = nullptr;
+        spvcSession.Compile(&result);
+        printf("%s\n\n", result);
+        const char* ret = strstr(result, needle);
+        if (ret) pSrcVertIn = (char*)ret;
+    }
     ASSERT_TRUE(pSrcVertIn != nullptr) << "Not found expected string in generated shader.\n(Searching for \"" << needle
                                        << "\")";
 }

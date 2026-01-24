@@ -259,7 +259,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
                     const auto& backendBufferObject = backendBufferIt->second;
                     backendBufferObject->Bind(GL_ELEMENT_ARRAY_BUFFER);
                 } else {
-                    MGLOG_E("No backend buffer found for index buffer binding, cannot bind index buffer.");
+                    MGLOG_W("No backend buffer found for index buffer binding, cannot bind index buffer.");
                 }
             }
 
@@ -873,7 +873,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 spvc_compiler_options options;
                 spvcSession.CreateOptions(&options);
 
-                spvc_compiler_options_set_uint(options, SPVC_COMPILER_OPTION_GLSL_VERSION, 320);
+                spvc_compiler_options_set_uint(options, SPVC_COMPILER_OPTION_GLSL_VERSION, 300);
                 spvc_compiler_options_set_bool(options, SPVC_COMPILER_OPTION_GLSL_ES, SPVC_TRUE);
                 spvc_compiler_options_set_bool(options, SPVC_COMPILER_OPTION_GLSL_VULKAN_SEMANTICS, SPVC_FALSE);
 

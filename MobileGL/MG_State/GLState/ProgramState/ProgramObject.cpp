@@ -455,6 +455,10 @@ namespace MobileGL {
 
                 for (SizeT i = 0; i < m_generatedSpirv.size(); i++) {
                     auto& spv = m_generatedSpirv[i];
+
+                    auto success = ShaderCompiler::SanitizeBinary(spv, spv);
+                    MOBILEGL_ASSERT(success, "SanitizeBinary failed");
+
                     auto shaderType = shaderTypes[i];
                     MGLOG_D("ProgramObject %u: GenerateBinary - parsing SPIR-V meta data for module %zu "
                             "(shaderType=%u, wordCount=%zu)",
