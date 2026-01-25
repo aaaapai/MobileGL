@@ -107,9 +107,9 @@ namespace MobileGL {
                             );
 
                             std::vector<Operand> abs_operands;
-                            abs_operands.push_back({spv_operand_type_t::SPV_OPERAND_TYPE_ID, {glsl_std_450_id}});
-                            abs_operands.push_back({spv_operand_type_t::SPV_OPERAND_TYPE_LITERAL_INTEGER, {4}}); // 4 is FAbs
-                            abs_operands.push_back({spv_operand_type_t::SPV_OPERAND_TYPE_ID, {var_id}});
+                            abs_operands.push_back({SPV_OPERAND_TYPE_ID, {glsl_std_450_id}});
+                            abs_operands.push_back({SPV_OPERAND_TYPE_LITERAL_INTEGER, {4}}); // 4 is FAbs
+                            abs_operands.push_back({SPV_OPERAND_TYPE_ID, {var_id}});
 
                             // In GLSL.std.450, `FAbs`'s OpCode == 4
                             // Ref: https://registry.khronos.org/SPIR-V/specs/1.0/GLSL.std.450.html
@@ -124,8 +124,8 @@ namespace MobileGL {
                             // 4. build Abs(x) < Epsilon
                             // OpFOrdLessThan %bool_type %abs_val %eps
                             std::vector<Operand> less_operands;
-                            less_operands.push_back({spv_operand_type_t::SPV_OPERAND_TYPE_ID, {abs_inst->result_id()}});
-                            less_operands.push_back({spv_operand_type_t::SPV_OPERAND_TYPE_ID, {eps_id}});
+                            less_operands.push_back({SPV_OPERAND_TYPE_ID, {abs_inst->result_id()}});
+                            less_operands.push_back({SPV_OPERAND_TYPE_ID, {eps_id}});
 
                             bool isEqualOp = (inst.opcode() == spv::Op::OpFOrdEqual || inst.opcode() == spv::Op::OpFUnordEqual);
                             Instruction* less_than_inst = builder.AddInstruction(MakeUnique<Instruction>(

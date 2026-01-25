@@ -7,7 +7,6 @@
 // End of Source File Header
 
 #include "TextureEnumConverter.h"
-#include "GL/glext.h"
 #include "MG_Util/Converters/GLToStr/GLEnumConverter.h"
 
 namespace MobileGL {
