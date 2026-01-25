@@ -39,7 +39,7 @@ namespace MobileGL {
                 // 3. iterate all function -> basic block -> insn
                 for (auto& func : *get_module()) {
                     for (auto& bb : func) {
-                        for (auto itInst = bb.begin(); itInst != bb.end(); ++itInst) {
+                        for (auto itInst = bb.begin(); itInst != bb.end(); ) {
                             auto& inst = *itInst;
 
                             bool shouldSkip = true;
@@ -58,8 +58,10 @@ namespace MobileGL {
                                     break;
                             }
 
-                            if (shouldSkip)
+                            if (shouldSkip) {
+                                ++itInst;
                                 continue;
+                            }
 
                             // check if operand is "float 0.0"
                             // OpFOrdEqual ResultType ResultID Operand1 Operand2
@@ -81,6 +83,7 @@ namespace MobileGL {
                             } else if (is_float_zero(op1_id)) {
                                 var_id = op2_id; // 0.0 == x
                             } else {
+                                ++itInst;
                                 continue;
                             }
 
@@ -143,6 +146,8 @@ namespace MobileGL {
                             auto nextInstIt = context()->KillInst(&inst);
                             if (nextInstIt) {
                                 itInst = nextInstIt;
+                            } else {
+                                ++itInst;
                             }
 
                             modified = true;
