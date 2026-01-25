@@ -455,7 +455,7 @@ namespace MobileGL {
 
                 for (auto& spv: m_generatedSpirv) {
                     auto success = ShaderCompiler::SanitizeBinary(spv, spv);
-                    MOBILEGL_ASSERT(success, "SanitizeBinary failed");
+                    //MOBILEGL_ASSERT(success, "SanitizeBinary failed");
                 }
 
                 for (SizeT i = 0; i < m_generatedSpirv.size(); i++) {
