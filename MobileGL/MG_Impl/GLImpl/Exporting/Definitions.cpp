@@ -58,7 +58,7 @@ MOBILEGL_GL_API type gl##name(__VA_ARGS__) {
     }
 #endif
 
-/*#ifdef TRACY_ENABLE
+*#ifdef TRACY_ENABLE
     #define DECLARE_GL_NATIVE_FUNCTION_END(type,name,...)                              \
         ZoneScopedC(TRACY_ZONECOLOR_ENTRY);                                     \
         MGLOG_D("Implementing function: %s(...)", __FUNCTION__);                \
@@ -81,9 +81,7 @@ MOBILEGL_GL_API type gl##name(__VA_ARGS__) {
         MobileGL::MG_External::GLES::gl##name(__VA_ARGS__);                           \
     }
 #endif
-*/
-#define DECLARE_GL_NATIVE_FUNCTION_END DECLARE_GL_FUNCTION_STUB_END
-#define DECLARE_GL_NATIVE_FUNCTION_END_NO_RETURN DECLARE_GL_FUNCTION_STUB_END_NO_RETURN
+
 
 DECLARE_GL_FUNCTION_HEAD(const GLubyte*, GetStringi, GLenum name, GLuint index) DECLARE_GL_FUNCTION_END(const GLubyte*, GetStringi, name, index)
 DECLARE_GL_FUNCTION_HEAD(const GLubyte*, GetString, GLenum name) DECLARE_GL_FUNCTION_END(const GLubyte*, GetString, name)
