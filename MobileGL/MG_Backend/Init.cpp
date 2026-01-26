@@ -74,7 +74,8 @@ namespace MobileGL {
             }
 #elif MOBILEGL_BACKEND == MOBILEGL_BACKEND_TYPE_DIRECT_GLES
             RendererInfo directGLESInfo = DirectGLES::RendererInfo;
-            
+            auto& extensions = directGLESInfo.RendererGLInfo.Extensions;
+
             // 检查环境变量LIBGL_GL
             const char* envLibGL = std::getenv("LIBGL_GL");
             if (envLibGL != nullptr) {
@@ -88,7 +89,6 @@ namespace MobileGL {
                     directGLESInfo.RendererGLInfo.TargetGLVersion = {4, 3, 0};
                     
                     // 添加OpenGL 4.x扩展
-                    auto& extensions = directGLESInfo.RendererGLInfo.Extensions;
                     extensions.push_back(V_OpenGL40);
                     extensions.push_back(V_OpenGL41);
                     extensions.push_back(V_OpenGL42);
@@ -101,7 +101,6 @@ namespace MobileGL {
             const char* envlibGL_compute = std::getenv("LIBGL_COMPUTE_SHADER");
             if (envLibGL != nullptr) {
                 std::string libcomputeValue = envlibGL_compute;
-                auto& extensions = directGLESInfo.RendererGLInfo.Extensions;
                 extensions.push_back(E_GL_ARB_compute_shader);
             }
             
