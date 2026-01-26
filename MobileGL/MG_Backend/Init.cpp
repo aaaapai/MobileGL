@@ -95,6 +95,14 @@ namespace MobileGL {
                     extensions.push_back(V_OpenGL43);
                     
                 }
+
+            }
+
+            const char* envlibGL_compute = std::getenv("LIBGL_COMPUTE_SHADER");
+            if (envLibGL != nullptr) {
+                std::string libcomputeValue = envlibGL_compute;
+                auto& extensions = directGLESInfo.RendererGLInfo.Extensions;
+                extensions.push_back(E_GL_ARB_compute_shader);
             }
             
             MG_Config::RendererInfoPtr = MakeUnique<RendererInfo>(directGLESInfo);
