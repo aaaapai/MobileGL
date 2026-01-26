@@ -11,7 +11,6 @@
 #include <Config.h>
 #include <MG_Util/BackendLoaders/OpenGL/Loader.h>
 #include <MG_Util/Converters/MGToStr/GLExtensionConverter.h>
-#include <cstdlib>  // 添加头文件用于std::getenv
 
 namespace MobileGL {
     namespace MG_Config {
@@ -74,13 +73,18 @@ namespace MobileGL {
             }
 #elif MOBILEGL_BACKEND == MOBILEGL_BACKEND_TYPE_DIRECT_GLES
             RendererInfo directGLESInfo = DirectGLES::RendererInfo;
-            auto& extensions = directGLESInfo.RendererGLInfo.Extensions;
 
             // 检查环境变量LIBGL_GL
             const char* envLibGL = std::getenv("LIBGL_GL");
-            if (envLibGL != nullptr) {
+            const char* envlibGL_compute = std::getenv("LIBGL_COMPUTE_SHADER");
+            if ((envLibGL != nullptr) || (envlibGL_compute != nullptr)) {
                 std::string libglValue = envLibGL;
-                
+                auto& extensions = directGLESInfo.RendererGLInfo.Extensions;
+
+                if (envlibGL_compute != nullptr) {
+                    extensions.push_back(E_GL_ARB_compute_shader);
+                }
+        
                 // 如果设置为"43"，则使用OpenGL 4.3
                 if (libglValue == "43") {
                     MGLOG_I("LIBGL_GL=43 detected, using OpenGL 4.3 configuration");
@@ -96,12 +100,6 @@ namespace MobileGL {
                     
                 }
 
-            }
-
-            const char* envlibGL_compute = std::getenv("LIBGL_COMPUTE_SHADER");
-            if (envLibGL != nullptr) {
-                std::string libcomputeValue = envlibGL_compute;
-                extensions.push_back(E_GL_ARB_compute_shader);
             }
             
             MG_Config::RendererInfoPtr = MakeUnique<RendererInfo>(directGLESInfo);
