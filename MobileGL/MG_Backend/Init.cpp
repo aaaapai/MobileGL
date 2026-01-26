@@ -78,7 +78,10 @@ namespace MobileGL {
             const char* envLibGL = std::getenv("LIBGL_GL");
             const char* envlibGL_compute = std::getenv("LIBGL_COMPUTE_SHADER");
             if ((envLibGL != nullptr) || (envlibGL_compute != nullptr)) {
-                std::string libglValue = envLibGL;
+                std::string libglValue = "";
+                if (envLibGL != nullptr) {
+                    libglValue = envLibGL;
+                }
                 auto& extensions = directGLESInfo.RendererGLInfo.Extensions;
 
                 if (envlibGL_compute != nullptr) {
@@ -86,7 +89,7 @@ namespace MobileGL {
                 }
         
                 // 如果设置为"43"，则使用OpenGL 4.3
-                if (libglValue == "43") {
+                if ((!libglValue.empty()) && (libglValue == "43")) {
                     MGLOG_I("LIBGL_GL=43 detected, using OpenGL 4.3 configuration");
                     
                     // 修改OpenGL版本
