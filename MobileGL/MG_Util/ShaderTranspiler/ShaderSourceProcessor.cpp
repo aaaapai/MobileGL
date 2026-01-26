@@ -93,14 +93,14 @@ vec2 mg_textureQueryLod(sampler2D tex, vec2 uv) {
                         profile = ShaderProfile::Core;
                 } else {
                     profile = ShaderProfile::Core;
-                    source.insert(0, "#version 460 core\n");
+                    source.insert(0, "#version 460 compatibility\n");
                     return;
                 }
 
                 SizeT firstLineEnd = lineEnd;
 
                 if (profile != ShaderProfile::ES) {
-                    constexpr const char* versionDirectiveCore = "#version 460 core\n";
+                    constexpr const char* versionDirectiveCore = "#version 460 compatibility\n";
                     constexpr const char* versionDirectiveCompat = "#version 460 compatibility\n";
 
                     const char* replacement =
