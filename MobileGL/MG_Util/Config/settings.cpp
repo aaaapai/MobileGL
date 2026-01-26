@@ -204,6 +204,9 @@ void init_settings() {
 		setenv("MGL_CHEAT_CHECKFRAMEBUFFERSTATUS", "true", 1);
 	}
 
+	if (global_settings.ext_compute_shader) {
+		setenv("LIBGL_COMPUTE_SHADER", "true", 1);
+	}
 }
 
 void set_multidraw_setting() { // should be called after init_gles_target()
