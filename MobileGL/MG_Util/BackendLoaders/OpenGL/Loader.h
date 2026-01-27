@@ -951,6 +951,9 @@ namespace MobileGL {
             GL_FUNC_DECL(glMultiDrawElementsBaseVertexEXT)
 
             GL_FUNC_DECL(glBruh)
+
+            GL_FUNC_DECL(glQueryCounterEXT)
+
         } // namespace GLES
     } // namespace MG_External
 
