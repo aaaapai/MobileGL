@@ -450,6 +450,9 @@ GL_FUNC_TYPEDEF(void, glBruh)
 GL_FUNC_TYPEDEF(void, glMultiDrawElementsBaseVertexEXT, GLenum mode, const GLsizei* count, GLenum type,
                 const void* const* indices, GLsizei drawcount, const GLint* basevertex)
 
+
+GL_FUNC_TYPEDEF(void, glQueryCounterEXT, GLuint id, GLenum target)
+
 #undef MOBILEGL_EXTERNAL_GLES
 #undef GL_FUNC_TYPEDEF
 
