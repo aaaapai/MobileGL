@@ -385,6 +385,8 @@ namespace MobileGL {
             GL_FUNC_DECL(glMultiDrawElementsBaseVertexEXT)
 
             GL_FUNC_DECL(glBruh)
+
+            GL_FUNC_DECL(glQueryCounterEXT)
         } // namespace GLES
 
         namespace EGL {
@@ -916,6 +918,8 @@ namespace MobileGL {
                 INIT_GLES_FUNC(glMultiDrawArraysIndirectEXT)
                 INIT_GLES_FUNC(glMultiDrawElementsIndirectEXT)
                 INIT_GLES_FUNC(glMultiDrawElementsBaseVertexEXT)
+
+                INIT_GLES_FUNC(glQueryCounterEXT)
 
                 InitGLESCapabilities();
             }
