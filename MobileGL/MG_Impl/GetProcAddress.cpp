@@ -394,7 +394,7 @@ namespace MobileGL {
             GETPROC(glGetSamplerParameterIiv, name);
             GETPROC(glGetSamplerParameterfv, name);
             GETPROC(glGetSamplerParameterIuiv, name);
-            GETPROC(glQueryCounter, name);
+            GETPROC(glQueryCounterEXT, name);
             GETPROC(glGetQueryObjecti64v, name);
             GETPROC(glGetQueryObjectui64v, name);
             GETPROC(glVertexAttribDivisor, name);
