@@ -216,7 +216,7 @@ namespace MobileGL {
                 tshader->setAutoMapLocations(true);
                 tshader->setAutoMapBindings(true);
                 tshader->setGlobalUniformBlockName(GLOBAL_UBO_NAME);
-                if (!tshader->parse(&GetTBuiltInResourceInstance(), 460, ECoreProfile,
+                if (!tshader->parse(&GetTBuiltInResourceInstance(), 460, ECompatibilityProfile,
                                     /*forceDefaultVersionAndProfile: */ false,
                                     /*forwardCompatible: */ true, EShMsgDefault)) {
                     ResultInfo r;
