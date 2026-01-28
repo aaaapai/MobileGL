@@ -1076,6 +1076,9 @@ const char* str_temporal_filter = "GI_TemporalFilter";
         const char* str_temporal_filter_def = "vec4 GI_TemporalFilter()";
         if (source.find(str_temporal_filter_def) == String::npos) {
             const std::string temporalFilterImpl = R"(
+
+#define GI_RENDER_RESOLUTION	0.5 // i have no any method to control the digit of GI_RENDER_RESOLUTION
+
 vec4 GI_TemporalFilter(){
 	vec4 prev = texelFetch(colortex2, texelCoord, 0);
 	vec2 coord = texCoord / GI_RENDER_RESOLUTION;
