@@ -371,7 +371,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
                         for (SizeT level = 0; level < mipmapCount; ++level) {
                             auto levelTexelSize = textureMipmapObject->GetMipmapTexelSize(uploadTarget, level);
                             auto levelByteSize = textureMipmapObject->GetMipmapByteSize(uploadTarget, level);
-                            bool levelDirty = textureMipmapObject->IsStorageDirty(uploadTarget, 0);
+                            bool levelDirty = textureMipmapObject->IsStorageDirty(uploadTarget, level);
                             auto glUploadTarget = MG_Util::ConvertTextureUploadTargetToGLEnum(uploadTarget);
                             auto* pData = (levelDirty && levelByteSize != 0)
                                               ? textureMipmapObject->MapMipmapData(uploadTarget, level)
