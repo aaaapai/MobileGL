@@ -160,9 +160,11 @@ namespace MobileGL {
                 *params = 0; // TODO
                 break;
             case GL_ARRAY_BUFFER_BINDING: {
-                *params = MG_State::pGLContext->GetBufferBindingSlot(BufferTarget::Vertex)
-                              .GetBoundObject()
-                              ->GetExternalIndex();
+                auto obj = MG_State::pGLContext->GetBufferBindingSlot(BufferTarget::Vertex).GetBoundObject();
+                if (obj)
+                    *params = obj->GetExternalIndex();
+                else
+                    *params = 0;
                 break;
             }
             case GL_BLEND:
