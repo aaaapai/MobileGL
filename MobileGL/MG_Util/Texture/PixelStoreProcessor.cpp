@@ -9,7 +9,7 @@
 #include "PixelStoreProcessor.h"
 
 namespace MobileGL::MG_Util::PixelStoreProcessor {
-    static SizeT CalculateStride(Int width, SizeT pixelSize, Int alignment) {
+    static SizeT CalculateRowStride(Int width, SizeT pixelSize, Int alignment) {
         if (width <= 0 || pixelSize == 0) return 0;
 
         const SizeT rowBytes = static_cast<SizeT>(width) * pixelSize;
@@ -97,8 +97,8 @@ namespace MobileGL::MG_Util::PixelStoreProcessor {
 
         const Int effectiveWidth = (params.RowLength > 0) ? params.RowLength : width;
         const Int effectiveHeight = (params.ImageHeight > 0) ? params.ImageHeight : height;
-        const SizeT inputStride = CalculateStride(effectiveWidth, pixelSize, params.Alignment);
-        const SizeT outputStride = static_cast<SizeT>(width) * pixelSize;
+        const SizeT inputRowStride = CalculateRowStride(effectiveWidth, pixelSize, params.Alignment);
+        const SizeT outputRowStride = static_cast<SizeT>(width) * pixelSize;
 
         const Int startX = params.SkipPixels;
         const Int startY = params.SkipRows;
@@ -108,8 +108,8 @@ namespace MobileGL::MG_Util::PixelStoreProcessor {
         const Int copyHeight = height;
         const Int copyDepth = depth;
 
-        MGLOG_D("%s: start at: (%d, %d, %d), copy size: (%d, %d, %d)", __func__,
-                startX, startY, startZ, copyWidth, copyHeight, copyDepth);
+        MGLOG_D("%s: start at: (%d, %d, %d), copy size: (%d, %d, %d), i/o row stride: (%d, %d)", __func__,
+                startX, startY, startZ, copyWidth, copyHeight, copyDepth, inputRowStride, outputRowStride);
 
         if (copyWidth <= 0 || copyHeight <= 0 || copyDepth <= 0) {
             outSize = 0;
@@ -126,8 +126,8 @@ namespace MobileGL::MG_Util::PixelStoreProcessor {
         const Uint8* src = static_cast<const Uint8*>(inputPixels);
         Uint8* dst = static_cast<Uint8*>(outputPixels);
 
-        src += static_cast<SizeT>(startZ) * static_cast<SizeT>(effectiveHeight) * inputStride;
-        src += static_cast<SizeT>(startY) * inputStride;
+        src += static_cast<SizeT>(startZ) * static_cast<SizeT>(effectiveHeight) * inputRowStride;
+        src += static_cast<SizeT>(startY) * inputRowStride;
         src += static_cast<SizeT>(startX) * pixelSize;
 
         Bool isByteType =
@@ -161,12 +161,12 @@ namespace MobileGL::MG_Util::PixelStoreProcessor {
 //                else
 //                    MGLOG_D("%s: pixel0        = %x", __func__, *((Uint32*)layerDst));
 
-                layerSrc += inputStride;
-                layerDst += static_cast<SizeT>(copyWidth) * pixelSize;
+                layerSrc += inputRowStride;
+                layerDst += outputRowStride;
             }
 
-            src += static_cast<SizeT>(effectiveHeight) * inputStride;
-            dst += static_cast<SizeT>(copyHeight) * static_cast<SizeT>(copyWidth) * pixelSize;
+            src += static_cast<SizeT>(effectiveHeight) * inputRowStride;
+            dst += static_cast<SizeT>(copyHeight) * outputRowStride;
         }
 
         return outputPixels;
@@ -184,12 +184,12 @@ namespace MobileGL::MG_Util::PixelStoreProcessor {
         Int depth = dimension.z();
 
         const Int outputWidth = (params.RowLength > 0) ? params.RowLength : width;
-        const SizeT outputStride = CalculateStride(outputWidth, pixelSize, params.Alignment);
-        const SizeT inputStride = static_cast<SizeT>(width) * pixelSize;
+        const SizeT outputRowStride = CalculateRowStride(outputWidth, pixelSize, params.Alignment);
+        const SizeT inputRowStride = static_cast<SizeT>(width) * pixelSize;
 
         const Int effectiveHeight = (params.ImageHeight > 0) ? params.ImageHeight : height;
 
-        outSize = static_cast<SizeT>(outputStride) * static_cast<SizeT>(effectiveHeight) * static_cast<SizeT>(depth);
+        outSize = static_cast<SizeT>(outputRowStride) * static_cast<SizeT>(effectiveHeight) * static_cast<SizeT>(depth);
         void* outputPixels = malloc(outSize);
         if (!outputPixels) {
             outSize = 0;
@@ -201,8 +201,8 @@ namespace MobileGL::MG_Util::PixelStoreProcessor {
         const Uint8* src = static_cast<const Uint8*>(inputPixels);
         Uint8* dst = static_cast<Uint8*>(outputPixels);
 
-        dst += static_cast<SizeT>(params.SkipImages) * static_cast<SizeT>(effectiveHeight) * outputStride;
-        dst += static_cast<SizeT>(params.SkipRows) * outputStride;
+        dst += static_cast<SizeT>(params.SkipImages) * static_cast<SizeT>(effectiveHeight) * outputRowStride;
+        dst += static_cast<SizeT>(params.SkipRows) * outputRowStride;
         dst += static_cast<SizeT>(params.SkipPixels) * pixelSize;
 
         Vector<Uint8> tempRow(static_cast<SizeT>(width) * pixelSize);
@@ -224,12 +224,12 @@ namespace MobileGL::MG_Util::PixelStoreProcessor {
 
                 Memcpy(layerDst, tempRow.data(), static_cast<SizeT>(width) * pixelSize);
 
-                layerSrc += inputStride;
-                layerDst += outputStride;
+                layerSrc += inputRowStride;
+                layerDst += outputRowStride;
             }
 
-            src += static_cast<SizeT>(height) * inputStride;
-            dst += static_cast<SizeT>(effectiveHeight) * outputStride;
+            src += static_cast<SizeT>(height) * inputRowStride;
+            dst += static_cast<SizeT>(effectiveHeight) * outputRowStride;
         }
 
         return outputPixels;
