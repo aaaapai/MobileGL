@@ -166,6 +166,7 @@ namespace MobileGL {
 
             free(processedPixels);
 
+            MGLOG_D("%s: mark mip %d as dirty", __func__, level);
             textureMipmapObject->MarkStorageDirty(textureUploadingTarget, level, true);
         }
 
@@ -709,10 +710,11 @@ namespace MobileGL {
                             "Texture object here should always be an object with mipmap");
             auto textureMipmapObject = static_cast<MG_State::GLState::TextureObjectMipmap*>(textureObject.get());
 
-            MGLOG_D("%s: Allocating %d bytes at mip %d", __func__, internalBytes, level);
-
             // Allocate in TextureObject
+            MGLOG_D("%s: Allocating %d bytes at mip %d", __func__, internalBytes, level);
             textureMipmapObject->AllocateStorage(textureUploadingTarget, level, {{width, height, 1}, internalBytes});
+
+            MGLOG_D("%s: mark mip %d as dirty", __func__, level);
             textureMipmapObject->MarkStorageDirty(textureUploadingTarget, level, true);
 
             if (!originalPixels) {
