@@ -529,6 +529,10 @@ namespace MobileGL {
                         }
                     }
                 }
+
+                MGLOG_I("OpenGL ES capabilities:");
+                MG_External::GLES::glGetIntegerv(GL_UNIFORM_BUFFER_OFFSET_ALIGNMENT, &MG_External::GLES::g_glesCaps.uniformBufferOffsetAlignment);
+                MGLOG_I("    GL_UNIFORM_BUFFER_OFFSET_ALIGNMENT: %d", MG_External::GLES::g_glesCaps.uniformBufferOffsetAlignment);
             }
 
             void InitGLES() {
