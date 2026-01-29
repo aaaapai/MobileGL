@@ -108,8 +108,8 @@ namespace MobileGL::MG_Util::PixelStoreProcessor {
         const Int copyHeight = height;
         const Int copyDepth = depth;
 
-        MGLOG_D("%s: start at: (%d, %d, %d), copy size: (%d, %d, %d), i/o row stride: (%d, %d)", __func__,
-                startX, startY, startZ, copyWidth, copyHeight, copyDepth, inputRowStride, outputRowStride);
+        MGLOG_D("%s: start at: (%d, %d, %d), copy size: (%d, %d, %d), i/o row stride: (%d, %dx%d)", __func__,
+                startX, startY, startZ, copyWidth, copyHeight, copyDepth, inputRowStride, width, pixelSize);
 
         if (copyWidth <= 0 || copyHeight <= 0 || copyDepth <= 0) {
             outSize = 0;

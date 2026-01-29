@@ -88,6 +88,7 @@ namespace MobileGL {
             auto& bindingSlot = activeUnit.GetBindingSlot(textureTarget);
             auto textureObject = bindingSlot.GetBoundObject();
             TextureInternalFormat textureInternalFormat = textureObject->GetFormat();
+            MGLOG_D("%s: working on texture %d", __func__, textureObject->GetExternalIndex());
 
             // ===================== Error Checking ==============================
             if (!TextureImpl::ValidateTextureObject(textureObject)) return;
@@ -681,6 +682,8 @@ namespace MobileGL {
             const SizeT inputBpp = MG_Util::GetInputBytesPerPixel(textureInputFormat, texturePixelDataType);
             const SizeT internalBpp = MG_Util::GetInternalBytesPerPixel(textureInternalFormat, texturePixelDataType);
             const SizeT internalBytes = width * height * internalBpp;
+
+            MGLOG_D("%s: working on texture %d", __func__, textureObject->GetExternalIndex());
 
             MGLOG_D("%s: texture object had internal format %s, new format %s", __func__,
                     MG_Util::ConvertTextureInternalFormatToString(textureObject->GetFormat()).c_str(),

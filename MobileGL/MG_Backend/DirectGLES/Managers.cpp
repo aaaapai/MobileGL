@@ -328,7 +328,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
             // 4. Mipmap levels changed
 
             if (!stateTextureObject->IsComplete()) {
-                MGLOG_D("Texture object with ID: %u is not complete, skipping sync.", m_backendTextureId);
+                MGLOG_D("Texture object with ID: %u is not complete, skipping sync.", stateTextureObject->GetExternalIndex());
                 return;
             }
 
