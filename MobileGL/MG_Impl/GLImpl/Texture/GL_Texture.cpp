@@ -709,8 +709,11 @@ namespace MobileGL {
                             "Texture object here should always be an object with mipmap");
             auto textureMipmapObject = static_cast<MG_State::GLState::TextureObjectMipmap*>(textureObject.get());
 
+            MGLOG_D("%s: Allocating %d bytes at mip %d", __func__, internalBytes, level);
+
             // Allocate in TextureObject
             textureMipmapObject->AllocateStorage(textureUploadingTarget, level, {{width, height, 1}, internalBytes});
+            textureMipmapObject->MarkStorageDirty(textureUploadingTarget, level, true);
 
             if (!originalPixels) {
                 MGLOG_D("%s: No input pixel and no PBO bound, no pixel transfer", __func__);
@@ -733,8 +736,6 @@ namespace MobileGL {
                 DataPtr texelInput{processedPixels, copySize};
                 textureMipmapObject->UpdateMipmapSubData(textureUploadingTarget, level, texelInput);
             }
-
-            textureMipmapObject->MarkStorageDirty(textureUploadingTarget, level, true);
 
             free(processedPixels);
         }
