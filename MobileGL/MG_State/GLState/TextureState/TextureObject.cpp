@@ -164,13 +164,24 @@ namespace MobileGL {
 
                 SizeT levelCount = m_textureStorage.GetLevelCount();
                 if (levelCount == 0) {
+                    MGLOG_D("%s: not complete because levelCount == 0", __func__);
                     return false;
                 }
 
+                // For some reason mojang decided to have 0x0 in last level mipmap
+                // Relaxing checks for that
+                bool hadZero = false;
                 for (SizeT i = 0; i < levelCount; ++i) {
                     const auto& levelSize = m_textureStorage.GetTexelSize(0, i);
                     if (levelSize.x() <= 0 || levelSize.y() <= 0 || levelSize.z() <= 0) {
-                        return false;
+                        hadZero = true;
+                    } else {
+                        if (hadZero) {
+                            // We're checking for "zero - not zero - zero" here
+                            // "not zero - zero - zero" should pass this test
+                            MGLOG_D("%s: not complete because 0x0 occurred, and is not last level mipmap", __func__);
+                            return false;
+                        }
                     }
                 }
 

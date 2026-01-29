@@ -580,6 +580,8 @@ namespace MobileGL {
                     Version version;
                     Bool hasPersistentMapping;
                     Bool hasNorm16Texture;
+
+                    Int uniformBufferOffsetAlignment;
                 };
             } // namespace Caps
 

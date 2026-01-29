@@ -18,6 +18,7 @@
 #include <MG_State/GLState/FramebufferState/FramebufferObject.h>
 #if MOBILEGL_BACKEND == MOBILEGL_BACKEND_TYPE_DIRECT_GLES
 #include <MG_Backend/DirectGLES/DirectGLES.h>
+#include "MG_Util/BackendLoaders/OpenGL/Loader.h"
 #endif
 
 namespace MobileGL {
@@ -817,7 +818,11 @@ namespace MobileGL {
                 *params = 0; // TODO
                 break;
             case GL_UNIFORM_BUFFER_OFFSET_ALIGNMENT:
-                *params = 256; // TODO: get real value from backend
+#if MOBILEGL_BACKEND == MOBILEGL_BACKEND_TYPE_DIRECT_GLES
+                *params = MG_External::GLES::g_glesCaps.uniformBufferOffsetAlignment; // TODO: get real value from backend
+#else
+                *params = 256;
+#endif
                 break;
             case GL_UNIFORM_BUFFER_SIZE:
                 *params = 0; // TODO

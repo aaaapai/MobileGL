@@ -328,7 +328,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
             // 4. Mipmap levels changed
 
             if (!stateTextureObject->IsComplete()) {
-                MGLOG_D("Texture object with ID: %u is not complete, skipping sync.", m_backendTextureId);
+                MGLOG_D("Texture object with ID: %u is not complete, skipping sync.", stateTextureObject->GetExternalIndex());
                 return;
             }
 
@@ -371,14 +371,14 @@ namespace MobileGL::MG_Backend::DirectGLES {
                         for (SizeT level = 0; level < mipmapCount; ++level) {
                             auto levelTexelSize = textureMipmapObject->GetMipmapTexelSize(uploadTarget, level);
                             auto levelByteSize = textureMipmapObject->GetMipmapByteSize(uploadTarget, level);
-                            bool levelDirty = textureMipmapObject->IsStorageDirty(uploadTarget, 0);
+                            bool levelDirty = textureMipmapObject->IsStorageDirty(uploadTarget, level);
                             auto glUploadTarget = MG_Util::ConvertTextureUploadTargetToGLEnum(uploadTarget);
                             auto* pData = (levelDirty && levelByteSize != 0)
                                               ? textureMipmapObject->MapMipmapData(uploadTarget, level)
                                               : nullptr;
-                            MGLOG_D("%s: target: %s: syncing mip %d: %dx%dx%d, byteSize = %d, pData = %p", __func__,
+                            MGLOG_D("%s: target: %s: syncing mip %d: %dx%dx%d, byteSize = %d, pData = %p, levelDirty = %s", __func__,
                                     MG_Util::ConvertTextureUploadTargetToString(uploadTarget).c_str(), level,
-                                    levelTexelSize.x(), levelTexelSize.y(), levelTexelSize.z(), levelByteSize, pData);
+                                    levelTexelSize.x(), levelTexelSize.y(), levelTexelSize.z(), levelByteSize, pData, levelDirty ? "true" : "false");
 
                             errorLopper.Clear();
                             MG_External::GLES::glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
