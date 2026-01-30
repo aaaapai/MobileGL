@@ -450,12 +450,15 @@ namespace MobileGL {
                 }
                 //MOBILEGL_ASSERT(binaryResult, "GetSpirvBinaryFromProgram failed");
                 m_generatedSpirv = Move(binaryResult.value());
-                MGLOG_D("ProgramObject %u: GenerateBinary - generated %zu SPIR-V modules", m_externalIndex,
+                MGLOG_D("ProgramObject %u: GenerateBinary - SPIR-V modules", m_externalIndex,
                         m_generatedSpirv.size());
 
                 for (auto& spv: m_generatedSpirv) {
-                    auto success = ShaderCompiler::SanitizeBinary(spv, spv);
-                    //MOBILEGL_ASSERT(success, "SanitizeBinary failed");
+                    auto success = ShaderCompiler::SanitizeAndOptimizeBinary(spv, spv);
+                    //MOBILEGL_ASSERT(success, " failed");
+                    if (!success) {
+                      MGLOG_E(" Failed to SanitizeAndOptimizeBinar. ProgramObject %u: GenerateBinary - SPIR-V modules", m_externalIndex, m_generatedSpirv.size());
+                    }
                 }
 
                 for (SizeT i = 0; i < m_generatedSpirv.size(); i++) {
