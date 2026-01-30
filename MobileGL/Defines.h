@@ -48,7 +48,9 @@
 
 // Require C++23
 // Clang/Android NDK still doesn't have support for that :(
-#define MOBILEGL_LOG_ENABLE_STACKTRACE 1
+#ifndef __ANDROID__
+#define MOBILEGL_LOG_ENABLE_STACKTRACE 0
+#endif
 
 #ifdef __ANDROID__
 #define MOBILEGL_LOG_FILE_PATH "/sdcard/MGL/latest.log"
