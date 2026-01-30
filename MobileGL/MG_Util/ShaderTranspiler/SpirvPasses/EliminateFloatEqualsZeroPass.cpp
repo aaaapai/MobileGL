@@ -6,7 +6,7 @@
 // SPDX-License-Identifier: LGPL-3.0-only
 // End of Source File Header
 
-#include "FloatEqualsZeroEliminationPass.h"
+#include "EliminateFloatEqualsZeroPass.h"
 
 #include "spirv.hpp"
 #include "source/opt/constants.h"
@@ -21,7 +21,7 @@
 namespace MobileGL {
     namespace MG_Util {
         namespace ShaderTranspiler {
-            spvtools::opt::Pass::Status FloatEqualsZeroEliminationPass::Process() {
+            spvtools::opt::Pass::Status EliminateFloatEqualsZeroPass::Process() {
                 using namespace spvtools;
                 using namespace spvtools::opt;
                 bool modified = false;
@@ -156,6 +156,10 @@ namespace MobileGL {
                 }
                 return modified ? Status::SuccessWithChange : Status::SuccessWithoutChange;
             }
-        }
+
+            spvtools::Optimizer::PassToken EliminateFloatEqualsZeroPass::CreateEliminateFloatEqualsZeroPass() {
+                return spvtools::Optimizer::PassToken(MakeUnique<EliminateFloatEqualsZeroPass>());
+            }
+        } // namespace ShaderTranspiler
     }
 }

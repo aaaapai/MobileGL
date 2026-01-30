@@ -8,7 +8,7 @@
 
 #include "ShaderCompiler.h"
 
-#include "SpirvPasses/FloatEqualsZeroEliminationPass.h"
+#include "SpirvPasses/EliminateFloatEqualsZeroPass.h"
 #include "spirv-tools/libspirv.h"
 #include "spirv-tools/optimizer.hpp"
 
@@ -290,9 +290,12 @@ namespace MobileGL {
             }
 
             bool ShaderCompiler::SanitizeAndOptimizeBinary(const Vector<Uint32>& inputBinary, Vector<uint32_t>& outputBinary) {
-                spvtools::Optimizer optimizer(SPV_ENV_UNIVERSAL_1_6);
+                using namespace spvtools;
+                Optimizer optimizer(SPV_ENV_UNIVERSAL_1_6);
 
-                optimizer.RegisterPass(spvtools::Optimizer::PassToken(MakeUnique<FloatEqualsZeroEliminationPass>()));
+                optimizer
+                        .RegisterPass(EliminateFloatEqualsZeroPass::CreateEliminateFloatEqualsZeroPass())
+                        ;
 
                 return optimizer.Run(inputBinary.data(), inputBinary.size(), &outputBinary);
             }

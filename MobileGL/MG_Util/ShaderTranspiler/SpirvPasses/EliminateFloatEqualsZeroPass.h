@@ -8,19 +8,23 @@
 
 #pragma once
 #include "source/opt/pass.h"
+#include "spirv-tools/optimizer.hpp"
 
 #include <Includes.h>
 
 namespace MobileGL {
     namespace MG_Util {
         namespace ShaderTranspiler {
-            class FloatEqualsZeroEliminationPass: public spvtools::opt::Pass {
+            class EliminateFloatEqualsZeroPass: public spvtools::opt::Pass {
             public:
                 const char* name() const override { return "float-equals-zero-elimination"; }
                 Status Process() override;
+
+                static spvtools::Optimizer::PassToken CreateEliminateFloatEqualsZeroPass();
             private:
                 const float K_EPSILON = 0.0001f;
             };
         } // namespace ShaderTranspiler
     } // namespace MG_Util
 } // namespace MobileGL
+
