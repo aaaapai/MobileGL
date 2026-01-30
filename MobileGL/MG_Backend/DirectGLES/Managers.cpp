@@ -51,8 +51,8 @@ namespace MobileGL::MG_Backend::DirectGLES {
 
             SizeT bufferSize = stateBufferObject->GetSize();
             if (bufferSize == 0) {
-                MGLOG_W("Buffer size is zero, skipping sync for object with ID: %u", m_backendBufferId);
-                return;
+                MGLOG_W("Buffer size is zero, but not skipping sync for object with ID: %u", m_backendBufferId);
+                //return;
             }
 
             MGLOG_D("Syncing buffer object with backend ID %u to backend for state ID %u", m_backendBufferId,
@@ -119,8 +119,8 @@ namespace MobileGL::MG_Backend::DirectGLES {
             // dirty range: [range.start, range.end)
             const auto& range = stateBufferObject->GetDirtyRange();
             if (range.end == 0) {
-                MGLOG_D("No dirty range to sync for buffer with ID: %u", m_backendBufferId);
-                return;
+                MGLOG_W("No dirty range to sync for buffer with ID: %u", m_backendBufferId);
+                //return;
             }
 
             MG_External::GLES::glBindBuffer(TempBufferTarget, m_backendBufferId);
@@ -139,8 +139,8 @@ namespace MobileGL::MG_Backend::DirectGLES {
             MGLOG_D("Mapping buffer with ID: %u", m_backendBufferId);
             const auto& range = stateBufferObject->GetDirtyRange();
             if (range.end == 0) {
-                MGLOG_D("No dirty range to sync for buffer with ID: %u", m_backendBufferId);
-                return;
+                MGLOG_W("No dirty range to sync for buffer with ID: %u", m_backendBufferId);
+                //return;
             }
             MG_External::GLES::glBindBuffer(TempBufferTarget, m_backendBufferId);
             void* mappedData =
@@ -225,8 +225,8 @@ namespace MobileGL::MG_Backend::DirectGLES {
 
                 const auto& bufferObject = attrib.Buffer;
                 if (!bufferObject) {
-                    MGLOG_W("Attribute has no bound buffer, skipping.");
-                    continue;
+                    MGLOG_W("Attribute has no bound buffer, but not skipping.");
+                    //continue;
                 }
 
                 const auto& backendBufferIt = BufferImpl::g_backendBufferObjects.find(bufferObject);
@@ -328,8 +328,8 @@ namespace MobileGL::MG_Backend::DirectGLES {
             // 4. Mipmap levels changed
 
             if (!stateTextureObject->IsComplete()) {
-                MGLOG_D("Texture object with ID: %u is not complete, skipping sync.", stateTextureObject->GetExternalIndex());
-                return;
+                MGLOG_W("Texture object with ID: %u is not complete, skipping sync.", stateTextureObject->GetExternalIndex());
+                //return;
             }
 
             // BackendTextureBindingProtector backendTextureBindingProtector(target);
@@ -436,8 +436,8 @@ namespace MobileGL::MG_Backend::DirectGLES {
 
                             auto byteSize = textureMipmapObject->GetMipmapByteSize(uploadTarget, level);
                             if (byteSize == 0) {
-                                MGLOG_W("Mipmap level %d has no data, skipping update.", level);
-                                continue;
+                                MGLOG_W("Mipmap level %d has no data, but not skipping update.", level);
+                                //continue;
                             }
 
                             if (level > 0)
@@ -874,7 +874,11 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 spvcSession.CreateOptions(&options);
 
                 // TODO: check ESSL version supported by backend driver
-                spvc_compiler_options_set_uint(options, SPVC_COMPILER_OPTION_GLSL_VERSION, 320);
+                if (glShaderType == GL_COMPUTE_SHADER) {
+                    spvc_compiler_options_set_uint(options, SPVC_COMPILER_OPTION_GLSL_VERSION, 310);
+                } else {
+                    spvc_compiler_options_set_uint(options, SPVC_COMPILER_OPTION_GLSL_VERSION, 320);
+                }
                 spvc_compiler_options_set_bool(options, SPVC_COMPILER_OPTION_GLSL_ES, SPVC_TRUE);
                 //spvc_compiler_options_set_bool(options, SPVC_COMPILER_OPTION_GLSL_VULKAN_SEMANTICS, SPVC_FALSE);
 
@@ -894,7 +898,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
 
                 source = result;
 
-                source = RemoveLayoutBinding(source);
+                // source = RemoveLayoutBinding(source);
                 source = ProcessOutColorLocations(source);
                 source = ForceSupporterOutput(source);
 
