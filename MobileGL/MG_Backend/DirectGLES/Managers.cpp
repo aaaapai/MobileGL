@@ -119,7 +119,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
             // dirty range: [range.start, range.end)
             const auto& range = stateBufferObject->GetDirtyRange();
             if (range.end == 0) {
-                MGLOG_W("No dirty range to sync for buffer with ID: %u", m_backendBufferId);
+                MGLOG_D("No dirty range to sync for buffer with ID: %u", m_backendBufferId);
                 //return;
             }
 
@@ -139,7 +139,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
             MGLOG_D("Mapping buffer with ID: %u", m_backendBufferId);
             const auto& range = stateBufferObject->GetDirtyRange();
             if (range.end == 0) {
-                MGLOG_W("No dirty range to sync for buffer with ID: %u", m_backendBufferId);
+                MGLOG_D("No dirty range to sync for buffer with ID: %u", m_backendBufferId);
                 //return;
             }
             MG_External::GLES::glBindBuffer(TempBufferTarget, m_backendBufferId);
@@ -328,8 +328,8 @@ namespace MobileGL::MG_Backend::DirectGLES {
             // 4. Mipmap levels changed
 
             if (!stateTextureObject->IsComplete()) {
-                MGLOG_W("Texture object with ID: %u is not complete, skipping sync.", stateTextureObject->GetExternalIndex());
-                //return;
+                MGLOG_D("Texture object with ID: %u is not complete, skipping sync.", stateTextureObject->GetExternalIndex());
+                return;
             }
 
             // BackendTextureBindingProtector backendTextureBindingProtector(target);
