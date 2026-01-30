@@ -24,22 +24,50 @@ namespace MobileGL::MG_Util::TextureFormatProcessor {
                     if (options & PixelFormatNormalizeOptionBit::NoNorm16) {
                         *outInternalFormat = GL_RGBA32F;
                         break;
+                    } else {
+                        *outInternalFormat = GL_RGBA;
+                        break;
                     }
                 case GL_RGB16:
                     if (options & PixelFormatNormalizeOptionBit::NoNorm16) {
                         *outInternalFormat = GL_RGB32F;
+                        break;
+                    } else {
+                        *outInternalFormat = GL_RGB;
                         break;
                     }
                 case GL_RG16:
                     if (options & PixelFormatNormalizeOptionBit::NoNorm16) {
                         *outInternalFormat = GL_RG32F;
                         break;
+                    } else {
+                        *outInternalFormat = GL_RG;
+                        break;
                     }
                 case GL_R16:
                     if (options & PixelFormatNormalizeOptionBit::NoNorm16) {
                         *outInternalFormat = GL_R32F;
                         break;
+                    } else {
+                        *outInternalFormat = GL_RED;
+                        break;
                     }
+                case GL_RGBA8:
+                    *outInternalFormat = GL_RGBA;
+                    break;
+                case GL_RGB8:
+                    *outInternalFormat = GL_RGB;
+                    break;
+                case GL_RG8:
+                    *outInternalFormat = GL_RG;
+                    break;
+                case GL_R8:
+                    *outInternalFormat = GL_RED;
+                    break;
+                case GL_SRGB8:
+                    *outInternalFormat = GL_SRGB;
+                    break;
+                
                 default:
                     *outInternalFormat = internalFormat;
                     break;
@@ -332,6 +360,22 @@ namespace MobileGL::MG_Util::TextureFormatProcessor {
                 case GL_DEPTH32F_STENCIL8:
                 case GL_DEPTH_STENCIL:
                     *outType = GL_FLOAT_32_UNSIGNED_INT_24_8_REV;
+                    break;
+
+                case GL_RGBA:
+                case GL_RGB:
+                case GL_RG:
+                case GL_RED:
+                    *outType = GL_UNSIGNED_BYTE; // 最常见的默认类型
+                    break;
+                case GL_BGRA:
+                    *outType = GL_UNSIGNED_BYTE;
+                    break;
+                case GL_RGBA_INTEGER:
+                case GL_RGB_INTEGER:
+                case GL_RG_INTEGER:
+                case GL_RED_INTEGER:
+                    *outType = GL_UNSIGNED_INT; // 默认整数类型
                     break;
 
                 default:

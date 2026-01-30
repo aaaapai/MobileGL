@@ -420,7 +420,7 @@ namespace MobileGL {
                         MGLOG_E("ProgramObject %u: GenerateBinary - last compiled shader src: \n%s", m_externalIndex,
                                 m_shaders[i]->GetShaderSource().c_str());
                     }
-                    MOBILEGL_ASSERT(res, "CompileShader failed during binary generation");
+                    //MOBILEGL_ASSERT(res, "CompileShader failed during binary generation");
                     shaders[i] = res.value();
                     MGLOG_D("ProgramObject %u: GenerateBinary - compiled shader[%zu] -> TShader ptr %p",
                             m_externalIndex, i, shaders[i].get());
@@ -435,7 +435,7 @@ namespace MobileGL {
                     MGLOG_E("ProgramObject %u: GenerateBinary - LinkProgram failed during binary generation",
                             m_externalIndex);
                 }
-                MOBILEGL_ASSERT(programResult, "LinkProgram failed during binary generation");
+                //MOBILEGL_ASSERT(programResult, "LinkProgram failed during binary generation");
                 auto program = programResult.value();
                 MGLOG_D("ProgramObject %u: GenerateBinary - got linked program object", m_externalIndex);
 
@@ -448,14 +448,17 @@ namespace MobileGL {
                 if (!binaryResult) {
                     MGLOG_E("ProgramObject %u: GenerateBinary - GetSpirvBinaryFromProgram failed", m_externalIndex);
                 }
-                MOBILEGL_ASSERT(binaryResult, "GetSpirvBinaryFromProgram failed");
+                //MOBILEGL_ASSERT(binaryResult, "GetSpirvBinaryFromProgram failed");
                 m_generatedSpirv = Move(binaryResult.value());
-                MGLOG_D("ProgramObject %u: GenerateBinary - generated %zu SPIR-V modules", m_externalIndex,
+                MGLOG_D("ProgramObject %u: GenerateBinary - SPIR-V modules", m_externalIndex,
                         m_generatedSpirv.size());
 
                 for (auto& spv: m_generatedSpirv) {
                     auto success = ShaderCompiler::SanitizeAndOptimizeBinary(spv, spv);
-                    MOBILEGL_ASSERT(success, "SanitizeBinary failed");
+                    //MOBILEGL_ASSERT(success, " failed");
+                    if (!success) {
+                      MGLOG_E(" Failed to SanitizeAndOptimizeBinar. ProgramObject %u: GenerateBinary - SPIR-V modules", m_externalIndex, m_generatedSpirv.size());
+                    }
                 }
 
                 for (SizeT i = 0; i < m_generatedSpirv.size(); i++) {

@@ -28,15 +28,39 @@ namespace MobileGL {
                 return static_cast<FramebufferAttachmentType>(static_cast<SizeT>(FramebufferAttachmentType::Color0) +
                                                               (attachment - GL_COLOR_ATTACHMENT0));
             }
-
+    
             switch (attachment) {
-            case GL_DEPTH_ATTACHMENT:
-                return FramebufferAttachmentType::Depth;
-            case GL_STENCIL_ATTACHMENT:
-                return FramebufferAttachmentType::Stencil;
-            case GL_UNKNOWN_MGL:
-            default:
-                return FramebufferAttachmentType::Unknown;
+        
+                case GL_FRONT_LEFT:
+                    return FramebufferAttachmentType::FrontLeft;
+                case GL_FRONT_RIGHT:
+                    return FramebufferAttachmentType::FrontRight;
+                case GL_BACK_LEFT:
+                    return FramebufferAttachmentType::BackLeft;
+                case GL_BACK_RIGHT:
+                    return FramebufferAttachmentType::BackRight;
+            
+                case GL_FRONT:
+                    return FramebufferAttachmentType::Front;
+                case GL_BACK:
+                    return FramebufferAttachmentType::Back;
+                case GL_LEFT:
+                    return FramebufferAttachmentType::Left;
+                case GL_RIGHT:
+                    return FramebufferAttachmentType::Right;
+                case GL_FRONT_AND_BACK:
+                    return FramebufferAttachmentType::FrontAndBack;
+            
+                case GL_DEPTH_ATTACHMENT:
+                    return FramebufferAttachmentType::Depth;
+                case GL_STENCIL_ATTACHMENT:
+                    return FramebufferAttachmentType::Stencil;
+                case GL_DEPTH_STENCIL_ATTACHMENT:
+                    return FramebufferAttachmentType::DepthStencil;
+
+                case GL_UNKNOWN_MGL:
+                default:
+                    return FramebufferAttachmentType::Unknown;
             }
         }
 
