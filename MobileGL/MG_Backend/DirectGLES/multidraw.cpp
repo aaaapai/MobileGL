@@ -315,7 +315,7 @@ void main() {
         } s_computeResources;
     }
     
-    void glMultiDrawElementsBaseVertex_compute(
+    void MultiDrawElementsBaseVertex_compute(
         GLenum mode,
         const GLsizei *count,
         GLenum type,
