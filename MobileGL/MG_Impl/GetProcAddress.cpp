@@ -1362,7 +1362,7 @@ namespace MobileGL {
                     }
                     if (MultiDrawMode == "BaseVertex") {
                         MGLOG_W("MultiDrawMode == BaseVertex");
-                        return (void*)glMultiDrawElements_basevertex;
+                        return (void*)glMultiDrawElements;
                     }
                     if (MultiDrawMode == "Compute") {
                         MGLOG_W("MultiDrawMode == Compute");
