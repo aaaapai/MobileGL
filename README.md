@@ -10,7 +10,7 @@
 A desktop OpenGL implementation
 </em></p>
 
-MobileGL is a *free (libre)* and *open-source* project that implements a desktop **OpenGL** API. The goal is to provide a complete OpenGL implementation with a state management layer and multiple backends.
+MobileGL is a *free* and *open-source* project that implements a desktop **OpenGL** API. The goal is to provide a complete desktop OpenGL implementation with a state management layer and multi-backend support.
 
 > [!NOTE]
 >
@@ -18,26 +18,26 @@ MobileGL is a *free (libre)* and *open-source* project that implements a desktop
 
 ## Project positioning
 
-MobileGL is a ground-up implementation of a desktop OpenGL library. It aims to provide:
+MobileGL is an implementation of a desktop OpenGL library. It aims to provide:
 
 * Full OpenGL state management.
 * A front-end that exposes OpenGL functions.
-* Pluggable backends so the same front-end and state machine can run on different graphics backends.
+* Multiple independent backend implementations, where each backend targets a specific graphics API and remains fully isolated from others.
 
-This project is intended as an implementation/translation layer; it is not a driver nor a GPU firmware replacement currently.
+This project is intended as an implementation/translation layer.
 
 ## Key components
 
-The repository is organized into a small number of top-level modules:
+The repository is organized into following top-level modules:
 
-1. **MG_State** — the OpenGL state machine and related state-management code.
-2. **MG_Impl** — the front-end OpenGL function implementations that mainly use `MG_State` and `MG_Backend`.
-3. **MG_Backend** — backend implementations that perform actual rendering. Example backend: `Direct (OpenGL ES)` backend.
+1. **MG_State** — OpenGL state tracking and state-management logic.
+2. **MG_Impl** — front-end OpenGL API implementations that interact with `MG_State` and `MG_Backend`.
+3. **MG_Backend** — per-backend translation layer that maps front-end OpenGL semantics and state into concrete backend API calls (e.g. OpenGL ES, Vulkan).
 4. **MG_Util** and other utility modules.
 
 ## Third-party components
 
-MobileGL reuses several established open-source projects:
+MobileGL reuses several open-source projects:
 
 * **SPIRV-Cross** by **KhronosGroup** - [Apache License 2.0](https://github.com/KhronosGroup/SPIRV-Cross/blob/master/LICENSE): [github](https://github.com/KhronosGroup/SPIRV-Cross)
 * **glslang** by **KhronosGroup** - [Various Licenses](https://github.com/KhronosGroup/glslang/blob/main/LICENSE.txt): [github](https://github.com/KhronosGroup/glslang)
@@ -47,8 +47,11 @@ Refer to each component's repository for exact license texts. Any bundled third-
 
 ## Compatibility & target
 
-* **Short-term target:** Implement `OpenGL 3.3 (Core Profile)`.
-* **Current development focus:** MG_State and MG_Impl for `OpenGL 3.3 (Core Profile)`, and a `Direct (Vulkan)` backend implementation. These components are incomplete.
+* **Short-term target:** `OpenGL 3.3 (Core Profile)`.
+* **Current development focus:**
+  * `MG_State` and `MG_Impl` for `OpenGL 3.3 (Core Profile)`
+  * `Direct (Vulkan)` backend
+  * `Direct (OpenGL ES)` backend
 
 ## Build Instructions
 
@@ -97,14 +100,13 @@ If you want to try the project right now, you’ll need to build it yourself:
    **Notes:**
 
 * The project requires C++23.
-* `MG_Test` and `MG_Benchmark` can only be built with Clang, not GCC. To enforce Clang, use `-DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++`.
+* `MG_Test` and `MG_Benchmark` can only be built with Clang, not GCC. To enforce Clang, add `-DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++` to your command.
 * On Android, tests and benchmarks are always disabled.
 
 ## Notice
 
 * MobileGL is **not** production-ready currently.
-* Many features required by a full OpenGL 3.3 implementation are still missing or incomplete.
-* Performance optimizatins are now almost missing.
+* Some `OpenGL 3.3 (Core Profile)` features are still missing or under development.
 
 ## License
 
