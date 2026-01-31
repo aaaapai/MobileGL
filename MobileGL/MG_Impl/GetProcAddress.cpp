@@ -1354,7 +1354,7 @@ namespace MobileGL {
             if (MultiDrawMode_env) {
                 MultiDrawMode = MultiDrawMode_env;
             }
-            if (strcmp(glMultiDrawElements, name) == 0) {
+            if (strcmp("glMultiDrawElements", name) == 0) {
     
                     if (MultiDrawMode == "Indirect") {
                         MGLOG_W("MultiDrawMode == Indirect");
@@ -1373,7 +1373,7 @@ namespace MobileGL {
                     
             }
 
-            if (strcmp(glMultiDrawElementsBaseVertex, name) == 0) {
+            if (strcmp("glMultiDrawElementsBaseVertex", name) == 0) {
                     if (MultiDrawMode == "Indirect") {
                         MGLOG_W("MultiDrawMode == Indirect");
                         return (void*)glMultiDrawElementsBaseVertex_indirect;
