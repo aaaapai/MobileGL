@@ -5,6 +5,7 @@ on:
     branches:
       - dev
       - Feat/Backend-Direct-GLES
+      - Feat/Backend-Direct-Vulkan
 
 jobs:
   test:
