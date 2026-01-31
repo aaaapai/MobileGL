@@ -7,6 +7,7 @@
 // End of Source File Header
 
 #include "ShaderSourceProcessor.h"
+#include "ShaderSourceProcessor_inline.h"
 
 namespace MobileGL {
     namespace MG_Util {
@@ -40,6 +41,42 @@ namespace MobileGL {
                     noperspectivePos = source.find(str_np);
                 }
 
+                // 注入 textureQueryLod 实现
+                const char* str_textureQueryLod = "textureQueryLod";
+                if (source.find(str_textureQueryLod) != std::string::npos && !std::getenv("LIBGL_ANGLE")) {
+                    // 检查是否已经定义了 mg_textureQueryLod
+                    const char* str_mg_textureQueryLod = "mg_textureQueryLod";
+                    if (source.find(str_mg_textureQueryLod) == std::string::npos) {
+                        // 检查是否已经有 #define textureQueryLod
+                        const char* str_textureQueryLodDefine = "#define textureQueryLod";
+                        if (source.find(str_textureQueryLodDefine) == std::string::npos) {
+                            // 在顶部插入 textureQueryLod 实现
+                            const char* textureQueryLodImpl = R"(
+#define textureQueryLod mg_textureQueryLod
+
+vec2 mg_textureQueryLod(sampler2D tex, vec2 uv) {
+    vec2 texSizeF = vec2(textureSize(tex, 0));
+    vec2 dFdx_uv = dFdx(uv * texSizeF);
+    vec2 dFdy_uv = dFdy(uv * texSizeF);
+    float maxDerivative = max(length(dFdx_uv), length(dFdy_uv));
+    float lod = log2(maxDerivative);
+    return vec2(lod);
+}
+)";
+            
+                            SizeT versionPos = source.find("#version");
+                            if (versionPos != std::string::npos) {
+                                SizeT lineEnd = source.find('\n', versionPos);
+                                if (lineEnd != std::string::npos) {
+                                    source = source.insert(lineEnd + 1, textureQueryLodImpl);
+                                }
+                            }
+                        }
+                    }
+                }
+
+                inject_glsl_replacements(stage, source);
+                
                 // force #version
                 ShaderProfile profile = ShaderProfile::Core;
                 SizeT versionPos = source.find("#version");
@@ -56,14 +93,14 @@ namespace MobileGL {
                         profile = ShaderProfile::Core;
                 } else {
                     profile = ShaderProfile::Core;
-                    source.insert(0, "#version 460 core\n");
+                    source.insert(0, "#version 460 compatibility\n");
                     return;
                 }
 
                 SizeT firstLineEnd = lineEnd;
 
                 if (profile != ShaderProfile::ES) {
-                    constexpr const char* versionDirectiveCore = "#version 460 core\n";
+                    constexpr const char* versionDirectiveCore = "#version 460 compatibility\n";
                     constexpr const char* versionDirectiveCompat = "#version 460 compatibility\n";
 
                     const char* replacement =
@@ -74,7 +111,9 @@ namespace MobileGL {
                     } else {
                         source = replacement;
                     }
-                }
+            
+                 }
+
             }
 
         } // namespace ShaderTranspiler
