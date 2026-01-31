@@ -120,7 +120,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
             const auto& range = stateBufferObject->GetDirtyRange();
             if (range.end == 0) {
                 MGLOG_D("No dirty range to sync for buffer with ID: %u", m_backendBufferId);
-                //return;
+                return;
             }
 
             MG_External::GLES::glBindBuffer(TempBufferTarget, m_backendBufferId);
@@ -140,7 +140,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
             const auto& range = stateBufferObject->GetDirtyRange();
             if (range.end == 0) {
                 MGLOG_D("No dirty range to sync for buffer with ID: %u", m_backendBufferId);
-                //return;
+                return;
             }
             MG_External::GLES::glBindBuffer(TempBufferTarget, m_backendBufferId);
             void* mappedData =
@@ -225,8 +225,8 @@ namespace MobileGL::MG_Backend::DirectGLES {
 
                 const auto& bufferObject = attrib.Buffer;
                 if (!bufferObject) {
-                    MGLOG_W("Attribute has no bound buffer, but not skipping.");
-                    //continue;
+                    MGLOG_W("Attribute has no bound buffer, skipping.");
+                    continue;
                 }
 
                 const auto& backendBufferIt = BufferImpl::g_backendBufferObjects.find(bufferObject);
@@ -436,8 +436,8 @@ namespace MobileGL::MG_Backend::DirectGLES {
 
                             auto byteSize = textureMipmapObject->GetMipmapByteSize(uploadTarget, level);
                             if (byteSize == 0) {
-                                MGLOG_W("Mipmap level %d has no data, but not skipping update.", level);
-                                //continue;
+                                MGLOG_W("Mipmap level %d has no data, skipping update.", level);
+                                continue;
                             }
 
                             if (level > 0)
