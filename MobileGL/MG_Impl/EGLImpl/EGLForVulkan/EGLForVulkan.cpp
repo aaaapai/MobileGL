@@ -1,4 +1,4 @@
-// MobileGL - MobileGL/MG_Impl/EGLImpl/Temporary/TemporaryEGLImpl.cpp
+// MobileGL - MobileGL/MG_Impl/EGLImpl/EGLForVulkan/EGLForVulkan.cpp
 // Copyright (c) 2025-2026 MobileGL-Dev
 // Licensed under the GNU Lesser General Public License v3.0:
 //   https://www.gnu.org/licenses/gpl-3.0.txt
@@ -6,17 +6,103 @@
 // SPDX-License-Identifier: LGPL-3.0-only
 // End of Source File Header
 
-#include "TemporaryEGLImpl.h"
+#include "EGLForVulkan.h"
+#include "MG_Backend/DirectVulkan/DirectVulkan.h"
 #include <Config.h>
+#include <MG_State/GLState/ProgramState/ProgramObject.h>
 
-#if MOBILEGL_BACKEND != MOBILEGL_BACKEND_TYPE_DIRECT_GLES && MOBILEGL_BACKEND != MOBILEGL_BACKEND_TYPE_DIRECT_VULKAN
+#if MOBILEGL_BACKEND == MOBILEGL_BACKEND_TYPE_DIRECT_VULKAN
 namespace MobileGL {
     namespace MG_Impl::EGLImpl {
-        // TODO: implement complete EGL functionality
+        // TODO: complete EGL for Vulkan implementation
+
+        const char* demoFS = R"(#version 460
+        layout(location = 0) out vec4 outColor;
+        void main() {
+            outColor = vec4(0.0, 1.0, 0.0, 1.0);
+        }
+)";
+        const char* demoVS = R"(#version 460
+        layout(location = 0) out vec3 fragColor;
+        vec2 positions[3] = vec2[](vec2(0.0, -0.5), vec2(0.5, 0.5), vec2(-0.5, 0.5));
+        vec3 colors[3] = vec3[](vec3(1.0, 0.0, 0.0), vec3(0.0, 1.0, 0.0), vec3(0.0, 0.0, 1.0));
+        void main() {
+            gl_Position = vec4(positions[gl_VertexIndex], 0.0, 1.0);
+            fragColor = colors[gl_VertexIndex];
+        }
+)";
+        void PrepareDemoRes() {
+            MGLOG_D("EGLForVulkan::PrepareDemoRes called");
+
+            // Create shader&program object
+            auto programObject = MG_State::GLState::ProgramObject(0);
+            auto vsObject = MakeShared<MG_State::GLState::ShaderObject>(ShaderStage::Vertex, 0);
+            vsObject->SetShaderSource(demoVS);
+            vsObject->Compile();
+            if (!vsObject->GetCompileStatus()) {
+                MGLOG_E("Vertex shader compilation failed: %s", vsObject->GetInfoLog().c_str());
+                return;
+            }
+            auto fsObject = MakeShared<MG_State::GLState::ShaderObject>(ShaderStage::Fragment, 1);
+            fsObject->SetShaderSource(demoFS);
+            fsObject->Compile();
+            if (!fsObject->GetCompileStatus()) {
+                MGLOG_E("Fragment shader compilation failed: %s", fsObject->GetInfoLog().c_str());
+                return;
+            }
+            programObject.AttachShader(vsObject);
+            programObject.AttachShader(fsObject);
+            programObject.Link();
+            if (!programObject.GetLinkStatus()) {
+                MGLOG_E("Program linking failed: %s", programObject.GetInfoLog().c_str());
+                return;
+            }
+
+            Vector<Uint> vsSpv;
+            Vector<Uint> fsSpv;
+
+            auto& shaderSpirvs = programObject.GetGeneratedSpirv();
+            auto& attachedShaders = programObject.GetAttachedShaders();
+            for (int index = 0; index < attachedShaders.size(); ++index) {
+                auto& shader = attachedShaders[index];
+                auto& spirvCode = shaderSpirvs[index];
+                if (shader->GetShaderStage() == ShaderStage::Vertex) {
+                    vsSpv = spirvCode;
+                } else if (shader->GetShaderStage() == ShaderStage::Fragment) {
+                    fsSpv = spirvCode;
+                }
+            }
+
+            // Create pipeline
+            VkPipeline trianglePipeline = MG_Backend::DirectVulkan::pVulkanRenderer->CreateGraphicsPipelineFromSpv(
+                "TrianglePipeline", vsSpv, fsSpv);
+
+            // Register render callback
+            MG_Backend::DirectVulkan::pVulkanRenderer->RegisterRenderCallback(
+                "DrawTriangle", [trianglePipeline](VkCommandBuffer cmd, uint32_t imageIndex, VkExtent2D extent) {
+                    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, trianglePipeline);
+
+                    vkCmdDraw(cmd, 3, 1, 0, 0);
+                });
+        }
+
+        void CreateWindowSurfaceForVulkan(ANativeWindow* window) {
+            MG_Backend::DirectVulkan::pVulkanRenderer = MakeUnique<MG_Backend::DirectVulkan::VulkanRenderer>(window);
+            MG_Backend::DirectVulkan::pVulkanRenderer->Initialize();
+
+            PrepareDemoRes(); // for demo use
+        }
 
         EGLSurface CreateWindowSurface(EGLDisplay dpy, EGLConfig config, NativeWindowType window,
                                        const EGLint* attrib_list) {
+            MGLOG_D("EGLForVulkan::CreateWindowSurface called with window=%p", window);
+            auto* nativeWindow = static_cast<ANativeWindow*>(window);
+            CreateWindowSurfaceForVulkan(nativeWindow);
             return (EGLSurface)1;
+        }
+
+        EGLBoolean SwapBuffers(EGLDisplay dpy, EGLSurface draw) {
+            return EGL_TRUE;
         }
 
         EGLBoolean ChooseConfig(EGLDisplay dpy, const EGLint* attrib_list, EGLConfig* configs, EGLint config_size,
@@ -106,10 +192,6 @@ namespace MobileGL {
             return EGL_TRUE;
         }
 
-        EGLBoolean SwapBuffers(EGLDisplay dpy, EGLSurface draw) {
-            return EGL_TRUE;
-        }
-
         EGLSurface CreatePbufferSurface(EGLDisplay dpy, EGLConfig config, const EGLint* attrib_list) {
             return (EGLSurface)1;
         }
@@ -174,6 +256,49 @@ namespace MobileGL {
         }
 
         EGLBoolean WaitNative(EGLint engine) {
+            return EGL_TRUE;
+        }
+
+        EGLSync CreateSync(void* dpy, unsigned int type, long const* attrib_list) {
+            return reinterpret_cast<EGLSync>(0x1);
+        }
+
+        EGLBoolean DestroySync(void* dpy, void* sync) {
+            return EGL_TRUE;
+        }
+
+        EGLint ClientWaitSync(void* dpy, void* sync, int flags, unsigned long timeout) {
+            return EGL_CONDITION_SATISFIED;
+        }
+
+        EGLBoolean GetSyncAttrib(void* dpy, void* sync, int attribute, long* value) {
+            if (value) {
+                *value = 0;
+            }
+            return EGL_TRUE;
+        }
+
+        EGLImage CreateImage(void* dpy, void* ctx, unsigned int target, void* buffer, long const* attrib_list) {
+            return reinterpret_cast<EGLImage>(0x1);
+        }
+
+        EGLBoolean DestroyImage(void* dpy, void* image) {
+            return EGL_TRUE;
+        }
+
+        EGLDisplay GetPlatformDisplay(unsigned int platform, void* native_display, long const* attrib_list) {
+            return reinterpret_cast<EGLDisplay>(0x1);
+        }
+
+        EGLSurface CreatePlatformWindowSurface(void* dpy, void* config, void* native_window, long const* attrib_list) {
+            return reinterpret_cast<EGLSurface>(0x1);
+        }
+
+        EGLSurface CreatePlatformPixmapSurface(void* dpy, void* config, void* native_pixmap, long const* attrib_list) {
+            return reinterpret_cast<EGLSurface>(0x1);
+        }
+
+        EGLBoolean WaitSync(void* dpy, void* sync, int flags) {
             return EGL_TRUE;
         }
 

@@ -31,9 +31,8 @@ namespace MobileGL {
                 // Compile for OpenGL here, so that we can do validation and link
                 // like a real OpenGL driver at linking stage
                 // Will compile for other backends later.
-                ShaderAttrib attrib{.shaderType = MG_Util::ConvertShaderStageToGLEnum(m_stage),
-                                    .sourceStr = m_source,
-                                    .flags = ShaderCompileBits::CompileForOpenGL};
+                ShaderAttrib attrib{
+                    .shaderType = MG_Util::ConvertShaderStageToGLEnum(m_stage), .sourceStr = m_source, .flags = 0};
 
                 auto result = ShaderCompiler::CompileShader(attrib);
                 if (result) {
@@ -42,7 +41,8 @@ namespace MobileGL {
                 } else {
                     m_compileStatus = false;
                     m_infoLog = result.error().log;
-                    MGLOG_D("ShaderObject::Compile: Shader %d compilation failed.\nSource:\n%s\nInfoLog:\n%s\nSetting m_compileStatus = false as a result.",
+                    MGLOG_D("ShaderObject::Compile: Shader %d compilation failed.\nSource:\n%s\nInfoLog:\n%s\nSetting "
+                            "m_compileStatus = false as a result.",
                             m_externalIndex, m_source.c_str(), m_infoLog.c_str());
                 }
             }
