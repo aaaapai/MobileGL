@@ -386,6 +386,8 @@ namespace MobileGL {
         }
 
         void BufferSubData_State(GLenum target, GLintptr offset, GLsizeiptr size, const void* data) {
+            MGLOG_D("%s: target = %s, offset = %d, size = %d, data = %p", __func__,
+                    MG_Util::ConvertGLEnumToString(target).c_str(), offset, size, data);
             if (!data) {
                 MG_State::pGLContext->RecordError(
                     ErrorCode::NoError, // somehow OpenGL does not generate an error for this
@@ -488,7 +490,7 @@ namespace MobileGL {
 
             auto& bindingSlot = MG_State::pGLContext->GetBufferBindingSlot(bufferTarget);
             bindingSlot.Bind(bufferObject);
-            MGLOG_D("%s: bind buffer object %p -> %s", __func__, bufferObject.get(),
+            MGLOG_D("%s: bind buffer object %d -> %s", __func__, bufferObject->GetExternalIndex(),
                     MG_Util::ConvertGLEnumToString(target).c_str());
         }
 
@@ -509,6 +511,8 @@ namespace MobileGL {
         }
 
         void BindBufferBase_State(GLenum target, GLuint pointIndex, GLuint buffer) {
+            MGLOG_D("%s: target = %s, pointIndex = %u, buffer = %u", __func__,
+                    MG_Util::ConvertGLEnumToString(target).c_str(), pointIndex, buffer);
             BufferTarget bufferTarget = MG_Util::ConvertGLEnumToBufferTarget(target);
             if (!BufferImpl::ValidateBufferBindingPointTarget(bufferTarget)) return;
 
@@ -520,10 +524,14 @@ namespace MobileGL {
 
             auto& point = MG_State::pGLContext->GetBufferBindingPoint(bufferTarget, pointIndex);
             point.Bind(bufferObject);
-            point.ClearRange();
+            point.SetRange(Range1D(0, bufferObject->GetSize()));
+            MGLOG_D("%s: set range (0, %d)", __func__,
+                    bufferObject->GetSize());
         }
 
         void BindBufferRange_State(GLenum target, GLuint index, GLuint buffer, GLintptr offset, GLsizeiptr size) {
+            MGLOG_D("%s: target = %s, index = %u, buffer = %u, offset = %d, size = %d", __func__,
+                    MG_Util::ConvertGLEnumToString(target).c_str(), index, buffer, offset, size);
             BufferTarget bufferTarget = MG_Util::ConvertGLEnumToBufferTarget(target);
             if (!BufferImpl::ValidateBufferBindingPointTarget(bufferTarget)) return;
 
