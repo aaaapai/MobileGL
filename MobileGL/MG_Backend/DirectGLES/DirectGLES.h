@@ -51,4 +51,10 @@ namespace MobileGL::MG_Backend::DirectGLES {
                            GLsizei height);
     void GenerateMipmap(GLenum target);
     const GLubyte* GetString(GLenum name);
+
+
+
+    void PrepareForDraw(DrawSyncBit syncBit);
+
+
 } // namespace MobileGL::MG_Backend::DirectGLES
