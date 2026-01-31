@@ -48,7 +48,7 @@ Refer to each component's repository for exact license texts. Any bundled third-
 ## Compatibility & target
 
 * **Short-term target:** Implement `OpenGL 3.3 (Core Profile)`.
-* **Current development focus:** MG_State and MG_Impl for `OpenGL 3.3 (Core Profile)`, and a `Direct (OpenGL ES)` backend implementation. These components are incomplete.
+* **Current development focus:** MG_State and MG_Impl for `OpenGL 3.3 (Core Profile)`, and a `Direct (Vulkan)` backend implementation. These components are incomplete.
 
 ## Build Instructions
 
