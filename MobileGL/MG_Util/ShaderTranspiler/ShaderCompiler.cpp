@@ -7,6 +7,11 @@
 // End of Source File Header
 
 #include "ShaderCompiler.h"
+
+#include "SpirvPasses/EliminateFloatEqualsZeroPass.h"
+#include "spirv-tools/libspirv.h"
+#include "spirv-tools/optimizer.hpp"
+
 #include <MG_Util/Converters/GLToStr/GLEnumConverter.h>
 #include <MG_Util/Converters/GLToGlslang/ProgramEnumConverter.h>
 
@@ -182,7 +187,7 @@ namespace MobileGL {
                     return std::unexpected(r);
                 }
 
-                for (auto [name, loc] : attrib.explicitVertexInLocations) {
+                for (const auto& [name, loc] : attrib.explicitVertexInLocations) {
                     MGLOG_D("%s: got explicitly set - layout(location = %d) %s;", __func__, loc, name.c_str());
                 }
 
@@ -220,6 +225,17 @@ namespace MobileGL {
                 }
 
                 return allSpirv;
+            }
+
+            bool ShaderCompiler::SanitizeAndOptimizeBinary(const Vector<Uint32>& inputBinary, Vector<uint32_t>& outputBinary) {
+                using namespace spvtools;
+                Optimizer optimizer(SPV_ENV_UNIVERSAL_1_5);
+
+                optimizer
+                        .RegisterPass(EliminateFloatEqualsZeroPass::CreateEliminateFloatEqualsZeroPass())
+                        ;
+
+                return optimizer.Run(inputBinary.data(), inputBinary.size(), &outputBinary);
             }
 
             Result<String> ShaderCompiler::DecompileShader(SpvcSession& session) {

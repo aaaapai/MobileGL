@@ -107,6 +107,7 @@ set(SOURCE_FILES
     MobileGL/MG_Util/Metrics/BufferMetrics.cpp
 
     MobileGL/MG_Util/Converters/GLToStr/GLEnumConverter.cpp
+    MobileGL/MG_Util/Converters/EGLToStr/EGLEnumConverter.cpp
     MobileGL/MG_Util/Converters/MGToStr/DataTypeConverter.cpp
     MobileGL/MG_Util/Converters/MGToStr/RenderStateEnumConverter.cpp
     MobileGL/MG_Util/Converters/MGToStr/GLExtensionConverter.cpp
@@ -135,6 +136,7 @@ set(SOURCE_FILES
     MobileGL/MG_Util/ShaderTranspiler/SpvcSession.cpp
     MobileGL/MG_Util/ShaderTranspiler/ShaderSourceProcessor.cpp
     MobileGL/MG_Util/ShaderTranspiler/glslang/TMglGlslIoResolver.cpp
+    MobileGL/MG_Util/ShaderTranspiler/SpirvPasses/EliminateFloatEqualsZeroPass.cpp
 
     MobileGL/MG_Util/BackendLoaders/OpenGL/Loader.cpp
 
@@ -203,6 +205,22 @@ set(SOURCE_FILES
     MobileGL/MG_State/GLState/RenderbufferState/RenderbufferState.cpp
 )
 
+set(MOBILEGL_LINK_LIBRARIES
+        glslang::glslang
+        spirv-cross-c
+        SPIRV-Tools-opt
+        SPIRV-Tools
+)
+
+set(MOBILEGL_INCLUDE_DIR
+        ${CMAKE_SOURCE_DIR}/include
+        ${CMAKE_SOURCE_DIR}/MobileGL
+        ${spirv-tools_SOURCE_DIR}
+        ${spirv-tools_SOURCE_DIR}/include
+        ${spirv-tools_BINARY_DIR}
+        ${SPIRV-Headers_SOURCE_DIR}/include
+)
+
 add_library(${CMAKE_PROJECT_NAME} SHARED 
     ${SOURCE_FILES}
 )
@@ -222,21 +240,12 @@ else()
 endif()
 
 target_include_directories(${CMAKE_PROJECT_NAME} PUBLIC
-    ${CMAKE_SOURCE_DIR}/include
-    ${CMAKE_SOURCE_DIR}/MobileGL
+    ${MOBILEGL_INCLUDE_DIR}
 )
 
 target_link_libraries(${CMAKE_PROJECT_NAME}
     PRIVATE
-    # Diligent-Common
-    # Diligent-GraphicsEngineOpenGL-shared
-    # Diligent-GraphicsEngineVk-shared
-)
-
-target_link_libraries(${CMAKE_PROJECT_NAME}
-    PRIVATE
-    glslang::glslang
-    spirv-cross-c
+    ${MOBILEGL_LINK_LIBRARIES}
 )
 
 add_library(${CMAKE_PROJECT_NAME}_s STATIC 
@@ -258,21 +267,12 @@ else()
 endif()
 
 target_include_directories(${CMAKE_PROJECT_NAME}_s PUBLIC
-    ${CMAKE_SOURCE_DIR}/include
-    ${CMAKE_SOURCE_DIR}/MobileGL
+    ${MOBILEGL_INCLUDE_DIR}
 )
 
 target_link_libraries(${CMAKE_PROJECT_NAME}_s
     PRIVATE
-    # Diligent-Common
-    # Diligent-GraphicsEngineOpenGL-shared
-    # Diligent-GraphicsEngineVk-shared
-)
-
-target_link_libraries(${CMAKE_PROJECT_NAME}_s
-    PRIVATE
-    glslang::glslang
-    spirv-cross-c
+    ${MOBILEGL_LINK_LIBRARIES}
 )
 
 if (TRACY_ENABLE)

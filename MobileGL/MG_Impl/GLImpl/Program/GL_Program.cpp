@@ -516,11 +516,15 @@ namespace MobileGL {
         void Uniform_State(MG_State::GLState::ProgramObject& programObject, GLuint location, T* value,
                            SizeT byteOffsetInsideUniform = 0) {
             if (!programObject.IsUniformOpaqueAtLocation(location)) {
+                MGLOG_D("%s: program = %d, location = %d, maxLocation = %d", __func__,
+                        programObject.GetExternalIndex(), location, programObject.GetMaxUniformLocation());
                 auto size = programObject.GetUniformSizesInBytes(location);
                 auto offset = programObject.GetUniformOffset(location);
                 MOBILEGL_ASSERT(size >= ItemCount * sizeof(T),
                                 "Uniform size mismatch, expected at least %zu bytes, got %zu bytes.",
                                 ItemCount * sizeof(T), size);
+                MGLOG_D("%s: program = %d, location = %d, byteOffset = %d", __func__,
+                        programObject.GetExternalIndex(), location, offset + byteOffsetInsideUniform);
                 Memcpy((char*)programObject.MapUBO() + offset + byteOffsetInsideUniform, value, ItemCount * sizeof(T));
             } else {
                 auto* ttype = programObject.GetUniformTType(location);

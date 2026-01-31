@@ -88,6 +88,7 @@ namespace MobileGL {
             auto& bindingSlot = activeUnit.GetBindingSlot(textureTarget);
             auto textureObject = bindingSlot.GetBoundObject();
             TextureInternalFormat textureInternalFormat = textureObject->GetFormat();
+            MGLOG_D("%s: working on texture %d", __func__, textureObject->GetExternalIndex());
 
             // ===================== Error Checking ==============================
             if (!TextureImpl::ValidateTextureObject(textureObject)) return;
@@ -165,6 +166,7 @@ namespace MobileGL {
 
             free(processedPixels);
 
+            MGLOG_D("%s: mark mip %d as dirty", __func__, level);
             textureMipmapObject->MarkStorageDirty(textureUploadingTarget, level, true);
         }
 
@@ -682,6 +684,8 @@ namespace MobileGL {
             const SizeT internalBpp = MG_Util::GetInternalBytesPerPixel(textureInternalFormat, texturePixelDataType);
             const SizeT internalBytes = width * height * internalBpp;
 
+            MGLOG_D("%s: working on texture %d", __func__, textureObject->GetExternalIndex());
+
             MGLOG_D("%s: texture object had internal format %s, new format %s", __func__,
                     MG_Util::ConvertTextureInternalFormatToString(textureObject->GetFormat()).c_str(),
                     MG_Util::ConvertTextureInternalFormatToString(textureInternalFormat).c_str());
@@ -707,7 +711,11 @@ namespace MobileGL {
             auto textureMipmapObject = static_cast<MG_State::GLState::TextureObjectMipmap*>(textureObject.get());
 
             // Allocate in TextureObject
+            MGLOG_D("%s: Allocating %d bytes at mip %d", __func__, internalBytes, level);
             textureMipmapObject->AllocateStorage(textureUploadingTarget, level, {{width, height, 1}, internalBytes});
+
+            MGLOG_D("%s: mark mip %d as dirty", __func__, level);
+            textureMipmapObject->MarkStorageDirty(textureUploadingTarget, level, true);
 
             if (!originalPixels) {
                 MGLOG_D("%s: No input pixel and no PBO bound, no pixel transfer", __func__);
@@ -730,8 +738,6 @@ namespace MobileGL {
                 DataPtr texelInput{processedPixels, copySize};
                 textureMipmapObject->UpdateMipmapSubData(textureUploadingTarget, level, texelInput);
             }
-
-            textureMipmapObject->MarkStorageDirty(textureUploadingTarget, level, true);
 
             free(processedPixels);
         }

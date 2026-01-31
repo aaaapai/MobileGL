@@ -7,7 +7,6 @@
 // End of Source File Header
 
 #include "TextureEnumConverter.h"
-#include "GL/glext.h"
 #include "MG_Util/Converters/GLToStr/GLEnumConverter.h"
 
 namespace MobileGL {
@@ -116,6 +115,8 @@ namespace MobileGL {
                 return TextureInternalFormat::RGB10;
             case GL_RGB12:
                 return TextureInternalFormat::RGB12;
+            case GL_RGB16:
+                return TextureInternalFormat::RGB16;
             case GL_RGB16_SNORM:
                 return TextureInternalFormat::RGB16Snorm;
             case GL_RGBA2:
