@@ -7,6 +7,7 @@
 // End of Source File Header
 
 #include "Backends.h"
+#include "MG_Util/Debug/Log.h"
 #include "MG_Util/Types.h"
 #include <Config.h>
 #include <MG_Util/BackendLoaders/OpenGL/Loader.h>
@@ -51,6 +52,16 @@ namespace MobileGL {
             MGLOG_D("DirectGLES backend loaded, GLES version: %d.%d", MG_External::GLES::g_glesCaps.version.Major,
                     MG_External::GLES::g_glesCaps.version.Minor);
             return result;
+#elif MOBILEGL_BACKEND == MOBILEGL_BACKEND_TYPE_DIRECT_VULKAN
+#ifdef __ANDROID__
+            MGLOG_D("DirectVulkan backend loaded on Android");
+            return true;
+#else
+            MGLOG_E("TODO: add Vulkan loader for non-Android platforms"); // TODO: add Vulkan loader for non-Android
+                                                                          // platforms
+            return false;
+#endif
+
 #else
             MGLOG_W("Unknown backend, skipping backend initialization");
             return false;
@@ -73,6 +84,8 @@ namespace MobileGL {
             }
 #elif MOBILEGL_BACKEND == MOBILEGL_BACKEND_TYPE_DIRECT_GLES
             MG_Config::RendererInfoPtr = MakeUnique<RendererInfo>(DirectGLES::RendererInfo);
+#elif MOBILEGL_BACKEND == MOBILEGL_BACKEND_TYPE_DIRECT_VULKAN
+            MG_Config::RendererInfoPtr = MakeUnique<RendererInfo>(DirectVulkan::RendererInfo);
 #else
             MG_Config::RendererInfoPtr = MakeUnique<RendererInfo>(Unknown::RendererInfoUnknown);
 #endif

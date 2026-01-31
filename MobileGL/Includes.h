@@ -17,9 +17,11 @@
 #include <map>
 #include <array>
 #include <ctime>
+#include <mutex>
 #include <queue>
 #include <regex>
 #include <atomic>
+#include <bitset>
 #include <cctype>
 #include <chrono>
 #include <cstdio>
@@ -40,8 +42,6 @@
 #include <functional>
 #include <string_view>
 #include <unordered_map>
-#include <mutex>
-#include <bitset>
 #if __cplusplus >= 202302L && MOBILEGL_LOG_ENABLE_STACKTRACE
 #include <stacktrace>
 #endif

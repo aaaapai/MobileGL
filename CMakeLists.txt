@@ -286,10 +286,13 @@ if (ANDROID)
     target_link_libraries(${CMAKE_PROJECT_NAME} PUBLIC
         android
         log
+        vulkan
     )
     target_link_libraries(${CMAKE_PROJECT_NAME}_s PUBLIC
         android
-        log)
+        log
+        vulkan
+    )
 endif()
 
 if (MOBILEGL_BUILD_TEST)
