@@ -227,13 +227,12 @@ namespace MobileGL {
                 return allSpirv;
             }
 
-            bool ShaderCompiler::SanitizeAndOptimizeBinary(const Vector<Uint32>& inputBinary, Vector<uint32_t>& outputBinary) {
+            bool ShaderCompiler::SanitizeAndOptimizeBinary(const Vector<Uint32>& inputBinary,
+                                                           Vector<uint32_t>& outputBinary) {
                 using namespace spvtools;
                 Optimizer optimizer(SPV_ENV_UNIVERSAL_1_5);
 
-                optimizer
-                        .RegisterPass(EliminateFloatEqualsZeroPass::CreateEliminateFloatEqualsZeroPass())
-                        ;
+                optimizer.RegisterPass(EliminateFloatEqualsZeroPass::CreateEliminateFloatEqualsZeroPass());
 
                 return optimizer.Run(inputBinary.data(), inputBinary.size(), &outputBinary);
             }

@@ -23,7 +23,8 @@ namespace MobileGL::MG_Impl::GLImpl {
         Bool ValidateTextureSizeRange(SizeT width, SizeT height, SizeT depth);
         Bool ValidateTextureInternalFormat(TextureInternalFormat format);
         Bool ValidateTextureBorderNumber(Int border);
-        Bool ValidateTextureInternalFormatCompatibleWithInput(TextureInputFormat format, TextureInternalFormat internalFormat,
+        Bool ValidateTextureInternalFormatCompatibleWithInput(TextureInputFormat format,
+                                                              TextureInternalFormat internalFormat,
                                                               TexturePixelDataType type);
         Bool ValidateTextureLevelWithUploadTarget(TextureUploadTarget target, Int level);
         Bool ValidateTextureObject(SharedPtr<MG_State::GLState::ITextureObject> textureObject);

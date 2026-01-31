@@ -81,7 +81,8 @@ namespace MobileGL {
 
             class TextureObjectMipmap : public TextureObjectBase {
             public:
-                TextureObjectMipmap(TextureTarget target, Uint externalIndex): TextureObjectBase(target, externalIndex) {}
+                TextureObjectMipmap(TextureTarget target, Uint externalIndex)
+                    : TextureObjectBase(target, externalIndex) {}
 
                 TextureStorageType GetStorageType() const override { return TextureStorageType::Mipmap; }
 

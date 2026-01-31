@@ -91,9 +91,9 @@ namespace MobileGL {
             int n = std::vsnprintf(buffer, sizeof(buffer), fmt, args);
             std::string out = header +
 #if MOBILEGL_LOG_ENABLE_STACKTRACE
-                padding +
+                              padding +
 #endif
-                std::string(buffer, n) + "\n";
+                              std::string(buffer, n) + "\n";
 
 #if MOBILEGL_LOG_ENABLE_CONSOLE
             std::fwrite(out.c_str(), 1, out.size(), stdout);

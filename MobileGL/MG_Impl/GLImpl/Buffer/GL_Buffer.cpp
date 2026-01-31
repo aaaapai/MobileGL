@@ -525,8 +525,7 @@ namespace MobileGL {
             auto& point = MG_State::pGLContext->GetBufferBindingPoint(bufferTarget, pointIndex);
             point.Bind(bufferObject);
             point.SetRange(Range1D(0, bufferObject->GetSize()));
-            MGLOG_D("%s: set range (0, %d)", __func__,
-                    bufferObject->GetSize());
+            MGLOG_D("%s: set range (0, %d)", __func__, bufferObject->GetSize());
         }
 
         void BindBufferRange_State(GLenum target, GLuint index, GLuint buffer, GLintptr offset, GLsizeiptr size) {

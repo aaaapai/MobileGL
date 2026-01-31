@@ -328,7 +328,8 @@ namespace MobileGL::MG_Backend::DirectGLES {
             // 4. Mipmap levels changed
 
             if (!stateTextureObject->IsComplete()) {
-                MGLOG_D("Texture object with ID: %u is not complete, skipping sync.", stateTextureObject->GetExternalIndex());
+                MGLOG_D("Texture object with ID: %u is not complete, skipping sync.",
+                        stateTextureObject->GetExternalIndex());
                 return;
             }
 
@@ -376,39 +377,42 @@ namespace MobileGL::MG_Backend::DirectGLES {
                             auto* pData = (levelDirty && levelByteSize != 0)
                                               ? textureMipmapObject->MapMipmapData(uploadTarget, level)
                                               : nullptr;
-                            MGLOG_D("%s: target: %s: syncing mip %d: %dx%dx%d, byteSize = %d, pData = %p, levelDirty = %s", __func__,
-                                    MG_Util::ConvertTextureUploadTargetToString(uploadTarget).c_str(), level,
-                                    levelTexelSize.x(), levelTexelSize.y(), levelTexelSize.z(), levelByteSize, pData, levelDirty ? "true" : "false");
+                            MGLOG_D(
+                                "%s: target: %s: syncing mip %d: %dx%dx%d, byteSize = %d, pData = %p, levelDirty = %s",
+                                __func__, MG_Util::ConvertTextureUploadTargetToString(uploadTarget).c_str(), level,
+                                levelTexelSize.x(), levelTexelSize.y(), levelTexelSize.z(), levelByteSize, pData,
+                                levelDirty ? "true" : "false");
 
                             errorLopper.Clear();
                             MG_External::GLES::glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
                             auto textureTarget = stateTextureObject->GetTarget();
                             // TODO: handle more texture types
                             switch (textureTarget) {
-                                case TextureTarget::Texture2D:
-                                case TextureTarget::TextureCubeMap:
-                                {
-                                    MG_External::GLES::glTexImage2D(glUploadTarget, static_cast<GLint>(level), glInternalFormat,
-                                                            static_cast<GLsizei>(levelTexelSize.x()),
-                                                            static_cast<GLsizei>(levelTexelSize.y()), 0, glFormat,
-                                                            glType, pData);
-                                    break;
-                                }
-                                case TextureTarget::Texture3D: {
-                                    MG_External::GLES::glTexImage3D(glUploadTarget, static_cast<GLint>(level), glInternalFormat,
-                                                            static_cast<GLsizei>(levelTexelSize.x()),
-                                                            static_cast<GLsizei>(levelTexelSize.y()),
-                                                            static_cast<GLsizei>(levelTexelSize.z()),
-                                                            0, glFormat,
-                                                            glType, pData);
-                                    break;
-                                }
-                                default: {
-                                    MGLOG_E("Unhandled texture target %s", MG_Util::ConvertTextureTargetToString(textureTarget).c_str());
-                                }
+                            case TextureTarget::Texture2D:
+                            case TextureTarget::TextureCubeMap: {
+                                MG_External::GLES::glTexImage2D(
+                                    glUploadTarget, static_cast<GLint>(level), glInternalFormat,
+                                    static_cast<GLsizei>(levelTexelSize.x()), static_cast<GLsizei>(levelTexelSize.y()),
+                                    0, glFormat, glType, pData);
+                                break;
                             }
-                            errorLopper.Loop([file = __FILE__, line = __LINE__, func = __func__, glUploadTarget, glInternalFormat, glFormat, glType, pData](GLenum err) {
-                                MGLOG_D("%s(%s:%d) ES error: %s. glTexImage*: target=%s, internalformat=%s, format=%s, type=%s, pixels=%p", func, file, line, MG_Util::ConvertGLEnumToString(err).c_str(),
+                            case TextureTarget::Texture3D: {
+                                MG_External::GLES::glTexImage3D(
+                                    glUploadTarget, static_cast<GLint>(level), glInternalFormat,
+                                    static_cast<GLsizei>(levelTexelSize.x()), static_cast<GLsizei>(levelTexelSize.y()),
+                                    static_cast<GLsizei>(levelTexelSize.z()), 0, glFormat, glType, pData);
+                                break;
+                            }
+                            default: {
+                                MGLOG_E("Unhandled texture target %s",
+                                        MG_Util::ConvertTextureTargetToString(textureTarget).c_str());
+                            }
+                            }
+                            errorLopper.Loop([file = __FILE__, line = __LINE__, func = __func__, glUploadTarget,
+                                              glInternalFormat, glFormat, glType, pData](GLenum err) {
+                                MGLOG_D("%s(%s:%d) ES error: %s. glTexImage*: target=%s, internalformat=%s, format=%s, "
+                                        "type=%s, pixels=%p",
+                                        func, file, line, MG_Util::ConvertGLEnumToString(err).c_str(),
                                         MG_Util::ConvertGLEnumToString(glUploadTarget).c_str(),
                                         MG_Util::ConvertGLEnumToString(glInternalFormat).c_str(),
                                         MG_Util::ConvertGLEnumToString(glFormat).c_str(),
@@ -493,8 +497,8 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 auto backendId = backendBufferObject->GetBackendBufferId();
 
                 GLenum glInternalFormat, glType, glFormat;
-                TextureImpl::GenerateTextureFormatInfo(textureBufferObject->GetFormat(), &glInternalFormat,
-                                                       &glFormat, &glType);
+                TextureImpl::GenerateTextureFormatInfo(textureBufferObject->GetFormat(), &glInternalFormat, &glFormat,
+                                                       &glType);
 
                 MG_External::GLES::glTexBuffer(GL_TEXTURE_BUFFER, glInternalFormat, backendId);
                 break;
@@ -1129,8 +1133,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
             Int width = static_cast<Int>(stateRBOObject->GetWidth());
             Int height = static_cast<Int>(stateRBOObject->GetHeight());
             GLenum glInternalFormat, glType, glFormat;
-            TextureImpl::GenerateTextureFormatInfo(internalFormat, &glInternalFormat,
-                                                   &glFormat, &glType);
+            TextureImpl::GenerateTextureFormatInfo(internalFormat, &glInternalFormat, &glFormat, &glType);
 
             MG_External::GLES::glRenderbufferStorage(GL_RENDERBUFFER, glInternalFormat, static_cast<GLsizei>(width),
                                                      static_cast<GLsizei>(height));

@@ -453,7 +453,7 @@ namespace MobileGL {
                 MGLOG_D("ProgramObject %u: GenerateBinary - generated %zu SPIR-V modules", m_externalIndex,
                         m_generatedSpirv.size());
 
-                for (auto& spv: m_generatedSpirv) {
+                for (auto& spv : m_generatedSpirv) {
                     auto success = ShaderCompiler::SanitizeAndOptimizeBinary(spv, spv);
                     MOBILEGL_ASSERT(success, "SanitizeBinary failed");
                 }
