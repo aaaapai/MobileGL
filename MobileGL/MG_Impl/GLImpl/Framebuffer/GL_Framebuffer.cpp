@@ -231,14 +231,14 @@ namespace MobileGL {
                 auto attType = MG_Util::ConvertGLEnumToFramebufferAttachmentType(bufs[i]);
 
                 // ------------------- Check validity begin ------------------------
-                if (attType == FramebufferAttachmentType::Unknown) {
+                /*if (attType == FramebufferAttachmentType::Unknown) {
                     MG_State::pGLContext->RecordError(
                         ErrorCode::InvalidEnum,
                         MakeShared<GenericErrorInfo>("MG_Impl/GLImpl", __func__,
                                                      std::format("bufs[{}] = {} is not an accepted value.", i,
                                                                  MG_Util::ConvertGLEnumToString(bufs[i]))));
                     return;
-                }
+                }*/
 
                 if (isDefaultFBO && attType >= FramebufferAttachmentType::Color0 &&
                     attType <= FramebufferAttachmentType::Color31) {
