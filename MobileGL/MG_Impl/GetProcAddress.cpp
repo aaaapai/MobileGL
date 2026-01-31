@@ -138,7 +138,7 @@ namespace MobileGL {
             GETPROC(glGetCompressedTexImage, name);
             GETPROC(glBlendFuncSeparate, name);
             GETPROC(glMultiDrawArrays, name);
-            GETPROC(glMultiDrawElements, name);
+            //GETPROC(glMultiDrawElements, name);
             GETPROC(glPointParameterf, name);
             GETPROC(glPointParameterfv, name);
             GETPROC(glPointParameteri, name);
@@ -362,7 +362,7 @@ namespace MobileGL {
             GETPROC(glDrawElementsBaseVertex, name);
             GETPROC(glDrawRangeElementsBaseVertex, name);
             GETPROC(glDrawElementsInstancedBaseVertex, name);
-            GETPROC(glMultiDrawElementsBaseVertex, name);
+            //GETPROC(glMultiDrawElementsBaseVertex, name);
             GETPROC(glProvokingVertex, name);
             GETPROC(glFenceSync, name);
             GETPROC(glIsSync, name);
@@ -1349,6 +1349,47 @@ namespace MobileGL {
             GETPROC(glFramebufferTextureMultiviewOVR, name);
             // GETPROC(glNamedFramebufferTextureMultiviewOVR, name);
 
+            std::string MultiDrawMode = "";
+            const char* MultiDrawMode_env = std::getenv("LIBGL_MULTIDRAW");
+            if (MultiDrawMode_env) {
+                MultiDrawMode = MultiDrawMode_env;
+            }
+            if (strcmp(glMultiDrawElements, name) == 0) {
+    
+                    if (MultiDrawMode == "Indirect") {
+                        MGLOG_W("MultiDrawMode == Indirect");
+                        return (void*)glMultiDrawElements_indirect;
+                    }
+                    if (MultiDrawMode == "BaseVertex") {
+                        MGLOG_W("MultiDrawMode == BaseVertex");
+                        return (void*)glMultiDrawElements_basevertex;
+                    }
+                    if (MultiDrawMode == "Compute") {
+                        MGLOG_W("MultiDrawMode == Compute");
+                        return (void*)glMultiDrawElements_compute;
+                    } else {
+                        return (void*)glMultiDrawElements;
+                    }
+                    
+            }
+
+            if (strcmp(glMultiDrawElementsBaseVertex, name) == 0) {
+                    if (MultiDrawMode == "Indirect") {
+                        MGLOG_W("MultiDrawMode == Indirect");
+                        return (void*)glMultiDrawElementsBaseVertex_indirect;
+                    }
+                    if (MultiDrawMode == "BaseVertex") {
+                        MGLOG_W("MultiDrawMode == BaseVertex");
+                        return (void*)glMultiDrawElementsBaseVertex;
+                    }
+                    if (MultiDrawMode == "Compute") {
+                        MGLOG_W("MultiDrawMode == Compute");
+                        return (void*)glMultiDrawElementsBaseVertex_compute;
+                    } else {
+                        return (void*)glMultiDrawElementsBaseVertex;
+                    }
+            }
+    
             MGLOG_W("GetProcAddress(%s) = nullptr!", name);
             return nullptr;
         }
