@@ -35,7 +35,7 @@ jobs:
       - name: Install clang-20
         run: |
           sudo apt-get update
-          sudo apt-get install -y clang-20 clang++-20 lld-20 libc++-20-dev libc++abi-20-dev
+          sudo apt-get install -y clang-20 clang++-20 lld-20 libc++-20-dev libc++abi-20-dev libvulkan-dev
 
       - name: Show installed toolchain
         run: |

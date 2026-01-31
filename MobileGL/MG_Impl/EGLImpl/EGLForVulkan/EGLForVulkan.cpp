@@ -14,7 +14,7 @@
 #if MOBILEGL_BACKEND == MOBILEGL_BACKEND_TYPE_DIRECT_VULKAN
 namespace MobileGL {
     namespace MG_Impl::EGLImpl {
-        // TODO: complete EGL for Vulkan implementation
+        // TODO: complete EGL impl for Vulkan
 
         const char* demoFS = R"(#version 460
         layout(location = 0) out vec4 outColor;
@@ -86,18 +86,25 @@ namespace MobileGL {
                 });
         }
 
+#ifdef __ANDROID__
         void CreateWindowSurfaceForVulkan(ANativeWindow* window) {
             MG_Backend::DirectVulkan::pVulkanRenderer = MakeUnique<MG_Backend::DirectVulkan::VulkanRenderer>(window);
             MG_Backend::DirectVulkan::pVulkanRenderer->Initialize();
 
             PrepareDemoRes(); // for demo use
         }
+#endif
 
         EGLSurface CreateWindowSurface(EGLDisplay dpy, EGLConfig config, NativeWindowType window,
                                        const EGLint* attrib_list) {
             MGLOG_D("EGLForVulkan::CreateWindowSurface called with window=%p", window);
+#ifdef __ANDROID__
             auto* nativeWindow = static_cast<ANativeWindow*>(window);
             CreateWindowSurfaceForVulkan(nativeWindow);
+#else
+            MGLOG_W("EGLForVulkan::CreateWindowSurface is not implemented for this platform"); // TODO: support more
+                                                                                               // platforms
+#endif
             return (EGLSurface)1;
         }
 
