@@ -21,21 +21,6 @@
 #include <MG_Util/Converters/MGToGL/RenderStateEnumConverter.h>
 
 namespace MobileGL::MG_Backend::DirectGLES {
-    enum class DrawSyncBit : Uint32 {
-        None = 0,
-        IndexBuffer = 1 << 0,
-        IndirectBuffer = 1 << 1,
-        Instancing = 1 << 2
-    };
-
-    inline DrawSyncBit operator|(DrawSyncBit a, DrawSyncBit b) {
-        return static_cast<DrawSyncBit>(static_cast<std::uint32_t>(a) | static_cast<std::uint32_t>(b));
-    }
-
-    inline DrawSyncBit& operator|=(DrawSyncBit& a, DrawSyncBit b) {
-        a = a | b;
-        return a;
-    }
 
     namespace DebugImpl {
 #if MOBILEGL_LOG_ACTIVE_LEVEL <= MOBILEGL_LOG_LEVEL_DEBUG
