@@ -14,7 +14,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         Shutdown();
     }
 
-    void VulkanContext::Initialize(ANativeWindow* window, const std::string& appName) {
+    void VulkanContext::Initialize(NativeWindowType window, const std::string& appName) {
         if (Initialized) return;
         CreateInstance(appName);
         CreateSurface(window);
@@ -58,11 +58,20 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         ThrowIfFailed(vkCreateInstance(&ci, nullptr, &Instance), "vkCreateInstance failed");
     }
 
-    void VulkanContext::CreateSurface(ANativeWindow* window) {
+    void VulkanContext::CreateSurface(NativeWindowType window) {
+#if __ANDROID__
         if (!Instance) throw MobileGL::RuntimeError("Instance not created");
+
+        auto* nativeWindow = static_cast<ANativeWindow*>(window);
+        if (!nativeWindow) throw MobileGL::RuntimeError("ANativeWindowType is null");
+
         VkAndroidSurfaceCreateInfoKHR sci{VK_STRUCTURE_TYPE_ANDROID_SURFACE_CREATE_INFO_KHR};
-        sci.window = window;
+        sci.window = nativeWindow;
         ThrowIfFailed(vkCreateAndroidSurfaceKHR(Instance, &sci, nullptr, &Surface), "vkCreateAndroidSurfaceKHR failed");
+#else
+        MGLOG_W("VulkanRenderer::Initialize called on a platform which is not supported yet"); // TODO: support more
+                                                                                               // platforms
+#endif
     }
 
     void VulkanContext::PickPhysicalDevice() {

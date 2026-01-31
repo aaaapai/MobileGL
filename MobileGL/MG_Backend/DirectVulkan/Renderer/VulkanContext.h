@@ -22,7 +22,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         VulkanContext() = default;
         ~VulkanContext();
 
-        void Initialize(ANativeWindow* window, const std::string& appName = "VulkanEngineApp");
+        void Initialize(NativeWindowType window, const std::string& appName = "MobileGL-VulkanRenderer");
         void Shutdown();
 
         VkInstance GetInstance() const { return Instance; }
@@ -34,7 +34,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
 
     private:
         void CreateInstance(const std::string& appName);
-        void CreateSurface(ANativeWindow* window);
+        void CreateSurface(NativeWindowType window);
         void PickPhysicalDevice();
         void CreateLogicalDevice();
 

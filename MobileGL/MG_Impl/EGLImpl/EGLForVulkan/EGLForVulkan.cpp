@@ -86,25 +86,17 @@ namespace MobileGL {
                 });
         }
 
-#ifdef __ANDROID__
-        void CreateWindowSurfaceForVulkan(ANativeWindow* window) {
+        void CreateWindowSurfaceForVulkan(NativeWindowType window) {
             MG_Backend::DirectVulkan::pVulkanRenderer = MakeUnique<MG_Backend::DirectVulkan::VulkanRenderer>(window);
             MG_Backend::DirectVulkan::pVulkanRenderer->Initialize();
 
             PrepareDemoRes(); // for demo use
         }
-#endif
 
         EGLSurface CreateWindowSurface(EGLDisplay dpy, EGLConfig config, NativeWindowType window,
                                        const EGLint* attrib_list) {
             MGLOG_D("EGLForVulkan::CreateWindowSurface called with window=%p", window);
-#ifdef __ANDROID__
-            auto* nativeWindow = static_cast<ANativeWindow*>(window);
-            CreateWindowSurfaceForVulkan(nativeWindow);
-#else
-            MGLOG_W("EGLForVulkan::CreateWindowSurface is not implemented for this platform"); // TODO: support more
-                                                                                               // platforms
-#endif
+            CreateWindowSurfaceForVulkan(window);
             return (EGLSurface)1;
         }
 

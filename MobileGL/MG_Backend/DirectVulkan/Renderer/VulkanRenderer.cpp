@@ -13,7 +13,7 @@
 #include "FrameContext.h"
 
 namespace MobileGL::MG_Backend::DirectVulkan {
-    VulkanRenderer::VulkanRenderer(ANativeWindow* window, const RendererConfig& cfg) : Window(window), Config(cfg) {
+    VulkanRenderer::VulkanRenderer(NativeWindowType window, const RendererConfig& cfg) : Window(window), Config(cfg) {
         Ctx = std::make_unique<VulkanContext>();
     }
 
@@ -22,7 +22,6 @@ namespace MobileGL::MG_Backend::DirectVulkan {
     }
 
     void VulkanRenderer::Initialize() {
-        if (!Window) throw MobileGL::RuntimeError("ANativeWindow is null");
         Ctx->Initialize(Window, Config.AppName);
 
         Swapchain = std::make_unique<SwapchainManager>(*Ctx);

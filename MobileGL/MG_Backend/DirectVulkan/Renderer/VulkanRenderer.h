@@ -24,7 +24,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
 
     class VulkanRenderer {
     public:
-        VulkanRenderer(ANativeWindow* window, const RendererConfig& cfg = {});
+        VulkanRenderer(NativeWindowType window, const RendererConfig& cfg = {});
         ~VulkanRenderer();
 
         void Initialize();
@@ -43,7 +43,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         void WaitIdle();
 
     private:
-        ANativeWindow* Window = nullptr;
+        NativeWindowType Window = 0;
         RendererConfig Config;
 
         std::unique_ptr<VulkanContext> Ctx;
