@@ -7,6 +7,8 @@
 // End of Source File Header
 
 #include "GetProcAddress.h"
+#include "../MG_Backend/DirectGLES/multidraw.h"
+
 #define GETPROC(name, var) \
     if (strcmp(#name, var) == 0) { \
         return (void*)name; \
