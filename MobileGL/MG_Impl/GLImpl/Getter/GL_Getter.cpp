@@ -821,7 +821,7 @@ namespace MobileGL {
                 break;
             case GL_UNIFORM_BUFFER_OFFSET_ALIGNMENT:
 #if MOBILEGL_BACKEND == MOBILEGL_BACKEND_TYPE_DIRECT_GLES
-                *params = MG_External::GLES::g_glesCaps.uniformBufferOffsetAlignment; // TODO: get real value from backend
+                *params = MG_External::GLES::g_glesCaps.uniformBufferOffsetAlignment;
 #else
                 *params = 256;
 #endif
