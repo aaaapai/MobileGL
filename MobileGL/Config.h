@@ -20,7 +20,7 @@ namespace MobileGL {
         extern UniquePtr<RendererInfo> RendererInfoPtr;
 
         namespace Backend {
-#define MOBILEGL_BACKEND MOBILEGL_BACKEND_TYPE_DIRECT_GLES
+#define MOBILEGL_BACKEND MOBILEGL_BACKEND_TYPE_DIRECT_VULKAN
 
             namespace Diligent {
                 inline const MG_Backend::Diligent::SpecificBackendType SpecificBackend =
