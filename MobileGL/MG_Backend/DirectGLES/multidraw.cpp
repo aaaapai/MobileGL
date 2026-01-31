@@ -1,4 +1,5 @@
 #include "DirectGLES.h"
+#include "multidraw.h"
 #include "Utils.h"
 #include "Managers.h"
 #include <MG_Util/Converters/GLToMG/TextureEnumConverter.h>
