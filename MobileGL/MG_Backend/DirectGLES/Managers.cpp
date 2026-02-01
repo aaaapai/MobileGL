@@ -898,7 +898,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
 
                 source = result;
 
-                //source = RemoveLayoutBinding(source);
+                source = RemoveLayoutBinding(source);
                 source = ProcessOutColorLocations(source);
                 source = ForceSupporterOutput(source);
 
