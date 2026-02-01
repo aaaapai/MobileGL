@@ -28,7 +28,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
             void SyncToBackend_glBufferData(SharedPtr<MG_State::GLState::BufferObject>& stateBufferObject);
             void SyncToBackend_glBufferSubData(SharedPtr<MG_State::GLState::BufferObject>& stateBufferObject);
             void SyncToBackend_glMapBufferRange(SharedPtr<MG_State::GLState::BufferObject>& stateBufferObject,
-                                                Bool invalidate = true);
+                                                Bool invalidate = true, Bool unsynchronized = true);
 
             Uint m_backendBufferId = 0;
             SizeT m_prevBufferSize = 0;
@@ -58,12 +58,9 @@ namespace MobileGL::MG_Backend::DirectGLES {
 
     namespace TextureImpl {
         inline Bool IsSupportedTextureTarget(TextureTarget target) {
-            if (target == TextureTarget::Texture1D ||
-                target == TextureTarget::TextureRectangle ||
-                target == TextureTarget::Texture2DMultisampleArray ||
-                target == TextureTarget::Texture1DArray ||
-                target == TextureTarget::Texture2DMultisample ||
-                target == TextureTarget::Texture2DArray)
+            if (target == TextureTarget::Texture1D || target == TextureTarget::TextureRectangle ||
+                target == TextureTarget::Texture2DMultisampleArray || target == TextureTarget::Texture1DArray ||
+                target == TextureTarget::Texture2DMultisample || target == TextureTarget::Texture2DArray)
                 return false;
             return true;
         }

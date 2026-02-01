@@ -151,6 +151,8 @@ namespace MobileGL::MG_Backend::DirectGLES {
 
             // Do real sync
             for (auto& bufferObject : buffersToSync) {
+                if (!(bufferObject->GetChangeBits() & BufferChangeBits::DirtyBit)) continue;
+
                 const auto& backendBufferIt = g_backendBufferObjects.find(bufferObject);
                 SharedPtr<BackendBufferObject> backendBufferObject;
                 if (backendBufferIt == g_backendBufferObjects.end()) {
@@ -778,8 +780,8 @@ namespace MobileGL::MG_Backend::DirectGLES {
         errorLopper.Loop([file = __FILE__, line = __LINE__](auto err) {
             MGLOG_D("ES error (%s:%d): %s", file, line, MG_Util::ConvertGLEnumToString(err).c_str());
         });
-        MGLOG_D("ES %s(%d, %d, %d, %d, %d, %d, %d, %d, 0x%x, %s)", __func__, srcX0, srcY0, srcX1, srcY1, dstX0, dstY0, dstX1, dstY1, mask,
-                MG_Util::ConvertGLEnumToString(filter).c_str());
+        MGLOG_D("ES %s(%d, %d, %d, %d, %d, %d, %d, %d, 0x%x, %s)", __func__, srcX0, srcY0, srcX1, srcY1, dstX0, dstY0,
+                dstX1, dstY1, mask, MG_Util::ConvertGLEnumToString(filter).c_str());
         MG_External::GLES::glBlitFramebuffer(srcX0, srcY0, srcX1, srcY1, dstX0, dstY0, dstX1, dstY1, mask, filter);
         errorLopper.Loop([file = __FILE__, line = __LINE__](auto err) {
             MGLOG_D("ES error (%s:%d): %s", file, line, MG_Util::ConvertGLEnumToString(err).c_str());
@@ -825,7 +827,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
     void CopyTexImage2D(GLenum target, GLint level, GLenum internalformat, GLint x, GLint y, GLsizei width,
                         GLsizei height, GLint border) {
 #if MOBILEGL_LOG_ACTIVE_LEVEL <= MOBILEGL_LOG_LEVEL_DEBUG
-    DebugImpl::OpenGLScopeMarker marker(__func__);
+        DebugImpl::OpenGLScopeMarker marker(__func__);
 #endif
         DebugImpl::ErrorLopper errorLopper;
         MGLOG_D("%s: Backend", __func__);
@@ -842,25 +844,24 @@ namespace MobileGL::MG_Backend::DirectGLES {
             MGLOG_D("ES error (%s:%d): %s", file, line, MG_Util::ConvertGLEnumToString(err).c_str());
         });
 
-        if (!UpdateTextureBindingAtTarget(target))
-            return;
+        if (!UpdateTextureBindingAtTarget(target)) return;
 
-//        GLint realInternalFormat;
-//        MG_External::GLES::glGetTexLevelParameteriv(target, level, GL_TEXTURE_INTERNAL_FORMAT, &realInternalFormat);
-//        errorLopper.Loop([file = __FILE__, line = __LINE__](auto err) {
-//            MGLOG_D("ES error (%s:%d): %s", file, line, MG_Util::ConvertGLEnumToString(err).c_str());
-//        });
-//        internalformat = (GLenum)realInternalFormat;
+        //        GLint realInternalFormat;
+        //        MG_External::GLES::glGetTexLevelParameteriv(target, level, GL_TEXTURE_INTERNAL_FORMAT,
+        //        &realInternalFormat); errorLopper.Loop([file = __FILE__, line = __LINE__](auto err) {
+        //            MGLOG_D("ES error (%s:%d): %s", file, line, MG_Util::ConvertGLEnumToString(err).c_str());
+        //        });
+        //        internalformat = (GLenum)realInternalFormat;
         auto mglInternalFormat = MG_Util::ConvertGLEnumToTextureInternalFormat(internalformat);
 
         GLenum format = GL_DEPTH_COMPONENT;
         GLenum type = GL_UNSIGNED_INT;
         TextureImpl::GenerateTextureFormatInfo(mglInternalFormat, &internalformat, &format, &type);
-        MOBILEGL_ASSERT(format != GL_NONE && type != GL_NONE, "%s: cannot GenerateTextureFormatInfo(%s): out internalformat=%s, format=%s, type=%s",
+        MOBILEGL_ASSERT(format != GL_NONE && type != GL_NONE,
+                        "%s: cannot GenerateTextureFormatInfo(%s): out internalformat=%s, format=%s, type=%s",
                         MG_Util::ConvertTextureInternalFormatToString(mglInternalFormat).c_str(),
                         MG_Util::ConvertGLEnumToString(internalformat).c_str(),
-                        MG_Util::ConvertGLEnumToString(format).c_str(),
-                        MG_Util::ConvertGLEnumToString(type).c_str());
+                        MG_Util::ConvertGLEnumToString(format).c_str(), MG_Util::ConvertGLEnumToString(type).c_str());
         TexturePixelDataType texturePixelDataType = MG_Util::ConvertGLEnumToTexturePixelDataType(type);
 
         bool isDepthFormat =
@@ -938,8 +939,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
             MGLOG_D("ES error (%s:%d): %s", file, line, MG_Util::ConvertGLEnumToString(err).c_str());
         });
 
-        if (!UpdateTextureBindingAtTarget(target))
-            return;
+        if (!UpdateTextureBindingAtTarget(target)) return;
 
         BindCurrentFBO(FramebufferTarget::Read);
         errorLopper.Loop([file = __FILE__, line = __LINE__](auto err) {

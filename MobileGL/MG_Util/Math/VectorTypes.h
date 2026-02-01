@@ -11,7 +11,6 @@
 #include <Includes.h>
 
 namespace MobileGL {
-
     template <typename Derived, typename T, SizeT N>
     struct VecBase {
         Array<T, N> data;
@@ -247,4 +246,15 @@ namespace MobileGL {
             return incident - normal * (2.0f * incident.Dot(normal));
         }
     } // namespace MG_Util
+
+    class VecRange1D : public Vector<Range1D> {
+    public:
+        void Add(const Range1D& newRange, Double ratio = 0.07, SizeT* outMinStart = nullptr,
+                 SizeT* outMaxEnd = nullptr);
+        SizeT GetOverallMaxEnd() const;
+        SizeT GetOverallMinStart() const;
+
+    private:
+        SizeT m_overallMaxEnd;
+    };
 } // namespace MobileGL
