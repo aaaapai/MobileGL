@@ -138,35 +138,6 @@ vec2 mg_textureQueryLod(sampler2D tex, vec2 uv) {
                     varyingPos = source.find(str_varying, varyingPos + len_varying);
                 }
 
-                // 替换gl_FragColor（片段着色器）
-                if (stage == ShaderStage::Fragment) {
-                    const char* str_gl_FragColor = "gl_FragColor";
-                    const SizeT len_gl_FragColor = strlen(str_gl_FragColor);
-                    SizeT gl_FragColorPos = source.find(str_gl_FragColor);
-                    while (gl_FragColorPos != String::npos) {
-                        bool shouldReplace = true;
-                        if (gl_FragColorPos > 0 && source[gl_FragColorPos - 1] == ':') {
-                            if (gl_FragColorPos > 1 && source[gl_FragColorPos - 2] == ':') {
-                                shouldReplace = false;
-                            }
-                        }
-                        
-                        if (shouldReplace) {
-                            if (source.find("out vec4") == String::npos) {
-                                SizeT versionPos = source.find("#version");
-                                if (versionPos != String::npos) {
-                                    SizeT lineEnd = source.find('\n', versionPos);
-                                    if (lineEnd != String::npos) {
-                                        source = source.insert(lineEnd + 1, "out vec4 fragColor;\n");
-                                    }
-                                }
-                            }
-                            source = source.replace(gl_FragColorPos, len_gl_FragColor, "fragColor");
-                            gl_FragColorPos = source.find(str_gl_FragColor, gl_FragColorPos + 10); // 10 = strlen("fragColor")
-                        } else {
-                            gl_FragColorPos = source.find(str_gl_FragColor, gl_FragColorPos + len_gl_FragColor);
-                        }
-                    }
                 }
 
                 inject_glsl_replacements(stage, source);
@@ -187,14 +158,14 @@ vec2 mg_textureQueryLod(sampler2D tex, vec2 uv) {
                         profile = ShaderProfile::Core;
                 } else {
                     profile = ShaderProfile::Core;
-                    source.insert(0, "#version 460 core\n");
+                    source.insert(0, "#version 460 compatibility\n");
                     return;
                 }
 
                 SizeT firstLineEnd = lineEnd;
 
                 if (profile != ShaderProfile::ES) {
-                    constexpr const char* versionDirectiveCore = "#version 460 core\n";
+                    constexpr const char* versionDirectiveCore = "#version 460 compatibility\n";
                     constexpr const char* versionDirectiveCompat = "#version 460 compatibility\n";
 
                     const char* replacement =
