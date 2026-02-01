@@ -457,7 +457,7 @@ namespace MobileGL {
                     auto success = ShaderCompiler::SanitizeAndOptimizeBinary(spv, spv);
                     //MOBILEGL_ASSERT(success, " failed");
                     if (!success) {
-                      MGLOG_E(" Failed to SanitizeAndOptimizeBinar. ProgramObject %u: GenerateBinary - SPIR-V modules", m_externalIndex, m_generatedSpirv.size());
+                      MGLOG_D(" Failed to SanitizeAndOptimizeBinar. ProgramObject %u: GenerateBinary - SPIR-V modules", m_externalIndex, m_generatedSpirv.size());
                     }
                 }
 
