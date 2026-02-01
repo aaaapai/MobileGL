@@ -75,6 +75,167 @@ vec2 mg_textureQueryLod(sampler2D tex, vec2 uv) {
                     }
                 }
 
+                // ========== 替换固定管道符号 ==========
+                
+                // 替换内置索引变量
+                const char* str_gl_VertexID = "gl_VertexID";
+                const SizeT len_gl_VertexID = strlen(str_gl_VertexID);
+                SizeT gl_VertexIDPos = source.find(str_gl_VertexID);
+                while (gl_VertexIDPos != String::npos) {
+                    // 检查前面是否有::，避免替换类似 ::gl_VertexID 的情况
+                    bool shouldReplace = true;
+                    if (gl_VertexIDPos > 0 && source[gl_VertexIDPos - 1] == ':') {
+                        if (gl_VertexIDPos > 1 && source[gl_VertexIDPos - 2] == ':') {
+                            // 是 ::gl_VertexID，不替换
+                            shouldReplace = false;
+                        }
+                    }
+                    
+                    if (shouldReplace) {
+                        source = source.replace(gl_VertexIDPos, len_gl_VertexID, "gl_VertexIndex");
+                        gl_VertexIDPos = source.find(str_gl_VertexID, gl_VertexIDPos + 13); // 13 = strlen("gl_VertexIndex")
+                    } else {
+                        gl_VertexIDPos = source.find(str_gl_VertexID, gl_VertexIDPos + len_gl_VertexID);
+                    }
+                }
+
+                const char* str_gl_InstanceID = "gl_InstanceID";
+                const SizeT len_gl_InstanceID = strlen(str_gl_InstanceID);
+                SizeT gl_InstanceIDPos = source.find(str_gl_InstanceID);
+                while (gl_InstanceIDPos != String::npos) {
+                    bool shouldReplace = true;
+                    if (gl_InstanceIDPos > 0 && source[gl_InstanceIDPos - 1] == ':') {
+                        if (gl_InstanceIDPos > 1 && source[gl_InstanceIDPos - 2] == ':') {
+                            shouldReplace = false;
+                        }
+                    }
+                    
+                    if (shouldReplace) {
+                        source = source.replace(gl_InstanceIDPos, len_gl_InstanceID, "gl_InstanceIndex");
+                        gl_InstanceIDPos = source.find(str_gl_InstanceID, gl_InstanceIDPos + 16); // 16 = strlen("gl_InstanceIndex")
+                    } else {
+                        gl_InstanceIDPos = source.find(str_gl_InstanceID, gl_InstanceIDPos + len_gl_InstanceID);
+                    }
+                }
+
+                // 替换几何着色器中的变量
+                if (stage == ShaderStage::Geometry) {
+                    const char* str_gl_PrimitiveIDIn = "gl_PrimitiveIDIn";
+                    const SizeT len_gl_PrimitiveIDIn = strlen(str_gl_PrimitiveIDIn);
+                    SizeT gl_PrimitiveIDInPos = source.find(str_gl_PrimitiveIDIn);
+                    while (gl_PrimitiveIDInPos != String::npos) {
+                        bool shouldReplace = true;
+                        if (gl_PrimitiveIDInPos > 0 && source[gl_PrimitiveIDInPos - 1] == ':') {
+                            if (gl_PrimitiveIDInPos > 1 && source[gl_PrimitiveIDInPos - 2] == ':') {
+                                shouldReplace = false;
+                            }
+                        }
+                        
+                        if (shouldReplace) {
+                            source = source.replace(gl_PrimitiveIDInPos, len_gl_PrimitiveIDIn, "gl_PrimitiveID");
+                            gl_PrimitiveIDInPos = source.find(str_gl_PrimitiveIDIn, gl_PrimitiveIDInPos + 14); // 14 = strlen("gl_PrimitiveID")
+                        } else {
+                            gl_PrimitiveIDInPos = source.find(str_gl_PrimitiveIDIn, gl_PrimitiveIDInPos + len_gl_PrimitiveIDIn);
+                        }
+                    }
+                }
+
+                // 替换attribute关键字（顶点着色器）
+                if (stage == ShaderStage::Vertex) {
+                    const char* str_attribute = "attribute";
+                    const SizeT len_attribute = strlen(str_attribute);
+                    SizeT attributePos = source.find(str_attribute);
+                    while (attributePos != String::npos) {
+                        // 检查是否是独立的关键字（前后有空格或换行）
+                        bool isKeyword = false;
+                        if (attributePos > 0) {
+                            char before = source[attributePos - 1];
+                            if (before == ' ' || before == '\t' || before == '\n' || before == '\r') {
+                                isKeyword = true;
+                            }
+                        } else {
+                            isKeyword = true;
+                        }
+                        
+                        if (isKeyword && attributePos + len_attribute < source.length()) {
+                            char after = source[attributePos + len_attribute];
+                            if (after == ' ' || after == '\t' || after == '\n' || after == '\r') {
+                                source = source.replace(attributePos, len_attribute, "in");
+                                attributePos = source.find(str_attribute, attributePos + 2); // 2 = strlen("in")
+                                continue;
+                            }
+                        }
+                        attributePos = source.find(str_attribute, attributePos + len_attribute);
+                    }
+                }
+
+                // 替换varying关键字
+                const char* str_varying = "varying";
+                const SizeT len_varying = strlen(str_varying);
+                SizeT varyingPos = source.find(str_varying);
+                while (varyingPos != String::npos) {
+                    bool isKeyword = false;
+                    if (varyingPos > 0) {
+                        char before = source[varyingPos - 1];
+                        if (before == ' ' || before == '\t' || before == '\n' || before == '\r') {
+                            isKeyword = true;
+                        }
+                    } else {
+                        isKeyword = true;
+                    }
+                    
+                    if (isKeyword && varyingPos + len_varying < source.length()) {
+                        char after = source[varyingPos + len_varying];
+                        if (after == ' ' || after == '\t' || after == '\n' || after == '\r') {
+                            // 根据着色器阶段替换
+                            if (stage == ShaderStage::Vertex) {
+                                source = source.replace(varyingPos, len_varying, "out");
+                                varyingPos = source.find(str_varying, varyingPos + 3); // 3 = strlen("out")
+                            } else if (stage == ShaderStage::Fragment) {
+                                source = source.replace(varyingPos, len_varying, "in");
+                                varyingPos = source.find(str_varying, varyingPos + 2); // 2 = strlen("in")
+                            } else {
+                                varyingPos = source.find(str_varying, varyingPos + len_varying);
+                            }
+                            continue;
+                        }
+                    }
+                    varyingPos = source.find(str_varying, varyingPos + len_varying);
+                }
+
+                // 替换gl_FragColor（片段着色器）
+                if (stage == ShaderStage::Fragment) {
+                    const char* str_gl_FragColor = "gl_FragColor";
+                    const SizeT len_gl_FragColor = strlen(str_gl_FragColor);
+                    SizeT gl_FragColorPos = source.find(str_gl_FragColor);
+                    while (gl_FragColorPos != String::npos) {
+                        bool shouldReplace = true;
+                        if (gl_FragColorPos > 0 && source[gl_FragColorPos - 1] == ':') {
+                            if (gl_FragColorPos > 1 && source[gl_FragColorPos - 2] == ':') {
+                                shouldReplace = false;
+                            }
+                        }
+                        
+                        if (shouldReplace) {
+                            // 需要在着色器开头添加输出声明
+                            // 先检查是否已经有out vec4 fragColor的声明
+                            if (source.find("out vec4") == String::npos) {
+                                SizeT versionPos = source.find("#version");
+                                if (versionPos != String::npos) {
+                                    SizeT lineEnd = source.find('\n', versionPos);
+                                    if (lineEnd != String::npos) {
+                                        source = source.insert(lineEnd + 1, "out vec4 fragColor;\n");
+                                    }
+                                }
+                            }
+                            source = source.replace(gl_FragColorPos, len_gl_FragColor, "fragColor");
+                            gl_FragColorPos = source.find(str_gl_FragColor, gl_FragColorPos + 10); // 10 = strlen("fragColor")
+                        } else {
+                            gl_FragColorPos = source.find(str_gl_FragColor, gl_FragColorPos + len_gl_FragColor);
+                        }
+                    }
+                }
+
                 inject_glsl_replacements(stage, source);
                 
                 // force #version
@@ -111,8 +272,7 @@ vec2 mg_textureQueryLod(sampler2D tex, vec2 uv) {
                     } else {
                         source = replacement;
                     }
-            
-                 }
+                }
 
             }
 
