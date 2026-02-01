@@ -1029,35 +1029,16 @@ void mg_subgroupMemoryBarrier() {
         }
     }
 
-    /*// ==================== 6. 注入temporal_filter ====================
+    // ==================== 6. 注入temporal_filter ====================
     const char* str_temporal_filter = "GI_TemporalFilter";
     if (source.find(str_temporal_filter) != String::npos) {
         // 检查是否已经定义了GI_TemporalFilter函数
         const char* str_temporal_filter_def = "vec4 GI_TemporalFilter()";
-        if (source.find(str_temporal_filter_def) == String::npos) {
+        const char* str_GI_RSM_def = "#define GI_RSM";
+        if (source.find(str_temporal_filter_def) == String::npos && source.find(str_GI_RSM_def) == String::npos) {
             const std::string temporalFilterImpl = R"(
-vec4 GI_TemporalFilter() {
-    vec2 uv = gl_FragCoord.xy / screenSize;
-    uv += taaJitter * pixelSize;
-    vec4 currentGI = texture(colortex0, uv);
-    float depth = texture(depthtex0, uv).r;
-    vec4 clipPos = vec4(uv * 2.0 - 1.0, depth, 1.0);
-    vec4 viewPos = gbufferProjectionInverse * clipPos;
-    viewPos /= viewPos.w;
-    vec4 worldPos = gbufferModelViewInverse * viewPos;
-    vec4 prevClipPos = gbufferPreviousProjection * (gbufferPreviousModelView * worldPos);
-    prevClipPos /= prevClipPos.w;
-    vec2 prevUV = prevClipPos.xy * 0.5 + 0.5;
-    vec4 historyGI = texture(colortex1, prevUV);
-    float difference = length(currentGI.rgb - historyGI.rgb);
-    float thresholdValue = 0.1;
-    float adaptiveBlend = mix(0.9, 0.0, smoothstep(thresholdValue, thresholdValue * 2.0, difference));
-    vec4 filteredGI = mix(currentGI, historyGI, adaptiveBlend);
-    if (difference > thresholdValue * 2.0) {
-        filteredGI = currentGI;
-    }
-    return filteredGI;
-}
+#define GI_RSM
+
 )";
             
             // 在uniform声明后或void main()前插入
@@ -1068,154 +1049,7 @@ vec4 GI_TemporalFilter() {
                 source += "\n" + temporalFilterImpl + "\n";
             }
         }
-    }*/
-
-/*const char* str_temporal_filter = "GI_TemporalFilter";
-    if (source.find(str_temporal_filter) != String::npos) {
-        // 检查是否已经定义了GI_TemporalFilter函数
-        const char* str_temporal_filter_def = "vec4 GI_TemporalFilter()";
-        if (source.find(str_temporal_filter_def) == String::npos) {
-            const std::string temporalFilterImpl = R"(
-
-#define GI_RENDER_RESOLUTION	0.5 // i have no any method to control the digit of GI_RENDER_RESOLUTION
-uniform sampler2D dhDepthTex0;
-
-vec4 GI_TemporalFilter(){
-	vec4 prev = texelFetch(colortex2, texelCoord, 0);
-	vec2 coord = texCoord / GI_RENDER_RESOLUTION;
-
-
-	if (saturate(coord) == coord){
-		ivec2 texel = ivec2(coord * screenSize);
-
-		float currDepth = texelFetch(depthtex1, texel, 0).x;
-
-		#ifdef DISTANT_HORIZONS
-			bool isDH = false;
-			if (currDepth == 1.0){
-				currDepth = texelFetch(dhDepthTex0, texel, 0).x;
-				isDH = true;
-			}
-		#endif
-
-		if (currDepth < 1.0){
-			vec4 data3 = texelFetch(colortex3, texel, 0);
-			vec3 currNormal = DecodeNormal(data3.xy);
-			vec3 currViewPos = ViewPos_From_ScreenPos_Raw(coord, currDepth);
-
-			#ifdef DISTANT_HORIZONS
-				if (isDH) currViewPos = ViewPos_From_ScreenPos_Raw_DH(coord, currDepth);
-			#endif
-
-			vec3 gi = vec3(0.0);
-			#if MC_VERSION >= 11605
-				#if defined SUNLIGHT_LEAK_FIX && !defined DIMENSION_END 
-					if (data3.w > 0.0 || isEyeInWater == 1)
-				#endif
-					gi = RSM(currViewPos, currNormal);
-			#else
-				#if defined SUNLIGHT_LEAK_FIX && !defined DIMENSION_END 
-					if (currDepth > 0.7 && (data3.w > 0.0 || isEyeInWater == 1))
-				#else
-					if (currDepth > 0.7)
-				#endif
-					gi = RSM(currViewPos, currNormal);
-			#endif
-
-
-			#ifdef DISTANT_HORIZONS
-				vec2 velocity = CalculateCameraVelocity(coord, currDepth, isDH);
-			#else
-				vec2 velocity = CalculateCameraVelocity(coord, currDepth);
-			#endif
-
-			vec2 pcoord = coord - velocity;
-			vec2 prevCoord = clamp(pcoord, vec2(0.0), vec2(1.0) - pixelSize * 2.0);
-
-			if (prevCoord == pcoord){
-				prevCoord = prevCoord * GI_RENDER_RESOLUTION * screenSize - 0.5;
-
-				vec2 prevTexel = floor(prevCoord);
-
-				vec3 prevGi = vec3(0.0);
-				float weights = 0.0;
-
-				for(float i = 0.0; i <= 1.0; i++){
-				for(float j = 0.0; j <= 1.0; j++){
-					vec2 sampleTexelcoord = prevTexel + vec2(i, j);
-
-					vec4 prevData = texelFetch(colortex2, ivec2(sampleTexelcoord.x + GI_RENDER_RESOLUTION * screenSize.x, sampleTexelcoord.y), 0);
-
-					vec3 prevNormal = prevData.xyz * 2.0 - 1.0;
-					float normalWeight = float(dot(currNormal, prevNormal) > 0.5);
-
-					float currDist = -currViewPos.z;
-					currDist = min(currDist, 1000.0);
-					float prevDist = prevData.a * 1000.0;
-
-					vec3 cameraVelocity = mat3(gbufferModelView) * (cameraPosition - previousCameraPosition);
-					float depthWeight = max(abs(currDist - prevDist - cameraVelocity.z), 0.0);
-					depthWeight = exp(-depthWeight / (currDist * 0.1 + 0.1));
-					depthWeight = saturate(depthWeight * 2.0);
-
-					float bilinearWeight = (1.0 - abs(prevCoord.x - sampleTexelcoord.x)) * (1.0 - abs(prevCoord.y - sampleTexelcoord.y));
-
-					bilinearWeight *= normalWeight * depthWeight;
-					
-					prevGi += CurveToLinear(texelFetch(colortex2, ivec2(sampleTexelcoord), 0).rgb) * bilinearWeight;
-					weights += bilinearWeight;
-				}}
-
-				gi = mix(gi, prevGi, 0.95 * weights);
-			}
-
-			prev = vec4(LinearToCurve(gi), 0.0);
-		}
-	}
-
-
-	coord.x -= 1.0;
-
-	if (saturate(coord) == coord){
-		ivec2 texel = ivec2(floor(coord * screenSize));
-
-		float depth = texelFetch(depthtex1, texel, 0).x;
-
-		#ifdef DISTANT_HORIZONS
-			bool isDH = false;
-			if (depth == 1.0){
-				depth = texelFetch(dhDepthTex0, texel, 0).x;
-				isDH = true;
-			}
-		#endif
-
-		if (depth < 1.0){
-
-			vec3 normal = DecodeNormal(texelFetch(colortex3, texel, 0).xy);
-
-			float dist = LinearDepth_From_ScreenDepth(depth);
-			#ifdef DISTANT_HORIZONS
-				if(isDH) dist = LinearDepth_From_ScreenDepth_DH(depth);
-			#endif
-			
-			prev = vec4(normal * 0.5 + 0.5, dist * 0.001);
-		}else{
-			prev = vec4(vec3(0.5), 0.0);
-		}
-	}
-	return prev;
-}
-)";
-         
-            // 在uniform声明后或void main()前插入
-            SizeT mainPos3 = source.find("void main()");
-            if (mainPos3 != String::npos) {
-                source.insert(mainPos3, "\n" + temporalFilterImpl + "\n");
-            } else {
-                source += "\n" + temporalFilterImpl + "\n";
-            }
-        }
-    }*/
+    }
     
     // 替换texture2D为texture
     size_t pos = 0;
