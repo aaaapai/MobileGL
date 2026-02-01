@@ -246,9 +246,9 @@ vec2 mg_textureQueryLod(sampler2D tex, vec2 uv) {
                 if (versionPos != String::npos) {
                     String versionLine = source.substr(versionPos, lineEnd - versionPos);
 
-                    if (versionLine.find("ES") != String::npos)
+                    if (versionLine.find("es") != String::npos)
                         profile = ShaderProfile::ES;
-                    else if (versionLine.find("compatibility") != String::npos)
+                    else if ((versionLine.find("compatibility") != String::npos) || (versionLine.find("120") != String::npos) || (versionLine.find("130") != String::npos) || (versionLine.find("140") != String::npos) || (versionLine.find("100") != String::npos))
                         profile = ShaderProfile::Compatibility;
                     else
                         profile = ShaderProfile::Core;
@@ -261,7 +261,7 @@ vec2 mg_textureQueryLod(sampler2D tex, vec2 uv) {
                 SizeT firstLineEnd = lineEnd;
 
                 if (profile != ShaderProfile::ES) {
-                    constexpr const char* versionDirectiveCore = "#version 460 compatibility\n";
+                    constexpr const char* versionDirectiveCore = "#version 460 core\n";
                     constexpr const char* versionDirectiveCompat = "#version 460 compatibility\n";
 
                     const char* replacement =
