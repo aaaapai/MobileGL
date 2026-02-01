@@ -11,7 +11,7 @@
 
 #define GETPROC(name, var) \
     if (strcmp(#name, var) == 0) { \
-        return reinterpret_cast<void*>name; \
+        return reinterpret_cast<void*>(name); \
     }
 
 namespace MobileGL {
@@ -1359,30 +1359,30 @@ namespace MobileGL {
             if (strcmp("glMultiDrawElements", name) == 0) {
     
                     if (MultiDrawMode == "Indirect") {
-                        return reinterpret_cast<void*>glMultiDrawElements_indirect;
+                        return reinterpret_cast<void*>(glMultiDrawElements_indirect);
                     }
                     if (MultiDrawMode == "BaseVertex") {
-                        return reinterpret_cast<void*>glMultiDrawElements;
+                        return reinterpret_cast<void*>(glMultiDrawElements);
                     }
                     if (MultiDrawMode == "Compute") {
-                        return reinterpret_cast<void*>glMultiDrawElements_compute;
+                        return reinterpret_cast<void*>(glMultiDrawElements_compute);
                     } else {
-                        return reinterpret_cast<void*>glMultiDrawElements;
+                        return reinterpret_cast<void*>(glMultiDrawElements);
                     }
                     
             }
 
             if (strcmp("glMultiDrawElementsBaseVertex", name) == 0) {
                     if (MultiDrawMode == "Indirect") {
-                        return reinterpret_cast<void*>glMultiDrawElementsBaseVertex_indirect;
+                        return reinterpret_cast<void*>(glMultiDrawElementsBaseVertex_indirect);
                     }
                     if (MultiDrawMode == "BaseVertex") {
-                        return reinterpret_cast<void*>glMultiDrawElementsBaseVertex;
+                        return reinterpret_cast<void*>(glMultiDrawElementsBaseVertex);
                     }
                     if (MultiDrawMode == "Compute") {
-                        return reinterpret_cast<void*>glMultiDrawElementsBaseVertex_compute;
+                        return reinterpret_cast<void*>(glMultiDrawElementsBaseVertex_compute);
                     } else {
-                        return reinterpret_cast<void*>glMultiDrawElementsBaseVertex;
+                        return reinterpret_cast<void*>(glMultiDrawElementsBaseVertex);
                     }
             }
     
