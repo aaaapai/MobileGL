@@ -11,7 +11,7 @@
 
 #define GETPROC(name, var) \
     if (strcmp(#name, var) == 0) { \
-        return (void*)name; \
+        return reinterpret_cast<void*>name; \
     }
 
 namespace MobileGL {
@@ -1359,36 +1359,30 @@ namespace MobileGL {
             if (strcmp("glMultiDrawElements", name) == 0) {
     
                     if (MultiDrawMode == "Indirect") {
-                        MGLOG_W("MultiDrawMode == Indirect");
-                        return (void*)glMultiDrawElements_indirect;
+                        return reinterpret_cast<void*>glMultiDrawElements_indirect;
                     }
                     if (MultiDrawMode == "BaseVertex") {
-                        MGLOG_W("MultiDrawMode == BaseVertex");
-                        return (void*)glMultiDrawElements;
+                        return reinterpret_cast<void*>glMultiDrawElements;
                     }
                     if (MultiDrawMode == "Compute") {
-                        MGLOG_W("MultiDrawMode == Compute");
-                        return (void*)glMultiDrawElements_compute;
+                        return reinterpret_cast<void*>glMultiDrawElements_compute;
                     } else {
-                        return (void*)glMultiDrawElements;
+                        return reinterpret_cast<void*>glMultiDrawElements;
                     }
                     
             }
 
             if (strcmp("glMultiDrawElementsBaseVertex", name) == 0) {
                     if (MultiDrawMode == "Indirect") {
-                        MGLOG_W("MultiDrawMode == Indirect");
-                        return (void*)glMultiDrawElementsBaseVertex_indirect;
+                        return reinterpret_cast<void*>glMultiDrawElementsBaseVertex_indirect;
                     }
                     if (MultiDrawMode == "BaseVertex") {
-                        MGLOG_W("MultiDrawMode == BaseVertex");
-                        return (void*)glMultiDrawElementsBaseVertex;
+                        return reinterpret_cast<void*>glMultiDrawElementsBaseVertex;
                     }
                     if (MultiDrawMode == "Compute") {
-                        MGLOG_W("MultiDrawMode == Compute");
-                        return (void*)glMultiDrawElementsBaseVertex_compute;
+                        return reinterpret_cast<void*>glMultiDrawElementsBaseVertex_compute;
                     } else {
-                        return (void*)glMultiDrawElementsBaseVertex;
+                        return reinterpret_cast<void*>glMultiDrawElementsBaseVertex;
                     }
             }
     
