@@ -1294,21 +1294,13 @@ namespace MobileGL {
             TextureTarget textureTarget = MG_Util::ConvertGLEnumToTextureTarget(target);
 
             // ===================== Error Checking ==============================
+            if (!TextureImpl::ValidateTextureName(texture, true)) return;
             if (!TextureImpl::ValidateTextureTarget(textureTarget)) return;
 
             // ======================= Processing ================================
             auto textureObject = MG_State::pGLContext->GetTextureObject(texture);
-
-            if (texture == 0) {
-                 auto& currentUnit = MG_State::pGLContext->GetTextureUnitObject(
-                 MG_State::pGLContext->GetActiveTextureUnit());
-                 auto& bindingSlot = currentUnit.GetBindingSlot(textureTarget);
-                 bindingSlot.Bind(nullptr);
-                 return;
-            }
         
             // ===================== Error Checking ==============================
-            if (!TextureImpl::ValidateTextureName(texture, true)) return;
             if (!TextureImpl::ValidateTextureTargetUniformity(textureObject, textureTarget)) return;
 
             // ======================= Processing ================================
