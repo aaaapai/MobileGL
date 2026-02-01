@@ -51,8 +51,8 @@ namespace MobileGL::MG_Backend::DirectGLES {
 
             SizeT bufferSize = stateBufferObject->GetSize();
             if (bufferSize == 0) {
-                MGLOG_W("Buffer size is zero, but not skipping sync for object with ID: %u", m_backendBufferId);
-                //return;
+                MGLOG_W("Buffer size is zero, skipping sync for object with ID: %u", m_backendBufferId);
+                return;
             }
 
             MGLOG_D("Syncing buffer object with backend ID %u to backend for state ID %u", m_backendBufferId,
