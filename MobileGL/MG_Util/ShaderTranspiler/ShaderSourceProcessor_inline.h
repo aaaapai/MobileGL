@@ -1029,7 +1029,7 @@ void mg_subgroupMemoryBarrier() {
         }
     }
 
-    // ==================== 6. 注入temporal_filter ====================
+    /*// ==================== 6. 注入temporal_filter ====================
     const char* str_temporal_filter = "GI_TemporalFilter";
     if (source.find(str_temporal_filter) != String::npos) {
         // 检查是否已经定义了GI_TemporalFilter函数
@@ -1068,7 +1068,7 @@ vec4 GI_TemporalFilter() {
                 source += "\n" + temporalFilterImpl + "\n";
             }
         }
-    }
+    }*/
 
 /*const char* str_temporal_filter = "GI_TemporalFilter";
     if (source.find(str_temporal_filter) != String::npos) {
