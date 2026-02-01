@@ -190,7 +190,7 @@ public:
     ~ComputeShaderManager() {
         for (auto& pair : m_programCache) {
             if (pair.second != 0) {
-                glDeleteProgram(pair.second);
+                MG_External::GLES::glDeleteProgram(pair.second);
             }
         }
     }
@@ -217,32 +217,32 @@ public:
             pos = shaderSource.find("ELEMENT_SIZE", pos + 1);
         }
         
-        GLuint program = glCreateProgram();
-        GLuint shader = glCreateShader(GL_COMPUTE_SHADER);
+        GLuint program = MG_External::GLES::glCreateProgram();
+        GLuint shader = MG_External::GLES::glCreateShader(GL_COMPUTE_SHADER);
         
         const char* sourceStr = shaderSource.c_str();
-        glShaderSource(shader, 1, &sourceStr, nullptr);
-        glCompileShader(shader);
+        MG_External::GLES::glShaderSource(shader, 1, &sourceStr, nullptr);
+        MG_External::GLES::glCompileShader(shader);
         
         GLint success = 0;
-        glGetShaderiv(shader, GL_COMPILE_STATUS, &success);
+        MG_External::GLES::glGetShaderiv(shader, GL_COMPILE_STATUS, &success);
         if (!success) {
             char infoLog[1024];
-            glGetShaderInfoLog(shader, sizeof(infoLog), nullptr, infoLog);
-            glDeleteShader(shader);
-            glDeleteProgram(program);
+            MG_External::GLES::glGetShaderInfoLog(shader, sizeof(infoLog), nullptr, infoLog);
+            MG_External::GLES::glDeleteShader(shader);
+            MG_External::GLES::glDeleteProgram(program);
             return 0;
         }
         
-        glAttachShader(program, shader);
-        glLinkProgram(program);
-        glDeleteShader(shader);
+        MG_External::GLES::glAttachShader(program, shader);
+        MG_External::GLES::glLinkProgram(program);
+        MG_External::GLES::glDeleteShader(shader);
         
-        glGetProgramiv(program, GL_LINK_STATUS, &success);
+        MG_External::GLES::glGetProgramiv(program, GL_LINK_STATUS, &success);
         if (!success) {
             char infoLog[1024];
-            glGetProgramInfoLog(program, sizeof(infoLog), nullptr, infoLog);
-            glDeleteProgram(program);
+            MG_External::GLES::glGetProgramInfoLog(program, sizeof(infoLog), nullptr, infoLog);
+            MG_External::GLES::glDeleteProgram(program);
             return 0;
         }
         
@@ -263,19 +263,19 @@ namespace {
         ComputeShaderManager shaderManager;
         
         ~ComputeResources() {
-            if (prefixSumBuffer) glDeleteBuffers(1, &prefixSumBuffer);
-            if (firstIndexBuffer) glDeleteBuffers(1, &firstIndexBuffer);
-            if (baseVertexBuffer) glDeleteBuffers(1, &baseVertexBuffer);
-            if (outputBuffer) glDeleteBuffers(1, &outputBuffer);
-            if (drawCountBuffer) glDeleteBuffers(1, &drawCountBuffer);
+            if (prefixSumBuffer) MG_External::GLES::glDeleteBuffers(1, &prefixSumBuffer);
+            if (firstIndexBuffer) MG_External::GLES::glDeleteBuffers(1, &firstIndexBuffer);
+            if (baseVertexBuffer) MG_External::GLES::glDeleteBuffers(1, &baseVertexBuffer);
+            if (outputBuffer) MG_External::GLES::glDeleteBuffers(1, &outputBuffer);
+            if (drawCountBuffer) MG_External::GLES::glDeleteBuffers(1, &drawCountBuffer);
         }
         
         void EnsureInitialized() {
-            if (!prefixSumBuffer) glGenBuffers(1, &prefixSumBuffer);
-            if (!firstIndexBuffer) glGenBuffers(1, &firstIndexBuffer);
-            if (!baseVertexBuffer) glGenBuffers(1, &baseVertexBuffer);
-            if (!outputBuffer) glGenBuffers(1, &outputBuffer);
-            if (!drawCountBuffer) glGenBuffers(1, &drawCountBuffer);
+            if (!prefixSumBuffer) MG_External::GLES::glGenBuffers(1, &prefixSumBuffer);
+            if (!firstIndexBuffer) MG_External::GLES::glGenBuffers(1, &firstIndexBuffer);
+            if (!baseVertexBuffer) MG_External::GLES::glGenBuffers(1, &baseVertexBuffer);
+            if (!outputBuffer) MG_External::GLES::glGenBuffers(1, &outputBuffer);
+            if (!drawCountBuffer) MG_External::GLES::glGenBuffers(1, &drawCountBuffer);
         }
         
         void EnsureOutputBufferCapacity(GLsizei requiredIndices) {
@@ -283,8 +283,8 @@ namespace {
                 GLsizei newCapacity = outputBufferCapacity == 0 ? 1024 : outputBufferCapacity;
                 while (newCapacity < requiredIndices) newCapacity *= 2;
                 
-                glBindBuffer(GL_SHADER_STORAGE_BUFFER, outputBuffer);
-                glBufferData(GL_SHADER_STORAGE_BUFFER, 
+                MG_External::GLES::glBindBuffer(GL_SHADER_STORAGE_BUFFER, outputBuffer);
+                MG_External::GLES::glBufferData(GL_SHADER_STORAGE_BUFFER, 
                     newCapacity * sizeof(GLuint), nullptr, GL_DYNAMIC_DRAW);
                 outputBufferCapacity = newCapacity;
             }
@@ -330,74 +330,74 @@ void MultiDrawElementsBaseVertex_compute(
     
     s_computeResources.EnsureOutputBufferCapacity(totalIndices);
     
-    glBindBuffer(GL_SHADER_STORAGE_BUFFER, s_computeResources.prefixSumBuffer);
-    glBufferData(GL_SHADER_STORAGE_BUFFER, 
+    MG_External::GLES::glBindBuffer(GL_SHADER_STORAGE_BUFFER, s_computeResources.prefixSumBuffer);
+    MG_External::GLES::glBufferData(GL_SHADER_STORAGE_BUFFER, 
         drawcount * sizeof(GLuint), prefixSums.data(), GL_DYNAMIC_DRAW);
     
-    glBindBuffer(GL_SHADER_STORAGE_BUFFER, s_computeResources.firstIndexBuffer);
-    glBufferData(GL_SHADER_STORAGE_BUFFER, 
+    MG_External::GLES::glBindBuffer(GL_SHADER_STORAGE_BUFFER, s_computeResources.firstIndexBuffer);
+    MG_External::GLES::glBufferData(GL_SHADER_STORAGE_BUFFER, 
         drawcount * sizeof(GLuint), firstIndexInElements.data(), GL_DYNAMIC_DRAW);
     
     if (basevertex) {
-        glBindBuffer(GL_SHADER_STORAGE_BUFFER, s_computeResources.baseVertexBuffer);
-        glBufferData(GL_SHADER_STORAGE_BUFFER, 
+        MG_External::GLES::glBindBuffer(GL_SHADER_STORAGE_BUFFER, s_computeResources.baseVertexBuffer);
+        MG_External::GLES::glBufferData(GL_SHADER_STORAGE_BUFFER, 
             drawcount * sizeof(GLint), basevertex, GL_DYNAMIC_DRAW);
     } else {
         Vector<GLint> zeroBaseVertex(drawcount, 0);
-        glBindBuffer(GL_SHADER_STORAGE_BUFFER, s_computeResources.baseVertexBuffer);
-        glBufferData(GL_SHADER_STORAGE_BUFFER, 
+        MG_External::GLES::glBindBuffer(GL_SHADER_STORAGE_BUFFER, s_computeResources.baseVertexBuffer);
+        MG_External::GLES::glBufferData(GL_SHADER_STORAGE_BUFFER, 
             drawcount * sizeof(GLint), zeroBaseVertex.data(), GL_DYNAMIC_DRAW);
     }
     
-    glBindBuffer(GL_SHADER_STORAGE_BUFFER, s_computeResources.drawCountBuffer);
-    glBufferData(GL_SHADER_STORAGE_BUFFER, 
+    MG_External::GLES::glBindBuffer(GL_SHADER_STORAGE_BUFFER, s_computeResources.drawCountBuffer);
+    MG_External::GLES::glBufferData(GL_SHADER_STORAGE_BUFFER, 
         sizeof(GLuint), &drawcount, GL_DYNAMIC_DRAW);
     
     GLint prevProgram = 0;
     GLint prevElementArrayBuffer = 0;
-    glGetIntegerv(GL_CURRENT_PROGRAM, &prevProgram);
-    glGetIntegerv(GL_ELEMENT_ARRAY_BUFFER_BINDING, &prevElementArrayBuffer);
+    MG_External::GLES::glGetIntegerv(GL_CURRENT_PROGRAM, &prevProgram);
+    MG_External::GLES::glGetIntegerv(GL_ELEMENT_ARRAY_BUFFER_BINDING, &prevElementArrayBuffer);
     
     struct SSBOBinding { GLuint binding; GLuint buffer; };
     SSBOBinding prevSSBOBindings[6] = {};
     for (int i = 0; i < 6; ++i) {
         GLint buffer = 0;
-        glGetIntegeri_v(GL_SHADER_STORAGE_BUFFER_BINDING, i, &buffer);
+        MG_External::GLES::glGetIntegeri_v(GL_SHADER_STORAGE_BUFFER_BINDING, i, &buffer);
         prevSSBOBindings[i] = {static_cast<GLuint>(i), static_cast<GLuint>(buffer)};
     }
     
     if (prevElementArrayBuffer == 0) {
-        glUseProgram(prevProgram);
-        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, prevElementArrayBuffer);
+        MG_External::GLES::glUseProgram(prevProgram);
+        MG_External::GLES::glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, prevElementArrayBuffer);
         return;
     }
     GLuint currentIBO = static_cast<GLuint>(prevElementArrayBuffer);
     
-    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, currentIBO);
-    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, s_computeResources.firstIndexBuffer);
-    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, s_computeResources.baseVertexBuffer);
-    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 3, s_computeResources.prefixSumBuffer);
-    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 4, s_computeResources.outputBuffer);
-    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 5, s_computeResources.drawCountBuffer);
+    MG_External::GLES::glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, currentIBO);
+    MG_External::GLES::glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, s_computeResources.firstIndexBuffer);
+    MG_External::GLES::glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, s_computeResources.baseVertexBuffer);
+    MG_External::GLES::glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 3, s_computeResources.prefixSumBuffer);
+    MG_External::GLES::glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 4, s_computeResources.outputBuffer);
+    MG_External::GLES::glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 5, s_computeResources.drawCountBuffer);
     
     GLuint computeProgram = s_computeResources.shaderManager.GetOrCreateProgram(type);
     if (computeProgram == 0) {
-        glUseProgram(prevProgram);
-        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, prevElementArrayBuffer);
+        MG_External::GLES::glUseProgram(prevProgram);
+        MG_External::GLES::glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, prevElementArrayBuffer);
         for (const auto& binding : prevSSBOBindings) {
-            glBindBufferBase(GL_SHADER_STORAGE_BUFFER, binding.binding, binding.buffer);
+            MG_External::GLES::glBindBufferBase(GL_SHADER_STORAGE_BUFFER, binding.binding, binding.buffer);
         }
         return;
     }
     
-    glUseProgram(computeProgram);
+    MG_External::GLES::glUseProgram(computeProgram);
     
-    glMemoryBarrier(GL_BUFFER_UPDATE_BARRIER_BIT);
+    MG_External::GLES::glMemoryBarrier(GL_BUFFER_UPDATE_BARRIER_BIT);
     
     GLuint workGroupCount = (totalIndices + 63) / 64;
     
     GLint maxWorkGroups[3] = {};
-    glGetIntegeri_v(GL_MAX_COMPUTE_WORK_GROUP_COUNT, 0, &maxWorkGroups[0]);
+    MG_External::GLES::glGetIntegeri_v(GL_MAX_COMPUTE_WORK_GROUP_COUNT, 0, &maxWorkGroups[0]);
     
     if (workGroupCount > static_cast<GLuint>(maxWorkGroups[0])) {
         GLuint batchSize = maxWorkGroups[0];
@@ -407,32 +407,32 @@ void MultiDrawElementsBaseVertex_compute(
         while (remaining > 0) {
             GLuint batchGroups = (remaining > batchSize * 64) ? batchSize : (remaining + 63) / 64;
             
-            GLint startOffsetLoc = glGetUniformLocation(computeProgram, "uStartOffset");
+            GLint startOffsetLoc = MG_External::GLES::glGetUniformLocation(computeProgram, "uStartOffset");
             if (startOffsetLoc != -1) {
-                glUniform1ui(startOffsetLoc, processed);
+                MG_External::GLES::glUniform1ui(startOffsetLoc, processed);
             }
             
-            glDispatchCompute(batchGroups, 1, 1);
-            glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
+            MG_External::GLES::glDispatchCompute(batchGroups, 1, 1);
+            MG_External::GLES::glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
             
             GLuint batchProcessed = batchGroups * 64;
             processed += batchProcessed;
             remaining = (remaining > batchProcessed) ? remaining - batchProcessed : 0;
         }
     } else {
-        glDispatchCompute(workGroupCount, 1, 1);
+        MG_External::GLES::glDispatchCompute(workGroupCount, 1, 1);
     }
     
-    glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT | GL_ELEMENT_ARRAY_BARRIER_BIT);
+    MG_External::GLES::glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT | GL_ELEMENT_ARRAY_BARRIER_BIT);
     
-    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, s_computeResources.outputBuffer);
-    glDrawElements(mode, totalIndices, GL_UNSIGNED_INT, 0);
+    MG_External::GLES::glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, s_computeResources.outputBuffer);
+    MG_External::GLES::glDrawElements(mode, totalIndices, GL_UNSIGNED_INT, 0);
     
-    glUseProgram(prevProgram);
-    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, prevElementArrayBuffer);
+    MG_External::GLES::glUseProgram(prevProgram);
+    MG_External::GLES::glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, prevElementArrayBuffer);
     
     for (const auto& binding : prevSSBOBindings) {
-        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, binding.binding, binding.buffer);
+        MG_External::GLES::glBindBufferBase(GL_SHADER_STORAGE_BUFFER, binding.binding, binding.buffer);
     }
 }
 
