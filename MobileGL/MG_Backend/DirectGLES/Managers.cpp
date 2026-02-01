@@ -880,7 +880,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
                     spvc_compiler_options_set_uint(options, SPVC_COMPILER_OPTION_GLSL_VERSION, 320);
                 }
                 spvc_compiler_options_set_bool(options, SPVC_COMPILER_OPTION_GLSL_ES, SPVC_TRUE);
-                //spvc_compiler_options_set_bool(options, SPVC_COMPILER_OPTION_GLSL_VULKAN_SEMANTICS, SPVC_FALSE);
+                spvc_compiler_options_set_bool(options, SPVC_COMPILER_OPTION_GLSL_VULKAN_SEMANTICS, SPVC_FALSE);
 
                 spvcSession.SetOptions(options);
 
@@ -898,19 +898,19 @@ namespace MobileGL::MG_Backend::DirectGLES {
 
                 source = result;
 
-                // source = RemoveLayoutBinding(source);
+                source = RemoveLayoutBinding(source);
                 source = ProcessOutColorLocations(source);
                 source = ForceSupporterOutput(source);
 
-                // TODO: probably a patch system?
-                // String findStr = "if (distance_weight_sum == 0.0)";
-                // String replaceStr = "if (distance_weight_sum <= 0.0001)";
-                // auto pos = source.find(findStr);
-                // while (pos != String::npos) {
-                //     MGLOG_D("Applying patch #1 to Photon...");
-                //     source.replace(pos, findStr.length(), replaceStr);
-                //     pos = source.find(findStr, pos);
-                // }
+                 // TODO: probably a patch system?
+                 String findStr = "if (distance_weight_sum == 0.0)";
+                 String replaceStr = "if (distance_weight_sum <= 0.0001)";
+                 auto pos = source.find(findStr);
+                 while (pos != String::npos) {
+                     MGLOG_D("Applying patch #1 to Photon...");
+                     source.replace(pos, findStr.length(), replaceStr);
+                     pos = source.find(findStr, pos);
+                }
 
                 String findStr = "1000000.0";
                 String replaceStr = "65500.0";
@@ -921,23 +921,23 @@ namespace MobileGL::MG_Backend::DirectGLES {
                     pos = source.find(findStr, pos);
                 }
 
-                // findStr = "if (gtao.w == 0.0)";
-                // replaceStr = "if (abs(gtao.w) <= 0.00001)";
-                // pos = source.find(findStr);
-                // while (pos != String::npos) {
-                //     MGLOG_D("Applying patch #3 to Photon...");
-                //     source.replace(pos, findStr.length(), replaceStr);
-                //     pos = source.find(findStr, pos);
-                // }
+                 findStr = "if (gtao.w == 0.0)";
+                 replaceStr = "if (abs(gtao.w) <= 0.00001)";
+                 pos = source.find(findStr);
+                 while (pos != String::npos) {
+                     MGLOG_D("Applying patch #3 to Photon...");
+                     source.replace(pos, findStr.length(), replaceStr);
+                     pos = source.find(findStr, pos);
+                }
 
-                // findStr = "== 0.0";
-                // replaceStr = "<= 0.00001";
-                // pos = source.find(findStr);
-                // while (pos != String::npos) {
-                //     MGLOG_D("Applying patch #4 to Photon...");
-                //     source.replace(pos, findStr.length(), replaceStr);
-                //     pos = source.find(findStr, pos);
-                // }
+                 findStr = "== 0.0";
+                 replaceStr = "<= 0.00001";
+                 pos = source.find(findStr);
+                 while (pos != String::npos) {
+                     MGLOG_D("Applying patch #4 to Photon...");
+                     source.replace(pos, findStr.length(), replaceStr);
+                     pos = source.find(findStr, pos);
+                }
 
                 const char* sourceCStr = source.c_str();
                 MGLOG_D("Setting shader source for backend shader ID: %u\nsrc:\n%s", backendShaderId, sourceCStr);
