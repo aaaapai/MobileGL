@@ -200,7 +200,7 @@ namespace MobileGL {
                 tshader->setStrings(src, 1);
                 tshader->setInvertY(true);
                 if (attrib.flags & ShaderCompileBits::CompileForOpenGL) {
-                    tshader->setEnvInput(glslang::EShSourceGlsl, lang, glslang::EShClientVulkan, 460);
+                    tshader->setEnvInput(glslang::EShSourceGlsl, lang, glslang::EShClientVulkan, 450);
                     tshader->setEnvClient(glslang::EShClientOpenGL, glslang::EShTargetOpenGL_450);
                     tshader->setEnvTarget(glslang::EShTargetSpv, glslang::EShTargetSpv_1_5);
                 } else {
@@ -306,7 +306,7 @@ namespace MobileGL {
 
                 spvc_compiler_options_set_uint(options, SPVC_COMPILER_OPTION_GLSL_VERSION, 320);
                 spvc_compiler_options_set_bool(options, SPVC_COMPILER_OPTION_GLSL_ES, SPVC_TRUE);
-                //spvc_compiler_options_set_bool(options, SPVC_COMPILER_OPTION_GLSL_VULKAN_SEMANTICS, SPVC_FALSE);
+                spvc_compiler_options_set_bool(options, SPVC_COMPILER_OPTION_GLSL_VULKAN_SEMANTICS, SPVC_FALSE);
 
                 session.SetOptions(options);
 
