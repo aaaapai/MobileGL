@@ -1216,31 +1216,6 @@ vec4 GI_TemporalFilter(){
             }
         }
     }*/
-
-// ==================== 替换已弃用语法和修复问题 ====================
-    // 替换attribute/varying关键字
-    if (stage == ShaderStage::Vertex) {
-        // 替换attribute为in
-        size_t pos = 0;
-        while ((pos = source.find("attribute", pos)) != String::npos) {
-            source.replace(pos, 9, "in");
-            pos += 2; // "in"的长度
-        }
-        
-        // 替换varying为out
-        pos = 0;
-        while ((pos = source.find("varying", pos)) != String::npos) {
-            source.replace(pos, 7, "out");
-            pos += 3; // "out"的长度
-        }
-    } else if (stage == ShaderStage::Fragment) {
-        // 替换varying为in
-        size_t pos = 0;
-        while ((pos = source.find("varying", pos)) != String::npos) {
-            source.replace(pos, 7, "in");
-            pos += 2; // "in"的长度
-        }
-    }
     
     // 替换texture2D为texture
     size_t pos = 0;
