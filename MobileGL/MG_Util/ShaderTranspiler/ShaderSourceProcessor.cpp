@@ -75,71 +75,6 @@ vec2 mg_textureQueryLod(sampler2D tex, vec2 uv) {
                     }
                 }
 
-                // ========== 替换固定管道符号 ==========
-                
-                // 替换内置索引变量
-                const char* str_gl_VertexID = "gl_VertexID";
-                const SizeT len_gl_VertexID = strlen(str_gl_VertexID);
-                SizeT gl_VertexIDPos = source.find(str_gl_VertexID);
-                while (gl_VertexIDPos != String::npos) {
-                    // 检查前面是否有::，避免替换类似 ::gl_VertexID 的情况
-                    bool shouldReplace = true;
-                    if (gl_VertexIDPos > 0 && source[gl_VertexIDPos - 1] == ':') {
-                        if (gl_VertexIDPos > 1 && source[gl_VertexIDPos - 2] == ':') {
-                            // 是 ::gl_VertexID，不替换
-                            shouldReplace = false;
-                        }
-                    }
-                    
-                    if (shouldReplace) {
-                        source = source.replace(gl_VertexIDPos, len_gl_VertexID, "gl_VertexIndex");
-                        gl_VertexIDPos = source.find(str_gl_VertexID, gl_VertexIDPos + 13); // 13 = strlen("gl_VertexIndex")
-                    } else {
-                        gl_VertexIDPos = source.find(str_gl_VertexID, gl_VertexIDPos + len_gl_VertexID);
-                    }
-                }
-
-                const char* str_gl_InstanceID = "gl_InstanceID";
-                const SizeT len_gl_InstanceID = strlen(str_gl_InstanceID);
-                SizeT gl_InstanceIDPos = source.find(str_gl_InstanceID);
-                while (gl_InstanceIDPos != String::npos) {
-                    bool shouldReplace = true;
-                    if (gl_InstanceIDPos > 0 && source[gl_InstanceIDPos - 1] == ':') {
-                        if (gl_InstanceIDPos > 1 && source[gl_InstanceIDPos - 2] == ':') {
-                            shouldReplace = false;
-                        }
-                    }
-                    
-                    if (shouldReplace) {
-                        source = source.replace(gl_InstanceIDPos, len_gl_InstanceID, "gl_InstanceIndex");
-                        gl_InstanceIDPos = source.find(str_gl_InstanceID, gl_InstanceIDPos + 16); // 16 = strlen("gl_InstanceIndex")
-                    } else {
-                        gl_InstanceIDPos = source.find(str_gl_InstanceID, gl_InstanceIDPos + len_gl_InstanceID);
-                    }
-                }
-
-                // 替换几何着色器中的变量
-                if (stage == ShaderStage::Geometry) {
-                    const char* str_gl_PrimitiveIDIn = "gl_PrimitiveIDIn";
-                    const SizeT len_gl_PrimitiveIDIn = strlen(str_gl_PrimitiveIDIn);
-                    SizeT gl_PrimitiveIDInPos = source.find(str_gl_PrimitiveIDIn);
-                    while (gl_PrimitiveIDInPos != String::npos) {
-                        bool shouldReplace = true;
-                        if (gl_PrimitiveIDInPos > 0 && source[gl_PrimitiveIDInPos - 1] == ':') {
-                            if (gl_PrimitiveIDInPos > 1 && source[gl_PrimitiveIDInPos - 2] == ':') {
-                                shouldReplace = false;
-                            }
-                        }
-                        
-                        if (shouldReplace) {
-                            source = source.replace(gl_PrimitiveIDInPos, len_gl_PrimitiveIDIn, "gl_PrimitiveID");
-                            gl_PrimitiveIDInPos = source.find(str_gl_PrimitiveIDIn, gl_PrimitiveIDInPos + 14); // 14 = strlen("gl_PrimitiveID")
-                        } else {
-                            gl_PrimitiveIDInPos = source.find(str_gl_PrimitiveIDIn, gl_PrimitiveIDInPos + len_gl_PrimitiveIDIn);
-                        }
-                    }
-                }
-
                 // 替换attribute关键字（顶点着色器）
                 if (stage == ShaderStage::Vertex) {
                     const char* str_attribute = "attribute";
@@ -217,8 +152,6 @@ vec2 mg_textureQueryLod(sampler2D tex, vec2 uv) {
                         }
                         
                         if (shouldReplace) {
-                            // 需要在着色器开头添加输出声明
-                            // 先检查是否已经有out vec4 fragColor的声明
                             if (source.find("out vec4") == String::npos) {
                                 SizeT versionPos = source.find("#version");
                                 if (versionPos != String::npos) {
