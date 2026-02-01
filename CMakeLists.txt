@@ -58,7 +58,7 @@ set(SOURCE_FILES
     MobileGL/MG_Util/Converters/MGToStr/FramebufferEnumConverter.cpp
     MobileGL/MG_Util/Converters/MGToStr/TextureEnumConverter.cpp
     MobileGL/MG_Util/Converters/GLToGlslang/ProgramEnumConverter.cpp
-    MobileGL/MG_Util/Converters/GLToShaderc/ShadercEnumConverter.cpp
+    # MobileGL/MG_Util/Converters/GLToShaderc/ShadercEnumConverter.cpp
     MobileGL/MG_Util/Converters/MGToGL/ErrorCodeConverter.cpp
     MobileGL/MG_Util/Converters/MGToGL/BufferEnumConverter.cpp
     MobileGL/MG_Util/Converters/MGToGL/FramebufferEnumConverter.cpp
@@ -213,7 +213,7 @@ target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE
     ${CMAKE_SOURCE_DIR}/library/android/${ANDROID_ABI}/libspirv-cross-glsl.a
     ${CMAKE_SOURCE_DIR}/library/android/${ANDROID_ABI}/libSPIRV-Tools.a
     ${CMAKE_SOURCE_DIR}/library/android/${ANDROID_ABI}/libSPIRV-Tools-opt.a
-    ${CMAKE_SOURCE_DIR}/library/android/${ANDROID_ABI}/libshaderc.so
+    # ${CMAKE_SOURCE_DIR}/library/android/${ANDROID_ABI}/libshaderc.so
     android
     log
 )
