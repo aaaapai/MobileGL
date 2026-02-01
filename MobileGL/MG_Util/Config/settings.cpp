@@ -257,7 +257,7 @@ void init_settings_post() {
         if (indirect) {
             global_settings.multidraw_mode = multidraw_mode_t::PreferIndirect;
 			MGLOG_W("LIBGL_MULTIDRAW == Indirect");
-			std::setenv("LIBGL_MULTIDRAW", "Indirect", 1);
+			setenv("LIBGL_MULTIDRAW", "Indirect", 1);
         } else if (basevertex) {
             global_settings.multidraw_mode = multidraw_mode_t::PreferBaseVertex;
         } else {
@@ -267,7 +267,7 @@ void init_settings_post() {
     case multidraw_mode_t::PreferBaseVertex:
         if (basevertex) {
             global_settings.multidraw_mode = multidraw_mode_t::PreferBaseVertex;
-			std::setenv("LIBGL_MULTIDRAW", "Vertex", 1);
+			setenv("LIBGL_MULTIDRAW", "Vertex", 1);
         } else if (multidraw) {
             global_settings.multidraw_mode = multidraw_mode_t::PreferMultidrawIndirect;
         } else if (indirect) {
