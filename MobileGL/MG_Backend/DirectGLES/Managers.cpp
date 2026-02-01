@@ -898,7 +898,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
 
                 source = result;
 
-                source = RemoveLayoutBinding(source);
+                //source = RemoveLayoutBinding(source);
                 source = ProcessOutColorLocations(source);
                 source = ForceSupporterOutput(source);
 
@@ -914,7 +914,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
 
                 findStr = "1000000.0";
                 replaceStr = "65500.0";
-                auto pos = source.find(findStr);
+                pos = source.find(findStr);
                 while (pos != String::npos) {
                     MGLOG_D("Applying patch #2 to Photon...");
                     source.replace(pos, findStr.length(), replaceStr);
