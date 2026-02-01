@@ -912,8 +912,8 @@ namespace MobileGL::MG_Backend::DirectGLES {
                      pos = source.find(findStr, pos);
                 }
 
-                String findStr = "1000000.0";
-                String replaceStr = "65500.0";
+                findStr = "1000000.0";
+                replaceStr = "65500.0";
                 auto pos = source.find(findStr);
                 while (pos != String::npos) {
                     MGLOG_D("Applying patch #2 to Photon...");
