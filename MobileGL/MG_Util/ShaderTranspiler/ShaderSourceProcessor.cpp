@@ -85,7 +85,7 @@ vec2 mg_textureQueryLod(sampler2D tex, vec2 uv) {
                 if (versionPos != String::npos) {
                     String versionLine = source.substr(versionPos, lineEnd - versionPos);
 
-                    if (versionLine.find("es") != String::npos)
+                    if (versionLine.find("ES") != String::npos)
                         profile = ShaderProfile::ES;
                     else if ((versionLine.find("compatibility") != String::npos) /*|| (versionLine.find("120") != String::npos) || (versionLine.find("130") != String::npos) || (versionLine.find("140") != String::npos) || (versionLine.find("100") != String::npos)*/)
                         profile = ShaderProfile::Compatibility;
