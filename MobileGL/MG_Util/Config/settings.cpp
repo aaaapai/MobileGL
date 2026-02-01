@@ -244,7 +244,7 @@ void set_multidraw_setting() { // should be called after init_gles_target()
         global_settings.multidraw_mode = multidraw_mode_t::Auto;
         break;
     }
-    MGLOG_D("[MobileGL] Setting: multidrawMode is unsupported. Fallback to BaseVertex."/*, draw_mode_str.c_str()*/);
+    MGLOG_D("[MobileGL] Setting: multidrawMode is supported.", /*draw_mode_str.c_str()*/);
 }
 
 void init_settings_post() {
@@ -256,6 +256,8 @@ void init_settings_post() {
     case multidraw_mode_t::PreferIndirect:
         if (indirect) {
             global_settings.multidraw_mode = multidraw_mode_t::PreferIndirect;
+			MGLOG_W("LIBGL_MULTIDRAW == Indirect");
+			std::setenv("LIBGL_MULTIDRAW", "Indirect", 1);
         } else if (basevertex) {
             global_settings.multidraw_mode = multidraw_mode_t::PreferBaseVertex;
         } else {
@@ -265,6 +267,7 @@ void init_settings_post() {
     case multidraw_mode_t::PreferBaseVertex:
         if (basevertex) {
             global_settings.multidraw_mode = multidraw_mode_t::PreferBaseVertex;
+			std::setenv("LIBGL_MULTIDRAW", "Vertex", 1);
         } else if (multidraw) {
             global_settings.multidraw_mode = multidraw_mode_t::PreferMultidrawIndirect;
         } else if (indirect) {
@@ -280,6 +283,7 @@ void init_settings_post() {
         global_settings.multidraw_mode = multidraw_mode_t::Compute;
         break;
     case multidraw_mode_t::Auto:
+		break;
     default:
         if (basevertex) {
             global_settings.multidraw_mode = multidraw_mode_t::PreferBaseVertex;
