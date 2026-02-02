@@ -87,8 +87,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
 
     namespace BufferImpl {
         void CreateAndSyncBufferObject(SharedPtr<MG_State::GLState::BufferObject>& bufferObject) {
-            if (!(bufferObject->GetChangeBits() & BufferChangeBits::DirtyBit))
-                return;
+            if (!(bufferObject->GetChangeBits() & BufferChangeBits::DirtyBit)) return;
 
             const auto& backendBufferIt = g_backendBufferObjects.find(bufferObject);
             SharedPtr<BackendBufferObject> backendBufferObject;
@@ -205,21 +204,13 @@ namespace MobileGL::MG_Backend::DirectGLES {
             //   1. textures bound to texture units (TODO: only sync ones that are used in current program)
             //   2. textures used in current FBO
             //   3. textures bound to image units (TODO)
-//            constexpr SizeT TextureTargetCount = static_cast<SizeT>(TextureTarget::TextureTargetCount);
-//            std::bitset<TextureTargetCount> dirtyTextureTargetBits;
-
-            Vector<SharedPtr<MG_State::GLState::ITextureObject>> texturesToSync;
 
             for (int index = 0; index < MG_State::GLState::TextureState::MAX_TEXTURE_IMAGE_UNITS; ++index) {
                 auto& unit = MG_State::pGLContext->GetTextureUnitObject(index);
                 for (const auto& bindingSlot : unit.GetAllBindingSlots()) {
-                    const auto& textureObject = bindingSlot.GetBoundObject();
+                    auto textureObject = bindingSlot.GetBoundObject();
                     if (textureObject) {
-                        const auto& end = texturesToSync.end();
-                        if (std::find(texturesToSync.begin(), end, textureObject) == end) {
-                            texturesToSync.push_back(textureObject);
-//                            dirtyTextureTargetBits.set(static_cast<SizeT>(textureObject->GetTarget()));
-                        }
+                        SyncTextureObjectToBackend(textureObject);
                     }
                 }
             }
@@ -229,31 +220,11 @@ namespace MobileGL::MG_Backend::DirectGLES {
             if (currentFBO) {
                 for (const auto& attachment : currentFBO->GetAllAttachments()) {
                     if (!attachment.IsTexture()) continue;
-                    const auto& textureObject = attachment.GetTexture();
+                    auto textureObject = attachment.GetTexture();
                     if (textureObject) {
-                        const auto& end = texturesToSync.end();
-                        if (std::find(texturesToSync.begin(), end, textureObject) == end) {
-                            texturesToSync.push_back(textureObject);
-//                            dirtyTextureTargetBits.set(static_cast<SizeT>(textureObject->GetTarget()));
-                        }
+                        SyncTextureObjectToBackend(textureObject);
                     }
                 }
-            }
-
-//            BufferImpl::BackendBufferBindingProtector pixelUnpackProtector =
-//                BufferImpl::BackendBufferBindingProtector(GL_PIXEL_UNPACK_BUFFER);
-//
-//            Vector<BackendTextureBindingProtector> textureBindingProtectors;
-//            for (SizeT target = 0; target < TextureTargetCount; ++target) {
-//                if (dirtyTextureTargetBits[target]) {
-//                    textureBindingProtectors.emplace_back(
-//                        MG_Util::ConvertTextureTargetToGLEnum(static_cast<TextureTarget>(target)));
-//                }
-//            }
-
-            // Do real sync
-            for (auto& textureObject : texturesToSync) {
-                SyncTextureObjectToBackend(textureObject);
             }
         }
     } // namespace TextureImpl

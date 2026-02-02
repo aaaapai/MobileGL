@@ -382,8 +382,9 @@ namespace MobileGL::MG_Backend::DirectGLES {
                             MG_Util::ConvertTextureInternalFormatToString(textureMipmapObject->GetFormat()).c_str());
 
                     if (needsRegeneration) {
-                        MGLOG_D("Texture state changed significantly or not initialized, regenerating texture with ID: %u",
-                                m_backendTextureId);
+                        MGLOG_D(
+                            "Texture state changed significantly or not initialized, regenerating texture with ID: %u",
+                            m_backendTextureId);
 
                         // Regenerate all mipmap levels
                         GLenum glInternalFormat, glType, glFormat;
@@ -400,11 +401,11 @@ namespace MobileGL::MG_Backend::DirectGLES {
                                 auto* pData = (levelDirty && levelByteSize != 0)
                                                   ? textureMipmapObject->MapMipmapData(uploadTarget, level)
                                                   : nullptr;
-                                MGLOG_D(
-                                    "%s: target: %s: syncing mip %d: %dx%dx%d, byteSize = %d, pData = %p, levelDirty = %s",
-                                    __func__, MG_Util::ConvertTextureUploadTargetToString(uploadTarget).c_str(), level,
-                                    levelTexelSize.x(), levelTexelSize.y(), levelTexelSize.z(), levelByteSize, pData,
-                                    levelDirty ? "true" : "false");
+                                MGLOG_D("%s: target: %s: syncing mip %d: %dx%dx%d, byteSize = %d, pData = %p, "
+                                        "levelDirty = %s",
+                                        __func__, MG_Util::ConvertTextureUploadTargetToString(uploadTarget).c_str(),
+                                        level, levelTexelSize.x(), levelTexelSize.y(), levelTexelSize.z(),
+                                        levelByteSize, pData, levelDirty ? "true" : "false");
 
                                 errorLopper.Clear();
                                 MG_External::GLES::glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
@@ -415,14 +416,15 @@ namespace MobileGL::MG_Backend::DirectGLES {
                                 case TextureTarget::TextureCubeMap: {
                                     MG_External::GLES::glTexImage2D(
                                         glUploadTarget, static_cast<GLint>(level), glInternalFormat,
-                                        static_cast<GLsizei>(levelTexelSize.x()), static_cast<GLsizei>(levelTexelSize.y()),
-                                        0, glFormat, glType, pData);
+                                        static_cast<GLsizei>(levelTexelSize.x()),
+                                        static_cast<GLsizei>(levelTexelSize.y()), 0, glFormat, glType, pData);
                                     break;
                                 }
                                 case TextureTarget::Texture3D: {
                                     MG_External::GLES::glTexImage3D(
                                         glUploadTarget, static_cast<GLint>(level), glInternalFormat,
-                                        static_cast<GLsizei>(levelTexelSize.x()), static_cast<GLsizei>(levelTexelSize.y()),
+                                        static_cast<GLsizei>(levelTexelSize.x()),
+                                        static_cast<GLsizei>(levelTexelSize.y()),
                                         static_cast<GLsizei>(levelTexelSize.z()), 0, glFormat, glType, pData);
                                     break;
                                 }
@@ -433,15 +435,17 @@ namespace MobileGL::MG_Backend::DirectGLES {
                                 }
                                 errorLopper.Loop([file = __FILE__, line = __LINE__, func = __func__, glUploadTarget,
                                                   glInternalFormat, glFormat, glType, pData](GLenum err) {
-                                    MGLOG_D("%s(%s:%d) ES error: %s. glTexImage*: target=%s, internalformat=%s, format=%s, "
-                                            "type=%s, pixels=%p",
-                                            func, file, line, MG_Util::ConvertGLEnumToString(err).c_str(),
-                                            MG_Util::ConvertGLEnumToString(glUploadTarget).c_str(),
-                                            MG_Util::ConvertGLEnumToString(glInternalFormat).c_str(),
-                                            MG_Util::ConvertGLEnumToString(glFormat).c_str(),
-                                            MG_Util::ConvertGLEnumToString(glType).c_str(), pData);
+                                    MGLOG_D(
+                                        "%s(%s:%d) ES error: %s. glTexImage*: target=%s, internalformat=%s, format=%s, "
+                                        "type=%s, pixels=%p",
+                                        func, file, line, MG_Util::ConvertGLEnumToString(err).c_str(),
+                                        MG_Util::ConvertGLEnumToString(glUploadTarget).c_str(),
+                                        MG_Util::ConvertGLEnumToString(glInternalFormat).c_str(),
+                                        MG_Util::ConvertGLEnumToString(glFormat).c_str(),
+                                        MG_Util::ConvertGLEnumToString(glType).c_str(), pData);
                                 });
-                                MGLOG_D("Regenerated mipmap level %d for texture with ID: %u", level, m_backendTextureId);
+                                MGLOG_D("Regenerated mipmap level %d for texture with ID: %u", level,
+                                        m_backendTextureId);
                                 textureMipmapObject->MarkStorageDirty(uploadTarget, level, false);
                             }
                         }
@@ -481,10 +485,10 @@ namespace MobileGL::MG_Backend::DirectGLES {
                                             MG_Util::ConvertGLEnumToString(err).c_str());
                                 });
                                 auto texelSize = textureMipmapObject->GetMipmapTexelSize(uploadTarget, level);
-                                MG_External::GLES::glTexSubImage2D(glUploadTarget, static_cast<GLint>(level), 0, 0,
-                                                                   static_cast<GLsizei>(texelSize.x()),
-                                                                   static_cast<GLsizei>(texelSize.y()), glFormat, glType,
-                                                                   textureMipmapObject->MapMipmapData(uploadTarget, level));
+                                MG_External::GLES::glTexSubImage2D(
+                                    glUploadTarget, static_cast<GLint>(level), 0, 0,
+                                    static_cast<GLsizei>(texelSize.x()), static_cast<GLsizei>(texelSize.y()), glFormat,
+                                    glType, textureMipmapObject->MapMipmapData(uploadTarget, level));
                                 textureMipmapObject->MarkStorageDirty(uploadTarget, level, false);
                             }
                         }
@@ -522,8 +526,8 @@ namespace MobileGL::MG_Backend::DirectGLES {
                     auto backendId = backendBufferObject->GetBackendBufferId();
 
                     GLenum glInternalFormat, glType, glFormat;
-                    TextureImpl::GenerateTextureFormatInfo(textureBufferObject->GetFormat(), &glInternalFormat, &glFormat,
-                                                           &glType);
+                    TextureImpl::GenerateTextureFormatInfo(textureBufferObject->GetFormat(), &glInternalFormat,
+                                                           &glFormat, &glType);
 
                     MG_External::GLES::glTexBuffer(GL_TEXTURE_BUFFER, glInternalFormat, backendId);
 
