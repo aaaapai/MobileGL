@@ -230,19 +230,6 @@ namespace MobileGL::MG_Backend::DirectGLES {
             backendBufferObject->Bind(GL_ARRAY_BUFFER);
         }
 
-        void BackendVertexArrayObject::SyncAttributeFormat(Uint index,
-                                                           const MG_State::GLState::VertexAttribute& attrib) {
-            if (attrib.Enabled) {
-                MGLOG_D("Binding attribute index %u for VAO ID: %u", index, m_backendVAOId);
-                MG_External::GLES::glEnableVertexAttribArray(index);
-            } else {
-                MGLOG_D("Disabling attribute index %u for VAO ID: %u", index, m_backendVAOId);
-                MG_External::GLES::glDisableVertexAttribArray(index);
-            }
-
-            MG_External::GLES::glVertexAttribDivisor(index, attrib.Divisor);
-        }
-
         void BackendVertexArrayObject::SyncToBackend(SharedPtr<MG_State::GLState::VertexArrayObject>& stateVAOObject) {
 #ifdef TRACY_ENABLE
             ZoneScopedC(TRACY_ZONECOLOR_BACKEND);
@@ -260,19 +247,29 @@ namespace MobileGL::MG_Backend::DirectGLES {
             const auto& allAttributeVersions = stateVAOObject->GetAllAttributeVersions();
             const auto& allAttributes = stateVAOObject->GetAllAttributes();
             for (Uint attribIndex = 0; attribIndex < allAttributes.size(); ++attribIndex) {
+                const auto& attrib = allAttributes[attribIndex];
+                Bool needsSyncSwitch = allAttributeVersions[attribIndex].SwitchVersion !=
+                                       m_syncedAttributeVersions[attribIndex].SwitchVersion;
+                if (needsSyncSwitch) {
+                    if (attrib.Enabled) {
+                        MG_External::GLES::glEnableVertexAttribArray(attribIndex);
+                    } else {
+                        MG_External::GLES::glDisableVertexAttribArray(attribIndex);
+                    }
+                }
+
                 Bool needsSyncFormat = allAttributeVersions[attribIndex].FormatVersion !=
                                        m_syncedAttributeVersions[attribIndex].FormatVersion;
                 Bool needsSyncBuffer = allAttributeVersions[attribIndex].BufferVersion !=
                                        m_syncedAttributeVersions[attribIndex].BufferVersion;
                 if (!needsSyncFormat && !needsSyncBuffer) continue;
 
-                const auto& attrib = allAttributes[attribIndex];
                 if (needsSyncBuffer) {
                     SyncAttributeBuffer(attribIndex, attrib);
                 }
 
                 if (needsSyncFormat) {
-                    SyncAttributeFormat(attribIndex, attrib);
+                    MG_External::GLES::glVertexAttribDivisor(attribIndex, attrib.Divisor);
                 }
 
                 if (!attrib.IsInteger) {

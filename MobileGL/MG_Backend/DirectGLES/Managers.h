@@ -49,7 +49,6 @@ namespace MobileGL::MG_Backend::DirectGLES {
             void Bind();
 
         private:
-            void SyncAttributeFormat(Uint index, const MG_State::GLState::VertexAttribute& attrib);
             void SyncAttributeBuffer(Uint index, const MG_State::GLState::VertexAttribute& attrib);
 
             Uint m_backendVAOId = 0;
