@@ -13,10 +13,29 @@ if (ANDROID)
 endif()
 
 if (NOT CMAKE_BUILD_TYPE STREQUAL "Debug" OR MOBILEGL_FORCE_RELEASE_OPT)
+    # Check if ThinLTO or LTO is suppported
     include(CheckIPOSupported)
+    include(CheckCCompilerFlag)
+    include(CheckCXXCompilerFlag)
+
     check_ipo_supported(RESULT LTOSupported OUTPUT LTOError)
+
     if (LTOSupported)
-        set(CMAKE_INTERPROCEDURAL_OPTIMIZATION TRUE)
+        # Check ThinLTO
+        check_c_compiler_flag("-flto=thin" HAS_THINLTO_C)
+        check_cxx_compiler_flag("-flto=thin" HAS_THINLTO_CXX)
+        if (HAS_THINLTO_C AND HAS_THINLTO_CXX)
+            message(STATUS "ThinLTO supported, using -flto=thin")
+
+            add_compile_options(-flto=thin)
+            add_link_options(-flto=thin)
+        else()
+            # ThinLTO is not supported
+            message(STATUS "ThinLTO not available, fallback to CMAKE IPO")
+            set(CMAKE_INTERPROCEDURAL_OPTIMIZATION TRUE)
+        endif()
+    else()
+        message(STATUS "IPO not supported: ${LTOError}")
     endif()
 
     if (CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang" AND NOT MATCHES "AppleClang")
