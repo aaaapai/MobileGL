@@ -319,17 +319,24 @@ namespace MobileGL::MG_Backend::DirectGLES {
             return m_backendTextureId;
         }
 
-        void BackendTextureObject::SyncToBackend(SharedPtr<MG_State::GLState::ITextureObject>& stateTextureObject) {
-#ifdef TRACY_ENABLE
-            ZoneScopedC(TRACY_ZONECOLOR_BACKEND);
-#endif
-            DebugImpl::ErrorLopper errorLopper;
+        void BackendTextureObject::SyncMipmapsToBackend(
+            SharedPtr<MG_State::GLState::ITextureObject>& stateTextureObject) {
             if (!stateTextureObject) {
                 MGLOG_E("State texture object is null, cannot sync to backend.");
                 return;
             }
 
-            MGLOG_D("Syncing texture with backend ID %u to backend for state ID %u", m_backendTextureId,
+            if (!stateTextureObject->CheckDirtyBit(MG_State::GLState::TextureDirtyBit::StorageDirtyBit)) {
+                MGLOG_D("Texture parameters changed but storage is not dirty, skipping mipmap sync for texture ID: %u",
+                        m_backendTextureId);
+                return;
+            }
+#ifdef TRACY_ENABLE
+            ZoneScopedC(TRACY_ZONECOLOR_BACKEND);
+#endif
+            DebugImpl::ErrorLopper errorLopper;
+
+            MGLOG_D("Syncing texture mipmaps with backend ID %u to backend for state ID %u", m_backendTextureId,
                     stateTextureObject->GetExternalIndex());
 
             GLenum target = MG_Util::ConvertTextureTargetToGLEnum(stateTextureObject->GetTarget());
@@ -354,11 +361,8 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 return;
             }
 
-            // BackendTextureBindingProtector backendTextureBindingProtector(target);
             Bind(target);
-            errorLopper.Loop([file = __FILE__, line = __LINE__, func = __func__](GLenum err) {
-                MGLOG_D("%s(%s:%d) ES error: %s", func, file, line, MG_Util::ConvertGLEnumToString(err).c_str());
-            });
+
             const auto baseSize = stateTextureObject->GetBaseSize();
             StateTextureBasicInfo currentTextureInfo = {stateTextureObject->GetFormat(),
                                                         static_cast<SizeT>(baseSize.x()),
@@ -366,182 +370,211 @@ namespace MobileGL::MG_Backend::DirectGLES {
                                                         static_cast<SizeT>(baseSize.z()),
                                                         0,
                                                         0};
+            switch (stateTextureObject->GetStorageType()) {
+            case TextureStorageType::Mipmap: {
+                auto* textureMipmapObject =
+                    static_cast<MG_State::GLState::TextureObjectMipmap*>(stateTextureObject.get());
+                const auto mipmapCount = textureMipmapObject->GetMipmapLevelCount();
+                currentTextureInfo.mipmapLevels = mipmapCount;
 
-            if (stateTextureObject->CheckDirtyBit(MG_State::GLState::TextureDirtyBit::StorageDirtyBit)) {
-                switch (stateTextureObject->GetStorageType()) {
-                case TextureStorageType::Mipmap: {
-                    auto* textureMipmapObject =
-                        static_cast<MG_State::GLState::TextureObjectMipmap*>(stateTextureObject.get());
-                    const auto mipmapCount = textureMipmapObject->GetMipmapLevelCount();
-                    currentTextureInfo.mipmapLevels = mipmapCount;
+                Bool needsRegeneration = !m_isInitialized || (currentTextureInfo != m_prevTextureInfo);
 
-                    Bool needsRegeneration = !m_isInitialized || (currentTextureInfo != m_prevTextureInfo);
+                MGLOG_D("%s: Got texture info: %dx%dx%d, mips %d, format %s", __func__, baseSize.x(), baseSize.y(),
+                        baseSize.z(), mipmapCount,
+                        MG_Util::ConvertTextureInternalFormatToString(textureMipmapObject->GetFormat()).c_str());
 
-                    MGLOG_D("%s: Got texture info: %dx%dx%d, mips %d, format %s", __func__, baseSize.x(), baseSize.y(),
-                            baseSize.z(), mipmapCount,
-                            MG_Util::ConvertTextureInternalFormatToString(textureMipmapObject->GetFormat()).c_str());
-
-                    if (needsRegeneration) {
-                        MGLOG_D(
-                            "Texture state changed significantly or not initialized, regenerating texture with ID: %u",
+                if (needsRegeneration) {
+                    MGLOG_D("Texture state changed significantly or not initialized, regenerating texture with ID: %u",
                             m_backendTextureId);
 
-                        // Regenerate all mipmap levels
-                        GLenum glInternalFormat, glType, glFormat;
-                        TextureImpl::GenerateTextureFormatInfo(textureMipmapObject->GetFormat(), &glInternalFormat,
-                                                               &glFormat, &glType);
+                    // Regenerate all mipmap levels
+                    GLenum glInternalFormat, glType, glFormat;
+                    TextureImpl::GenerateTextureFormatInfo(textureMipmapObject->GetFormat(), &glInternalFormat,
+                                                           &glFormat, &glType);
 
-                        const auto& uploadTargets = textureMipmapObject->GetUploadTargets();
-                        for (auto uploadTarget : uploadTargets) {
-                            for (SizeT level = 0; level < mipmapCount; ++level) {
-                                auto levelTexelSize = textureMipmapObject->GetMipmapTexelSize(uploadTarget, level);
-                                auto levelByteSize = textureMipmapObject->GetMipmapByteSize(uploadTarget, level);
-                                bool levelDirty = textureMipmapObject->IsStorageDirty(uploadTarget, level);
-                                auto glUploadTarget = MG_Util::ConvertTextureUploadTargetToGLEnum(uploadTarget);
-                                auto* pData = (levelDirty && levelByteSize != 0)
-                                                  ? textureMipmapObject->MapMipmapData(uploadTarget, level)
-                                                  : nullptr;
-                                MGLOG_D("%s: target: %s: syncing mip %d: %dx%dx%d, byteSize = %d, pData = %p, "
-                                        "levelDirty = %s",
-                                        __func__, MG_Util::ConvertTextureUploadTargetToString(uploadTarget).c_str(),
-                                        level, levelTexelSize.x(), levelTexelSize.y(), levelTexelSize.z(),
-                                        levelByteSize, pData, levelDirty ? "true" : "false");
+                    const auto& uploadTargets = textureMipmapObject->GetUploadTargets();
+                    for (auto uploadTarget : uploadTargets) {
+                        for (SizeT level = 0; level < mipmapCount; ++level) {
+                            auto levelTexelSize = textureMipmapObject->GetMipmapTexelSize(uploadTarget, level);
+                            auto levelByteSize = textureMipmapObject->GetMipmapByteSize(uploadTarget, level);
+                            bool levelDirty = textureMipmapObject->IsStorageDirty(uploadTarget, level);
+                            auto glUploadTarget = MG_Util::ConvertTextureUploadTargetToGLEnum(uploadTarget);
+                            auto* pData = (levelDirty && levelByteSize != 0)
+                                              ? textureMipmapObject->MapMipmapData(uploadTarget, level)
+                                              : nullptr;
+                            MGLOG_D("%s: target: %s: syncing mip %d: %dx%dx%d, byteSize = %d, pData = %p, "
+                                    "levelDirty = %s",
+                                    __func__, MG_Util::ConvertTextureUploadTargetToString(uploadTarget).c_str(), level,
+                                    levelTexelSize.x(), levelTexelSize.y(), levelTexelSize.z(), levelByteSize, pData,
+                                    levelDirty ? "true" : "false");
 
-                                errorLopper.Clear();
-                                MG_External::GLES::glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
-                                auto textureTarget = stateTextureObject->GetTarget();
-                                // TODO: handle more texture types
-                                switch (textureTarget) {
-                                case TextureTarget::Texture2D:
-                                case TextureTarget::TextureCubeMap: {
-                                    MG_External::GLES::glTexImage2D(
-                                        glUploadTarget, static_cast<GLint>(level), glInternalFormat,
-                                        static_cast<GLsizei>(levelTexelSize.x()),
-                                        static_cast<GLsizei>(levelTexelSize.y()), 0, glFormat, glType, pData);
-                                    break;
-                                }
-                                case TextureTarget::Texture3D: {
-                                    MG_External::GLES::glTexImage3D(
-                                        glUploadTarget, static_cast<GLint>(level), glInternalFormat,
-                                        static_cast<GLsizei>(levelTexelSize.x()),
-                                        static_cast<GLsizei>(levelTexelSize.y()),
-                                        static_cast<GLsizei>(levelTexelSize.z()), 0, glFormat, glType, pData);
-                                    break;
-                                }
-                                default: {
-                                    MGLOG_E("Unhandled texture target %s",
-                                            MG_Util::ConvertTextureTargetToString(textureTarget).c_str());
-                                }
-                                }
-                                errorLopper.Loop([file = __FILE__, line = __LINE__, func = __func__, glUploadTarget,
-                                                  glInternalFormat, glFormat, glType, pData](GLenum err) {
-                                    MGLOG_D(
-                                        "%s(%s:%d) ES error: %s. glTexImage*: target=%s, internalformat=%s, format=%s, "
+                            errorLopper.Clear();
+                            MG_External::GLES::glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
+                            auto textureTarget = stateTextureObject->GetTarget();
+                            // TODO: handle more texture types
+                            switch (textureTarget) {
+                            case TextureTarget::Texture2D:
+                            case TextureTarget::TextureCubeMap: {
+                                MG_External::GLES::glTexImage2D(
+                                    glUploadTarget, static_cast<GLint>(level), glInternalFormat,
+                                    static_cast<GLsizei>(levelTexelSize.x()), static_cast<GLsizei>(levelTexelSize.y()),
+                                    0, glFormat, glType, pData);
+                                break;
+                            }
+                            case TextureTarget::Texture3D: {
+                                MG_External::GLES::glTexImage3D(
+                                    glUploadTarget, static_cast<GLint>(level), glInternalFormat,
+                                    static_cast<GLsizei>(levelTexelSize.x()), static_cast<GLsizei>(levelTexelSize.y()),
+                                    static_cast<GLsizei>(levelTexelSize.z()), 0, glFormat, glType, pData);
+                                break;
+                            }
+                            default: {
+                                MGLOG_E("Unhandled texture target %s",
+                                        MG_Util::ConvertTextureTargetToString(textureTarget).c_str());
+                            }
+                            }
+                            errorLopper.Loop([file = __FILE__, line = __LINE__, func = __func__, glUploadTarget,
+                                              glInternalFormat, glFormat, glType, pData](GLenum err) {
+                                MGLOG_D("%s(%s:%d) ES error: %s. glTexImage*: target=%s, internalformat=%s, format=%s, "
                                         "type=%s, pixels=%p",
                                         func, file, line, MG_Util::ConvertGLEnumToString(err).c_str(),
                                         MG_Util::ConvertGLEnumToString(glUploadTarget).c_str(),
                                         MG_Util::ConvertGLEnumToString(glInternalFormat).c_str(),
                                         MG_Util::ConvertGLEnumToString(glFormat).c_str(),
                                         MG_Util::ConvertGLEnumToString(glType).c_str(), pData);
-                                });
-                                MGLOG_D("Regenerated mipmap level %d for texture with ID: %u", level,
-                                        m_backendTextureId);
-                                textureMipmapObject->MarkStorageDirty(uploadTarget, level, false);
-                            }
-                        }
-
-                        m_isInitialized = true;
-                    }
-
-                    { // Update all dirty mipmap levels
-                        const auto mipmapCount = textureMipmapObject->GetMipmapLevelCount();
-                        GLenum glInternalFormat, glType, glFormat;
-                        TextureImpl::GenerateTextureFormatInfo(textureMipmapObject->GetFormat(), &glInternalFormat,
-                                                               &glFormat, &glType);
-                        const auto& uploadTargets = textureMipmapObject->GetUploadTargets();
-                        for (auto uploadTarget : uploadTargets) {
-                            for (SizeT level = 0; level < mipmapCount; ++level) {
-                                if (!textureMipmapObject->IsStorageDirty(uploadTarget, level)) {
-                                    continue;
-                                }
-
-                                auto byteSize = textureMipmapObject->GetMipmapByteSize(uploadTarget, level);
-                                if (byteSize == 0) {
-                                    MGLOG_W("Mipmap level %d has no data, skipping update.", level);
-                                    continue;
-                                }
-
-                                if (level > 0)
-                                    MGLOG_D("%s: Updating dirty mip %d for texture ID %u, size: %dx%d, "
-                                            "byteSize: %d",
-                                            __func__, level, m_backendTextureId,
-                                            textureMipmapObject->GetMipmapTexelSize(uploadTarget, level).x(),
-                                            textureMipmapObject->GetMipmapTexelSize(uploadTarget, level).y(), byteSize);
-
-                                auto glUploadTarget = MG_Util::ConvertTextureUploadTargetToGLEnum(uploadTarget);
-                                MG_External::GLES::glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
-                                errorLopper.Loop([file = __FILE__, line = __LINE__, func = __func__](GLenum err) {
-                                    MGLOG_D("%s(%s:%d) ES error: %s", func, file, line,
-                                            MG_Util::ConvertGLEnumToString(err).c_str());
-                                });
-                                auto texelSize = textureMipmapObject->GetMipmapTexelSize(uploadTarget, level);
-                                MG_External::GLES::glTexSubImage2D(
-                                    glUploadTarget, static_cast<GLint>(level), 0, 0,
-                                    static_cast<GLsizei>(texelSize.x()), static_cast<GLsizei>(texelSize.y()), glFormat,
-                                    glType, textureMipmapObject->MapMipmapData(uploadTarget, level));
-                                textureMipmapObject->MarkStorageDirty(uploadTarget, level, false);
-                            }
+                            });
+                            MGLOG_D("Regenerated mipmap level %d for texture with ID: %u", level, m_backendTextureId);
+                            textureMipmapObject->MarkStorageDirty(uploadTarget, level, false);
                         }
                     }
 
-                    textureMipmapObject->ClearAllStorageDirtyBit();
-                    break;
+                    m_isInitialized = true;
                 }
-                case TextureStorageType::Buffer: {
-                    auto* textureBufferObject =
-                        static_cast<MG_State::GLState::TextureObjectBuffer*>(stateTextureObject.get());
-                    auto& slot = textureBufferObject->GetBufferBindingSlot();
-                    auto buffer = slot.GetBoundObject();
-                    auto bufferIndex = buffer->GetExternalIndex();
-                    currentTextureInfo.bufferExternalIndex = bufferIndex;
 
-                    Bool needsRegeneration = !m_isInitialized || (currentTextureInfo != m_prevTextureInfo);
-                    MGLOG_D("Texture state changed significantly or not initialized, regenerating texture (tex buffer) "
-                            "with ID: %u",
-                            m_backendTextureId);
-
-                    // Need to sync texture buffer if not synced yet
-                    auto& backendBuffers = BufferImpl::g_backendBufferObjects;
-                    SharedPtr<BufferImpl::BackendBufferObject> backendBufferObject;
-                    const auto& backendBufferIt = backendBuffers.find(buffer);
-                    if (backendBufferIt == backendBuffers.end()) {
-                        backendBufferObject = MakeShared<BufferImpl::BackendBufferObject>();
-                        backendBuffers[buffer] = backendBufferObject;
-                    } else {
-                        backendBufferObject = backendBufferIt->second;
-                    }
-                    backendBufferObject->SyncToBackend(buffer);
-
-                    // Bind buffer to texture
-                    auto backendId = backendBufferObject->GetBackendBufferId();
-
+                { // Update all dirty mipmap levels
+                    const auto mipmapCount = textureMipmapObject->GetMipmapLevelCount();
                     GLenum glInternalFormat, glType, glFormat;
-                    TextureImpl::GenerateTextureFormatInfo(textureBufferObject->GetFormat(), &glInternalFormat,
+                    TextureImpl::GenerateTextureFormatInfo(textureMipmapObject->GetFormat(), &glInternalFormat,
                                                            &glFormat, &glType);
+                    const auto& uploadTargets = textureMipmapObject->GetUploadTargets();
+                    for (auto uploadTarget : uploadTargets) {
+                        for (SizeT level = 0; level < mipmapCount; ++level) {
+                            if (!textureMipmapObject->IsStorageDirty(uploadTarget, level)) {
+                                continue;
+                            }
 
-                    MG_External::GLES::glTexBuffer(GL_TEXTURE_BUFFER, glInternalFormat, backendId);
+                            auto byteSize = textureMipmapObject->GetMipmapByteSize(uploadTarget, level);
+                            if (byteSize == 0) {
+                                MGLOG_W("Mipmap level %d has no data, skipping update.", level);
+                                continue;
+                            }
 
-                    textureBufferObject->ClearAllStorageDirtyBit();
-                    break;
+                            if (level > 0)
+                                MGLOG_D("%s: Updating dirty mip %d for texture ID %u, size: %dx%d, "
+                                        "byteSize: %d",
+                                        __func__, level, m_backendTextureId,
+                                        textureMipmapObject->GetMipmapTexelSize(uploadTarget, level).x(),
+                                        textureMipmapObject->GetMipmapTexelSize(uploadTarget, level).y(), byteSize);
+
+                            auto glUploadTarget = MG_Util::ConvertTextureUploadTargetToGLEnum(uploadTarget);
+                            MG_External::GLES::glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
+                            errorLopper.Loop([file = __FILE__, line = __LINE__, func = __func__](GLenum err) {
+                                MGLOG_D("%s(%s:%d) ES error: %s", func, file, line,
+                                        MG_Util::ConvertGLEnumToString(err).c_str());
+                            });
+                            auto texelSize = textureMipmapObject->GetMipmapTexelSize(uploadTarget, level);
+                            MG_External::GLES::glTexSubImage2D(glUploadTarget, static_cast<GLint>(level), 0, 0,
+                                                               static_cast<GLsizei>(texelSize.x()),
+                                                               static_cast<GLsizei>(texelSize.y()), glFormat, glType,
+                                                               textureMipmapObject->MapMipmapData(uploadTarget, level));
+                            textureMipmapObject->MarkStorageDirty(uploadTarget, level, false);
+                        }
+                    }
                 }
-                default:
-                    THROW_UNIMPL_EXCEPTION;
+
+                textureMipmapObject->ClearAllStorageDirtyBit();
+                break;
+            }
+            case TextureStorageType::Buffer: {
+                auto* textureBufferObject =
+                    static_cast<MG_State::GLState::TextureObjectBuffer*>(stateTextureObject.get());
+                auto& slot = textureBufferObject->GetBufferBindingSlot();
+                auto buffer = slot.GetBoundObject();
+                auto bufferIndex = buffer->GetExternalIndex();
+                currentTextureInfo.bufferExternalIndex = bufferIndex;
+
+                Bool needsRegeneration = !m_isInitialized || (currentTextureInfo != m_prevTextureInfo);
+                MGLOG_D("Texture state changed significantly or not initialized, regenerating texture (tex buffer) "
+                        "with ID: %u",
+                        m_backendTextureId);
+
+                // Need to sync texture buffer if not synced yet
+                auto& backendBuffers = BufferImpl::g_backendBufferObjects;
+                SharedPtr<BufferImpl::BackendBufferObject> backendBufferObject;
+                const auto& backendBufferIt = backendBuffers.find(buffer);
+                if (backendBufferIt == backendBuffers.end()) {
+                    backendBufferObject = MakeShared<BufferImpl::BackendBufferObject>();
+                    backendBuffers[buffer] = backendBufferObject;
+                } else {
+                    backendBufferObject = backendBufferIt->second;
                 }
+                backendBufferObject->SyncToBackend(buffer);
+
+                // Bind buffer to texture
+                auto backendId = backendBufferObject->GetBackendBufferId();
+
+                GLenum glInternalFormat, glType, glFormat;
+                TextureImpl::GenerateTextureFormatInfo(textureBufferObject->GetFormat(), &glInternalFormat, &glFormat,
+                                                       &glType);
+
+                MG_External::GLES::glTexBuffer(GL_TEXTURE_BUFFER, glInternalFormat, backendId);
+
+                textureBufferObject->ClearAllStorageDirtyBit();
+                break;
+            }
+            default:
+                THROW_UNIMPL_EXCEPTION;
             }
 
-            { // Update built-in sampler parameters
-                MGLOG_D("Updating sampler parameters for texture with ID: %u", m_backendTextureId);
-                const auto& samplerParams = stateTextureObject->GetSamplerObject()->GetAllSamplerParameters();
+            errorLopper.Loop([file = __FILE__, line = __LINE__, func = __func__](GLenum err) {
+                MGLOG_D("%s(%s:%d) ES error: %s", func, file, line, MG_Util::ConvertGLEnumToString(err).c_str());
+            });
+
+            m_prevTextureInfo = currentTextureInfo;
+        }
+
+        void BackendTextureObject::SyncBuiltinSamplerToBackend(
+            SharedPtr<MG_State::GLState::ITextureObject>& stateTextureObject) {
+#ifdef TRACY_ENABLE
+            ZoneScopedC(TRACY_ZONECOLOR_BACKEND);
+#endif
+            DebugImpl::ErrorLopper errorLopper;
+            if (!stateTextureObject) {
+                MGLOG_E("State texture object is null, cannot sync to backend.");
+                return;
+            }
+
+            MGLOG_D("Syncing texture built-in sampler with backend ID %u to backend for state ID %u",
+                    m_backendTextureId, stateTextureObject->GetExternalIndex());
+
+            GLenum target = MG_Util::ConvertTextureTargetToGLEnum(stateTextureObject->GetTarget());
+            auto targetInternal = stateTextureObject->GetTarget();
+            MGLOG_D("    Texture target for syncing is %s",
+                    MG_Util::ConvertTextureTargetToString(targetInternal).c_str());
+            if (!IsSupportedTextureTarget(targetInternal)) {
+                MGLOG_E("    Texture target %s is not supported, skipping.",
+                        MG_Util::ConvertTextureTargetToString(targetInternal).c_str());
+                return;
+            }
+
+            Bind(target);
+            errorLopper.Loop([file = __FILE__, line = __LINE__, func = __func__](GLenum err) {
+                MGLOG_D("%s(%s:%d) ES error: %s", func, file, line, MG_Util::ConvertGLEnumToString(err).c_str());
+            });
+
+            // Update built-in sampler parameters
+            MGLOG_D("Updating sampler parameters for texture with ID: %u", m_backendTextureId);
+            const auto& samplerParams = stateTextureObject->GetSamplerObject()->GetAllSamplerParameters();
 
 #define SYNC_TEX_SAMPLER_PARAM_IF_CHANGED(internalName, glName, type)                                                  \
     if (m_cacheSamplerParameters.internalName != samplerParams.internalName) {                                         \
@@ -555,100 +588,120 @@ namespace MobileGL::MG_Backend::DirectGLES {
         });                                                                                                            \
     }
 
-                if (m_cacheSamplerParameters.minFilter != samplerParams.minFilter ||
-                    m_cacheSamplerParameters.mipmapMode != samplerParams.mipmapMode) {
-                    MG_External::GLES::glTexParameteri(
-                        target, GL_TEXTURE_MIN_FILTER,
-                        MG_Util::ConvertSamplerFilterModeToGLEnum(samplerParams.minFilter, samplerParams.mipmapMode));
-                    m_cacheSamplerParameters.minFilter = samplerParams.minFilter;
-                    m_cacheSamplerParameters.mipmapMode = samplerParams.mipmapMode;
-                }
-                if (m_cacheSamplerParameters.magFilter != samplerParams.magFilter) {
-                    MG_External::GLES::glTexParameteri(
-                        target, GL_TEXTURE_MAG_FILTER,
-                        MG_Util::ConvertSamplerFilterModeToGLEnum(samplerParams.magFilter, SamplerMipmapMode::None));
-                    m_cacheSamplerParameters.magFilter = samplerParams.magFilter;
-                }
-                errorLopper.Loop([file = __FILE__, line = __LINE__, func = __func__](GLenum err) {
-                    MGLOG_D("%s(%s:%d) ES error %s", func, file, line, MG_Util::ConvertGLEnumToString(err).c_str());
-                });
+            if (m_cacheSamplerParameters.minFilter != samplerParams.minFilter ||
+                m_cacheSamplerParameters.mipmapMode != samplerParams.mipmapMode) {
+                MG_External::GLES::glTexParameteri(
+                    target, GL_TEXTURE_MIN_FILTER,
+                    MG_Util::ConvertSamplerFilterModeToGLEnum(samplerParams.minFilter, samplerParams.mipmapMode));
+                m_cacheSamplerParameters.minFilter = samplerParams.minFilter;
+                m_cacheSamplerParameters.mipmapMode = samplerParams.mipmapMode;
+            }
+            if (m_cacheSamplerParameters.magFilter != samplerParams.magFilter) {
+                MG_External::GLES::glTexParameteri(
+                    target, GL_TEXTURE_MAG_FILTER,
+                    MG_Util::ConvertSamplerFilterModeToGLEnum(samplerParams.magFilter, SamplerMipmapMode::None));
+                m_cacheSamplerParameters.magFilter = samplerParams.magFilter;
+            }
+            errorLopper.Loop([file = __FILE__, line = __LINE__, func = __func__](GLenum err) {
+                MGLOG_D("%s(%s:%d) ES error %s", func, file, line, MG_Util::ConvertGLEnumToString(err).c_str());
+            });
 
-                SYNC_TEX_SAMPLER_PARAM_IF_CHANGED(wrapS, GL_TEXTURE_WRAP_S, WrapMode)
-                SYNC_TEX_SAMPLER_PARAM_IF_CHANGED(wrapT, GL_TEXTURE_WRAP_T, WrapMode)
-                SYNC_TEX_SAMPLER_PARAM_IF_CHANGED(wrapR, GL_TEXTURE_WRAP_R, WrapMode)
-                SYNC_TEX_SAMPLER_PARAM_IF_CHANGED(compareFunc, GL_TEXTURE_COMPARE_FUNC, CompareFunc)
-                SYNC_TEX_SAMPLER_PARAM_IF_CHANGED(compareMode, GL_TEXTURE_COMPARE_MODE, CompareMode)
-                if (m_cacheSamplerParameters.minLod != samplerParams.minLod) {
-                    MG_External::GLES::glTexParameterf(target, GL_TEXTURE_MIN_LOD, samplerParams.minLod);
-                    m_cacheSamplerParameters.minLod = samplerParams.minLod;
-                }
-                if (m_cacheSamplerParameters.maxLod != samplerParams.maxLod) {
-                    MG_External::GLES::glTexParameterf(target, GL_TEXTURE_MAX_LOD, samplerParams.maxLod);
-                    m_cacheSamplerParameters.maxLod = samplerParams.maxLod;
-                }
-                errorLopper.Loop([file = __FILE__, line = __LINE__, func = __func__](GLenum err) {
-                    MGLOG_D("%s(%s:%d) ES error %s", func, file, line, MG_Util::ConvertGLEnumToString(err).c_str());
-                });
+            SYNC_TEX_SAMPLER_PARAM_IF_CHANGED(wrapS, GL_TEXTURE_WRAP_S, WrapMode)
+            SYNC_TEX_SAMPLER_PARAM_IF_CHANGED(wrapT, GL_TEXTURE_WRAP_T, WrapMode)
+            SYNC_TEX_SAMPLER_PARAM_IF_CHANGED(wrapR, GL_TEXTURE_WRAP_R, WrapMode)
+            SYNC_TEX_SAMPLER_PARAM_IF_CHANGED(compareFunc, GL_TEXTURE_COMPARE_FUNC, CompareFunc)
+            SYNC_TEX_SAMPLER_PARAM_IF_CHANGED(compareMode, GL_TEXTURE_COMPARE_MODE, CompareMode)
+            if (m_cacheSamplerParameters.minLod != samplerParams.minLod) {
+                MG_External::GLES::glTexParameterf(target, GL_TEXTURE_MIN_LOD, samplerParams.minLod);
+                m_cacheSamplerParameters.minLod = samplerParams.minLod;
+            }
+            if (m_cacheSamplerParameters.maxLod != samplerParams.maxLod) {
+                MG_External::GLES::glTexParameterf(target, GL_TEXTURE_MAX_LOD, samplerParams.maxLod);
+                m_cacheSamplerParameters.maxLod = samplerParams.maxLod;
+            }
+            errorLopper.Loop([file = __FILE__, line = __LINE__, func = __func__](GLenum err) {
+                MGLOG_D("%s(%s:%d) ES error %s", func, file, line, MG_Util::ConvertGLEnumToString(err).c_str());
+            });
 #undef SYNC_TEX_SAMPLER_PARAM_IF_CHANGED
+        }
+
+        void BackendTextureObject::SyncTextureParamsToBackend(
+            SharedPtr<MG_State::GLState::ITextureObject>& stateTextureObject) {
+#ifdef TRACY_ENABLE
+            ZoneScopedC(TRACY_ZONECOLOR_BACKEND);
+#endif
+            DebugImpl::ErrorLopper errorLopper;
+            if (!stateTextureObject) {
+                MGLOG_E("State texture object is null, cannot sync to backend.");
+                return;
             }
 
-            { // Update texture parameters
-                MGLOG_D("Updating texture parameters for texture with ID: %u", m_backendTextureId);
+            MGLOG_D("Syncing texture params with backend ID %u to backend for state ID %u", m_backendTextureId,
+                    stateTextureObject->GetExternalIndex());
 
-                const auto& levelRange = stateTextureObject->GetLevelRange();
+            GLenum target = MG_Util::ConvertTextureTargetToGLEnum(stateTextureObject->GetTarget());
+            auto targetInternal = stateTextureObject->GetTarget();
+            MGLOG_D("    Texture target for syncing is %s",
+                    MG_Util::ConvertTextureTargetToString(targetInternal).c_str());
+            if (!IsSupportedTextureTarget(targetInternal)) {
+                MGLOG_E("    Texture target %s is not supported, skipping.",
+                        MG_Util::ConvertTextureTargetToString(targetInternal).c_str());
+                return;
+            }
 
-                if (m_cacheLodRange.x() != levelRange.x()) {
-                    MG_External::GLES::glTexParameteri(target, GL_TEXTURE_BASE_LEVEL,
-                                                       static_cast<GLint>(levelRange.x()));
-                    m_cacheLodRange.x() = levelRange.x();
-                }
-                errorLopper.Loop([file = __FILE__, line = __LINE__, func = __func__](GLenum err) {
-                    MGLOG_D("%s(%s:%d) ES error %s", func, file, line, MG_Util::ConvertGLEnumToString(err).c_str());
-                });
-                if (m_cacheLodRange.y() != levelRange.y()) {
-                    MG_External::GLES::glTexParameteri(target, GL_TEXTURE_MAX_LEVEL,
-                                                       static_cast<GLint>(levelRange.y()));
-                    m_cacheLodRange.y() = levelRange.y();
-                }
-                errorLopper.Loop([file = __FILE__, line = __LINE__, func = __func__](GLenum err) {
-                    MGLOG_D("%s(%s:%d) ES error %s", func, file, line, MG_Util::ConvertGLEnumToString(err).c_str());
-                });
+            Bind(target);
+            errorLopper.Loop([file = __FILE__, line = __LINE__, func = __func__](GLenum err) {
+                MGLOG_D("%s(%s:%d) ES error: %s", func, file, line, MG_Util::ConvertGLEnumToString(err).c_str());
+            });
 
-                const auto& swizzleParams = stateTextureObject->GetAllSwizzleParams();
-                if (swizzleParams != m_cacheSwizzleParams) {
+            // Update texture parameters
+            MGLOG_D("Updating texture parameters for texture with ID: %u", m_backendTextureId);
+
+            const auto& levelRange = stateTextureObject->GetLevelRange();
+
+            if (m_cacheLodRange.x() != levelRange.x()) {
+                MG_External::GLES::glTexParameteri(target, GL_TEXTURE_BASE_LEVEL, static_cast<GLint>(levelRange.x()));
+                m_cacheLodRange.x() = levelRange.x();
+            }
+            errorLopper.Loop([file = __FILE__, line = __LINE__, func = __func__](GLenum err) {
+                MGLOG_D("%s(%s:%d) ES error %s", func, file, line, MG_Util::ConvertGLEnumToString(err).c_str());
+            });
+            if (m_cacheLodRange.y() != levelRange.y()) {
+                MG_External::GLES::glTexParameteri(target, GL_TEXTURE_MAX_LEVEL, static_cast<GLint>(levelRange.y()));
+                m_cacheLodRange.y() = levelRange.y();
+            }
+            errorLopper.Loop([file = __FILE__, line = __LINE__, func = __func__](GLenum err) {
+                MGLOG_D("%s(%s:%d) ES error %s", func, file, line, MG_Util::ConvertGLEnumToString(err).c_str());
+            });
+
+            const auto& swizzleParams = stateTextureObject->GetAllSwizzleParams();
+            if (swizzleParams != m_cacheSwizzleParams) {
 #define SYNC_TEX_SWIZZLE_PARAM_IF_CHANGED(func, glEnum)                                                                \
     if (m_cacheSwizzleParams.func != swizzleParams.func) {                                                             \
         MG_External::GLES::glTexParameteri(target, glEnum,                                                             \
                                            MG_Util::ConvertTextureSwizzleParamToGLEnum(swizzleParams.func));           \
         m_cacheSwizzleParams.func = swizzleParams.func;                                                                \
     }
-                    SYNC_TEX_SWIZZLE_PARAM_IF_CHANGED(r(), GL_TEXTURE_SWIZZLE_R);
-                    SYNC_TEX_SWIZZLE_PARAM_IF_CHANGED(g(), GL_TEXTURE_SWIZZLE_G);
-                    SYNC_TEX_SWIZZLE_PARAM_IF_CHANGED(b(), GL_TEXTURE_SWIZZLE_B);
-                    SYNC_TEX_SWIZZLE_PARAM_IF_CHANGED(a(), GL_TEXTURE_SWIZZLE_A);
+                SYNC_TEX_SWIZZLE_PARAM_IF_CHANGED(r(), GL_TEXTURE_SWIZZLE_R);
+                SYNC_TEX_SWIZZLE_PARAM_IF_CHANGED(g(), GL_TEXTURE_SWIZZLE_G);
+                SYNC_TEX_SWIZZLE_PARAM_IF_CHANGED(b(), GL_TEXTURE_SWIZZLE_B);
+                SYNC_TEX_SWIZZLE_PARAM_IF_CHANGED(a(), GL_TEXTURE_SWIZZLE_A);
 #undef SYNC_TEX_SWIZZLE_PARAM_IF_CHANGED
-                    m_cacheSwizzleParams = swizzleParams;
-                    errorLopper.Loop([file = __FILE__, line = __LINE__, func = __func__](GLenum err) {
-                        MGLOG_D("%s(%s:%d) ES error %s", func, file, line, MG_Util::ConvertGLEnumToString(err).c_str());
-                    });
-                }
-
-                if (m_cacheBorderColor != stateTextureObject->GetBorderColor()) {
-                    const auto& borderColor = stateTextureObject->GetBorderColor();
-                    GLfloat borderColorArray[4] = {borderColor.x(), borderColor.y(), borderColor.z(), borderColor.w()};
-                    MG_External::GLES::glTexParameterfv(target, GL_TEXTURE_BORDER_COLOR, borderColorArray);
-                    m_cacheBorderColor = borderColor;
-                    errorLopper.Loop([file = __FILE__, line = __LINE__, func = __func__](GLenum err) {
-                        MGLOG_D("%s(%s:%d) ES error %s", func, file, line, MG_Util::ConvertGLEnumToString(err).c_str());
-                    });
-                }
+                m_cacheSwizzleParams = swizzleParams;
+                errorLopper.Loop([file = __FILE__, line = __LINE__, func = __func__](GLenum err) {
+                    MGLOG_D("%s(%s:%d) ES error %s", func, file, line, MG_Util::ConvertGLEnumToString(err).c_str());
+                });
             }
 
-            errorLopper.Loop([file = __FILE__, line = __LINE__, func = __func__](GLenum err) {
-                MGLOG_D("%s(%s:%d) ES error: %s", func, file, line, MG_Util::ConvertGLEnumToString(err).c_str());
-            });
-
-            m_prevTextureInfo = currentTextureInfo;
+            if (m_cacheBorderColor != stateTextureObject->GetBorderColor()) {
+                const auto& borderColor = stateTextureObject->GetBorderColor();
+                GLfloat borderColorArray[4] = {borderColor.x(), borderColor.y(), borderColor.z(), borderColor.w()};
+                MG_External::GLES::glTexParameterfv(target, GL_TEXTURE_BORDER_COLOR, borderColorArray);
+                m_cacheBorderColor = borderColor;
+                errorLopper.Loop([file = __FILE__, line = __LINE__, func = __func__](GLenum err) {
+                    MGLOG_D("%s(%s:%d) ES error %s", func, file, line, MG_Util::ConvertGLEnumToString(err).c_str());
+                });
+            }
         }
 
         UnorderedMap<SharedPtr<MG_State::GLState::ITextureObject>, SharedPtr<BackendTextureObject>>

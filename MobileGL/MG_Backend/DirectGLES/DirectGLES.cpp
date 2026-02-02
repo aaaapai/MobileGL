@@ -192,7 +192,9 @@ namespace MobileGL::MG_Backend::DirectGLES {
             } else {
                 backendTextureObject = backendTextureIt->second;
             }
-            backendTextureObject->SyncToBackend(textureObject);
+            backendTextureObject->SyncTextureParamsToBackend(textureObject);
+            backendTextureObject->SyncBuiltinSamplerToBackend(textureObject);
+            backendTextureObject->SyncMipmapsToBackend(textureObject);
             return backendTextureObject;
         }
 

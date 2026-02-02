@@ -86,7 +86,9 @@ namespace MobileGL::MG_Backend::DirectGLES {
         class BackendTextureObject {
         public:
             BackendTextureObject();
-            void SyncToBackend(SharedPtr<MG_State::GLState::ITextureObject>& stateTextureObject);
+            void SyncMipmapsToBackend(SharedPtr<MG_State::GLState::ITextureObject>& stateTextureObject);
+            void SyncBuiltinSamplerToBackend(SharedPtr<MG_State::GLState::ITextureObject>& stateTextureObject);
+            void SyncTextureParamsToBackend(SharedPtr<MG_State::GLState::ITextureObject>& stateTextureObject);
             void Bind(GLenum target);
             Uint GetBackendTextureId();
 
