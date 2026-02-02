@@ -102,6 +102,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
             Vec4<TextureSwizzleParam> m_cacheSwizzleParams = {TextureSwizzleParam::Red, TextureSwizzleParam::Green,
                                                               TextureSwizzleParam::Blue, TextureSwizzleParam::Alpha};
             Uint16 m_syncedSamplerVersion = 0;
+            Uint16 m_syncedTextureParamsVersion = 0;
         };
 
         extern UnorderedMap<SharedPtr<MG_State::GLState::ITextureObject>, SharedPtr<BackendTextureObject>>

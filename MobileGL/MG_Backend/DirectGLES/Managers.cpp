@@ -644,6 +644,13 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 return;
             }
 
+            Uint16 currentTextureParamsVersion = stateTextureObject->GetTextureParamsVersion();
+            if (m_syncedTextureParamsVersion == currentTextureParamsVersion) {
+                MGLOG_D("Texture parameters have not changed for texture ID: %u, skipping sync.", m_backendTextureId);
+                return;
+            }
+            m_syncedTextureParamsVersion = currentTextureParamsVersion;
+
             MGLOG_D("Syncing texture params with backend ID %u to backend for state ID %u", m_backendTextureId,
                     stateTextureObject->GetExternalIndex());
 
