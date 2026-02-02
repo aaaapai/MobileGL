@@ -1,0 +1,24 @@
+name: Update Submodules
+on:
+  workflow_dispatch:
+
+jobs:
+  update-submodules:
+    runs-on: ubuntu-slim
+    steps:
+    - uses: actions/checkout@main
+      with:
+        submodules: 'false'
+        
+    - name: Update all submodules
+      run: |
+        # git submodule update --remote --recursive
+        cd library/android/arm64-v8a
+        rm libglslang.a
+        tar -xf lang.tar.xz
+        rm lang.tar.xz
+        git config --global user.name "GitHub Actions"
+        git config --global user.email "actions@github.com"
+        git add .
+        git commit -m "Upload glslang"
+        git push
