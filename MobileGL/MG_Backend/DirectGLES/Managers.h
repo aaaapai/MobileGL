@@ -44,13 +44,18 @@ namespace MobileGL::MG_Backend::DirectGLES {
         class BackendVertexArrayObject {
         public:
             BackendVertexArrayObject();
-            void SyncToBackend(SharedPtr<MG_State::GLState::VertexArrayObject>& stateVAOObject, Bool needDivisor);
+            void SyncToBackend(SharedPtr<MG_State::GLState::VertexArrayObject>& stateVAOObject);
             Uint GetBackendVertexArrayId() { return m_backendVAOId; }
             void Bind();
 
         private:
+            void SyncAttributeFormat(Uint index, const MG_State::GLState::VertexAttribute& attrib);
+            void SyncAttributeBuffer(Uint index, const MG_State::GLState::VertexAttribute& attrib);
+
             Uint m_backendVAOId = 0;
             Bool m_isInitialized = false;
+            Array<MG_State::GLState::VertexAttributeVersion, MG_State::GLState::VertexArrayObject::MAX_VERTEX_ATTRIBS>
+                m_syncedAttributeVersions;
         };
 
         extern UnorderedMap<SharedPtr<MG_State::GLState::VertexArrayObject>, SharedPtr<BackendVertexArrayObject>>

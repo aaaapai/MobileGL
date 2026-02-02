@@ -156,7 +156,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
     } // namespace BufferImpl
 
     namespace VertexArrayImpl {
-        void SyncCurrentVAO(Bool needDivisor) {
+        void SyncCurrentVAO() {
 #ifdef TRACY_ENABLE
             ZoneScopedC(TRACY_ZONECOLOR_BACKEND);
 #endif
@@ -174,7 +174,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
             } else {
                 backendVAOObject = backendVAOIt->second;
             }
-            backendVAOObject->SyncToBackend(currentVAOObject, needDivisor);
+            backendVAOObject->SyncToBackend(currentVAOObject);
         }
     } // namespace VertexArrayImpl
 
@@ -388,7 +388,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
         ZoneScopedC(TRACY_ZONECOLOR_BACKEND);
 #endif
         BufferImpl::SyncNeccessaryBuffers(syncBit & DrawSyncBit::IndexBuffer, syncBit & DrawSyncBit::IndirectBuffer);
-        VertexArrayImpl::SyncCurrentVAO(syncBit & DrawSyncBit::Instancing);
+        VertexArrayImpl::SyncCurrentVAO();
         TextureImpl::SyncNeccessaryTextures();
         FramebufferImpl::SyncCurrentFBO();
         PrgramImpl::SyncCurrentProgram();
@@ -856,8 +856,6 @@ namespace MobileGL::MG_Backend::DirectGLES {
 
             if (MG_External::GLES::glCheckFramebufferStatus(GL_DRAW_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
                 MGLOG_E("ES glCheckFramebufferStatus(GL_DRAW_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE");
-
-                // Protector will automatically revert to previous fbo states
                 return;
             }
 
@@ -867,7 +865,6 @@ namespace MobileGL::MG_Backend::DirectGLES {
             errorLopper.Loop([file = __FILE__, line = __LINE__](auto err) {
                 MGLOG_D("ES error (%s:%d): %s", file, line, MG_Util::ConvertGLEnumToString(err).c_str());
             });
-            // Protector will automatically revert to previous fbo states
         }
     }
 
@@ -927,8 +924,6 @@ namespace MobileGL::MG_Backend::DirectGLES {
             });
             if (MG_External::GLES::glCheckFramebufferStatus(GL_DRAW_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
                 MGLOG_E("ES glCheckFramebufferStatus(GL_DRAW_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE");
-
-                // Protector will automatically revert to previous fbo states
                 return;
             }
 
@@ -938,7 +933,6 @@ namespace MobileGL::MG_Backend::DirectGLES {
             errorLopper.Loop([file = __FILE__, line = __LINE__](auto err) {
                 MGLOG_D("ES error (%s:%d): %s", file, line, MG_Util::ConvertGLEnumToString(err).c_str());
             });
-            // Protector will automatically revert to previous fbo states
         }
     }
 

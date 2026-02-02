@@ -212,8 +212,38 @@ namespace MobileGL::MG_Backend::DirectGLES {
             MG_External::GLES::glBindVertexArray(m_backendVAOId);
         }
 
-        void BackendVertexArrayObject::SyncToBackend(SharedPtr<MG_State::GLState::VertexArrayObject>& stateVAOObject,
-                                                     Bool needDivisor) {
+        void BackendVertexArrayObject::SyncAttributeBuffer(Uint index,
+                                                           const MG_State::GLState::VertexAttribute& attrib) {
+            const auto& bufferObject = attrib.Buffer;
+            if (!bufferObject) {
+                MGLOG_W("Attribute has no bound buffer, skipping.");
+                return;
+            }
+
+            const auto& backendBufferIt = BufferImpl::g_backendBufferObjects.find(bufferObject);
+            if (backendBufferIt == BufferImpl::g_backendBufferObjects.end()) {
+                MGLOG_E("No backend buffer found for attribute's buffer, cannot bind attribute.");
+                return;
+            }
+            const auto& backendBufferObject = backendBufferIt->second;
+
+            backendBufferObject->Bind(GL_ARRAY_BUFFER);
+        }
+
+        void BackendVertexArrayObject::SyncAttributeFormat(Uint index,
+                                                           const MG_State::GLState::VertexAttribute& attrib) {
+            if (attrib.Enabled) {
+                MGLOG_D("Binding attribute index %u for VAO ID: %u", index, m_backendVAOId);
+                MG_External::GLES::glEnableVertexAttribArray(index);
+            } else {
+                MGLOG_D("Disabling attribute index %u for VAO ID: %u", index, m_backendVAOId);
+                MG_External::GLES::glDisableVertexAttribArray(index);
+            }
+
+            MG_External::GLES::glVertexAttribDivisor(index, attrib.Divisor);
+        }
+
+        void BackendVertexArrayObject::SyncToBackend(SharedPtr<MG_State::GLState::VertexArrayObject>& stateVAOObject) {
 #ifdef TRACY_ENABLE
             ZoneScopedC(TRACY_ZONECOLOR_BACKEND);
 #endif
@@ -227,31 +257,24 @@ namespace MobileGL::MG_Backend::DirectGLES {
 
             Bind();
 
-            for (const auto& attribIndex : stateVAOObject->GetDirtyAttributeIndices()) {
-                const auto& attrib = stateVAOObject->GetAttribute(attribIndex);
-                if (attrib.Enabled) {
-                    MGLOG_D("Binding attribute index %u for VAO ID: %u", attribIndex, m_backendVAOId);
-                    MG_External::GLES::glEnableVertexAttribArray(attribIndex);
-                } else {
-                    MGLOG_D("Disabling attribute index %u for VAO ID: %u", attribIndex, m_backendVAOId);
-                    MG_External::GLES::glDisableVertexAttribArray(attribIndex);
-                    continue;
+            const auto& allAttributeVersions = stateVAOObject->GetAllAttributeVersions();
+            const auto& allAttributes = stateVAOObject->GetAllAttributes();
+            for (Uint attribIndex = 0; attribIndex < allAttributes.size(); ++attribIndex) {
+                Bool needsSyncFormat = allAttributeVersions[attribIndex].FormatVersion !=
+                                       m_syncedAttributeVersions[attribIndex].FormatVersion;
+                Bool needsSyncBuffer = allAttributeVersions[attribIndex].BufferVersion !=
+                                       m_syncedAttributeVersions[attribIndex].BufferVersion;
+                if (!needsSyncFormat && !needsSyncBuffer) continue;
+
+                const auto& attrib = allAttributes[attribIndex];
+                if (needsSyncBuffer) {
+                    SyncAttributeBuffer(attribIndex, attrib);
                 }
 
-                const auto& bufferObject = attrib.Buffer;
-                if (!bufferObject) {
-                    MGLOG_W("Attribute has no bound buffer, skipping.");
-                    continue;
+                if (needsSyncFormat) {
+                    SyncAttributeFormat(attribIndex, attrib);
                 }
 
-                const auto& backendBufferIt = BufferImpl::g_backendBufferObjects.find(bufferObject);
-                if (backendBufferIt == BufferImpl::g_backendBufferObjects.end()) {
-                    MGLOG_E("No backend buffer found for attribute's buffer, cannot bind attribute.");
-                    continue;
-                }
-                const auto& backendBufferObject = backendBufferIt->second;
-
-                backendBufferObject->Bind(GL_ARRAY_BUFFER);
                 if (!attrib.IsInteger) {
                     MG_External::GLES::glVertexAttribPointer(
                         attribIndex, attrib.Size, MG_Util::ConvertDataTypeToGLEnum(attrib.Type),
@@ -260,10 +283,6 @@ namespace MobileGL::MG_Backend::DirectGLES {
                     MG_External::GLES::glVertexAttribIPointer(attribIndex, attrib.Size,
                                                               MG_Util::ConvertDataTypeToGLEnum(attrib.Type),
                                                               attrib.Stride, (const void*)attrib.Offset);
-                }
-
-                if (needDivisor) {
-                    MG_External::GLES::glVertexAttribDivisor(attribIndex, attrib.Divisor);
                 }
             }
 
@@ -278,7 +297,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 }
             }
 
-            stateVAOObject->ClearDirtyAttributes();
+            m_syncedAttributeVersions = allAttributeVersions;
         }
 
         UnorderedMap<SharedPtr<MG_State::GLState::VertexArrayObject>, SharedPtr<BackendVertexArrayObject>>
