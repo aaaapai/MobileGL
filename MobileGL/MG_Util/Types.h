@@ -147,6 +147,8 @@ namespace MobileGL {
         BindingSlot() : m_target((TargetEnum)0), m_boundObject(nullptr) {}
         explicit BindingSlot(TargetEnum target) : m_target(target), m_boundObject(nullptr) {}
         void Bind(SharedPtr<ObjectType> object) {
+            if (m_boundObject == object) return;
+
             m_boundObject = object;
             ++m_version;
         }

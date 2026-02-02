@@ -44,6 +44,8 @@ namespace MobileGL {
             }
 
             void TextureObjectBase::SetInternalFormat(TextureInternalFormat format) {
+                if (format == m_internalFormat) return;
+
                 m_internalFormat = format;
                 ++m_textureParamsVersion;
             }
@@ -57,6 +59,8 @@ namespace MobileGL {
             }
 
             void TextureObjectBase::SetBorderColor(const FloatVec4& color) {
+                if (color == m_borderColor) return;
+
                 m_borderColor = color;
                 ++m_textureParamsVersion;
             }
@@ -83,6 +87,8 @@ namespace MobileGL {
             }
 
             void TextureObjectBase::SetSwizzleParam(TextureSwizzleParam param, TextureSwizzleParam value) {
+                if (GetSwizzleParam(param) == value) return;
+
                 switch (param) {
                 case TextureSwizzleParam::Red:
                     m_swizzleParams.r() = value;
@@ -105,6 +111,8 @@ namespace MobileGL {
             }
 
             void TextureObjectBase::SetSwizzleParamRGBA(const Vec4<TextureSwizzleParam>& values) {
+                if (values == m_swizzleParams) return;
+
                 m_swizzleParams = values;
                 ++m_textureParamsVersion;
             }
@@ -114,11 +122,15 @@ namespace MobileGL {
             }
 
             void TextureObjectBase::SetBaseLevel(Uint baseLevel) {
+                if (baseLevel == m_levelRange.x()) return;
+
                 m_levelRange.x() = baseLevel;
                 ++m_textureParamsVersion;
             }
 
             void TextureObjectBase::SetMaxLevel(Uint maxLevel) {
+                if (maxLevel == m_levelRange.y()) return;
+
                 m_levelRange.y() = maxLevel;
                 ++m_textureParamsVersion;
             }

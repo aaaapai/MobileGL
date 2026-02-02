@@ -28,12 +28,18 @@ namespace MobileGL {
 
             void VertexArrayObject::EnableAttribute(Uint index) {
                 if (index >= MAX_VERTEX_ATTRIBS) return;
+
+                if (!m_attributes[index].Enabled) return;
+
                 m_attributes[index].Enabled = true;
                 BumpAttributeSwitchVersion(index);
             }
 
             void VertexArrayObject::DisableAttribute(Uint index) {
                 if (index >= MAX_VERTEX_ATTRIBS) return;
+
+                if (!m_attributes[index].Enabled) return;
+
                 m_attributes[index].Enabled = false;
                 BumpAttributeSwitchVersion(index);
             }
@@ -46,6 +52,12 @@ namespace MobileGL {
             void VertexArrayObject::SetAttributeFormat(Uint index, int size, DataType type, Bool normalized, int stride,
                                                        SizeT offset, Bool isInteger) {
                 if (index >= MAX_VERTEX_ATTRIBS) return;
+
+                if (m_attributes[index].Size == size && m_attributes[index].Type == type &&
+                    m_attributes[index].Normalized == normalized && m_attributes[index].Stride == stride &&
+                    m_attributes[index].Offset == offset && m_attributes[index].IsInteger == isInteger) {
+                    return;
+                }
 
                 if (size < 1 || size > 4) {
                     return;
@@ -64,6 +76,9 @@ namespace MobileGL {
 
             void VertexArrayObject::BindAttributeBuffer(Uint index, const SharedPtr<BufferObject>& buffer) {
                 if (index >= MAX_VERTEX_ATTRIBS) return;
+
+                if (m_attributes[index].Buffer == buffer) return;
+
                 m_attributes[index].Buffer = buffer;
                 BumpAttributeBufferVersion(index);
             }
