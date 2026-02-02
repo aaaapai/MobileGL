@@ -86,6 +86,21 @@ namespace MobileGL::MG_Backend::DirectGLES {
     // TODO: deletion for deleted objects
 
     namespace BufferImpl {
+        void CreateAndSyncBufferObject(SharedPtr<MG_State::GLState::BufferObject>& bufferObject) {
+            if (!(bufferObject->GetChangeBits() & BufferChangeBits::DirtyBit))
+                return;
+
+            const auto& backendBufferIt = g_backendBufferObjects.find(bufferObject);
+            SharedPtr<BackendBufferObject> backendBufferObject;
+            if (backendBufferIt == g_backendBufferObjects.end()) {
+                backendBufferObject = MakeShared<BackendBufferObject>();
+                g_backendBufferObjects[bufferObject] = backendBufferObject;
+            } else {
+                backendBufferObject = backendBufferIt->second;
+            }
+            backendBufferObject->SyncToBackend(bufferObject);
+        }
+
         void SyncNeccessaryBuffers(Bool includeIBO = false, Bool includeIndirectBuffer = false) {
 #ifdef TRACY_ENABLE
             ZoneScopedC(TRACY_ZONECOLOR_BACKEND);
@@ -94,9 +109,8 @@ namespace MobileGL::MG_Backend::DirectGLES {
             //   1.VBO 2.IBO (if needed) 3.UBO 4.IndirectBuffer (if needed) 5.SSBO (TODO)
             // PBO is not needed since it should be handled in frontend
 
-            static Vector<SharedPtr<MG_State::GLState::BufferObject>> buffersToSync;
-
-            buffersToSync.clear();
+            // static Vector<SharedPtr<MG_State::GLState::BufferObject>> buffersToSync;
+            // buffersToSync.clear();
 
             const auto& currentVAOObject = MG_State::pGLContext->GetBoundVertexArray();
             if (!currentVAOObject) {
@@ -107,26 +121,26 @@ namespace MobileGL::MG_Backend::DirectGLES {
             // VBO
             for (const auto& attrib : currentVAOObject->GetAllAttributes()) {
                 if (!attrib.Enabled) continue;
-                const auto& bufferObject = attrib.Buffer;
+                auto bufferObject = attrib.Buffer;
                 if (bufferObject) {
-                    buffersToSync.push_back(bufferObject);
+                    CreateAndSyncBufferObject(bufferObject);
                 }
             }
 
             // IBO
             if (includeIBO) {
-                const auto& possibleIBO = currentVAOObject->GetIndexBufferBindingSlot().GetBoundObject();
+                auto possibleIBO = currentVAOObject->GetIndexBufferBindingSlot().GetBoundObject();
                 if (possibleIBO) {
-                    buffersToSync.push_back(possibleIBO);
+                    CreateAndSyncBufferObject(possibleIBO);
                 }
             }
 
             // Indirect Buffer Object
             if (includeIndirectBuffer) {
-                const auto& possibleIndirectBuffer =
+                auto possibleIndirectBuffer =
                     MG_State::pGLContext->GetBufferBindingSlot(BufferTarget::DrawIndirect).GetBoundObject();
                 if (possibleIndirectBuffer) {
-                    buffersToSync.push_back(possibleIndirectBuffer);
+                    CreateAndSyncBufferObject(possibleIndirectBuffer);
                 }
             }
 
@@ -136,23 +150,8 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 auto& point = MG_State::pGLContext->GetBufferBindingPoint(BufferTarget::Uniform, i);
                 auto obj = point.GetBoundObject();
                 if (obj) {
-                    buffersToSync.push_back(obj);
+                    CreateAndSyncBufferObject(obj);
                 }
-            }
-
-            // Do real sync
-            for (auto& bufferObject : buffersToSync) {
-                if (!(bufferObject->GetChangeBits() & BufferChangeBits::DirtyBit)) continue;
-
-                const auto& backendBufferIt = g_backendBufferObjects.find(bufferObject);
-                SharedPtr<BackendBufferObject> backendBufferObject;
-                if (backendBufferIt == g_backendBufferObjects.end()) {
-                    backendBufferObject = MakeShared<BackendBufferObject>();
-                    g_backendBufferObjects[bufferObject] = backendBufferObject;
-                } else {
-                    backendBufferObject = backendBufferIt->second;
-                }
-                backendBufferObject->SyncToBackend(bufferObject);
             }
         }
     } // namespace BufferImpl
