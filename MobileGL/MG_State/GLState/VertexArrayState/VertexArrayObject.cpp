@@ -29,7 +29,7 @@ namespace MobileGL {
             void VertexArrayObject::EnableAttribute(Uint index) {
                 if (index >= MAX_VERTEX_ATTRIBS) return;
 
-                if (!m_attributes[index].Enabled) return;
+                if (m_attributes[index].Enabled) return;
 
                 m_attributes[index].Enabled = true;
                 BumpAttributeSwitchVersion(index);

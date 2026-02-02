@@ -264,9 +264,8 @@ namespace MobileGL::MG_Backend::DirectGLES {
                                        m_syncedAttributeVersions[attribIndex].BufferVersion;
                 if (!needsSyncFormat && !needsSyncBuffer) continue;
 
-                if (needsSyncBuffer) {
-                    SyncAttributeBuffer(attribIndex, attrib);
-                }
+                SyncAttributeBuffer(attribIndex,
+                                    attrib); // Always need to bind VBO before setting glVertexAttribPointer
 
                 if (needsSyncFormat) {
                     MG_External::GLES::glVertexAttribDivisor(attribIndex, attrib.Divisor);
