@@ -105,7 +105,6 @@ namespace MobileGL::MG_Backend::DirectGLES {
 #ifdef TRACY_ENABLE
             ZoneScopedC(TRACY_ZONECOLOR_BACKEND);
 #endif
-            BackendBufferBindingProtector backendBufferBindingProtector(TempBufferTarget);
 
             MGLOG_D("Syncing buffer data (glBufferData) for object with ID : %u", m_backendBufferId);
 
@@ -122,7 +121,6 @@ namespace MobileGL::MG_Backend::DirectGLES {
 #ifdef TRACY_ENABLE
             ZoneScopedC(TRACY_ZONECOLOR_BACKEND);
 #endif
-            BackendBufferBindingProtector backendBufferBindingProtector(TempBufferTarget);
 
             MGLOG_D("Syncing buffer sub-data (glBufferSubData) for object with ID : %u", m_backendBufferId);
 
@@ -146,7 +144,6 @@ namespace MobileGL::MG_Backend::DirectGLES {
 #ifdef TRACY_ENABLE
             ZoneScopedC(TRACY_ZONECOLOR_BACKEND);
 #endif
-            BackendBufferBindingProtector backendBufferBindingProtector(TempBufferTarget);
 
             MGLOG_D("Syncing buffer map (glMapBuffer) for object with ID : %u", m_backendBufferId);
             MGLOG_D("Mapping buffer with ID: %u", m_backendBufferId);
@@ -227,9 +224,6 @@ namespace MobileGL::MG_Backend::DirectGLES {
 
             MGLOG_D("Syncing VAO with backend ID %u to backend for state ID %u", m_backendVAOId,
                     stateVAOObject->GetExternalIndex());
-
-            BufferImpl::BackendBufferBindingProtector backendBufferBindingProtector(BufferImpl::TempBufferTarget);
-            BackendVertexArrayBindingProtector backendVAOBindingProtector;
 
             Bind();
 
@@ -759,7 +753,6 @@ namespace MobileGL::MG_Backend::DirectGLES {
             MGLOG_D("Syncing FBO with backend ID %u to backend for state ID %u, as %s FBO", m_backendFBOId,
                     stateFBOObject->GetExternalIndex(), (asTarget == FramebufferTarget::Draw ? "DRAW" : "READ"));
             GLenum glFBOTarget = MG_Util::ConvertFramebufferTargetToGLEnum(asTarget);
-            BackendFramebufferBindingProtector backendFBOBindingProtector(glFBOTarget);
             Bind(asTarget);
 
             // Handle all attachments

@@ -844,16 +844,6 @@ namespace MobileGL::MG_Backend::DirectGLES {
             errorLopper.Loop([file = __FILE__, line = __LINE__](auto err) {
                 MGLOG_D("ES error (%s:%d): %s", file, line, MG_Util::ConvertGLEnumToString(err).c_str());
             });
-            FramebufferImpl::BackendFramebufferBindingProtector drawFboProtector(GL_DRAW_FRAMEBUFFER);
-            FramebufferImpl::BackendFramebufferBindingProtector readFboProtector(GL_READ_FRAMEBUFFER);
-            errorLopper.Loop([file = __FILE__, line = __LINE__](auto err) {
-                MGLOG_D("ES error (%s:%d): %s", file, line, MG_Util::ConvertGLEnumToString(err).c_str());
-            });
-
-            FramebufferImpl::BackendFramebufferBindingProtector::BindTempFBO(FramebufferTarget::Draw);
-            errorLopper.Loop([file = __FILE__, line = __LINE__](auto err) {
-                MGLOG_D("ES error (%s:%d): %s", file, line, MG_Util::ConvertGLEnumToString(err).c_str());
-            });
 
             GLint currentTex;
             MG_External::GLES::glGetIntegerv(Utils::GetBindingQuery(target, false), &currentTex);
@@ -925,15 +915,6 @@ namespace MobileGL::MG_Backend::DirectGLES {
             });
         } else {
             MGLOG_D("%s: Backend depth", __func__);
-            FramebufferImpl::BackendFramebufferBindingProtector drawFboProtector(GL_DRAW_FRAMEBUFFER);
-            FramebufferImpl::BackendFramebufferBindingProtector readFboProtector(GL_READ_FRAMEBUFFER);
-            errorLopper.Loop([file = __FILE__, line = __LINE__](auto err) {
-                MGLOG_D("ES error (%s:%d): %s", file, line, MG_Util::ConvertGLEnumToString(err).c_str());
-            });
-            FramebufferImpl::BackendFramebufferBindingProtector::BindTempFBO(FramebufferTarget::Draw);
-            errorLopper.Loop([file = __FILE__, line = __LINE__](auto err) {
-                MGLOG_D("ES error (%s:%d): %s", file, line, MG_Util::ConvertGLEnumToString(err).c_str());
-            });
             GLint currentTex;
             MG_External::GLES::glGetIntegerv(Utils::GetBindingQuery(target, false), &currentTex);
             errorLopper.Loop([file = __FILE__, line = __LINE__](auto err) {
@@ -971,7 +952,6 @@ namespace MobileGL::MG_Backend::DirectGLES {
         auto texture = slot.GetBoundObject();
         auto backendTexture = TextureImpl::SyncTextureObjectToBackend(texture);
 
-        TextureImpl::BackendTextureBindingProtector protector(target);
         backendTexture->Bind(target);
         MG_External::GLES::glGenerateMipmap(target);
     }
