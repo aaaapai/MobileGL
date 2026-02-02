@@ -15,26 +15,32 @@ namespace MobileGL {
 
             void SamplerObject::SetWrapS(SamplerWrapMode mode) {
                 m_samplerParameters.wrapS = mode;
+                ++m_version;
             }
 
             void SamplerObject::SetWrapT(SamplerWrapMode mode) {
                 m_samplerParameters.wrapT = mode;
+                ++m_version;
             }
 
             void SamplerObject::SetWrapR(SamplerWrapMode mode) {
                 m_samplerParameters.wrapR = mode;
+                ++m_version;
             }
 
             void SamplerObject::SetMinFilter(SamplerFilterMode mode) {
                 m_samplerParameters.minFilter = mode;
+                ++m_version;
             }
 
             void SamplerObject::SetMagFilter(SamplerFilterMode mode) {
                 m_samplerParameters.magFilter = mode;
+                ++m_version;
             }
 
             void SamplerObject::SetMipmapMode(SamplerMipmapMode mode) {
                 m_samplerParameters.mipmapMode = mode;
+                ++m_version;
             }
 
             void SamplerObject::SetLodRange(Float minLod, Float maxLod) {
@@ -43,18 +49,22 @@ namespace MobileGL {
                 }
                 m_samplerParameters.minLod = minLod;
                 m_samplerParameters.maxLod = maxLod;
+                ++m_version;
             }
 
             void SamplerObject::SetLodBias(Float bias) {
                 m_samplerParameters.lodBias = bias;
+                ++m_version;
             }
 
             void SamplerObject::SetSamplerCompareFunc(SamplerCompareFunc func) {
                 m_samplerParameters.compareFunc = func;
+                ++m_version;
             }
 
             void SamplerObject::SetCompareMode(SamplerCompareMode mode) {
                 m_samplerParameters.compareMode = mode;
+                ++m_version;
             }
 
             SamplerWrapMode SamplerObject::GetWrapS() const {
@@ -107,6 +117,10 @@ namespace MobileGL {
 
             const SamplerParameters& SamplerObject::GetAllSamplerParameters() const {
                 return m_samplerParameters;
+            }
+
+            Uint16 SamplerObject::GetVersion() const {
+                return m_version;
             }
         } // namespace GLState
     } // namespace MG_State
