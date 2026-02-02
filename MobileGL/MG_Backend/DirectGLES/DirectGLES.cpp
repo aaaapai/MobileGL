@@ -94,7 +94,10 @@ namespace MobileGL::MG_Backend::DirectGLES {
             //   1.VBO 2.IBO (if needed) 3.UBO 4.IndirectBuffer (if needed) 5.SSBO (TODO)
             // PBO is not needed since it should be handled in frontend
 
-            Vector<SharedPtr<MG_State::GLState::BufferObject>> buffersToSync;
+            static Vector<SharedPtr<MG_State::GLState::BufferObject>> buffersToSync;
+
+            buffersToSync.clear();
+
             const auto& currentVAOObject = MG_State::pGLContext->GetBoundVertexArray();
             if (!currentVAOObject) {
                 MGLOG_E("No VAO is currently bound, cannot sync necessary buffers.");
@@ -106,10 +109,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 if (!attrib.Enabled) continue;
                 const auto& bufferObject = attrib.Buffer;
                 if (bufferObject) {
-                    const auto& end = buffersToSync.end();
-                    if (std::find(buffersToSync.begin(), end, bufferObject) == end) {
-                        buffersToSync.push_back(bufferObject);
-                    }
+                    buffersToSync.push_back(bufferObject);
                 }
             }
 
@@ -117,10 +117,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
             if (includeIBO) {
                 const auto& possibleIBO = currentVAOObject->GetIndexBufferBindingSlot().GetBoundObject();
                 if (possibleIBO) {
-                    const auto& end = buffersToSync.end();
-                    if (std::find(buffersToSync.begin(), end, possibleIBO) == end) {
-                        buffersToSync.push_back(possibleIBO);
-                    }
+                    buffersToSync.push_back(possibleIBO);
                 }
             }
 
@@ -129,10 +126,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 const auto& possibleIndirectBuffer =
                     MG_State::pGLContext->GetBufferBindingSlot(BufferTarget::DrawIndirect).GetBoundObject();
                 if (possibleIndirectBuffer) {
-                    const auto& end = buffersToSync.end();
-                    if (std::find(buffersToSync.begin(), end, possibleIndirectBuffer) == end) {
-                        buffersToSync.push_back(possibleIndirectBuffer);
-                    }
+                    buffersToSync.push_back(possibleIndirectBuffer);
                 }
             }
 
@@ -142,10 +136,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 auto& point = MG_State::pGLContext->GetBufferBindingPoint(BufferTarget::Uniform, i);
                 auto obj = point.GetBoundObject();
                 if (obj) {
-                    const auto& end = buffersToSync.end();
-                    if (std::find(buffersToSync.begin(), end, obj) == end) {
-                        buffersToSync.push_back(obj);
-                    }
+                    buffersToSync.push_back(obj);
                 }
             }
 
