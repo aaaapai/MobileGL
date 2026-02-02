@@ -554,6 +554,14 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 return;
             }
 
+            Uint currentSamplerVersion = stateTextureObject->GetSamplerObject()->GetVersion();
+            if (m_syncedSamplerVersion == currentSamplerVersion) {
+                MGLOG_D("Sampler parameters have not changed for texture ID: %u, skipping sync.", m_backendTextureId);
+                return;
+            }
+
+            m_syncedSamplerVersion = currentSamplerVersion;
+
             MGLOG_D("Syncing texture built-in sampler with backend ID %u to backend for state ID %u",
                     m_backendTextureId, stateTextureObject->GetExternalIndex());
 
@@ -987,16 +995,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 source = ProcessOutColorLocations(source);
                 source = ForceSupporterOutput(source);
 
-                // TODO: probably a patch system?
-                // String findStr = "if (distance_weight_sum == 0.0)";
-                // String replaceStr = "if (distance_weight_sum <= 0.0001)";
-                // auto pos = source.find(findStr);
-                // while (pos != String::npos) {
-                //     MGLOG_D("Applying patch #1 to Photon...");
-                //     source.replace(pos, findStr.length(), replaceStr);
-                //     pos = source.find(findStr, pos);
-                // }
-
+                // Patch for Photon compiler precision issue
                 String findStr = "1000000.0";
                 String replaceStr = "65500.0";
                 auto pos = source.find(findStr);
@@ -1005,24 +1004,6 @@ namespace MobileGL::MG_Backend::DirectGLES {
                     source.replace(pos, findStr.length(), replaceStr);
                     pos = source.find(findStr, pos);
                 }
-
-                // findStr = "if (gtao.w == 0.0)";
-                // replaceStr = "if (abs(gtao.w) <= 0.00001)";
-                // pos = source.find(findStr);
-                // while (pos != String::npos) {
-                //     MGLOG_D("Applying patch #3 to Photon...");
-                //     source.replace(pos, findStr.length(), replaceStr);
-                //     pos = source.find(findStr, pos);
-                // }
-
-                // findStr = "== 0.0";
-                // replaceStr = "<= 0.00001";
-                // pos = source.find(findStr);
-                // while (pos != String::npos) {
-                //     MGLOG_D("Applying patch #4 to Photon...");
-                //     source.replace(pos, findStr.length(), replaceStr);
-                //     pos = source.find(findStr, pos);
-                // }
 
                 const char* sourceCStr = source.c_str();
                 MGLOG_D("Setting shader source for backend shader ID: %u\nsrc:\n%s", backendShaderId, sourceCStr);
@@ -1109,6 +1090,15 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 MGLOG_E("State sampler object is null, cannot sync to backend.");
                 return;
             }
+
+            Uint currentSamplerVersion = stateSamplerObject->GetVersion();
+            if (m_isInitialized && m_syncedSamplerVersion == currentSamplerVersion) {
+                MGLOG_D("Sampler parameters have not changed for sampler ID: %u, skipping sync.",
+                        stateSamplerObject->GetExternalIndex());
+                return;
+            }
+
+            m_syncedSamplerVersion = currentSamplerVersion;
 
             MGLOG_D("Syncing sampler with backend ID %u to backend for state ID %u", m_backendSamplerId,
                     stateSamplerObject->GetExternalIndex());

@@ -101,6 +101,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
             FloatVec4 m_cacheBorderColor = {0.0f, 0.0f, 0.0f, 0.0f};
             Vec4<TextureSwizzleParam> m_cacheSwizzleParams = {TextureSwizzleParam::Red, TextureSwizzleParam::Green,
                                                               TextureSwizzleParam::Blue, TextureSwizzleParam::Alpha};
+            Uint16 m_syncedSamplerVersion = 0;
         };
 
         extern UnorderedMap<SharedPtr<MG_State::GLState::ITextureObject>, SharedPtr<BackendTextureObject>>
@@ -181,6 +182,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
             Uint m_backendSamplerId = 0;
             Bool m_isInitialized = false;
             SamplerParameters m_cacheSamplerParameters;
+            Uint16 m_syncedSamplerVersion = 0;
         };
 
         extern UnorderedMap<SharedPtr<MG_State::GLState::SamplerObject>, SharedPtr<BackendSamplerObject>>
