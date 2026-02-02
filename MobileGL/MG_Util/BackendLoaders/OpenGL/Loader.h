@@ -515,13 +515,16 @@ namespace MobileGL {
             typedef EGLBoolean (*eglWaitClient_PTR)();
             typedef EGLBoolean (*eglWaitGL_PTR)();
             typedef EGLBoolean (*eglWaitNative_PTR)(EGLint engine);
-            typedef EGLSync (*eglCreateSync_PTR)(EGLDisplay dpy, EGLenum type, const EGLAttrib * attrib_list);
+            typedef EGLSync (*eglCreateSync_PTR)(EGLDisplay dpy, EGLenum type, const EGLAttrib* attrib_list);
             typedef EGLBoolean (*eglDestroySync_PTR)(EGLDisplay dpy, EGLSync sync);
             typedef EGLint (*eglClientWaitSync_PTR)(EGLDisplay dpy, EGLSync sync, EGLint flags, EGLTime timeout);
-            typedef EGLBoolean (*eglGetSyncAttrib_PTR)(EGLDisplay dpy, EGLSync sync, EGLint attribute, EGLAttrib * value);
-            typedef EGLImage (*eglCreateImage_PTR)(EGLDisplay dpy, EGLContext ctx, EGLenum target, EGLClientBuffer buffer, const EGLAttrib * attrib_list);
+            typedef EGLBoolean (*eglGetSyncAttrib_PTR)(EGLDisplay dpy, EGLSync sync, EGLint attribute,
+                                                       EGLAttrib* value);
+            typedef EGLImage (*eglCreateImage_PTR)(EGLDisplay dpy, EGLContext ctx, EGLenum target,
+                                                   EGLClientBuffer buffer, const EGLAttrib* attrib_list);
             typedef EGLBoolean (*eglDestroyImage_PTR)(EGLDisplay dpy, EGLImage image);
-            typedef EGLSurface (*eglCreatePlatformPixmapSurface_PTR)(EGLDisplay dpy, EGLConfig config, void * native_pixmap, const EGLAttrib * attrib_list);
+            typedef EGLSurface (*eglCreatePlatformPixmapSurface_PTR)(EGLDisplay dpy, EGLConfig config,
+                                                                     void* native_pixmap, const EGLAttrib* attrib_list);
             typedef EGLBoolean (*eglWaitSync_PTR)(EGLDisplay dpy, EGLSync sync, EGLint flags);
 
 

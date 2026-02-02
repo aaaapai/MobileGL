@@ -98,10 +98,12 @@ namespace MobileGL {
                 SamplerCompareMode GetCompareMode() const;
                 SamplerCompareFunc GetSamplerCompareFunc() const;
                 Uint GetExternalIndex() const;
+                Uint16 GetVersion() const;
                 const SamplerParameters& GetAllSamplerParameters() const;
 
             private:
                 const Uint m_externalIndex;
+                Uint16 m_version = 0;
                 SamplerParameters m_samplerParameters;
             };
         } // namespace GLState

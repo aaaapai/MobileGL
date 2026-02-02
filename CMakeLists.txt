@@ -46,7 +46,9 @@ set(SOURCE_FILES
 
     MobileGL/MG_Util/Debug/Log.cpp
 
+    MobileGL/MG_Util/Math/VectorTypes.cpp
     MobileGL/MG_Util/Metrics/TextureMetrics.cpp
+
     MobileGL/MG_Util/Metrics/BufferMetrics.cpp
 
     MobileGL/MG_Util/Converters/GLToStr/GLEnumConverter.cpp

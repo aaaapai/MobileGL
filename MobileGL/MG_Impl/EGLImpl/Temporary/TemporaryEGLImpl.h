@@ -29,7 +29,7 @@ namespace MobileGL {
         EGLBoolean BindAPI(EGLenum api);
         EGLSurface GetCurrentSurface(EGLint readdraw);
         EGLBoolean QuerySurface(EGLDisplay display, EGLSurface surface, EGLint attribute, EGLint* value);
-        char const * QueryString(EGLDisplay display, EGLint name);
+        char const* QueryString(EGLDisplay display, EGLint name);
         EGLBoolean SwapInterval(EGLDisplay dpy, EGLint interval);
         EGLBoolean SwapBuffers(EGLDisplay dpy, EGLSurface draw);
         EGLSurface CreatePbufferSurface(EGLDisplay dpy, EGLConfig config, const EGLint* attrib_list);
@@ -39,7 +39,7 @@ namespace MobileGL {
         EGLSurface CreatePbufferFromClientBuffer(EGLDisplay dpy, EGLenum buftype, EGLClientBuffer buffer,
                                                  EGLConfig config, const EGLint* attrib_list);
         EGLSurface CreatePixmapSurface(EGLDisplay dpy, EGLConfig config, EGLNativePixmapType pixmap,
-                                        const EGLint* attrib_list);
+                                       const EGLint* attrib_list);
         EGLBoolean GetConfigs(EGLDisplay dpy, EGLConfig* configs, EGLint config_size, EGLint* num_config);
         EGLDisplay GetCurrentDisplay(void);
         EGLenum QueryAPI(void);
@@ -49,15 +49,18 @@ namespace MobileGL {
         EGLBoolean WaitGL(void);
         EGLBoolean WaitNative(EGLint engine);
         __eglMustCastToProperFunctionPointerType GetProcAddress(const char* name);
-        EGLSync CreateSync(EGLDisplay dpy, EGLenum type, const EGLAttrib * attrib_list);
+        EGLSync CreateSync(EGLDisplay dpy, EGLenum type, const EGLAttrib* attrib_list);
         EGLBoolean DestroySync(EGLDisplay dpy, EGLSync sync);
         EGLint ClientWaitSync(EGLDisplay dpy, EGLSync sync, EGLint flags, EGLTime timeout);
-        EGLBoolean GetSyncAttrib(EGLDisplay dpy, EGLSync sync, EGLint attribute, EGLAttrib * value);
-        EGLImage CreateImage(EGLDisplay dpy, EGLContext ctx, EGLenum target, EGLClientBuffer buffer, const EGLAttrib * attrib_list);
+        EGLBoolean GetSyncAttrib(EGLDisplay dpy, EGLSync sync, EGLint attribute, EGLAttrib* value);
+        EGLImage CreateImage(EGLDisplay dpy, EGLContext ctx, EGLenum target, EGLClientBuffer buffer,
+                             const EGLAttrib* attrib_list);
         EGLBoolean DestroyImage(EGLDisplay dpy, EGLImage image);
-        EGLDisplay GetPlatformDisplay(EGLenum platform, void * native_display, const EGLAttrib * attrib_list);
-        EGLSurface CreatePlatformWindowSurface(EGLDisplay dpy, EGLConfig config, void * native_window, const EGLAttrib * attrib_list);
-        EGLSurface CreatePlatformPixmapSurface(EGLDisplay dpy, EGLConfig config, void * native_pixmap, const EGLAttrib * attrib_list);
+        EGLDisplay GetPlatformDisplay(EGLenum platform, void* native_display, const EGLAttrib* attrib_list);
+        EGLSurface CreatePlatformWindowSurface(EGLDisplay dpy, EGLConfig config, void* native_window,
+                                               const EGLAttrib* attrib_list);
+        EGLSurface CreatePlatformPixmapSurface(EGLDisplay dpy, EGLConfig config, void* native_pixmap,
+                                               const EGLAttrib* attrib_list);
         EGLBoolean WaitSync(EGLDisplay dpy, EGLSync sync, EGLint flags);
     } // namespace MG_Impl::EGLImpl
 } // namespace MobileGL

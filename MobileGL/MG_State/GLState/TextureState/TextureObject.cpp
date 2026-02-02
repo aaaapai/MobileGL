@@ -115,6 +115,13 @@ namespace MobileGL {
                 m_levelRange.y() = maxLevel;
             }
 
+            bool TextureObjectBase::IsDirty() const {
+                return m_dirtyBit;
+            }
+            bool TextureObjectBase::CheckDirtyBit(TextureDirtyBit bit) const {
+                return m_dirtyBit & bit;
+            }
+
             Uint TextureObjectWithOneMipmap::GetMipmapLevelCount() const {
                 return m_textureStorage.GetLevelCount();
             }
@@ -146,6 +153,9 @@ namespace MobileGL {
             void TextureObjectWithOneMipmap::MarkStorageDirty(TextureUploadTarget uploadTarget, Uint mipmapLevel,
                                                               bool dirty) {
                 m_textureStorage.MarkDirty(GetIndexOfTextureUploadTarget(uploadTarget), mipmapLevel, dirty);
+                if (dirty) {
+                    m_dirtyBit.Set(TextureDirtyBit::StorageDirtyBit);
+                }
             }
 
             bool TextureObjectWithOneMipmap::IsStorageDirty(TextureUploadTarget uploadTarget, Uint mipmapLevel) const {
@@ -187,6 +197,14 @@ namespace MobileGL {
 
                 // TODO: add more completeness checks based on texture type and mipmap levels
                 return true;
+            }
+
+            void TextureObjectWithOneMipmap::ClearAllStorageDirtyBit() {
+                auto levelCount = GetMipmapLevelCount();
+                for (Uint i = 0; i < levelCount; ++i) {
+                    m_textureStorage.MarkDirty(0, i, false);
+                }
+                m_dirtyBit.Clear(TextureDirtyBit::StorageDirtyBit);
             }
 
             // TODO: add other texture types as needed

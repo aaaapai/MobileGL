@@ -25,6 +25,7 @@ namespace MobileGL {
                 SizeT GetByteSize(Uint level) const;
                 void MarkDirty(Uint level, bool dirty);
                 bool IsDirty(Uint level) const;
+
             protected:
                 Vector<IntVec3> m_texelSizes;
                 Vector<Vector<Uint8>> m_data;

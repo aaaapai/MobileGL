@@ -9,6 +9,7 @@
 #pragma once
 #include <Includes.h>
 #include "DirectGLES.h"
+#include "Utils.h"
 #include "MG_State/GLState/SamplerState/SamplerObject.h"
 #include "MG_State/GLState/TextureState/TextureEnum.h"
 #include <MG_State/GLState/TextureState/TextureObject.h>
@@ -28,7 +29,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
             void SyncToBackend_glBufferData(SharedPtr<MG_State::GLState::BufferObject>& stateBufferObject);
             void SyncToBackend_glBufferSubData(SharedPtr<MG_State::GLState::BufferObject>& stateBufferObject);
             void SyncToBackend_glMapBufferRange(SharedPtr<MG_State::GLState::BufferObject>& stateBufferObject,
-                                                Bool invalidate = true);
+                                                Bool invalidate = true, Bool unsynchronized = true);
 
             Uint m_backendBufferId = 0;
             SizeT m_prevBufferSize = 0;
@@ -58,12 +59,9 @@ namespace MobileGL::MG_Backend::DirectGLES {
 
     namespace TextureImpl {
         inline Bool IsSupportedTextureTarget(TextureTarget target) {
-            if (target == TextureTarget::Texture1D ||
-                target == TextureTarget::TextureRectangle ||
-                target == TextureTarget::Texture2DMultisampleArray ||
-                target == TextureTarget::Texture1DArray ||
-                target == TextureTarget::Texture2DMultisample ||
-                target == TextureTarget::Texture2DArray)
+            if (target == TextureTarget::Texture1D || target == TextureTarget::TextureRectangle ||
+                target == TextureTarget::Texture2DMultisampleArray || target == TextureTarget::Texture1DArray ||
+                target == TextureTarget::Texture2DMultisample || target == TextureTarget::Texture2DArray)
                 return false;
             return true;
         }
@@ -88,7 +86,9 @@ namespace MobileGL::MG_Backend::DirectGLES {
         class BackendTextureObject {
         public:
             BackendTextureObject();
-            void SyncToBackend(SharedPtr<MG_State::GLState::ITextureObject>& stateTextureObject);
+            void SyncMipmapsToBackend(SharedPtr<MG_State::GLState::ITextureObject>& stateTextureObject);
+            void SyncBuiltinSamplerToBackend(SharedPtr<MG_State::GLState::ITextureObject>& stateTextureObject);
+            void SyncTextureParamsToBackend(SharedPtr<MG_State::GLState::ITextureObject>& stateTextureObject);
             void Bind(GLenum target);
             Uint GetBackendTextureId();
 

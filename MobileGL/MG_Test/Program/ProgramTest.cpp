@@ -925,7 +925,7 @@ TEST_F(ProgramTest, CompileAndLinkWithExplicitVertexIn) {
     // auto& vertexSpirv = spirvs[1]; // 0 - fragment, 1 - vertex
     char* pSrcVertIn = nullptr;
     const char* needle = "layout(location = 2) in vec2 UV0;";
-    for (auto spirv: spirvs) {
+    for (auto spirv : spirvs) {
         MG_Util::ShaderTranspiler::SpvcSession spvcSession(spirv);
         spvc_compiler_options options;
         spvcSession.CreateOptions(&options);

@@ -19,7 +19,9 @@ namespace MobileGL {
             template <SizeT TargetCount>
             class MipmapUploadTargetArray {
             public:
-                MipmapUploadTargetArray() { static_assert(TargetCount > 0, "Upload target count must be greater than zero"); }
+                MipmapUploadTargetArray() {
+                    static_assert(TargetCount > 0, "Upload target count must be greater than zero");
+                }
 
                 void AllocateLevel(Uint targetIndex, Uint level, MipmapInput input) {
                     MOBILEGL_ASSERT(targetIndex < TargetCount, "AllocateLevel: target invalid");

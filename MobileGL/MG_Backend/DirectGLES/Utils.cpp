@@ -74,13 +74,10 @@ namespace MobileGL::MG_Backend::DirectGLES {
             ZoneScopedC(TRACY_ZONECOLOR_BACKEND);
 #endif
             using namespace MobileGL::MG_Util::TextureFormatProcessor;
-            auto options =
-                (MG_External::GLES::g_glesCaps.hasNorm16Texture) ? PixelFormatNormalizeOptionBit::None : PixelFormatNormalizeOptionBit::NoNorm16;
-            NormalizePixelFormat(
-                    MG_Util::ConvertTextureInternalFormatToGLEnum(internalFormat),
-                    options,
-                    outInternalFormat,
-                    outFormat, outType);
+            auto options = (MG_External::GLES::g_glesCaps.hasNorm16Texture) ? PixelFormatNormalizeOptionBit::None
+                                                                            : PixelFormatNormalizeOptionBit::NoNorm16;
+            NormalizePixelFormat(MG_Util::ConvertTextureInternalFormatToGLEnum(internalFormat), options,
+                                 outInternalFormat, outFormat, outType);
         }
     } // namespace TextureImpl
 
