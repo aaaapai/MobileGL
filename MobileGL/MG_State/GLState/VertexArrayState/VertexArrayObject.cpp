@@ -29,13 +29,13 @@ namespace MobileGL {
             void VertexArrayObject::EnableAttribute(Uint index) {
                 if (index >= MAX_VERTEX_ATTRIBS) return;
                 m_attributes[index].Enabled = true;
-                BumpAttributeFormatVersion(index);
+                BumpAttributeSwitchVersion(index);
             }
 
             void VertexArrayObject::DisableAttribute(Uint index) {
                 if (index >= MAX_VERTEX_ATTRIBS) return;
                 m_attributes[index].Enabled = false;
-                BumpAttributeFormatVersion(index);
+                BumpAttributeSwitchVersion(index);
             }
 
             Bool VertexArrayObject::IsAttributeEnabled(Uint index) const {
@@ -107,6 +107,11 @@ namespace MobileGL {
             void VertexArrayObject::BumpAttributeBufferVersion(Uint index) {
                 if (index >= MAX_VERTEX_ATTRIBS) return;
                 ++m_attributeVersions[index].BufferVersion;
+            }
+
+            void VertexArrayObject::BumpAttributeSwitchVersion(Uint index) {
+                if (index >= MAX_VERTEX_ATTRIBS) return;
+                ++m_attributeVersions[index].SwitchVersion;
             }
 
             const VertexAttributeVersion& VertexArrayObject::GetAttributeVersion(Uint index) const {

@@ -29,6 +29,7 @@ namespace MobileGL {
             struct VertexAttributeVersion {
                 Uint16 FormatVersion = 0;
                 Uint16 BufferVersion = 0;
+                Uint16 SwitchVersion = 0;
             };
 
             class VertexArrayObject {
@@ -62,10 +63,11 @@ namespace MobileGL {
             private:
                 void BumpAttributeFormatVersion(Uint index);
                 void BumpAttributeBufferVersion(Uint index);
+                void BumpAttributeSwitchVersion(Uint index);
 
                 const Uint m_externalIndex = 0;
                 Array<VertexAttribute, MAX_VERTEX_ATTRIBS> m_attributes;
-                Array<VertexAttributeVersion, MAX_VERTEX_ATTRIBS> m_attributeVersions; // format version, buffer version
+                Array<VertexAttributeVersion, MAX_VERTEX_ATTRIBS> m_attributeVersions;
                 BindingSlot<BufferObject> m_indexBufferBindingSlot;
             };
         } // namespace GLState
