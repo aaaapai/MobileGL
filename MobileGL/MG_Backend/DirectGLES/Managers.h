@@ -53,6 +53,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
 
             Uint m_backendVAOId = 0;
             Bool m_isInitialized = false;
+            Uint16 m_syncedIndexBufferVersion = 0;
             Array<MG_State::GLState::VertexAttributeVersion, MG_State::GLState::VertexArrayObject::MAX_VERTEX_ATTRIBS>
                 m_syncedAttributeVersions;
         };

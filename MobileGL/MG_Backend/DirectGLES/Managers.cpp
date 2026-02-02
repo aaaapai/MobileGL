@@ -283,15 +283,19 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 }
             }
 
-            const auto& indexBufferBinding = stateVAOObject->GetIndexBufferBindingSlot().GetBoundObject();
-            if (indexBufferBinding) {
-                const auto& backendBufferIt = BufferImpl::g_backendBufferObjects.find(indexBufferBinding);
-                if (backendBufferIt != BufferImpl::g_backendBufferObjects.end()) {
-                    const auto& backendBufferObject = backendBufferIt->second;
-                    backendBufferObject->Bind(GL_ELEMENT_ARRAY_BUFFER);
-                } else {
-                    MGLOG_W("No backend buffer found for index buffer binding, cannot bind index buffer.");
+            Uint16 currentIndexBufferVersion = stateVAOObject->GetIndexBufferBindingSlot().GetVersion();
+            if (currentIndexBufferVersion != m_syncedIndexBufferVersion) {
+                const auto& indexBufferBinding = stateVAOObject->GetIndexBufferBindingSlot().GetBoundObject();
+                if (indexBufferBinding) {
+                    const auto& backendBufferIt = BufferImpl::g_backendBufferObjects.find(indexBufferBinding);
+                    if (backendBufferIt != BufferImpl::g_backendBufferObjects.end()) {
+                        const auto& backendBufferObject = backendBufferIt->second;
+                        backendBufferObject->Bind(GL_ELEMENT_ARRAY_BUFFER);
+                    } else {
+                        MGLOG_W("No backend buffer found for index buffer binding, cannot bind index buffer.");
+                    }
                 }
+                m_syncedIndexBufferVersion = currentIndexBufferVersion;
             }
 
             m_syncedAttributeVersions = allAttributeVersions;
