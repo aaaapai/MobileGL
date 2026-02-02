@@ -205,8 +205,8 @@ namespace MobileGL::MG_Backend::DirectGLES {
             //   1. textures bound to texture units (TODO: only sync ones that are used in current program)
             //   2. textures used in current FBO
             //   3. textures bound to image units (TODO)
-            constexpr SizeT TextureTargetCount = static_cast<SizeT>(TextureTarget::TextureTargetCount);
-            std::bitset<TextureTargetCount> dirtyTextureTargetBits;
+//            constexpr SizeT TextureTargetCount = static_cast<SizeT>(TextureTarget::TextureTargetCount);
+//            std::bitset<TextureTargetCount> dirtyTextureTargetBits;
 
             Vector<SharedPtr<MG_State::GLState::ITextureObject>> texturesToSync;
 
@@ -218,7 +218,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
                         const auto& end = texturesToSync.end();
                         if (std::find(texturesToSync.begin(), end, textureObject) == end) {
                             texturesToSync.push_back(textureObject);
-                            dirtyTextureTargetBits.set(static_cast<SizeT>(textureObject->GetTarget()));
+//                            dirtyTextureTargetBits.set(static_cast<SizeT>(textureObject->GetTarget()));
                         }
                     }
                 }
@@ -234,22 +234,22 @@ namespace MobileGL::MG_Backend::DirectGLES {
                         const auto& end = texturesToSync.end();
                         if (std::find(texturesToSync.begin(), end, textureObject) == end) {
                             texturesToSync.push_back(textureObject);
-                            dirtyTextureTargetBits.set(static_cast<SizeT>(textureObject->GetTarget()));
+//                            dirtyTextureTargetBits.set(static_cast<SizeT>(textureObject->GetTarget()));
                         }
                     }
                 }
             }
 
-            BufferImpl::BackendBufferBindingProtector pixelUnpackProtector =
-                BufferImpl::BackendBufferBindingProtector(GL_PIXEL_UNPACK_BUFFER);
-
-            Vector<BackendTextureBindingProtector> textureBindingProtectors;
-            for (SizeT target = 0; target < TextureTargetCount; ++target) {
-                if (dirtyTextureTargetBits[target]) {
-                    textureBindingProtectors.emplace_back(
-                        MG_Util::ConvertTextureTargetToGLEnum(static_cast<TextureTarget>(target)));
-                }
-            }
+//            BufferImpl::BackendBufferBindingProtector pixelUnpackProtector =
+//                BufferImpl::BackendBufferBindingProtector(GL_PIXEL_UNPACK_BUFFER);
+//
+//            Vector<BackendTextureBindingProtector> textureBindingProtectors;
+//            for (SizeT target = 0; target < TextureTargetCount; ++target) {
+//                if (dirtyTextureTargetBits[target]) {
+//                    textureBindingProtectors.emplace_back(
+//                        MG_Util::ConvertTextureTargetToGLEnum(static_cast<TextureTarget>(target)));
+//                }
+//            }
 
             // Do real sync
             for (auto& textureObject : texturesToSync) {

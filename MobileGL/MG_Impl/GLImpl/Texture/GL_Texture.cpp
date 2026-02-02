@@ -788,6 +788,7 @@ namespace MobileGL {
             auto* texBufferObject = static_cast<MG_State::GLState::TextureObjectBuffer*>(textureObject.get());
             auto& bufferSlot = texBufferObject->GetBufferBindingSlot();
             bufferSlot.Bind(bufferObject);
+            texBufferObject->SetStorageDirtyBit();
 
             texBufferObject->SetInternalFormat(textureInternalFormat);
         }
