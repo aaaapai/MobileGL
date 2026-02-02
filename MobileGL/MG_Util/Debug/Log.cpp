@@ -35,7 +35,7 @@ namespace MobileGL {
                 WideCharToMultiByte(CP_UTF8, 0, desc, -1, buffer, sizeof(buffer), nullptr, nullptr);
                 LocalFree(desc);
             }
-#elif defined(__ANDROID__) || defined(__linux__) || defined(__APPLE__) || defined(__MINGW32__)
+#elif (defined(__ANDROID__) && __ANDROID_API__ >= 26) || defined(__linux__) || defined(__APPLE__) || defined(__MINGW32__)
             pthread_getname_np(pthread_self(), buffer, sizeof(buffer));
 #endif
             return buffer[0] ? buffer : "UnknownThread";
