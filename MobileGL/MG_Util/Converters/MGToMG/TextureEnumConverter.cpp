@@ -219,6 +219,15 @@ namespace MobileGL {
                 return internalformat;
             }
             }
+            default: {
+                MGLOG_W("%s: Can't infer sized internal format from internalformat=%s, format=%s, type=%s, returning "
+                        "original.",
+                        __func__, MG_Util::ConvertTextureInternalFormatToString(internalformat).c_str(),
+                        MG_Util::ConvertTextureInputFormatToString(format).c_str(),
+                        MG_Util::ConvertTexturePixelDataTypeToString(type).c_str());
+                return internalformat;
+            }
+            }
         }
     } // namespace MG_Util
 } // namespace MobileGL

@@ -17,9 +17,11 @@
 #include <map>
 #include <array>
 #include <ctime>
+#include <mutex>
 #include <queue>
 #include <regex>
 #include <atomic>
+#include <bitset>
 #include <cctype>
 #include <chrono>
 #include <cstdio>
@@ -29,6 +31,7 @@
 #include <string>
 #include <thread>
 #include <vector>
+#include <cassert>
 #include <cstdarg>
 #include <cstring>
 #include <numeric>
@@ -40,8 +43,6 @@
 #include <functional>
 #include <string_view>
 #include <unordered_map>
-#include <mutex>
-#include <bitset>
 #if __cplusplus >= 202302L && MOBILEGL_LOG_ENABLE_STACKTRACE
 #include <stacktrace>
 #endif
@@ -85,6 +86,7 @@
 #ifdef __linux__
 #include <dlfcn.h>
 #include <pthread.h>
+#include <vulkan/vulkan.h>
 #endif
 
 #ifdef _WIN32
@@ -99,7 +101,6 @@
 #include <unistd.h>
 #include <pthread.h>
 #include <android/log.h>
-#include <vulkan/vulkan.h>
 #include <android/native_window.h>
 #include <vulkan/vulkan_android.h>
 #include <arm_neon.h>
