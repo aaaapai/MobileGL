@@ -567,7 +567,7 @@ namespace MobileGL {
                 *params = MG_State::pGLContext->GetPixelStoreParam(PixelStoreParam::PackImageHeight);
                 break;
             case GL_PACK_LSB_FIRST:
-                *params = MG_State::pGLContext->GetPixelStoreParam(PixelStoreParam::PackLsbFirst);
+                *params = MG_State::pGLContext->GetPixelStoreParam(PixelStoreParam::PackLSBFirst);
                 break;
             case GL_PACK_ROW_LENGTH:
                 *params = MG_State::pGLContext->GetPixelStoreParam(PixelStoreParam::PackRowLength);
@@ -681,10 +681,10 @@ namespace MobileGL {
                 *params = 0; // TODO
                 break;
             case GL_SHADER_STORAGE_BUFFER_BINDING:
-                *params = 0; // TODO
+                *params = 32; // TODO
                 break;
             case GL_SHADER_STORAGE_BUFFER_OFFSET_ALIGNMENT:
-                *params = 0; // TODO
+                *params = 32; // TODO
                 break;
             case GL_SHADER_STORAGE_BUFFER_START:
                 *params = 0; // TODO
@@ -839,7 +839,7 @@ namespace MobileGL {
                 *params = MG_State::pGLContext->GetPixelStoreParam(PixelStoreParam::UnpackImageHeight);
                 break;
             case GL_UNPACK_LSB_FIRST:
-                *params = MG_State::pGLContext->GetPixelStoreParam(PixelStoreParam::UnpackLsbFirst);
+                *params = MG_State::pGLContext->GetPixelStoreParam(PixelStoreParam::UnpackLSBFirst);
                 break;
             case GL_UNPACK_ROW_LENGTH:
                 *params = MG_State::pGLContext->GetPixelStoreParam(PixelStoreParam::UnpackRowLength);
@@ -905,6 +905,28 @@ namespace MobileGL {
                 break;
             case GL_MAX_SAMPLES:
                 *params = 16; // TODO
+                break;
+            case GL_MAX_IMAGE_UNITS:
+                *params = 8; // 最小4，推荐8或16
+                break;
+            case GL_MAX_VERTEX_IMAGE_UNIFORMS:
+                *params = 4; // ES 3.2 最小要求
+                break;
+
+            case GL_MAX_FRAGMENT_IMAGE_UNIFORMS:
+                *params = 8; // 通常比顶点多
+                break;
+
+            case GL_MAX_COMPUTE_IMAGE_UNIFORMS:
+                *params = 8; // 如果支持计算着色器
+                break;
+
+            case GL_MAX_COMBINED_IMAGE_UNIFORMS:
+                *params = 12; // 顶点+片段的总和
+                break;
+
+            case GL_MAX_COMBINED_SHADER_OUTPUT_RESOURCES:
+                *params = 16; // 图像单元 + SSBO 的总限制          
                 break;
             default:
                 MGLOG_E("glGetIntegerv: Invalid enum %s (0x%X)", MG_Util::ConvertGLEnumToString(pname).c_str(), pname);

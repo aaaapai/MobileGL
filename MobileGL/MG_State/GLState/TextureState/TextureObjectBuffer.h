@@ -20,6 +20,8 @@ namespace MobileGL {
                 const Vector<TextureUploadTarget>& GetUploadTargets() const override { return m_uploadTargets; }
                 BindingSlot<BufferObject>& GetBufferBindingSlot(
                     TextureUploadTarget target = TextureUploadTarget::TextureBuffer);
+                void ClearAllStorageDirtyBit() override;
+                void SetStorageDirtyBit();
 
             protected:
                 Uint GetIndexOfTextureUploadTarget(TextureUploadTarget target) const override;

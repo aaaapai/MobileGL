@@ -9,6 +9,7 @@
 #pragma once
 #include "MG_Util/Types.h"
 #include <Includes.h>
+#include <MG_Util/Math/VectorTypes.h>
 
 namespace MobileGL {
     enum class BufferTarget {
@@ -55,6 +56,23 @@ namespace MobileGL {
         Coherent = 0x80
     };
 
+    enum class BufferChangeBits : Uint8 {
+        None = 0,
+        DirtyBit = 1 << 0, // When not set, bits below are ignored and nothing should be synced to backend
+        PreferReallocationBit =
+            1 << 1, // <=> `glBufferData`; When set, ForbidInvalidationBit and ForbidUnsynchronizationBit are ignored
+        ForbidInvalidationBit = 1 << 2, // Indidate that invalidation flags were not used during mapping, else we're
+                                        // allowed to act as `GL_MAP_INVALIDATE_*` in backend
+        ForbidUnsynchronizationBit = 1 << 3, // (the same description as above, but for unsynchronization)
+    };
+
+    struct BufferChange {
+        static constexpr int DEFAULT_RESERVED_DIRTY_RANGES_COUNT = 50;
+
+        Flags<BufferChangeBits> Bits = BufferChangeBits::None;
+        VecRange1D DirtyRanges;
+    };
+
     namespace MG_State {
         namespace GLState {
             class BufferObject {
@@ -77,11 +95,12 @@ namespace MobileGL {
                 Bool IsMapped() const;
                 SizeT GetSize() const;
                 BufferUsage GetUsage() const;
-                Range1D GetDirtyRange() const;
                 Range1D GetMappedRange() const;
                 const SharedPtr<Data> GetDataReadOnly() const;
                 Flags<BufferMappingAccessBit> GetMappingAccess() const;
                 Uint GetExternalIndex() const;
+                const VecRange1D& GetDirtyRanges() const;
+                Flags<BufferChangeBits> GetChangeBits() const;
 
             private:
                 const Uint m_externalIndex = 0;
@@ -90,7 +109,7 @@ namespace MobileGL {
                 SharedPtr<Data> m_dataPtr;
                 Bool m_isMapped;
                 Flags<BufferMappingAccessBit> m_mappingAccess;
-                Range1D m_dirtyRange;
+                BufferChange m_change;
                 Range1D m_mappedRange;
                 Vector<Uint8> m_stagingData;
                 Bool m_ownsStagingData;

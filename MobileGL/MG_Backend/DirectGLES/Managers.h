@@ -9,6 +9,7 @@
 #pragma once
 #include <Includes.h>
 #include "DirectGLES.h"
+#include "Utils.h"
 #include "MG_State/GLState/SamplerState/SamplerObject.h"
 #include "MG_State/GLState/TextureState/TextureEnum.h"
 #include <MG_State/GLState/TextureState/TextureObject.h>
@@ -16,25 +17,26 @@
 
 namespace MobileGL::MG_Backend::DirectGLES {
     namespace BufferImpl {
+        const GLenum TempBufferTarget = GL_ARRAY_BUFFER;
         class BackendBufferObject {
         public:
             BackendBufferObject();
             void SyncToBackend(SharedPtr<MG_State::GLState::BufferObject>& stateBufferObject);
             Uint GetBackendBufferId() { return m_backendBufferId; }
-            void Bind();
-            void Bind(GLenum target);
+            void Bind(GLenum target = TempBufferTarget);
 
         private:
             void SyncToBackend_glBufferData(SharedPtr<MG_State::GLState::BufferObject>& stateBufferObject);
             void SyncToBackend_glBufferSubData(SharedPtr<MG_State::GLState::BufferObject>& stateBufferObject);
             void SyncToBackend_glMapBufferRange(SharedPtr<MG_State::GLState::BufferObject>& stateBufferObject,
-                                                Bool invalidate = true);
+                                                Bool invalidate = true, Bool unsynchronized = true);
 
             Uint m_backendBufferId = 0;
             SizeT m_prevBufferSize = 0;
             Bool m_isInitialized = false;
         };
 
+        extern BackendBufferObject* g_boundVertexBufferObject;
         extern UnorderedMap<SharedPtr<MG_State::GLState::BufferObject>, SharedPtr<BackendBufferObject>>
             g_backendBufferObjects;
     } // namespace BufferImpl
@@ -43,13 +45,18 @@ namespace MobileGL::MG_Backend::DirectGLES {
         class BackendVertexArrayObject {
         public:
             BackendVertexArrayObject();
-            void SyncToBackend(SharedPtr<MG_State::GLState::VertexArrayObject>& stateVAOObject, Bool needDivisor);
+            void SyncToBackend(SharedPtr<MG_State::GLState::VertexArrayObject>& stateVAOObject);
             Uint GetBackendVertexArrayId() { return m_backendVAOId; }
             void Bind();
 
         private:
+            void SyncAttributeBuffer(Uint index, const MG_State::GLState::VertexAttribute& attrib);
+
             Uint m_backendVAOId = 0;
             Bool m_isInitialized = false;
+            Uint16 m_syncedIndexBufferVersion = 0;
+            Array<MG_State::GLState::VertexAttributeVersion, MG_State::GLState::VertexArrayObject::MAX_VERTEX_ATTRIBS>
+                m_syncedAttributeVersions;
         };
 
         extern UnorderedMap<SharedPtr<MG_State::GLState::VertexArrayObject>, SharedPtr<BackendVertexArrayObject>>
@@ -82,11 +89,14 @@ namespace MobileGL::MG_Backend::DirectGLES {
             bool operator!=(const StateTextureBasicInfo& other) const { return !(*this == other); }
         };
 
+        inline const Uint TempTextureUnit = 0;
         class BackendTextureObject {
         public:
             BackendTextureObject();
-            void SyncToBackend(SharedPtr<MG_State::GLState::ITextureObject>& stateTextureObject);
-            void Bind(GLenum target);
+            void SyncMipmapsToBackend(SharedPtr<MG_State::GLState::ITextureObject>& stateTextureObject);
+            void SyncBuiltinSamplerToBackend(SharedPtr<MG_State::GLState::ITextureObject>& stateTextureObject);
+            void SyncTextureParamsToBackend(SharedPtr<MG_State::GLState::ITextureObject>& stateTextureObject);
+            void Bind(GLenum target, Uint unit = TempTextureUnit);
             Uint GetBackendTextureId();
 
         private:
@@ -98,10 +108,18 @@ namespace MobileGL::MG_Backend::DirectGLES {
             FloatVec4 m_cacheBorderColor = {0.0f, 0.0f, 0.0f, 0.0f};
             Vec4<TextureSwizzleParam> m_cacheSwizzleParams = {TextureSwizzleParam::Red, TextureSwizzleParam::Green,
                                                               TextureSwizzleParam::Blue, TextureSwizzleParam::Alpha};
+            Uint16 m_syncedSamplerVersion = 0;
+            Uint16 m_syncedTextureParamsVersion = 0;
         };
 
+        void ActivateTextureUnit(Uint unit);
+        void UnbindTexture(Uint unit, GLenum target);
         extern UnorderedMap<SharedPtr<MG_State::GLState::ITextureObject>, SharedPtr<BackendTextureObject>>
             g_backendTextureObjects;
+        extern Array<Array<BackendTextureObject*, (SizeT)TextureTarget::TextureTargetCount>,
+                     MG_State::GLState::TextureState::MAX_TEXTURE_IMAGE_UNITS>
+            g_boundTexturesCache;
+        extern Uint g_activeTextureUnit;
     } // namespace TextureImpl
 
     namespace FramebufferImpl {
@@ -112,6 +130,9 @@ namespace MobileGL::MG_Backend::DirectGLES {
                                FramebufferTarget asTarget);
             Uint GetBackendFramebufferId() { return m_backendFBOId; }
             void Bind(FramebufferTarget target);
+            bool SyncAttachmentObject(GLenum glFBOTarget,
+                                      const MG_State::GLState::FramebufferAttachmentObject& attachmentObject,
+                                      GLenum glBackendAttachment);
             FramebufferAttachmentType GetCompactedAttachmentTypeAtDrawBufferIndex(Int index);
 
         private:
@@ -140,10 +161,15 @@ namespace MobileGL::MG_Backend::DirectGLES {
              */
             GLenum m_backendDrawBuffers[MG_State::GLState::FramebufferObject::MAX_DRAW_BUFFERS] = {GL_NONE};
             FramebufferAttachmentType m_frontendReadBuffer = FramebufferAttachmentType::Color0;
+            GLenum m_backendReadBuffer = GL_COLOR_ATTACHMENT0;
+
+            using FramebufferObject = MG_State::GLState::FramebufferObject;
+            FramebufferObject::FramebufferAttachmentVersionArray m_syncedAttachmentVersions = {0};
         };
 
         extern UnorderedMap<SharedPtr<MG_State::GLState::FramebufferObject>, SharedPtr<BackendFramebufferObject>>
             g_backendFramebufferObjects;
+        extern Array<Uint16, SizeT(FramebufferTarget::FramebufferTargetCount)> g_fboBindVersions;
     } // namespace FramebufferImpl
 
     namespace PrgramImpl {
@@ -178,8 +204,13 @@ namespace MobileGL::MG_Backend::DirectGLES {
             Uint m_backendSamplerId = 0;
             Bool m_isInitialized = false;
             SamplerParameters m_cacheSamplerParameters;
+            Uint16 m_syncedSamplerVersion = 0;
         };
 
+        void UnbindSampler(Uint unit);
+
+        extern Array<BackendSamplerObject*, MG_State::GLState::TextureState::MAX_TEXTURE_IMAGE_UNITS>
+            g_boundSamplersCache;
         extern UnorderedMap<SharedPtr<MG_State::GLState::SamplerObject>, SharedPtr<BackendSamplerObject>>
             g_backendSamplerObjects;
     } // namespace SamplerImpl

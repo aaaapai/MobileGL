@@ -788,6 +788,7 @@ namespace MobileGL {
             auto* texBufferObject = static_cast<MG_State::GLState::TextureObjectBuffer*>(textureObject.get());
             auto& bufferSlot = texBufferObject->GetBufferBindingSlot();
             bufferSlot.Bind(bufferObject);
+            texBufferObject->SetStorageDirtyBit();
 
             texBufferObject->SetInternalFormat(textureInternalFormat);
         }
@@ -1300,7 +1301,7 @@ namespace MobileGL {
 
             // ======================= Processing ================================
             auto textureObject = MG_State::pGLContext->GetTextureObject(texture);
-
+        
             // ===================== Error Checking ==============================
             if (!TextureImpl::ValidateTextureTargetUniformity(textureObject, textureTarget)) return;
 

@@ -223,7 +223,7 @@ namespace MobileGL {
             auto fbo = bindingSlot.GetBoundObject();
             bool isDefaultFBO = (fbo == FramebufferImpl::pDefaultFramebufferInfo->defaultFBO);
 
-            static int existenceMap[(SizeT)FramebufferAttachmentType::FramebufferAttachmentTypeCount] = {-1};
+           static int existenceMap[(SizeT)FramebufferAttachmentType::FramebufferAttachmentTypeCount] = {-1};
             std::fill(existenceMap, existenceMap + (SizeT)FramebufferAttachmentType::FramebufferAttachmentTypeCount,
                       -1);
 
@@ -231,14 +231,14 @@ namespace MobileGL {
                 auto attType = MG_Util::ConvertGLEnumToFramebufferAttachmentType(bufs[i]);
 
                 // ------------------- Check validity begin ------------------------
-                if (attType == FramebufferAttachmentType::Unknown) {
+                /*if (attType == FramebufferAttachmentType::Unknown) {
                     MG_State::pGLContext->RecordError(
                         ErrorCode::InvalidEnum,
                         MakeShared<GenericErrorInfo>("MG_Impl/GLImpl", __func__,
                                                      std::format("bufs[{}] = {} is not an accepted value.", i,
                                                                  MG_Util::ConvertGLEnumToString(bufs[i]))));
                     return;
-                }
+                }*/
 
                 if (isDefaultFBO && attType >= FramebufferAttachmentType::Color0 &&
                     attType <= FramebufferAttachmentType::Color31) {
@@ -296,12 +296,33 @@ namespace MobileGL {
         }
 
         void DrawBuffer_State(GLenum buf) {
+
             if (buf == GL_NONE) {
                 DrawBuffers_State(0, nullptr);
             } else {
                 static GLenum bufs[] = {buf};
                 DrawBuffers_State(1, bufs);
             }
+
+        }
+
+        void ReadBuffer_State(GLenum mode) {
+            auto attType = MG_Util::ConvertGLEnumToFramebufferAttachmentType(mode);
+
+            // ------------------- Check validity begin ------------------------
+            if (attType == FramebufferAttachmentType::Unknown) {
+                MG_State::pGLContext->RecordError(
+                        ErrorCode::InvalidEnum,
+                        MakeShared<GenericErrorInfo>("MG_Impl/GLImpl", __func__,
+                                                     std::format("`mode` = {} is not an accepted value.",
+                                                                 MG_Util::ConvertGLEnumToString(mode))));
+                return;
+            }
+
+            // Get bound framebuffer
+            auto& bindingSlot = MG_State::pGLContext->GetFramebufferBindingSlot(FramebufferTarget::Read);
+            auto fbo = bindingSlot.GetBoundObject();
+            fbo->SetReadBuffer(attType);
         }
 
         void DeleteRenderbuffers_State(GLsizei n, const GLuint* renderbuffers) {
@@ -351,6 +372,10 @@ namespace MobileGL {
         }
 
         GLenum CheckFramebufferStatus_State(GLenum target) {
+            if (std::getenv("MGL_CHEAT_CHECKFRAMEBUFFERSTATUS")) {
+                return GL_FRAMEBUFFER_COMPLETE;
+            }
+        
             FramebufferTarget framebufferTarget = MG_Util::ConvertGLEnumToFramebufferTarget(target);
             if (!FramebufferImpl::ValidateFramebufferTarget(framebufferTarget)) return GL_FRAMEBUFFER_UNDEFINED;
 
@@ -567,12 +592,17 @@ namespace MobileGL {
             FramebufferRenderbuffer_State(target, attachment, renderbuffertarget, renderbuffer);
         }
 
+        void DrawBuffers(GLsizei n, const GLenum* bufs) {
+            DrawBuffers_State(n, bufs);
+        }
+
         void DrawBuffer(GLenum buf) {
             DrawBuffer_State(buf);
         }
 
-        void DrawBuffers(GLsizei n, const GLenum* bufs) {
-            DrawBuffers_State(n, bufs);
+
+        void ReadBuffer(GLenum src) {
+            ReadBuffer_State(src);
         }
 
         void DeleteRenderbuffers(GLsizei n, const GLuint* renderbuffers) {

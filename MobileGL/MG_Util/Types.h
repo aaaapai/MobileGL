@@ -20,16 +20,16 @@
 namespace MobileGL {
     using String = std::string;
     using StringStream = std::stringstream;
-    using Int8 = int8_t;
-    using Uint8 = uint8_t;
-    using Int16 = int16_t;
-    using Uint16 = uint16_t;
-    using Int32 = int32_t;
-    using Uint32 = uint32_t;
+    using Int8 = std::int8_t;
+    using Uint8 = std::uint8_t;
+    using Int16 = std::int16_t;
+    using Uint16 = std::uint16_t;
+    using Int32 = std::int32_t;
+    using Uint32 = std::uint32_t;
     using Int = Int32;
     using Uint = Uint32;
-    using Int64 = int64_t;
-    using Uint64 = uint64_t;
+    using Int64 = std::int64_t;
+    using Uint64 = std::uint64_t;
     using Bool = bool;
     using Float = float;
     using Double = double;
@@ -53,9 +53,43 @@ namespace MobileGL {
     using SizeT = std::size_t;
     template <typename T, SizeT N>
     using Array = std::array<T, N>;
-    template <typename Key, typename T, class Hash = std::hash<Key>, class KeyEqual = std::equal_to<Key>,
-              class Allocator = std::allocator<std::pair<const Key, T>>>
-    using UnorderedMap = FastSTL::unordered_map<Key, T, Hash, KeyEqual, Allocator>;
+
+
+#if UseFastSTL
+#include <FastSTL/UnorderedMap.h>
+
+template <
+        typename Key,
+        typename T,
+        class Hash = std::hash<Key>,
+        class KeyEqual = std::equal_to<Key>,
+        class Allocator = std::allocator<std::pair<const Key, T>>
+>
+using UnorderedMap = std::unordered_map<Key, T, Hash, KeyEqual, Allocator>;
+
+#elif UseAnkerl
+#include <ankerl/unordered_dense.h>
+
+template <
+    typename Key,
+    typename T,
+    class Hash = ankerl::unordered_dense::hash<Key>,
+    class KeyEqual = std::equal_to<Key>,
+    class Allocator = std::allocator<std::pair<Key, T>>
+>
+using UnorderedMap = ankerl::unordered_dense::map<Key, T, Hash, KeyEqual, Allocator>;
+
+#elif UseStandard
+#include <unordered_map>
+template <
+        typename Key,
+        typename T
+>
+using UnorderedMap = std::unordered_map<Key, T>;
+#else
+#error The type of UnorderedMap to be used is not defined!
+#endif
+
     template <typename T>
     inline constexpr std::remove_reference_t<T>&& Move(T&& t) noexcept {
         return static_cast<std::remove_reference_t<T>&&>(t);
@@ -145,17 +179,20 @@ namespace MobileGL {
         using TargetEnum = typename ObjectType::TargetEnum;
 
         BindingSlot() : m_target((TargetEnum)0), m_boundObject(nullptr) {}
-
         explicit BindingSlot(TargetEnum target) : m_target(target), m_boundObject(nullptr) {}
+        void Bind(SharedPtr<ObjectType> object) {
+            if (m_boundObject == object) return;
 
-        void Bind(SharedPtr<ObjectType> object) { m_boundObject = object; }
-
+            m_boundObject = object;
+            ++m_version;
+        }
         SharedPtr<ObjectType> GetBoundObject() const { return m_boundObject; }
-
         TargetEnum GetTarget() const { return m_target; }
+        Uint16 GetVersion() const { return m_version; }
 
     private:
         TargetEnum m_target;
+        Uint16 m_version = 0;
         SharedPtr<ObjectType> m_boundObject;
     };
 
@@ -277,6 +314,16 @@ namespace MobileGL {
         Flags(Bit b) : flags(static_cast<typename Underlying::type>(b)) {}
 
         Flags(typename Underlying::type b) : flags(b) {}
+
+        Flags Set(const Bit b) {
+            flags |= static_cast<typename Underlying::type>(b);
+            return flags;
+        }
+
+        Flags Clear(const Bit b) {
+            flags &= ~static_cast<typename Underlying::type>(b);
+            return flags;
+        }
 
         // Flags - Bit
         Flags operator|(const Bit b) const { return Flags(flags | static_cast<typename Underlying::type>(b)); }

@@ -11,7 +11,7 @@ android {
 
 //         externalNativeBuild {
 //             cmake {
-//                 arguments "-DTRACY_ENABLE=ON"
+//                 arguments "-DMOBILEGL_ENABLE_TRACY=ON"
 //             }
 //         }
     }
