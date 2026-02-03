@@ -174,10 +174,20 @@ namespace MobileGL::MG_Backend::DirectGLES {
             }
         }
 
+        SharedPtr<BackendBufferObject> BackendBufferObject::GetSharedPtr() {
+            return shared_from_this();
+        }
+
         void BackendBufferObject::Bind() {
 #ifdef TRACY_ENABLE
             ZoneScopedC(TRACY_ZONECOLOR_BACKEND);
 #endif
+            if (TempBufferTarget == GL_ARRAY_BUFFER) {
+                if (g_boundVertexBufferObject.get() == this) {
+                    return;
+                }
+                g_boundVertexBufferObject = GetSharedPtr();
+            }
             MG_External::GLES::glBindBuffer(TempBufferTarget, m_backendBufferId);
         }
 
@@ -185,10 +195,17 @@ namespace MobileGL::MG_Backend::DirectGLES {
 #ifdef TRACY_ENABLE
             ZoneScopedC(TRACY_ZONECOLOR_BACKEND);
 #endif
+            if (target == GL_ARRAY_BUFFER) {
+                if (g_boundVertexBufferObject.get() == this) {
+                    return;
+                }
+                g_boundVertexBufferObject = GetSharedPtr();
+            }
             MG_External::GLES::glBindBuffer(target, m_backendBufferId);
         }
 
         UnorderedMap<SharedPtr<MG_State::GLState::BufferObject>, SharedPtr<BackendBufferObject>> g_backendBufferObjects;
+        SharedPtr<BackendBufferObject> g_boundVertexBufferObject;
     } // namespace BufferImpl
 
     namespace VertexArrayImpl {
