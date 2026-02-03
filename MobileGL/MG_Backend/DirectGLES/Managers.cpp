@@ -987,6 +987,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
 
         UnorderedMap<SharedPtr<MG_State::GLState::FramebufferObject>, SharedPtr<BackendFramebufferObject>>
             g_backendFramebufferObjects;
+        Array<Uint16, SizeT(FramebufferTarget::FramebufferTargetCount)> g_fboBindVersions = {0};
     } // namespace FramebufferImpl
 
     namespace PrgramImpl {

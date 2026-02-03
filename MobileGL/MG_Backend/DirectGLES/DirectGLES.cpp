@@ -242,7 +242,12 @@ namespace MobileGL::MG_Backend::DirectGLES {
             MG_State::GLState::FramebufferObject* lastUpdatedFBO = nullptr;
 
             for (auto target : fboTargets) {
-                auto currentFBO = MG_State::pGLContext->GetFramebufferBindingSlot(target).GetBoundObject();
+                auto slot = MG_State::pGLContext->GetFramebufferBindingSlot(target);
+                auto version = slot.GetVersion();
+                if (version == g_fboBindVersions[SizeT(target)])
+                    continue;
+
+                auto currentFBO = slot.GetBoundObject();
 
                 if (!currentFBO) {
                     MGLOG_E("No FBO is currently bound, cannot sync current FBO.");
@@ -269,7 +274,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
                     backendFBOObject->SyncToBackend(currentFBO, target);
                 }
 
-                backendFBOObject->Bind(target);
+//                backendFBOObject->Bind(target);
 
                 lastUpdatedFBO = currentFBO.get();
             }

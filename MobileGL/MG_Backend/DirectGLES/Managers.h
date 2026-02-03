@@ -170,6 +170,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
 
         extern UnorderedMap<SharedPtr<MG_State::GLState::FramebufferObject>, SharedPtr<BackendFramebufferObject>>
             g_backendFramebufferObjects;
+        extern Array<Uint16, SizeT(FramebufferTarget::FramebufferTargetCount)> g_fboBindVersions;
     } // namespace FramebufferImpl
 
     namespace PrgramImpl {
