@@ -43,7 +43,6 @@ namespace MobileGL::MG_Backend::DirectGLES {
             }
         }
 
-        const GLenum TempBufferTarget = GL_ARRAY_BUFFER;
         void BackendBufferObject::SyncToBackend(SharedPtr<MG_State::GLState::BufferObject>& stateBufferObject) {
 #ifdef TRACY_ENABLE
             ZoneScopedC(TRACY_ZONECOLOR_BACKEND);
@@ -116,7 +115,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
             SizeT size = stateBufferObject->GetSize();
             GLenum usage = MG_Util::ConvertBufferUsageToGLEnum(stateBufferObject->GetUsage());
 
-            MG_External::GLES::glBindBuffer(TempBufferTarget, m_backendBufferId);
+            Bind();
             MG_External::GLES::glBufferData(TempBufferTarget, size, data, usage);
         }
 
@@ -137,7 +136,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
             }
 
             for (const auto& range : ranges) {
-                MG_External::GLES::glBindBuffer(TempBufferTarget, m_backendBufferId);
+                Bind();
                 MG_External::GLES::glBufferSubData(TempBufferTarget, range.start, range.end - range.start,
                                                    reinterpret_cast<const char*>(data) + range.start);
             }
@@ -158,7 +157,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
             }
             SizeT minStart = ranges.GetOverallMinStart();
             SizeT maxEnd = ranges.GetOverallMaxEnd();
-            MG_External::GLES::glBindBuffer(TempBufferTarget, m_backendBufferId);
+            Bind();
             void* mappedData = MG_External::GLES::glMapBufferRange(
                 TempBufferTarget, minStart, maxEnd - minStart,
                 (invalidate ? GL_MAP_INVALIDATE_RANGE_BIT : 0) | (unsynchronized ? GL_MAP_UNSYNCHRONIZED_BIT : 0) |
@@ -180,19 +179,6 @@ namespace MobileGL::MG_Backend::DirectGLES {
 
         SharedPtr<BackendBufferObject> BackendBufferObject::GetSharedPtr() {
             return shared_from_this();
-        }
-
-        void BackendBufferObject::Bind() {
-#ifdef TRACY_ENABLE
-            ZoneScopedC(TRACY_ZONECOLOR_BACKEND);
-#endif
-            if (TempBufferTarget == GL_ARRAY_BUFFER) {
-                if (g_boundVertexBufferObject.get() == this) {
-                    return;
-                }
-                g_boundVertexBufferObject = GetSharedPtr();
-            }
-            MG_External::GLES::glBindBuffer(TempBufferTarget, m_backendBufferId);
         }
 
         void BackendBufferObject::Bind(GLenum target) {
@@ -872,79 +858,73 @@ namespace MobileGL::MG_Backend::DirectGLES {
             GLenum* backendAttachmentToSync = nullptr;
             Int frontendAttachmentToSyncCount = 0;
             switch (asTarget) {
-                case FramebufferTarget::Draw: {
-                    auto &stateDrawBuffers = stateFBOObject->GetDrawBuffers();
+            case FramebufferTarget::Draw: {
+                auto& stateDrawBuffers = stateFBOObject->GetDrawBuffers();
 
-                    // Check if still clean, skip if clean
-                    if (memcmp(m_frontendDrawBuffers,
-                               stateDrawBuffers.data(),
-                               FramebufferObject::MAX_DRAW_BUFFERS * sizeof(FramebufferAttachmentType)) == 0) {
-                        break;
-                    }
-
-                    // Create mappings for draw buffers
-                    int nBuffers = 0;
-                    std::fill(m_frontendDrawBuffers,
-                              m_frontendDrawBuffers + FramebufferObject::MAX_DRAW_BUFFERS,
-                              FramebufferAttachmentType::None);
-                    std::fill(m_compactedFrontendDrawBuffers,
-                              m_compactedFrontendDrawBuffers + FramebufferObject::MAX_DRAW_BUFFERS,
-                              FramebufferAttachmentType::None);
-                    std::fill(m_backendDrawBuffers,
-                              m_backendDrawBuffers + FramebufferObject::MAX_DRAW_BUFFERS, GL_NONE);
-                    for (GLint i = 0; i < FramebufferObject::MAX_DRAW_BUFFERS; ++i) {
-                        if (stateDrawBuffers[i] == FramebufferAttachmentType::None) {
-                            m_frontendDrawBuffers[i] = FramebufferAttachmentType::None;
-                            continue;
-                        }
-
-                        m_frontendDrawBuffers[i] = stateDrawBuffers[i];
-
-                        // Create compacted mapping
-                        m_backendDrawBuffers[nBuffers] = GL_COLOR_ATTACHMENT0 + nBuffers;
-                        m_compactedFrontendDrawBuffers[nBuffers] = m_frontendDrawBuffers[i];
-                        nBuffers++;
-                    }
-                    MG_External::GLES::glDrawBuffers(nBuffers, m_backendDrawBuffers);
-
-                    frontendAttachmentToSync = m_compactedFrontendDrawBuffers;
-                    backendAttachmentToSync = m_backendDrawBuffers;
-                    frontendAttachmentToSyncCount = nBuffers;
-
+                // Check if still clean, skip if clean
+                if (memcmp(m_frontendDrawBuffers, stateDrawBuffers.data(),
+                           FramebufferObject::MAX_DRAW_BUFFERS * sizeof(FramebufferAttachmentType)) == 0) {
                     break;
                 }
-                case FramebufferTarget::Read: {
-                    auto frontendReadBuf = stateFBOObject->GetReadBuffer();
-                    if (frontendReadBuf == m_frontendReadBuffer)
-                        break;
-                    m_frontendReadBuffer = frontendReadBuf;
 
-                    // For consistency, we need to find the compacted attachment index of this read buffer
-                    auto it = std::find(
-                            m_compactedFrontendDrawBuffers,
-                            m_compactedFrontendDrawBuffers + FramebufferObject::MAX_DRAW_BUFFERS,
-                            frontendReadBuf);
-
-                    Bool notFound = (it == m_compactedFrontendDrawBuffers + FramebufferObject::MAX_DRAW_BUFFERS);
-                    if (notFound) {
-                        MGLOG_D("%s: read buffer not found in draw buffer, use as in frontend", __func__);
+                // Create mappings for draw buffers
+                int nBuffers = 0;
+                std::fill(m_frontendDrawBuffers, m_frontendDrawBuffers + FramebufferObject::MAX_DRAW_BUFFERS,
+                          FramebufferAttachmentType::None);
+                std::fill(m_compactedFrontendDrawBuffers,
+                          m_compactedFrontendDrawBuffers + FramebufferObject::MAX_DRAW_BUFFERS,
+                          FramebufferAttachmentType::None);
+                std::fill(m_backendDrawBuffers, m_backendDrawBuffers + FramebufferObject::MAX_DRAW_BUFFERS, GL_NONE);
+                for (GLint i = 0; i < FramebufferObject::MAX_DRAW_BUFFERS; ++i) {
+                    if (stateDrawBuffers[i] == FramebufferAttachmentType::None) {
+                        m_frontendDrawBuffers[i] = FramebufferAttachmentType::None;
+                        continue;
                     }
-                    auto backendReadBuffer = notFound ? frontendReadBuf : *it;
-                    GLenum glBackendReadBuffer = MG_Util::ConvertFramebufferAttachmentTypeToGLEnum(backendReadBuffer);
-                    if (m_backendReadBuffer == glBackendReadBuffer)
-                        break;
-                    m_backendReadBuffer = glBackendReadBuffer;
-                    MG_External::GLES::glReadBuffer(glBackendReadBuffer);
 
-                    frontendAttachmentToSync = &m_frontendReadBuffer;
-                    backendAttachmentToSync = &m_backendReadBuffer;
-                    frontendAttachmentToSyncCount = 1;
+                    m_frontendDrawBuffers[i] = stateDrawBuffers[i];
 
-                    break;
+                    // Create compacted mapping
+                    m_backendDrawBuffers[nBuffers] = GL_COLOR_ATTACHMENT0 + nBuffers;
+                    m_compactedFrontendDrawBuffers[nBuffers] = m_frontendDrawBuffers[i];
+                    nBuffers++;
                 }
-                default:
-                    MOBILEGL_ASSERT(false, "%s: Unreachable!", __func__);
-                    return;
+                MG_External::GLES::glDrawBuffers(nBuffers, m_backendDrawBuffers);
+
+                frontendAttachmentToSync = m_compactedFrontendDrawBuffers;
+                backendAttachmentToSync = m_backendDrawBuffers;
+                frontendAttachmentToSyncCount = nBuffers;
+
+                break;
+            }
+            case FramebufferTarget::Read: {
+                auto frontendReadBuf = stateFBOObject->GetReadBuffer();
+                if (frontendReadBuf == m_frontendReadBuffer) break;
+                m_frontendReadBuffer = frontendReadBuf;
+
+                // For consistency, we need to find the compacted attachment index of this read buffer
+                auto it =
+                    std::find(m_compactedFrontendDrawBuffers,
+                              m_compactedFrontendDrawBuffers + FramebufferObject::MAX_DRAW_BUFFERS, frontendReadBuf);
+
+                Bool notFound = (it == m_compactedFrontendDrawBuffers + FramebufferObject::MAX_DRAW_BUFFERS);
+                if (notFound) {
+                    MGLOG_D("%s: read buffer not found in draw buffer, use as in frontend", __func__);
+                }
+                auto backendReadBuffer = notFound ? frontendReadBuf : *it;
+                GLenum glBackendReadBuffer = MG_Util::ConvertFramebufferAttachmentTypeToGLEnum(backendReadBuffer);
+                if (m_backendReadBuffer == glBackendReadBuffer) break;
+                m_backendReadBuffer = glBackendReadBuffer;
+                MG_External::GLES::glReadBuffer(glBackendReadBuffer);
+
+                frontendAttachmentToSync = &m_frontendReadBuffer;
+                backendAttachmentToSync = &m_backendReadBuffer;
+                frontendAttachmentToSyncCount = 1;
+
+                break;
+            }
+            default:
+                MOBILEGL_ASSERT(false, "%s: Unreachable!", __func__);
+                return;
             }
 
             // Sync texture/buffer to attachment
@@ -952,7 +932,8 @@ namespace MobileGL::MG_Backend::DirectGLES {
             auto& attachmentVersions = stateFBOObject->GetAllFramebufferAttachmentVersions();
             for (Int i = 0; i < frontendAttachmentToSyncCount; ++i) {
                 auto frontendAttachment = frontendAttachmentToSync[i];
-                if (attachmentVersions[(SizeT)frontendAttachment] == m_syncedAttachmentVersions[(SizeT)frontendAttachment]) {
+                if (attachmentVersions[(SizeT)frontendAttachment] ==
+                    m_syncedAttachmentVersions[(SizeT)frontendAttachment]) {
                     continue;
                 }
                 m_syncedAttachmentVersions[(SizeT)frontendAttachment] = attachmentVersions[(SizeT)frontendAttachment];
@@ -965,10 +946,11 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 SyncAttachmentObject(glFBOTarget, attachmentObject, glBackendAttachment);
             }
 
-            FramebufferAttachmentType auxAtt[] = { FramebufferAttachmentType::Depth, FramebufferAttachmentType::Stencil };
-            for (auto & att : auxAtt) {
+            FramebufferAttachmentType auxAtt[] = {FramebufferAttachmentType::Depth, FramebufferAttachmentType::Stencil};
+            for (auto& att : auxAtt) {
                 auto frontendAttachment = att;
-                if (attachmentVersions[(SizeT)frontendAttachment] == m_syncedAttachmentVersions[(SizeT)frontendAttachment]) {
+                if (attachmentVersions[(SizeT)frontendAttachment] ==
+                    m_syncedAttachmentVersions[(SizeT)frontendAttachment]) {
                     continue;
                 }
                 m_syncedAttachmentVersions[(SizeT)frontendAttachment] = attachmentVersions[(SizeT)frontendAttachment];
