@@ -220,7 +220,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
             const auto& currentFBO =
                 MG_State::pGLContext->GetFramebufferBindingSlot(FramebufferTarget::Draw).GetBoundObject();
             if (currentFBO) {
-                for (const auto& attachment : currentFBO->GetAllAttachments()) {
+                for (const auto& attachment : currentFBO->GetAllAttachmentObjects()) {
                     if (!attachment.IsTexture()) continue;
                     auto textureObject = attachment.GetTexture();
                     if (textureObject) {

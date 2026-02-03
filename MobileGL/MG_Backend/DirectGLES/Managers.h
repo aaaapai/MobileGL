@@ -124,6 +124,9 @@ namespace MobileGL::MG_Backend::DirectGLES {
                                FramebufferTarget asTarget);
             Uint GetBackendFramebufferId() { return m_backendFBOId; }
             void Bind(FramebufferTarget target);
+            bool SyncAttachmentObject(GLenum glFBOTarget,
+                                      const MG_State::GLState::FramebufferAttachmentObject& attachmentObject,
+                                      GLenum glBackendAttachment);
             FramebufferAttachmentType GetCompactedAttachmentTypeAtDrawBufferIndex(Int index);
 
         private:
@@ -152,6 +155,10 @@ namespace MobileGL::MG_Backend::DirectGLES {
              */
             GLenum m_backendDrawBuffers[MG_State::GLState::FramebufferObject::MAX_DRAW_BUFFERS] = {GL_NONE};
             FramebufferAttachmentType m_frontendReadBuffer = FramebufferAttachmentType::Color0;
+            GLenum m_backendReadBuffer = GL_COLOR_ATTACHMENT0;
+
+            using FramebufferObject = MG_State::GLState::FramebufferObject;
+            FramebufferObject::FramebufferAttachmentVersionArray m_syncedAttachmentVersions = {0};
         };
 
         extern UnorderedMap<SharedPtr<MG_State::GLState::FramebufferObject>, SharedPtr<BackendFramebufferObject>>
