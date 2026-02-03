@@ -244,8 +244,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
             for (auto target : fboTargets) {
                 auto slot = MG_State::pGLContext->GetFramebufferBindingSlot(target);
                 auto version = slot.GetVersion();
-                if (version == g_fboBindVersions[SizeT(target)])
-                    continue;
+                if (version == g_fboBindVersions[SizeT(target)]) continue;
 
                 auto currentFBO = slot.GetBoundObject();
 
@@ -274,7 +273,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
                     backendFBOObject->SyncToBackend(currentFBO, target);
                 }
 
-//                backendFBOObject->Bind(target);
+                //                backendFBOObject->Bind(target);
 
                 lastUpdatedFBO = currentFBO.get();
             }
@@ -282,31 +281,45 @@ namespace MobileGL::MG_Backend::DirectGLES {
     } // namespace FramebufferImpl
 
     namespace RenderStateImpl {
+        static Uint16 g_syncedRenderStateVersion = 0;
+        static RenderStateParameters g_syncedRenderStateParameters;
         void SyncRenderState() {
 #ifdef TRACY_ENABLE
             ZoneScopedC(TRACY_ZONECOLOR_BACKEND);
 #endif
-            MG_External::GLES::glViewport(
-                MG_State::pGLContext->GetViewport().x(), MG_State::pGLContext->GetViewport().y(),
-                MG_State::pGLContext->GetViewport().z(), MG_State::pGLContext->GetViewport().w());
+            Uint16 currentRenderStateVersion = MG_State::pGLContext->GetRenderStateParametersVersion();
+            if (currentRenderStateVersion == g_syncedRenderStateVersion) return;
+
+            const auto& parameters = MG_State::pGLContext->GetRenderStateParameters();
+
+            if (parameters.Viewport != g_syncedRenderStateParameters.Viewport) {
+                MG_External::GLES::glViewport(parameters.Viewport.x(), parameters.Viewport.y(), parameters.Viewport.z(),
+                                              parameters.Viewport.w());
+            }
+
 #define SYNC_CAPABILITY(cap_mg, cap_gl)                                                                                \
-    if (MG_State::pGLContext->IsCapabilityEnabled(cap_mg)) {                                                           \
-        MG_External::GLES::glEnable(cap_gl);                                                                           \
-    } else {                                                                                                           \
-        MG_External::GLES::glDisable(cap_gl);                                                                          \
+    if (parameters.cap_mg##Enabled != g_syncedRenderStateParameters.cap_mg##Enabled) {                                 \
+        if (parameters.cap_mg##Enabled) {                                                                              \
+            MG_External::GLES::glEnable(cap_gl);                                                                       \
+        } else {                                                                                                       \
+            MG_External::GLES::glDisable(cap_gl);                                                                      \
+        }                                                                                                              \
     }
-            SYNC_CAPABILITY(CapabilityInput::Blend, GL_BLEND);
-            SYNC_CAPABILITY(CapabilityInput::DepthTest, GL_DEPTH_TEST);
-            SYNC_CAPABILITY(CapabilityInput::ScissorTest, GL_SCISSOR_TEST);
-            SYNC_CAPABILITY(CapabilityInput::CullFace, GL_CULL_FACE);
+            SYNC_CAPABILITY(Blend, GL_BLEND);
+            SYNC_CAPABILITY(DepthTest, GL_DEPTH_TEST);
+            SYNC_CAPABILITY(ScissorTest, GL_SCISSOR_TEST);
+            SYNC_CAPABILITY(CullFace, GL_CULL_FACE);
 
 #undef SYNC_CAPABILITY
 
             const auto& ToGLBoolean = [](Bool b) -> GLboolean { return b ? GL_TRUE : GL_FALSE; };
 
-            { // Blend func
-                BlendFactor srcRGB, dstRGB, srcAlpha, dstAlpha;
-                MG_State::pGLContext->GetBlendFunc(srcRGB, dstRGB, srcAlpha, dstAlpha);
+            if (parameters.SrcFactorRGB != g_syncedRenderStateParameters.SrcFactorRGB ||
+                parameters.DstFactorRGB != g_syncedRenderStateParameters.DstFactorRGB ||
+                parameters.SrcFactorAlpha != g_syncedRenderStateParameters.SrcFactorAlpha ||
+                parameters.DstFactorAlpha != g_syncedRenderStateParameters.DstFactorAlpha) { // Blend func
+                const BlendFactor &srcRGB = parameters.SrcFactorRGB, &dstRGB = parameters.DstFactorRGB,
+                                  &srcAlpha = parameters.SrcFactorAlpha, &dstAlpha = parameters.DstFactorAlpha;
 
                 MG_External::GLES::glBlendFuncSeparate(
                     MG_Util::ConvertBlendFactorToGLEnum(srcRGB), MG_Util::ConvertBlendFactorToGLEnum(dstRGB),
@@ -314,33 +327,48 @@ namespace MobileGL::MG_Backend::DirectGLES {
             }
 
             { // Blend equation
-                DepthTestFunc df = MG_State::pGLContext->GetDepthFunc();
-                MG_External::GLES::glDepthFunc(MG_Util::ConvertDepthTestFuncToGLEnum(df));
-
-                MG_External::GLES::glDepthMask(MG_State::pGLContext->GetDepthMask() ? GL_TRUE : GL_FALSE);
+                if (parameters.DepthFunc != g_syncedRenderStateParameters.DepthFunc) {
+                    MG_External::GLES::glDepthFunc(MG_Util::ConvertDepthTestFuncToGLEnum(parameters.DepthFunc));
+                }
+                if (parameters.DepthMask != g_syncedRenderStateParameters.DepthMask) {
+                    MG_External::GLES::glDepthMask(parameters.DepthMask ? GL_TRUE : GL_FALSE);
+                }
             }
 
             { // Color mask
-                BoolVec4 colorMask = MG_State::pGLContext->GetColorMask();
-                MG_External::GLES::glColorMask(ToGLBoolean(colorMask.x()), ToGLBoolean(colorMask.y()),
-                                               ToGLBoolean(colorMask.z()), ToGLBoolean(colorMask.w()));
+                if (parameters.ColorMask != g_syncedRenderStateParameters.ColorMask) {
+                    const BoolVec4& colorMask = parameters.ColorMask;
+                    MG_External::GLES::glColorMask(ToGLBoolean(colorMask.x()), ToGLBoolean(colorMask.y()),
+                                                   ToGLBoolean(colorMask.z()), ToGLBoolean(colorMask.w()));
+                }
             }
 
             { // Clear values
-                const FloatVec4& clearCol = MG_State::pGLContext->GetClearColor();
-                MG_External::GLES::glClearColor(clearCol.x(), clearCol.y(), clearCol.z(), clearCol.w());
-                MG_External::GLES::glClearDepthf(MG_State::pGLContext->GetClearDepth());
+                if (parameters.ClearColor != g_syncedRenderStateParameters.ClearColor) {
+                    const FloatVec4& clearCol = parameters.ClearColor;
+                    MG_External::GLES::glClearColor(clearCol.x(), clearCol.y(), clearCol.z(), clearCol.w());
+                }
+                if (parameters.ClearDepth != g_syncedRenderStateParameters.ClearDepth) {
+                    MG_External::GLES::glClearDepthf(parameters.ClearDepth);
+                }
             }
 
             { // Cull face mode
-                CullFaceMode cfm = MG_State::pGLContext->GetCullFaceMode();
-                MG_External::GLES::glCullFace(MG_Util::ConvertCullFaceModeToGLEnum(cfm));
+                if (parameters.CullFaceModeSetting != g_syncedRenderStateParameters.CullFaceModeSetting) {
+                    const CullFaceMode& cfm = parameters.CullFaceModeSetting;
+                    MG_External::GLES::glCullFace(MG_Util::ConvertCullFaceModeToGLEnum(cfm));
+                }
             }
 
             { // Scissor box
-                const IntVec4& scissorBox = MG_State::pGLContext->GetScissorBox();
-                MG_External::GLES::glScissor(scissorBox.x(), scissorBox.y(), scissorBox.z(), scissorBox.w());
+                if (parameters.ScissorBox != g_syncedRenderStateParameters.ScissorBox) {
+                    const IntVec4& scissorBox = parameters.ScissorBox;
+                    MG_External::GLES::glScissor(scissorBox.x(), scissorBox.y(), scissorBox.z(), scissorBox.w());
+                }
             }
+
+            g_syncedRenderStateVersion = currentRenderStateVersion;
+            g_syncedRenderStateParameters = parameters;
         }
     } // namespace RenderStateImpl
 
@@ -374,8 +402,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
         ZoneScopedC(TRACY_ZONECOLOR_BACKEND);
 #endif
         auto& slot = MG_State::pGLContext->GetFramebufferBindingSlot(target);
-        if (slot.GetVersion() == FramebufferImpl::g_fboBindVersions[(SizeT)target])
-            return;
+        if (slot.GetVersion() == FramebufferImpl::g_fboBindVersions[(SizeT)target]) return;
 
         const auto& currentFBO = slot.GetBoundObject();
         if (currentFBO && currentFBO != MG_Impl::GLImpl::FramebufferImpl::pDefaultFramebufferInfo->defaultFBO) {
