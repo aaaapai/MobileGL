@@ -10,7 +10,7 @@ cmake_build () {
   cmake --build . --config Release --parallel 6
   # 在bash中启用globstar
   shopt -s globstar
-  $ANDROID_NDK_LATEST_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-strip $GITHUB_WORKSPACE/**/libMobileGL.so
+  $ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-strip $GITHUB_WORKSPACE/**/libMobileGL.so
 }
 
 cmake_build arm64-v8a
