@@ -11,7 +11,7 @@
 #include <algorithm>
 #include <cctype>
 
-typedef unsigned long size_t;
+#include <cstddef>
 
 #define DEFAULT_GL_VERSION 40
 
