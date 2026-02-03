@@ -898,16 +898,20 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 m_frontendReadBuffer = frontendReadBuf;
 
                 // For consistency, we need to find the compacted attachment index of this read buffer
-                auto it =
-                    std::find(m_compactedFrontendDrawBuffers,
-                              m_compactedFrontendDrawBuffers + FramebufferObject::MAX_DRAW_BUFFERS, frontendReadBuf);
+                auto it = std::find(m_compactedFrontendDrawBuffers,
+                                  m_compactedFrontendDrawBuffers + FramebufferObject::MAX_DRAW_BUFFERS, frontendReadBuf);
 
+                // TODO: what if sync ReadBuffer first then DrawBuffer?
+                GLenum glBackendReadBuffer = GL_NONE;
                 Bool notFound = (it == m_compactedFrontendDrawBuffers + FramebufferObject::MAX_DRAW_BUFFERS);
                 if (notFound) {
                     MGLOG_D("%s: read buffer not found in draw buffer, use as in frontend", __func__);
+                    glBackendReadBuffer = MG_Util::ConvertFramebufferAttachmentTypeToGLEnum(frontendReadBuf);
+                } else {
+                    MGLOG_D("%s: read buffer found in draw buffer, keep it consistent as in read buffers", __func__);
+                    auto index = std::distance(m_compactedFrontendDrawBuffers, it);
+                    glBackendReadBuffer = m_backendDrawBuffers[index];
                 }
-                auto backendReadBuffer = notFound ? frontendReadBuf : *it;
-                GLenum glBackendReadBuffer = MG_Util::ConvertFramebufferAttachmentTypeToGLEnum(backendReadBuffer);
                 if (m_backendReadBuffer == glBackendReadBuffer) break;
                 m_backendReadBuffer = glBackendReadBuffer;
                 MG_External::GLES::glReadBuffer(glBackendReadBuffer);
