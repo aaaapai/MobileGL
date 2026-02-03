@@ -27,8 +27,15 @@ namespace MobileGL {
         BackLeft,
         BackRight,
 
+        Front,    
+        Back, 
+        Left, 
+        Right,
+        FrontAndBack,
+
         Depth,
         Stencil,
+        DepthStencil,
 
         Color0,
         Color1,
