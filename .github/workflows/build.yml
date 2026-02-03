@@ -18,7 +18,7 @@ jobs:
     steps:
     - uses: actions/checkout@main
       with:
-         submodules: false
+         submodules: recursive
 
     - name: Install NDK r26d
       uses: HoshinoSuzumi/setup-ndk@v1.5.4
