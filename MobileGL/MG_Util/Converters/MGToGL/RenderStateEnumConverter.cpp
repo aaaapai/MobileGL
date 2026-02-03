@@ -85,7 +85,7 @@ namespace MobileGL {
                 return GL_PACK_SKIP_IMAGES;
             case PixelStoreParam::PackSwapBytes:
                 return GL_PACK_SWAP_BYTES;
-            case PixelStoreParam::PackLsbFirst:
+            case PixelStoreParam::PackLSBFirst:
                 return GL_PACK_LSB_FIRST;
             case PixelStoreParam::UnpackAlignment:
                 return GL_UNPACK_ALIGNMENT;
@@ -101,7 +101,7 @@ namespace MobileGL {
                 return GL_UNPACK_SKIP_IMAGES;
             case PixelStoreParam::UnpackSwapBytes:
                 return GL_UNPACK_SWAP_BYTES;
-            case PixelStoreParam::UnpackLsbFirst:
+            case PixelStoreParam::UnpackLSBFirst:
                 return GL_UNPACK_LSB_FIRST;
             default:
                 return GL_UNKNOWN_MGL;

@@ -107,6 +107,8 @@ namespace MobileGL {
                 using FramebufferAttachmentObjectArray =
                         Array<FramebufferAttachmentObject, static_cast<SizeT>(FramebufferAttachmentType::FramebufferAttachmentTypeCount)>;
                 using FramebufferAttachmentArray = Array<FramebufferAttachmentType, MAX_DRAW_BUFFERS>;
+                using FramebufferAttachmentVersionArray =
+                        Array<Uint16, static_cast<SizeT>(FramebufferAttachmentType::FramebufferAttachmentTypeCount)>;
 
                 FramebufferObject(Uint externalIndex);
 
@@ -115,24 +117,35 @@ namespace MobileGL {
                                         std::shared_ptr<RenderbufferObject> renderbuffer);
                 void Detach(FramebufferAttachmentType type);
                 const FramebufferAttachmentObject& GetAttachment(FramebufferAttachmentType type) const;
-                const FramebufferAttachmentObjectArray& GetAllAttachments() const;
+                const FramebufferAttachmentObjectArray& GetAllAttachmentObjects() const;
                 Bool CheckCompleteness() const;
                 // aka. `buffer` as in glDrawBuffers/glReadBuffers
                 void SetDrawBuffer(Uint index, FramebufferAttachmentType buffer);
-                bool DrawBuffersIsDirty() const { return m_drawBuffersDirty; }
-                void ClearDrawBuffersDirtyState() { m_drawBuffersDirty = false; }
                 const FramebufferAttachmentArray& GetDrawBuffers() const;
                 void SetReadBuffer(FramebufferAttachmentType buf) { m_readBuffer = buf; }
                 FramebufferAttachmentType GetReadBuffer() const { return m_readBuffer; }
+
+                const FramebufferAttachmentVersionArray GetAllFramebufferAttachmentVersions() const {
+                    return m_attachmentVersions;
+                }
+
+                Uint16 GetObjectVersion() const { return m_objectVersion; }
+
                 Uint GetExternalIndex() const;
 
             private:
-                const Uint m_externalIndex = 0;
-                FramebufferAttachmentObjectArray m_attachments;
-                FramebufferAttachmentArray m_drawBuffers;
-                FramebufferAttachmentType m_readBuffer = FramebufferAttachmentType::Color0;
+                void BumpAttachmentVersion(FramebufferAttachmentType type);
+                void BumpBufferAttachVersion();
 
-                Bool m_drawBuffersDirty = false;
+                const Uint m_externalIndex = 0;
+                FramebufferAttachmentObjectArray m_attachmentObjects;
+                FramebufferAttachmentVersionArray m_attachmentVersions;
+
+                FramebufferAttachmentArray m_drawBuffers; // Probably no versioning needed for this, just check equality
+                FramebufferAttachmentType m_readBuffer = FramebufferAttachmentType::Color0; // ditto
+
+                // This version will bump when draw/read buffer changes (by `glDrawBuffer(s)`/`glReadBuffer`)
+                Uint16 m_objectVersion = 0;
             };
 
         } // namespace GLState
