@@ -114,7 +114,10 @@ namespace MobileGL {
 
             // -------------------- Color Mask --------------------
             void RenderState::SetColorMask(BoolVec4 mask) {
+                if (m_parameters.ColorMask == mask) return;
+
                 m_parameters.ColorMask = mask;
+                ++m_version;
             }
 
             const BoolVec4 RenderState::GetColorMask() const {
