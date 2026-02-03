@@ -3,7 +3,9 @@
 
 # git clone --depth 1 https://github.com/MobileGL-dev/FastSTL.git ./include/FastSTL
 cmake_build () {
-  python3 $GITHUB_WORKSPACE/3rdparty/glslang/update_glslang_sources.py
+  cd $GITHUB_WORKSPACE/3rdparty/glslang
+  python3 ./update_glslang_sources.py
+  cd ../..
   ANDROID_ABI=$1
   mkdir -p build
   cd build
