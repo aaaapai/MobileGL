@@ -7,6 +7,7 @@
 // End of Source File Header
 
 #include "TextureObject.h"
+#include "MG_Util/Types.h"
 #include <MG_Util/Metrics/TextureMetrics.h>
 
 namespace MobileGL {
@@ -43,7 +44,10 @@ namespace MobileGL {
             }
 
             void TextureObjectBase::SetInternalFormat(TextureInternalFormat format) {
+                if (format == m_internalFormat) return;
+
                 m_internalFormat = format;
+                ++m_textureParamsVersion;
             }
 
             Uint TextureObjectBase::GetExternalIndex() const {
@@ -55,7 +59,10 @@ namespace MobileGL {
             }
 
             void TextureObjectBase::SetBorderColor(const FloatVec4& color) {
+                if (color == m_borderColor) return;
+
                 m_borderColor = color;
+                ++m_textureParamsVersion;
             }
 
             TextureSwizzleParam TextureObjectBase::GetSwizzleParam(TextureSwizzleParam param) const {
@@ -80,6 +87,8 @@ namespace MobileGL {
             }
 
             void TextureObjectBase::SetSwizzleParam(TextureSwizzleParam param, TextureSwizzleParam value) {
+                if (GetSwizzleParam(param) == value) return;
+
                 switch (param) {
                 case TextureSwizzleParam::Red:
                     m_swizzleParams.r() = value;
@@ -98,9 +107,14 @@ namespace MobileGL {
                                     static_cast<Int>(param));
                     break;
                 }
+                ++m_textureParamsVersion;
             }
+
             void TextureObjectBase::SetSwizzleParamRGBA(const Vec4<TextureSwizzleParam>& values) {
+                if (values == m_swizzleParams) return;
+
                 m_swizzleParams = values;
+                ++m_textureParamsVersion;
             }
 
             const UintVec2& TextureObjectBase::GetLevelRange() const {
@@ -108,18 +122,29 @@ namespace MobileGL {
             }
 
             void TextureObjectBase::SetBaseLevel(Uint baseLevel) {
+                if (baseLevel == m_levelRange.x()) return;
+
                 m_levelRange.x() = baseLevel;
+                ++m_textureParamsVersion;
             }
 
             void TextureObjectBase::SetMaxLevel(Uint maxLevel) {
+                if (maxLevel == m_levelRange.y()) return;
+
                 m_levelRange.y() = maxLevel;
+                ++m_textureParamsVersion;
             }
 
-            bool TextureObjectBase::IsDirty() const {
+            Bool TextureObjectBase::IsDirty() const {
                 return m_dirtyBit;
             }
-            bool TextureObjectBase::CheckDirtyBit(TextureDirtyBit bit) const {
+
+            Bool TextureObjectBase::CheckDirtyBit(TextureDirtyBit bit) const {
                 return m_dirtyBit & bit;
+            }
+
+            Uint16 TextureObjectBase::GetTextureParamsVersion() const {
+                return m_textureParamsVersion;
             }
 
             Uint TextureObjectWithOneMipmap::GetMipmapLevelCount() const {
@@ -151,14 +176,14 @@ namespace MobileGL {
             }
 
             void TextureObjectWithOneMipmap::MarkStorageDirty(TextureUploadTarget uploadTarget, Uint mipmapLevel,
-                                                              bool dirty) {
+                                                              Bool dirty) {
                 m_textureStorage.MarkDirty(GetIndexOfTextureUploadTarget(uploadTarget), mipmapLevel, dirty);
                 if (dirty) {
                     m_dirtyBit.Set(TextureDirtyBit::StorageDirtyBit);
                 }
             }
 
-            bool TextureObjectWithOneMipmap::IsStorageDirty(TextureUploadTarget uploadTarget, Uint mipmapLevel) const {
+            Bool TextureObjectWithOneMipmap::IsStorageDirty(TextureUploadTarget uploadTarget, Uint mipmapLevel) const {
                 return m_textureStorage.IsDirty(GetIndexOfTextureUploadTarget(uploadTarget), mipmapLevel);
             }
 
@@ -180,7 +205,7 @@ namespace MobileGL {
 
                 // For some reason mojang decided to have 0x0 in last level mipmap
                 // Relaxing checks for that
-                bool hadZero = false;
+                Bool hadZero = false;
                 for (SizeT i = 0; i < levelCount; ++i) {
                     const auto& levelSize = m_textureStorage.GetTexelSize(0, i);
                     if (levelSize.x() <= 0 || levelSize.y() <= 0 || levelSize.z() <= 0) {

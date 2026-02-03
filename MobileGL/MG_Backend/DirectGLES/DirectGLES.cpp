@@ -141,7 +141,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
     } // namespace BufferImpl
 
     namespace VertexArrayImpl {
-        void SyncCurrentVAO(Bool needDivisor) {
+        void SyncCurrentVAO() {
 #ifdef TRACY_ENABLE
             ZoneScopedC(TRACY_ZONECOLOR_BACKEND);
 #endif
@@ -159,7 +159,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
             } else {
                 backendVAOObject = backendVAOIt->second;
             }
-            backendVAOObject->SyncToBackend(currentVAOObject, needDivisor);
+            backendVAOObject->SyncToBackend(currentVAOObject);
         }
     } // namespace VertexArrayImpl
 
@@ -373,7 +373,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
         ZoneScopedC(TRACY_ZONECOLOR_BACKEND);
 #endif
         BufferImpl::SyncNeccessaryBuffers(syncBit & DrawSyncBit::IndexBuffer, syncBit & DrawSyncBit::IndirectBuffer);
-        VertexArrayImpl::SyncCurrentVAO(syncBit & DrawSyncBit::Instancing);
+        VertexArrayImpl::SyncCurrentVAO();
         TextureImpl::SyncNeccessaryTextures();
         FramebufferImpl::SyncCurrentFBO();
         PrgramImpl::SyncCurrentProgram();
@@ -905,16 +905,6 @@ namespace MobileGL::MG_Backend::DirectGLES {
             errorLopper.Loop([file = __FILE__, line = __LINE__](auto err) {
                 MGLOG_D("ES error (%s:%d): %s", file, line, MG_Util::ConvertGLEnumToString(err).c_str());
             });
-            FramebufferImpl::BackendFramebufferBindingProtector drawFboProtector(GL_DRAW_FRAMEBUFFER);
-            FramebufferImpl::BackendFramebufferBindingProtector readFboProtector(GL_READ_FRAMEBUFFER);
-            errorLopper.Loop([file = __FILE__, line = __LINE__](auto err) {
-                MGLOG_D("ES error (%s:%d): %s", file, line, MG_Util::ConvertGLEnumToString(err).c_str());
-            });
-
-            FramebufferImpl::BackendFramebufferBindingProtector::BindTempFBO(FramebufferTarget::Draw);
-            errorLopper.Loop([file = __FILE__, line = __LINE__](auto err) {
-                MGLOG_D("ES error (%s:%d): %s", file, line, MG_Util::ConvertGLEnumToString(err).c_str());
-            });
 
             GLint currentTex;
             MG_External::GLES::glGetIntegerv(Utils::GetBindingQuery(target, false), &currentTex);
@@ -927,8 +917,6 @@ namespace MobileGL::MG_Backend::DirectGLES {
 
             if (MG_External::GLES::glCheckFramebufferStatus(GL_DRAW_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
                 MGLOG_E("ES glCheckFramebufferStatus(GL_DRAW_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE");
-
-                // Protector will automatically revert to previous fbo states
                 return;
             }
 
@@ -938,7 +926,6 @@ namespace MobileGL::MG_Backend::DirectGLES {
             errorLopper.Loop([file = __FILE__, line = __LINE__](auto err) {
                 MGLOG_D("ES error (%s:%d): %s", file, line, MG_Util::ConvertGLEnumToString(err).c_str());
             });
-            // Protector will automatically revert to previous fbo states
         }
     }
 
@@ -986,15 +973,6 @@ namespace MobileGL::MG_Backend::DirectGLES {
             });
         } else {
             MGLOG_D("%s: Backend depth", __func__);
-            FramebufferImpl::BackendFramebufferBindingProtector drawFboProtector(GL_DRAW_FRAMEBUFFER);
-            FramebufferImpl::BackendFramebufferBindingProtector readFboProtector(GL_READ_FRAMEBUFFER);
-            errorLopper.Loop([file = __FILE__, line = __LINE__](auto err) {
-                MGLOG_D("ES error (%s:%d): %s", file, line, MG_Util::ConvertGLEnumToString(err).c_str());
-            });
-            FramebufferImpl::BackendFramebufferBindingProtector::BindTempFBO(FramebufferTarget::Draw);
-            errorLopper.Loop([file = __FILE__, line = __LINE__](auto err) {
-                MGLOG_D("ES error (%s:%d): %s", file, line, MG_Util::ConvertGLEnumToString(err).c_str());
-            });
             GLint currentTex;
             MG_External::GLES::glGetIntegerv(Utils::GetBindingQuery(target, false), &currentTex);
             errorLopper.Loop([file = __FILE__, line = __LINE__](auto err) {
@@ -1007,8 +985,6 @@ namespace MobileGL::MG_Backend::DirectGLES {
             });
             if (MG_External::GLES::glCheckFramebufferStatus(GL_DRAW_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
                 MGLOG_E("ES glCheckFramebufferStatus(GL_DRAW_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE");
-
-                // Protector will automatically revert to previous fbo states
                 return;
             }
 
@@ -1018,7 +994,6 @@ namespace MobileGL::MG_Backend::DirectGLES {
             errorLopper.Loop([file = __FILE__, line = __LINE__](auto err) {
                 MGLOG_D("ES error (%s:%d): %s", file, line, MG_Util::ConvertGLEnumToString(err).c_str());
             });
-            // Protector will automatically revert to previous fbo states
         }
     }
 
@@ -1032,7 +1007,6 @@ namespace MobileGL::MG_Backend::DirectGLES {
         auto texture = slot.GetBoundObject();
         auto backendTexture = TextureImpl::SyncTextureObjectToBackend(texture);
 
-        TextureImpl::BackendTextureBindingProtector protector(target);
         backendTexture->Bind(target);
         MG_External::GLES::glGenerateMipmap(target);
     }

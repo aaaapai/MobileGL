@@ -105,7 +105,6 @@ namespace MobileGL::MG_Backend::DirectGLES {
 #ifdef TRACY_ENABLE
             ZoneScopedC(TRACY_ZONECOLOR_BACKEND);
 #endif
-            BackendBufferBindingProtector backendBufferBindingProtector(TempBufferTarget);
 
             MGLOG_D("Syncing buffer data (glBufferData) for object with ID : %u", m_backendBufferId);
 
@@ -122,7 +121,6 @@ namespace MobileGL::MG_Backend::DirectGLES {
 #ifdef TRACY_ENABLE
             ZoneScopedC(TRACY_ZONECOLOR_BACKEND);
 #endif
-            BackendBufferBindingProtector backendBufferBindingProtector(TempBufferTarget);
 
             MGLOG_D("Syncing buffer sub-data (glBufferSubData) for object with ID : %u", m_backendBufferId);
 
@@ -146,7 +144,6 @@ namespace MobileGL::MG_Backend::DirectGLES {
 #ifdef TRACY_ENABLE
             ZoneScopedC(TRACY_ZONECOLOR_BACKEND);
 #endif
-            BackendBufferBindingProtector backendBufferBindingProtector(TempBufferTarget);
 
             MGLOG_D("Syncing buffer map (glMapBuffer) for object with ID : %u", m_backendBufferId);
             MGLOG_D("Mapping buffer with ID: %u", m_backendBufferId);
@@ -215,8 +212,25 @@ namespace MobileGL::MG_Backend::DirectGLES {
             MG_External::GLES::glBindVertexArray(m_backendVAOId);
         }
 
-        void BackendVertexArrayObject::SyncToBackend(SharedPtr<MG_State::GLState::VertexArrayObject>& stateVAOObject,
-                                                     Bool needDivisor) {
+        void BackendVertexArrayObject::SyncAttributeBuffer(Uint index,
+                                                           const MG_State::GLState::VertexAttribute& attrib) {
+            const auto& bufferObject = attrib.Buffer;
+            if (!bufferObject) {
+                MGLOG_W("Attribute has no bound buffer, skipping.");
+                return;
+            }
+
+            const auto& backendBufferIt = BufferImpl::g_backendBufferObjects.find(bufferObject);
+            if (backendBufferIt == BufferImpl::g_backendBufferObjects.end()) {
+                MGLOG_E("No backend buffer found for attribute's buffer, cannot bind attribute.");
+                return;
+            }
+            const auto& backendBufferObject = backendBufferIt->second;
+
+            backendBufferObject->Bind(GL_ARRAY_BUFFER);
+        }
+
+        void BackendVertexArrayObject::SyncToBackend(SharedPtr<MG_State::GLState::VertexArrayObject>& stateVAOObject) {
 #ifdef TRACY_ENABLE
             ZoneScopedC(TRACY_ZONECOLOR_BACKEND);
 #endif
@@ -228,63 +242,72 @@ namespace MobileGL::MG_Backend::DirectGLES {
             MGLOG_D("Syncing VAO with backend ID %u to backend for state ID %u", m_backendVAOId,
                     stateVAOObject->GetExternalIndex());
 
-            BufferImpl::BackendBufferBindingProtector backendBufferBindingProtector(BufferImpl::TempBufferTarget);
-            BackendVertexArrayBindingProtector backendVAOBindingProtector;
-
             Bind();
 
-            for (const auto& attribIndex : stateVAOObject->GetDirtyAttributeIndices()) {
-                const auto& attrib = stateVAOObject->GetAttribute(attribIndex);
-                if (attrib.Enabled) {
-                    MGLOG_D("Binding attribute index %u for VAO ID: %u", attribIndex, m_backendVAOId);
-                    MG_External::GLES::glEnableVertexAttribArray(attribIndex);
-                } else {
-                    MGLOG_D("Disabling attribute index %u for VAO ID: %u", attribIndex, m_backendVAOId);
-                    MG_External::GLES::glDisableVertexAttribArray(attribIndex);
-                    continue;
+            const auto& allAttributeVersions = stateVAOObject->GetAllAttributeVersions();
+            const auto& allAttributes = stateVAOObject->GetAllAttributes();
+            for (Uint attribIndex = 0; attribIndex < allAttributes.size(); ++attribIndex) {
+                const auto& attrib = allAttributes[attribIndex];
+                Bool needsSyncSwitch = allAttributeVersions[attribIndex].SwitchVersion !=
+                                       m_syncedAttributeVersions[attribIndex].SwitchVersion;
+                if (needsSyncSwitch) {
+                    if (attrib.Enabled) {
+                        MG_External::GLES::glEnableVertexAttribArray(attribIndex);
+                    } else {
+                        MG_External::GLES::glDisableVertexAttribArray(attribIndex);
+                    }
                 }
 
-                const auto& bufferObject = attrib.Buffer;
-                if (!bufferObject) {
-                    MGLOG_W("Attribute has no bound buffer, skipping.");
-                    continue;
+                Bool needsSyncFormat = allAttributeVersions[attribIndex].FormatVersion !=
+                                       m_syncedAttributeVersions[attribIndex].FormatVersion;
+                Bool needsSyncBuffer = allAttributeVersions[attribIndex].BufferVersion !=
+                                       m_syncedAttributeVersions[attribIndex].BufferVersion;
+                if (!needsSyncFormat && !needsSyncBuffer) continue;
+
+                if (needsSyncBuffer) {
+                    SyncAttributeBuffer(attribIndex, attrib);
+
+                    if (!attrib.IsInteger) {
+                        MG_External::GLES::glVertexAttribPointer(
+                            attribIndex, attrib.Size, MG_Util::ConvertDataTypeToGLEnum(attrib.Type),
+                            attrib.Normalized ? GL_TRUE : GL_FALSE, attrib.Stride, (const void*)attrib.Offset);
+                    } else {
+                        MG_External::GLES::glVertexAttribIPointer(attribIndex, attrib.Size,
+                                                                  MG_Util::ConvertDataTypeToGLEnum(attrib.Type),
+                                                                  attrib.Stride, (const void*)attrib.Offset);
+                    }
+                    continue; // No need to set format again
                 }
 
-                const auto& backendBufferIt = BufferImpl::g_backendBufferObjects.find(bufferObject);
-                if (backendBufferIt == BufferImpl::g_backendBufferObjects.end()) {
-                    MGLOG_E("No backend buffer found for attribute's buffer, cannot bind attribute.");
-                    continue;
-                }
-                const auto& backendBufferObject = backendBufferIt->second;
-
-                backendBufferObject->Bind(GL_ARRAY_BUFFER);
-                if (!attrib.IsInteger) {
-                    MG_External::GLES::glVertexAttribPointer(
-                        attribIndex, attrib.Size, MG_Util::ConvertDataTypeToGLEnum(attrib.Type),
-                        attrib.Normalized ? GL_TRUE : GL_FALSE, attrib.Stride, (const void*)attrib.Offset);
-                } else {
-                    MG_External::GLES::glVertexAttribIPointer(attribIndex, attrib.Size,
-                                                              MG_Util::ConvertDataTypeToGLEnum(attrib.Type),
-                                                              attrib.Stride, (const void*)attrib.Offset);
-                }
-
-                if (needDivisor) {
+                if (needsSyncFormat) {
                     MG_External::GLES::glVertexAttribDivisor(attribIndex, attrib.Divisor);
+                    if (!attrib.IsInteger) {
+                        MG_External::GLES::glVertexAttribFormat(attribIndex, attrib.Size,
+                                                                MG_Util::ConvertDataTypeToGLEnum(attrib.Type),
+                                                                attrib.Normalized ? GL_TRUE : GL_FALSE, attrib.Offset);
+                    } else {
+                        MG_External::GLES::glVertexAttribIFormat(
+                            attribIndex, attrib.Size, MG_Util::ConvertDataTypeToGLEnum(attrib.Type), attrib.Offset);
+                    }
                 }
             }
 
-            const auto& indexBufferBinding = stateVAOObject->GetIndexBufferBindingSlot().GetBoundObject();
-            if (indexBufferBinding) {
-                const auto& backendBufferIt = BufferImpl::g_backendBufferObjects.find(indexBufferBinding);
-                if (backendBufferIt != BufferImpl::g_backendBufferObjects.end()) {
-                    const auto& backendBufferObject = backendBufferIt->second;
-                    backendBufferObject->Bind(GL_ELEMENT_ARRAY_BUFFER);
-                } else {
-                    MGLOG_W("No backend buffer found for index buffer binding, cannot bind index buffer.");
+            Uint16 currentIndexBufferVersion = stateVAOObject->GetIndexBufferBindingSlot().GetVersion();
+            if (currentIndexBufferVersion != m_syncedIndexBufferVersion) {
+                const auto& indexBufferBinding = stateVAOObject->GetIndexBufferBindingSlot().GetBoundObject();
+                if (indexBufferBinding) {
+                    const auto& backendBufferIt = BufferImpl::g_backendBufferObjects.find(indexBufferBinding);
+                    if (backendBufferIt != BufferImpl::g_backendBufferObjects.end()) {
+                        const auto& backendBufferObject = backendBufferIt->second;
+                        backendBufferObject->Bind(GL_ELEMENT_ARRAY_BUFFER);
+                    } else {
+                        MGLOG_W("No backend buffer found for index buffer binding, cannot bind index buffer.");
+                    }
                 }
+                m_syncedIndexBufferVersion = currentIndexBufferVersion;
             }
 
-            stateVAOObject->ClearDirtyAttributes();
+            m_syncedAttributeVersions = allAttributeVersions;
         }
 
         UnorderedMap<SharedPtr<MG_State::GLState::VertexArrayObject>, SharedPtr<BackendVertexArrayObject>>
@@ -554,6 +577,14 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 return;
             }
 
+            Uint currentSamplerVersion = stateTextureObject->GetSamplerObject()->GetVersion();
+            if (m_syncedSamplerVersion == currentSamplerVersion) {
+                MGLOG_D("Sampler parameters have not changed for texture ID: %u, skipping sync.", m_backendTextureId);
+                return;
+            }
+
+            m_syncedSamplerVersion = currentSamplerVersion;
+
             MGLOG_D("Syncing texture built-in sampler with backend ID %u to backend for state ID %u",
                     m_backendTextureId, stateTextureObject->GetExternalIndex());
 
@@ -635,6 +666,13 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 MGLOG_E("State texture object is null, cannot sync to backend.");
                 return;
             }
+
+            Uint16 currentTextureParamsVersion = stateTextureObject->GetTextureParamsVersion();
+            if (m_syncedTextureParamsVersion == currentTextureParamsVersion) {
+                MGLOG_D("Texture parameters have not changed for texture ID: %u, skipping sync.", m_backendTextureId);
+                return;
+            }
+            m_syncedTextureParamsVersion = currentTextureParamsVersion;
 
             MGLOG_D("Syncing texture params with backend ID %u to backend for state ID %u", m_backendTextureId,
                     stateTextureObject->GetExternalIndex());
@@ -744,7 +782,6 @@ namespace MobileGL::MG_Backend::DirectGLES {
             MGLOG_D("Syncing FBO with backend ID %u to backend for state ID %u, as %s FBO", m_backendFBOId,
                     stateFBOObject->GetExternalIndex(), (asTarget == FramebufferTarget::Draw ? "DRAW" : "READ"));
             GLenum glFBOTarget = MG_Util::ConvertFramebufferTargetToGLEnum(asTarget);
-            BackendFramebufferBindingProtector backendFBOBindingProtector(glFBOTarget);
             Bind(asTarget);
 
             // Handle all attachments
@@ -991,16 +1028,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 source = ProcessOutColorLocations(source);
                 source = ForceSupporterOutput(source);
 
-                 /*// TODO: probably a patch system?
-                 String findStr = "if (distance_weight_sum == 0.0)";
-                 String replaceStr = "if (distance_weight_sum <= 0.0001)";
-                 auto pos = source.find(findStr);
-                 while (pos != String::npos) {
-                     MGLOG_D("Applying patch #1 to Photon...");
-                     source.replace(pos, findStr.length(), replaceStr);
-                     pos = source.find(findStr, pos);
-                }*/
-
+                // Patch for Photon compiler precision issue
                 String findStr = "1000000.0";
                 String replaceStr = "65500.0";
                 auto pos = source.find(findStr);
@@ -1009,24 +1037,6 @@ namespace MobileGL::MG_Backend::DirectGLES {
                     source.replace(pos, findStr.length(), replaceStr);
                     pos = source.find(findStr, pos);
                 }
-
-                 /*findStr = "if (gtao.w == 0.0)";
-                 replaceStr = "if (abs(gtao.w) <= 0.00001)";
-                 pos = source.find(findStr);
-                 while (pos != String::npos) {
-                     MGLOG_D("Applying patch #3 to Photon...");
-                     source.replace(pos, findStr.length(), replaceStr);
-                     pos = source.find(findStr, pos);
-                }
-
-                 findStr = "== 0.0";
-                 replaceStr = "<= 0.00001";
-                 pos = source.find(findStr);
-                 while (pos != String::npos) {
-                     MGLOG_D("Applying patch #4 to Photon...");
-                     source.replace(pos, findStr.length(), replaceStr);
-                     pos = source.find(findStr, pos);
-                }*/
 
                 const char* sourceCStr = source.c_str();
                 MGLOG_D("Setting shader source for backend shader ID: %u\nsrc:\n%s", backendShaderId, sourceCStr);
@@ -1113,6 +1123,15 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 MGLOG_E("State sampler object is null, cannot sync to backend.");
                 return;
             }
+
+            Uint currentSamplerVersion = stateSamplerObject->GetVersion();
+            if (m_isInitialized && m_syncedSamplerVersion == currentSamplerVersion) {
+                MGLOG_D("Sampler parameters have not changed for sampler ID: %u, skipping sync.",
+                        stateSamplerObject->GetExternalIndex());
+                return;
+            }
+
+            m_syncedSamplerVersion = currentSamplerVersion;
 
             MGLOG_D("Syncing sampler with backend ID %u to backend for state ID %u", m_backendSamplerId,
                     stateSamplerObject->GetExternalIndex());

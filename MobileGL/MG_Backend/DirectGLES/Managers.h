@@ -44,13 +44,18 @@ namespace MobileGL::MG_Backend::DirectGLES {
         class BackendVertexArrayObject {
         public:
             BackendVertexArrayObject();
-            void SyncToBackend(SharedPtr<MG_State::GLState::VertexArrayObject>& stateVAOObject, Bool needDivisor);
+            void SyncToBackend(SharedPtr<MG_State::GLState::VertexArrayObject>& stateVAOObject);
             Uint GetBackendVertexArrayId() { return m_backendVAOId; }
             void Bind();
 
         private:
+            void SyncAttributeBuffer(Uint index, const MG_State::GLState::VertexAttribute& attrib);
+
             Uint m_backendVAOId = 0;
             Bool m_isInitialized = false;
+            Uint16 m_syncedIndexBufferVersion = 0;
+            Array<MG_State::GLState::VertexAttributeVersion, MG_State::GLState::VertexArrayObject::MAX_VERTEX_ATTRIBS>
+                m_syncedAttributeVersions;
         };
 
         extern UnorderedMap<SharedPtr<MG_State::GLState::VertexArrayObject>, SharedPtr<BackendVertexArrayObject>>
@@ -101,6 +106,8 @@ namespace MobileGL::MG_Backend::DirectGLES {
             FloatVec4 m_cacheBorderColor = {0.0f, 0.0f, 0.0f, 0.0f};
             Vec4<TextureSwizzleParam> m_cacheSwizzleParams = {TextureSwizzleParam::Red, TextureSwizzleParam::Green,
                                                               TextureSwizzleParam::Blue, TextureSwizzleParam::Alpha};
+            Uint16 m_syncedSamplerVersion = 0;
+            Uint16 m_syncedTextureParamsVersion = 0;
         };
 
         extern UnorderedMap<SharedPtr<MG_State::GLState::ITextureObject>, SharedPtr<BackendTextureObject>>
@@ -181,6 +188,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
             Uint m_backendSamplerId = 0;
             Bool m_isInitialized = false;
             SamplerParameters m_cacheSamplerParameters;
+            Uint16 m_syncedSamplerVersion = 0;
         };
 
         extern UnorderedMap<SharedPtr<MG_State::GLState::SamplerObject>, SharedPtr<BackendSamplerObject>>
