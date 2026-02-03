@@ -30,13 +30,14 @@ namespace MobileGL {
             }
 
             switch (attachment) {
-            case GL_DEPTH_ATTACHMENT:
-                return FramebufferAttachmentType::Depth;
-            case GL_STENCIL_ATTACHMENT:
-                return FramebufferAttachmentType::Stencil;
-            case GL_UNKNOWN_MGL:
-            default:
-                return FramebufferAttachmentType::Unknown;
+                case GL_NONE:
+                    return FramebufferAttachmentType::None;
+                case GL_DEPTH_ATTACHMENT:
+                    return FramebufferAttachmentType::Depth;
+                case GL_STENCIL_ATTACHMENT:
+                    return FramebufferAttachmentType::Stencil;
+                default:
+                    return FramebufferAttachmentType::Unknown;
             }
         }
 
