@@ -196,23 +196,6 @@ target_include_directories(${CMAKE_PROJECT_NAME} PUBLIC
     ${MOBILEGL_INCLUDE_DIR}
 )
 
-if (NOT CMAKE_BUILD_TYPE STREQUAL "Debug" OR MOBILEGL_FORCE_RELEASE_OPT)
-    include(CheckIPOSupported)
-    check_ipo_supported(RESULT LTOSupported OUTPUT LTOError)
-    if (LTOSupported)
-        set(CMAKE_INTERPROCEDURAL_OPTIMIZATION TRUE)
-    endif()
-
-    if (CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang" AND NOT MATCHES "AppleClang")
-        add_compile_options(-O3 -ffunction-sections -fdata-sections)
-        add_link_options(-Wl,--gc-sections)
-    elseif (CMAKE_CXX_COMPILER_ID MATCHES "MSVC")
-        add_compile_options(/O2 /GL)
-    else ()
-        add_compile_options(-O3)
-    endif()
-endif()
-
 if (CMAKE_BUILD_TYPE STREQUAL "Debug")
     set_target_properties(${CMAKE_PROJECT_NAME} PROPERTIES
         C_VISIBILITY_PRESET default
@@ -232,7 +215,8 @@ target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE
     glslang::glslang
     spirv-cross-c
     SPIRV-Tools-opt
-    SPIRV-Tools    # ${CMAKE_SOURCE_DIR}/library/android/${ANDROID_ABI}/libshaderc.so
+    SPIRV-Tools
+    # ${CMAKE_SOURCE_DIR}/library/android/${ANDROID_ABI}/libshaderc.so
     android
     log
 )
