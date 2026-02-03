@@ -269,32 +269,34 @@ target_link_libraries(${CMAKE_PROJECT_NAME}
     ${MOBILEGL_LINK_LIBRARIES}
 )
 
-add_library(${CMAKE_PROJECT_NAME}_s STATIC 
-    ${SOURCE_FILES}
-)
-
-if (CMAKE_BUILD_TYPE STREQUAL "Debug")
-    set_target_properties(${CMAKE_PROJECT_NAME}_s PROPERTIES
-        C_VISIBILITY_PRESET default
-        CXX_VISIBILITY_PRESET default
-        VISIBILITY_INLINES_HIDDEN OFF
+if(NOT ANDROID)
+    add_library(${CMAKE_PROJECT_NAME}_s STATIC 
+        ${SOURCE_FILES}
     )
-else()
-    set_target_properties(${CMAKE_PROJECT_NAME}_s PROPERTIES
-        C_VISIBILITY_PRESET hidden
-        CXX_VISIBILITY_PRESET hidden
-        VISIBILITY_INLINES_HIDDEN ON
+
+    if (CMAKE_BUILD_TYPE STREQUAL "Debug")
+        set_target_properties(${CMAKE_PROJECT_NAME}_s PROPERTIES
+            C_VISIBILITY_PRESET default
+            CXX_VISIBILITY_PRESET default
+            VISIBILITY_INLINES_HIDDEN OFF
+        )
+    else()
+        set_target_properties(${CMAKE_PROJECT_NAME}_s PROPERTIES
+            C_VISIBILITY_PRESET hidden
+            CXX_VISIBILITY_PRESET hidden
+            VISIBILITY_INLINES_HIDDEN ON
+        )
+    endif()
+
+    target_include_directories(${CMAKE_PROJECT_NAME}_s PUBLIC
+        ${MOBILEGL_INCLUDE_DIR}
+    )
+
+    target_link_libraries(${CMAKE_PROJECT_NAME}_s
+        PRIVATE
+        ${MOBILEGL_LINK_LIBRARIES}
     )
 endif()
-
-target_include_directories(${CMAKE_PROJECT_NAME}_s PUBLIC
-    ${MOBILEGL_INCLUDE_DIR}
-)
-
-target_link_libraries(${CMAKE_PROJECT_NAME}_s
-    PRIVATE
-    ${MOBILEGL_LINK_LIBRARIES}
-)
 
 if (TRACY_ENABLE)
     target_link_libraries(${CMAKE_PROJECT_NAME} PUBLIC Tracy::TracyClient)
@@ -308,9 +310,6 @@ if (ANDROID)
         android
         log
     )
-    target_link_libraries(${CMAKE_PROJECT_NAME}_s PUBLIC
-        android
-        log)
 endif()
 
 if (MOBILEGL_BUILD_TEST)
