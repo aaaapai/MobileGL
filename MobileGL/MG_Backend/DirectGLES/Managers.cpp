@@ -7,6 +7,10 @@
 // End of Source File Header
 
 #include "Managers.h"
+#include "MG_State/GLState/TextureState/TextureEnum.h"
+#include "MG_State/GLState/TextureState/TextureObject.h"
+#include "MG_State/GLState/TextureState/TextureState.h"
+#include "MG_Util/Converters/GLToMG/TextureEnumConverter.h"
 #include "Utils.h"
 #include "DirectGLES.h"
 
@@ -345,11 +349,16 @@ namespace MobileGL::MG_Backend::DirectGLES {
             }
         }
 
-        void BackendTextureObject::Bind(GLenum target) {
+        void BackendTextureObject::Bind(GLenum target, Uint unit) {
 #ifdef TRACY_ENABLE
             ZoneScopedC(TRACY_ZONECOLOR_BACKEND);
 #endif
+            auto targetN = static_cast<SizeT>(MG_Util::ConvertGLEnumToTextureTarget(target));
+            if (this == g_boundTexturesCache[unit][targetN]) return;
+
+            ActivateTextureUnit(unit);
             MG_External::GLES::glBindTexture(target, m_backendTextureId);
+            g_boundTexturesCache[unit][targetN] = this;
         }
 
         Uint BackendTextureObject::GetBackendTextureId() {
@@ -759,6 +768,27 @@ namespace MobileGL::MG_Backend::DirectGLES {
             }
         }
 
+        void ActivateTextureUnit(Uint unit) {
+            if (unit == g_activeTextureUnit) {
+                return;
+            }
+            MG_External::GLES::glActiveTexture(GL_TEXTURE0 + unit);
+            g_activeTextureUnit = unit;
+        }
+
+        void UnbindTexture(Uint unit, GLenum target) { // Active unit will be modified
+            auto targetN = static_cast<SizeT>(MG_Util::ConvertGLEnumToTextureTarget(target));
+            if (g_boundTexturesCache[unit][targetN] == nullptr) return;
+
+            ActivateTextureUnit(unit);
+            MG_External::GLES::glBindTexture(target, 0);
+            g_boundTexturesCache[unit][targetN] = nullptr;
+        }
+
+        Uint g_activeTextureUnit = 0;
+        Array<Array<BackendTextureObject*, (SizeT)TextureTarget::TextureTargetCount>,
+              MG_State::GLState::TextureState::MAX_TEXTURE_IMAGE_UNITS>
+            g_boundTexturesCache;
         UnorderedMap<SharedPtr<MG_State::GLState::ITextureObject>, SharedPtr<BackendTextureObject>>
             g_backendTextureObjects;
     } // namespace TextureImpl
@@ -1230,7 +1260,10 @@ namespace MobileGL::MG_Backend::DirectGLES {
 #ifdef TRACY_ENABLE
             ZoneScopedC(TRACY_ZONECOLOR_BACKEND);
 #endif
+            if (g_boundSamplersCache[unit] == this) return;
+
             MG_External::GLES::glBindSampler(static_cast<GLenum>(unit), m_backendSamplerId);
+            g_boundSamplersCache[unit] = this;
         }
 
         Uint BackendSamplerObject::GetBackendSamplerId() {
@@ -1240,6 +1273,14 @@ namespace MobileGL::MG_Backend::DirectGLES {
             return m_backendSamplerId;
         }
 
+        void UnbindSampler(Uint unit) {
+            if (g_boundSamplersCache[unit] == nullptr) return;
+
+            MG_External::GLES::glBindSampler(static_cast<GLenum>(unit), 0);
+            g_boundSamplersCache[unit] = nullptr;
+        }
+
+        Array<BackendSamplerObject*, MG_State::GLState::TextureState::MAX_TEXTURE_IMAGE_UNITS> g_boundSamplersCache;
         UnorderedMap<SharedPtr<MG_State::GLState::SamplerObject>, SharedPtr<BackendSamplerObject>>
             g_backendSamplerObjects;
     } // namespace SamplerImpl

@@ -8,6 +8,8 @@
 
 #pragma once
 #include <Includes.h>
+#include <MG_State/GLState/TextureState/TextureState.h>
+#include <MG_State/GLState/SamplerState/SamplerObject.h>
 
 #define CallAndCheck(operation)                                                                                        \
     MGLOG_D("Call GLES func: %s", #operation);                                                                         \
