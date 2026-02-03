@@ -30,6 +30,8 @@ namespace MobileGL {
             }
     
             switch (attachment) {
+                case GL_NONE:
+                    return FramebufferAttachmentType::None;
         
                 case GL_FRONT_LEFT:
                     return FramebufferAttachmentType::FrontLeft;
@@ -58,7 +60,6 @@ namespace MobileGL {
                 case GL_DEPTH_STENCIL_ATTACHMENT:
                     return FramebufferAttachmentType::DepthStencil;
 
-                case GL_UNKNOWN_MGL:
                 default:
                     return FramebufferAttachmentType::Unknown;
             }
