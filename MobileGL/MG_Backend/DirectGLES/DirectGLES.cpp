@@ -373,7 +373,11 @@ namespace MobileGL::MG_Backend::DirectGLES {
 #ifdef TRACY_ENABLE
         ZoneScopedC(TRACY_ZONECOLOR_BACKEND);
 #endif
-        const auto& currentFBO = MG_State::pGLContext->GetFramebufferBindingSlot(target).GetBoundObject();
+        auto& slot = MG_State::pGLContext->GetFramebufferBindingSlot(target);
+        if (slot.GetVersion() == FramebufferImpl::g_fboBindVersions[(SizeT)target])
+            return;
+
+        const auto& currentFBO = slot.GetBoundObject();
         if (currentFBO && currentFBO != MG_Impl::GLImpl::FramebufferImpl::pDefaultFramebufferInfo->defaultFBO) {
             const auto& backendFBOIt = FramebufferImpl::g_backendFramebufferObjects.find(currentFBO);
             if (backendFBOIt != FramebufferImpl::g_backendFramebufferObjects.end()) {

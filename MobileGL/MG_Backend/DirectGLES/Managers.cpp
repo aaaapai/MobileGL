@@ -603,7 +603,8 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 return;
             }
 
-            Uint currentSamplerVersion = stateTextureObject->GetSamplerObject()->GetVersion();
+            auto* samplerObject = stateTextureObject->GetSamplerObject().get();
+            Uint currentSamplerVersion = samplerObject->GetVersion();
             if (m_syncedSamplerVersion == currentSamplerVersion) {
                 MGLOG_D("Sampler parameters have not changed for texture ID: %u, skipping sync.", m_backendTextureId);
                 return;
@@ -631,7 +632,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
 
             // Update built-in sampler parameters
             MGLOG_D("Updating sampler parameters for texture with ID: %u", m_backendTextureId);
-            const auto& samplerParams = stateTextureObject->GetSamplerObject()->GetAllSamplerParameters();
+            const auto& samplerParams = samplerObject->GetAllSamplerParameters();
 
 #define SYNC_TEX_SAMPLER_PARAM_IF_CHANGED(internalName, glName, type)                                                  \
     if (m_cacheSamplerParameters.internalName != samplerParams.internalName) {                                         \
