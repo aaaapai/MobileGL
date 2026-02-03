@@ -1,11 +1,7 @@
 name: Test
 
 on:
-  push:
-    branches:
-      - dev
-      - Feat/Backend-Direct-GLES
-
+  workflow_dispatch:
 jobs:
   test:
     runs-on: ubuntu-latest
