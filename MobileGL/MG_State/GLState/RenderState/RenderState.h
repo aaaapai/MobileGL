@@ -52,7 +52,7 @@ namespace MobileGL {
         PackSkipPixels,
         PackSkipImages,
         PackSwapBytes,
-        PackLsbFirst,
+        PackLSBFirst,
 
         // Unpack Parameters
         UnpackAlignment,
@@ -62,7 +62,7 @@ namespace MobileGL {
         UnpackSkipPixels,
         UnpackSkipImages,
         UnpackSwapBytes,
-        UnpackLsbFirst,
+        UnpackLSBFirst,
 
         PixelStoreParamCount,
         Unknown = -1
@@ -150,10 +150,6 @@ namespace MobileGL {
         FloatVec4 ClearColor = FloatVec4(0.0f, 0.0f, 0.0f, 1.0f);
         Float ClearDepth = 1.0f;
 
-        // Pixel Store
-        PixelStoreParameters PackParameters;
-        PixelStoreParameters UnpackParameters;
-
         // Cull Face
         Bool CullFaceEnabled = false;
         CullFaceMode CullFaceModeSetting = CullFaceMode::Back;
@@ -168,6 +164,9 @@ namespace MobileGL {
             class RenderState {
             public:
                 RenderState();
+
+                Uint GetVersion() const;
+                const RenderStateParameters& GetAllParameters() const;
 
                 // Rasterization
                 void SetViewport(IntVec4 viewport); // x, y, width, height
@@ -212,7 +211,12 @@ namespace MobileGL {
                 const IntVec4& GetScissorBox() const; // x, y, width, height
 
             private:
+                Uint16 m_version = 0;
                 RenderStateParameters m_parameters;
+
+                // Pixel Store
+                PixelStoreParameters m_pixelStorePackParameters;
+                PixelStoreParameters m_pixelStoreUnpackParameters;
             };
         } // namespace GLState
     } // namespace MG_State

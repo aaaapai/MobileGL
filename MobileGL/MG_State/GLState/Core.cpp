@@ -220,6 +220,14 @@ namespace MobileGL {
             }
 
             // RenderState
+            Uint GLContext::GetRenderStateParametersVersion() const {
+                return m_renderState.GetVersion();
+            }
+
+            const RenderStateParameters& GLContext::GetRenderStateParameters() const {
+                return m_renderState.GetAllParameters();
+            }
+
             void GLContext::SetViewport(IntVec4 viewport) {
                 m_renderState.SetViewport(viewport);
             }

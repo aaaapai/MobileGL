@@ -567,7 +567,7 @@ namespace MobileGL {
                 *params = MG_State::pGLContext->GetPixelStoreParam(PixelStoreParam::PackImageHeight);
                 break;
             case GL_PACK_LSB_FIRST:
-                *params = MG_State::pGLContext->GetPixelStoreParam(PixelStoreParam::PackLsbFirst);
+                *params = MG_State::pGLContext->GetPixelStoreParam(PixelStoreParam::PackLSBFirst);
                 break;
             case GL_PACK_ROW_LENGTH:
                 *params = MG_State::pGLContext->GetPixelStoreParam(PixelStoreParam::PackRowLength);
@@ -839,7 +839,7 @@ namespace MobileGL {
                 *params = MG_State::pGLContext->GetPixelStoreParam(PixelStoreParam::UnpackImageHeight);
                 break;
             case GL_UNPACK_LSB_FIRST:
-                *params = MG_State::pGLContext->GetPixelStoreParam(PixelStoreParam::UnpackLsbFirst);
+                *params = MG_State::pGLContext->GetPixelStoreParam(PixelStoreParam::UnpackLSBFirst);
                 break;
             case GL_UNPACK_ROW_LENGTH:
                 *params = MG_State::pGLContext->GetPixelStoreParam(PixelStoreParam::UnpackRowLength);
