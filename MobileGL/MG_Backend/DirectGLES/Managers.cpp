@@ -177,25 +177,21 @@ namespace MobileGL::MG_Backend::DirectGLES {
             }
         }
 
-        SharedPtr<BackendBufferObject> BackendBufferObject::GetSharedPtr() {
-            return shared_from_this();
-        }
-
         void BackendBufferObject::Bind(GLenum target) {
 #ifdef TRACY_ENABLE
             ZoneScopedC(TRACY_ZONECOLOR_BACKEND);
 #endif
             if (target == GL_ARRAY_BUFFER) {
-                if (g_boundVertexBufferObject.get() == this) {
+                if (g_boundVertexBufferObject == this) {
                     return;
                 }
-                g_boundVertexBufferObject = GetSharedPtr();
+                g_boundVertexBufferObject = this;
             }
             MG_External::GLES::glBindBuffer(target, m_backendBufferId);
         }
 
         UnorderedMap<SharedPtr<MG_State::GLState::BufferObject>, SharedPtr<BackendBufferObject>> g_backendBufferObjects;
-        SharedPtr<BackendBufferObject> g_boundVertexBufferObject;
+        BackendBufferObject* g_boundVertexBufferObject = nullptr;
     } // namespace BufferImpl
 
     namespace VertexArrayImpl {
