@@ -13,13 +13,19 @@ jobs:
     # well on Windows or Mac.  You can convert this to a matrix build if you need
     # cross-platform coverage.
     # See: https://docs.github.com/en/actions/configuring-and-managing-workflows/configuring-a-workflow#configuring-a-build-matrix
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-slim
 
     steps:
     - uses: actions/checkout@main
       with:
          submodules: false
 
+    - name: Install NDK r26d
+      uses: HoshinoSuzumi/setup-ndk@v1.5.4
+      with:
+        ndk-version: 'r26d'
+        local-cache: true
+        
     - name: Configure CMake and Build
       run: bash android_ci_build.bash
 
