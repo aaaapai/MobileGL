@@ -304,6 +304,10 @@ namespace MobileGL {
             }
         }
 
+        void ReadBuffer_State(GLenum src) {
+            // TODO: implement
+        }
+
         void DeleteRenderbuffers_State(GLsizei n, const GLuint* renderbuffers) {
             if (n < 0) {
                 MG_State::pGLContext->RecordError(
@@ -573,6 +577,10 @@ namespace MobileGL {
 
         void DrawBuffers(GLsizei n, const GLenum* bufs) {
             DrawBuffers_State(n, bufs);
+        }
+
+        void ReadBuffer(GLenum src) {
+            ReadBuffer_State(src);
         }
 
         void DeleteRenderbuffers(GLsizei n, const GLuint* renderbuffers) {
