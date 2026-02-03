@@ -306,8 +306,23 @@ namespace MobileGL {
 
         }
 
-        void ReadBuffer_State(GLenum src) {
-            // TODO: implement
+        void ReadBuffer_State(GLenum mode) {
+            auto attType = MG_Util::ConvertGLEnumToFramebufferAttachmentType(mode);
+
+            // ------------------- Check validity begin ------------------------
+            if (attType == FramebufferAttachmentType::Unknown) {
+                MG_State::pGLContext->RecordError(
+                        ErrorCode::InvalidEnum,
+                        MakeShared<GenericErrorInfo>("MG_Impl/GLImpl", __func__,
+                                                     std::format("`mode` = {} is not an accepted value.",
+                                                                 MG_Util::ConvertGLEnumToString(mode))));
+                return;
+            }
+
+            // Get bound framebuffer
+            auto& bindingSlot = MG_State::pGLContext->GetFramebufferBindingSlot(FramebufferTarget::Read);
+            auto fbo = bindingSlot.GetBoundObject();
+            fbo->SetReadBuffer(attType);
         }
 
         void DeleteRenderbuffers_State(GLsizei n, const GLuint* renderbuffers) {

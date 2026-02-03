@@ -12,41 +12,41 @@
 namespace MobileGL {
     namespace MG_State {
         namespace GLState {
-            // FramebufferAttachment
-            FramebufferAttachment::FramebufferAttachment(SharedPtr<MG_State::GLState::ITextureObject> texture,
-                                                         Int level)
+            // FramebufferAttachmentObject
+            FramebufferAttachmentObject::FramebufferAttachmentObject(SharedPtr<MG_State::GLState::ITextureObject> texture,
+                                                                     Int level)
                 : m_texture(texture), m_textureLevel(level) {}
-            FramebufferAttachment::FramebufferAttachment(SharedPtr<RenderbufferObject> renderbuffer)
+            FramebufferAttachmentObject::FramebufferAttachmentObject(SharedPtr<RenderbufferObject> renderbuffer)
                 : m_renderbuffer(renderbuffer) {}
-            FramebufferAttachment::FramebufferAttachment(Bool IsValid) : m_texture(nullptr), m_renderbuffer(nullptr) {
+            FramebufferAttachmentObject::FramebufferAttachmentObject(Bool IsValid) : m_texture(nullptr), m_renderbuffer(nullptr) {
                 m_isValid = IsValid;
             }
 
-            Bool FramebufferAttachment::IsTexture() const {
+            Bool FramebufferAttachmentObject::IsTexture() const {
                 return m_texture != nullptr;
             }
 
-            Bool FramebufferAttachment::IsRenderbuffer() const {
+            Bool FramebufferAttachmentObject::IsRenderbuffer() const {
                 return m_renderbuffer != nullptr;
             }
 
-            Bool FramebufferAttachment::IsEmpty() const {
+            Bool FramebufferAttachmentObject::IsEmpty() const {
                 return m_texture == nullptr && m_renderbuffer == nullptr;
             }
 
-            SharedPtr<MG_State::GLState::ITextureObject> FramebufferAttachment::GetTexture() const {
+            SharedPtr<MG_State::GLState::ITextureObject> FramebufferAttachmentObject::GetTexture() const {
                 return m_texture;
             }
 
-            SharedPtr<RenderbufferObject> FramebufferAttachment::GetRenderbuffer() const {
+            SharedPtr<RenderbufferObject> FramebufferAttachmentObject::GetRenderbuffer() const {
                 return m_renderbuffer;
             }
 
-            Int FramebufferAttachment::GetTextureLevel() const {
+            Int FramebufferAttachmentObject::GetTextureLevel() const {
                 return m_textureLevel;
             }
 
-            Bool FramebufferAttachment::IsComplete() const {
+            Bool FramebufferAttachmentObject::IsComplete() const {
                 if (IsTexture()) {
                     Bool complete = m_texture->IsComplete();
                     return complete;
@@ -58,7 +58,7 @@ namespace MobileGL {
                 return false;
             }
 
-            IntVec3 FramebufferAttachment::GetSize() const {
+            IntVec3 FramebufferAttachmentObject::GetSize() const {
                 if (IsTexture()) {
                     // TODO: get correct upload target
                     MOBILEGL_ASSERT(nullptr != dynamic_cast<MG_State::GLState::TextureObjectMipmap*>(m_texture.get()),
@@ -71,41 +71,39 @@ namespace MobileGL {
                 return {0, 0, 0};
             }
 
-            Bool FramebufferAttachment::IsValid() const {
+            Bool FramebufferAttachmentObject::IsValid() const {
                 return m_isValid;
             }
 
             // FramebufferObject
             FramebufferObject::FramebufferObject(Uint externalIndex) : m_externalIndex(externalIndex) {
-                m_attachments.fill(FramebufferAttachment(false));
+                m_attachments.fill(FramebufferAttachmentObject(false));
                 m_drawBuffers.fill(FramebufferAttachmentType::None);
                 m_drawBuffers[0] = FramebufferAttachmentType::Color0;
             }
 
             void FramebufferObject::AttachTexture(FramebufferAttachmentType type, SharedPtr<ITextureObject> texture,
                                                   int level) {
-                m_attachments[static_cast<SizeT>(type)] = FramebufferAttachment(std::move(texture), level);
+                m_attachments[static_cast<SizeT>(type)] = FramebufferAttachmentObject(std::move(texture), level);
                 m_drawBuffersDirty = true;
             }
 
             void FramebufferObject::AttachRenderbuffer(FramebufferAttachmentType type,
                                                        std::shared_ptr<RenderbufferObject> renderbuffer) {
-                m_attachments[static_cast<SizeT>(type)] = FramebufferAttachment(renderbuffer);
+                m_attachments[static_cast<SizeT>(type)] = FramebufferAttachmentObject(renderbuffer);
                 m_drawBuffersDirty = true;
             }
 
             void FramebufferObject::Detach(FramebufferAttachmentType type) {
-                m_attachments[static_cast<SizeT>(type)] = FramebufferAttachment(false);
+                m_attachments[static_cast<SizeT>(type)] = FramebufferAttachmentObject(false);
                 m_drawBuffersDirty = true;
             }
 
-            const FramebufferAttachment& FramebufferObject::GetAttachment(FramebufferAttachmentType type) const {
+            const FramebufferAttachmentObject& FramebufferObject::GetAttachment(FramebufferAttachmentType type) const {
                 return m_attachments[static_cast<SizeT>(type)];
             }
 
-            const Array<FramebufferAttachment,
-                        static_cast<SizeT>(FramebufferAttachmentType::FramebufferAttachmentTypeCount)>&
-            FramebufferObject::GetAllAttachments() const {
+            const FramebufferObject::FramebufferAttachmentObjectArray& FramebufferObject::GetAllAttachments() const {
                 return m_attachments;
             }
 
@@ -155,8 +153,7 @@ namespace MobileGL {
             //
             //            }
 
-            const Array<FramebufferAttachmentType, FramebufferObject::MAX_DRAW_BUFFERS>& FramebufferObject::
-                GetDrawBuffers() const {
+            const FramebufferObject::FramebufferAttachmentArray& FramebufferObject::GetDrawBuffers() const {
                 return m_drawBuffers;
             }
 

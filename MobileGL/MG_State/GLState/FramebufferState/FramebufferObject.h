@@ -76,11 +76,11 @@ namespace MobileGL {
 
     namespace MG_State {
         namespace GLState {
-            class FramebufferAttachment {
+            class FramebufferAttachmentObject {
             public:
-                explicit FramebufferAttachment(SharedPtr<MG_State::GLState::ITextureObject> texture, Int level = 0);
-                explicit FramebufferAttachment(SharedPtr<RenderbufferObject> renderbuffer);
-                explicit FramebufferAttachment(Bool IsValid = true);
+                explicit FramebufferAttachmentObject(SharedPtr<MG_State::GLState::ITextureObject> texture, Int level = 0);
+                explicit FramebufferAttachmentObject(SharedPtr<RenderbufferObject> renderbuffer);
+                explicit FramebufferAttachmentObject(Bool IsValid = true);
 
                 Bool IsTexture() const;
                 Bool IsRenderbuffer() const;
@@ -101,8 +101,12 @@ namespace MobileGL {
 
             class FramebufferObject {
             public:
-                using TargetEnum = FramebufferTarget;
                 static constexpr Uint MAX_DRAW_BUFFERS = 8;
+
+                using TargetEnum = FramebufferTarget;
+                using FramebufferAttachmentObjectArray =
+                        Array<FramebufferAttachmentObject, static_cast<SizeT>(FramebufferAttachmentType::FramebufferAttachmentTypeCount)>;
+                using FramebufferAttachmentArray = Array<FramebufferAttachmentType, MAX_DRAW_BUFFERS>;
 
                 FramebufferObject(Uint externalIndex);
 
@@ -110,27 +114,25 @@ namespace MobileGL {
                 void AttachRenderbuffer(FramebufferAttachmentType type,
                                         std::shared_ptr<RenderbufferObject> renderbuffer);
                 void Detach(FramebufferAttachmentType type);
-                const FramebufferAttachment& GetAttachment(FramebufferAttachmentType type) const;
-                const Array<FramebufferAttachment,
-                            static_cast<SizeT>(FramebufferAttachmentType::FramebufferAttachmentTypeCount)>&
-                GetAllAttachments() const;
+                const FramebufferAttachmentObject& GetAttachment(FramebufferAttachmentType type) const;
+                const FramebufferAttachmentObjectArray& GetAllAttachments() const;
                 Bool CheckCompleteness() const;
                 // aka. `buffer` as in glDrawBuffers/glReadBuffers
                 void SetDrawBuffer(Uint index, FramebufferAttachmentType buffer);
                 bool DrawBuffersIsDirty() const { return m_drawBuffersDirty; }
                 void ClearDrawBuffersDirtyState() { m_drawBuffersDirty = false; }
-                const Array<FramebufferAttachmentType, MAX_DRAW_BUFFERS>& GetDrawBuffers() const;
+                const FramebufferAttachmentArray& GetDrawBuffers() const;
+                void SetReadBuffer(FramebufferAttachmentType buf) { m_readBuffer = buf; }
                 FramebufferAttachmentType GetReadBuffer() const { return m_readBuffer; }
                 Uint GetExternalIndex() const;
 
             private:
                 const Uint m_externalIndex = 0;
-                Array<FramebufferAttachment,
-                      static_cast<SizeT>(FramebufferAttachmentType::FramebufferAttachmentTypeCount)>
-                    m_attachments;
-                Bool m_drawBuffersDirty = false;
-                Array<FramebufferAttachmentType, MAX_DRAW_BUFFERS> m_drawBuffers;
+                FramebufferAttachmentObjectArray m_attachments;
+                FramebufferAttachmentArray m_drawBuffers;
                 FramebufferAttachmentType m_readBuffer = FramebufferAttachmentType::Color0;
+
+                Bool m_drawBuffersDirty = false;
             };
 
         } // namespace GLState
