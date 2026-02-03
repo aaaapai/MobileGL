@@ -20,12 +20,6 @@ jobs:
       with:
          submodules: recursive
 
-    - name: Install NDK r26d
-      uses: HoshinoSuzumi/setup-ndk@v1.5.4
-      with:
-        ndk-version: 'r26d'
-        local-cache: false
-        
     - name: Configure CMake and Build
       run: bash android_ci_build.bash
 
