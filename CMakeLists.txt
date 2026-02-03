@@ -41,6 +41,27 @@ configure_file(
 
 include_directories(${CMAKE_BINARY_DIR}/generated)
 
+set(ENABLE_RTTI                ON  CACHE BOOL "Enables RTTI (will be took by glslang)" FORCE)
+
+set(ENABLE_GLSLANG_BINARIES    OFF CACHE BOOL "Enable glslangValidator/spirv-remap" FORCE)
+set(ENABLE_SPVREMAPPER         OFF CACHE BOOL "Enable SPVRemapper" FORCE)
+set(ENABLE_OPT                 ON  CACHE BOOL "Enable SPIRV-Tools opt usage in glslang" FORCE)
+set(BUILD_EXTERNAL             ON  CACHE BOOL "Build external deps in External/" FORCE)
+set(ENABLE_GLSLANG_INSTALL     OFF CACHE BOOL "Install glslang targets" FORCE)
+
+set(SPIRV_CROSS_C_API          ON  CACHE BOOL "Enable C API" FORCE)
+set(SPIRV_CROSS_ENABLE_GLSL    ON  CACHE BOOL "Enable GLSL backend" FORCE)
+set(SPIRV_CROSS_ENABLE_HLSL    OFF CACHE BOOL "Disable HLSL backend" FORCE)
+set(SPIRV_CROSS_ENABLE_MSL     OFF CACHE BOOL "Disable MSL backend" FORCE)
+set(SPIRV_CROSS_ENABLE_CPP     OFF CACHE BOOL "Disable C++ API target" FORCE)
+set(SPIRV_CROSS_CLI            OFF CACHE BOOL "Disable CLI binary" FORCE)
+set(SPIRV_CROSS_STATIC         ON  CACHE BOOL "Prefer static libs" FORCE)
+
+include_directories(${CMAKE_BINARY_DIR}/generated)
+
+add_subdirectory(3rdparty/glslang)
+add_subdirectory(3rdparty/SPIRV-Cross)
+
 set(SOURCE_FILES
     MobileGL/Init.cpp
 
@@ -208,14 +229,10 @@ endif()
 
 if (ANDROID)
 target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE
-    ${CMAKE_SOURCE_DIR}/library/android/${ANDROID_ABI}/libspirv-cross-c.a
-    ${CMAKE_SOURCE_DIR}/library/android/${ANDROID_ABI}/libglslang.a
-    ${CMAKE_SOURCE_DIR}/library/android/${ANDROID_ABI}/libspirv-cross-core.a
-    ${CMAKE_SOURCE_DIR}/library/android/${ANDROID_ABI}/libspirv-cross-cpp.a
-    ${CMAKE_SOURCE_DIR}/library/android/${ANDROID_ABI}/libspirv-cross-glsl.a
-    ${CMAKE_SOURCE_DIR}/library/android/${ANDROID_ABI}/libSPIRV-Tools.a
-    ${CMAKE_SOURCE_DIR}/library/android/${ANDROID_ABI}/libSPIRV-Tools-opt.a
-    # ${CMAKE_SOURCE_DIR}/library/android/${ANDROID_ABI}/libshaderc.so
+    glslang::glslang
+    spirv-cross-c
+    SPIRV-Tools-opt
+    SPIRV-Tools    # ${CMAKE_SOURCE_DIR}/library/android/${ANDROID_ABI}/libshaderc.so
     android
     log
 )
