@@ -17,14 +17,13 @@
 
 namespace MobileGL::MG_Backend::DirectGLES {
     namespace BufferImpl {
-        class BackendBufferObject : public std::enable_shared_from_this<BackendBufferObject> {
+        const GLenum TempBufferTarget = GL_ARRAY_BUFFER;
+        class BackendBufferObject {
         public:
             BackendBufferObject();
             void SyncToBackend(SharedPtr<MG_State::GLState::BufferObject>& stateBufferObject);
             Uint GetBackendBufferId() { return m_backendBufferId; }
-            void Bind();
-            void Bind(GLenum target);
-            SharedPtr<BackendBufferObject> GetSharedPtr();
+            void Bind(GLenum target = TempBufferTarget);
 
         private:
             void SyncToBackend_glBufferData(SharedPtr<MG_State::GLState::BufferObject>& stateBufferObject);
@@ -37,7 +36,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
             Bool m_isInitialized = false;
         };
 
-        extern SharedPtr<BackendBufferObject> g_boundVertexBufferObject;
+        extern BackendBufferObject* g_boundVertexBufferObject;
         extern UnorderedMap<SharedPtr<MG_State::GLState::BufferObject>, SharedPtr<BackendBufferObject>>
             g_backendBufferObjects;
     } // namespace BufferImpl
