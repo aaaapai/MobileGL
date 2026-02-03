@@ -15,27 +15,27 @@ namespace MobileGL {
 
             // -------------------- Rasterization --------------------
             void RenderState::SetViewport(IntVec4 viewport) {
-                m_viewport = viewport;
+                m_parameters.Viewport = viewport;
             }
 
             const IntVec4& RenderState::GetViewport() const {
-                return m_viewport;
+                return m_parameters.Viewport;
             }
 
             // -------------------- Capabilities --------------------
             void RenderState::SetCapability(CapabilityInput cap, Bool enabled) {
                 switch (cap) {
                 case CapabilityInput::Blend:
-                    m_blendEnabled = enabled;
+                    m_parameters.BlendEnabled = enabled;
                     break;
                 case CapabilityInput::DepthTest:
-                    m_depthTestEnabled = enabled;
+                    m_parameters.DepthTestEnabled = enabled;
                     break;
                 case CapabilityInput::CullFace:
-                    m_cullFaceEnabled = enabled;
+                    m_parameters.CullFaceEnabled = enabled;
                     break;
                 case CapabilityInput::ScissorTest:
-                    m_scissorTestEnabled = enabled;
+                    m_parameters.ScissorTestEnabled = enabled;
                     break;
                 default: // not supported currently
                     break;
@@ -45,13 +45,13 @@ namespace MobileGL {
             Bool RenderState::IsCapabilityEnabled(CapabilityInput cap) const {
                 switch (cap) {
                 case CapabilityInput::Blend:
-                    return m_blendEnabled;
+                    return m_parameters.BlendEnabled;
                 case CapabilityInput::DepthTest:
-                    return m_depthTestEnabled;
+                    return m_parameters.DepthTestEnabled;
                 case CapabilityInput::CullFace:
-                    return m_cullFaceEnabled;
+                    return m_parameters.CullFaceEnabled;
                 case CapabilityInput::ScissorTest:
-                    return m_scissorTestEnabled;
+                    return m_parameters.ScissorTestEnabled;
                 default:
                     return false;
                 }
@@ -60,114 +60,114 @@ namespace MobileGL {
             // -------------------- Blending --------------------
             void RenderState::SetBlendFunc(BlendFactor srcRGB, BlendFactor dstRGB, BlendFactor srcAlpha,
                                            BlendFactor dstAlpha) {
-                m_srcFactorRGB = srcRGB;
-                m_dstFactorRGB = dstRGB;
-                m_srcFactorAlpha = srcAlpha;
-                m_dstFactorAlpha = dstAlpha;
+                m_parameters.SrcFactorRGB = srcRGB;
+                m_parameters.DstFactorRGB = dstRGB;
+                m_parameters.SrcFactorAlpha = srcAlpha;
+                m_parameters.DstFactorAlpha = dstAlpha;
             }
 
             void RenderState::GetBlendFunc(BlendFactor& srcRGB, BlendFactor& dstRGB, BlendFactor& srcAlpha,
                                            BlendFactor& dstAlpha) const {
-                srcRGB = m_srcFactorRGB;
-                dstRGB = m_dstFactorRGB;
-                srcAlpha = m_srcFactorAlpha;
-                dstAlpha = m_dstFactorAlpha;
+                srcRGB = m_parameters.SrcFactorRGB;
+                dstRGB = m_parameters.DstFactorRGB;
+                srcAlpha = m_parameters.SrcFactorAlpha;
+                dstAlpha = m_parameters.DstFactorAlpha;
             }
 
             // -------------------- Depth --------------------
             void RenderState::SetDepthFunc(DepthTestFunc func) {
-                m_depthFunc = func;
+                m_parameters.DepthFunc = func;
             }
 
             DepthTestFunc RenderState::GetDepthFunc() const {
-                return m_depthFunc;
+                return m_parameters.DepthFunc;
             }
 
             void RenderState::SetDepthMask(Bool flag) {
-                m_depthMask = flag;
+                m_parameters.DepthMask = flag;
             }
 
             Bool RenderState::GetDepthMask() const {
-                return m_depthMask;
+                return m_parameters.DepthMask;
             }
 
             // -------------------- Color Mask --------------------
             void RenderState::SetColorMask(BoolVec4 mask) {
-                m_colorMask = mask;
+                m_parameters.ColorMask = mask;
             }
 
             const BoolVec4 RenderState::GetColorMask() const {
-                return m_colorMask;
+                return m_parameters.ColorMask;
             }
 
             // -------------------- Clear State --------------------
             void RenderState::SetClearColor(FloatVec4 color) {
-                m_clearColor = color;
+                m_parameters.ClearColor = color;
             }
 
             const FloatVec4& RenderState::GetClearColor() const {
-                return m_clearColor;
+                return m_parameters.ClearColor;
             }
 
             void RenderState::SetClearDepth(Float depth) {
-                m_clearDepth = depth;
+                m_parameters.ClearDepth = depth;
             }
 
             Float RenderState::GetClearDepth() const {
-                return m_clearDepth;
+                return m_parameters.ClearDepth;
             }
 
             // -------------------- Pixel Store --------------------
             void RenderState::SetPixelStoreParam(PixelStoreParam param, Int value) {
                 switch (param) {
                 case PixelStoreParam::PackAlignment:
-                    m_packParameters.Alignment = value;
+                    m_parameters.PackParameters.Alignment = value;
                     break;
                 case PixelStoreParam::PackRowLength:
-                    m_packParameters.RowLength = value;
+                    m_parameters.PackParameters.RowLength = value;
                     break;
                 case PixelStoreParam::PackImageHeight:
-                    m_packParameters.ImageHeight = value;
+                    m_parameters.PackParameters.ImageHeight = value;
                     break;
                 case PixelStoreParam::PackSkipPixels:
-                    m_packParameters.SkipPixels = value;
+                    m_parameters.PackParameters.SkipPixels = value;
                     break;
                 case PixelStoreParam::PackSkipRows:
-                    m_packParameters.SkipRows = value;
+                    m_parameters.PackParameters.SkipRows = value;
                     break;
                 case PixelStoreParam::PackSkipImages:
-                    m_packParameters.SkipImages = value;
+                    m_parameters.PackParameters.SkipImages = value;
                     break;
                 case PixelStoreParam::PackSwapBytes:
-                    m_packParameters.SwapBytes = value != 0;
+                    m_parameters.PackParameters.SwapBytes = value != 0;
                     break;
                 case PixelStoreParam::PackLsbFirst:
-                    m_packParameters.LSBFirst = value != 0;
+                    m_parameters.PackParameters.LSBFirst = value != 0;
                     break;
                 case PixelStoreParam::UnpackAlignment:
-                    m_unpackParameters.Alignment = value;
+                    m_parameters.UnpackParameters.Alignment = value;
                     break;
                 case PixelStoreParam::UnpackRowLength:
-                    m_unpackParameters.RowLength = value;
+                    m_parameters.UnpackParameters.RowLength = value;
                     break;
                 case PixelStoreParam::UnpackImageHeight:
-                    m_unpackParameters.ImageHeight = value;
+                    m_parameters.UnpackParameters.ImageHeight = value;
                     break;
                 case PixelStoreParam::UnpackSkipPixels:
-                    m_unpackParameters.SkipPixels = value;
+                    m_parameters.UnpackParameters.SkipPixels = value;
                     break;
                 case PixelStoreParam::UnpackSkipRows:
-                    m_unpackParameters.SkipRows = value;
+                    m_parameters.UnpackParameters.SkipRows = value;
                     break;
                 case PixelStoreParam::UnpackSkipImages:
-                    m_unpackParameters.SkipImages = value;
+                    m_parameters.UnpackParameters.SkipImages = value;
                     break;
                 case PixelStoreParam::UnpackSwapBytes:
-                    m_unpackParameters.SwapBytes = value != 0;
+                    m_parameters.UnpackParameters.SwapBytes = value != 0;
                     MGLOG_D("%s: SwapBytes = %s", __func__, value ? "true" : "false");
                     break;
                 case PixelStoreParam::UnpackLsbFirst:
-                    m_unpackParameters.LSBFirst = value != 0;
+                    m_parameters.UnpackParameters.LSBFirst = value != 0;
                     break;
                 default:
                     MOBILEGL_ASSERT(false, "Invalid PixelStoreParam enum: %d", static_cast<int>(param));
@@ -178,37 +178,37 @@ namespace MobileGL {
             Int RenderState::GetPixelStoreParam(PixelStoreParam param) const {
                 switch (param) {
                 case PixelStoreParam::PackAlignment:
-                    return m_packParameters.Alignment;
+                    return m_parameters.PackParameters.Alignment;
                 case PixelStoreParam::PackRowLength:
-                    return m_packParameters.RowLength;
+                    return m_parameters.PackParameters.RowLength;
                 case PixelStoreParam::PackImageHeight:
-                    return m_packParameters.ImageHeight;
+                    return m_parameters.PackParameters.ImageHeight;
                 case PixelStoreParam::PackSkipPixels:
-                    return m_packParameters.SkipPixels;
+                    return m_parameters.PackParameters.SkipPixels;
                 case PixelStoreParam::PackSkipRows:
-                    return m_packParameters.SkipRows;
+                    return m_parameters.PackParameters.SkipRows;
                 case PixelStoreParam::PackSkipImages:
-                    return m_packParameters.SkipImages;
+                    return m_parameters.PackParameters.SkipImages;
                 case PixelStoreParam::PackSwapBytes:
-                    return m_packParameters.SwapBytes ? 1 : 0;
+                    return m_parameters.PackParameters.SwapBytes ? 1 : 0;
                 case PixelStoreParam::PackLsbFirst:
-                    return m_packParameters.LSBFirst ? 1 : 0;
+                    return m_parameters.PackParameters.LSBFirst ? 1 : 0;
                 case PixelStoreParam::UnpackAlignment:
-                    return m_unpackParameters.Alignment;
+                    return m_parameters.UnpackParameters.Alignment;
                 case PixelStoreParam::UnpackRowLength:
-                    return m_unpackParameters.RowLength;
+                    return m_parameters.UnpackParameters.RowLength;
                 case PixelStoreParam::UnpackImageHeight:
-                    return m_unpackParameters.ImageHeight;
+                    return m_parameters.UnpackParameters.ImageHeight;
                 case PixelStoreParam::UnpackSkipPixels:
-                    return m_unpackParameters.SkipPixels;
+                    return m_parameters.UnpackParameters.SkipPixels;
                 case PixelStoreParam::UnpackSkipRows:
-                    return m_unpackParameters.SkipRows;
+                    return m_parameters.UnpackParameters.SkipRows;
                 case PixelStoreParam::UnpackSkipImages:
-                    return m_unpackParameters.SkipImages;
+                    return m_parameters.UnpackParameters.SkipImages;
                 case PixelStoreParam::UnpackSwapBytes:
-                    return m_unpackParameters.SwapBytes ? 1 : 0;
+                    return m_parameters.UnpackParameters.SwapBytes ? 1 : 0;
                 case PixelStoreParam::UnpackLsbFirst:
-                    return m_unpackParameters.LSBFirst ? 1 : 0;
+                    return m_parameters.UnpackParameters.LSBFirst ? 1 : 0;
                 default:
                     MOBILEGL_ASSERT(false, "Invalid PixelStoreParam enum: %d", static_cast<int>(param));
                     return 0;
@@ -216,25 +216,25 @@ namespace MobileGL {
             }
 
             PixelStoreParameters RenderState::GetPixelStoreParameters(Bool isUnpack) const {
-                return isUnpack ? m_unpackParameters : m_packParameters;
+                return isUnpack ? m_parameters.UnpackParameters : m_parameters.PackParameters;
             }
 
             // -------------------- Cull Face --------------------
             void RenderState::SetCullFaceMode(CullFaceMode mode) {
-                m_cullFaceMode = mode;
+                m_parameters.CullFaceModeSetting = mode;
             }
 
             CullFaceMode RenderState::GetCullFaceMode() const {
-                return m_cullFaceMode;
+                return m_parameters.CullFaceModeSetting;
             }
 
             // --------------------- Scissor ---------------------
             void RenderState::SetScissorBox(IntVec4 box) {
-                m_scissorBox = box;
+                m_parameters.ScissorBox = box;
             }
 
             const IntVec4& RenderState::GetScissorBox() const {
-                return m_scissorBox;
+                return m_parameters.ScissorBox;
             }
         } // namespace GLState
     } // namespace MG_State
