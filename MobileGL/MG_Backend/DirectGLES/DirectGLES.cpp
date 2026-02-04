@@ -258,8 +258,6 @@ namespace MobileGL::MG_Backend::DirectGLES {
                     backendFBOObject->SyncToBackend(currentFBO, target);
                 }
 
-                //                backendFBOObject->Bind(target);
-
                 lastUpdatedFBO = currentFBO.get();
             }
         }
@@ -1059,105 +1057,15 @@ namespace MobileGL::MG_Backend::DirectGLES {
         RenderStateImpl::SyncRenderState();
 
         BindCurrentFBO(FramebufferTarget::Draw);
-        auto backendFBOIt = FramebufferImpl::g_backendFramebufferObjects.find(
-            MG_State::pGLContext->GetFramebufferBindingSlot(FramebufferTarget::Draw).GetBoundObject());
-        if (backendFBOIt == FramebufferImpl::g_backendFramebufferObjects.end()) {
-            MGLOG_E("No backend FBO found for current draw FBO, cannot clear buffer.");
-            return;
-        }
-        auto backendFBO = backendFBOIt->second;
 
-        GLint realDrawbuffer = drawbuffer;
-
-        if (buffer == GL_COLOR) {
-            auto& stateDrawBuffers = backendFBOIt->first->GetDrawBuffers();
-
-            if (drawbuffer < 0 || drawbuffer >= MG_State::GLState::FramebufferObject::MAX_DRAW_BUFFERS) {
-                MGLOG_E("Invalid drawbuffer index: %d", drawbuffer);
-                return;
-            }
-
-            FramebufferAttachmentType attachmentType = stateDrawBuffers[drawbuffer];
-
-            if (attachmentType == FramebufferAttachmentType::None) {
-                MGLOG_D("Drawbuffer %d has no attachment, skipping clear", drawbuffer);
-                return;
-            }
-
-            Bool found = false;
-            for (int i = 0; i < MG_State::GLState::FramebufferObject::MAX_DRAW_BUFFERS; i++) {
-                if (backendFBO->GetCompactedAttachmentTypeAtDrawBufferIndex(i) == attachmentType) {
-                    realDrawbuffer = i;
-                    found = true;
-                    break;
-                }
-            }
-
-            if (!found) {
-                MGLOG_E("Failed to find backend drawbuffer for attachment type: %d", static_cast<int>(attachmentType));
-                return;
-            }
-        } else if (buffer == GL_DEPTH || buffer == GL_STENCIL) {
-            if (drawbuffer != 0) {
-                MGLOG_W("Depth/stencil clear buffer index must be 0, got %d. Using 0.", drawbuffer);
-            }
-            realDrawbuffer = 0;
-        }
-
-        MG_External::GLES::glClearBufferfv(buffer, realDrawbuffer, value);
+        MG_External::GLES::glClearBufferfv(buffer, drawbuffer, value);
     }
     void ClearBufferiv(GLenum buffer, GLint drawbuffer, const GLint* value) {
         TextureImpl::SyncNeccessaryTextures();
         FramebufferImpl::SyncCurrentFBO();
         RenderStateImpl::SyncRenderState();
 
-        BindCurrentFBO(FramebufferTarget::Draw);
-        auto backendFBOIt = FramebufferImpl::g_backendFramebufferObjects.find(
-            MG_State::pGLContext->GetFramebufferBindingSlot(FramebufferTarget::Draw).GetBoundObject());
-        if (backendFBOIt == FramebufferImpl::g_backendFramebufferObjects.end()) {
-            MGLOG_E("No backend FBO found for current draw FBO, cannot clear buffer.");
-            return;
-        }
-        auto backendFBO = backendFBOIt->second;
-
-        GLint realDrawbuffer = drawbuffer;
-
-        if (buffer == GL_COLOR) {
-            auto& stateDrawBuffers = backendFBOIt->first->GetDrawBuffers();
-
-            if (drawbuffer < 0 || drawbuffer >= MG_State::GLState::FramebufferObject::MAX_DRAW_BUFFERS) {
-                MGLOG_E("Invalid drawbuffer index: %d", drawbuffer);
-                return;
-            }
-
-            FramebufferAttachmentType attachmentType = stateDrawBuffers[drawbuffer];
-
-            if (attachmentType == FramebufferAttachmentType::None) {
-                MGLOG_D("Drawbuffer %d has no attachment, skipping clear", drawbuffer);
-                return;
-            }
-
-            Bool found = false;
-            for (int i = 0; i < MG_State::GLState::FramebufferObject::MAX_DRAW_BUFFERS; i++) {
-                if (backendFBO->GetCompactedAttachmentTypeAtDrawBufferIndex(i) == attachmentType) {
-                    realDrawbuffer = i;
-                    found = true;
-                    break;
-                }
-            }
-
-            if (!found) {
-                MGLOG_E("Failed to find backend drawbuffer for attachment type: %d", static_cast<int>(attachmentType));
-                return;
-            }
-        } else if (buffer == GL_STENCIL) {
-            if (drawbuffer != 0) {
-                MGLOG_W("Stencil clear buffer index must be 0, got %d. Using 0.", drawbuffer);
-            }
-            realDrawbuffer = 0;
-        }
-
-        MG_External::GLES::glClearBufferiv(buffer, realDrawbuffer, value);
+        MG_External::GLES::glClearBufferiv(buffer, drawbuffer, value);
     }
 
     void ClearBufferuiv(GLenum buffer, GLint drawbuffer, const GLuint* value) {
@@ -1166,51 +1074,8 @@ namespace MobileGL::MG_Backend::DirectGLES {
         RenderStateImpl::SyncRenderState();
 
         BindCurrentFBO(FramebufferTarget::Draw);
-        auto backendFBOIt = FramebufferImpl::g_backendFramebufferObjects.find(
-            MG_State::pGLContext->GetFramebufferBindingSlot(FramebufferTarget::Draw).GetBoundObject());
-        if (backendFBOIt == FramebufferImpl::g_backendFramebufferObjects.end()) {
-            MGLOG_E("No backend FBO found for current draw FBO, cannot clear buffer.");
-            return;
-        }
-        auto backendFBO = backendFBOIt->second;
 
-        GLint realDrawbuffer = drawbuffer;
-
-        if (buffer == GL_COLOR) {
-            auto& stateDrawBuffers = backendFBOIt->first->GetDrawBuffers();
-
-            if (drawbuffer < 0 || drawbuffer >= MG_State::GLState::FramebufferObject::MAX_DRAW_BUFFERS) {
-                MGLOG_E("Invalid drawbuffer index: %d", drawbuffer);
-                return;
-            }
-
-            FramebufferAttachmentType attachmentType = stateDrawBuffers[drawbuffer];
-
-            if (attachmentType == FramebufferAttachmentType::None) {
-                MGLOG_D("Drawbuffer %d has no attachment, skipping clear", drawbuffer);
-                return;
-            }
-
-            Bool found = false;
-            for (int i = 0; i < MG_State::GLState::FramebufferObject::MAX_DRAW_BUFFERS; i++) {
-                if (backendFBO->GetCompactedAttachmentTypeAtDrawBufferIndex(i) == attachmentType) {
-                    realDrawbuffer = i;
-                    found = true;
-                    break;
-                }
-            }
-
-            if (!found) {
-                MGLOG_E("Failed to find backend drawbuffer for attachment type: %d", static_cast<int>(attachmentType));
-                return;
-            }
-        } else {
-            MGLOG_E("ClearBufferuiv can only be used with GL_COLOR buffer, got %s",
-                    MG_Util::ConvertGLEnumToString(buffer).c_str());
-            return;
-        }
-
-        MG_External::GLES::glClearBufferuiv(buffer, realDrawbuffer, value);
+        MG_External::GLES::glClearBufferuiv(buffer, drawbuffer, value);
     }
 
 } // namespace MobileGL::MG_Backend::DirectGLES

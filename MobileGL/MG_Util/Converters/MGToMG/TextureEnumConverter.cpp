@@ -194,21 +194,34 @@ namespace MobileGL {
                 }
             }
             case TextureInternalFormat::DepthComponent: {
-                    switch (type) {
-                        case TexturePixelDataType::UnsignedShort:
+                switch (type) {
+                    case TexturePixelDataType::UnsignedShort:
                         return TextureInternalFormat::DepthComponent16;
-                        case TexturePixelDataType::UnsignedInt:
-                            return TextureInternalFormat::DepthComponent24;
-                        case TexturePixelDataType::Float:
-                            return TextureInternalFormat::DepthComponent32F;
-                        default:
-                            MGLOG_W("%s: Can't infer sized internal format from internalformat=%s, format=%s, type=%s, "
-                              "returning original.",
-                              __func__, MG_Util::ConvertTextureInternalFormatToString(internalformat).c_str(),
-                              MG_Util::ConvertTextureInputFormatToString(format).c_str(),
-                              MG_Util::ConvertTexturePixelDataTypeToString(type).c_str());
-                            return internalformat;
-                    }
+                    case TexturePixelDataType::UnsignedInt:
+                        return TextureInternalFormat::DepthComponent32;
+                    case TexturePixelDataType::Float:
+                        return TextureInternalFormat::DepthComponent32F;
+                    default:
+                        MGLOG_W("%s: Can't infer sized internal format from internalformat=%s, format=%s, type=%s, "
+                                "returning original.",
+                                __func__, MG_Util::ConvertTextureInternalFormatToString(internalformat).c_str(),
+                                MG_Util::ConvertTextureInputFormatToString(format).c_str(),
+                                MG_Util::ConvertTexturePixelDataTypeToString(type).c_str());
+                        return internalformat;
+                }
+            }
+            case TextureInternalFormat::DepthStencil: {
+                switch (type) {
+                    case TexturePixelDataType::UnsignedInt248:
+                        return TextureInternalFormat::Depth24Stencil8;
+                    default:
+                        MGLOG_W("%s: Can't infer sized internal format from internalformat=%s, format=%s, type=%s, "
+                                "returning original.",
+                                __func__, MG_Util::ConvertTextureInternalFormatToString(internalformat).c_str(),
+                                MG_Util::ConvertTextureInputFormatToString(format).c_str(),
+                                MG_Util::ConvertTexturePixelDataTypeToString(type).c_str());
+                        return internalformat;
+                }
             }
             default: {
                 MGLOG_W("%s: Can't infer sized internal format from internalformat=%s, format=%s, type=%s, returning "

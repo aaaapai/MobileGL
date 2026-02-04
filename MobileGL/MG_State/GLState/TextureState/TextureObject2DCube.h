@@ -26,7 +26,6 @@ namespace MobileGL {
                 void* MapMipmapData(TextureUploadTarget uploadTarget, Uint mipmapLevel) override;
                 void MarkStorageDirty(TextureUploadTarget uploadTarget, Uint mipmapLevel, bool dirty) override;
                 bool IsStorageDirty(TextureUploadTarget uploadTarget, Uint mipmapLevel) const override;
-                void ClearAllStorageDirtyBit() override;
 
                 IntVec3 GetBaseSize() const override;
                 Bool IsComplete() const override;
