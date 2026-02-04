@@ -850,116 +850,31 @@ namespace MobileGL::MG_Backend::DirectGLES {
             GLenum glFBOTarget = MG_Util::ConvertFramebufferTargetToGLEnum(asTarget);
             Bind(asTarget);
 
-            FramebufferAttachmentType* frontendAttachmentToSync = nullptr;
-            GLenum* backendAttachmentToSync = nullptr;
-            Int frontendAttachmentToSyncCount = 0;
-            switch (asTarget) {
-            case FramebufferTarget::Draw: {
-                auto& stateDrawBuffers = stateFBOObject->GetDrawBuffers();
-
-                // Check if still clean, skip if clean
-                if (memcmp(m_frontendDrawBuffers, stateDrawBuffers.data(),
-                           FramebufferObject::MAX_DRAW_BUFFERS * sizeof(FramebufferAttachmentType)) == 0) {
-                    break;
-                }
-
-                // Create mappings for draw buffers
-                int nBuffers = 0;
-                std::fill(m_frontendDrawBuffers, m_frontendDrawBuffers + FramebufferObject::MAX_DRAW_BUFFERS,
-                          FramebufferAttachmentType::None);
-                std::fill(m_compactedFrontendDrawBuffers,
-                          m_compactedFrontendDrawBuffers + FramebufferObject::MAX_DRAW_BUFFERS,
-                          FramebufferAttachmentType::None);
-                std::fill(m_backendDrawBuffers, m_backendDrawBuffers + FramebufferObject::MAX_DRAW_BUFFERS, GL_NONE);
-                for (GLint i = 0; i < FramebufferObject::MAX_DRAW_BUFFERS; ++i) {
-                    if (stateDrawBuffers[i] == FramebufferAttachmentType::None) {
-                        m_frontendDrawBuffers[i] = FramebufferAttachmentType::None;
-                        continue;
-                    }
-
-                    m_frontendDrawBuffers[i] = stateDrawBuffers[i];
-
-                    // Create compacted mapping
-                    m_backendDrawBuffers[nBuffers] = GL_COLOR_ATTACHMENT0 + nBuffers;
-                    m_compactedFrontendDrawBuffers[nBuffers] = m_frontendDrawBuffers[i];
-                    nBuffers++;
-                }
-                MG_External::GLES::glDrawBuffers(nBuffers, m_backendDrawBuffers);
-
-                frontendAttachmentToSync = m_compactedFrontendDrawBuffers;
-                backendAttachmentToSync = m_backendDrawBuffers;
-                frontendAttachmentToSyncCount = nBuffers;
-
-                break;
+            // connect attachments (set buffers)
+            // TODO: remapping
+            auto& stateDrawBuffers = stateFBOObject->GetDrawBuffers();
+            Bool drawBufferDirty = false;
+            for (GLint i = 0; i < MG_State::GLState::FramebufferObject::MAX_DRAW_BUFFERS; ++i) {
+                auto currentBuf = MG_Util::ConvertFramebufferAttachmentTypeToGLEnum(stateDrawBuffers[i]);
+                if (m_backendDrawBuffers[i] != currentBuf)
+                    drawBufferDirty = true;
+                m_backendDrawBuffers[i] = currentBuf;
             }
-            case FramebufferTarget::Read: {
-                auto frontendReadBuf = stateFBOObject->GetReadBuffer();
-                if (frontendReadBuf == m_frontendReadBuffer) break;
-                m_frontendReadBuffer = frontendReadBuf;
+            if (drawBufferDirty)
+                MG_External::GLES::glDrawBuffers(MG_State::GLState::FramebufferObject::MAX_DRAW_BUFFERS, m_backendDrawBuffers);
 
-                // For consistency, we need to find the compacted attachment index of this read buffer
-                auto it = std::find(m_compactedFrontendDrawBuffers,
-                                  m_compactedFrontendDrawBuffers + FramebufferObject::MAX_DRAW_BUFFERS, frontendReadBuf);
+            auto currentReadBuf = MG_Util::ConvertFramebufferAttachmentTypeToGLEnum(stateFBOObject->GetReadBuffer());
+            if (m_backendReadBuffer != currentReadBuf)
+                MG_External::GLES::glReadBuffer(m_backendReadBuffer);
 
-                // TODO: what if sync ReadBuffer first then DrawBuffer?
-                GLenum glBackendReadBuffer = GL_NONE;
-                Bool notFound = (it == m_compactedFrontendDrawBuffers + FramebufferObject::MAX_DRAW_BUFFERS);
-                if (notFound) {
-                    MGLOG_D("%s: read buffer not found in draw buffer, use as in frontend", __func__);
-                    glBackendReadBuffer = MG_Util::ConvertFramebufferAttachmentTypeToGLEnum(frontendReadBuf);
-                } else {
-                    MGLOG_D("%s: read buffer found in draw buffer, keep it consistent as in read buffers", __func__);
-                    auto index = std::distance(m_compactedFrontendDrawBuffers, it);
-                    glBackendReadBuffer = m_backendDrawBuffers[index];
-                }
-                if (m_backendReadBuffer == glBackendReadBuffer) break;
-                m_backendReadBuffer = glBackendReadBuffer;
-                MG_External::GLES::glReadBuffer(glBackendReadBuffer);
+            // attach texture to fbo
+            // TODO: attach according to remapped
+            const auto& attachments = stateFBOObject->GetAllAttachmentObjects();
+            for (SizeT i = 0; i < attachments.size(); ++i) {
+                const auto& attachmentObject = attachments[i];
+                FramebufferAttachmentType type = static_cast<FramebufferAttachmentType>(i);
+                GLenum glBackendAttachment = MG_Util::ConvertFramebufferAttachmentTypeToGLEnum(type);
 
-                frontendAttachmentToSync = &m_frontendReadBuffer;
-                backendAttachmentToSync = &m_backendReadBuffer;
-                frontendAttachmentToSyncCount = 1;
-
-                break;
-            }
-            default:
-                MOBILEGL_ASSERT(false, "%s: Unreachable!", __func__);
-                return;
-            }
-
-            // Sync texture/buffer to attachment
-            const auto& attachmentObjects = stateFBOObject->GetAllAttachmentObjects();
-            auto& attachmentVersions = stateFBOObject->GetAllFramebufferAttachmentVersions();
-            for (Int i = 0; i < frontendAttachmentToSyncCount; ++i) {
-                auto frontendAttachment = frontendAttachmentToSync[i];
-                if (attachmentVersions[(SizeT)frontendAttachment] ==
-                    m_syncedAttachmentVersions[(SizeT)frontendAttachment]) {
-                    continue;
-                }
-                m_syncedAttachmentVersions[(SizeT)frontendAttachment] = attachmentVersions[(SizeT)frontendAttachment];
-
-                const auto& attachmentObject = stateFBOObject->GetAttachment(frontendAttachment);
-                if (!attachmentObject.IsValid() || attachmentObject.IsEmpty()) {
-                    continue;
-                }
-                auto glBackendAttachment = backendAttachmentToSync[i];
-                SyncAttachmentObject(glFBOTarget, attachmentObject, glBackendAttachment);
-            }
-
-            FramebufferAttachmentType auxAtt[] = {FramebufferAttachmentType::Depth, FramebufferAttachmentType::Stencil};
-            for (auto& att : auxAtt) {
-                auto frontendAttachment = att;
-                if (attachmentVersions[(SizeT)frontendAttachment] ==
-                    m_syncedAttachmentVersions[(SizeT)frontendAttachment]) {
-                    continue;
-                }
-                m_syncedAttachmentVersions[(SizeT)frontendAttachment] = attachmentVersions[(SizeT)frontendAttachment];
-
-                const auto& attachmentObject = stateFBOObject->GetAttachment(frontendAttachment);
-                if (!attachmentObject.IsValid() || attachmentObject.IsEmpty()) {
-                    continue;
-                }
-                auto glBackendAttachment = MG_Util::ConvertFramebufferAttachmentTypeToGLEnum(att);
                 SyncAttachmentObject(glFBOTarget, attachmentObject, glBackendAttachment);
             }
         }
