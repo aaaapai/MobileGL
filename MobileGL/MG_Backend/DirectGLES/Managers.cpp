@@ -335,10 +335,13 @@ namespace MobileGL::MG_Backend::DirectGLES {
 #ifdef TRACY_ENABLE
             ZoneScopedC(TRACY_ZONECOLOR_BACKEND);
 #endif
+            if (g_activeTextureUnit != unit) {
+                ActivateTextureUnit(unit);
+            }
+
             auto targetN = static_cast<SizeT>(MG_Util::ConvertGLEnumToTextureTarget(target));
             if (this == g_boundTexturesCache[unit][targetN]) return;
 
-            ActivateTextureUnit(unit);
             MG_External::GLES::glBindTexture(target, m_backendTextureId);
             g_boundTexturesCache[unit][targetN] = this;
         }
@@ -760,10 +763,13 @@ namespace MobileGL::MG_Backend::DirectGLES {
         }
 
         void UnbindTexture(Uint unit, GLenum target) { // Active unit will be modified
+            if (unit != g_activeTextureUnit) {
+                ActivateTextureUnit(unit);
+            }
+
             auto targetN = static_cast<SizeT>(MG_Util::ConvertGLEnumToTextureTarget(target));
             if (g_boundTexturesCache[unit][targetN] == nullptr) return;
 
-            ActivateTextureUnit(unit);
             MG_External::GLES::glBindTexture(target, 0);
             g_boundTexturesCache[unit][targetN] = nullptr;
         }
@@ -922,11 +928,13 @@ namespace MobileGL::MG_Backend::DirectGLES {
 
         GLenum BackendFramebufferObject::GetBackendAttachmentType(FramebufferAttachmentType frontendAtt) const {
             GLenum glBackendReadBuffer = GL_NONE;
-            auto it = std::find(m_frontendDrawBuffers,
-                                m_frontendDrawBuffers + FramebufferObject::MAX_DRAW_BUFFERS, frontendAtt);
+            auto it = std::find(m_frontendDrawBuffers, m_frontendDrawBuffers + FramebufferObject::MAX_DRAW_BUFFERS,
+                                frontendAtt);
             Bool notFound = (it == m_frontendDrawBuffers + FramebufferObject::MAX_DRAW_BUFFERS);
             if (notFound) {
-                MGLOG_D("%s: frontendAtt not found in draw buffer (probably not remapped), just use the same as frontend", __func__);
+                MGLOG_D(
+                    "%s: frontendAtt not found in draw buffer (probably not remapped), just use the same as frontend",
+                    __func__);
                 glBackendReadBuffer = MG_Util::ConvertFramebufferAttachmentTypeToGLEnum(frontendAtt);
             } else {
                 MGLOG_D("%s: frontendAtt found in draw buffer, keep it consistent as in read buffers", __func__);
