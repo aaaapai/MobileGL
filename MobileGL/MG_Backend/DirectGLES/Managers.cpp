@@ -865,13 +865,22 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 std::fill(m_backendDrawBuffers, m_backendDrawBuffers + FramebufferObject::MAX_DRAW_BUFFERS, GL_NONE);
                 int nEffectiveBuffers = 0;
                 for (GLint i = 0; i < FramebufferObject::MAX_DRAW_BUFFERS; ++i) {
-                    if (stateDrawBuffers[i] == FramebufferAttachmentType::None) {
+                    auto frontendBuf = stateDrawBuffers[i];
+                    if (frontendBuf == FramebufferAttachmentType::None) {
                         m_backendDrawBuffers[i] = GL_NONE;
                         continue;
                     }
 
                     // Create compacted mapping
-                    m_backendDrawBuffers[i] = GL_COLOR_ATTACHMENT0 + i;
+                    if (frontendBuf == FramebufferAttachmentType::FrontLeft ||
+                        frontendBuf == FramebufferAttachmentType::FrontRight ||
+                        frontendBuf == FramebufferAttachmentType::BackLeft ||
+                        frontendBuf == FramebufferAttachmentType::BackRight) {
+                        MGLOG_D("%s: frontend buf token found for default fbo, shouldn't remap", __func__);
+                        m_backendDrawBuffers[i] = MG_Util::ConvertFramebufferAttachmentTypeToGLEnum(frontendBuf);
+                    } else {
+                        m_backendDrawBuffers[i] = GL_COLOR_ATTACHMENT0 + i;
+                    }
                     nEffectiveBuffers = i + 1;
                 }
                 MG_External::GLES::glDrawBuffers(nEffectiveBuffers, m_backendDrawBuffers);
@@ -891,14 +900,17 @@ namespace MobileGL::MG_Backend::DirectGLES {
             }
 
             // -------------------- Attach texture to backend FBO -----------------------
-            // TODO: attach according to remapped
             const auto& attachments = stateFBOObject->GetAllAttachmentObjects();
             const auto& attachmentVersions = stateFBOObject->GetAllFramebufferAttachmentVersions();
             for (SizeT i = 0; i < attachments.size(); ++i) {
                 const auto& attachmentObject = attachments[i];
-                FramebufferAttachmentType type = static_cast<FramebufferAttachmentType>(i);
-                // should retrieve BACKEND attachment here
-                GLenum glBackendAttachment = MG_Util::ConvertFramebufferAttachmentTypeToGLEnum(type);
+                FramebufferAttachmentType frontendType = static_cast<FramebufferAttachmentType>(i);
+                GLenum glBackendAttachment = GL_NONE;
+                if (frontendType >= FramebufferAttachmentType::Color0 &&
+                    frontendType <= FramebufferAttachmentType::Color31)
+                    glBackendAttachment = GetBackendAttachmentType(frontendType);
+                else
+                    glBackendAttachment = MG_Util::ConvertFramebufferAttachmentTypeToGLEnum(frontendType);
 
                 // relevant FRONTEND!!! version should be checked and updated
                 if (m_syncedFrontendAttachmentVersions[i] != attachmentVersions[i]) {
