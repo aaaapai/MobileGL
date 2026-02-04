@@ -164,7 +164,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
             GLenum m_backendReadBuffer = GL_COLOR_ATTACHMENT0;
 
             using FramebufferObject = MG_State::GLState::FramebufferObject;
-            FramebufferObject::FramebufferAttachmentVersionArray m_syncedAttachmentVersions = {0};
+            FramebufferObject::FramebufferAttachmentVersionArray m_syncedFrontendAttachmentVersions = {0};
         };
 
         extern UnorderedMap<SharedPtr<MG_State::GLState::FramebufferObject>, SharedPtr<BackendFramebufferObject>>
