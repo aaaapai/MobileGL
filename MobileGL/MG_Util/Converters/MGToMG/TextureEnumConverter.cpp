@@ -218,6 +218,7 @@ namespace MobileGL {
                         MG_Util::ConvertTexturePixelDataTypeToString(type).c_str());
                 return internalformat;
             }
+            }
 
         }
     } // namespace MG_Util
