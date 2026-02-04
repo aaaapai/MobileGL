@@ -128,19 +128,19 @@ namespace MobileGL {
             case TextureInternalFormat::RGBA: {
                 switch (type) {
                 case TexturePixelDataType::UnsignedByte:
-                           return TextureInternalFormat::RGBA8;
+                    return TextureInternalFormat::RGBA8;
+                case TexturePixelDataType::UnsignedShort:
+                    return TextureInternalFormat::RGBA16;
                 case TexturePixelDataType::UnsignedInt8888Rev:
                 case TexturePixelDataType::UnsignedInt8888:
-                           return TextureInternalFormat::RGBA8;
-                case TexturePixelDataType::UnsignedShort:
-                           return TextureInternalFormat::RGBA16;
+                    return TextureInternalFormat::RGBA8;
                 case TexturePixelDataType::UnsignedShort4444:
                 case TexturePixelDataType::UnsignedShort5551:
-                           return TextureInternalFormat::RGBA4;
+                    return TextureInternalFormat::RGBA4;
                 case TexturePixelDataType::Float:
-                           return TextureInternalFormat::RGBA32F;
+                    return TextureInternalFormat::RGBA32F;
                 case TexturePixelDataType::HalfFloat:
-                           return TextureInternalFormat::RGBA16F;
+                    return TextureInternalFormat::RGBA16F;
                 default:
                     MGLOG_W("%s: Can't infer sized internal format from internalformat=%s, format=%s, type=%s, "
                             "returning original.",
@@ -219,7 +219,6 @@ namespace MobileGL {
                 return internalformat;
             }
             }
-
         }
     } // namespace MG_Util
 } // namespace MobileGL
