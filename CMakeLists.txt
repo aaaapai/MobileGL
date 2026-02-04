@@ -20,7 +20,10 @@ if (NOT CMAKE_BUILD_TYPE STREQUAL "Debug" OR MOBILEGL_FORCE_RELEASE_OPT)
 
     check_ipo_supported(RESULT LTOSupported OUTPUT LTOError)
 
-    if (LTOSupported)
+    check_c_compiler_flag("-flto" HAS_LTO_C)
+    check_cxx_compiler_flag("-flto" HAS_LTO_CXX)
+
+    if (LTOSupported OR (HAS_LTO_C AND HAS_LTO_CXX))
         # Check ThinLTO
         check_c_compiler_flag("-flto=thin" HAS_THINLTO_C)
         check_cxx_compiler_flag("-flto=thin" HAS_THINLTO_CXX)
