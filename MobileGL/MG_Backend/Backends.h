@@ -36,7 +36,7 @@ namespace MobileGL {
             };
 
             inline RendererInfo RendererInfoVulkan = {
-                .RendererName = "MG-DE-Vulkan",            // Renderer Name
+                .RendererName = "Unknown",                 // Renderer Name
                 .BackendName = "Diligent Engine (Vulkan)", // Backend Name
                 .ExtraVendor = Nullopt,                    // Extra vendor
                 .RendererGLInfo =
@@ -52,7 +52,7 @@ namespace MobileGL {
             };
 
             inline RendererInfo RendererInfoMetal = {
-                .RendererName = "MG-DE-Metal",            // Renderer Name
+                .RendererName = "Unknown",                // Renderer Name
                 .BackendName = "Diligent Engine (Metal)", // Backend Name
                 .ExtraVendor = Nullopt,                   // Extra vendor
                 .RendererGLInfo =
@@ -79,12 +79,30 @@ namespace MobileGL {
                         .TargetGLVersion = {3, 3, 0},                      //   Target OpenGL Version
                         .TargetGLSLVersion = {4, 6, 0},                    //   Target Shading Language Version
                         .Extensions = {V_OpenGL30, V_OpenGL31, V_OpenGL32, //   OpenGL Extensions
-                                       V_OpenGL33, E_GL_ARB_draw_buffers_blend},
+                                       V_OpenGL33, E_GL_ARB_shader_image_load_store, E_GL_ARB_draw_buffers_blend /*E_GL_ARB_shader_storage_buffer_object*/},
                         .IsCompatibilityProfile = false //   Is Compatibility Profile
                     },
                 .BackendCapability = {.AllowVSOnlyPrograms = false} // Backend Capability
             };
         } // namespace DirectGLES
+
+        namespace DirectVulkan {
+            inline RendererInfo RendererInfo = {
+                .RendererName = "Magma",          // Renderer Name
+                .BackendName = "Direct (Vulkan)", // Backend Name
+                .ExtraVendor = Nullopt,           // Extra vendor
+                .RendererGLInfo =
+                    {
+                        // OpenGL Info
+                        .TargetGLVersion = {3, 3, 0},                      //   Target OpenGL Version
+                        .TargetGLSLVersion = {4, 6, 0},                    //   Target Shading Language Version
+                        .Extensions = {V_OpenGL30, V_OpenGL31, V_OpenGL32, //   OpenGL Extensions
+                                       V_OpenGL33},
+                        .IsCompatibilityProfile = false //   Is Compatibility Profile
+                    },
+                .BackendCapability = {.AllowVSOnlyPrograms = false} // Backend Capability
+            };
+        } // namespace DirectVulkan
 
         void Init();
     } // namespace MG_Backend

@@ -8,6 +8,9 @@
 
 #include "Init.h"
 #include "Config.h"
+#include "Includes.h"
+#include <MG_Util/Config/settings.h>
+#include <MG_Util/Config/config.h>
 #include <MG_Impl/Init.h>
 #include <MG_Backend/Backends.h>
 #include <MG_State/GLState/Core.h>
@@ -16,6 +19,16 @@
 
 namespace MobileGL {
     void MG_Initialize() {
+
+        const char* mgl_config_in_plugin = std::getenv("MGL_CONFIG_IN_PLUGIN");
+        if (mgl_config_in_plugin != nullptr) {
+            std::string_view sv(mgl_config_in_plugin);
+            if (sv == "true") {
+                if (check_path()) config_refresh();
+                init_settings();
+            }
+        }
+
         MG_Util::Debug::InitFile();
         MGLOG_I("Initializing MobileGL...");
         MG_State::Init();
@@ -27,6 +40,7 @@ namespace MobileGL {
         glslang::InitializeProcess();
         MGLOG_D("glslang initialized");
         MGLOG_I("MobileGL initialized");
+
     }
 
     void MG_Destroy() {

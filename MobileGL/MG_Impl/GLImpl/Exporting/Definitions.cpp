@@ -7,6 +7,7 @@
 // End of Source File Header
 
 #include <Includes.h>
+#include "../Sync/GL_Sync.h"
 #include "../Buffer/GL_Buffer.h"
 #include "../Getter/GL_Getter.h"
 #include "../Sampler/GL_Sampler.h"
@@ -16,6 +17,7 @@
 #include "../RenderState/GL_RenderState.h"
 #include "../Framebuffer/GL_Framebuffer.h"
 #include "../VertexArray/GL_VertexArray.h"
+#include <MG_Util/BackendLoaders/OpenGL/Loader.h>
 
 #define DECLARE_GL_FUNCTION_STUB_HEAD(type,name,...)                        \
 MOBILEGL_GL_API type gl##name(__VA_ARGS__) {
@@ -55,6 +57,39 @@ MOBILEGL_GL_API type gl##name(__VA_ARGS__) {
         MobileGL::MG_Impl::GLImpl::name(__VA_ARGS__);                           \
     }
 #endif
+
+//#if MOBILEGL_BACKEND == MOBILEGL_BACKEND_TYPE_DIRECT_GLES
+#ifdef TRACY_ENABLE
+    #define DECLARE_GL_NATIVE_FUNCTION_END(type,name,...)                              \
+        ZoneScopedC(TRACY_ZONECOLOR_ENTRY);                                     \
+        MGLOG_D("Implementing function: %s(...)", __FUNCTION__);                \
+        return MobileGL::MG_External::GLES::gl##name(__VA_ARGS__);                    \
+    }
+
+    #define DECLARE_GL_NATIVE_FUNCTION_END_NO_RETURN(type,name,...)                    \
+        ZoneScopedC(TRACY_ZONECOLOR_ENTRY);                                     \
+        MGLOG_D("Implementing function: %s(...)", __FUNCTION__);                \
+        MobileGL::MG_External::GLES::gl##name(__VA_ARGS__);                           \
+    }
+#else
+    #define DECLARE_GL_NATIVE_FUNCTION_END(type,name,...)                              \
+        MGLOG_D("Implementing function: %s(...)", __FUNCTION__);                \
+        return MobileGL::MG_External::GLES::gl##name(__VA_ARGS__);                    \
+    }
+
+    #define DECLARE_GL_NATIVE_FUNCTION_END_NO_RETURN(type,name,...)                    \
+        MGLOG_D("Implementing function: %s(...)", __FUNCTION__);                \
+        MobileGL::MG_External::GLES::gl##name(__VA_ARGS__);                           \
+    }
+#endif
+//#endif
+
+/*#if MOBILEGL_BACKEND == MOBILEGL_BACKEND_TYPE_DIRECT_VULKAN
+#define DECLARE_GL_NATIVE_FUNCTION_END DECLARE_GL_FUNCTION_STUB_END
+#define DECLARE_GL_NATIVE_FUNCTION_END_NO_RETURN DECLARE_GL_FUNCTION_STUB_END_NO_RETURN
+#endif*/
+
+void Flush();
 
 DECLARE_GL_FUNCTION_HEAD(const GLubyte*, GetStringi, GLenum name, GLuint index) DECLARE_GL_FUNCTION_END(const GLubyte*, GetStringi, name, index)
 DECLARE_GL_FUNCTION_HEAD(const GLubyte*, GetString, GLenum name) DECLARE_GL_FUNCTION_END(const GLubyte*, GetString, name)
@@ -105,7 +140,7 @@ DECLARE_GL_FUNCTION_HEAD(void, DrawElements, GLenum mode, GLsizei count, GLenum 
 DECLARE_GL_FUNCTION_HEAD(void, Enable, GLenum cap) DECLARE_GL_FUNCTION_END_NO_RETURN(void, Enable, cap)
 DECLARE_GL_FUNCTION_HEAD(void, EnableVertexAttribArray, GLuint index) DECLARE_GL_FUNCTION_END_NO_RETURN(void, EnableVertexAttribArray, index)
 DECLARE_GL_FUNCTION_STUB_HEAD(void, Finish) DECLARE_GL_FUNCTION_STUB_END_NO_RETURN(void, Finish)
-DECLARE_GL_FUNCTION_STUB_HEAD(void, Flush) DECLARE_GL_FUNCTION_STUB_END_NO_RETURN(void, Flush)
+DECLARE_GL_FUNCTION_HEAD(void, Flush) DECLARE_GL_NATIVE_FUNCTION_END_NO_RETURN(void, Flush)
 DECLARE_GL_FUNCTION_HEAD(void, FramebufferRenderbuffer, GLenum target, GLenum attachment, GLenum renderbuffertarget, GLuint renderbuffer) DECLARE_GL_FUNCTION_END_NO_RETURN(void, FramebufferRenderbuffer, target, attachment, renderbuffertarget, renderbuffer)
 DECLARE_GL_FUNCTION_HEAD(void, FramebufferTexture2D, GLenum target, GLenum attachment, GLenum textarget, GLuint texture, GLint level) DECLARE_GL_FUNCTION_END_NO_RETURN(void, FramebufferTexture2D, target, attachment, textarget, texture, level)
 DECLARE_GL_FUNCTION_HEAD(void, FrontFace, GLenum mode) DECLARE_GL_FUNCTION_END_NO_RETURN(void, FrontFace, mode)
@@ -270,10 +305,10 @@ DECLARE_GL_FUNCTION_HEAD(void, GetActiveUniformBlockName, GLuint program, GLuint
 DECLARE_GL_FUNCTION_HEAD(void, UniformBlockBinding, GLuint program, GLuint uniformBlockIndex, GLuint uniformBlockBinding) DECLARE_GL_FUNCTION_END_NO_RETURN(void, UniformBlockBinding, program, uniformBlockIndex, uniformBlockBinding)
 DECLARE_GL_FUNCTION_HEAD(void, DrawArraysInstanced, GLenum mode, GLint first, GLsizei count, GLsizei instancecount) DECLARE_GL_FUNCTION_END_NO_RETURN(void, DrawArraysInstanced, mode, first, count, instancecount)
 DECLARE_GL_FUNCTION_HEAD(void, DrawElementsInstanced, GLenum mode, GLsizei count, GLenum type, const void* indices, GLsizei instancecount) DECLARE_GL_FUNCTION_END_NO_RETURN(void, DrawElementsInstanced, mode, count, type, indices, instancecount)
-DECLARE_GL_FUNCTION_STUB_HEAD(GLsync, FenceSync, GLenum condition, GLbitfield flags) DECLARE_GL_FUNCTION_STUB_END(GLsync, FenceSync, condition, flags)
+DECLARE_GL_FUNCTION_HEAD(GLsync, FenceSync, GLenum condition, GLbitfield flags) DECLARE_GL_FUNCTION_END(GLsync, FenceSync, condition, flags)
 DECLARE_GL_FUNCTION_STUB_HEAD(GLboolean, IsSync, GLsync sync) DECLARE_GL_FUNCTION_STUB_END(GLboolean, IsSync, sync)
-DECLARE_GL_FUNCTION_STUB_HEAD(void, DeleteSync, GLsync sync) DECLARE_GL_FUNCTION_STUB_END_NO_RETURN(void, DeleteSync, sync)
-DECLARE_GL_FUNCTION_STUB_HEAD(GLenum, ClientWaitSync, GLsync sync, GLbitfield flags, GLuint64 timeout) DECLARE_GL_FUNCTION_STUB_END(GLenum, ClientWaitSync, sync, flags, timeout)
+DECLARE_GL_FUNCTION_HEAD(void, DeleteSync, GLsync sync) DECLARE_GL_FUNCTION_END_NO_RETURN(void, DeleteSync, sync)
+DECLARE_GL_FUNCTION_HEAD(GLenum, ClientWaitSync, GLsync sync, GLbitfield flags, GLuint64 timeout) DECLARE_GL_FUNCTION_END(GLenum, ClientWaitSync, sync, flags, timeout)
 DECLARE_GL_FUNCTION_STUB_HEAD(void, WaitSync, GLsync sync, GLbitfield flags, GLuint64 timeout) DECLARE_GL_FUNCTION_STUB_END_NO_RETURN(void, WaitSync, sync, flags, timeout)
 DECLARE_GL_FUNCTION_STUB_HEAD(void, GetInteger64v, GLenum pname, GLint64* data) DECLARE_GL_FUNCTION_STUB_END_NO_RETURN(void, GetInteger64v, pname, data)
 DECLARE_GL_FUNCTION_STUB_HEAD(void, GetSynciv, GLsync sync, GLenum pname, GLsizei bufSize, GLsizei* length, GLint* values) DECLARE_GL_FUNCTION_STUB_END_NO_RETURN(void, GetSynciv, sync, pname, bufSize, length, values)
@@ -304,8 +339,8 @@ DECLARE_GL_FUNCTION_STUB_HEAD(void, InvalidateSubFramebuffer, GLenum target, GLs
 DECLARE_GL_FUNCTION_STUB_HEAD(void, TexStorage2D, GLenum target, GLsizei levels, GLenum internalformat, GLsizei width, GLsizei height) DECLARE_GL_FUNCTION_STUB_END_NO_RETURN(void, TexStorage2D, target, levels, internalformat, width, height)
 DECLARE_GL_FUNCTION_STUB_HEAD(void, TexStorage3D, GLenum target, GLsizei levels, GLenum internalformat, GLsizei width, GLsizei height, GLsizei depth) DECLARE_GL_FUNCTION_STUB_END_NO_RETURN(void, TexStorage3D, target, levels, internalformat, width, height, depth)
 DECLARE_GL_FUNCTION_STUB_HEAD(void, GetInternalformativ, GLenum target, GLenum internalformat, GLenum pname, GLsizei bufSize, GLint* params) DECLARE_GL_FUNCTION_STUB_END_NO_RETURN(void, GetInternalformativ, target, internalformat, pname, bufSize, params)
-DECLARE_GL_FUNCTION_STUB_HEAD(void, DispatchCompute, GLuint num_groups_x, GLuint num_groups_y, GLuint num_groups_z) DECLARE_GL_FUNCTION_STUB_END_NO_RETURN(void, DispatchCompute, num_groups_x, num_groups_y, num_groups_z)
-DECLARE_GL_FUNCTION_STUB_HEAD(void, DispatchComputeIndirect, GLintptr indirect) DECLARE_GL_FUNCTION_STUB_END_NO_RETURN(void, DispatchComputeIndirect, indirect)
+DECLARE_GL_FUNCTION_HEAD(void, DispatchCompute, GLuint num_groups_x, GLuint num_groups_y, GLuint num_groups_z) DECLARE_GL_NATIVE_FUNCTION_END_NO_RETURN(void, DispatchCompute, num_groups_x, num_groups_y, num_groups_z)
+DECLARE_GL_FUNCTION_HEAD(void, DispatchComputeIndirect, GLintptr indirect) DECLARE_GL_NATIVE_FUNCTION_END_NO_RETURN(void, DispatchComputeIndirect, indirect)
 DECLARE_GL_FUNCTION_HEAD(void, DrawArraysIndirect, GLenum mode, const void* indirect) DECLARE_GL_FUNCTION_END_NO_RETURN(void, DrawArraysIndirect, mode, indirect)
 DECLARE_GL_FUNCTION_HEAD(void, DrawElementsIndirect, GLenum mode, GLenum type, const void* indirect) DECLARE_GL_FUNCTION_END_NO_RETURN(void, DrawElementsIndirect, mode, type, indirect)
 DECLARE_GL_FUNCTION_STUB_HEAD(void, FramebufferParameteri, GLenum target, GLenum pname, GLint param) DECLARE_GL_FUNCTION_STUB_END_NO_RETURN(void, FramebufferParameteri, target, pname, param)
@@ -358,9 +393,9 @@ DECLARE_GL_FUNCTION_STUB_HEAD(void, ProgramUniformMatrix3x4fv, GLuint program, G
 DECLARE_GL_FUNCTION_STUB_HEAD(void, ProgramUniformMatrix4x3fv, GLuint program, GLint location, GLsizei count, GLboolean transpose, const GLfloat* value) DECLARE_GL_FUNCTION_STUB_END_NO_RETURN(void, ProgramUniformMatrix4x3fv, program, location, count, transpose, value)
 DECLARE_GL_FUNCTION_STUB_HEAD(void, ValidateProgramPipeline, GLuint pipeline) DECLARE_GL_FUNCTION_STUB_END_NO_RETURN(void, ValidateProgramPipeline, pipeline)
 DECLARE_GL_FUNCTION_STUB_HEAD(void, GetProgramPipelineInfoLog, GLuint pipeline, GLsizei bufSize, GLsizei* length, GLchar* infoLog) DECLARE_GL_FUNCTION_STUB_END_NO_RETURN(void, GetProgramPipelineInfoLog, pipeline, bufSize, length, infoLog)
-DECLARE_GL_FUNCTION_STUB_HEAD(void, BindImageTexture, GLuint unit, GLuint texture, GLint level, GLboolean layered, GLint layer, GLenum access, GLenum format) DECLARE_GL_FUNCTION_STUB_END_NO_RETURN(void, BindImageTexture, unit, texture, level, layered, layer, access, format)
+DECLARE_GL_FUNCTION_HEAD(void, BindImageTexture, GLuint unit, GLuint texture, GLint level, GLboolean layered, GLint layer, GLenum access, GLenum format) DECLARE_GL_NATIVE_FUNCTION_END_NO_RETURN(void, BindImageTexture, unit, texture, level, layered, layer, access, format)
 DECLARE_GL_FUNCTION_STUB_HEAD(void, GetBooleani_v, GLenum target, GLuint index, GLboolean* data) DECLARE_GL_FUNCTION_STUB_END_NO_RETURN(void, GetBooleani_v, target, index, data)
-DECLARE_GL_FUNCTION_STUB_HEAD(void, MemoryBarrier, GLbitfield barriers) DECLARE_GL_FUNCTION_STUB_END_NO_RETURN(void, MemoryBarrier, barriers)
+DECLARE_GL_FUNCTION_HEAD(void, MemoryBarrier, GLbitfield barriers) DECLARE_GL_NATIVE_FUNCTION_END_NO_RETURN(void, MemoryBarrier, barriers)
 DECLARE_GL_FUNCTION_STUB_HEAD(void, MemoryBarrierByRegion, GLbitfield barriers) DECLARE_GL_FUNCTION_STUB_END_NO_RETURN(void, MemoryBarrierByRegion, barriers)
 DECLARE_GL_FUNCTION_STUB_HEAD(void, TexStorage2DMultisample, GLenum target, GLsizei samples, GLenum internalformat, GLsizei width, GLsizei height, GLboolean fixedsamplelocations) DECLARE_GL_FUNCTION_STUB_END_NO_RETURN(void, TexStorage2DMultisample, target, samples, internalformat, width, height, fixedsamplelocations)
 DECLARE_GL_FUNCTION_STUB_HEAD(void, GetMultisamplefv, GLenum pname, GLuint index, GLfloat* val) DECLARE_GL_FUNCTION_STUB_END_NO_RETURN(void, GetMultisamplefv, pname, index, val)
@@ -385,16 +420,16 @@ DECLARE_GL_FUNCTION_STUB_HEAD(void, GetObjectLabel, GLenum identifier, GLuint na
 DECLARE_GL_FUNCTION_STUB_HEAD(void, ObjectPtrLabel, const void* ptr, GLsizei length, const GLchar* label) DECLARE_GL_FUNCTION_STUB_END_NO_RETURN(void, ObjectPtrLabel, ptr, length, label)
 DECLARE_GL_FUNCTION_STUB_HEAD(void, GetObjectPtrLabel, const void* ptr, GLsizei bufSize, GLsizei* length, GLchar* label) DECLARE_GL_FUNCTION_STUB_END_NO_RETURN(void, GetObjectPtrLabel, ptr, bufSize, length, label)
 DECLARE_GL_FUNCTION_STUB_HEAD(void, GetPointerv, GLenum pname, void** params) DECLARE_GL_FUNCTION_STUB_END_NO_RETURN(void, GetPointerv, pname, params)
-DECLARE_GL_FUNCTION_STUB_HEAD(void, Enablei, GLenum target, GLuint index) DECLARE_GL_FUNCTION_STUB_END_NO_RETURN(void, Enablei, target, index)
-DECLARE_GL_FUNCTION_STUB_HEAD(void, Disablei, GLenum target, GLuint index) DECLARE_GL_FUNCTION_STUB_END_NO_RETURN(void, Disablei, target, index)
+DECLARE_GL_FUNCTION_HEAD(void, Enablei, GLenum target, GLuint index) DECLARE_GL_NATIVE_FUNCTION_END_NO_RETURN(void, Enablei, target, index)
+DECLARE_GL_FUNCTION_HEAD(void, Disablei, GLenum target, GLuint index) DECLARE_GL_NATIVE_FUNCTION_END_NO_RETURN(void, Disablei, target, index)
 DECLARE_GL_FUNCTION_STUB_HEAD(void, BlendEquationi, GLuint buf, GLenum mode) DECLARE_GL_FUNCTION_STUB_END_NO_RETURN(void, BlendEquationi, buf, mode)
 DECLARE_GL_FUNCTION_STUB_HEAD(void, BlendEquationiARB, GLuint buf, GLenum mode) DECLARE_GL_FUNCTION_STUB_END_NO_RETURN(void, BlendEquationi, buf, mode)
 DECLARE_GL_FUNCTION_STUB_HEAD(void, BlendEquationSeparatei, GLuint buf, GLenum modeRGB, GLenum modeAlpha) DECLARE_GL_FUNCTION_STUB_END_NO_RETURN(void, BlendEquationSeparatei, buf, modeRGB, modeAlpha)
 DECLARE_GL_FUNCTION_STUB_HEAD(void, BlendEquationSeparateiARB, GLuint buf, GLenum modeRGB, GLenum modeAlpha) DECLARE_GL_FUNCTION_STUB_END_NO_RETURN(void, BlendEquationSeparatei, buf, modeRGB, modeAlpha)
 DECLARE_GL_FUNCTION_STUB_HEAD(void, BlendFunci, GLuint buf, GLenum src, GLenum dst) DECLARE_GL_FUNCTION_STUB_END_NO_RETURN(void, BlendFunci, buf, src, dst)
 DECLARE_GL_FUNCTION_STUB_HEAD(void, BlendFunciARB, GLuint buf, GLenum src, GLenum dst) DECLARE_GL_FUNCTION_STUB_END_NO_RETURN(void, BlendFunci, buf, src, dst)
-DECLARE_GL_FUNCTION_STUB_HEAD(void, BlendFuncSeparatei, GLuint buf, GLenum srcRGB, GLenum dstRGB, GLenum srcAlpha, GLenum dstAlpha) DECLARE_GL_FUNCTION_STUB_END_NO_RETURN(void, BlendFuncSeparatei, buf, srcRGB, dstRGB, srcAlpha, dstAlpha)
-DECLARE_GL_FUNCTION_STUB_HEAD(void, BlendFuncSeparateiARB, GLuint buf, GLenum srcRGB, GLenum dstRGB, GLenum srcAlpha, GLenum dstAlpha) DECLARE_GL_FUNCTION_STUB_END_NO_RETURN(void, BlendFuncSeparatei, buf, srcRGB, dstRGB, srcAlpha, dstAlpha)
+DECLARE_GL_FUNCTION_HEAD(void, BlendFuncSeparatei, GLuint buf, GLenum srcRGB, GLenum dstRGB, GLenum srcAlpha, GLenum dstAlpha) DECLARE_GL_NATIVE_FUNCTION_END_NO_RETURN(void, BlendFuncSeparatei, buf, srcRGB, dstRGB, srcAlpha, dstAlpha)
+DECLARE_GL_FUNCTION_HEAD(void, BlendFuncSeparateiARB, GLuint buf, GLenum srcRGB, GLenum dstRGB, GLenum srcAlpha, GLenum dstAlpha) DECLARE_GL_NATIVE_FUNCTION_END_NO_RETURN(void, BlendFuncSeparatei, buf, srcRGB, dstRGB, srcAlpha, dstAlpha)
 DECLARE_GL_FUNCTION_STUB_HEAD(void, ColorMaski, GLuint index, GLboolean r, GLboolean g, GLboolean b, GLboolean a) DECLARE_GL_FUNCTION_STUB_END_NO_RETURN(void, ColorMaski, index, r, g, b, a)
 DECLARE_GL_FUNCTION_HEAD(GLboolean, IsEnabledi, GLenum target, GLuint index) DECLARE_GL_FUNCTION_END(GLboolean, IsEnabledi, target, index)
 DECLARE_GL_FUNCTION_HEAD(void, DrawElementsBaseVertex, GLenum mode, GLsizei count, GLenum type, const void* indices, GLint basevertex) DECLARE_GL_FUNCTION_END_NO_RETURN(void, DrawElementsBaseVertex, mode, count, type, indices, basevertex)
@@ -434,7 +469,7 @@ DECLARE_GL_FUNCTION_STUB_HEAD(void, EdgeFlag, GLboolean flag) DECLARE_GL_FUNCTIO
 DECLARE_GL_FUNCTION_STUB_HEAD(void, EdgeFlagv, const GLboolean* flag) DECLARE_GL_FUNCTION_STUB_END_NO_RETURN(void, EdgeFlagv, flag)
 DECLARE_GL_FUNCTION_STUB_HEAD(void, ClipPlane, GLenum plane, const GLdouble* equation) DECLARE_GL_FUNCTION_STUB_END_NO_RETURN(void, ClipPlane, plane, equation)
 DECLARE_GL_FUNCTION_STUB_HEAD(void, GetClipPlane, GLenum plane, GLdouble* equation) DECLARE_GL_FUNCTION_STUB_END_NO_RETURN(void, GetClipPlane, plane, equation)
-DECLARE_GL_FUNCTION_HEAD(void, DrawBuffer, GLenum mode) DECLARE_GL_FUNCTION_END_NO_RETURN(void, DrawBuffer, mode)
+DECLARE_GL_FUNCTION_HEAD(void, DrawBuffer, GLenum buf) DECLARE_GL_FUNCTION_END_NO_RETURN(void, DrawBuffer, buf)
 DECLARE_GL_FUNCTION_STUB_HEAD(void, EnableClientState, GLenum cap) DECLARE_GL_FUNCTION_STUB_END_NO_RETURN(void, EnableClientState, cap)
 DECLARE_GL_FUNCTION_STUB_HEAD(void, DisableClientState, GLenum cap) DECLARE_GL_FUNCTION_STUB_END_NO_RETURN(void, DisableClientState, cap)
 DECLARE_GL_FUNCTION_STUB_HEAD(void, GetDoublev, GLenum pname, GLdouble* params) DECLARE_GL_FUNCTION_STUB_END_NO_RETURN(void, GetDoublev, pname, params)
@@ -852,7 +887,7 @@ DECLARE_GL_FUNCTION_HEAD(void, TexImage2DMultisample, GLenum target, GLsizei sam
 DECLARE_GL_FUNCTION_HEAD(void, TexImage3DMultisample, GLenum target, GLsizei samples, GLenum internalformat, GLsizei width, GLsizei height, GLsizei depth, GLboolean fixedsamplelocations) DECLARE_GL_FUNCTION_END_NO_RETURN(void, TexImage3DMultisample, target, samples, internalformat, width, height, depth, fixedsamplelocations)
 DECLARE_GL_FUNCTION_STUB_HEAD(void, BindFragDataLocationIndexed, GLuint program, GLuint colorNumber, GLuint index, const GLchar* name) DECLARE_GL_FUNCTION_STUB_END_NO_RETURN(void, BindFragDataLocationIndexed, program, colorNumber, index, name)
 DECLARE_GL_FUNCTION_STUB_HEAD(GLint, GetFragDataIndex, GLuint program, const GLchar* name) DECLARE_GL_FUNCTION_STUB_END(GLint, GetFragDataIndex, program, name)
-DECLARE_GL_FUNCTION_STUB_HEAD(void, QueryCounter, GLuint id, GLenum target) DECLARE_GL_FUNCTION_STUB_END_NO_RETURN(void, QueryCounter, id, target)
+DECLARE_GL_FUNCTION_HEAD(void, QueryCounter, GLuint id, GLenum target) DECLARE_GL_NATIVE_FUNCTION_END_NO_RETURN(void, QueryCounterEXT, id, target)
 DECLARE_GL_FUNCTION_STUB_HEAD(void, GetQueryObjecti64v, GLuint id, GLenum pname, GLint64* params) DECLARE_GL_FUNCTION_STUB_END_NO_RETURN(void, GetQueryObjecti64v, id, pname, params)
 DECLARE_GL_FUNCTION_STUB_HEAD(void, GetQueryObjectui64v, GLuint id, GLenum pname, GLuint64* params) DECLARE_GL_FUNCTION_STUB_END_NO_RETURN(void, GetQueryObjectui64v, id, pname, params)
 DECLARE_GL_FUNCTION_STUB_HEAD(void, VertexAttribP1ui, GLuint index, GLenum type, GLboolean normalized, GLuint value) DECLARE_GL_FUNCTION_STUB_END_NO_RETURN(void, VertexAttribP1ui, index, type, normalized, value)
@@ -981,7 +1016,7 @@ DECLARE_GL_FUNCTION_STUB_HEAD(GLint, GetProgramResourceLocationIndex, GLuint pro
 DECLARE_GL_FUNCTION_STUB_HEAD(void, ShaderStorageBlockBinding, GLuint program, GLuint storageBlockIndex, GLuint storageBlockBinding) DECLARE_GL_FUNCTION_STUB_END_NO_RETURN(void, ShaderStorageBlockBinding, program, storageBlockIndex, storageBlockBinding)
 DECLARE_GL_FUNCTION_STUB_HEAD(void, TextureView, GLuint texture, GLenum target, GLuint origtexture, GLenum internalformat, GLuint minlevel, GLuint numlevels, GLuint minlayer, GLuint numlayers) DECLARE_GL_FUNCTION_STUB_END_NO_RETURN(void, TextureView, texture, target, origtexture, internalformat, minlevel, numlevels, minlayer, numlayers)
 DECLARE_GL_FUNCTION_STUB_HEAD(void, VertexAttribLFormat, GLuint attribindex, GLint size, GLenum type, GLuint relativeoffset) DECLARE_GL_FUNCTION_STUB_END_NO_RETURN(void, VertexAttribLFormat, attribindex, size, type, relativeoffset)
-DECLARE_GL_FUNCTION_STUB_HEAD(void, BufferStorage, GLenum target, GLsizeiptr size, const void* data, GLbitfield flags) DECLARE_GL_FUNCTION_STUB_END_NO_RETURN(void, BufferStorage, target, size, data, flags)
+DECLARE_GL_FUNCTION_HEAD(void, BufferStorage, GLenum target, GLsizeiptr size, const void* data, GLbitfield flags) DECLARE_GL_NATIVE_FUNCTION_END_NO_RETURN(void, BufferStorageEXT, target, size, data, flags)
 DECLARE_GL_FUNCTION_STUB_HEAD(void, ClearTexImage, GLuint texture, GLint level, GLenum format, GLenum type, const void* data) DECLARE_GL_FUNCTION_STUB_END_NO_RETURN(void, ClearTexImage, texture, level, format, type, data)
 DECLARE_GL_FUNCTION_STUB_HEAD(void, ClearTexSubImage, GLuint texture, GLint level, GLint xoffset, GLint yoffset, GLint zoffset, GLsizei width, GLsizei height, GLsizei depth, GLenum format, GLenum type, const void* data) DECLARE_GL_FUNCTION_STUB_END_NO_RETURN(void, ClearTexSubImage, texture, level, xoffset, yoffset, zoffset, width, height, depth, format, type, data)
 DECLARE_GL_FUNCTION_STUB_HEAD(void, BindBuffersBase, GLenum target, GLuint first, GLsizei count, const GLuint* buffers) DECLARE_GL_FUNCTION_STUB_END_NO_RETURN(void, BindBuffersBase, target, first, count, buffers)

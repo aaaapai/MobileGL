@@ -9,7 +9,7 @@
 #include "TemporaryEGLImpl.h"
 #include <Config.h>
 
-#if !(MOBILEGL_BACKEND == MOBILEGL_BACKEND_TYPE_DIRECT_GLES)
+#if MOBILEGL_BACKEND != MOBILEGL_BACKEND_TYPE_DIRECT_GLES && MOBILEGL_BACKEND != MOBILEGL_BACKEND_TYPE_DIRECT_VULKAN
 namespace MobileGL {
     namespace MG_Impl::EGLImpl {
         // TODO: implement complete EGL functionality
