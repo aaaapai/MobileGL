@@ -9,7 +9,6 @@
 #pragma once
 #include <Includes.h>
 #include "DirectGLES.h"
-#include "Utils.h"
 #include "MG_State/GLState/SamplerState/SamplerObject.h"
 #include "MG_State/GLState/TextureState/TextureEnum.h"
 #include <MG_State/GLState/TextureState/TextureObject.h>

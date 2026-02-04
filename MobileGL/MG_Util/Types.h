@@ -281,16 +281,6 @@ namespace MobileGL {
 
         Flags(typename Underlying::type b) : flags(b) {}
 
-        Flags Set(const Bit b) {
-            flags |= static_cast<typename Underlying::type>(b);
-            return flags;
-        }
-
-        Flags Clear(const Bit b) {
-            flags &= ~static_cast<typename Underlying::type>(b);
-            return flags;
-        }
-
         // Flags - Bit
         Flags operator|(const Bit b) const { return Flags(flags | static_cast<typename Underlying::type>(b)); }
 

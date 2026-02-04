@@ -42,9 +42,6 @@ namespace MobileGL {
 
             void TextureObject2DCube::MarkStorageDirty(TextureUploadTarget uploadTarget, Uint mipmapLevel, bool dirty) {
                 m_textureStorage.MarkDirty(GetIndexOfTextureUploadTarget(uploadTarget), mipmapLevel, dirty);
-                if (dirty) {
-                    m_dirtyBit.Set(TextureDirtyBit::StorageDirtyBit);
-                }
             }
 
             bool TextureObject2DCube::IsStorageDirty(TextureUploadTarget uploadTarget, Uint mipmapLevel) const {
@@ -84,17 +81,6 @@ namespace MobileGL {
 
                 // TODO: add more completeness checks based on texture type and mipmap levels
                 return true;
-            }
-
-            void TextureObject2DCube::ClearAllStorageDirtyBit() {
-                auto uploadTargetCount = GetUploadTargets().size();
-                auto levelCount = GetMipmapLevelCount();
-                for (SizeT target = 0; target < uploadTargetCount; ++target) {
-                    for (Uint level = 0; level < levelCount; ++level) {
-                        m_textureStorage.MarkDirty(target, level, false);
-                    }
-                }
-                m_dirtyBit.Clear(TextureDirtyBit::StorageDirtyBit);
             }
         } // namespace GLState
     } // namespace MG_State

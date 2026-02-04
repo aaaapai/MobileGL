@@ -273,8 +273,6 @@ namespace MobileGL::MG_Backend::DirectGLES {
                     backendFBOObject->SyncToBackend(currentFBO, target);
                 }
 
-                //                backendFBOObject->Bind(target);
-
                 lastUpdatedFBO = currentFBO.get();
             }
         }
