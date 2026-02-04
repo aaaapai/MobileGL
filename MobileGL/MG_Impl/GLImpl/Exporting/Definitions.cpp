@@ -58,7 +58,7 @@ MOBILEGL_GL_API type gl##name(__VA_ARGS__) {
     }
 #endif
 
-#if MOBILEGL_BACKEND == MOBILEGL_BACKEND_TYPE_DIRECT_GLES
+//#if MOBILEGL_BACKEND == MOBILEGL_BACKEND_TYPE_DIRECT_GLES
 #ifdef TRACY_ENABLE
     #define DECLARE_GL_NATIVE_FUNCTION_END(type,name,...)                              \
         ZoneScopedC(TRACY_ZONECOLOR_ENTRY);                                     \
@@ -82,12 +82,12 @@ MOBILEGL_GL_API type gl##name(__VA_ARGS__) {
         MobileGL::MG_External::GLES::gl##name(__VA_ARGS__);                           \
     }
 #endif
-#endif
+//#endif
 
-#if MOBILEGL_BACKEND == MOBILEGL_BACKEND_TYPE_DIRECT_VULKAN
+/*#if MOBILEGL_BACKEND == MOBILEGL_BACKEND_TYPE_DIRECT_VULKAN
 #define DECLARE_GL_NATIVE_FUNCTION_END DECLARE_GL_FUNCTION_STUB_END
 #define DECLARE_GL_NATIVE_FUNCTION_END_NO_RETURN DECLARE_GL_FUNCTION_STUB_END_NO_RETURN
-#endif
+#endif*/
 
 void Flush();
 
