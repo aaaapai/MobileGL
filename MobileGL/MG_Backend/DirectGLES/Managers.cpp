@@ -850,24 +850,47 @@ namespace MobileGL::MG_Backend::DirectGLES {
             GLenum glFBOTarget = MG_Util::ConvertFramebufferTargetToGLEnum(asTarget);
             Bind(asTarget);
 
-            // connect attachments (set buffers)
-            // TODO: remapping
+            // -------------------- Connect attachments (set buffers) -----------------------
+            // 1. Remap draw buffers
             auto& stateDrawBuffers = stateFBOObject->GetDrawBuffers();
-            Bool drawBufferDirty = false;
-            for (GLint i = 0; i < MG_State::GLState::FramebufferObject::MAX_DRAW_BUFFERS; ++i) {
-                auto currentBuf = MG_Util::ConvertFramebufferAttachmentTypeToGLEnum(stateDrawBuffers[i]);
-                if (m_backendDrawBuffers[i] != currentBuf)
-                    drawBufferDirty = true;
-                m_backendDrawBuffers[i] = currentBuf;
+            Bool drawBufferClean = false;
+            if (memcmp(m_frontendDrawBuffers, stateDrawBuffers.data(),
+                       FramebufferObject::MAX_DRAW_BUFFERS * sizeof(FramebufferAttachmentType)) == 0) {
+                drawBufferClean = true;
             }
-            if (drawBufferDirty)
-                MG_External::GLES::glDrawBuffers(MG_State::GLState::FramebufferObject::MAX_DRAW_BUFFERS, m_backendDrawBuffers);
 
-            auto currentReadBuf = MG_Util::ConvertFramebufferAttachmentTypeToGLEnum(stateFBOObject->GetReadBuffer());
-            if (m_backendReadBuffer != currentReadBuf)
-                MG_External::GLES::glReadBuffer(m_backendReadBuffer);
+            if (!drawBufferClean) {
+                memcpy(m_frontendDrawBuffers, stateDrawBuffers.data(),
+                       FramebufferObject::MAX_DRAW_BUFFERS * sizeof(FramebufferAttachmentType));
+                std::fill(m_backendDrawBuffers, m_backendDrawBuffers + FramebufferObject::MAX_DRAW_BUFFERS, GL_NONE);
+                int nEffectiveBuffers = 0;
+                for (GLint i = 0; i < FramebufferObject::MAX_DRAW_BUFFERS; ++i) {
+                    if (stateDrawBuffers[i] == FramebufferAttachmentType::None) {
+                        m_backendDrawBuffers[i] = GL_NONE;
+                        continue;
+                    }
 
-            // attach texture to fbo
+                    // Create compacted mapping
+                    m_backendDrawBuffers[i] = GL_COLOR_ATTACHMENT0 + i;
+                    nEffectiveBuffers = i + 1;
+                }
+                MG_External::GLES::glDrawBuffers(nEffectiveBuffers, m_backendDrawBuffers);
+            }
+
+            // 2. Remap read buffer
+            auto frontendReadBuf = stateFBOObject->GetReadBuffer();
+            if (frontendReadBuf != m_frontendReadBuffer) {
+                m_frontendReadBuffer = frontendReadBuf;
+
+                GLenum glBackendReadBuffer = GetBackendAttachmentType(frontendReadBuf);
+
+                if (m_backendReadBuffer != glBackendReadBuffer) {
+                    m_backendReadBuffer = glBackendReadBuffer;
+                    MG_External::GLES::glReadBuffer(glBackendReadBuffer);
+                }
+            }
+
+            // -------------------- Attach texture to backend FBO -----------------------
             // TODO: attach according to remapped
             const auto& attachments = stateFBOObject->GetAllAttachmentObjects();
             const auto& attachmentVersions = stateFBOObject->GetAllFramebufferAttachmentVersions();
@@ -885,8 +908,20 @@ namespace MobileGL::MG_Backend::DirectGLES {
             }
         }
 
-        FramebufferAttachmentType BackendFramebufferObject::GetCompactedAttachmentTypeAtDrawBufferIndex(Int index) {
-            return m_compactedFrontendDrawBuffers[index];
+        GLenum BackendFramebufferObject::GetBackendAttachmentType(FramebufferAttachmentType frontendAtt) const {
+            GLenum glBackendReadBuffer = GL_NONE;
+            auto it = std::find(m_frontendDrawBuffers,
+                                m_frontendDrawBuffers + FramebufferObject::MAX_DRAW_BUFFERS, frontendAtt);
+            Bool notFound = (it == m_frontendDrawBuffers + FramebufferObject::MAX_DRAW_BUFFERS);
+            if (notFound) {
+                MGLOG_D("%s: frontendAtt not found in draw buffer (probably not remapped), just use the same as frontend", __func__);
+                glBackendReadBuffer = MG_Util::ConvertFramebufferAttachmentTypeToGLEnum(frontendAtt);
+            } else {
+                MGLOG_D("%s: frontendAtt found in draw buffer, keep it consistent as in read buffers", __func__);
+                auto index = std::distance(m_frontendDrawBuffers, it);
+                glBackendReadBuffer = m_backendDrawBuffers[index];
+            }
+            return glBackendReadBuffer;
         }
 
         UnorderedMap<SharedPtr<MG_State::GLState::FramebufferObject>, SharedPtr<BackendFramebufferObject>>
