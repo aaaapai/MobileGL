@@ -292,7 +292,7 @@ namespace MobileGL {
             bool ShaderCompiler::SanitizeAndOptimizeBinary(const Vector<Uint32>& inputBinary,
                                                            Vector<uint32_t>& outputBinary) {
                 using namespace spvtools;
-                Optimizer optimizer(SPV_ENV_UNIVERSAL_1_5);
+                Optimizer optimizer(SPV_ENV_UNIVERSAL_1_6);
 
                 optimizer.RegisterPass(EliminateFloatEqualsZeroPass::CreateEliminateFloatEqualsZeroPass());
 
