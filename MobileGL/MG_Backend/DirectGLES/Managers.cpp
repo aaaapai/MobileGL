@@ -360,11 +360,6 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 return;
             }
 
-            if (!stateTextureObject->CheckDirtyBit(MG_State::GLState::TextureDirtyBit::StorageDirtyBit)) {
-                MGLOG_D("Texture parameters changed but storage is not dirty, skipping mipmap sync for texture ID: %u",
-                        m_backendTextureId);
-                return;
-            }
 #ifdef TRACY_ENABLE
             ZoneScopedC(TRACY_ZONECOLOR_BACKEND);
 #endif
@@ -396,7 +391,9 @@ namespace MobileGL::MG_Backend::DirectGLES {
             }
 
             Bind(target);
-
+            errorLopper.Loop([file = __FILE__, line = __LINE__, func = __func__](GLenum err) {
+                MGLOG_D("%s(%s:%d) ES error: %s", func, file, line, MG_Util::ConvertGLEnumToString(err).c_str());
+            });
             const auto baseSize = stateTextureObject->GetBaseSize();
             StateTextureBasicInfo currentTextureInfo = {stateTextureObject->GetFormat(),
                                                         static_cast<SizeT>(baseSize.x()),
@@ -436,11 +433,11 @@ namespace MobileGL::MG_Backend::DirectGLES {
                             auto* pData = (levelDirty && levelByteSize != 0)
                                               ? textureMipmapObject->MapMipmapData(uploadTarget, level)
                                               : nullptr;
-                            MGLOG_D("%s: target: %s: syncing mip %d: %dx%dx%d, byteSize = %d, pData = %p, "
-                                    "levelDirty = %s",
-                                    __func__, MG_Util::ConvertTextureUploadTargetToString(uploadTarget).c_str(), level,
-                                    levelTexelSize.x(), levelTexelSize.y(), levelTexelSize.z(), levelByteSize, pData,
-                                    levelDirty ? "true" : "false");
+                            MGLOG_D(
+                                "%s: target: %s: syncing mip %d: %dx%dx%d, byteSize = %d, pData = %p, levelDirty = %s",
+                                __func__, MG_Util::ConvertTextureUploadTargetToString(uploadTarget).c_str(), level,
+                                levelTexelSize.x(), levelTexelSize.y(), levelTexelSize.z(), levelByteSize, pData,
+                                levelDirty ? "true" : "false");
 
                             errorLopper.Clear();
                             MG_External::GLES::glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
@@ -525,8 +522,6 @@ namespace MobileGL::MG_Backend::DirectGLES {
                         }
                     }
                 }
-
-                textureMipmapObject->ClearAllStorageDirtyBit();
                 break;
             }
             case TextureStorageType::Buffer: {
@@ -562,8 +557,6 @@ namespace MobileGL::MG_Backend::DirectGLES {
                                                        &glType);
 
                 MG_External::GLES::glTexBuffer(GL_TEXTURE_BUFFER, glInternalFormat, backendId);
-
-                textureBufferObject->ClearAllStorageDirtyBit();
                 break;
             }
             default:

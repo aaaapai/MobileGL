@@ -17,12 +17,6 @@
 namespace MobileGL {
     namespace MG_State {
         namespace GLState {
-            enum class TextureDirtyBit : Uint8 {
-                None = 0,
-                StorageDirtyBit = 1 << 0, // refers to mipmap or TexBuffer according to tex type
-                ParamDirtyBit = 1 << 1
-            };
-
             class ITextureObject {
             public:
                 using TargetEnum = TextureTarget;
@@ -47,8 +41,6 @@ namespace MobileGL {
                 virtual const UintVec2& GetLevelRange() const = 0;
                 virtual void SetBaseLevel(Uint baseLevel) = 0;
                 virtual void SetMaxLevel(Uint maxLevel) = 0;
-                virtual Bool IsDirty() const = 0;
-                virtual Bool CheckDirtyBit(TextureDirtyBit bit) const = 0;
                 virtual Uint16 GetTextureParamsVersion() const = 0;
 
             protected:
@@ -76,11 +68,7 @@ namespace MobileGL {
                 const UintVec2& GetLevelRange() const override;
                 void SetBaseLevel(Uint baseLevel) override;
                 void SetMaxLevel(Uint maxLevel) override;
-                Bool IsDirty() const override;
-                Bool CheckDirtyBit(TextureDirtyBit bit) const override;
                 Uint16 GetTextureParamsVersion() const override;
-                virtual void ClearAllStorageDirtyBit() = 0;
-
             protected:
                 const Uint m_externalIndex;
                 const TextureTarget m_target = TextureTarget::Unknown;
@@ -91,8 +79,6 @@ namespace MobileGL {
                                                              TextureSwizzleParam::Blue, TextureSwizzleParam::Alpha};
                 UintVec2 m_levelRange = {0, 1000};
                 Uint16 m_textureParamsVersion = 0;
-
-                Flags<TextureDirtyBit> m_dirtyBit = TextureDirtyBit::None;
             };
 
             class TextureObjectMipmap : public TextureObjectBase {
@@ -126,8 +112,7 @@ namespace MobileGL {
                 void UpdateMipmapSubData(TextureUploadTarget uploadTarget, Uint mipmapLevel, DataPtr input) override;
                 void* MapMipmapData(TextureUploadTarget uploadTarget, Uint mipmapLevel) override;
                 void MarkStorageDirty(TextureUploadTarget uploadTarget, Uint mipmapLevel, Bool dirty) override;
-                Bool IsStorageDirty(TextureUploadTarget uploadTarget, Uint mipmapLevel) const override;
-                void ClearAllStorageDirtyBit() override;
+                bool IsStorageDirty(TextureUploadTarget uploadTarget, Uint mipmapLevel) const override;
 
                 IntVec3 GetBaseSize() const override;
                 Bool IsComplete() const override;

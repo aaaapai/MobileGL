@@ -23,14 +23,6 @@ namespace MobileGL {
                 MOBILEGL_ASSERT(target == TextureUploadTarget::TextureBuffer, "Invalid TextureUploadTarget!");
                 return m_bufferBindingSlot;
             }
-
-            void TextureObjectBuffer::ClearAllStorageDirtyBit() {
-                m_dirtyBit.Clear(TextureDirtyBit::StorageDirtyBit);
-            }
-
-            void TextureObjectBuffer::SetStorageDirtyBit() {
-                m_dirtyBit.Set(TextureDirtyBit::StorageDirtyBit);
-            }
         } // namespace GLState
     } // namespace MG_State
 } // namespace MobileGL
