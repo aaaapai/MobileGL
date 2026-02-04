@@ -870,12 +870,18 @@ namespace MobileGL::MG_Backend::DirectGLES {
             // attach texture to fbo
             // TODO: attach according to remapped
             const auto& attachments = stateFBOObject->GetAllAttachmentObjects();
+            const auto& attachmentVersions = stateFBOObject->GetAllFramebufferAttachmentVersions();
             for (SizeT i = 0; i < attachments.size(); ++i) {
                 const auto& attachmentObject = attachments[i];
                 FramebufferAttachmentType type = static_cast<FramebufferAttachmentType>(i);
+                // should retrieve BACKEND attachment here
                 GLenum glBackendAttachment = MG_Util::ConvertFramebufferAttachmentTypeToGLEnum(type);
 
-                SyncAttachmentObject(glFBOTarget, attachmentObject, glBackendAttachment);
+                // relevant FRONTEND!!! version should be checked and updated
+                if (m_syncedFrontendAttachmentVersions[i] != attachmentVersions[i]) {
+                    SyncAttachmentObject(glFBOTarget, attachmentObject, glBackendAttachment);
+                    m_syncedFrontendAttachmentVersions[i] = attachmentVersions[i];
+                }
             }
         }
 
