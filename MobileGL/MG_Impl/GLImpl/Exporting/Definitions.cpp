@@ -89,6 +89,8 @@ MOBILEGL_GL_API type gl##name(__VA_ARGS__) {
 #define DECLARE_GL_NATIVE_FUNCTION_END_NO_RETURN DECLARE_GL_FUNCTION_STUB_END_NO_RETURN
 #endif
 
+void flush();
+
 DECLARE_GL_FUNCTION_HEAD(const GLubyte*, GetStringi, GLenum name, GLuint index) DECLARE_GL_FUNCTION_END(const GLubyte*, GetStringi, name, index)
 DECLARE_GL_FUNCTION_HEAD(const GLubyte*, GetString, GLenum name) DECLARE_GL_FUNCTION_END(const GLubyte*, GetString, name)
 DECLARE_GL_FUNCTION_HEAD(void*, MapBuffer, GLenum target, GLenum access) DECLARE_GL_FUNCTION_END(void*, MapBuffer, target, access)
