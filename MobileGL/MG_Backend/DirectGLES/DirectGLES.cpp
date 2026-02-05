@@ -879,13 +879,13 @@ namespace MobileGL::MG_Backend::DirectGLES {
         }
         backendTextureIt->second->Bind(target, activeTextureUnit);
 
-        auto mglInternalFormat = MG_Util::ConvertGLEnumToTextureInternalFormat(internalformat);
+        auto mgInternalFormat = textureObject->GetFormat();
         GLenum format = GL_DEPTH_COMPONENT;
         GLenum type = GL_UNSIGNED_INT;
-        TextureImpl::GenerateTextureFormatInfo(mglInternalFormat, &internalformat, &format, &type);
+        TextureImpl::GenerateTextureFormatInfo(mgInternalFormat, &internalformat, &format, &type);
         MOBILEGL_ASSERT(format != GL_NONE && type != GL_NONE,
                         "%s: cannot GenerateTextureFormatInfo(%s): out internalformat=%s, format=%s, type=%s",
-                        MG_Util::ConvertTextureInternalFormatToString(mglInternalFormat).c_str(),
+                        MG_Util::ConvertTextureInternalFormatToString(mgInternalFormat).c_str(),
                         MG_Util::ConvertGLEnumToString(internalformat).c_str(),
                         MG_Util::ConvertGLEnumToString(format).c_str(), MG_Util::ConvertGLEnumToString(type).c_str());
         TexturePixelDataType texturePixelDataType = MG_Util::ConvertGLEnumToTexturePixelDataType(type);
@@ -976,10 +976,10 @@ namespace MobileGL::MG_Backend::DirectGLES {
         errorLopper.Loop([file = __FILE__, line = __LINE__](auto err) {
             MGLOG_D("ES error (%s:%d): %s", file, line, MG_Util::ConvertGLEnumToString(err).c_str());
         });
-        auto mglInternalFormat = MG_Util::ConvertGLEnumToTextureInternalFormat(internalFormat);
+        auto mgInternalFormat = MG_Util::ConvertGLEnumToTextureInternalFormat(internalFormat);
 
-        Bool isDepthFormat = MG_Util::IsDepthFormatInternalFormat(mglInternalFormat);
-        Bool isStencilFormat = MG_Util::IsStencilFormatInternalFormat(mglInternalFormat);
+        Bool isDepthFormat = MG_Util::IsDepthFormatInternalFormat(mgInternalFormat);
+        Bool isStencilFormat = MG_Util::IsStencilFormatInternalFormat(mgInternalFormat);
 
         if (!isDepthFormat) {
             MG_External::GLES::glCopyTexSubImage2D(target, level, xoffset, yoffset, x, y, width, height);

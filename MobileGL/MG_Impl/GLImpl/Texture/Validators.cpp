@@ -7,13 +7,12 @@
 // End of Source File Header
 
 #include "Validators.h"
-#include "MG_State/GLState/TextureState/TextureObject.h"
-#include "MG_Util/Types.h"
 #include <MG_State/GLState/Core.h>
 #include <MG_State/GLState/ErrorState/Error.h>
 #include <MG_Util/Converters/GLToStr/GLEnumConverter.h>
 #include <MG_Util/Converters/GLToMG/TextureEnumConverter.h>
 #include <MG_Util/Converters/MGToGL/TextureEnumConverter.h>
+#include <MG_Util/Converters/MGToMG/TextureEnumConverter.h>
 #include <MG_Util/Converters/MGToStr/TextureEnumConverter.h>
 
 namespace MobileGL::MG_Impl::GLImpl {
@@ -170,6 +169,7 @@ namespace MobileGL::MG_Impl::GLImpl {
             }
             return true;
         }
+
         Bool ValidateTextureInternalFormatCompatibleWithInput(TextureInputFormat format,
                                                               TextureInternalFormat internalFormat,
                                                               TexturePixelDataType type) {
@@ -303,5 +303,21 @@ namespace MobileGL::MG_Impl::GLImpl {
             }
             return true;
         }
+
+        Bool ValidateBaseInternalFormatMatch(TextureInternalFormat format1, TextureInternalFormat format2) {
+            auto unsizedFormat1 = MG_Util::ConvertInternalFormatToUnsized(format1);
+            auto unsizedFormat2 = MG_Util::ConvertInternalFormatToUnsized(format2);
+            if (unsizedFormat1 != unsizedFormat2) {
+                MG_State::pGLContext->RecordError(
+                    ErrorCode::InvalidOperation,
+                    MakeShared<GenericErrorInfo>(
+                        std::format("MG_Impl/GLImpl", "ValidateBaseInternalFormatMatch",
+                                    "The base internal format of the two formats do not match ({} vs. {})",
+                                    MG_Util::ConvertTextureInternalFormatToString(unsizedFormat1).c_str(),
+                                    MG_Util::ConvertTextureInternalFormatToString(unsizedFormat2).c_str())));
+                return false;
+            }
+            return true;
+        } // namespace TextureImpl
     } // namespace TextureImpl
 } // namespace MobileGL::MG_Impl::GLImpl
