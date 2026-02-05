@@ -92,9 +92,15 @@ namespace MobileGL {
                 const IntVec4& GetViewport() const; // x, y, width, height
                 void SetCapability(CapabilityInput cap, Bool enabled);
                 Bool IsCapabilityEnabled(CapabilityInput cap) const;
+                void SetCapabilityIndexed(CapabilityInput cap, Uint index, Bool enabled);
+                Bool IsCapabilityEnabledIndexed(CapabilityInput cap, Uint index) const;
                 void SetBlendFunc(BlendFactor srcRGB, BlendFactor dstRGB, BlendFactor srcAlpha, BlendFactor dstAlpha);
                 void GetBlendFunc(BlendFactor& srcRGB, BlendFactor& dstRGB, BlendFactor& srcAlpha,
                                   BlendFactor& dstAlpha) const;
+                void SetBlendFuncIndexed(Uint index, BlendFactor srcRGB, BlendFactor dstRGB, BlendFactor srcAlpha,
+                                         BlendFactor dstAlpha);
+                void GetBlendFuncIndexed(Uint index, BlendFactor& srcRGB, BlendFactor& dstRGB, BlendFactor& srcAlpha,
+                                         BlendFactor& dstAlpha) const;
                 void SetDepthFunc(DepthTestFunc func);
                 DepthTestFunc GetDepthFunc() const;
                 void SetDepthMask(Bool flag);
