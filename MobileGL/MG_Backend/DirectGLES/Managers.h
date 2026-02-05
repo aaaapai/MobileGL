@@ -49,7 +49,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
             void Bind();
 
         private:
-            void SyncAttributeBuffer(Uint index, const MG_State::GLState::VertexAttribute& attrib);
+            void BindAttributeBuffer(Uint index, const MG_State::GLState::VertexAttribute& attrib);
 
             Uint m_backendVAOId = 0;
             Bool m_isInitialized = false;
@@ -132,8 +132,9 @@ namespace MobileGL::MG_Backend::DirectGLES {
             bool SyncAttachmentObject(GLenum glFBOTarget,
                                       const MG_State::GLState::FramebufferAttachmentObject& attachmentObject,
                                       GLenum glBackendAttachment);
-//            FramebufferAttachmentType GetCompactedAttachmentTypeAtDrawBufferIndex(Int index);
+            //            FramebufferAttachmentType GetCompactedAttachmentTypeAtDrawBufferIndex(Int index);
             GLenum GetBackendAttachmentType(FramebufferAttachmentType frontendAtt) const;
+
         private:
             Uint m_backendFBOId = 0;
 

@@ -135,7 +135,6 @@ namespace MobileGL {
 
             private:
                 void BumpAttachmentVersion(FramebufferAttachmentType type);
-                void BumpBufferAttachVersion();
 
                 const Uint m_externalIndex = 0;
                 FramebufferAttachmentObjectArray m_attachmentObjects;

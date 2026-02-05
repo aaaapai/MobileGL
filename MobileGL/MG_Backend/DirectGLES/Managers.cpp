@@ -21,6 +21,7 @@
 #include <MG_Util/Converters/MGToGL/ProgramEnumConverter.h>
 #include <MG_Util/Converters/MGToGL/TextureEnumConverter.h>
 #include <MG_Util/Converters/MGToStr/TextureEnumConverter.h>
+#include <MG_Util/Converters/MGToStr/FramebufferEnumConverter.h>
 #include <MG_State/GLState/TextureState/TextureObjectBuffer.h>
 #include <MG_Util/Converters/GLToMG/FramebufferEnumConverter.h>
 #include <MG_Util/Converters/MGToGL/FramebufferEnumConverter.h>
@@ -215,7 +216,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
             MG_External::GLES::glBindVertexArray(m_backendVAOId);
         }
 
-        void BackendVertexArrayObject::SyncAttributeBuffer(Uint index,
+        void BackendVertexArrayObject::BindAttributeBuffer(Uint index,
                                                            const MG_State::GLState::VertexAttribute& attrib) {
             const auto& bufferObject = attrib.Buffer;
             if (!bufferObject) {
@@ -267,31 +268,20 @@ namespace MobileGL::MG_Backend::DirectGLES {
                                        m_syncedAttributeVersions[attribIndex].BufferVersion;
                 if (!needsSyncFormat && !needsSyncBuffer) continue;
 
-                if (needsSyncBuffer) {
-                    SyncAttributeBuffer(attribIndex, attrib);
+                BindAttributeBuffer(attribIndex, attrib);
 
-                    if (!attrib.IsInteger) {
-                        MG_External::GLES::glVertexAttribPointer(
-                            attribIndex, attrib.Size, MG_Util::ConvertDataTypeToGLEnum(attrib.Type),
-                            attrib.Normalized ? GL_TRUE : GL_FALSE, attrib.Stride, (const void*)attrib.Offset);
-                    } else {
-                        MG_External::GLES::glVertexAttribIPointer(attribIndex, attrib.Size,
-                                                                  MG_Util::ConvertDataTypeToGLEnum(attrib.Type),
-                                                                  attrib.Stride, (const void*)attrib.Offset);
-                    }
-                    continue; // No need to set format again
+                if (!attrib.IsInteger) {
+                    MG_External::GLES::glVertexAttribPointer(
+                        attribIndex, attrib.Size, MG_Util::ConvertDataTypeToGLEnum(attrib.Type),
+                        attrib.Normalized ? GL_TRUE : GL_FALSE, attrib.Stride, (const void*)attrib.Offset);
+                } else {
+                    MG_External::GLES::glVertexAttribIPointer(attribIndex, attrib.Size,
+                                                              MG_Util::ConvertDataTypeToGLEnum(attrib.Type),
+                                                              attrib.Stride, (const void*)attrib.Offset);
                 }
 
                 if (needsSyncFormat) {
                     MG_External::GLES::glVertexAttribDivisor(attribIndex, attrib.Divisor);
-                    if (!attrib.IsInteger) {
-                        MG_External::GLES::glVertexAttribFormat(attribIndex, attrib.Size,
-                                                                MG_Util::ConvertDataTypeToGLEnum(attrib.Type),
-                                                                attrib.Normalized ? GL_TRUE : GL_FALSE, attrib.Offset);
-                    } else {
-                        MG_External::GLES::glVertexAttribIFormat(
-                            attribIndex, attrib.Size, MG_Util::ConvertDataTypeToGLEnum(attrib.Type), attrib.Offset);
-                    }
                 }
             }
 
@@ -806,7 +796,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 const auto& textureObject = attachmentObject.GetTexture();
                 const auto& backendTextureIt = TextureImpl::g_backendTextureObjects.find(textureObject);
                 if (backendTextureIt == TextureImpl::g_backendTextureObjects.end()) {
-                    MGLOG_E("ReadBuffer: No backend texture found for FBO attachment, cannot bind texture.");
+                    MGLOG_E("%s: No backend texture found for FBO attachment, cannot bind texture.", __func__);
                     return false;
                 }
                 const auto& backendTextureObject = backendTextureIt->second;
@@ -916,6 +906,55 @@ namespace MobileGL::MG_Backend::DirectGLES {
                     SyncAttachmentObject(glFBOTarget, attachmentObject, glBackendAttachment);
                     m_syncedFrontendAttachmentVersions[i] = attachmentVersions[i];
                 }
+#if MOBILEGL_LOG_ACTIVE_LEVEL <= MOBILEGL_LOG_LEVEL_DEBUG
+                else {
+                    MGLOG_D("%s: Skipped SyncAttachmentObject(target=%s, frontendObj=(%dx%dx%d, %s), backendAtt=%s), "
+                            "version = %u",
+                            __func__, MG_Util::ConvertGLEnumToString(glFBOTarget).c_str(),
+                            attachmentObject.GetSize().x(), attachmentObject.GetSize().y(),
+                            attachmentObject.GetSize().z(),
+                            MG_Util::ConvertFramebufferAttachmentTypeToString(frontendType).c_str(),
+                            MG_Util::ConvertGLEnumToString(glBackendAttachment).c_str(),
+                            m_syncedFrontendAttachmentVersions[i]);
+                    GLint objectType = GL_NONE;
+                    MG_External::GLES::glGetFramebufferAttachmentParameteriv(
+                        glFBOTarget, glBackendAttachment, GL_FRAMEBUFFER_ATTACHMENT_OBJECT_TYPE, &objectType);
+                    MOBILEGL_ASSERT((objectType == GL_NONE) ||
+                                        (attachmentObject.IsTexture() && objectType == GL_TEXTURE) ||
+                                        (attachmentObject.IsRenderbuffer() && objectType == GL_RENDERBUFFER),
+                                    "Attachment type not match!");
+                    GLint objectName = 0;
+                    MG_External::GLES::glGetFramebufferAttachmentParameteriv(
+                        glFBOTarget, glBackendAttachment, GL_FRAMEBUFFER_ATTACHMENT_OBJECT_NAME, &objectName);
+                    // Verify that the backend object's name and parameters match the frontend attachment state
+                    if (attachmentObject.IsTexture()) {
+                        const auto& textureObject = attachmentObject.GetTexture();
+                        auto backendTextureIt = TextureImpl::g_backendTextureObjects.find(textureObject);
+                        MOBILEGL_ASSERT(backendTextureIt != TextureImpl::g_backendTextureObjects.end(),
+                                        "No backend texture found while framebuffer reports texture attachment.");
+                        GLuint backendTexId = backendTextureIt->second->GetBackendTextureId();
+                        MOBILEGL_ASSERT(static_cast<GLint>(backendTexId) == objectName,
+                                        "Attachment texture name mismatch between GLES (%d) and backend texture object "
+                                        "(%d), frontend texture object ID=%d.",
+                                        objectName, backendTexId, textureObject->GetExternalIndex());
+
+                        GLint texLevel = 0;
+                        MG_External::GLES::glGetFramebufferAttachmentParameteriv(
+                            glFBOTarget, glBackendAttachment, GL_FRAMEBUFFER_ATTACHMENT_TEXTURE_LEVEL, &texLevel);
+                        MOBILEGL_ASSERT(texLevel == static_cast<GLint>(attachmentObject.GetTextureLevel()),
+                                        "Attachment texture level mismatch between GLES and state object.");
+                    } else if (attachmentObject.IsRenderbuffer()) {
+                        const auto& renderbufferObject = attachmentObject.GetRenderbuffer();
+                        auto backendRboIt = RenderbufferImpl::g_backendRenderbufferObjects.find(renderbufferObject);
+                        MOBILEGL_ASSERT(
+                            backendRboIt != RenderbufferImpl::g_backendRenderbufferObjects.end(),
+                            "No backend renderbuffer found while framebuffer reports renderbuffer attachment.");
+                        GLuint backendRboId = backendRboIt->second->GetBackendRenderbufferId();
+                        MOBILEGL_ASSERT(static_cast<GLint>(backendRboId) == objectName,
+                                        "Attachment renderbuffer name mismatch between GLES and state object.");
+                    }
+                }
+#endif
             }
         }
 

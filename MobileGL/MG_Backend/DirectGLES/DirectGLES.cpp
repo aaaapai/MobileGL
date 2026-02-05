@@ -925,33 +925,8 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 MGLOG_D("ES error (%s:%d): %s", file, line, MG_Util::ConvertGLEnumToString(err).c_str());
             });
         } else {
-            MGLOG_D("%s: Backend depth", __func__);
-            MG_External::GLES::glTexImage2D(target, level, (GLint)internalformat, width, height, border, format, type,
-                                            nullptr);
-            errorLopper.Loop([file = __FILE__, line = __LINE__](auto err) {
-                MGLOG_D("ES error (%s:%d): %s", file, line, MG_Util::ConvertGLEnumToString(err).c_str());
-            });
+            MGLOG_D("%s: Backend depth (Not implemented)", __func__);
 
-            GLint currentTex;
-            MG_External::GLES::glGetIntegerv(Utils::GetBindingQuery(target, false), &currentTex);
-            errorLopper.Loop([file = __FILE__, line = __LINE__](auto err) {
-                MGLOG_D("ES error (%s:%d): %s", file, line, MG_Util::ConvertGLEnumToString(err).c_str());
-            });
-
-            GLenum attachment = isStencilFormat ? GL_DEPTH_STENCIL_ATTACHMENT : GL_DEPTH_ATTACHMENT;
-            MG_External::GLES::glFramebufferTexture2D(GL_DRAW_FRAMEBUFFER, attachment, target, currentTex, level);
-
-            if (MG_External::GLES::glCheckFramebufferStatus(GL_DRAW_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
-                MGLOG_E("ES glCheckFramebufferStatus(GL_DRAW_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE");
-                return;
-            }
-
-            MG_External::GLES::glBlitFramebuffer(x, y, x + width, y + height, 0, 0, width, height,
-                                                 GL_DEPTH_BUFFER_BIT | (isStencilFormat ? GL_STENCIL_BUFFER_BIT : 0),
-                                                 GL_NEAREST);
-            errorLopper.Loop([file = __FILE__, line = __LINE__](auto err) {
-                MGLOG_D("ES error (%s:%d): %s", file, line, MG_Util::ConvertGLEnumToString(err).c_str());
-            });
         }
     }
 
@@ -998,28 +973,8 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 MGLOG_D("ES error (%s:%d): %s", file, line, MG_Util::ConvertGLEnumToString(err).c_str());
             });
         } else {
-            MGLOG_D("%s: Backend depth", __func__);
-            GLint currentTex;
-            MG_External::GLES::glGetIntegerv(Utils::GetBindingQuery(target, false), &currentTex);
-            errorLopper.Loop([file = __FILE__, line = __LINE__](auto err) {
-                MGLOG_D("ES error (%s:%d): %s", file, line, MG_Util::ConvertGLEnumToString(err).c_str());
-            });
-            GLenum attachment = isStencilFormat ? GL_DEPTH_STENCIL_ATTACHMENT : GL_DEPTH_ATTACHMENT;
-            MG_External::GLES::glFramebufferTexture2D(GL_DRAW_FRAMEBUFFER, attachment, target, currentTex, level);
-            errorLopper.Loop([file = __FILE__, line = __LINE__](auto err) {
-                MGLOG_D("ES error (%s:%d): %s", file, line, MG_Util::ConvertGLEnumToString(err).c_str());
-            });
-            if (MG_External::GLES::glCheckFramebufferStatus(GL_DRAW_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
-                MGLOG_E("ES glCheckFramebufferStatus(GL_DRAW_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE");
-                return;
-            }
+            MGLOG_D("%s: Backend depth (Not implemented)", __func__);
 
-            MG_External::GLES::glBlitFramebuffer(
-                x, y, x + width, y + height, xoffset, yoffset, xoffset + width, yoffset + height,
-                GL_DEPTH_BUFFER_BIT | (isStencilFormat ? GL_STENCIL_BUFFER_BIT : 0), GL_NEAREST);
-            errorLopper.Loop([file = __FILE__, line = __LINE__](auto err) {
-                MGLOG_D("ES error (%s:%d): %s", file, line, MG_Util::ConvertGLEnumToString(err).c_str());
-            });
         }
     }
 
