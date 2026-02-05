@@ -10,6 +10,8 @@
 
 #include "MG_State/GLState/Core.h"
 
+#include <MG_Util/BackendLoaders/OpenGL/Loader.h>
+
 namespace MobileGL {
     namespace MG_Impl::GLImpl {
         GLsync FenceSync_Backend(GLenum condition, GLbitfield flags) {
@@ -33,13 +35,29 @@ namespace MobileGL {
         void DeleteSync_State(GLsync sync) {}
 
         GLsync FenceSync(GLenum condition, GLbitfield flags) {
-            return 0;
+#if MOBILEGL_BACKEND == MOBILEGL_BACKEND_TYPE_DIRECT_GLES
+            return MG_External::GLES::glFenceSync(condition, flags);
+#elif MOBILEGL_BACKEND == MOBILEGL_BACKEND_TYPE_DIRECT_VULKAN
+            return FenceSync_State(condition, flags);
+#endif
         }
 
         GLenum ClientWaitSync(GLsync sync, GLbitfield flags, GLuint64 timeout) {
-            return 0;
+#if MOBILEGL_BACKEND == MOBILEGL_BACKEND_TYPE_DIRECT_GLES
+            return MG_External::GLES::glClientWaitSync(sync, flags, timeout);
+#elif MOBILEGL_BACKEND == MOBILEGL_BACKEND_TYPE_DIRECT_VULKAN
+            return ClientWaitSync_State(sync, flags, timeout);
+#endif
+
         }
 
-        void DeleteSync(GLsync sync) {}
+        void DeleteSync(GLsync sync) {
+#if MOBILEGL_BACKEND == MOBILEGL_BACKEND_TYPE_DIRECT_GLES
+            MG_External::GLES::glDeleteSync(sync);
+#elif MOBILEGL_BACKEND == MOBILEGL_BACKEND_TYPE_DIRECT_VULKAN
+            DeleteSync_State(sync);
+#endif
+        }
+
     } // namespace MG_Impl::GLImpl
 } // namespace MobileGL
