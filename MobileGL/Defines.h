@@ -77,3 +77,15 @@
             TRAP;                                                                                                      \
         }                                                                                                              \
     } while (0)
+
+
+
+#if defined(UseJEMALLOC)
+#define MALLOC(_size) je_malloc(_size)
+#define CALLOC(_count, _size) je_calloc(_count, _size)
+#define FREE(_ptr) je_free(_ptr)
+#else
+#define MALLOC(_size) malloc(_size)
+#define CALLOC(_count, _size) calloc(_count, _size)
+#define FREE(_ptr) free(_ptr)
+#endif
