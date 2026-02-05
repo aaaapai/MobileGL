@@ -143,7 +143,7 @@ namespace MobileGL {
             void FramebufferObject::SetDrawBuffer(Uint index, FramebufferAttachmentType buffer) {
                 if (m_drawBuffers[index] == buffer) return;
                 m_drawBuffers[index] = buffer;
-                ++m_attachmentVersions[static_cast<SizeT>(buffer)];
+                BumpAttachmentVersion(buffer);
             }
 
             const FramebufferObject::FramebufferAttachmentArray& FramebufferObject::GetDrawBuffers() const {
