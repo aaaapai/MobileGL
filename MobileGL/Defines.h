@@ -9,10 +9,10 @@
 #pragma once
 
 // ============== Platform-specific definitions and macros ============== //
-#ifdef __ANDROID__
+/*#ifdef __ANDROID__
 #undef __ANDROID_API__
 #define __ANDROID_API__ 26 // force Android API level to 26 for compatibility
-#endif
+#endif*/
 
 #ifdef _WIN32
 #ifndef NOMINMAX
@@ -37,9 +37,10 @@
 #define MOBILEGL_BACKEND_TYPE_DILIGENT 1
 #define MOBILEGL_BACKEND_TYPE_MRHI 2
 #define MOBILEGL_BACKEND_TYPE_DIRECT_GLES 3
+#define MOBILEGL_BACKEND_TYPE_DIRECT_VULKAN 4
 
 // ====================== MobileGL configurations ======================= //
-#define MOBILEGL_LOG_ACTIVE_LEVEL MOBILEGL_LOG_LEVEL_INFO
+#define MOBILEGL_LOG_ACTIVE_LEVEL MOBILEGL_LOG_LEVEL_WARN
 
 #define MOBILEGL_LOG_ENABLE_CONSOLE 0
 #define MOBILEGL_LOG_ENABLE_FILE 1
@@ -48,12 +49,12 @@
 
 // Require C++23
 // Clang/Android NDK still doesn't have support for that :(
-#if __cplusplus >= 202302L && !__ANDROID__
+#ifndef __ANDROID__
 #define MOBILEGL_LOG_ENABLE_STACKTRACE 0
 #endif
 
 #ifdef __ANDROID__
-#define MOBILEGL_LOG_FILE_PATH "/sdcard/MG/latest.log"
+#define MOBILEGL_LOG_FILE_PATH "/sdcard/MGL/latest.log"
 #else
 #define MOBILEGL_LOG_FILE_PATH ""
 #endif
@@ -76,3 +77,15 @@
             TRAP;                                                                                                      \
         }                                                                                                              \
     } while (0)
+
+
+
+#if defined(UseJEMALLOC)
+#define MALLOC(_size) je_malloc(_size)
+#define CALLOC(_count, _size) je_calloc(_count, _size)
+#define FREE(_ptr) je_free(_ptr)
+#else
+#define MALLOC(_size) malloc(_size)
+#define CALLOC(_count, _size) calloc(_count, _size)
+#define FREE(_ptr) free(_ptr)
+#endif

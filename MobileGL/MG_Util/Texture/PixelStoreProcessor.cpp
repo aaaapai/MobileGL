@@ -117,7 +117,7 @@ namespace MobileGL::MG_Util::PixelStoreProcessor {
         }
 
         outSize = static_cast<SizeT>(copyWidth) * copyHeight * copyDepth * pixelSize;
-        void* outputPixels = malloc(outSize);
+        void* outputPixels = MALLOC(outSize);
         if (!outputPixels) {
             outSize = 0;
             return nullptr;
@@ -190,7 +190,7 @@ namespace MobileGL::MG_Util::PixelStoreProcessor {
         const Int effectiveHeight = (params.ImageHeight > 0) ? params.ImageHeight : height;
 
         outSize = static_cast<SizeT>(outputRowStride) * static_cast<SizeT>(effectiveHeight) * static_cast<SizeT>(depth);
-        void* outputPixels = malloc(outSize);
+        void* outputPixels = MALLOC(outSize);
         if (!outputPixels) {
             outSize = 0;
             return nullptr;

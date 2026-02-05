@@ -17,9 +17,11 @@
 #include <map>
 #include <array>
 #include <ctime>
+#include <mutex>
 #include <queue>
 #include <regex>
 #include <atomic>
+#include <bitset>
 #include <cctype>
 #include <chrono>
 #include <cstdio>
@@ -29,6 +31,7 @@
 #include <string>
 #include <thread>
 #include <vector>
+#include <cassert>
 #include <cstdarg>
 #include <cstring>
 #include <numeric>
@@ -40,8 +43,6 @@
 #include <functional>
 #include <string_view>
 #include <unordered_map>
-#include <mutex>
-#include <bitset>
 #if __cplusplus >= 202302L && MOBILEGL_LOG_ENABLE_STACKTRACE
 #include <stacktrace>
 #endif
@@ -75,10 +76,17 @@
 #include <glslang/Include/intermediate.h>
 #include <glslang/MachineIndependent/localintermediate.h>
 
+// Include shaderc headers
+#include <shaderc/visibility.h>
+#include <shaderc/env.h>
+#include <shaderc/status.h>
+#include <shaderc/shader.h>
+
 // Include headers for platform-specific functionality
 #ifdef __linux__
 #include <dlfcn.h>
 #include <pthread.h>
+#include <vulkan/vulkan.h>
 #endif
 
 #ifdef _WIN32
@@ -93,9 +101,9 @@
 #include <unistd.h>
 #include <pthread.h>
 #include <android/log.h>
-#include <vulkan/vulkan.h>
 #include <android/native_window.h>
 #include <vulkan/vulkan_android.h>
+#include <arm_neon.h>
 #endif
 
 #ifdef TRACY_ENABLE
@@ -108,3 +116,5 @@
 // Post-includes for significant project headers
 #include "MG_Util/Debug/Log.h"
 #include "MG_Util/Types.h"
+
+#include <jemalloc/jemalloc.h>

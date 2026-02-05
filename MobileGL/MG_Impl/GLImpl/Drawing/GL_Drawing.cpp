@@ -12,6 +12,9 @@
 #if MOBILEGL_BACKEND == MOBILEGL_BACKEND_TYPE_DIRECT_GLES
 #include <MG_Backend/DirectGLES/DirectGLES.h>
 #endif
+#if MOBILEGL_BACKEND == MOBILEGL_BACKEND_TYPE_DIRECT_VULKAN
+#include <MG_Backend/DirectVulkan/DirectVulkan.h>
+#endif
 #include <MG_Util/BackendLoaders/OpenGL/Loader.h>
 
 namespace MobileGL {
@@ -22,6 +25,8 @@ namespace MobileGL {
 #endif
 #if MOBILEGL_BACKEND == MOBILEGL_BACKEND_TYPE_DIRECT_GLES
             MG_Backend::DirectGLES::Clear(mask);
+#elif MOBILEGL_BACKEND == MOBILEGL_BACKEND_TYPE_DIRECT_VULKAN
+            MG_Backend::DirectVulkan::Clear(mask);
 #endif
         }
 
@@ -31,6 +36,8 @@ namespace MobileGL {
 #endif
 #if MOBILEGL_BACKEND == MOBILEGL_BACKEND_TYPE_DIRECT_GLES
             MG_Backend::DirectGLES::DrawElements(mode, count, type, indices);
+#elif MOBILEGL_BACKEND == MOBILEGL_BACKEND_TYPE_DIRECT_VULKAN
+            MG_Backend::DirectVulkan::DrawElements(mode, count, type, indices);
 #endif
         }
 
