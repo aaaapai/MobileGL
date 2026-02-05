@@ -223,6 +223,7 @@ target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE
     ${CMAKE_SOURCE_DIR}/library/android/${ANDROID_ABI}/libspirv-cross-glsl.a
     ${CMAKE_SOURCE_DIR}/library/android/${ANDROID_ABI}/libSPIRV-Tools.a
     ${CMAKE_SOURCE_DIR}/library/android/${ANDROID_ABI}/libSPIRV-Tools-opt.a
+    ${CMAKE_SOURCE_DIR}/library/android/${ANDROID_ABI}/libjemalloc.so
     # ${CMAKE_SOURCE_DIR}/library/android/${ANDROID_ABI}/libshaderc.so
     android
     log
