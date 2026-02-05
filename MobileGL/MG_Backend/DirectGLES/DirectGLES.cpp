@@ -863,7 +863,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
         errorLopper.Loop([file = __FILE__, line = __LINE__](auto err) {
             MGLOG_D("ES error (%s:%d): %s", file, line, MG_Util::ConvertGLEnumToString(err).c_str());
         });
-
+        BindCurrentFBO(FramebufferTarget::Read);
         if (!UpdateTextureBindingAtTarget(target)) return;
 
         auto mglInternalFormat = MG_Util::ConvertGLEnumToTextureInternalFormat(internalformat);
