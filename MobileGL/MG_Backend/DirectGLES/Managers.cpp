@@ -216,7 +216,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
             MG_External::GLES::glBindVertexArray(m_backendVAOId);
         }
 
-        void BackendVertexArrayObject::SyncAttributeBuffer(Uint index,
+        void BackendVertexArrayObject::BindAttributeBuffer(Uint index,
                                                            const MG_State::GLState::VertexAttribute& attrib) {
             const auto& bufferObject = attrib.Buffer;
             if (!bufferObject) {
@@ -268,35 +268,20 @@ namespace MobileGL::MG_Backend::DirectGLES {
                                        m_syncedAttributeVersions[attribIndex].BufferVersion;
                 if (!needsSyncFormat && !needsSyncBuffer) continue;
 
-                if (needsSyncBuffer) {
-                    SyncAttributeBuffer(attribIndex, attrib);
+                BindAttributeBuffer(attribIndex, attrib);
 
-                    if (!attrib.IsInteger) {
-                        MG_External::GLES::glVertexAttribPointer(
-                            attribIndex, attrib.Size, MG_Util::ConvertDataTypeToGLEnum(attrib.Type),
-                            attrib.Normalized ? GL_TRUE : GL_FALSE, attrib.Stride, (const void*)attrib.Offset);
-                    } else {
-                        MG_External::GLES::glVertexAttribIPointer(attribIndex, attrib.Size,
-                                                                  MG_Util::ConvertDataTypeToGLEnum(attrib.Type),
-                                                                  attrib.Stride, (const void*)attrib.Offset);
-                    }
-
-                    if (needsSyncFormat) {
-                        MG_External::GLES::glVertexAttribDivisor(attribIndex, attrib.Divisor);
-                    }
-                    continue; // No need to set format again
+                if (!attrib.IsInteger) {
+                    MG_External::GLES::glVertexAttribPointer(
+                        attribIndex, attrib.Size, MG_Util::ConvertDataTypeToGLEnum(attrib.Type),
+                        attrib.Normalized ? GL_TRUE : GL_FALSE, attrib.Stride, (const void*)attrib.Offset);
+                } else {
+                    MG_External::GLES::glVertexAttribIPointer(attribIndex, attrib.Size,
+                                                              MG_Util::ConvertDataTypeToGLEnum(attrib.Type),
+                                                              attrib.Stride, (const void*)attrib.Offset);
                 }
 
                 if (needsSyncFormat) {
                     MG_External::GLES::glVertexAttribDivisor(attribIndex, attrib.Divisor);
-                    if (!attrib.IsInteger) {
-                        MG_External::GLES::glVertexAttribFormat(attribIndex, attrib.Size,
-                                                                MG_Util::ConvertDataTypeToGLEnum(attrib.Type),
-                                                                attrib.Normalized ? GL_TRUE : GL_FALSE, attrib.Offset);
-                    } else {
-                        MG_External::GLES::glVertexAttribIFormat(
-                            attribIndex, attrib.Size, MG_Util::ConvertDataTypeToGLEnum(attrib.Type), attrib.Offset);
-                    }
                 }
             }
 
