@@ -1346,7 +1346,7 @@ namespace MobileGL {
 
             // ======================= Processing ================================
             auto textureObject = MG_State::pGLContext->GetTextureObject(texture);
-
+        
             // ===================== Error Checking ==============================
             if (!TextureImpl::ValidateTextureTargetUniformity(textureObject, textureTarget)) return;
 
