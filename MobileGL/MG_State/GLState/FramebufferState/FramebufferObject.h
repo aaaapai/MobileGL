@@ -78,7 +78,8 @@ namespace MobileGL {
         namespace GLState {
             class FramebufferAttachmentObject {
             public:
-                explicit FramebufferAttachmentObject(SharedPtr<MG_State::GLState::ITextureObject> texture, Int level = 0);
+                explicit FramebufferAttachmentObject(SharedPtr<MG_State::GLState::ITextureObject> texture,
+                                                     Int level = 0);
                 explicit FramebufferAttachmentObject(SharedPtr<RenderbufferObject> renderbuffer);
                 explicit FramebufferAttachmentObject(Bool IsValid = true);
 
@@ -105,10 +106,11 @@ namespace MobileGL {
 
                 using TargetEnum = FramebufferTarget;
                 using FramebufferAttachmentObjectArray =
-                        Array<FramebufferAttachmentObject, static_cast<SizeT>(FramebufferAttachmentType::FramebufferAttachmentTypeCount)>;
+                    Array<FramebufferAttachmentObject,
+                          static_cast<SizeT>(FramebufferAttachmentType::FramebufferAttachmentTypeCount)>;
                 using FramebufferAttachmentArray = Array<FramebufferAttachmentType, MAX_DRAW_BUFFERS>;
                 using FramebufferAttachmentVersionArray =
-                        Array<Uint16, static_cast<SizeT>(FramebufferAttachmentType::FramebufferAttachmentTypeCount)>;
+                    Array<Uint16, static_cast<SizeT>(FramebufferAttachmentType::FramebufferAttachmentTypeCount)>;
 
                 FramebufferObject(Uint externalIndex);
 

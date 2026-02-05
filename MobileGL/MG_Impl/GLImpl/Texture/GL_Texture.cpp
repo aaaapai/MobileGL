@@ -7,26 +7,27 @@
 // End of Source File Header
 
 #include "GL_Texture.h"
-#include "GL/gl.h"
 #include "Config.h"
-#if MOBILEGL_BACKEND == MOBILEGL_BACKEND_TYPE_DIRECT_GLES
-#include <MG_Backend/DirectGLES/DirectGLES.h>
-#endif
 #include "MG_Util/Types.h"
 #include "Validators.h"
 #include "ProxyTexture.h"
-#include "MG_State/GLState/TextureState/TextureObjectBuffer.h"
-#include "MG_Util/Converters/GLToStr/GLEnumConverter.h"
-#include "MG_Util/Texture/TextureFormatProcessor.h"
 
 #include <MG_State/GLState/Core.h>
 #include <MG_Util/Metrics/TextureMetrics.h>
 #include <MG_State/GLState/ErrorState/Error.h>
 #include <MG_Util/Texture/PixelStoreProcessor.h>
+#include <MG_Util/Texture/TextureFormatProcessor.h>
+#include <MG_Util/Classifiers/TextureEnumClassifier.h>
+#include <MG_Util/Converters/GLToStr/GLEnumConverter.h>
 #include <MG_Util/Converters/MGToMG/TextureEnumConverter.h>
 #include <MG_Util/Converters/GLToMG/TextureEnumConverter.h>
 #include <MG_Util/Converters/MGToGL/TextureEnumConverter.h>
 #include <MG_Util/Converters/MGToStr/TextureEnumConverter.h>
+#include <MG_State/GLState/TextureState/TextureObjectBuffer.h>
+
+#if MOBILEGL_BACKEND == MOBILEGL_BACKEND_TYPE_DIRECT_GLES
+#include <MG_Backend/DirectGLES/DirectGLES.h>
+#endif
 
 namespace MobileGL {
     namespace MG_Impl::GLImpl {
@@ -1228,12 +1229,57 @@ namespace MobileGL {
 
         void CopyTexImage2D_State(GLenum target, GLint level, GLenum internalformat, GLint x, GLint y, GLsizei width,
                                   GLsizei height, GLint border) {
-            GLenum outInternalFormat, format, type;
-            MG_Util::TextureFormatProcessor::NormalizePixelFormat(internalformat, 0, &outInternalFormat, &format,
-                                                                  &type);
+            auto internalFormat = MG_Util::ConvertGLEnumToTextureInternalFormat(internalformat);
+            const auto& currentReadFBO =
+                MG_State::pGLContext->GetFramebufferBindingSlot(FramebufferTarget::Read).GetBoundObject();
+            if (!currentReadFBO) {
+                MG_State::pGLContext->RecordError(
+                    ErrorCode::InvalidOperation,
+                    MakeShared<GenericErrorInfo>(
+                        "MG_Impl/GLImpl", "CopyTexImage2D_State",
+                        "No framebuffer is currently bound to the GL_READ_FRAMEBUFFER target."));
+                return;
+            }
+
+            Bool isDepth = MG_Util::IsDepthFormatInternalFormat(internalFormat);
+            Bool isStencil = MG_Util::IsStencilFormatInternalFormat(internalFormat);
+            TextureInternalFormat srcInternalFormat = TextureInternalFormat::Unknown;
+#define GET_SRC_INTERNAL_FORMAT(AttachmentType)                                                                        \
+    const auto& srcAttachment = currentReadFBO->GetAttachment(AttachmentType);                                         \
+    if (srcAttachment.IsTexture()) {                                                                                   \
+        const auto& texObj = srcAttachment.GetTexture();                                                               \
+        srcInternalFormat = texObj->GetFormat();                                                                       \
+    } else if (srcAttachment.IsRenderbuffer()) {                                                                       \
+        const auto& rboObj = srcAttachment.GetRenderbuffer();                                                          \
+        srcInternalFormat = rboObj->GetInternalFormat();                                                               \
+    } else {                                                                                                           \
+        MG_State::pGLContext->RecordError(                                                                             \
+            ErrorCode::InvalidOperation,                                                                               \
+            MakeShared<GenericErrorInfo>("MG_Impl/GLImpl", "CopyTexImage2D_State",                                     \
+                                         "The attachment specified by the read buffer is incomplete."));               \
+        return;                                                                                                        \
+    }
+            if (isDepth) {
+                GET_SRC_INTERNAL_FORMAT(FramebufferAttachmentType::Depth);
+            } else if (isStencil) {
+                GET_SRC_INTERNAL_FORMAT(FramebufferAttachmentType::Stencil);
+            } else {
+                const auto& readBufferType = currentReadFBO->GetReadBuffer();
+                GET_SRC_INTERNAL_FORMAT(readBufferType);
+            }
+
+            if (!TextureImpl::ValidateBaseInternalFormatMatch(internalFormat, srcInternalFormat))
+                THROW_UNIMPL_EXCEPTION;
+
+            GLenum outInternalFormat = MG_Util::ConvertTextureInternalFormatToGLEnum(srcInternalFormat);
+            GLenum realInternalFormat = GL_RGBA8;
+            GLenum format = GL_DEPTH_COMPONENT;
+            GLenum type = GL_UNSIGNED_INT;
+            MG_Util::TextureFormatProcessor::NormalizePixelFormat(
+                outInternalFormat, PixelFormatNormalizeOptionBit::None, &realInternalFormat, &format, &type);
             const auto pixelUnpackBufferObject =
                 MG_State::pGLContext->GetBufferBindingSlot(BufferTarget::PixelUnpack).GetBoundObject();
-            TexImage2D_State(target, level, outInternalFormat, width, height, border, format, type, nullptr);
+            TexImage2D_State(target, level, realInternalFormat, width, height, border, format, type, nullptr);
             MG_State::pGLContext->GetBufferBindingSlot(BufferTarget::PixelUnpack).Bind(pixelUnpackBufferObject);
         }
 
