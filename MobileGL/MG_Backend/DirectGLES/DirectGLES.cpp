@@ -305,7 +305,6 @@ namespace MobileGL::MG_Backend::DirectGLES {
             MG_External::GLES::glDisable(cap_gl);                                                                      \
         }                                                                                                              \
     }
-            SYNC_CAPABILITY(Blend, GL_BLEND);
             SYNC_CAPABILITY(DepthTest, GL_DEPTH_TEST);
             SYNC_CAPABILITY(ScissorTest, GL_SCISSOR_TEST);
             SYNC_CAPABILITY(CullFace, GL_CULL_FACE);
@@ -314,19 +313,107 @@ namespace MobileGL::MG_Backend::DirectGLES {
 
             const auto& ToGLBoolean = [](Bool b) -> GLboolean { return b ? GL_TRUE : GL_FALSE; };
 
-            if (parameters.SrcFactorRGB != g_syncedRenderStateParameters.SrcFactorRGB ||
-                parameters.DstFactorRGB != g_syncedRenderStateParameters.DstFactorRGB ||
-                parameters.SrcFactorAlpha != g_syncedRenderStateParameters.SrcFactorAlpha ||
-                parameters.DstFactorAlpha != g_syncedRenderStateParameters.DstFactorAlpha) { // Blend func
-                const BlendFactor &srcRGB = parameters.SrcFactorRGB, &dstRGB = parameters.DstFactorRGB,
-                                  &srcAlpha = parameters.SrcFactorAlpha, &dstAlpha = parameters.DstFactorAlpha;
+            { // Blend State
+                using FBO = MG_State::GLState::FramebufferObject;
+                const auto& targetStates = parameters.BlendStates;
+                auto& syncedStates = g_syncedRenderStateParameters.BlendStates;
 
-                MG_External::GLES::glBlendFuncSeparate(
-                    MG_Util::ConvertBlendFactorToGLEnum(srcRGB), MG_Util::ConvertBlendFactorToGLEnum(dstRGB),
-                    MG_Util::ConvertBlendFactorToGLEnum(srcAlpha), MG_Util::ConvertBlendFactorToGLEnum(dstAlpha));
+                Bool allEnabled = true;
+                Bool allDisabled = true;
+                Bool anyCapDirty = false;
+
+                for (Uint i = 0; i < FBO::MAX_DRAW_BUFFERS; ++i) {
+                    Bool enabled = targetStates[i].Enabled;
+                    if (enabled)
+                        allDisabled = false;
+                    else
+                        allEnabled = false;
+
+                    if (enabled != syncedStates[i].Enabled) {
+                        anyCapDirty = true;
+                    }
+                }
+
+                if (anyCapDirty) {
+                    if (allEnabled) {
+                        MG_External::GLES::glEnable(GL_BLEND);
+                        for (auto& s : syncedStates)
+                            s.Enabled = true;
+                    } else if (allDisabled) {
+                        MG_External::GLES::glDisable(GL_BLEND);
+                        for (auto& s : syncedStates)
+                            s.Enabled = false;
+                    } else {
+                        for (Uint i = 0; i < FBO::MAX_DRAW_BUFFERS; ++i) {
+                            if (targetStates[i].Enabled != syncedStates[i].Enabled) {
+                                syncedStates[i].Enabled = targetStates[i].Enabled;
+                                syncedStates[i].Enabled ? MG_External::GLES::glEnablei(GL_BLEND, i)
+                                                        : MG_External::GLES::glDisablei(GL_BLEND, i);
+                            }
+                        }
+                    }
+                }
+
+                Bool allFuncsSame = true;
+                Bool anyFuncDirty = false;
+                const auto& first = targetStates[0];
+
+                for (Uint i = 0; i < FBO::MAX_DRAW_BUFFERS; ++i) {
+                    const auto& cur = targetStates[i];
+                    const auto& syn = syncedStates[i];
+
+                    Bool isDiffFromSyn =
+                        (cur.SrcFactorRGB != syn.SrcFactorRGB || cur.DstFactorRGB != syn.DstFactorRGB ||
+                         cur.SrcFactorAlpha != syn.SrcFactorAlpha || cur.DstFactorAlpha != syn.DstFactorAlpha);
+
+                    if (isDiffFromSyn) anyFuncDirty = true;
+
+                    if (allFuncsSame && i > 0) {
+                        if (cur.SrcFactorRGB != first.SrcFactorRGB || cur.DstFactorRGB != first.DstFactorRGB ||
+                            cur.SrcFactorAlpha != first.SrcFactorAlpha || cur.DstFactorAlpha != first.DstFactorAlpha) {
+                            allFuncsSame = false;
+                        }
+                    }
+                }
+
+                if (anyFuncDirty) {
+                    if (allFuncsSame) {
+                        MG_External::GLES::glBlendFuncSeparate(
+                            MG_Util::ConvertBlendFactorToGLEnum(first.SrcFactorRGB),
+                            MG_Util::ConvertBlendFactorToGLEnum(first.DstFactorRGB),
+                            MG_Util::ConvertBlendFactorToGLEnum(first.SrcFactorAlpha),
+                            MG_Util::ConvertBlendFactorToGLEnum(first.DstFactorAlpha));
+
+                        for (auto& syn : syncedStates) {
+                            syn.SrcFactorRGB = first.SrcFactorRGB;
+                            syn.DstFactorRGB = first.DstFactorRGB;
+                            syn.SrcFactorAlpha = first.SrcFactorAlpha;
+                            syn.DstFactorAlpha = first.DstFactorAlpha;
+                        }
+                    } else {
+                        for (Uint i = 0; i < FBO::MAX_DRAW_BUFFERS; ++i) {
+                            const auto& cur = targetStates[i];
+                            auto& syn = syncedStates[i];
+
+                            if (cur.SrcFactorRGB != syn.SrcFactorRGB || cur.DstFactorRGB != syn.DstFactorRGB ||
+                                cur.SrcFactorAlpha != syn.SrcFactorAlpha || cur.DstFactorAlpha != syn.DstFactorAlpha) {
+                                syn.SrcFactorRGB = cur.SrcFactorRGB;
+                                syn.DstFactorRGB = cur.DstFactorRGB;
+                                syn.SrcFactorAlpha = cur.SrcFactorAlpha;
+                                syn.DstFactorAlpha = cur.DstFactorAlpha;
+
+                                MG_External::GLES::glBlendFuncSeparatei(
+                                    i, MG_Util::ConvertBlendFactorToGLEnum(cur.SrcFactorRGB),
+                                    MG_Util::ConvertBlendFactorToGLEnum(cur.DstFactorRGB),
+                                    MG_Util::ConvertBlendFactorToGLEnum(cur.SrcFactorAlpha),
+                                    MG_Util::ConvertBlendFactorToGLEnum(cur.DstFactorAlpha));
+                            }
+                        }
+                    }
+                }
             }
 
-            { // Blend equation
+            { // Depth state
                 if (parameters.DepthFunc != g_syncedRenderStateParameters.DepthFunc) {
                     MG_External::GLES::glDepthFunc(MG_Util::ConvertDepthTestFuncToGLEnum(parameters.DepthFunc));
                 }
