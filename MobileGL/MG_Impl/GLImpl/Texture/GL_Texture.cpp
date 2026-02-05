@@ -714,9 +714,6 @@ namespace MobileGL {
             MGLOG_D("%s: Allocating %d bytes at mip %d", __func__, internalBytes, level);
             textureMipmapObject->AllocateStorage(textureUploadingTarget, level, {{width, height, 1}, internalBytes});
 
-            MGLOG_D("%s: mark mip %d as dirty", __func__, level);
-            textureMipmapObject->MarkStorageDirty(textureUploadingTarget, level, true);
-
             if (!originalPixels) {
                 MGLOG_D("%s: No input pixel and no PBO bound, no pixel transfer", __func__);
                 return;
@@ -740,6 +737,9 @@ namespace MobileGL {
             }
 
             free(processedPixels);
+
+            MGLOG_D("%s: mark mip %d as dirty", __func__, level);
+            textureMipmapObject->MarkStorageDirty(textureUploadingTarget, level, true);
         }
 
         void TexImage1D_State(GLenum target, GLint level, GLint internalFormat, GLsizei width, GLint border,
