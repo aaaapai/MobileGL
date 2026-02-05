@@ -45,7 +45,6 @@ namespace MobileGL {
         void BlendFuncSeparate(GLenum sfactorRGB, GLenum dfactorRGB, GLenum sfactorAlpha, GLenum dfactorAlpha);
         void BlendEquation(GLenum mode);
         void BlendColor(GLfloat red, GLfloat green, GLfloat blue, GLfloat alpha);
-        void ReadBuffer(GLenum src);
         void ClearStencil(GLint s);
         void ClearDepth(GLclampd depth);
         void ClearColor(GLfloat red, GLfloat green, GLfloat blue, GLfloat alpha);

@@ -19,108 +19,25 @@
 #include <MG_Util/Converters/MGToGL/FramebufferEnumConverter.h>
 
 namespace MobileGL::MG_Backend::DirectGLES {
-    namespace BufferImpl {
-        BackendBufferBindingProtector::BackendBufferBindingProtector(GLenum target) {
-#ifdef TRACY_ENABLE
-            ZoneScopedC(TRACY_ZONECOLOR_BACKEND);
-#endif
-            m_target = target;
-            MG_External::GLES::glGetIntegerv(Utils::GetBindingQuery(target, false), &m_previousBinding);
-        }
+    namespace BufferImpl {} // namespace BufferImpl
 
-        BackendBufferBindingProtector::~BackendBufferBindingProtector() {
-#ifdef TRACY_ENABLE
-            ZoneScopedC(TRACY_ZONECOLOR_BACKEND);
-#endif
-            MG_External::GLES::glBindBuffer(m_target, m_previousBinding);
-        }
-    } // namespace BufferImpl
-
-    namespace VertexArrayImpl {
-        BackendVertexArrayBindingProtector::BackendVertexArrayBindingProtector() {
-#ifdef TRACY_ENABLE
-            ZoneScopedC(TRACY_ZONECOLOR_BACKEND);
-#endif
-            MG_External::GLES::glGetIntegerv(GL_VERTEX_ARRAY_BINDING, &m_previousBinding);
-        }
-
-        BackendVertexArrayBindingProtector::~BackendVertexArrayBindingProtector() {
-#ifdef TRACY_ENABLE
-            ZoneScopedC(TRACY_ZONECOLOR_BACKEND);
-#endif
-            MG_External::GLES::glBindVertexArray(m_previousBinding);
-        }
-    } // namespace VertexArrayImpl
+    namespace VertexArrayImpl {} // namespace VertexArrayImpl
 
     namespace TextureImpl {
-        BackendTextureBindingProtector::BackendTextureBindingProtector(GLenum target) {
-#ifdef TRACY_ENABLE
-            ZoneScopedC(TRACY_ZONECOLOR_BACKEND);
-#endif
-            m_target = target;
-            MG_External::GLES::glGetIntegerv(Utils::GetBindingQuery(target, true), &m_previousBinding);
-        }
-
-        BackendTextureBindingProtector::~BackendTextureBindingProtector() {
-#ifdef TRACY_ENABLE
-            ZoneScopedC(TRACY_ZONECOLOR_BACKEND);
-#endif
-            MG_External::GLES::glBindTexture(m_target, m_previousBinding);
-        }
-
         void GenerateTextureFormatInfo(TextureInternalFormat internalFormat, GLenum* outInternalFormat,
                                        GLenum* outFormat, GLenum* outType) {
 #ifdef TRACY_ENABLE
             ZoneScopedC(TRACY_ZONECOLOR_BACKEND);
 #endif
             using namespace MobileGL::MG_Util::TextureFormatProcessor;
-            auto options =
-                (MG_External::GLES::g_glesCaps.hasNorm16Texture) ? PixelFormatNormalizeOptionBit::None : PixelFormatNormalizeOptionBit::NoNorm16;
-            NormalizePixelFormat(
-                    MG_Util::ConvertTextureInternalFormatToGLEnum(internalFormat),
-                    options,
-                    outInternalFormat,
-                    outFormat, outType);
+            auto options = (MG_External::GLES::g_glesCaps.hasNorm16Texture) ? PixelFormatNormalizeOptionBit::None
+                                                                            : PixelFormatNormalizeOptionBit::NoNorm16;
+            NormalizePixelFormat(MG_Util::ConvertTextureInternalFormatToGLEnum(internalFormat), options,
+                                 outInternalFormat, outFormat, outType);
         }
     } // namespace TextureImpl
 
-    namespace FramebufferImpl {
-        BackendFramebufferBindingProtector::BackendFramebufferBindingProtector(GLenum target) {
-#ifdef TRACY_ENABLE
-            ZoneScopedC(TRACY_ZONECOLOR_BACKEND);
-#endif
-            m_target = target;
-            MG_External::GLES::glGetIntegerv(Utils::GetBindingQuery(target, false), &m_previousBinding);
-        }
-
-        BackendFramebufferBindingProtector::~BackendFramebufferBindingProtector() {
-#ifdef TRACY_ENABLE
-            ZoneScopedC(TRACY_ZONECOLOR_BACKEND);
-#endif
-            MG_External::GLES::glBindFramebuffer(m_target, m_previousBinding);
-        }
-
-        GLuint BackendFramebufferBindingProtector::GetTempFBO(FramebufferTarget target) {
-#ifdef TRACY_ENABLE
-            ZoneScopedC(TRACY_ZONECOLOR_BACKEND);
-#endif
-            GLenum glTarget = MG_Util::ConvertFramebufferTargetToGLEnum(target);
-            GLuint& fbo = (glTarget == GL_DRAW_FRAMEBUFFER) ? s_tempDrawFBO : s_tempReadFBO;
-            if (fbo == 0) {
-                MG_External::GLES::glGenFramebuffers(1, &fbo);
-            }
-            return fbo;
-        }
-
-        void BackendFramebufferBindingProtector::BindTempFBO(MobileGL::FramebufferTarget target) {
-#ifdef TRACY_ENABLE
-            ZoneScopedC(TRACY_ZONECOLOR_BACKEND);
-#endif
-            GLuint fbo = GetTempFBO(target);
-            GLenum glTarget = MG_Util::ConvertFramebufferTargetToGLEnum(target);
-            MG_External::GLES::glBindFramebuffer(glTarget, fbo);
-        }
-    } // namespace FramebufferImpl
+    namespace FramebufferImpl {} // namespace FramebufferImpl
 
     namespace PrgramImpl {
         String ProcessOutColorLocations(const String& glslCode) {

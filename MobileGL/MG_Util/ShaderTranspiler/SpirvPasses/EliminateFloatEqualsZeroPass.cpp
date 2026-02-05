@@ -1,4 +1,4 @@
-// MobileGL - MobileGL/MG_Util/ShaderTranspiler/FloatEqualsZeroEliminationPass.cpp
+// MobileGL - MobileGL/MG_Util/ShaderTranspiler/SpirvPasses/EliminateFloatEqualsZeroPass.cpp
 // Copyright (c) 2025-2026 MobileGL-Dev
 // Licensed under the GNU Lesser General Public License v3.0:
 //   https://www.gnu.org/licenses/gpl-3.0.txt
@@ -39,7 +39,7 @@ namespace MobileGL {
                 // 3. iterate all function -> basic block -> insn
                 for (auto& func : *get_module()) {
                     for (auto& bb : func) {
-                        for (auto itInst = bb.begin(); itInst != bb.end(); ) {
+                        for (auto itInst = bb.begin(); itInst != bb.end();) {
                             auto& inst = *itInst;
 
                             bool shouldSkip = true;
@@ -48,14 +48,14 @@ namespace MobileGL {
                             // `OpFOrdNotEqual` or `OpFUnordNotEqual`,
                             // simply skip if irrelevant
                             switch (inst.opcode()) {
-                                case spv::Op::OpFOrdEqual:
-                                case spv::Op::OpFUnordEqual:
-                                case spv::Op::OpFOrdNotEqual:
-                                case spv::Op::OpFUnordNotEqual:
-                                    shouldSkip = false;
-                                    break;
-                                default:
-                                    break;
+                            case spv::Op::OpFOrdEqual:
+                            case spv::Op::OpFUnordEqual:
+                            case spv::Op::OpFOrdNotEqual:
+                            case spv::Op::OpFUnordNotEqual:
+                                shouldSkip = false;
+                                break;
+                            default:
+                                break;
                             }
 
                             if (shouldSkip) {
@@ -96,18 +96,13 @@ namespace MobileGL {
 
                             // 2. Create constant ID for `Epsilon`
                             const analysis::Constant* eps_const = const_mgr->GetConstant(
-                                type_mgr->GetType(float_type_id),
-                                {*(reinterpret_cast<const uint32_t*>(&K_EPSILON))}
-                            );
+                                type_mgr->GetType(float_type_id), {*(reinterpret_cast<const uint32_t*>(&K_EPSILON))});
                             uint32_t eps_id = const_mgr->GetDefiningInstruction(eps_const)->result_id();
 
                             // 3. Build Abs(x) inst
                             // OpExtInst %float_type %glsl_import Abs %x
                             InstructionBuilder builder(
-                                context(),
-                                &inst,
-                                IRContext::kAnalysisDefUse | IRContext::kAnalysisInstrToBlockMapping
-                            );
+                                context(), &inst, IRContext::kAnalysisDefUse | IRContext::kAnalysisInstrToBlockMapping);
 
                             std::vector<Operand> abs_operands;
                             abs_operands.push_back({SPV_OPERAND_TYPE_ID, {glsl_std_450_id}});
@@ -117,12 +112,7 @@ namespace MobileGL {
                             // In GLSL.std.450, `FAbs`'s OpCode == 4
                             // Ref: https://registry.khronos.org/SPIR-V/specs/1.0/GLSL.std.450.html
                             Instruction* abs_inst = builder.AddInstruction(MakeUnique<Instruction>(
-                                context(),
-                                spv::Op::OpExtInst,
-                                float_type_id,
-                                context()->TakeNextId(),
-                                abs_operands
-                            ));
+                                context(), spv::Op::OpExtInst, float_type_id, context()->TakeNextId(), abs_operands));
 
                             // 4. build Abs(x) < Epsilon
                             // OpFOrdLessThan %bool_type %abs_val %eps
@@ -130,14 +120,11 @@ namespace MobileGL {
                             less_operands.push_back({SPV_OPERAND_TYPE_ID, {abs_inst->result_id()}});
                             less_operands.push_back({SPV_OPERAND_TYPE_ID, {eps_id}});
 
-                            bool isEqualOp = (inst.opcode() == spv::Op::OpFOrdEqual || inst.opcode() == spv::Op::OpFUnordEqual);
+                            bool isEqualOp =
+                                (inst.opcode() == spv::Op::OpFOrdEqual || inst.opcode() == spv::Op::OpFUnordEqual);
                             Instruction* less_than_inst = builder.AddInstruction(MakeUnique<Instruction>(
-                                context(),
-                                isEqualOp ? spv::Op::OpFOrdLessThan : spv::Op::OpFOrdGreaterThanEqual,
-                                bool_type_id,
-                                context()->TakeNextId(),
-                                less_operands
-                            ));
+                                context(), isEqualOp ? spv::Op::OpFOrdLessThan : spv::Op::OpFOrdGreaterThanEqual,
+                                bool_type_id, context()->TakeNextId(), less_operands));
 
                             // 5. Replaces all uses of old insn with new one
                             context()->ReplaceAllUsesWith(inst.result_id(), less_than_inst->result_id());
@@ -161,5 +148,5 @@ namespace MobileGL {
                 return spvtools::Optimizer::PassToken(MakeUnique<EliminateFloatEqualsZeroPass>());
             }
         } // namespace ShaderTranspiler
-    }
-}
+    } // namespace MG_Util
+} // namespace MobileGL

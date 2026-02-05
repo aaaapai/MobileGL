@@ -241,10 +241,6 @@ namespace MobileGL {
             // TODO: implement
         }
 
-        void ReadBuffer_State(GLenum src) {
-            // TODO: implement
-        }
-
         void ClearStencil_State(GLint s) {
             // TODO: implement
         }
@@ -388,10 +384,6 @@ namespace MobileGL {
 
         void BlendColor(GLfloat red, GLfloat green, GLfloat blue, GLfloat alpha) {
             BlendColor_State(red, green, blue, alpha);
-        }
-
-        void ReadBuffer(GLenum src) {
-            ReadBuffer_State(src);
         }
 
         void ClearStencil(GLint s) {

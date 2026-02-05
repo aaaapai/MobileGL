@@ -18,7 +18,8 @@ namespace MobileGL {
                 TextureStorageType GetStorageType() const override { return TextureStorageType::Buffer; }
                 explicit TextureObjectBuffer(Uint externalIndex);
                 const Vector<TextureUploadTarget>& GetUploadTargets() const override { return m_uploadTargets; }
-                BindingSlot<BufferObject>& GetBufferBindingSlot(TextureUploadTarget target = TextureUploadTarget::TextureBuffer);
+                BindingSlot<BufferObject>& GetBufferBindingSlot(
+                    TextureUploadTarget target = TextureUploadTarget::TextureBuffer);
 
             protected:
                 Uint GetIndexOfTextureUploadTarget(TextureUploadTarget target) const override;

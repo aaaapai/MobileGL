@@ -42,7 +42,8 @@ namespace MobileGL {
                 } else {
                     m_compileStatus = false;
                     m_infoLog = result.error().log;
-                    MGLOG_D("ShaderObject::Compile: Shader %d compilation failed.\nSource:\n%s\nInfoLog:\n%s\nSetting m_compileStatus = false as a result.",
+                    MGLOG_D("ShaderObject::Compile: Shader %d compilation failed.\nSource:\n%s\nInfoLog:\n%s\nSetting "
+                            "m_compileStatus = false as a result.",
                             m_externalIndex, m_source.c_str(), m_infoLog.c_str());
                 }
             }

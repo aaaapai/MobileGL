@@ -1,4 +1,4 @@
-// MobileGL - MobileGL/MG_Util/ShaderTranspiler/FloatEqualsZeroEliminationPass.h
+// MobileGL - MobileGL/MG_Util/ShaderTranspiler/SpirvPasses/EliminateFloatEqualsZeroPass.h
 // Copyright (c) 2025-2026 MobileGL-Dev
 // Licensed under the GNU Lesser General Public License v3.0:
 //   https://www.gnu.org/licenses/gpl-3.0.txt
@@ -15,16 +15,16 @@
 namespace MobileGL {
     namespace MG_Util {
         namespace ShaderTranspiler {
-            class EliminateFloatEqualsZeroPass: public spvtools::opt::Pass {
+            class EliminateFloatEqualsZeroPass : public spvtools::opt::Pass {
             public:
                 const char* name() const override { return "float-equals-zero-elimination"; }
                 Status Process() override;
 
                 static spvtools::Optimizer::PassToken CreateEliminateFloatEqualsZeroPass();
+
             private:
                 const float K_EPSILON = 0.0001f;
             };
         } // namespace ShaderTranspiler
     } // namespace MG_Util
 } // namespace MobileGL
-

@@ -72,7 +72,8 @@ TEST_F(BufferTest, PingPong) {
     Vector<Int> bufdata(data.size());
     memcpy(bufdata.data(), p, byteSize);
     ASSERT_EQ(data, bufdata);
-    auto range = bufRead->GetDirtyRange();
+    ASSERT_EQ(bufRead->GetDirtyRanges().size() >= 1, true);
+    auto range = bufRead->GetDirtyRanges()[0];
     ASSERT_EQ(range.start, 0);
     ASSERT_EQ(range.end, byteSize);
 }
@@ -122,7 +123,8 @@ TEST_F(BufferTest, AcquireMemory) {
     void* p = bufObj->AcquireMemory(false, true, false);
     memcpy(actual.data(), p, byteSize);
     ASSERT_EQ(actual, expected);
-    auto dirty = bufObj->GetDirtyRange();
+    ASSERT_EQ(bufObj->GetDirtyRanges().size() >= 1, true);
+    auto dirty = bufObj->GetDirtyRanges()[0];
 
     ASSERT_EQ(dirty.start, 0);
     ASSERT_EQ(dirty.end, sizeof(Int) * 5);
@@ -150,7 +152,8 @@ TEST_F(BufferTest, AcquireMemoryRangeWithoutExplicit) {
     void* p = bufObj->AcquireMemory(false, true, false);
     memcpy(actual.data(), p, byteSize);
     ASSERT_EQ(actual, expected);
-    auto dirty = bufObj->GetDirtyRange();
+    ASSERT_EQ(bufObj->GetDirtyRanges().size() >= 1, true);
+    auto dirty = bufObj->GetDirtyRanges()[0];
     ASSERT_EQ(dirty.start, sizeof(Int));
     ASSERT_EQ(dirty.end, sizeof(Int) * 4);
 }
@@ -177,13 +180,15 @@ TEST_F(BufferTest, AcquireMemoryRangeWithExplicit) {
     mappedPtr[1] = 300;
 
     bufObj->FlushMemoryRange(0, sizeof(Int));
-    auto dirty = bufObj->GetDirtyRange();
+    ASSERT_EQ(bufObj->GetDirtyRanges().size() >= 1, true);
+    auto dirty = bufObj->GetDirtyRanges()[0];
     ASSERT_EQ(dirty.start, sizeof(Int));
     ASSERT_EQ(dirty.end, sizeof(Int) * 2);
 
     bufObj->ReleaseMemory();
 
-    dirty = bufObj->GetDirtyRange();
+    ASSERT_EQ(bufObj->GetDirtyRanges().size() >= 1, true);
+    dirty = bufObj->GetDirtyRanges()[0];
     ASSERT_EQ(dirty.start, sizeof(Int));
     ASSERT_EQ(dirty.end, sizeof(Int) * 2);
 
@@ -193,7 +198,8 @@ TEST_F(BufferTest, AcquireMemoryRangeWithExplicit) {
     memcpy(actual.data(), p, byteSize);
     ASSERT_EQ(actual, expected);
 
-    dirty = bufObj->GetDirtyRange();
+    ASSERT_EQ(bufObj->GetDirtyRanges().size() >= 1, true);
+    dirty = bufObj->GetDirtyRanges()[0];
     ASSERT_EQ(dirty.start, sizeof(Int));
     ASSERT_EQ(dirty.end, sizeof(Int) * 2);
 }
@@ -235,7 +241,8 @@ TEST_F(BufferTest, CopyBufferSubData) {
 
     ASSERT_EQ(actual, expected);
 
-    auto dirty = dstObj->GetDirtyRange();
+    ASSERT_EQ(dstObj->GetDirtyRanges().size() >= 1, true);
+    auto dirty = dstObj->GetDirtyRanges()[0];
     ASSERT_EQ(dirty.start, 5 * sizeof(Int));
     ASSERT_EQ(dirty.end, 9 * sizeof(Int));
 }
@@ -265,7 +272,8 @@ TEST_F(BufferTest, WriteWhileMapped) {
 
     ASSERT_EQ(actual, expected);
 
-    auto dirty = bufObj->GetDirtyRange();
+    ASSERT_EQ(bufObj->GetDirtyRanges().size() >= 1, true);
+    auto dirty = bufObj->GetDirtyRanges()[0];
     ASSERT_EQ(dirty.start, 0);
     ASSERT_EQ(dirty.end, byteSize);
 }
@@ -293,7 +301,8 @@ TEST_F(BufferTest, PartialUpdate) {
 
     ASSERT_EQ(actual, expected);
 
-    auto dirty = bufObj->GetDirtyRange();
+    ASSERT_EQ(bufObj->GetDirtyRanges().size() >= 1, true);
+    auto dirty = bufObj->GetDirtyRanges()[0];
     ASSERT_EQ(dirty.start, sizeof(Int));
     ASSERT_EQ(dirty.end, 3 * sizeof(Int));
 }

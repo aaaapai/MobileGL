@@ -7,9 +7,9 @@
 // End of Source File Header
 
 #include "GetProcAddress.h"
-#define GETPROC(name, var) \
-    if (strcmp(#name, var) == 0) { \
-        return (void*)name; \
+#define GETPROC(name, var)                                                                                             \
+    if (strcmp(#name, var) == 0) {                                                                                     \
+        return (void*)name;                                                                                            \
     }
 
 namespace MobileGL {

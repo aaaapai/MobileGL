@@ -91,7 +91,7 @@ If you want to try the project right now, you’ll need to build it yourself:
 ## Build Options
 
 | Option                       | Description                                           | Default |
-| ---------------------------- | ----------------------------------------------------- | ------- |
+|------------------------------| ----------------------------------------------------- | ------- |
 | `MOBILEGL_BUILD_TEST`        | Build MobileGL tests (requires Clang)                 | ON      |
 | `MOBILEGL_BUILD_BENCHMARK`   | Build MobileGL benchmarks (requires Clang)            | ON      |
 | `MOBILEGL_FORCE_RELEASE_OPT` | Enable O3 and LTO in Debug build                      | ON      |

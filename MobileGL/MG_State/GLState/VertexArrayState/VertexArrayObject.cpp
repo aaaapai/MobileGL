@@ -22,20 +22,26 @@ namespace MobileGL {
                     attr.Offset = 0;
                     attr.Buffer = nullptr;
 
-                    MarkAttributeDirty(index);
+                    BumpAttributeFormatVersion(index);
                 }
             }
 
             void VertexArrayObject::EnableAttribute(Uint index) {
                 if (index >= MAX_VERTEX_ATTRIBS) return;
+
+                if (m_attributes[index].Enabled) return;
+
                 m_attributes[index].Enabled = true;
-                MarkAttributeDirty(index);
+                BumpAttributeSwitchVersion(index);
             }
 
             void VertexArrayObject::DisableAttribute(Uint index) {
                 if (index >= MAX_VERTEX_ATTRIBS) return;
+
+                if (!m_attributes[index].Enabled) return;
+
                 m_attributes[index].Enabled = false;
-                MarkAttributeDirty(index);
+                BumpAttributeSwitchVersion(index);
             }
 
             Bool VertexArrayObject::IsAttributeEnabled(Uint index) const {
@@ -46,6 +52,12 @@ namespace MobileGL {
             void VertexArrayObject::SetAttributeFormat(Uint index, int size, DataType type, Bool normalized, int stride,
                                                        SizeT offset, Bool isInteger) {
                 if (index >= MAX_VERTEX_ATTRIBS) return;
+
+                if (m_attributes[index].Size == size && m_attributes[index].Type == type &&
+                    m_attributes[index].Normalized == normalized && m_attributes[index].Stride == stride &&
+                    m_attributes[index].Offset == offset && m_attributes[index].IsInteger == isInteger) {
+                    return;
+                }
 
                 if (size < 1 || size > 4) {
                     return;
@@ -59,13 +71,16 @@ namespace MobileGL {
                 attr.Offset = offset;
                 attr.IsInteger = isInteger;
 
-                MarkAttributeDirty(index);
+                BumpAttributeFormatVersion(index);
             }
 
             void VertexArrayObject::BindAttributeBuffer(Uint index, const SharedPtr<BufferObject>& buffer) {
                 if (index >= MAX_VERTEX_ATTRIBS) return;
+
+                if (m_attributes[index].Buffer == buffer) return;
+
                 m_attributes[index].Buffer = buffer;
-                MarkAttributeDirty(index);
+                BumpAttributeBufferVersion(index);
             }
 
             BindingSlot<BufferObject>& VertexArrayObject::GetIndexBufferBindingSlot() {
@@ -83,22 +98,6 @@ namespace MobileGL {
                 return m_attributes;
             }
 
-            void VertexArrayObject::MarkAttributeDirty(Uint index) {
-                if (index >= MAX_VERTEX_ATTRIBS) return;
-                if (std::find(m_dirtyAttributes.begin(), m_dirtyAttributes.end(), index) != m_dirtyAttributes.end()) {
-                    return;
-                }
-                m_dirtyAttributes.push_back(index);
-            }
-
-            const Vector<Uint>& VertexArrayObject::GetDirtyAttributeIndices() const {
-                return m_dirtyAttributes;
-            }
-
-            void VertexArrayObject::ClearDirtyAttributes() {
-                m_dirtyAttributes.clear();
-            }
-
             Uint VertexArrayObject::GetExternalIndex() const {
                 return m_externalIndex;
             }
@@ -107,12 +106,38 @@ namespace MobileGL {
                 if (index >= MAX_VERTEX_ATTRIBS) return;
                 if (m_attributes[index].Divisor == divisor) return;
                 m_attributes[index].Divisor = divisor;
-                MarkAttributeDirty(index);
+                BumpAttributeFormatVersion(index);
             }
 
             Uint VertexArrayObject::GetAttributeDivisor(Uint index) const {
                 if (index >= MAX_VERTEX_ATTRIBS) return 0;
                 return m_attributes[index].Divisor;
+            }
+
+            void VertexArrayObject::BumpAttributeFormatVersion(Uint index) {
+                if (index >= MAX_VERTEX_ATTRIBS) return;
+                ++m_attributeVersions[index].FormatVersion;
+            }
+
+            void VertexArrayObject::BumpAttributeBufferVersion(Uint index) {
+                if (index >= MAX_VERTEX_ATTRIBS) return;
+                ++m_attributeVersions[index].BufferVersion;
+            }
+
+            void VertexArrayObject::BumpAttributeSwitchVersion(Uint index) {
+                if (index >= MAX_VERTEX_ATTRIBS) return;
+                ++m_attributeVersions[index].SwitchVersion;
+            }
+
+            const VertexAttributeVersion& VertexArrayObject::GetAttributeVersion(Uint index) const {
+                static VertexAttributeVersion emptyVersion;
+                if (index >= MAX_VERTEX_ATTRIBS) return emptyVersion;
+                return m_attributeVersions[index];
+            }
+
+            const Array<VertexAttributeVersion, VertexArrayObject::MAX_VERTEX_ATTRIBS>& VertexArrayObject::
+                GetAllAttributeVersions() const {
+                return m_attributeVersions;
             }
         } // namespace GLState
     } // namespace MG_State

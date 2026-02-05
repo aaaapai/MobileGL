@@ -14,47 +14,77 @@ namespace MobileGL {
             SamplerObject::SamplerObject(Uint externalIndex) : m_externalIndex(externalIndex) {}
 
             void SamplerObject::SetWrapS(SamplerWrapMode mode) {
+                if (mode == m_samplerParameters.wrapS) return;
+
                 m_samplerParameters.wrapS = mode;
+                ++m_version;
             }
 
             void SamplerObject::SetWrapT(SamplerWrapMode mode) {
+                if (mode == m_samplerParameters.wrapT) return;
+
                 m_samplerParameters.wrapT = mode;
+                ++m_version;
             }
 
             void SamplerObject::SetWrapR(SamplerWrapMode mode) {
+                if (mode == m_samplerParameters.wrapR) return;
+
                 m_samplerParameters.wrapR = mode;
+                ++m_version;
             }
 
             void SamplerObject::SetMinFilter(SamplerFilterMode mode) {
+                if (mode == m_samplerParameters.minFilter) return;
+
                 m_samplerParameters.minFilter = mode;
+                ++m_version;
             }
 
             void SamplerObject::SetMagFilter(SamplerFilterMode mode) {
+                if (mode == m_samplerParameters.magFilter) return;
+
                 m_samplerParameters.magFilter = mode;
+                ++m_version;
             }
 
             void SamplerObject::SetMipmapMode(SamplerMipmapMode mode) {
+                if (mode == m_samplerParameters.mipmapMode) return;
+
                 m_samplerParameters.mipmapMode = mode;
+                ++m_version;
             }
 
             void SamplerObject::SetLodRange(Float minLod, Float maxLod) {
+                if (minLod == m_samplerParameters.minLod && maxLod == m_samplerParameters.maxLod) return;
+
                 if (minLod > maxLod) {
                     THROW_EXCEPTION("minLod cannot be greater than maxLod");
                 }
                 m_samplerParameters.minLod = minLod;
                 m_samplerParameters.maxLod = maxLod;
+                ++m_version;
             }
 
             void SamplerObject::SetLodBias(Float bias) {
+                if (bias == m_samplerParameters.lodBias) return;
+
                 m_samplerParameters.lodBias = bias;
+                ++m_version;
             }
 
             void SamplerObject::SetSamplerCompareFunc(SamplerCompareFunc func) {
+                if (func == m_samplerParameters.compareFunc) return;
+
                 m_samplerParameters.compareFunc = func;
+                ++m_version;
             }
 
             void SamplerObject::SetCompareMode(SamplerCompareMode mode) {
+                if (mode == m_samplerParameters.compareMode) return;
+
                 m_samplerParameters.compareMode = mode;
+                ++m_version;
             }
 
             SamplerWrapMode SamplerObject::GetWrapS() const {
@@ -107,6 +137,10 @@ namespace MobileGL {
 
             const SamplerParameters& SamplerObject::GetAllSamplerParameters() const {
                 return m_samplerParameters;
+            }
+
+            Uint16 SamplerObject::GetVersion() const {
+                return m_version;
             }
         } // namespace GLState
     } // namespace MG_State

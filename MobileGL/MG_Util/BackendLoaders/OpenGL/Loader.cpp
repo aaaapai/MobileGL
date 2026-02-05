@@ -457,7 +457,10 @@ namespace MobileGL {
             void *libGLES = nullptr, *libEGL = nullptr;
 
             static const char* LibPathPrefixes[] = {
-                "/opt/vc/lib/", "/usr/local/lib/", "/usr/lib/", "/usr/lib/x86_64-linux-gnu/",
+                "/opt/vc/lib/",
+                "/usr/local/lib/",
+                "/usr/lib/",
+                "/usr/lib/x86_64-linux-gnu/",
                 "", // We should put this to the end of the list to avoid breaking `LD_LIBRARY_PATH` usage
                 nullptr};
             static const char* LibExts[] = {"so", "so.1", "so.2", "dylib", "dll", nullptr};
@@ -531,8 +534,10 @@ namespace MobileGL {
                 }
 
                 MGLOG_I("OpenGL ES capabilities:");
-                MG_External::GLES::glGetIntegerv(GL_UNIFORM_BUFFER_OFFSET_ALIGNMENT, &MG_External::GLES::g_glesCaps.uniformBufferOffsetAlignment);
-                MGLOG_I("    GL_UNIFORM_BUFFER_OFFSET_ALIGNMENT: %d", MG_External::GLES::g_glesCaps.uniformBufferOffsetAlignment);
+                MG_External::GLES::glGetIntegerv(GL_UNIFORM_BUFFER_OFFSET_ALIGNMENT,
+                                                 &MG_External::GLES::g_glesCaps.uniformBufferOffsetAlignment);
+                MGLOG_I("    GL_UNIFORM_BUFFER_OFFSET_ALIGNMENT: %d",
+                        MG_External::GLES::g_glesCaps.uniformBufferOffsetAlignment);
             }
 
             void InitGLES() {

@@ -88,7 +88,7 @@ namespace MobileGL {
             return MG_External::EGL::eglQuerySurface(display, surface, attribute, value);
         }
 
-        char const * QueryString(EGLDisplay display, EGLint name) {
+        char const* QueryString(EGLDisplay display, EGLint name) {
             return MG_External::EGL::eglQueryString(display, name);
         }
 
@@ -122,7 +122,7 @@ namespace MobileGL {
         }
 
         EGLSurface CreatePixmapSurface(EGLDisplay dpy, EGLConfig config, EGLNativePixmapType pixmap,
-                                        const EGLint* attrib_list) {
+                                       const EGLint* attrib_list) {
             return MG_External::EGL::eglCreatePixmapSurface(dpy, config, pixmap, attrib_list);
         }
 
@@ -170,50 +170,44 @@ namespace MobileGL {
             return (__eglMustCastToProperFunctionPointerType)proc;
         }
 
-        EGLSync CreateSync(EGLDisplay dpy, EGLenum type, const EGLAttrib * attrib_list) {
+        EGLSync CreateSync(EGLDisplay dpy, EGLenum type, const EGLAttrib* attrib_list) {
             return MG_External::EGL::eglCreateSync(dpy, type, attrib_list);
         }
-
 
         EGLBoolean DestroySync(EGLDisplay dpy, EGLSync sync) {
             return MG_External::EGL::eglDestroySync(dpy, sync);
         }
 
-
         EGLint ClientWaitSync(EGLDisplay dpy, EGLSync sync, EGLint flags, EGLTime timeout) {
             return MG_External::EGL::eglClientWaitSync(dpy, sync, flags, timeout);
         }
 
-
-        EGLBoolean GetSyncAttrib(EGLDisplay dpy, EGLSync sync, EGLint attribute, EGLAttrib * value) {
+        EGLBoolean GetSyncAttrib(EGLDisplay dpy, EGLSync sync, EGLint attribute, EGLAttrib* value) {
             return MG_External::EGL::eglGetSyncAttrib(dpy, sync, attribute, value);
         }
 
-
-        EGLImage CreateImage(EGLDisplay dpy, EGLContext ctx, EGLenum target, EGLClientBuffer buffer, const EGLAttrib * attrib_list) {
+        EGLImage CreateImage(EGLDisplay dpy, EGLContext ctx, EGLenum target, EGLClientBuffer buffer,
+                             const EGLAttrib* attrib_list) {
             return MG_External::EGL::eglCreateImage(dpy, ctx, target, buffer, attrib_list);
         }
-
 
         EGLBoolean DestroyImage(EGLDisplay dpy, EGLImage image) {
             return MG_External::EGL::eglDestroyImage(dpy, image);
         }
 
-
-        EGLDisplay GetPlatformDisplay(EGLenum platform, void * native_display, const EGLAttrib * attrib_list) {
+        EGLDisplay GetPlatformDisplay(EGLenum platform, void* native_display, const EGLAttrib* attrib_list) {
             return MG_External::EGL::eglGetPlatformDisplay(platform, native_display, attrib_list);
         }
 
-
-        EGLSurface CreatePlatformWindowSurface(EGLDisplay dpy, EGLConfig config, void * native_window, const EGLAttrib * attrib_list) {
+        EGLSurface CreatePlatformWindowSurface(EGLDisplay dpy, EGLConfig config, void* native_window,
+                                               const EGLAttrib* attrib_list) {
             return MG_External::EGL::eglCreatePlatformWindowSurface(dpy, config, native_window, attrib_list);
         }
 
-
-        EGLSurface CreatePlatformPixmapSurface(EGLDisplay dpy, EGLConfig config, void * native_pixmap, const EGLAttrib * attrib_list) {
+        EGLSurface CreatePlatformPixmapSurface(EGLDisplay dpy, EGLConfig config, void* native_pixmap,
+                                               const EGLAttrib* attrib_list) {
             return MG_External::EGL::eglCreatePlatformPixmapSurface(dpy, config, native_pixmap, attrib_list);
         }
-
 
         EGLBoolean WaitSync(EGLDisplay dpy, EGLSync sync, EGLint flags) {
             return MG_External::EGL::eglWaitSync(dpy, sync, flags);

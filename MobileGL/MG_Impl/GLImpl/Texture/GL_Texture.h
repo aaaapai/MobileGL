@@ -20,10 +20,10 @@ namespace MobileGL {
                            const GLvoid* pixels);
         void TexParameterf(GLenum target, GLenum pname, GLfloat param);
         void TexParameteri(GLenum target, GLenum pname, GLint param);
-        void TexParameterfv(GLenum target, GLenum pname, const GLfloat * params);
-        void TexParameteriv(GLenum target, GLenum pname, const GLint * params);
-        void TexParameterIiv(GLenum target, GLenum pname, const GLint * params);
-        void TexParameterIuiv(GLenum target, GLenum pname, const GLuint * params);
+        void TexParameterfv(GLenum target, GLenum pname, const GLfloat* params);
+        void TexParameteriv(GLenum target, GLenum pname, const GLint* params);
+        void TexParameterIiv(GLenum target, GLenum pname, const GLint* params);
+        void TexParameterIuiv(GLenum target, GLenum pname, const GLuint* params);
 
         void TexImage3DMultisample(GLenum target, GLsizei samples, GLenum internalformat, GLsizei width, GLsizei height,
                                    GLsizei depth, GLboolean fixedsamplelocations);

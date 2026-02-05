@@ -86,6 +86,8 @@ namespace MobileGL {
                 SharedPtr<ProgramObject> GetCurrentProgram();
 
                 // RenderState
+                Uint GetRenderStateParametersVersion() const;
+                const RenderStateParameters& GetRenderStateParameters() const;
                 void SetViewport(IntVec4 viewport); // x, y, width, height
                 const IntVec4& GetViewport() const; // x, y, width, height
                 void SetCapability(CapabilityInput cap, Bool enabled);

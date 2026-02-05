@@ -98,7 +98,7 @@ namespace MobileGL {
             return EGL_TRUE;
         }
 
-        char const * QueryString(EGLDisplay display, EGLint name) {
+        char const* QueryString(EGLDisplay display, EGLint name) {
             return "";
         }
 
@@ -132,7 +132,7 @@ namespace MobileGL {
         }
 
         EGLSurface CreatePixmapSurface(EGLDisplay dpy, EGLConfig config, EGLNativePixmapType pixmap,
-                                        const EGLint* attrib_list) {
+                                       const EGLint* attrib_list) {
             return (EGLSurface)1;
         }
 

@@ -7,6 +7,7 @@
 // End of Source File Header
 
 #pragma once
+#include "MG_State/GLState/TextureState/TextureEnum.h"
 #include "MG_Util/Types.h"
 #include <Includes.h>
 #include <MG_State/GLState/TextureState/TextureObject.h>
@@ -23,7 +24,8 @@ namespace MobileGL::MG_Impl::GLImpl {
         Bool ValidateTextureSizeRange(SizeT width, SizeT height, SizeT depth);
         Bool ValidateTextureInternalFormat(TextureInternalFormat format);
         Bool ValidateTextureBorderNumber(Int border);
-        Bool ValidateTextureInternalFormatCompatibleWithInput(TextureInputFormat format, TextureInternalFormat internalFormat,
+        Bool ValidateTextureInternalFormatCompatibleWithInput(TextureInputFormat format,
+                                                              TextureInternalFormat internalFormat,
                                                               TexturePixelDataType type);
         Bool ValidateTextureLevelWithUploadTarget(TextureUploadTarget target, Int level);
         Bool ValidateTextureObject(SharedPtr<MG_State::GLState::ITextureObject> textureObject);
@@ -31,5 +33,6 @@ namespace MobileGL::MG_Impl::GLImpl {
                                              TextureTarget target);
         Bool ValidateTextureSubImageOffsets(SharedPtr<MG_State::GLState::ITextureObject> textureObject, Int xoffset,
                                             Int width, Int yoffset = 0, Int height = 0, Int zoffset = 0, Int depth = 0);
+        Bool ValidateBaseInternalFormatMatch(TextureInternalFormat format1, TextureInternalFormat format2);
     } // namespace TextureImpl
 } // namespace MobileGL::MG_Impl::GLImpl
