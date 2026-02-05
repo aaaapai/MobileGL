@@ -136,7 +136,7 @@ namespace MobileGL {
             if (!processedPixels || inputSize == 0) {
                 MGLOG_E("TexSubImage2D_State: Failed to process pixel data for TexSubImage2D, width: %d, height: %d",
                         width, height);
-                if (processedPixels) free(processedPixels);
+                if (processedPixels) FREE(processedPixels);
                 return;
             }
 
@@ -149,7 +149,7 @@ namespace MobileGL {
             if (xoffset + width > static_cast<GLsizei>(texelSize.x()) ||
                 yoffset + height > static_cast<GLsizei>(texelSize.y())) {
                 MGLOG_E("TexSubImage2D_State: Specified region exceeds texture dimensions");
-                free(processedPixels);
+                FREE(processedPixels);
                 return;
             }
 
@@ -164,7 +164,7 @@ namespace MobileGL {
                 }
             }
 
-            free(processedPixels);
+            FREE(processedPixels);
 
             MGLOG_D("%s: mark mip %d as dirty", __func__, level);
             textureMipmapObject->MarkStorageDirty(textureUploadingTarget, level, true);
@@ -616,7 +616,7 @@ namespace MobileGL {
 
             textureMipmapObject->MarkStorageDirty(textureUploadingTarget, level, true);
 
-            free(processedPixels);
+            FREE(processedPixels);
         }
 
         void TexImage2D_State(GLenum target, GLint level, GLint internalformat, GLsizei width, GLsizei height,
@@ -737,7 +737,7 @@ namespace MobileGL {
                 textureMipmapObject->UpdateMipmapSubData(textureUploadingTarget, level, texelInput);
             }
 
-            free(processedPixels);
+            FREE(processedPixels);
 
             MGLOG_D("%s: mark mip %d as dirty", __func__, level);
             textureMipmapObject->MarkStorageDirty(textureUploadingTarget, level, true);
