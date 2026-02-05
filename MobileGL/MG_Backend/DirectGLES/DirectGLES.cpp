@@ -863,11 +863,23 @@ namespace MobileGL::MG_Backend::DirectGLES {
         errorLopper.Loop([file = __FILE__, line = __LINE__](auto err) {
             MGLOG_D("ES error (%s:%d): %s", file, line, MG_Util::ConvertGLEnumToString(err).c_str());
         });
-        BindCurrentFBO(FramebufferTarget::Read);
         if (!UpdateTextureBindingAtTarget(target)) return;
 
-        auto mglInternalFormat = MG_Util::ConvertGLEnumToTextureInternalFormat(internalformat);
+        // Bind necessary FBO and texture
+        BindCurrentFBO(FramebufferTarget::Read);
+        Uint activeTextureUnit = MG_State::pGLContext->GetActiveTextureUnit();
+        const auto& textureObject = MG_State::pGLContext->GetTextureUnitObject(activeTextureUnit)
+                                        .GetBindingSlot(MG_Util::ConvertGLEnumToTextureTarget(target))
+                                        .GetBoundObject();
+        const auto& backendTextureIt = TextureImpl::g_backendTextureObjects.find(textureObject);
+        if (backendTextureIt == TextureImpl::g_backendTextureObjects.end()) {
+            MGLOG_E("CopyTexSubImage2D: No backend texture found for texture %u.",
+                    textureObject ? textureObject->GetExternalIndex() : 0);
+            return;
+        }
+        backendTextureIt->second->Bind(target, activeTextureUnit);
 
+        auto mglInternalFormat = MG_Util::ConvertGLEnumToTextureInternalFormat(internalformat);
         GLenum format = GL_DEPTH_COMPONENT;
         GLenum type = GL_UNSIGNED_INT;
         TextureImpl::GenerateTextureFormatInfo(mglInternalFormat, &internalformat, &format, &type);
@@ -896,8 +908,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 MGLOG_D("ES error (%s:%d): %s", file, line, MG_Util::ConvertGLEnumToString(err).c_str());
             });
 
-            GLint currentTex;
-            MG_External::GLES::glGetIntegerv(Utils::GetBindingQuery(target, true), &currentTex);
+            GLint currentTex = backendTextureIt->second->GetBackendTextureId();
             errorLopper.Loop([file = __FILE__, line = __LINE__](auto err) {
                 MGLOG_D("ES error (%s:%d): %s", file, line, MG_Util::ConvertGLEnumToString(err).c_str());
             });
@@ -943,7 +954,20 @@ namespace MobileGL::MG_Backend::DirectGLES {
 
         if (!UpdateTextureBindingAtTarget(target)) return;
 
+        // Bind necessary FBO and texture
         BindCurrentFBO(FramebufferTarget::Read);
+        Uint activeTextureUnit = MG_State::pGLContext->GetActiveTextureUnit();
+        const auto& textureObject = MG_State::pGLContext->GetTextureUnitObject(activeTextureUnit)
+                                        .GetBindingSlot(MG_Util::ConvertGLEnumToTextureTarget(target))
+                                        .GetBoundObject();
+        const auto& backendTextureIt = TextureImpl::g_backendTextureObjects.find(textureObject);
+        if (backendTextureIt == TextureImpl::g_backendTextureObjects.end()) {
+            MGLOG_E("CopyTexSubImage2D: No backend texture found for texture %u.",
+                    textureObject ? textureObject->GetExternalIndex() : 0);
+            return;
+        }
+        backendTextureIt->second->Bind(target, activeTextureUnit);
+
         errorLopper.Loop([file = __FILE__, line = __LINE__](auto err) {
             MGLOG_D("ES error (%s:%d): %s", file, line, MG_Util::ConvertGLEnumToString(err).c_str());
         });
@@ -964,8 +988,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
             });
         } else {
             MGLOG_D("%s: Backend depth", __func__);
-            GLint currentTex;
-            MG_External::GLES::glGetIntegerv(Utils::GetBindingQuery(target, false), &currentTex);
+            GLint currentTex = backendTextureIt->second->GetBackendTextureId();
             errorLopper.Loop([file = __FILE__, line = __LINE__](auto err) {
                 MGLOG_D("ES error (%s:%d): %s", file, line, MG_Util::ConvertGLEnumToString(err).c_str());
             });
