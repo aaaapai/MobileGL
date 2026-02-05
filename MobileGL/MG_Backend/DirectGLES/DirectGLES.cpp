@@ -7,7 +7,9 @@
 // End of Source File Header
 
 #include "DirectGLES.h"
+#include "GLES3/gl32.h"
 #include "MG_State/GLState/SamplerState/SamplerObject.h"
+#include "MG_Util/Debug/Log.h"
 #include "Utils.h"
 #include "Managers.h"
 #include <MG_Util/Converters/GLToMG/TextureEnumConverter.h>
@@ -819,6 +821,29 @@ namespace MobileGL::MG_Backend::DirectGLES {
         return true;
     }
 
+    static GLuint s_prevDrawFBO = 0;
+    void BindTempDrawFBO() {
+        MGLOG_D("%s: Binding temporary FBO for operations like CopyTexImage2D that require framebuffer binding, "
+                "previous draw FBO=%u",
+                __func__, s_prevDrawFBO);
+        static GLuint tempFBO = 0;
+        if (!tempFBO) {
+            MG_External::GLES::glGenFramebuffers(1, &tempFBO);
+        }
+        MG_External::GLES::glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, (GLint*)&s_prevDrawFBO);
+        MG_External::GLES::glBindFramebuffer(GL_DRAW_FRAMEBUFFER, tempFBO);
+    }
+    void RestoreDrawFBOFromTemp() {
+        MGLOG_D("%s: Restoring previous draw FBO=%u", __func__, s_prevDrawFBO);
+        MG_External::GLES::glBindFramebuffer(GL_DRAW_FRAMEBUFFER, s_prevDrawFBO);
+    }
+
+    class TempFBOBinder {
+    public:
+        TempFBOBinder() { BindTempDrawFBO(); }
+        ~TempFBOBinder() { RestoreDrawFBOFromTemp(); }
+    };
+
     void CopyTexImage2D(GLenum target, GLint level, GLenum internalformat, GLint x, GLint y, GLsizei width,
                         GLsizei height, GLint border) {
 #if MOBILEGL_LOG_ACTIVE_LEVEL <= MOBILEGL_LOG_LEVEL_DEBUG
@@ -864,8 +889,34 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 MGLOG_D("ES error (%s:%d): %s", file, line, MG_Util::ConvertGLEnumToString(err).c_str());
             });
         } else {
-            MGLOG_D("%s: Backend depth (Not implemented)", __func__);
+            MGLOG_D("%s: Backend depth", __func__);
+            MG_External::GLES::glTexImage2D(target, level, (GLint)internalformat, width, height, border, format, type,
+                                            nullptr);
+            errorLopper.Loop([file = __FILE__, line = __LINE__](auto err) {
+                MGLOG_D("ES error (%s:%d): %s", file, line, MG_Util::ConvertGLEnumToString(err).c_str());
+            });
 
+            GLint currentTex;
+            MG_External::GLES::glGetIntegerv(Utils::GetBindingQuery(target, true), &currentTex);
+            errorLopper.Loop([file = __FILE__, line = __LINE__](auto err) {
+                MGLOG_D("ES error (%s:%d): %s", file, line, MG_Util::ConvertGLEnumToString(err).c_str());
+            });
+
+            GLenum attachment = isStencilFormat ? GL_DEPTH_STENCIL_ATTACHMENT : GL_DEPTH_ATTACHMENT;
+            TempFBOBinder tempFBOBinder;
+            MG_External::GLES::glFramebufferTexture2D(GL_DRAW_FRAMEBUFFER, attachment, target, currentTex, level);
+
+            if (MG_External::GLES::glCheckFramebufferStatus(GL_DRAW_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
+                MGLOG_E("ES glCheckFramebufferStatus(GL_DRAW_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE");
+                return;
+            }
+
+            MG_External::GLES::glBlitFramebuffer(x, y, x + width, y + height, 0, 0, width, height,
+                                                 GL_DEPTH_BUFFER_BIT | (isStencilFormat ? GL_STENCIL_BUFFER_BIT : 0),
+                                                 GL_NEAREST);
+            errorLopper.Loop([file = __FILE__, line = __LINE__](auto err) {
+                MGLOG_D("ES error (%s:%d): %s", file, line, MG_Util::ConvertGLEnumToString(err).c_str());
+            });
         }
     }
 
@@ -912,8 +963,29 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 MGLOG_D("ES error (%s:%d): %s", file, line, MG_Util::ConvertGLEnumToString(err).c_str());
             });
         } else {
-            MGLOG_D("%s: Backend depth (Not implemented)", __func__);
+            MGLOG_D("%s: Backend depth", __func__);
+            GLint currentTex;
+            MG_External::GLES::glGetIntegerv(Utils::GetBindingQuery(target, false), &currentTex);
+            errorLopper.Loop([file = __FILE__, line = __LINE__](auto err) {
+                MGLOG_D("ES error (%s:%d): %s", file, line, MG_Util::ConvertGLEnumToString(err).c_str());
+            });
+            GLenum attachment = isStencilFormat ? GL_DEPTH_STENCIL_ATTACHMENT : GL_DEPTH_ATTACHMENT;
+            TempFBOBinder tempFBOBinder;
+            MG_External::GLES::glFramebufferTexture2D(GL_DRAW_FRAMEBUFFER, attachment, target, currentTex, level);
+            errorLopper.Loop([file = __FILE__, line = __LINE__](auto err) {
+                MGLOG_D("ES error (%s:%d): %s", file, line, MG_Util::ConvertGLEnumToString(err).c_str());
+            });
+            if (MG_External::GLES::glCheckFramebufferStatus(GL_DRAW_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
+                MGLOG_E("ES glCheckFramebufferStatus(GL_DRAW_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE");
+                return;
+            }
 
+            MG_External::GLES::glBlitFramebuffer(
+                x, y, x + width, y + height, xoffset, yoffset, xoffset + width, yoffset + height,
+                GL_DEPTH_BUFFER_BIT | (isStencilFormat ? GL_STENCIL_BUFFER_BIT : 0), GL_NEAREST);
+            errorLopper.Loop([file = __FILE__, line = __LINE__](auto err) {
+                MGLOG_D("ES error (%s:%d): %s", file, line, MG_Util::ConvertGLEnumToString(err).c_str());
+            });
         }
     }
 
