@@ -116,3 +116,5 @@
 // Post-includes for significant project headers
 #include "MG_Util/Debug/Log.h"
 #include "MG_Util/Types.h"
+
+#include <jemalloc/jemalloc.h>
