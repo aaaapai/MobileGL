@@ -111,13 +111,32 @@ namespace MobileGL {
         }
 
         GLboolean IsEnabledi_State(GLenum target, GLuint index) {
-            // TODO: implement
-            return GL_FALSE;
+            CapabilityInput capInput = MG_Util::ConvertGLEnumToCapabilityInput(target);
+            if (capInput == CapabilityInput::Unknown) {
+                MG_State::pGLContext->RecordError(
+                    ErrorCode::InvalidEnum,
+                    MakeShared<GenericErrorInfo>("MG_Impl/GLImpl", "IsEnabledi_State",
+                                                 "Capability enum " +
+                                                     MG_Util::ConvertCapabilityInputToString(capInput) + "(" +
+                                                     MG_Util::ConvertGLEnumToString(target) + ") is not supported."));
+                return GL_FALSE;
+            }
+
+            return MG_State::pGLContext->IsCapabilityEnabledIndexed(capInput, index) ? GL_TRUE : GL_FALSE;
         }
 
         GLboolean IsEnabled_State(GLenum cap) {
-            // TODO: implement
-            return GL_FALSE;
+            CapabilityInput capInput = MG_Util::ConvertGLEnumToCapabilityInput(cap);
+            if (capInput == CapabilityInput::Unknown) {
+                MG_State::pGLContext->RecordError(
+                    ErrorCode::InvalidEnum, MakeShared<GenericErrorInfo>(
+                                                "MG_Impl/GLImpl", "IsEnabled_State",
+                                                "Capability enum " + MG_Util::ConvertCapabilityInputToString(capInput) +
+                                                    "(" + MG_Util::ConvertGLEnumToString(cap) + ") is not supported."));
+                return GL_FALSE;
+            }
+
+            return MG_State::pGLContext->IsCapabilityEnabled(capInput) ? GL_TRUE : GL_FALSE;
         }
 
         void Hint_State(GLenum target, GLenum mode) {
@@ -253,7 +272,67 @@ namespace MobileGL {
             MG_State::pGLContext->SetClearColor(FloatVec4(red, green, blue, alpha));
         }
 
+        void BlendFuncSeparatei_State(GLuint buf, GLenum srcRGB, GLenum dstRGB, GLenum srcAlpha, GLenum dstAlpha) {
+            if (buf >= MG_State::GLState::FramebufferObject::MAX_DRAW_BUFFERS) {
+                MG_State::pGLContext->RecordError(
+                    ErrorCode::InvalidValue,
+                    MakeShared<GenericErrorInfo>(
+                        "MG_Impl/GLImpl", "BlendFuncSeparatei_State",
+                        "Buffer index " + std::to_string(buf) + " is out of range. Max supported is " +
+                            std::to_string(MG_State::GLState::FramebufferObject::MAX_DRAW_BUFFERS - 1) + "."));
+                return;
+            }
+
+            BlendFactor srcRGBM = MG_Util::ConvertGLEnumToBlendFactor(srcRGB);
+            BlendFactor dstRGBM = MG_Util::ConvertGLEnumToBlendFactor(dstRGB);
+            BlendFactor srcAlphaM = MG_Util::ConvertGLEnumToBlendFactor(srcAlpha);
+            BlendFactor dstAlphaM = MG_Util::ConvertGLEnumToBlendFactor(dstAlpha);
+            MG_State::pGLContext->SetBlendFuncIndexed(buf, srcRGBM, dstRGBM, srcAlphaM, dstAlphaM);
+        }
+
+        void Disablei_State(GLenum target, GLuint index) {
+            auto capInput = MG_Util::ConvertGLEnumToCapabilityInput(target);
+            if (capInput == CapabilityInput::Unknown) {
+                MG_State::pGLContext->RecordError(
+                    ErrorCode::InvalidEnum,
+                    MakeShared<GenericErrorInfo>("MG_Impl/GLImpl", "Disablei_State",
+                                                 "Capability enum " +
+                                                     MG_Util::ConvertCapabilityInputToString(capInput) + "(" +
+                                                     MG_Util::ConvertGLEnumToString(target) + ") is not supported."));
+                return;
+            }
+
+            MG_State::pGLContext->SetCapabilityIndexed(capInput, index, false);
+        }
+
+        void Enablei_State(GLenum target, GLuint index) {
+            auto capInput = MG_Util::ConvertGLEnumToCapabilityInput(target);
+            if (capInput == CapabilityInput::Unknown) {
+                MG_State::pGLContext->RecordError(
+                    ErrorCode::InvalidEnum,
+                    MakeShared<GenericErrorInfo>("MG_Impl/GLImpl", "Enablei_State",
+                                                 "Capability enum " +
+                                                     MG_Util::ConvertCapabilityInputToString(capInput) + "(" +
+                                                     MG_Util::ConvertGLEnumToString(target) + ") is not supported."));
+                return;
+            }
+
+            MG_State::pGLContext->SetCapabilityIndexed(capInput, index, true);
+        }
+
         /* @INSERTION_POINT:FUNCTION_IMPLEMENTATION@ */
+        void BlendFuncSeparatei(GLuint buf, GLenum srcRGB, GLenum dstRGB, GLenum srcAlpha, GLenum dstAlpha) {
+            BlendFuncSeparatei_State(buf, srcRGB, dstRGB, srcAlpha, dstAlpha);
+        }
+
+        void Disablei(GLenum target, GLuint index) {
+            Disablei_State(target, index);
+        }
+
+        void Enablei(GLenum target, GLuint index) {
+            Enablei_State(target, index);
+        }
+
         void BlendFunc(GLenum sfactor, GLenum dfactor) {
             BlendFunc_State(sfactor, dfactor);
         }

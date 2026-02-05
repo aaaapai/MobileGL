@@ -7,6 +7,7 @@
 // End of Source File Header
 
 #include "RenderState.h"
+#include "MG_Util/Types.h"
 
 namespace MobileGL {
     namespace MG_State {
@@ -43,10 +44,19 @@ namespace MobileGL {
         break;
 
                 switch (cap) {
-                    SET_CAPABILITY(Blend, enabled);
                     SET_CAPABILITY(DepthTest, enabled);
                     SET_CAPABILITY(CullFace, enabled);
                     SET_CAPABILITY(ScissorTest, enabled);
+                case CapabilityInput::Blend: {
+                    Bool stateChanged = false;
+                    for (auto& blendState : m_parameters.BlendStates) {
+                        if (blendState.Enabled == enabled) continue;
+                        blendState.Enabled = enabled;
+                        stateChanged = true;
+                    }
+                    if (stateChanged) ++m_version;
+                    break;
+                }
                 default: // not supported currently
                     break;
                 }
@@ -58,35 +68,100 @@ namespace MobileGL {
     case CapabilityInput::capability:                                                                                  \
         return m_parameters.capability##Enabled;
                 switch (cap) {
-                    RETURN_CAPABILITY(Blend);
                     RETURN_CAPABILITY(DepthTest);
                     RETURN_CAPABILITY(CullFace);
                     RETURN_CAPABILITY(ScissorTest);
+                case CapabilityInput::Blend:
+                    return m_parameters.BlendStates[0].Enabled;
                 default:
                     return false;
                 }
             }
 
+            void RenderState::SetCapabilityIndexed(CapabilityInput cap, Uint index, Bool enabled) {
+                // Only for BlendState currently
+                if (cap != CapabilityInput::Blend) {
+                    THROW_UNIMPL_EXCEPTION;
+                    return;
+                }
+                if (index >= MG_State::GLState::FramebufferObject::MAX_DRAW_BUFFERS) {
+                    MOBILEGL_ASSERT(false, "Blend capability index out of range: %d", index);
+                    return;
+                }
+                if (m_parameters.BlendStates[index].Enabled == enabled) return;
+
+                m_parameters.BlendStates[index].Enabled = enabled;
+                ++m_version;
+            }
+
+            Bool RenderState::IsCapabilityEnabledIndexed(CapabilityInput cap, Uint index) const {
+                // Only for BlendState currently
+                if (cap != CapabilityInput::Blend) {
+                    THROW_UNIMPL_EXCEPTION;
+                    return false;
+                }
+                if (index >= MG_State::GLState::FramebufferObject::MAX_DRAW_BUFFERS) {
+                    MOBILEGL_ASSERT(false, "Blend capability index out of range: %d", index);
+                    return false;
+                }
+                return m_parameters.BlendStates[index].Enabled;
+            }
+
             // -------------------- Blending --------------------
             void RenderState::SetBlendFunc(BlendFactor srcRGB, BlendFactor dstRGB, BlendFactor srcAlpha,
                                            BlendFactor dstAlpha) {
-                if (m_parameters.SrcFactorRGB == srcRGB && m_parameters.DstFactorRGB == dstRGB &&
-                    m_parameters.SrcFactorAlpha == srcAlpha && m_parameters.DstFactorAlpha == dstAlpha)
-                    return;
-
-                m_parameters.SrcFactorRGB = srcRGB;
-                m_parameters.DstFactorRGB = dstRGB;
-                m_parameters.SrcFactorAlpha = srcAlpha;
-                m_parameters.DstFactorAlpha = dstAlpha;
+                Bool stateChanged = false;
+                for (auto& blendState : m_parameters.BlendStates) {
+                    if (blendState.SrcFactorRGB == srcRGB && blendState.DstFactorRGB == dstRGB &&
+                        blendState.SrcFactorAlpha == srcAlpha && blendState.DstFactorAlpha == dstAlpha) {
+                        continue;
+                    }
+                    blendState.SrcFactorRGB = srcRGB;
+                    blendState.DstFactorRGB = dstRGB;
+                    blendState.SrcFactorAlpha = srcAlpha;
+                    blendState.DstFactorAlpha = dstAlpha;
+                    stateChanged = true;
+                }
+                if (!stateChanged) return;
                 ++m_version;
             }
 
             void RenderState::GetBlendFunc(BlendFactor& srcRGB, BlendFactor& dstRGB, BlendFactor& srcAlpha,
                                            BlendFactor& dstAlpha) const {
-                srcRGB = m_parameters.SrcFactorRGB;
-                dstRGB = m_parameters.DstFactorRGB;
-                srcAlpha = m_parameters.SrcFactorAlpha;
-                dstAlpha = m_parameters.DstFactorAlpha;
+                srcRGB = m_parameters.BlendStates[0].SrcFactorRGB;
+                dstRGB = m_parameters.BlendStates[0].DstFactorRGB;
+                srcAlpha = m_parameters.BlendStates[0].SrcFactorAlpha;
+                dstAlpha = m_parameters.BlendStates[0].DstFactorAlpha;
+            }
+
+            void RenderState::SetBlendFuncIndexed(Uint index, BlendFactor srcRGB, BlendFactor dstRGB,
+                                                  BlendFactor srcAlpha, BlendFactor dstAlpha) {
+                if (index >= MG_State::GLState::FramebufferObject::MAX_DRAW_BUFFERS) {
+                    MOBILEGL_ASSERT(false, "Blend function index out of range: %d", index);
+                    return;
+                }
+                PerBufferBlendState& blendState = m_parameters.BlendStates[index];
+                if (blendState.SrcFactorRGB == srcRGB && blendState.DstFactorRGB == dstRGB &&
+                    blendState.SrcFactorAlpha == srcAlpha && blendState.DstFactorAlpha == dstAlpha) {
+                    return;
+                }
+                blendState.SrcFactorRGB = srcRGB;
+                blendState.DstFactorRGB = dstRGB;
+                blendState.SrcFactorAlpha = srcAlpha;
+                blendState.DstFactorAlpha = dstAlpha;
+                ++m_version;
+            }
+
+            void RenderState::GetBlendFuncIndexed(Uint index, BlendFactor& srcRGB, BlendFactor& dstRGB,
+                                                  BlendFactor& srcAlpha, BlendFactor& dstAlpha) const {
+                if (index >= MG_State::GLState::FramebufferObject::MAX_DRAW_BUFFERS) {
+                    MOBILEGL_ASSERT(false, "Blend function index out of range: %d", index);
+                    return;
+                }
+                srcRGB = m_parameters.BlendStates[index].SrcFactorRGB;
+                dstRGB = m_parameters.BlendStates[index].DstFactorRGB;
+                srcAlpha = m_parameters.BlendStates[index].SrcFactorAlpha;
+                dstAlpha = m_parameters.BlendStates[index].DstFactorAlpha;
             }
 
             // -------------------- Depth --------------------

@@ -9,6 +9,7 @@
 #pragma once
 #include <Includes.h>
 #include <MG_Util/Math/VectorTypes.h>
+#include <MG_State/GLState/FramebufferState/FramebufferObject.h>
 
 namespace MobileGL {
     enum class BlendFactor {
@@ -127,16 +128,20 @@ namespace MobileGL {
         Int Alignment = 4;
     };
 
+    struct PerBufferBlendState {
+        Bool Enabled = false;
+        BlendFactor SrcFactorRGB = BlendFactor::One;
+        BlendFactor DstFactorRGB = BlendFactor::Zero;
+        BlendFactor SrcFactorAlpha = BlendFactor::One;
+        BlendFactor DstFactorAlpha = BlendFactor::Zero;
+    };
+
     struct RenderStateParameters {
         // Rasterization
         IntVec4 Viewport = IntVec4(0, 0, 0, 0); // x, y, width, height
 
         // Blending
-        Bool BlendEnabled = false;
-        BlendFactor SrcFactorRGB = BlendFactor::One;
-        BlendFactor DstFactorRGB = BlendFactor::Zero;
-        BlendFactor SrcFactorAlpha = BlendFactor::One;
-        BlendFactor DstFactorAlpha = BlendFactor::Zero;
+        Array<PerBufferBlendState, MG_State::GLState::FramebufferObject::MAX_DRAW_BUFFERS> BlendStates;
 
         // Depth
         Bool DepthTestEnabled = false;
@@ -175,11 +180,17 @@ namespace MobileGL {
                 // Capabilities
                 void SetCapability(CapabilityInput cap, Bool enabled);
                 Bool IsCapabilityEnabled(CapabilityInput cap) const;
+                void SetCapabilityIndexed(CapabilityInput cap, Uint index, Bool enabled);
+                Bool IsCapabilityEnabledIndexed(CapabilityInput cap, Uint index) const;
 
                 // Blending
                 void SetBlendFunc(BlendFactor srcRGB, BlendFactor dstRGB, BlendFactor srcAlpha, BlendFactor dstAlpha);
                 void GetBlendFunc(BlendFactor& srcRGB, BlendFactor& dstRGB, BlendFactor& srcAlpha,
                                   BlendFactor& dstAlpha) const;
+                void SetBlendFuncIndexed(Uint index, BlendFactor srcRGB, BlendFactor dstRGB, BlendFactor srcAlpha,
+                                         BlendFactor dstAlpha);
+                void GetBlendFuncIndexed(Uint index, BlendFactor& srcRGB, BlendFactor& dstRGB, BlendFactor& srcAlpha,
+                                         BlendFactor& dstAlpha) const;
 
                 // Depth
                 void SetDepthFunc(DepthTestFunc func);
