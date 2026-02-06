@@ -239,6 +239,12 @@ namespace MobileGL {
             }
         }
 
+        SizeT GetTexturePixelDataTypeSize(TexturePixelDataType type) {
+            SizeT sizedPixelFormatSize = GetSizedTexturePixelDataTypeSize(type);
+            if (sizedPixelFormatSize > 0) return sizedPixelFormatSize;
+            return GetBaseTexturePixelDataTypeSize(type);
+        }
+
         SizeT GetInternalBytesPerPixel(TextureInternalFormat internalformat, TexturePixelDataType type) {
             SizeT sizedTextureFormatSize = GetSizedInternalFormatSizeInBytes(internalformat);
             if (sizedTextureFormatSize > 0) return sizedTextureFormatSize;
