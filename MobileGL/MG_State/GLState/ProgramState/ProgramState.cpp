@@ -30,8 +30,12 @@ namespace MobileGL {
                 if (!CheckIndexAvail(program, m_programObjects)) return; // FIXME: add error reporting here
                 auto& programObject = m_programObjects[program];
                 if (programObject != nullptr) {
+                    if (m_currentProgram.get() == programObject.get()) {
+                          m_currentProgram.reset();
+                    }
                     programObject->MarkAsDeleted();
                     programObject.reset();
+                    m_programObjects.erase(program);
                     m_programIndexGenerator.Delete(program);
                 }
             }
@@ -68,6 +72,7 @@ namespace MobileGL {
                 if (shaderObject != nullptr) {
                     m_shaderObjects[shader]->MarkAsDeleted();
                     m_shaderObjects[shader].reset();
+                    m_shaderObjects.erase(shader);
                     m_shaderIndexGenerator.Delete(shader);
                 }
             }
