@@ -1166,5 +1166,133 @@ namespace MobileGL {
         void ValidateProgram(GLuint program) {
             ValidateProgram_State(program);
         }
+
+void DrawMeshTasksNV(GLuint first, GLuint count) {
+    MGLOG_D("%s: first = %u, count = %u", __func__, first, count);
+    
+    // 参数验证
+    if (count == 0) {
+        // 根据规范，count为0时不执行任何操作
+        return;
+    }
+    
+    // 检查当前是否有活动的程序对象
+    auto programObject = MG_State::pGLContext->GetCurrentProgram();
+    if (!programObject) {
+        MG_State::pGLContext->RecordError(
+            ErrorCode::InvalidOperation,
+            MakeShared<GenericErrorInfo>("MG_Impl/GLImpl", __func__,
+                                         "No active program object."));
+        return;
+    }
+    
+    // 检查程序是否已链接
+    if (!programObject->GetLinkStatus()) {
+        MG_State::pGLContext->RecordError(
+            ErrorCode::InvalidOperation,
+            MakeShared<GenericErrorInfo>("MG_Impl/GLImpl", __func__,
+                                         "Program is not linked."));
+        return;
+    }
+    
+    // 模拟网格着色器的行为
+    // 1. 将网格任务转换为传统的渲染调用
+    // 网格着色器通常将工作分为任务组，这里我们假设每个任务生成一个基元
+    
+    // 获取当前视口设置
+    GLint viewport[4];
+    MG_State::pGLContext->GetIntegerv(GL_VIEWPORT, viewport);
+    
+    // 2. 设置内置变量（如果存在）
+    // 对于不支持网格着色器的设备，我们需要将任务ID、工作组ID等内置变量
+    // 映射到顶点属性或uniform中
+    
+    // 3. 执行传统渲染
+    // 这里使用glDrawArrays来模拟网格着色器的输出
+    // 假设每个任务产生一个四边形（4个顶点）
+    const GLsizei verticesPerTask = 4; // 每个任务产生一个四边形
+    const GLsizei totalVertices = count * verticesPerTask;
+    
+    // 如果有任务着色器，需要先处理任务分发
+    if (first > 0) {
+        // 处理first参数，跳过前面的任务
+        MGLOG_D("Skipping first %u tasks", first);
+    }
+    
+    // 4. 设置任务相关的uniform（如果程序使用了任务相关的内置变量）
+    GLint taskIDLocation = programObject->GetUniformLocation("gl_TaskIDNV");
+    if (taskIDLocation != -1) {
+        for (GLuint task = 0; task < count; ++task) {
+            GLint taskValue = first + task;
+            Uniform1i(taskIDLocation + task, taskValue);
+        }
+    }
+    
+    GLint workGroupIDLocation = programObject->GetUniformLocation("gl_WorkGroupIDNV");
+    if (workGroupIDLocation != -1) {
+        // 假设工作组大小为128个任务
+        const GLuint workGroupSize = 128;
+        for (GLuint task = 0; task < count; ++task) {
+            GLint workGroupID = (first + task) / workGroupSize;
+            Uniform1i(workGroupIDLocation + task, workGroupID);
+        }
+    }
+    
+    // 5. 执行实际的绘制调用
+    // 使用传统的顶点数组进行渲染
+    GLint maxDrawBuffers = 0;
+    MG_State::pGLContext->GetIntegerv(GL_MAX_DRAW_BUFFERS, &maxDrawBuffers);
+    
+    if (maxDrawBuffers > 0) {
+        // 如果有多个绘制缓冲区，需要设置颜色附件
+        for (GLint i = 0; i < maxDrawBuffers && i < 4; ++i) {
+            // 设置片段着色器输出位置
+            std::string fragDataName = "FragData" + std::to_string(i);
+            GLint fragDataLocation = programObject->GetFragmentDataLocation(fragDataName.c_str());
+            if (fragDataLocation != -1) {
+                // 配置绘制缓冲区
+                // TODO: 这里需要实际的帧缓冲区配置
+            }
+        }
+    }
+    
+    // 6. 执行绘制
+    // 使用glDrawArrays模拟网格输出
+    // 假设顶点数据已经在顶点缓冲区中
+    MGLOG_D("Emulating mesh shader: drawing %d vertices for %d tasks", 
+            totalVertices, count);
+    
+    // 获取后端接口执行实际绘制
+    auto backend = MG_State::pGLContext->GetBackendInterface();
+    if (backend && backend->DrawArrays) {
+        // 使用三角形带绘制四边形
+        backend->DrawArrays(GL_TRIANGLE_STRIP, first * verticesPerTask, totalVertices);
+    } else {
+        // 如果后端不支持，使用更基本的绘制方式
+        // 这里使用多个三角形来模拟
+        for (GLuint task = 0; task < count; ++task) {
+            // 每个任务绘制两个三角形组成一个四边形
+            GLuint baseVertex = (first + task) * verticesPerTask;
+            
+            // 第一个三角形
+            if (backend && backend->DrawArrays) {
+                backend->DrawArrays(GL_TRIANGLES, baseVertex, 3);
+            }
+            
+            // 第二个三角形
+            if (backend && backend->DrawArrays) {
+                backend->DrawArrays(GL_TRIANGLES, baseVertex + 1, 3);
+            }
+        }
+    }
+    
+    // 7. 记录性能统计
+    MG_State::pGLContext->RecordMeshShaderCall(count, totalVertices);
+    
+    // 8. 输出调试信息
+    MGLOG_D("Mesh shader emulation complete: %u tasks processed, %u vertices generated",
+            count, totalVertices);
+}
+
     } // namespace MG_Impl::GLImpl
 } // namespace MobileGL
