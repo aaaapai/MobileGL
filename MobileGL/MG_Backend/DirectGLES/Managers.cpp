@@ -221,7 +221,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
             const auto& bufferObject = attrib.Buffer;
             if (!bufferObject) {
                 MGLOG_W("Attribute has no bound buffer, skipping.");
-                //return;
+                return;
             }
 
             const auto& backendBufferIt = BufferImpl::g_backendBufferObjects.find(bufferObject);
