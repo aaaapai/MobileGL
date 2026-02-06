@@ -244,7 +244,7 @@ void set_multidraw_setting() { // should be called after init_gles_target()
         global_settings.multidraw_mode = multidraw_mode_t::Auto;
         break;
     }
-    MGLOG_D("[MobileGL] Setting: multidrawMode is supported.", /*draw_mode_str.c_str()*/);
+    MGLOG_D("[MobileGL] Setting: multidrawMode is supported."/*, draw_mode_str.c_str()*/);
 }
 
 void init_settings_post() {
