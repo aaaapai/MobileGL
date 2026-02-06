@@ -1244,6 +1244,8 @@ namespace MobileGL::MG_Backend::DirectGLES {
         MGLOG_D("ReadPixels: x=%d y=%d w=%d h=%d format=%s type=%s pixels=%p", x, y, width, height,
                 MG_Util::ConvertGLEnumToString(format).c_str(), MG_Util::ConvertGLEnumToString(type).c_str(), pixels);
 
+        if (format == GL_BGRA) format = GL_RGBA; // FIXME: convert RGBA to BGRA
+
         MOBILEGL_ASSERT(format == GL_RGBA || format == GL_RGBA_INTEGER,
                         "Only GL_RGBA and GL_RGBA_INTEGER are supported currently, while requested %s.",
                         MG_Util::ConvertGLEnumToString(format).c_str());
@@ -1325,6 +1327,8 @@ namespace MobileGL::MG_Backend::DirectGLES {
         MGLOG_D("GetTexImage: target=%s level=%d format=%s type=%s pixels=%p",
                 MG_Util::ConvertGLEnumToString(target).c_str(), level, MG_Util::ConvertGLEnumToString(format).c_str(),
                 MG_Util::ConvertGLEnumToString(type).c_str(), pixels);
+
+        if (format == GL_BGRA) format = GL_RGBA; // FIXME: convert RGBA to BGRA
 
         MOBILEGL_ASSERT(format == GL_RGBA || format == GL_RGBA_INTEGER,
                         "Only GL_RGBA and GL_RGBA_INTEGER are supported currently, while requested %s.",
