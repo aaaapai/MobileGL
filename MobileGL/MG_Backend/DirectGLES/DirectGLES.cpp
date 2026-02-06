@@ -915,8 +915,8 @@ namespace MobileGL::MG_Backend::DirectGLES {
     static GLuint s_prevReadFBO = 0;
     void BindTempFBO(Bool isRead) {
         MGLOG_D("%s: Binding temporary FBO for operations like CopyTexImage2D that require framebuffer binding, "
-                "previous draw FBO=%u",
-                __func__, s_prevDrawFBO);
+                "previous draw FBO=%u, read FBO=%u",
+                __func__, s_prevDrawFBO, s_prevReadFBO);
         static GLuint tempFBO = 0;
         if (!tempFBO) {
             MG_External::GLES::glGenFramebuffers(1, &tempFBO);
@@ -1366,6 +1366,8 @@ namespace MobileGL::MG_Backend::DirectGLES {
         TempFBOBinder tempFBOBinder(true);
 
         MGLOG_D("GetTexImage: glFramebufferTexture2D(level=%d)", level);
+        MG_External::GLES::glFramebufferTexture2D(GL_READ_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, target, backendTexId,
+                                                  level);
         MGLOG_D("GetTexImage: glReadBuffer(GL_COLOR_ATTACHMENT0)");
         MG_External::GLES::glReadBuffer(GL_COLOR_ATTACHMENT0);
 
