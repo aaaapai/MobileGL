@@ -13,6 +13,7 @@
 #include <MG_Util/Converters/GLToMG/ProgramEnumConverter.h>
 #include <MG_Util/Converters/MGToGL/ProgramEnumConverter.h>
 #include <MG_Util/Converters/SPIRVCrossToGL/SpvcTypeConverter.h>
+#include <MG_Util/BackendLoaders/OpenGL/Loader.h>
 
 namespace MobileGL {
     namespace MG_Impl::GLImpl {
@@ -303,10 +304,11 @@ namespace MobileGL {
                 *params = programObject->GetActiveUniformBlocksMaxNameLength();
                 MGLOG_D("%s: %s = %d", __func__, MG_Util::ConvertGLEnumToString(pname).c_str(), *params);
                 break;
-            case GL_PROGRAM_BINARY_RETRIEVABLE_HINT:
-                *params = programObject->GetProgramBinaryRetrievableHint();
+            /*case GL_PROGRAM_BINARY_RETRIEVABLE_HINT:
+                //*params = programObject->GetProgramBinaryRetrievableHint();
+                *params = GL_FALSE;
                 MGLOG_D("%s: %s = %d", __func__, MG_Util::ConvertGLEnumToString(pname).c_str(), *params);
-                break;
+                break;*/
             case GL_COMPUTE_WORK_GROUP_SIZE: // GL >= 4.3
 
             case GL_PROGRAM_BINARY_LENGTH:
@@ -318,6 +320,7 @@ namespace MobileGL {
             case GL_GEOMETRY_INPUT_TYPE:
             case GL_GEOMETRY_OUTPUT_TYPE:
             default:
+                *params = MG_External::GLES::glGetProgramiv(program, pname, params);
                 MGLOG_D("%s: %s", __func__, MG_Util::ConvertGLEnumToString(pname).c_str());
                 MG_State::pGLContext->RecordError(
                     ErrorCode::InvalidEnum,
