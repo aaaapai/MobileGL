@@ -416,7 +416,7 @@ DECLARE_GL_FUNCTION_STUB_HEAD(GLuint, GetDebugMessageLog, GLuint count, GLsizei 
 DECLARE_GL_FUNCTION_STUB_HEAD(void, PushDebugGroup, GLenum source, GLuint id, GLsizei length, const GLchar* message) DECLARE_GL_FUNCTION_STUB_END_NO_RETURN(void, PushDebugGroup, source, id, length, message)
 DECLARE_GL_FUNCTION_STUB_HEAD(void, PopDebugGroup) DECLARE_GL_FUNCTION_STUB_END_NO_RETURN(void, PopDebugGroup)
 DECLARE_GL_FUNCTION_HEAD(void, ObjectLabel, GLenum identifier, GLuint name, GLsizei length, const GLchar* label) DECLARE_GL_NATIVE_FUNCTION_END_NO_RETURN(void, ObjectLabel, identifier, name, length, label)
-DECLARE_GL_FUNCTION_HEAD(void, GetObjectLabel, GLenum identifier, GLuint name, GLsizei bufSize, GLsizei* length, GLchar* label) DECLARE_GL_FUNCTION_END_NO_RETURN(void, GetObjectLabel, identifier, name, bufSize, length, label)
+DECLARE_GL_FUNCTION_HEAD(void, GetObjectLabel, GLenum identifier, GLuint name, GLsizei bufSize, GLsizei* length, GLchar* label) DECLARE_GL_NATIVE_FUNCTION_END_NO_RETURN(void, GetObjectLabel, identifier, name, bufSize, length, label)
 DECLARE_GL_FUNCTION_HEAD(void, ObjectPtrLabel, const void* ptr, GLsizei length, const GLchar* label) DECLARE_GL_NATIVE_FUNCTION_END_NO_RETURN(void, ObjectPtrLabel, ptr, length, label)
 DECLARE_GL_FUNCTION_STUB_HEAD(void, GetObjectPtrLabel, const void* ptr, GLsizei bufSize, GLsizei* length, GLchar* label) DECLARE_GL_FUNCTION_STUB_END_NO_RETURN(void, GetObjectPtrLabel, ptr, bufSize, length, label)
 DECLARE_GL_FUNCTION_STUB_HEAD(void, GetPointerv, GLenum pname, void** params) DECLARE_GL_FUNCTION_STUB_END_NO_RETURN(void, GetPointerv, pname, params)
