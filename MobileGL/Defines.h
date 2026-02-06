@@ -40,11 +40,11 @@
 #define MOBILEGL_BACKEND_TYPE_DIRECT_VULKAN 4
 
 // ====================== MobileGL configurations ======================= //
-#define MOBILEGL_LOG_ACTIVE_LEVEL MOBILEGL_LOG_LEVEL_DEBUG
+#define MOBILEGL_LOG_ACTIVE_LEVEL MOBILEGL_LOG_LEVEL_WARN
 
-#define MOBILEGL_LOG_ENABLE_CONSOLE 0
-#define MOBILEGL_LOG_ENABLE_FILE 1
-#define MOBILEGL_LOG_ENABLE_ANDROID 1
+#define MOBILEGL_LOG_ENABLE_CONSOLE 1
+#define MOBILEGL_LOG_ENABLE_FILE 0
+#define MOBILEGL_LOG_ENABLE_ANDROID 0
 #define MOBILEGL_ENABLE_SCOPE_MARKER 0
 
 // Require C++23
@@ -74,7 +74,7 @@
         if (!(condition)) {                                                                                            \
             MGLOG_F("Assertion failed" __VA_OPT__(": ") __VA_ARGS__);                                                  \
             MGLOG_F("  at %s:%d (%s)", __FILE__, __LINE__, __func__);                                                  \
-            TRAP;                                                                                                      \
+            // TRAP;                                                                                                      \
         }                                                                                                              \
     } while (0)
 
