@@ -35,28 +35,28 @@ namespace MobileGL {
         void DeleteSync_State(GLsync sync) {}
 
         GLsync FenceSync(GLenum condition, GLbitfield flags) {
-#if MOBILEGL_BACKEND == MOBILEGL_BACKEND_TYPE_DIRECT_GLES
+//#if MOBILEGL_BACKEND == MOBILEGL_BACKEND_TYPE_DIRECT_GLES
             return MG_External::GLES::glFenceSync(condition, flags);
-#elif MOBILEGL_BACKEND == MOBILEGL_BACKEND_TYPE_DIRECT_VULKAN
+/*#elif MOBILEGL_BACKEND == MOBILEGL_BACKEND_TYPE_DIRECT_VULKAN
             return FenceSync_State(condition, flags);
-#endif
+#endif*/
         }
 
         GLenum ClientWaitSync(GLsync sync, GLbitfield flags, GLuint64 timeout) {
-#if MOBILEGL_BACKEND == MOBILEGL_BACKEND_TYPE_DIRECT_GLES
+//#if MOBILEGL_BACKEND == MOBILEGL_BACKEND_TYPE_DIRECT_GLES
             return MG_External::GLES::glClientWaitSync(sync, flags, timeout);
-#elif MOBILEGL_BACKEND == MOBILEGL_BACKEND_TYPE_DIRECT_VULKAN
+/*#elif MOBILEGL_BACKEND == MOBILEGL_BACKEND_TYPE_DIRECT_VULKAN
             return ClientWaitSync_State(sync, flags, timeout);
-#endif
+#endif*/
 
         }
 
         void DeleteSync(GLsync sync) {
-#if MOBILEGL_BACKEND == MOBILEGL_BACKEND_TYPE_DIRECT_GLES
+//#if MOBILEGL_BACKEND == MOBILEGL_BACKEND_TYPE_DIRECT_GLES
             MG_External::GLES::glDeleteSync(sync);
-#elif MOBILEGL_BACKEND == MOBILEGL_BACKEND_TYPE_DIRECT_VULKAN
+/*#elif MOBILEGL_BACKEND == MOBILEGL_BACKEND_TYPE_DIRECT_VULKAN
             DeleteSync_State(sync);
-#endif
+#endif*/
         }
 
     } // namespace MG_Impl::GLImpl
