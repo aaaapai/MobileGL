@@ -303,6 +303,10 @@ namespace MobileGL {
                 *params = programObject->GetActiveUniformBlocksMaxNameLength();
                 MGLOG_D("%s: %s = %d", __func__, MG_Util::ConvertGLEnumToString(pname).c_str(), *params);
                 break;
+            case GL_PROGRAM_BINARY_RETRIEVABLE_HINT:
+                *params = programObject->GetProgramBinaryRetrievableHint();
+                MGLOG_D("%s: %s = %d", __func__, MG_Util::ConvertGLEnumToString(pname).c_str(), *params);
+                break;
             case GL_COMPUTE_WORK_GROUP_SIZE: // GL >= 4.3
 
             case GL_PROGRAM_BINARY_LENGTH:
