@@ -1092,6 +1092,13 @@ void mg_subgroupMemoryBarrier() {
         pos += 10; // "// #error "的长度
     }
 
+   // 注释#extension指令以避免编译中断
+    pos = 0;
+    while ((pos = source.find("#extension ", pos)) != String::npos) {
+        source.replace(pos, 11, "// #extension ");
+        pos += 14; // "// #extension "的长度
+    }
+
 
 
 }
