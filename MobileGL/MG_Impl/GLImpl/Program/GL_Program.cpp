@@ -320,7 +320,7 @@ namespace MobileGL {
             case GL_GEOMETRY_INPUT_TYPE:
             case GL_GEOMETRY_OUTPUT_TYPE:
             default:
-                *params = MG_External::GLES::glGetProgramiv(program, pname, params);
+                MG_External::GLES::glGetProgramiv(program, pname, params);
                 MGLOG_D("%s: %s", __func__, MG_Util::ConvertGLEnumToString(pname).c_str());
                 MG_State::pGLContext->RecordError(
                     ErrorCode::InvalidEnum,
