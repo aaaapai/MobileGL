@@ -46,6 +46,7 @@
 #if __cplusplus >= 202302L && MOBILEGL_LOG_ENABLE_STACKTRACE
 #include <stacktrace>
 #endif
+#include <ranges>
 
 // Include FastSTL
 #include <FastSTL/UnorderedMap.h>
