@@ -928,24 +928,6 @@ namespace MobileGL {
             case GL_MAX_COMBINED_SHADER_OUTPUT_RESOURCES:
                 *params = 16; // 图像单元 + SSBO 的总限制          
                 break;
-            case GL_NV_mesh_shader:
-                *params = 1; //我不知道我在发什么癫哦
-                break;
-            case GL_NV_uniform_buffer_unified_memory:
-                *params = 1;
-                break;
-            case GL_NV_vertex_buffer_unified_memory:
-                *params = 1;
-                break;
-            case GL_NV_representative_fragment_test:
-                *params = 1;
-                break;
-            case GL_ARB_sparse_buffer:
-                *params = 1;
-                break;
-            case GL_NV_bindless_multi_draw_indirect:
-                *params = 1;
-                break;
                 
             default:
                 MGLOG_E("glGetIntegerv: Invalid enum %s (0x%X)", MG_Util::ConvertGLEnumToString(pname).c_str(), pname);
