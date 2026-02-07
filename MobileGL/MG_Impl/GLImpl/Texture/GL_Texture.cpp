@@ -1164,10 +1164,6 @@ namespace MobileGL {
             }
         }
 
-        void GetTexImage_State(GLenum target, GLint level, GLenum format, GLenum type, GLvoid* pixels) {
-            // TODO: implement
-        }
-
         void GetCompressedTexImage_State(GLenum target, GLint level, void* img) {
             // TODO: implement
         }
@@ -1378,7 +1374,136 @@ namespace MobileGL {
             MG_State::pGLContext->SetActiveTextureUnit(texture - GL_TEXTURE0);
         }
 
+        void GetTexImage_Backend(GLenum target, GLint level, GLenum format, GLenum type, GLvoid* pixels) {
+#if MOBILEGL_BACKEND == MOBILEGL_BACKEND_TYPE_DIRECT_GLES
+            MG_Backend::DirectGLES::GetTexImage(target, level, format, type, pixels);
+#endif
+        }
+
+        // Add to GL_Texture.cpp
+        void GetTexImage_State(GLenum target, GLint level, GLenum format, GLenum type, GLvoid* pixels) {
+            // ======================= Converting ================================
+            TextureUploadTarget textureUploadTarget = MG_Util::ConvertGLEnumToTextureUploadTarget(target);
+            TextureTarget textureTarget = MG_Util::ConvertGLEnumToTextureTarget(target);
+            TextureInputFormat textureInputFormat = MG_Util::ConvertGLEnumToTextureInputFormat(format);
+            TexturePixelDataType texturePixelDataType = MG_Util::ConvertGLEnumToTexturePixelDataType(type);
+
+            // ===================== Error Checking ==============================
+            // Validate target
+            if (!TextureImpl::ValidateTextureUploadTarget(textureUploadTarget)) {
+                MG_State::pGLContext->RecordError(
+                    ErrorCode::InvalidEnum,
+                    MakeShared<GenericErrorInfo>("MG_Impl/GLImpl", "GetTexImage_State", "Invalid texture target"));
+                return;
+            }
+
+            // Validate level
+            if (level < 0) {
+                MG_State::pGLContext->RecordError(
+                    ErrorCode::InvalidValue,
+                    MakeShared<GenericErrorInfo>("MG_Impl/GLImpl", "GetTexImage_State", "Level must be non-negative"));
+                return;
+            }
+
+            // Validate format
+            if (!TextureImpl::ValidateTextureInputFormat(textureInputFormat)) {
+                MG_State::pGLContext->RecordError(
+                    ErrorCode::InvalidEnum,
+                    MakeShared<GenericErrorInfo>("MG_Impl/GLImpl", "GetTexImage_State", "Invalid format"));
+                return;
+            }
+
+            // Validate type
+            if (!TextureImpl::ValidateTexturePixelDataType(texturePixelDataType)) {
+                MG_State::pGLContext->RecordError(
+                    ErrorCode::InvalidEnum,
+                    MakeShared<GenericErrorInfo>("MG_Impl/GLImpl", "GetTexImage_State", "Invalid pixel data type"));
+                return;
+            }
+
+            // Get texture object
+            SharedPtr<MG_State::GLState::ITextureObject> textureObject = nullptr;
+            if (TextureImpl::IsProxyTextureTarget(textureUploadTarget)) {
+                textureObject = TextureImpl::pProxyTextureManager->GetProxyTextureObject(textureUploadTarget);
+            } else {
+                auto activeUnit =
+                    MG_State::pGLContext->GetTextureUnitObject(MG_State::pGLContext->GetActiveTextureUnit());
+                auto& bindingSlot = activeUnit.GetBindingSlot(textureTarget);
+                textureObject = bindingSlot.GetBoundObject();
+            }
+
+            if (!TextureImpl::ValidateTextureObject(textureObject)) {
+                MG_State::pGLContext->RecordError(ErrorCode::InvalidOperation,
+                                                  MakeShared<GenericErrorInfo>("MG_Impl/GLImpl", "GetTexImage_State",
+                                                                               "No valid texture bound to target"));
+                return;
+            }
+
+            // Check texture completeness
+            if (!textureObject->IsComplete()) {
+                MG_State::pGLContext->RecordError(
+                    ErrorCode::InvalidOperation,
+                    MakeShared<GenericErrorInfo>("MG_Impl/GLImpl", "GetTexImage_State", "Texture is incomplete"));
+                return;
+            }
+
+            // Check PBO state
+            const auto& pixelPackBufferObject =
+                MG_State::pGLContext->GetBufferBindingSlot(BufferTarget::PixelPack).GetBoundObject();
+
+            if (pixelPackBufferObject) {
+                // Check if PBO is mapped
+                if (pixelPackBufferObject->IsMapped()) {
+                    MG_State::pGLContext->RecordError(
+                        ErrorCode::InvalidOperation,
+                        MakeShared<GenericErrorInfo>("MG_Impl/GLImpl", "GetTexImage_State",
+                                                     "Pixel pack buffer is currently mapped"));
+                    return;
+                }
+
+                // Check alignment
+                const SizeT typeSize = MG_Util::GetTexturePixelDataTypeSize(texturePixelDataType);
+                if (reinterpret_cast<uintptr_t>(pixels) % typeSize != 0) {
+                    MG_State::pGLContext->RecordError(
+                        ErrorCode::InvalidOperation,
+                        MakeShared<GenericErrorInfo>("MG_Impl/GLImpl", "GetTexImage_State",
+                                                     "Pixel data not aligned for pixel pack buffer"));
+                    return;
+                }
+            }
+
+            // Special case for depth/stencil
+            if (textureInputFormat == TextureInputFormat::StencilIndex) {
+                if (textureObject->GetFormat() != TextureInternalFormat::DepthStencil &&
+                    textureObject->GetFormat() != TextureInternalFormat::Depth24Stencil8 &&
+                    textureObject->GetFormat() != TextureInternalFormat::Depth32FStencil8) {
+                    MG_State::pGLContext->RecordError(
+                        ErrorCode::InvalidOperation,
+                        MakeShared<GenericErrorInfo>("MG_Impl/GLImpl", "GetTexImage_State",
+                                                     "No stencil buffer for stencil index format"));
+                    return;
+                }
+            }
+
+            // Check for multisampling
+            if (textureObject->GetStorageType() == TextureStorageType::Mipmap) {
+                auto mipmapObject = static_cast<MG_State::GLState::TextureObjectMipmap*>(textureObject.get());
+                if (mipmapObject->GetMipmapLevelCount() > 1) {
+                    MG_State::pGLContext->RecordError(
+                        ErrorCode::InvalidOperation,
+                        MakeShared<GenericErrorInfo>("MG_Impl/GLImpl", "GetTexImage_State",
+                                                     "Multisampled textures not supported for GetTexImage"));
+                    return;
+                }
+            }
+        }
+
         /* @INSERTION_POINT:FUNCTION_IMPLEMENTATION@ */
+        void GetTexImage(GLenum target, GLint level, GLenum format, GLenum type, GLvoid* pixels) {
+            GetTexImage_State(target, level, format, type, pixels);
+            GetTexImage_Backend(target, level, format, type, pixels);
+        }
+
         void TexSubImage3D(GLenum target, GLint level, GLint xoffset, GLint yoffset, GLint zoffset, GLsizei width,
                            GLsizei height, GLsizei depth, GLenum format, GLenum type, const void* pixels) {
             TexSubImage3D_State(target, level, xoffset, yoffset, zoffset, width, height, depth, format, type, pixels);
@@ -1473,10 +1598,6 @@ namespace MobileGL {
 
         void GetTexLevelParameterfv(GLenum target, GLint level, GLenum pname, GLfloat* params) {
             GetTexLevelParameterfv_State(target, level, pname, params);
-        }
-
-        void GetTexImage(GLenum target, GLint level, GLenum format, GLenum type, GLvoid* pixels) {
-            GetTexImage_State(target, level, format, type, pixels);
         }
 
         void GetCompressedTexImage(GLenum target, GLint level, void* img) {

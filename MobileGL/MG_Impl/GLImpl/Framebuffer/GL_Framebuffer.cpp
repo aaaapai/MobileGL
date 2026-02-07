@@ -9,6 +9,7 @@
 #include "GL_Framebuffer.h"
 #include "Validators.h"
 #include "Config.h"
+#include <MG_Util/Metrics/TextureMetrics.h>
 #include <MG_Impl/GLImpl/Texture/Validators.h>
 #include <MG_State/GLState/ErrorState/Error.h>
 #include <MG_Util/Converters/GLToStr/GLEnumConverter.h>
@@ -310,10 +311,10 @@ namespace MobileGL {
             // ------------------- Check validity begin ------------------------
             if (attType == FramebufferAttachmentType::Unknown) {
                 MG_State::pGLContext->RecordError(
-                        ErrorCode::InvalidEnum,
-                        MakeShared<GenericErrorInfo>("MG_Impl/GLImpl", __func__,
-                                                     std::format("`mode` = {} is not an accepted value.",
-                                                                 MG_Util::ConvertGLEnumToString(mode))));
+                    ErrorCode::InvalidEnum,
+                    MakeShared<GenericErrorInfo>(
+                        "MG_Impl/GLImpl", __func__,
+                        std::format("`mode` = {} is not an accepted value.", MG_Util::ConvertGLEnumToString(mode))));
                 return;
             }
 
@@ -507,7 +508,142 @@ namespace MobileGL {
 #endif
         }
 
+        void ReadPixels_State(GLint x, GLint y, GLsizei width, GLsizei height, GLenum format, GLenum type,
+                              void* pixels) {
+            TextureInputFormat textureInputFormat = MG_Util::ConvertGLEnumToTextureInputFormat(format);
+            TexturePixelDataType texturePixelDataType = MG_Util::ConvertGLEnumToTexturePixelDataType(type);
+
+            // Check width/height
+            if (width < 0 || height < 0) {
+                MG_State::pGLContext->RecordError(
+                    ErrorCode::InvalidValue, MakeShared<GenericErrorInfo>("MG_Impl/GLImpl", "ReadPixels_State",
+                                                                          "Width and height must be non-negative"));
+                return;
+            }
+
+            // Validate format
+            if (!TextureImpl::ValidateTextureInputFormat(textureInputFormat)) {
+                MG_State::pGLContext->RecordError(
+                    ErrorCode::InvalidEnum,
+                    MakeShared<GenericErrorInfo>("MG_Impl/GLImpl", "ReadPixels_State", "Invalid format"));
+                return;
+            }
+
+            // Validate type
+            if (!TextureImpl::ValidateTexturePixelDataType(texturePixelDataType)) {
+                MG_State::pGLContext->RecordError(
+                    ErrorCode::InvalidEnum,
+                    MakeShared<GenericErrorInfo>("MG_Impl/GLImpl", "ReadPixels_State", "Invalid pixel data type"));
+                return;
+            }
+
+            // Get bound framebuffer
+            auto& bindingSlot = MG_State::pGLContext->GetFramebufferBindingSlot(FramebufferTarget::Read);
+            auto framebufferObject = bindingSlot.GetBoundObject();
+
+            if (!framebufferObject) {
+                MG_State::pGLContext->RecordError(ErrorCode::InvalidOperation,
+                                                  MakeShared<GenericErrorInfo>("MG_Impl/GLImpl", "ReadPixels_State",
+                                                                               "No framebuffer bound to read target"));
+                return;
+            }
+
+            // Check framebuffer completeness
+            if (!framebufferObject->CheckCompleteness()) {
+                MG_State::pGLContext->RecordError(
+                    ErrorCode::InvalidFramebufferOperation,
+                    MakeShared<GenericErrorInfo>("MG_Impl/GLImpl", "ReadPixels_State", "Framebuffer is incomplete"));
+                return;
+            }
+
+            // Check for required buffers
+            if (textureInputFormat == TextureInputFormat::StencilIndex) {
+                if (!framebufferObject->GetAttachment(FramebufferAttachmentType::Stencil).IsValid()) {
+                    MG_State::pGLContext->RecordError(
+                        ErrorCode::InvalidOperation,
+                        MakeShared<GenericErrorInfo>("MG_Impl/GLImpl", "ReadPixels_State",
+                                                     "No stencil buffer for stencil index format"));
+                    return;
+                }
+            } else if (textureInputFormat == TextureInputFormat::DepthComponent) {
+                if (!framebufferObject->GetAttachment(FramebufferAttachmentType::Depth).IsValid()) {
+                    MG_State::pGLContext->RecordError(
+                        ErrorCode::InvalidOperation,
+                        MakeShared<GenericErrorInfo>("MG_Impl/GLImpl", "ReadPixels_State",
+                                                     "No depth buffer for depth component format"));
+                    return;
+                }
+            } else if (textureInputFormat == TextureInputFormat::DepthStencil) {
+                if (!framebufferObject->GetAttachment(FramebufferAttachmentType::Depth).IsValid() ||
+                    !framebufferObject->GetAttachment(FramebufferAttachmentType::Stencil).IsValid()) {
+                    MG_State::pGLContext->RecordError(
+                        ErrorCode::InvalidOperation,
+                        MakeShared<GenericErrorInfo>("MG_Impl/GLImpl", "ReadPixels_State",
+                                                     "No depth/stencil buffer for depth-stencil format"));
+                    return;
+                }
+
+                // Validate type for depth/stencil
+                if (texturePixelDataType != TexturePixelDataType::UnsignedInt248 &&
+                    texturePixelDataType != TexturePixelDataType::Float32UnsignedInt248Rev) {
+                    MG_State::pGLContext->RecordError(
+                        ErrorCode::InvalidEnum, MakeShared<GenericErrorInfo>("MG_Impl/GLImpl", "ReadPixels_State",
+                                                                             "Invalid type for depth-stencil format"));
+                    return;
+                }
+            }
+
+            // Check PBO state
+            const auto& pixelPackBufferObject =
+                MG_State::pGLContext->GetBufferBindingSlot(BufferTarget::PixelPack).GetBoundObject();
+
+            if (pixelPackBufferObject) {
+                // Check if PBO is mapped
+                if (pixelPackBufferObject->IsMapped()) {
+                    MG_State::pGLContext->RecordError(
+                        ErrorCode::InvalidOperation,
+                        MakeShared<GenericErrorInfo>("MG_Impl/GLImpl", "ReadPixels_State",
+                                                     "Pixel pack buffer is currently mapped"));
+                    return;
+                }
+
+                // Check alignment
+                const SizeT typeSize = MG_Util::GetTexturePixelDataTypeSize(texturePixelDataType);
+                if (reinterpret_cast<uintptr_t>(pixels) % typeSize != 0) {
+                    MG_State::pGLContext->RecordError(
+                        ErrorCode::InvalidOperation,
+                        MakeShared<GenericErrorInfo>("MG_Impl/GLImpl", "ReadPixels_State",
+                                                     "Pixel data not aligned for pixel pack buffer"));
+                    return;
+                }
+            }
+
+            // Check multisampling
+            if (framebufferObject->GetAttachment(FramebufferAttachmentType::Color0).IsRenderbuffer()) {
+                auto rbo = framebufferObject->GetAttachment(FramebufferAttachmentType::Color0).GetRenderbuffer();
+                if (rbo && rbo->GetSamples() > 1) {
+                    MG_State::pGLContext->RecordError(
+                        ErrorCode::InvalidOperation,
+                        MakeShared<GenericErrorInfo>("MG_Impl/GLImpl", "ReadPixels_State",
+                                                     "ReadPixels not supported for multisampled framebuffers"));
+                    return;
+                }
+            }
+        }
+
+        void ReadPixels_Backend(GLint x, GLint y, GLsizei width, GLsizei height, GLenum format, GLenum type,
+                                void* pixels) {
+#if MOBILEGL_BACKEND == MOBILEGL_BACKEND_TYPE_DIRECT_GLES
+            MG_Backend::DirectGLES::ReadPixels(x, y, width, height, format, type, pixels);
+#endif
+        }
+
         /* @INSERTION_POINT:FUNCTION_IMPLEMENTATION@ */
+        void ReadPixels(GLint x, GLint y, GLsizei width, GLsizei height, GLenum format, GLenum type, void* pixels) {
+            ReadPixels_State(x, y, width, height, format, type, pixels);
+            ReadPixels_Backend(x, y, width, height, format, type, pixels);
+        }
+
         void ClearBufferfi(GLenum buffer, GLint drawbuffer, GLfloat depth, GLint stencil) {
             ClearBufferfi_Backend(buffer, drawbuffer, depth, stencil);
         }

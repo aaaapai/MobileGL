@@ -12,6 +12,7 @@
 namespace MobileGL {
     namespace MG_Impl::GLImpl {
         /* @INSERTION_POINT:FUNCTION_DECLARATION@ */
+        void GetTexImage(GLenum target, GLint level, GLenum format, GLenum type, GLvoid* pixels);
         void TexSubImage3D(GLenum target, GLint level, GLint xoffset, GLint yoffset, GLint zoffset, GLsizei width,
                            GLsizei height, GLsizei depth, GLenum format, GLenum type, const void* pixels);
         void TexSubImage2D(GLenum target, GLint level, GLint xoffset, GLint yoffset, GLsizei width, GLsizei height,
@@ -43,7 +44,6 @@ namespace MobileGL {
         void GetTexParameterfv(GLenum target, GLenum pname, GLfloat* params);
         void GetTexLevelParameteriv(GLenum target, GLint level, GLenum pname, GLint* params);
         void GetTexLevelParameterfv(GLenum target, GLint level, GLenum pname, GLfloat* params);
-        void GetTexImage(GLenum target, GLint level, GLenum format, GLenum type, GLvoid* pixels);
         void GetCompressedTexImage(GLenum target, GLint level, void* img);
         void GenTextures(GLsizei n, GLuint* textures);
         void DeleteTextures(GLsizei n, const GLuint* textures);
