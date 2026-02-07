@@ -16,33 +16,45 @@
 namespace MobileGL::MG_Backend::DirectGLES {
 
     namespace {
-
-    struct DrawElementsIndirectCommand {
-        GLuint count;
-        GLuint instanceCount;
-        GLuint firstIndex;
-        GLuint baseVertex;
-        GLuint baseInstance;
-    };
-    
-    static auto& GetIndirectBufferState() {
-        struct State {
-            GLuint bufferId = 0;
-            GLsizei capacity = 0;
-            GLuint previousBinding = 0;
+        struct DrawElementsIndirectCommand {
+            GLuint count;
+            GLuint instanceCount;
+            GLuint firstIndex;
+            GLuint baseVertex;
+            GLuint baseInstance;
         };
-        static State s_state;
-        return s_state;
-    }
+
+        static auto& GetIndirectBufferState() {
+           struct State {
+              GLuint bufferId = 0;
+              GLsizei capacity = 0;
+              GLuint previousBinding = 0;
+           };
+           static State s_state;
+           return s_state;
+        }
     
-    void InitializeIndirectBuffer() {
-        static std::once_flag onceFlag;
-        std::call_once(onceFlag, [] {
-            auto& state = GetIndirectBufferState();
-            if (state.bufferId == 0) {
-                MG_External::GLES::glGenBuffers(1, &state.bufferId);
-            }
-        });
+        
+        void InitializeIndirectBuffer() {
+          static std::once_flag onceFlag;
+          std::call_once(onceFlag, [] {
+              auto& state = GetIndirectBufferState();
+              if (state.bufferId == 0) {
+                  MG_External::GLES::glGenBuffers(1, &state.bufferId);
+              }
+          });
+        }
+        
+    constexpr GLsizei NextPowerOfTwo(GLsizei n) noexcept {
+        auto un = static_cast<GLuint>(n);
+        un--;
+        un |= un >> 1;
+        un |= un >> 2;
+        un |= un >> 4;
+        un |= un >> 8;
+        un |= un >> 16;
+        un++;
+        return static_cast<GLsizei>(un);
     }
     
     void EnsureIndirectBufferCapacity(GLsizei requiredSize) {
@@ -54,9 +66,13 @@ namespace MobileGL::MG_Backend::DirectGLES {
             return;
         }
         
-        GLsizei newCapacity = std::bit_ceil(static_cast<GLsizei>(
-            std::max(16, static_cast<int>(requiredSize))
-        ));
+        // 计算下一个2的幂
+        GLsizei newCapacity = requiredSize;
+        if (newCapacity < 16) {
+            newCapacity = 16;
+        } else {
+            newCapacity = NextPowerOfTwo(newCapacity);
+        }
         
         MG_External::GLES::glBindBuffer(GL_DRAW_INDIRECT_BUFFER, state.bufferId);
         MG_External::GLES::glBufferData(GL_DRAW_INDIRECT_BUFFER,
@@ -65,92 +81,101 @@ namespace MobileGL::MG_Backend::DirectGLES {
         
         state.capacity = newCapacity;
     }
-    
-    void SaveAndBindIndirectBuffer() {
-        auto& state = GetIndirectBufferState();
-        MG_External::GLES::glGetIntegerv(GL_DRAW_INDIRECT_BUFFER_BINDING, 
+        
+        void SaveAndBindIndirectBuffer() {
+          auto& state = GetIndirectBufferState();
+          MG_External::GLES::glGetIntegerv(GL_DRAW_INDIRECT_BUFFER_BINDING, 
             reinterpret_cast<GLint*>(&state.previousBinding));
-        MG_External::GLES::glBindBuffer(GL_DRAW_INDIRECT_BUFFER, state.bufferId);
-    }
+          MG_External::GLES::glBindBuffer(GL_DRAW_INDIRECT_BUFFER, state.bufferId);
+        }
     
     void RestoreIndirectBuffer() {
         auto& state = GetIndirectBufferState();
         MG_External::GLES::glBindBuffer(GL_DRAW_INDIRECT_BUFFER, state.previousBinding);
     }
 
-constexpr GLsizei GetElementSizeConstexpr(GLenum type) noexcept {
-    switch (type) {
-        case GL_UNSIGNED_BYTE: return 1;
-        case GL_UNSIGNED_SHORT: return 2;
-        case GL_UNSIGNED_INT: return 4;
-        default: return 4;
     }
-}
 
-inline GLsizei GetElementSize(GLenum type) noexcept {
-    if consteval {
-        return GetElementSizeConstexpr(type);
-    }
-    
-    switch (type) {
-        case GL_UNSIGNED_BYTE: return 1;
-        case GL_UNSIGNED_SHORT: return 2;
-        case GL_UNSIGNED_INT: return 4;
-        default: return 4;
-    }
-}
-
-void MultiDrawElementsBaseVertex_indirect(GLenum mode, const GLsizei* count, GLenum type, 
-                                 const GLvoid* const* indices, GLsizei drawcount, 
-                                 const GLint* basevertex) {
+    void MultiDrawElementsBaseVertex_indirect(GLenum mode, const GLsizei* count, GLenum type, 
+                                     const GLvoid* const* indices, GLsizei drawcount, 
+                                     const GLint* basevertex) {
 #if MOBILEGL_LOG_ACTIVE_LEVEL <= MOBILEGL_LOG_LEVEL_DEBUG && MOBILEGL_ENABLE_SCOPE_MARKER
-    DebugImpl::OpenGLScopeMarker marker(__func__);
+        DebugImpl::OpenGLScopeMarker marker(__func__);
 #endif
-    
-    DrawSyncBit syncBit = DrawSyncBit::IndexBuffer | DrawSyncBit::IndirectBuffer;
-    PrepareForDraw(syncBit);
-    
-    const GLsizei elementSize = GetElementSize(type);
-    
-    auto commands_view = std::views::iota(0, drawcount) | 
-                       std::views::transform([&](GLsizei i) {
-                           uintptr_t offset = indices && indices[i] ? 
-                               reinterpret_cast<uintptr_t>(indices[i]) : 0;
-                           return DrawElementsIndirectCommand{
-                               .count = static_cast<GLuint>(count[i]),
-                               .instanceCount = 1,
-                               .firstIndex = static_cast<GLuint>(offset / elementSize),
-                               .baseVertex = basevertex ? static_cast<GLuint>(basevertex[i]) : 0,
-                               .baseInstance = 0
-                           };
-                       });
-    
-    std::vector<DrawElementsIndirectCommand> commands;
-    if constexpr (requires { std::ranges::to<std::vector<DrawElementsIndirectCommand>>(); }) {
-        commands = commands_view | std::ranges::to<std::vector<DrawElementsIndirectCommand>>();
-    } else {
-        commands.reserve(drawcount);
-        for (auto&& cmd : commands_view) {
-            commands.push_back(std::move(cmd));
+        
+        DrawSyncBit syncBit = DrawSyncBit::IndexBuffer | DrawSyncBit::IndirectBuffer;
+        PrepareForDraw(syncBit);
+        
+        GLsizei elementSize = 4;
+        switch (type) {
+            case GL_UNSIGNED_BYTE:
+                elementSize = 1;
+                break;
+            case GL_UNSIGNED_SHORT:
+                elementSize = 2;
+                break;
+            case GL_UNSIGNED_INT:
+                elementSize = 4;
+                break;
+            default:
+                MGLOG_E("Unsupported index type: 0x%x", type);
+                return;
         }
+        
+        //Vector<DrawElementsIndirectCommand> commands(drawcount);
+        static thread_local Vector<DrawElementsIndirectCommand> commands;
+         commands.clear();
+         commands.reserve(drawcount);
+        
+    [[assume(drawcount >= 0)]];
+    
+    const bool hasIndices = indices != nullptr;
+    const bool hasBaseVertex = basevertex != nullptr;
+    
+    for (GLsizei i = 0; i < drawcount; ++i) {
+        DrawElementsIndirectCommand cmd{
+            .count = static_cast<GLuint>(count[i]),
+            .instanceCount = 1,
+            .baseInstance = 0
+        };
+        
+        if (hasIndices && indices[i]) {
+            // 使用预计算的倒数进行乘法替代除法
+            uintptr_t offset = reinterpret_cast<uintptr_t>(indices[i]);
+            if (elementSizeReciprocal > 0) {
+                cmd.firstIndex = static_cast<GLuint>((offset * elementSizeReciprocal) >> 20);
+            } else {
+                cmd.firstIndex = static_cast<GLuint>(offset / elementSize);
+            }
+        } else {
+            cmd.firstIndex = 0;
+        }
+        
+        cmd.baseVertex = hasBaseVertex ? static_cast<GLuint>(basevertex[i]) : 0;
+        commands.push_back(cmd);
     }
     
     EnsureIndirectBufferCapacity(drawcount);
     SaveAndBindIndirectBuffer();
     
-    MG_External::GLES::glBufferSubData(GL_DRAW_INDIRECT_BUFFER,
-        0, 
-        drawcount * sizeof(DrawElementsIndirectCommand),
-        commands.data());
+    // 使用memcpy风格的数据传输
+    if (!commands.empty()) {
+        MG_External::GLES::glBufferSubData(GL_DRAW_INDIRECT_BUFFER,
+            0, 
+            commands.size() * sizeof(DrawElementsIndirectCommand),
+            commands.data());
+    }
     
+    // 批量绘制优化
+    constexpr GLsizeiptr stride = sizeof(DrawElementsIndirectCommand);
     for (GLsizei i = 0; i < drawcount; ++i) {
-        const void* offset = reinterpret_cast<const void*>(
-            i * sizeof(DrawElementsIndirectCommand));
+        const void* offset = reinterpret_cast<const void*>(i * stride);
         MG_External::GLES::glDrawElementsIndirect(mode, type, offset);
     }
     
-    RestoreIndirectBuffer();
-}
+      RestoreIndirectBuffer();
+
+    }
   
     class ComputeShaderManager {
 private:
