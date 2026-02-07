@@ -30,9 +30,9 @@ This project is intended as an implementation/translation layer.
 
 The repository is organized into following top-level modules:
 
-1. **MG_State** — OpenGL state tracking and state-management logic.
-2. **MG_Impl** — front-end OpenGL API implementations that interact with `MG_State` and `MG_Backend`.
-3. **MG_Backend** — per-backend translation layer that maps front-end OpenGL semantics and state into concrete backend API calls (e.g. OpenGL ES, Vulkan).
+1. **MG_State** — state tracking and management logic for Graphics APIs.
+2. **MG_Impl** — front-end implementations of Graphics APIs that interact with `MG_State` and `MG_Backend`.
+3. **MG_Backend** — per-backend translation layer that maps front-end Graphics APIs' semantics and state into concrete backend API calls (e.g. OpenGL ES, Vulkan).
 4. **MG_Util** and other utility modules.
 
 ## Third-party components
