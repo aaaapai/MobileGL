@@ -25,6 +25,7 @@
 #include <MG_Util/Converters/MGToGL/TextureEnumConverter.h>
 #include <MG_Util/Converters/MGToStr/TextureEnumConverter.h>
 #include <MG_Util/Converters/MGToGL/RenderStateEnumConverter.h>
+#include <MG_Util/Texture/PixelStoreProcessor.h>
 
 namespace MobileGL::MG_Backend::DirectGLES {
     enum class DrawSyncBit : Uint32 {
@@ -1322,18 +1323,27 @@ namespace MobileGL::MG_Backend::DirectGLES {
     }
 
     void GetTexImage(GLenum target, GLint level, GLenum format, GLenum type, void* pixels) {
+        DebugImpl::ErrorLopper errorLopper;
         MGLOG_D("GetTexImage: target=%s level=%d format=%s type=%s pixels=%p",
                 MG_Util::ConvertGLEnumToString(target).c_str(), level, MG_Util::ConvertGLEnumToString(format).c_str(),
                 MG_Util::ConvertGLEnumToString(type).c_str(), pixels);
 
-        MOBILEGL_ASSERT(format == GL_RGBA || format == GL_RGBA_INTEGER,
-                        "Only GL_RGBA and GL_RGBA_INTEGER are supported currently, while requested %s.",
+        MOBILEGL_ASSERT(format == GL_RGBA || format == GL_RGBA_INTEGER || format == GL_BGRA,
+                        "Only GL_RGBA, GL_RGBA_INTEGER and GL_BGRA are supported currently, while requested %s.",
                         MG_Util::ConvertGLEnumToString(format).c_str());
         MOBILEGL_ASSERT(type == GL_UNSIGNED_BYTE || type == GL_UNSIGNED_INT || type == GL_UNSIGNED_INT_2_10_10_10_REV ||
-                            type == GL_INT || type == GL_FLOAT,
+                            type == GL_INT || type == GL_FLOAT ||
+                            type == GL_UNSIGNED_INT_8_8_8_8 || type == GL_UNSIGNED_INT_8_8_8_8_REV,
                         "Only GL_UNSIGNED_BYTE, GL_UNSIGNED_INT, GL_UNSIGNED_INT_2_10_10_10_REV, "
-                        "GL_INT and GL_FLOAT are supported currently, while requested %s.",
+                        "GL_INT, GL_FLOAT, GL_UNSIGNED_INT_8_8_8_8 and GL_UNSIGNED_INT_8_8_8_8_REV "
+                        "are supported currently, while requested %s.",
                         MG_Util::ConvertGLEnumToString(type).c_str());
+
+        GLenum esFormat = format, esType = type;
+        if (esFormat == GL_BGRA)
+            esFormat = GL_RGBA;
+        if (esType == GL_UNSIGNED_INT_8_8_8_8 || esType == GL_UNSIGNED_INT_8_8_8_8_REV)
+            esType = GL_UNSIGNED_BYTE;
 
         MGLOG_D("GetTexImage: SyncNeccessaryTextures()");
         TextureImpl::SyncNeccessaryTextures();
@@ -1380,14 +1390,21 @@ namespace MobileGL::MG_Backend::DirectGLES {
             return;
         }
 
+        errorLopper.Loop([file = __FILE__, line = __LINE__](auto err) {
+            MGLOG_D("ES error (%s:%d): %s", file, line, MG_Util::ConvertGLEnumToString(err).c_str());
+        });
+
         MGLOG_D("GetTexImage: Applying TempPixelStoreParameterSync (PACK)");
         TempPixelStoreParameterSync tempPackParamsSync(false);
+
+        errorLopper.Loop([file = __FILE__, line = __LINE__](auto err) {
+            MGLOG_D("ES error (%s:%d): %s", file, line, MG_Util::ConvertGLEnumToString(err).c_str());
+        });
 
         const auto& storageType = textureObject->GetStorageType();
         MGLOG_D("GetTexImage: texture storage type = %d", (int)storageType);
 
         if (storageType == TextureStorageType::Buffer) {
-            MGLOG_E("GetTexImage: Texture storage type Buffer is not supported.");
             MGLOG_E("GetTexImage: Texture storage type Buffer is not supported.");
             return;
         }
@@ -1432,8 +1449,17 @@ namespace MobileGL::MG_Backend::DirectGLES {
             usePBO = false;
             MGLOG_D("GetTexImage: Not using PBO");
         }
-        MGLOG_D("GetTexImage: glReadPixels()");
-        MG_External::GLES::glReadPixels(0, 0, size.x(), size.y(), format, type, pixels);
+
+        errorLopper.Loop([file = __FILE__, line = __LINE__](auto err) {
+            MGLOG_D("ES error (%s:%d): %s", file, line, MG_Util::ConvertGLEnumToString(err).c_str());
+        });
+        MGLOG_D("GetTexImage: glReadPixels(0, 0, %d, %d, %s, %s, %p)", size.x(), size.y(),
+                MG_Util::ConvertGLEnumToString(esFormat).c_str(), MG_Util::ConvertGLEnumToString(esType).c_str(), pixels);
+        MG_External::GLES::glReadPixels(0, 0, size.x(), size.y(), esFormat, esType, pixels);
+
+        errorLopper.Loop([file = __FILE__, line = __LINE__](auto err) {
+            MGLOG_D("ES error (%s:%d): %s", file, line, MG_Util::ConvertGLEnumToString(err).c_str());
+        });
         if (usePBO) {
             // pull back to client memory if PBO is used
             MGLOG_D("ReadPixels: PBO used, mapping buffer to client memory");
@@ -1448,12 +1474,20 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 MG_External::GLES::glUnmapBuffer(GL_PIXEL_PACK_BUFFER);
             } else {
                 MGLOG_E("ReadPixels: glMapBufferRange returned nullptr");
-                MGLOG_E("ReadPixels: glMapBufferRange returned nullptr");
             }
             MGLOG_D("ReadPixels: Restoring previous pixel pack buffer binding %u", prevPixelPackBuffer);
 
             MG_External::GLES::glBindBuffer(GL_PIXEL_PACK_BUFFER, prevPixelPackBuffer);
+        } else {
+            if (esFormat == GL_RGBA && format == GL_BGRA && esType == GL_UNSIGNED_BYTE && type == GL_UNSIGNED_INT_8_8_8_8_REV) {
+                MGLOG_D("ReadPixels: ProcessColorSwizzle BGRA (not implemented)");
+
+            }
         }
+
+        errorLopper.Loop([file = __FILE__, line = __LINE__](auto err) {
+            MGLOG_D("ES error (%s:%d): %s", file, line, MG_Util::ConvertGLEnumToString(err).c_str());
+        });
         MGLOG_D("GetTexImage: finished");
     }
 
