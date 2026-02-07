@@ -41,5 +41,6 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         void CreateSwapchainInternal();
         void CreateImageViews();
         void DestroyImageViews();
+        VkPresentModeKHR QueryPossiblePresentMode();
     };
 } // namespace MobileGL::MG_Backend::DirectVulkan

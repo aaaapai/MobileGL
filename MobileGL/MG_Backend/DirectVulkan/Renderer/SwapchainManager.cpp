@@ -47,6 +47,29 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         Framebuffers = std::move(fbs);
     }
 
+    VkPresentModeKHR SwapchainManager::QueryPossiblePresentMode() {
+        const auto& surface = Ctx.GetSurface();
+        const auto& phys = Ctx.GetPhysicalDevice();
+        Uint32 modeCount;
+        vkGetPhysicalDeviceSurfacePresentModesKHR(phys, surface, &modeCount, NULL);
+
+        Vector<VkPresentModeKHR> modes(modeCount);
+        vkGetPhysicalDeviceSurfacePresentModesKHR(phys, surface, &modeCount, modes.data());
+        VkPresentModeKHR presentMode = VK_PRESENT_MODE_FIFO_KHR;
+
+        for (auto m : modes) {
+            if (m == VK_PRESENT_MODE_MAILBOX_KHR) {
+                presentMode = m;
+                break;
+            }
+            if (m == VK_PRESENT_MODE_IMMEDIATE_KHR) {
+                presentMode = m;
+            }
+        }
+
+        return presentMode;
+    }
+
     void SwapchainManager::CreateSwapchainInternal() {
         VkSurfaceCapabilitiesKHR caps;
         ThrowIfFailed(vkGetPhysicalDeviceSurfaceCapabilitiesKHR(Ctx.GetPhysicalDevice(), Ctx.GetSurface(), &caps),
@@ -66,7 +89,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         sci.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
         sci.preTransform = caps.currentTransform;
         sci.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
-        sci.presentMode = VK_PRESENT_MODE_FIFO_KHR;
+        sci.presentMode = QueryPossiblePresentMode();
 
         ThrowIfFailed(vkCreateSwapchainKHR(Ctx.GetDevice(), &sci, nullptr, &Swapchain), "vkCreateSwapchainKHR");
 
