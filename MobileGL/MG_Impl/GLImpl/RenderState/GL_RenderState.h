@@ -12,6 +12,9 @@
 namespace MobileGL {
     namespace MG_Impl::GLImpl {
         /* @INSERTION_POINT:FUNCTION_DECLARATION@ */
+        void BlendFuncSeparatei(GLuint buf, GLenum srcRGB, GLenum dstRGB, GLenum srcAlpha, GLenum dstAlpha);
+        void Disablei(GLenum target, GLuint index);
+        void Enablei(GLenum target, GLuint index);
         void BlendFunc(GLenum sfactor, GLenum dfactor);
         void Viewport(GLint x, GLint y, GLsizei width, GLsizei height);
         void StencilOpSeparate(GLenum face, GLenum sfail, GLenum dpfail, GLenum dppass);
@@ -45,7 +48,6 @@ namespace MobileGL {
         void BlendFuncSeparate(GLenum sfactorRGB, GLenum dfactorRGB, GLenum sfactorAlpha, GLenum dfactorAlpha);
         void BlendEquation(GLenum mode);
         void BlendColor(GLfloat red, GLfloat green, GLfloat blue, GLfloat alpha);
-        void ReadBuffer(GLenum src);
         void ClearStencil(GLint s);
         void ClearDepth(GLclampd depth);
         void ClearColor(GLfloat red, GLfloat green, GLfloat blue, GLfloat alpha);

@@ -8,6 +8,8 @@
 
 #pragma once
 #include <Includes.h>
+#include <MG_State/GLState/TextureState/TextureState.h>
+#include <MG_State/GLState/SamplerState/SamplerObject.h>
 
 #define CallAndCheck(operation)                                                                                        \
     MGLOG_D("Call GLES func: %s", #operation);                                                                         \
@@ -51,4 +53,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
                            GLsizei height);
     void GenerateMipmap(GLenum target);
     const GLubyte* GetString(GLenum name);
+    void ReadPixels(GLint x, GLint y, GLsizei width, GLsizei height, GLenum format, GLenum type, void* pixels);
+    void GetTexImage(GLenum target, GLint level, GLenum format, GLenum type, GLvoid* pixels);
+
 } // namespace MobileGL::MG_Backend::DirectGLES

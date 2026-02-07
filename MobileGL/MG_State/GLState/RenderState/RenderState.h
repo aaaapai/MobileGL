@@ -7,9 +7,9 @@
 // End of Source File Header
 
 #pragma once
-#include "MG_Util/Math/VectorTypes.h"
-#include "MG_Util/Types.h"
 #include <Includes.h>
+#include <MG_Util/Math/VectorTypes.h>
+#include <MG_State/GLState/FramebufferState/FramebufferObject.h>
 
 namespace MobileGL {
     enum class BlendFactor {
@@ -53,7 +53,7 @@ namespace MobileGL {
         PackSkipPixels,
         PackSkipImages,
         PackSwapBytes,
-        PackLsbFirst,
+        PackLSBFirst,
 
         // Unpack Parameters
         UnpackAlignment,
@@ -63,7 +63,7 @@ namespace MobileGL {
         UnpackSkipPixels,
         UnpackSkipImages,
         UnpackSwapBytes,
-        UnpackLsbFirst,
+        UnpackLSBFirst,
 
         PixelStoreParamCount,
         Unknown = -1
@@ -128,11 +128,50 @@ namespace MobileGL {
         Int Alignment = 4;
     };
 
+    struct PerBufferBlendState {
+        Bool Enabled = false;
+        BlendFactor SrcFactorRGB = BlendFactor::One;
+        BlendFactor DstFactorRGB = BlendFactor::Zero;
+        BlendFactor SrcFactorAlpha = BlendFactor::One;
+        BlendFactor DstFactorAlpha = BlendFactor::Zero;
+    };
+
+    struct RenderStateParameters {
+        // Rasterization
+        IntVec4 Viewport = IntVec4(0, 0, 0, 0); // x, y, width, height
+
+        // Blending
+        Array<PerBufferBlendState, MG_State::GLState::FramebufferObject::MAX_DRAW_BUFFERS> BlendStates;
+
+        // Depth
+        Bool DepthTestEnabled = false;
+        DepthTestFunc DepthFunc = DepthTestFunc::Less;
+        Bool DepthMask = true;
+
+        // Color Mask
+        BoolVec4 ColorMask = BoolVec4(true, true, true, true);
+
+        // Clear State
+        FloatVec4 ClearColor = FloatVec4(0.0f, 0.0f, 0.0f, 1.0f);
+        Float ClearDepth = 1.0f;
+
+        // Cull Face
+        Bool CullFaceEnabled = false;
+        CullFaceMode CullFaceModeSetting = CullFaceMode::Back;
+
+        // Scissor
+        Bool ScissorTestEnabled = false;
+        IntVec4 ScissorBox = IntVec4(0, 0, 0, 0); // x, y, width, height
+    };
+
     namespace MG_State {
         namespace GLState {
             class RenderState {
             public:
                 RenderState();
+
+                Uint GetVersion() const;
+                const RenderStateParameters& GetAllParameters() const;
 
                 // Rasterization
                 void SetViewport(IntVec4 viewport); // x, y, width, height
@@ -141,11 +180,17 @@ namespace MobileGL {
                 // Capabilities
                 void SetCapability(CapabilityInput cap, Bool enabled);
                 Bool IsCapabilityEnabled(CapabilityInput cap) const;
+                void SetCapabilityIndexed(CapabilityInput cap, Uint index, Bool enabled);
+                Bool IsCapabilityEnabledIndexed(CapabilityInput cap, Uint index) const;
 
                 // Blending
                 void SetBlendFunc(BlendFactor srcRGB, BlendFactor dstRGB, BlendFactor srcAlpha, BlendFactor dstAlpha);
                 void GetBlendFunc(BlendFactor& srcRGB, BlendFactor& dstRGB, BlendFactor& srcAlpha,
                                   BlendFactor& dstAlpha) const;
+                void SetBlendFuncIndexed(Uint index, BlendFactor srcRGB, BlendFactor dstRGB, BlendFactor srcAlpha,
+                                         BlendFactor dstAlpha);
+                void GetBlendFuncIndexed(Uint index, BlendFactor& srcRGB, BlendFactor& dstRGB, BlendFactor& srcAlpha,
+                                         BlendFactor& dstAlpha) const;
 
                 // Depth
                 void SetDepthFunc(DepthTestFunc func);
@@ -177,39 +222,12 @@ namespace MobileGL {
                 const IntVec4& GetScissorBox() const; // x, y, width, height
 
             private:
-                // Rasterization
-                IntVec4 m_viewport = IntVec4(0, 0, 0, 0); // x, y, width, height
-
-                // Blending
-                Bool m_blendEnabled = false;
-                BlendFactor m_srcFactorRGB = BlendFactor::One;
-                BlendFactor m_dstFactorRGB = BlendFactor::Zero;
-                BlendFactor m_srcFactorAlpha = BlendFactor::One;
-                BlendFactor m_dstFactorAlpha = BlendFactor::Zero;
-
-                // Depth
-                Bool m_depthTestEnabled = false;
-                DepthTestFunc m_depthFunc = DepthTestFunc::Less;
-                Bool m_depthMask = true;
-
-                // Color Mask
-                BoolVec4 m_colorMask = BoolVec4(true, true, true, true);
-
-                // Clear State
-                FloatVec4 m_clearColor = FloatVec4(0.0f, 0.0f, 0.0f, 1.0f);
-                Float m_clearDepth = 1.0f;
+                Uint16 m_version = 0;
+                RenderStateParameters m_parameters;
 
                 // Pixel Store
-                PixelStoreParameters m_packParameters;
-                PixelStoreParameters m_unpackParameters;
-
-                // Cull Face
-                Bool m_cullFaceEnabled = false;
-                CullFaceMode m_cullFaceMode = CullFaceMode::Back;
-
-                // Scissor
-                Bool m_scissorTestEnabled = false;
-                IntVec4 m_scissorBox = IntVec4(0, 0, 0, 0); // x, y, width, height
+                PixelStoreParameters m_pixelStorePackParameters;
+                PixelStoreParameters m_pixelStoreUnpackParameters;
             };
         } // namespace GLState
     } // namespace MG_State

@@ -574,6 +574,7 @@ namespace MobileGL {
             return MapBuffer_State(target, access);
         }
 
+        // FIXME: this should be a "backend" function
         void CopyBufferSubData(GLenum readTarget, GLenum writeTarget, GLintptr readOffset, GLintptr writeOffset,
                                GLsizeiptr size) {
             CopyBufferSubData_State(readTarget, writeTarget, readOffset, writeOffset, size);

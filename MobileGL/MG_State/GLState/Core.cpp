@@ -220,6 +220,14 @@ namespace MobileGL {
             }
 
             // RenderState
+            Uint GLContext::GetRenderStateParametersVersion() const {
+                return m_renderState.GetVersion();
+            }
+
+            const RenderStateParameters& GLContext::GetRenderStateParameters() const {
+                return m_renderState.GetAllParameters();
+            }
+
             void GLContext::SetViewport(IntVec4 viewport) {
                 m_renderState.SetViewport(viewport);
             }
@@ -236,6 +244,14 @@ namespace MobileGL {
                 return m_renderState.IsCapabilityEnabled(cap);
             }
 
+            void GLContext::SetCapabilityIndexed(CapabilityInput cap, Uint index, Bool enabled) {
+                m_renderState.SetCapabilityIndexed(cap, index, enabled);
+            }
+
+            Bool GLContext::IsCapabilityEnabledIndexed(CapabilityInput cap, Uint index) const {
+                return m_renderState.IsCapabilityEnabledIndexed(cap, index);
+            }
+
             void GLContext::SetBlendFunc(BlendFactor srcRGB, BlendFactor dstRGB, BlendFactor srcAlpha,
                                          BlendFactor dstAlpha) {
                 m_renderState.SetBlendFunc(srcRGB, dstRGB, srcAlpha, dstAlpha);
@@ -244,6 +260,16 @@ namespace MobileGL {
             void GLContext::GetBlendFunc(BlendFactor& srcRGB, BlendFactor& dstRGB, BlendFactor& srcAlpha,
                                          BlendFactor& dstAlpha) const {
                 m_renderState.GetBlendFunc(srcRGB, dstRGB, srcAlpha, dstAlpha);
+            }
+
+            void GLContext::SetBlendFuncIndexed(Uint index, BlendFactor srcRGB, BlendFactor dstRGB,
+                                                BlendFactor srcAlpha, BlendFactor dstAlpha) {
+                m_renderState.SetBlendFuncIndexed(index, srcRGB, dstRGB, srcAlpha, dstAlpha);
+            }
+
+            void GLContext::GetBlendFuncIndexed(Uint index, BlendFactor& srcRGB, BlendFactor& dstRGB,
+                                                BlendFactor& srcAlpha, BlendFactor& dstAlpha) const {
+                m_renderState.GetBlendFuncIndexed(index, srcRGB, dstRGB, srcAlpha, dstAlpha);
             }
 
             void GLContext::SetDepthFunc(DepthTestFunc func) {

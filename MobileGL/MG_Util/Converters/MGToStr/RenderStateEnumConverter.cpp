@@ -84,8 +84,8 @@ namespace MobileGL {
                 return "PackSkipImages";
             case PixelStoreParam::PackSwapBytes:
                 return "PackSwapBytes";
-            case PixelStoreParam::PackLsbFirst:
-                return "PackLsbFirst";
+            case PixelStoreParam::PackLSBFirst:
+                return "PackLSBFirst";
             case PixelStoreParam::UnpackAlignment:
                 return "UnpackAlignment";
             case PixelStoreParam::UnpackRowLength:
@@ -100,8 +100,8 @@ namespace MobileGL {
                 return "UnpackSkipImages";
             case PixelStoreParam::UnpackSwapBytes:
                 return "UnpackSwapBytes";
-            case PixelStoreParam::UnpackLsbFirst:
-                return "UnpackLsbFirst";
+            case PixelStoreParam::UnpackLSBFirst:
+                return "UnpackLSBFirst";
             default:
                 return "Unknown";
             }

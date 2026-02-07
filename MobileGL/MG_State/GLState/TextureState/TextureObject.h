@@ -41,6 +41,7 @@ namespace MobileGL {
                 virtual const UintVec2& GetLevelRange() const = 0;
                 virtual void SetBaseLevel(Uint baseLevel) = 0;
                 virtual void SetMaxLevel(Uint maxLevel) = 0;
+                virtual Uint16 GetTextureParamsVersion() const = 0;
 
             protected:
                 virtual Uint GetIndexOfTextureUploadTarget(TextureUploadTarget target) const = 0;
@@ -67,7 +68,7 @@ namespace MobileGL {
                 const UintVec2& GetLevelRange() const override;
                 void SetBaseLevel(Uint baseLevel) override;
                 void SetMaxLevel(Uint maxLevel) override;
-
+                Uint16 GetTextureParamsVersion() const override;
             protected:
                 const Uint m_externalIndex;
                 const TextureTarget m_target = TextureTarget::Unknown;
@@ -77,6 +78,7 @@ namespace MobileGL {
                 Vec4<TextureSwizzleParam> m_swizzleParams = {TextureSwizzleParam::Red, TextureSwizzleParam::Green,
                                                              TextureSwizzleParam::Blue, TextureSwizzleParam::Alpha};
                 UintVec2 m_levelRange = {0, 1000};
+                Uint16 m_textureParamsVersion = 0;
             };
 
             class TextureObjectMipmap : public TextureObjectBase {
@@ -92,8 +94,9 @@ namespace MobileGL {
                 virtual void AllocateStorage(TextureUploadTarget uploadTarget, Uint mipmapLevel, MipmapInput input) = 0;
                 virtual void UpdateMipmapSubData(TextureUploadTarget uploadTarget, Uint mipmapLevel, DataPtr input) = 0;
                 virtual void* MapMipmapData(TextureUploadTarget uploadTarget, Uint mipmapLevel) = 0;
-                virtual void MarkStorageDirty(TextureUploadTarget uploadTarget, Uint mipmapLevel, bool dirty) = 0;
-                virtual bool IsStorageDirty(TextureUploadTarget uploadTarget, Uint mipmapLevel) const = 0;
+                virtual void MarkStorageDirty(TextureUploadTarget uploadTarget, Uint mipmapLevel,
+                                              Bool dirty = true) = 0;
+                virtual Bool IsStorageDirty(TextureUploadTarget uploadTarget, Uint mipmapLevel) const = 0;
             };
 
             class TextureObjectWithOneMipmap : public TextureObjectMipmap {
@@ -108,7 +111,7 @@ namespace MobileGL {
                 void AllocateStorage(TextureUploadTarget uploadTarget, Uint mipmapLevel, MipmapInput input) override;
                 void UpdateMipmapSubData(TextureUploadTarget uploadTarget, Uint mipmapLevel, DataPtr input) override;
                 void* MapMipmapData(TextureUploadTarget uploadTarget, Uint mipmapLevel) override;
-                void MarkStorageDirty(TextureUploadTarget uploadTarget, Uint mipmapLevel, bool dirty) override;
+                void MarkStorageDirty(TextureUploadTarget uploadTarget, Uint mipmapLevel, Bool dirty) override;
                 bool IsStorageDirty(TextureUploadTarget uploadTarget, Uint mipmapLevel) const override;
 
                 IntVec3 GetBaseSize() const override;

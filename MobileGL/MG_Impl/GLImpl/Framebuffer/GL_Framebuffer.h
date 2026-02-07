@@ -14,6 +14,7 @@
 namespace MobileGL {
     namespace MG_Impl::GLImpl {
         /* @INSERTION_POINT:FUNCTION_DECLARATION@ */
+        void ReadPixels(GLint x, GLint y, GLsizei width, GLsizei height, GLenum format, GLenum type, void* pixels);
         void ClearBufferfi(GLenum buffer, GLint drawbuffer, GLfloat depth, GLint stencil);
         void ClearBufferfv(GLenum buffer, GLint drawbuffer, const GLfloat* value);
         void ClearBufferuiv(GLenum buffer, GLint drawbuffer, const GLuint* value);
@@ -46,6 +47,7 @@ namespace MobileGL {
         void FramebufferRenderbuffer(GLenum target, GLenum attachment, GLenum renderbuffertarget, GLuint renderbuffer);
         void DrawBuffer(GLenum buf);
         void DrawBuffers(GLsizei n, const GLenum* bufs);
+        void ReadBuffer(GLenum src);
         void DeleteRenderbuffers(GLsizei n, const GLuint* renderbuffers);
         void DeleteFramebuffers(GLsizei n, const GLuint* framebuffers);
         GLenum CheckFramebufferStatus(GLenum target);

@@ -15,5 +15,7 @@ namespace MobileGL {
         TextureTarget ConvertTextureUploadTargetToTextureTarget(TextureUploadTarget target);
         TextureInternalFormat ConvertInternalFormatToSized(TextureInternalFormat internalformat,
                                                            TextureInputFormat format, TexturePixelDataType type);
+        TextureInternalFormat ConvertInternalFormatToUnsized(TextureInternalFormat internalformat);
+
     } // namespace MG_Util
 } // namespace MobileGL
