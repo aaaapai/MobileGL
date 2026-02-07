@@ -92,12 +92,29 @@ jobs:
 
       - name: Test
         working-directory: ${{env.TEST_ROOT}}/build-ci/MobileGL/MG_Test
+        continue-on-error: true
         run: |
           if [ "${{ secrets.ACTIONS_STEP_DEBUG }}" == "true" ]; then
             ctest -V
           else
             ctest
           fi
+          echo "CTEST_EXIT=$?" >> $GITHUB_ENV
+
+      - name: Rerun failed tests with output
+        if: always()
+        working-directory: ${{env.TEST_ROOT}}/build-ci/MobileGL/MG_Test
+        run: |
+          ctest --rerun-failed --output-on-failure || true
+
+      - name: Show LastTest.log
+        if: always()
+        run: |
+          cat "${{env.TEST_ROOT}}/build-ci/MobileGL/MG_Test/Testing/Temporary/LastTest.log" || true
+
+      - name: Fail if tests failed
+        if: ${{ env.CTEST_EXIT != '' && env.CTEST_EXIT != '0' }}
+        run: exit ${{ env.CTEST_EXIT }}
 
   benchmark:
     runs-on: ubuntu-latest
