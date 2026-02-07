@@ -121,6 +121,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 MGLOG_E("Unsupported index type: 0x%x", type);
                 return;
         }
+        const GLsizei elementSizeReciprocal = elementSize > 0 ? (1 << 20) / elementSize : 0;
         
         //Vector<DrawElementsIndirectCommand> commands(drawcount);
         static thread_local Vector<DrawElementsIndirectCommand> commands;
