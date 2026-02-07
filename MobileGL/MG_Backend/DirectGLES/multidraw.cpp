@@ -137,6 +137,8 @@ namespace MobileGL::MG_Backend::DirectGLES {
         DrawElementsIndirectCommand cmd{
             .count = static_cast<GLuint>(count[i]),
             .instanceCount = 1,
+            .firstIndex = 0,
+            .baseVertex = 0,
             .baseInstance = 0
         };
         
