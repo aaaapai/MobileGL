@@ -91,12 +91,13 @@
 #endif
 
 #ifdef __ANDROID__
+#define VK_USE_PLATFORM_ANDROID_KHR
 #include <unistd.h>
 #include <pthread.h>
 #include <android/log.h>
 #include <android/native_window.h>
-#include <vulkan/vulkan_android.h>
 #endif
+#include <vulkan/vulkan.h>
 
 #ifdef TRACY_ENABLE
 #include <tracy/Tracy.hpp>
@@ -104,8 +105,6 @@
 #define TRACY_ZONECOLOR_FRONTEND 0x00FF00
 #define TRACY_ZONECOLOR_BACKEND 0x00FF00
 #endif
-
-#include <vulkan/vulkan.h>
 
 // Post-includes for significant project headers
 #include "MG_Util/Debug/Log.h"
