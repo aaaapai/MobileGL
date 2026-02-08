@@ -23,77 +23,53 @@ namespace MobileGL::MG_Backend::DirectGLES {
             GLuint baseVertex;
             GLuint baseInstance;
         };
-
-        static auto& GetIndirectBufferState() {
-           struct State {
-              GLuint bufferId = 0;
-              GLsizei capacity = 0;
-              GLuint previousBinding = 0;
-           };
-           static State s_state;
-           return s_state;
-        }
-    
+        
+        thread_local struct {
+            GLuint bufferId = 0;
+            GLsizei capacity = 0;
+            GLuint previousBinding = 0;
+            bool bufferInitialized = false;
+        } s_indirectBuffer;
         
         void InitializeIndirectBuffer() {
-          static std::once_flag onceFlag;
-          std::call_once(onceFlag, [] {
-              auto& state = GetIndirectBufferState();
-              if (state.bufferId == 0) {
-                  MG_External::GLES::glGenBuffers(1, &state.bufferId);
-              }
-          });
+            if (!s_indirectBuffer.bufferInitialized) {
+                MG_External::GLES::glGenBuffers(1, &s_indirectBuffer.bufferId);
+                s_indirectBuffer.bufferInitialized = true;
+                s_indirectBuffer.capacity = 0;
+            }
         }
         
-    constexpr GLsizei NextPowerOfTwo(GLsizei n) noexcept {
-        auto un = static_cast<GLuint>(n);
-        un--;
-        un |= un >> 1;
-        un |= un >> 2;
-        un |= un >> 4;
-        un |= un >> 8;
-        un |= un >> 16;
-        un++;
-        return static_cast<GLsizei>(un);
-    }
-    
-    void EnsureIndirectBufferCapacity(GLsizei requiredSize) {
-        InitializeIndirectBuffer();
-        auto& state = GetIndirectBufferState();
-        
-        if (state.capacity >= requiredSize) {
-            [[assume(state.capacity >= requiredSize)]];  // C++23 [[assume]]
-            return;
+        void EnsureIndirectBufferCapacity(GLsizei requiredSize) {
+            InitializeIndirectBuffer();
+            
+            if (s_indirectBuffer.capacity < requiredSize) {
+                GLsizei newCapacity = s_indirectBuffer.capacity;
+                if (newCapacity == 0) {
+                    newCapacity = 16;
+                }
+                while (newCapacity < requiredSize) {
+                    newCapacity *= 2;
+                }
+                
+                MG_External::GLES::glBindBuffer(GL_DRAW_INDIRECT_BUFFER, s_indirectBuffer.bufferId);
+                MG_External::GLES::glBufferData(GL_DRAW_INDIRECT_BUFFER,
+                    newCapacity * sizeof(DrawElementsIndirectCommand),
+                    nullptr, GL_DYNAMIC_DRAW);
+                
+                s_indirectBuffer.capacity = newCapacity;
+                MGLOG_D("Indirect buffer resized to capacity: %d commands", newCapacity);
+            }
         }
-        
-        // 计算下一个2的幂
-        GLsizei newCapacity = requiredSize;
-        if (newCapacity < 16) {
-            newCapacity = 16;
-        } else {
-            newCapacity = NextPowerOfTwo(newCapacity);
-        }
-        
-        MG_External::GLES::glBindBuffer(GL_DRAW_INDIRECT_BUFFER, state.bufferId);
-        MG_External::GLES::glBufferData(GL_DRAW_INDIRECT_BUFFER,
-            newCapacity * sizeof(DrawElementsIndirectCommand),
-            nullptr, GL_DYNAMIC_DRAW);
-        
-        state.capacity = newCapacity;
-    }
         
         void SaveAndBindIndirectBuffer() {
-          auto& state = GetIndirectBufferState();
-          MG_External::GLES::glGetIntegerv(GL_DRAW_INDIRECT_BUFFER_BINDING, 
-            reinterpret_cast<GLint*>(&state.previousBinding));
-          MG_External::GLES::glBindBuffer(GL_DRAW_INDIRECT_BUFFER, state.bufferId);
+            MG_External::GLES::glGetIntegerv(GL_DRAW_INDIRECT_BUFFER_BINDING, 
+                reinterpret_cast<GLint*>(&s_indirectBuffer.previousBinding));
+            MG_External::GLES::glBindBuffer(GL_DRAW_INDIRECT_BUFFER, s_indirectBuffer.bufferId);
         }
-    
-    void RestoreIndirectBuffer() {
-        auto& state = GetIndirectBufferState();
-        MG_External::GLES::glBindBuffer(GL_DRAW_INDIRECT_BUFFER, state.previousBinding);
-    }
-
+        
+        void RestoreIndirectBuffer() {
+            MG_External::GLES::glBindBuffer(GL_DRAW_INDIRECT_BUFFER, s_indirectBuffer.previousBinding);
+        }
     }
 
     void MultiDrawElementsBaseVertex_indirect(GLenum mode, const GLsizei* count, GLenum type, 
@@ -121,63 +97,37 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 MGLOG_E("Unsupported index type: 0x%x", type);
                 return;
         }
-        const GLsizei elementSizeReciprocal = elementSize > 0 ? (1 << 20) / elementSize : 0;
         
-        //Vector<DrawElementsIndirectCommand> commands(drawcount);
-        static thread_local Vector<DrawElementsIndirectCommand> commands;
-         commands.clear();
-         commands.reserve(drawcount);
+        Vector<DrawElementsIndirectCommand> commands(drawcount);
         
-    [[assume(drawcount >= 0)]];
-    
-    const bool hasIndices = indices != nullptr;
-    const bool hasBaseVertex = basevertex != nullptr;
-    
-    for (GLsizei i = 0; i < drawcount; ++i) {
-        DrawElementsIndirectCommand cmd{
-            .count = static_cast<GLuint>(count[i]),
-            .instanceCount = 1,
-            .firstIndex = 0,
-            .baseVertex = 0,
-            .baseInstance = 0
-        };
-        
-        if (hasIndices && indices[i]) {
-            // 使用预计算的倒数进行乘法替代除法
-            uintptr_t offset = reinterpret_cast<uintptr_t>(indices[i]);
-            if (elementSizeReciprocal > 0) {
-                cmd.firstIndex = static_cast<GLuint>((offset * elementSizeReciprocal) >> 20);
+        for (GLsizei i = 0; i < drawcount; ++i) {
+            commands[i].count = static_cast<GLuint>(count[i]);
+            commands[i].instanceCount = 1;
+            commands[i].baseVertex = basevertex ? static_cast<GLuint>(basevertex[i]) : 0;
+            commands[i].baseInstance = 0;
+            
+            if (indices && indices[i]) {
+                uintptr_t offset = reinterpret_cast<uintptr_t>(indices[i]);
+                commands[i].firstIndex = static_cast<GLuint>(offset / elementSize);
             } else {
-                cmd.firstIndex = static_cast<GLuint>(offset / elementSize);
+                commands[i].firstIndex = 0;
             }
-        } else {
-            cmd.firstIndex = 0;
         }
         
-        cmd.baseVertex = hasBaseVertex ? static_cast<GLuint>(basevertex[i]) : 0;
-        commands.push_back(cmd);
-    }
-    
-    EnsureIndirectBufferCapacity(drawcount);
-    SaveAndBindIndirectBuffer();
-    
-    // 使用memcpy风格的数据传输
-    if (!commands.empty()) {
+        EnsureIndirectBufferCapacity(drawcount);
+        SaveAndBindIndirectBuffer();
+        
         MG_External::GLES::glBufferSubData(GL_DRAW_INDIRECT_BUFFER,
             0, 
-            commands.size() * sizeof(DrawElementsIndirectCommand),
+            drawcount * sizeof(DrawElementsIndirectCommand),
             commands.data());
-    }
-    
-    // 批量绘制优化
-    constexpr GLsizeiptr stride = sizeof(DrawElementsIndirectCommand);
-    for (GLsizei i = 0; i < drawcount; ++i) {
-        const void* offset = reinterpret_cast<const void*>(i * stride);
-        MG_External::GLES::glDrawElementsIndirect(mode, type, offset);
-    }
-    
-      RestoreIndirectBuffer();
-
+        
+        for (GLsizei i = 0; i < drawcount; ++i) {
+            const void* offset = reinterpret_cast<const void*>(i * sizeof(DrawElementsIndirectCommand));
+            MG_External::GLES::glDrawElementsIndirect(mode, type, offset);
+        }
+        
+        RestoreIndirectBuffer();
     }
   
     class ComputeShaderManager {
