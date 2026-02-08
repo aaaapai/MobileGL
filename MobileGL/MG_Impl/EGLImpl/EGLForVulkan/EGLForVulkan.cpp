@@ -102,6 +102,11 @@ namespace MobileGL {
         }
 
         EGLBoolean SwapBuffers(EGLDisplay dpy, EGLSurface draw) {
+            if (!MG_Backend::DirectVulkan::pVulkanRenderer) {
+                MGLOG_E("EGLForVulkan::SwapBuffers called but VulkanRenderer is null");
+                return EGL_FALSE;
+            }
+            MG_Backend::DirectVulkan::pVulkanRenderer->Present();
             return EGL_TRUE;
         }
 

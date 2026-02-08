@@ -31,6 +31,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         void Shutdown();
 
         void RenderFrame();
+        void Present();
 
         void RegisterRenderCallback(const std::string& name, RenderCallback cb);
         void UnregisterRenderCallback(const std::string& name);

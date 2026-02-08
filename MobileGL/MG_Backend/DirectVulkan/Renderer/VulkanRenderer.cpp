@@ -183,7 +183,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         CreateFrameResources();
     }
 
-    // Wait fence & Acquire image & Record commands & Submit & Present
+    // Wait fence & Acquire image & Record commands & Submit
     void VulkanRenderer::RenderFrame() {
         if (!Ctx) MOBILEGL_ASSERT(false, "Renderer not initialized");
         FrameContext& frame = *Frames[CurrentFrame];
@@ -222,9 +222,26 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         si.pSignalSemaphores = signalSemaphores;
 
         MOBILEGL_ASSERT_VK(vkQueueSubmit(Ctx->GetGraphicsQueue(), 1, &si, frame.InFlightFence), "vkQueueSubmit");
+    }
+
+    void VulkanRenderer::Present() {
+        if (!Ctx) MOBILEGL_ASSERT(false, "Renderer not initialized");
+        FrameContext& frame = *Frames[CurrentFrame];
+
+        // Acquire image
+        uint32_t imageIndex = 0;
+        VkResult res = vkAcquireNextImageKHR(Ctx->GetDevice(), Swapchain->GetSwapchain(), UINT64_MAX,
+                                             frame.ImageAvailable, VK_NULL_HANDLE, &imageIndex);
+        if (res == VK_ERROR_OUT_OF_DATE_KHR) {
+            MGLOG_D("vkAcquireNextImageKHR: OUT_OF_DATE -> recreate");
+            RecreateSwapchainIfNeeded();
+            return;
+        }
+        MOBILEGL_ASSERT_VK(res, "vkAcquireNextImageKHR");
 
         // Present
         VkPresentInfoKHR pi{VK_STRUCTURE_TYPE_PRESENT_INFO_KHR};
+        VkSemaphore signalSemaphores[] = {frame.RenderFinished};
         pi.waitSemaphoreCount = 1;
         pi.pWaitSemaphores = signalSemaphores;
         VkSwapchainKHR scs[] = {Swapchain->GetSwapchain()};
