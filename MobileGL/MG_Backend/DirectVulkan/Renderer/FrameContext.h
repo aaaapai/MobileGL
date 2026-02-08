@@ -23,5 +23,6 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         VkSemaphore ImageAvailable = VK_NULL_HANDLE;
         VkSemaphore RenderFinished = VK_NULL_HANDLE;
         VkFence InFlightFence = VK_NULL_HANDLE;
+        Uint32 CurrentImageIndex = 0;
     };
 } // namespace MobileGL::MG_Backend::DirectVulkan

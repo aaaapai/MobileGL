@@ -18,20 +18,19 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         abci.commandPool = pool;
         abci.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
         abci.commandBufferCount = 1;
-        MOBILEGL_ASSERT_VK(vkAllocateCommandBuffers(ctx.GetDevice(), &abci, &CommandBuffer),
-                           "vkAllocateCommandBuffers");
+        VK_VERIFY(vkAllocateCommandBuffers(ctx.GetDevice(), &abci, &CommandBuffer), "vkAllocateCommandBuffers");
 
         // semaphores
         VkSemaphoreCreateInfo sci{VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO};
-        MOBILEGL_ASSERT_VK(vkCreateSemaphore(ctx.GetDevice(), &sci, nullptr, &ImageAvailable),
-                           "vkCreateSemaphore ImageAvailable");
-        MOBILEGL_ASSERT_VK(vkCreateSemaphore(ctx.GetDevice(), &sci, nullptr, &RenderFinished),
-                           "vkCreateSemaphore RenderFinished");
+        VK_VERIFY(vkCreateSemaphore(ctx.GetDevice(), &sci, nullptr, &ImageAvailable),
+                  "vkCreateSemaphore ImageAvailable");
+        VK_VERIFY(vkCreateSemaphore(ctx.GetDevice(), &sci, nullptr, &RenderFinished),
+                  "vkCreateSemaphore RenderFinished");
 
         // fence (start signaled)
         VkFenceCreateInfo fci{VK_STRUCTURE_TYPE_FENCE_CREATE_INFO};
         fci.flags = VK_FENCE_CREATE_SIGNALED_BIT;
-        MOBILEGL_ASSERT_VK(vkCreateFence(ctx.GetDevice(), &fci, nullptr, &InFlightFence), "vkCreateFence");
+        VK_VERIFY(vkCreateFence(ctx.GetDevice(), &fci, nullptr, &InFlightFence), "vkCreateFence");
     }
 
     void FrameContext::Cleanup(VulkanContext& ctx) {

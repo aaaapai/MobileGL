@@ -55,7 +55,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         VkCommandPool CommandPool = VK_NULL_HANDLE;
 
         std::vector<std::unique_ptr<FrameContext>> Frames;
-        uint32_t CurrentFrame = 0;
+        Uint32 CurrentFrame = 0;
 
         // Render callbacks map
         std::vector<std::pair<std::string, RenderCallback>> RenderCallbacks;

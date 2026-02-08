@@ -18,6 +18,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
     void SwapchainManager::Initialize() {
         CreateSwapchainInternal();
         CreateImageViews();
+        ImagesInFlight.resize(Images.size(), VK_NULL_HANDLE);
     }
 
     void SwapchainManager::Recreate() {
@@ -28,6 +29,8 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         }
         CreateSwapchainInternal();
         CreateImageViews();
+        ImagesInFlight.resize(Images.size(), VK_NULL_HANDLE);
+
         Framebuffers.clear();
         MGLOG_D("Swapchain recreated");
     }
@@ -72,8 +75,8 @@ namespace MobileGL::MG_Backend::DirectVulkan {
 
     void SwapchainManager::CreateSwapchainInternal() {
         VkSurfaceCapabilitiesKHR caps;
-        MOBILEGL_ASSERT_VK(vkGetPhysicalDeviceSurfaceCapabilitiesKHR(Ctx.GetPhysicalDevice(), Ctx.GetSurface(), &caps),
-                           "vkGetPhysicalDeviceSurfaceCapabilitiesKHR");
+        VK_VERIFY(vkGetPhysicalDeviceSurfaceCapabilitiesKHR(Ctx.GetPhysicalDevice(), Ctx.GetSurface(), &caps),
+                  "vkGetPhysicalDeviceSurfaceCapabilitiesKHR");
 
         Extent = caps.currentExtent;
         ImageFormat = VK_FORMAT_R8G8B8A8_UNORM;
@@ -91,14 +94,14 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         sci.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
         sci.presentMode = QueryPossiblePresentMode();
 
-        MOBILEGL_ASSERT_VK(vkCreateSwapchainKHR(Ctx.GetDevice(), &sci, nullptr, &Swapchain), "vkCreateSwapchainKHR");
+        VK_VERIFY(vkCreateSwapchainKHR(Ctx.GetDevice(), &sci, nullptr, &Swapchain), "vkCreateSwapchainKHR");
 
         uint32_t count = 0;
-        MOBILEGL_ASSERT_VK(vkGetSwapchainImagesKHR(Ctx.GetDevice(), Swapchain, &count, nullptr),
-                           "vkGetSwapchainImagesKHR count");
+        VK_VERIFY(vkGetSwapchainImagesKHR(Ctx.GetDevice(), Swapchain, &count, nullptr),
+                  "vkGetSwapchainImagesKHR count");
         Images.resize(count);
-        MOBILEGL_ASSERT_VK(vkGetSwapchainImagesKHR(Ctx.GetDevice(), Swapchain, &count, Images.data()),
-                           "vkGetSwapchainImagesKHR images");
+        VK_VERIFY(vkGetSwapchainImagesKHR(Ctx.GetDevice(), Swapchain, &count, Images.data()),
+                  "vkGetSwapchainImagesKHR images");
         MGLOG_D("Swapchain created (%u images)", count);
     }
 
@@ -117,7 +120,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             ivci.subresourceRange.levelCount = 1;
             ivci.subresourceRange.baseArrayLayer = 0;
             ivci.subresourceRange.layerCount = 1;
-            MOBILEGL_ASSERT_VK(vkCreateImageView(Ctx.GetDevice(), &ivci, nullptr, &ImageViews[i]), "vkCreateImageView");
+            VK_VERIFY(vkCreateImageView(Ctx.GetDevice(), &ivci, nullptr, &ImageViews[i]), "vkCreateImageView");
         }
         MGLOG_D("ImageViews created");
     }

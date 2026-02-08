@@ -26,6 +26,8 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         VkExtent2D GetExtent() const { return Extent; }
         const std::vector<VkImageView>& GetImageViews() const { return ImageViews; }
         const std::vector<VkFramebuffer>& GetFramebuffers() const { return Framebuffers; }
+        const std::vector<VkImage>& GetImages() const { return Images; }
+        std::vector<VkFence>& GetImagesInFlight() { return ImagesInFlight; }
 
         void SetFramebuffers(std::vector<VkFramebuffer>&& fbs);
 
@@ -36,6 +38,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         VkExtent2D Extent{0, 0};
         std::vector<VkImage> Images;
         std::vector<VkImageView> ImageViews;
+        std::vector<VkFence> ImagesInFlight;
         std::vector<VkFramebuffer> Framebuffers;
 
         void CreateSwapchainInternal();

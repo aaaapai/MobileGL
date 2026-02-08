@@ -59,20 +59,19 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         ci.enabledExtensionCount = 2;
         ci.ppEnabledExtensionNames = exts;
 
-        MOBILEGL_ASSERT_VK(vkCreateInstance(&ci, nullptr, &Instance), "vkCreateInstance failed");
+        VK_VERIFY(vkCreateInstance(&ci, nullptr, &Instance), "vkCreateInstance failed");
     }
 
     void VulkanContext::CreateSurface(NativeWindowType window) {
 #if __ANDROID__
-        if (!Instance) MOBILEGL_ASSERT(false, "Instance not created");
+        if (!Instance) throw RuntimeError("Instance not created");
 
         auto* nativeWindow = static_cast<ANativeWindow*>(window);
-        if (!nativeWindow) MOBILEGL_ASSERT(false, "ANativeWindowType is null");
+        if (!nativeWindow) throw RuntimeError("ANativeWindowType is null");
 
         VkAndroidSurfaceCreateInfoKHR sci{VK_STRUCTURE_TYPE_ANDROID_SURFACE_CREATE_INFO_KHR};
         sci.window = nativeWindow;
-        MOBILEGL_ASSERT_VK(vkCreateAndroidSurfaceKHR(Instance, &sci, nullptr, &Surface),
-                           "vkCreateAndroidSurfaceKHR failed");
+        VK_VERIFY(vkCreateAndroidSurfaceKHR(Instance, &sci, nullptr, &Surface), "vkCreateAndroidSurfaceKHR failed");
 #else
         MGLOG_W("VulkanRenderer::Initialize called on a platform which is not supported yet"); // TODO: support more
                                                                                                // platforms
@@ -81,10 +80,10 @@ namespace MobileGL::MG_Backend::DirectVulkan {
 
     void VulkanContext::PickPhysicalDevice() {
         uint32_t count = 0;
-        MOBILEGL_ASSERT_VK(vkEnumeratePhysicalDevices(Instance, &count, nullptr), "vkEnumeratePhysicalDevices count");
-        if (count == 0) MOBILEGL_ASSERT(false, "No physical devices");
+        VK_VERIFY(vkEnumeratePhysicalDevices(Instance, &count, nullptr), "vkEnumeratePhysicalDevices count");
+        if (count == 0) throw RuntimeError("No physical devices");
         std::vector<VkPhysicalDevice> devs(count);
-        MOBILEGL_ASSERT_VK(vkEnumeratePhysicalDevices(Instance, &count, devs.data()), "vkEnumeratePhysicalDevices");
+        VK_VERIFY(vkEnumeratePhysicalDevices(Instance, &count, devs.data()), "vkEnumeratePhysicalDevices");
 
         for (auto d : devs) {
             uint32_t qcount = 0;
@@ -102,7 +101,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                 }
             }
         }
-        MOBILEGL_ASSERT(false, "No suitable physical device");
+        throw RuntimeError("No suitable physical device");
     }
 
     void VulkanContext::CreateLogicalDevice() {
@@ -120,7 +119,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         dci.enabledExtensionCount = 1;
         dci.ppEnabledExtensionNames = devExts;
 
-        MOBILEGL_ASSERT_VK(vkCreateDevice(PhysicalDevice, &dci, nullptr, &Device), "vkCreateDevice failed");
+        VK_VERIFY(vkCreateDevice(PhysicalDevice, &dci, nullptr, &Device), "vkCreateDevice failed");
         vkGetDeviceQueue(Device, GraphicsQueueFamily, 0, &GraphicsQueue);
         MGLOG_D("Logical device created");
     }
