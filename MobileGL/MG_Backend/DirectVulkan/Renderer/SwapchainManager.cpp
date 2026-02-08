@@ -72,8 +72,8 @@ namespace MobileGL::MG_Backend::DirectVulkan {
 
     void SwapchainManager::CreateSwapchainInternal() {
         VkSurfaceCapabilitiesKHR caps;
-        ThrowIfFailed(vkGetPhysicalDeviceSurfaceCapabilitiesKHR(Ctx.GetPhysicalDevice(), Ctx.GetSurface(), &caps),
-                      "vkGetPhysicalDeviceSurfaceCapabilitiesKHR");
+        MOBILEGL_ASSERT_VK(vkGetPhysicalDeviceSurfaceCapabilitiesKHR(Ctx.GetPhysicalDevice(), Ctx.GetSurface(), &caps),
+                           "vkGetPhysicalDeviceSurfaceCapabilitiesKHR");
 
         Extent = caps.currentExtent;
         ImageFormat = VK_FORMAT_R8G8B8A8_UNORM;
@@ -91,14 +91,14 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         sci.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
         sci.presentMode = QueryPossiblePresentMode();
 
-        ThrowIfFailed(vkCreateSwapchainKHR(Ctx.GetDevice(), &sci, nullptr, &Swapchain), "vkCreateSwapchainKHR");
+        MOBILEGL_ASSERT_VK(vkCreateSwapchainKHR(Ctx.GetDevice(), &sci, nullptr, &Swapchain), "vkCreateSwapchainKHR");
 
         uint32_t count = 0;
-        ThrowIfFailed(vkGetSwapchainImagesKHR(Ctx.GetDevice(), Swapchain, &count, nullptr),
-                      "vkGetSwapchainImagesKHR count");
+        MOBILEGL_ASSERT_VK(vkGetSwapchainImagesKHR(Ctx.GetDevice(), Swapchain, &count, nullptr),
+                           "vkGetSwapchainImagesKHR count");
         Images.resize(count);
-        ThrowIfFailed(vkGetSwapchainImagesKHR(Ctx.GetDevice(), Swapchain, &count, Images.data()),
-                      "vkGetSwapchainImagesKHR images");
+        MOBILEGL_ASSERT_VK(vkGetSwapchainImagesKHR(Ctx.GetDevice(), Swapchain, &count, Images.data()),
+                           "vkGetSwapchainImagesKHR images");
         MGLOG_D("Swapchain created (%u images)", count);
     }
 
@@ -117,7 +117,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             ivci.subresourceRange.levelCount = 1;
             ivci.subresourceRange.baseArrayLayer = 0;
             ivci.subresourceRange.layerCount = 1;
-            ThrowIfFailed(vkCreateImageView(Ctx.GetDevice(), &ivci, nullptr, &ImageViews[i]), "vkCreateImageView");
+            MOBILEGL_ASSERT_VK(vkCreateImageView(Ctx.GetDevice(), &ivci, nullptr, &ImageViews[i]), "vkCreateImageView");
         }
         MGLOG_D("ImageViews created");
     }

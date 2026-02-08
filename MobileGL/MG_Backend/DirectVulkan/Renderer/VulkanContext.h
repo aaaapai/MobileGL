@@ -9,12 +9,7 @@
 #pragma once
 #include <Includes.h>
 
-static inline void ThrowIfFailed(VkResult r, const char* msg) {
-    if (r != VK_SUCCESS) {
-        MGLOG_E("%s (VkResult=%d)", msg, int(r));
-        throw MobileGL::RuntimeError(msg);
-    }
-}
+#define MOBILEGL_ASSERT_VK(exp, ...) MOBILEGL_ASSERT((exp) == VK_SUCCESS, __VA_ARGS__)
 
 namespace MobileGL::MG_Backend::DirectVulkan {
     class VulkanContext {

@@ -18,8 +18,8 @@ namespace MobileGL::MG_Backend::DirectVulkan {
     void PipelineManager::EnsurePipelineLayout() {
         if (PipelineLayout != VK_NULL_HANDLE) return;
         VkPipelineLayoutCreateInfo plci{VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
-        ThrowIfFailed(vkCreatePipelineLayout(Ctx.GetDevice(), &plci, nullptr, &PipelineLayout),
-                      "vkCreatePipelineLayout");
+        MOBILEGL_ASSERT_VK(vkCreatePipelineLayout(Ctx.GetDevice(), &plci, nullptr, &PipelineLayout),
+                           "vkCreatePipelineLayout");
     }
 
     VkPipeline PipelineManager::CreateGraphicsPipelineFromSpv(const std::string& key,
@@ -36,12 +36,12 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         smci.codeSize = vsSpv.size() * sizeof(uint32_t);
         smci.pCode = vsSpv.data();
         VkShaderModule vs;
-        ThrowIfFailed(vkCreateShaderModule(Ctx.GetDevice(), &smci, nullptr, &vs), "vkCreateShaderModule VS");
+        MOBILEGL_ASSERT_VK(vkCreateShaderModule(Ctx.GetDevice(), &smci, nullptr, &vs), "vkCreateShaderModule VS");
 
         smci.codeSize = fsSpv.size() * sizeof(uint32_t);
         smci.pCode = fsSpv.data();
         VkShaderModule fs;
-        ThrowIfFailed(vkCreateShaderModule(Ctx.GetDevice(), &smci, nullptr, &fs), "vkCreateShaderModule FS");
+        MOBILEGL_ASSERT_VK(vkCreateShaderModule(Ctx.GetDevice(), &smci, nullptr, &fs), "vkCreateShaderModule FS");
 
         VkPipelineShaderStageCreateInfo stages[2]{};
         stages[0] = {VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO};
@@ -105,8 +105,8 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         gpi.subpass = 0;
 
         VkPipeline pipeline;
-        ThrowIfFailed(vkCreateGraphicsPipelines(Ctx.GetDevice(), VK_NULL_HANDLE, 1, &gpi, nullptr, &pipeline),
-                      "vkCreateGraphicsPipelines");
+        MOBILEGL_ASSERT_VK(vkCreateGraphicsPipelines(Ctx.GetDevice(), VK_NULL_HANDLE, 1, &gpi, nullptr, &pipeline),
+                           "vkCreateGraphicsPipelines");
 
         vkDestroyShaderModule(Ctx.GetDevice(), vs, nullptr);
         vkDestroyShaderModule(Ctx.GetDevice(), fs, nullptr);
