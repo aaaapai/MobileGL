@@ -8,6 +8,7 @@
 
 #include "ShaderSourceProcessor.h"
 #include "ShaderSourceProcessor_inline.h"
+#include "../Config/EnvChecker.h"
 
 namespace MobileGL {
     namespace MG_Util {
@@ -43,7 +44,7 @@ namespace MobileGL {
 
                 // 注入 textureQueryLod 实现
                 const char* str_textureQueryLod = "textureQueryLod";
-                if (source.find(str_textureQueryLod) != std::string::npos && !std::getenv("LIBGL_ANGLE")) {
+                if (source.find(str_textureQueryLod) != std::string::npos && CheckEnvANGLE()) {
                     // 检查是否已经定义了 mg_textureQueryLod
                     const char* str_mg_textureQueryLod = "mg_textureQueryLod";
                     if (source.find(str_mg_textureQueryLod) == std::string::npos) {
