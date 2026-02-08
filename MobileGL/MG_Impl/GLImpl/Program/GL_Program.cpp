@@ -485,7 +485,7 @@ namespace MobileGL {
             auto programObject = TryToGetProgramObject(program);
             if (!programObject) return;
             MGLOG_D("%s: linking program %d", __func__, program);
-            if (CheckEnvANGLE()) {
+            if (MG_Util::CheckEnvANGLE()) {
               programObject->Link(true);
             } else {
               programObject->Link(!MG_Config::RendererInfoPtr->BackendCapability.AllowVSOnlyPrograms);
