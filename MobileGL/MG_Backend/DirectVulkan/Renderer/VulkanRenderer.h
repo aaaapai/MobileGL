@@ -69,5 +69,6 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         void DestroyFrameResources();
         void RecordFrameCommandBuffer(FrameContext& frame, uint32_t imageIndex);
         void RecreateSwapchainIfNeeded();
+        void FrameBegin();
     };
 } // namespace MobileGL::MG_Backend::DirectVulkan

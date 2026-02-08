@@ -34,6 +34,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         CreateCommandPool();
         CreateFrameResources();
 
+        FrameBegin();
         MGLOG_D("VulkanRenderer initialized");
     }
 
@@ -192,23 +193,6 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         VK_VERIFY(vkWaitForFences(Ctx->GetDevice(), 1, &frame.InFlightFence, VK_TRUE, UINT64_MAX), "vkWaitForFences");
         VK_VERIFY(vkResetFences(Ctx->GetDevice(), 1, &frame.InFlightFence), "vkResetFences");
 
-        // Acquire image
-        auto& imagesInFlight = Swapchain->GetImagesInFlight();
-        Uint32 imageIndex = 0;
-        VkResult res = vkAcquireNextImageKHR(Ctx->GetDevice(), Swapchain->GetSwapchain(), UINT64_MAX,
-                                             frame.ImageAvailable, VK_NULL_HANDLE, &imageIndex);
-        if (imagesInFlight[imageIndex] != VK_NULL_HANDLE) {
-            vkWaitForFences(Ctx->GetDevice(), 1, &imagesInFlight[imageIndex], VK_TRUE, UINT64_MAX);
-        }
-        imagesInFlight[imageIndex] = frame.InFlightFence;
-        frame.CurrentImageIndex = imageIndex;
-        if (res == VK_ERROR_OUT_OF_DATE_KHR) {
-            MGLOG_D("vkAcquireNextImageKHR: OUT_OF_DATE -> recreate");
-            RecreateSwapchainIfNeeded();
-            return;
-        }
-        VK_VERIFY(res, "vkAcquireNextImageKHR");
-
         // Record commands
         VK_VERIFY(vkResetCommandBuffer(frame.CommandBuffer, 0), "vkResetCommandBuffer");
         RecordFrameCommandBuffer(frame, frame.CurrentImageIndex);
@@ -229,10 +213,30 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         VK_VERIFY(vkQueueSubmit(Ctx->GetGraphicsQueue(), 1, &si, frame.InFlightFence), "vkQueueSubmit");
     }
 
+    void VulkanRenderer::FrameBegin() {
+        FrameContext& frame = *Frames[CurrentFrame];
+
+        // Acquire image
+        auto& imagesInFlight = Swapchain->GetImagesInFlight();
+        Uint32 imageIndex = 0;
+        VkResult res = vkAcquireNextImageKHR(Ctx->GetDevice(), Swapchain->GetSwapchain(), UINT64_MAX,
+                                             frame.ImageAvailable, VK_NULL_HANDLE, &imageIndex);
+        if (imagesInFlight[imageIndex] != VK_NULL_HANDLE) {
+            vkWaitForFences(Ctx->GetDevice(), 1, &imagesInFlight[imageIndex], VK_TRUE, UINT64_MAX);
+        }
+        imagesInFlight[imageIndex] = frame.InFlightFence;
+        frame.CurrentImageIndex = imageIndex;
+        if (res == VK_ERROR_OUT_OF_DATE_KHR) {
+            MGLOG_D("vkAcquireNextImageKHR: OUT_OF_DATE -> recreate");
+            RecreateSwapchainIfNeeded();
+            return;
+        }
+        VK_VERIFY(res, "vkAcquireNextImageKHR");
+    }
+
     void VulkanRenderer::Present() {
         if (!Ctx) throw RuntimeError("Renderer not initialized");
         FrameContext& frame = *Frames[CurrentFrame];
-        const Uint32& imageIndex = frame.CurrentImageIndex;
 
         // Present
         VkPresentInfoKHR pi{VK_STRUCTURE_TYPE_PRESENT_INFO_KHR};
@@ -242,7 +246,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         VkSwapchainKHR scs[] = {Swapchain->GetSwapchain()};
         pi.swapchainCount = 1;
         pi.pSwapchains = scs;
-        pi.pImageIndices = &imageIndex;
+        pi.pImageIndices = &frame.CurrentImageIndex;
         VkResult pres = vkQueuePresentKHR(Ctx->GetGraphicsQueue(), &pi);
         if (pres == VK_ERROR_OUT_OF_DATE_KHR || pres == VK_SUBOPTIMAL_KHR) {
             MGLOG_D("vkQueuePresentKHR: out_of_date/suboptimal -> recreate");
@@ -252,6 +256,8 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         }
 
         CurrentFrame = (CurrentFrame + 1) % Frames.size();
+
+        FrameBegin();
     }
 
     void VulkanRenderer::RegisterRenderCallback(const std::string& name, RenderCallback cb) {
