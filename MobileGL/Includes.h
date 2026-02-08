@@ -80,7 +80,6 @@
 #ifdef __linux__
 #include <dlfcn.h>
 #include <pthread.h>
-#include <vulkan/vulkan.h>
 #endif
 
 #ifdef _WIN32
@@ -105,6 +104,8 @@
 #define TRACY_ZONECOLOR_FRONTEND 0x00FF00
 #define TRACY_ZONECOLOR_BACKEND 0x00FF00
 #endif
+
+#include <vulkan/vulkan.h>
 
 // Post-includes for significant project headers
 #include "MG_Util/Debug/Log.h"

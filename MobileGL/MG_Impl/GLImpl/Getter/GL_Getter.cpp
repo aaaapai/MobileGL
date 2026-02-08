@@ -27,6 +27,7 @@ namespace MobileGL {
 #if MOBILEGL_BACKEND == MOBILEGL_BACKEND_TYPE_DIRECT_GLES
             return MG_Backend::DirectGLES::GetString(name);
 #endif
+            return (const GLubyte*)"3.3 <Unknown>";
         }
 
         inline String GetFormattedBackendGLVersion() {
