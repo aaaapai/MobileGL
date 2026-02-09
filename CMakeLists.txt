@@ -227,8 +227,6 @@ target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE
     # ${CMAKE_SOURCE_DIR}/library/android/${ANDROID_ABI}/libshaderc.so
     android
     log
-    libc.a
-    libm.a
 )
 
 # 版本脚本针对特定目标设置
