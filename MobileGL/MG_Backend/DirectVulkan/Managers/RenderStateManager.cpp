@@ -260,10 +260,10 @@ namespace MobileGL::MG_Backend::DirectVulkan {
 
     VkColorComponentFlags RenderStateManager::ResolveColorWriteMask(const BoolVec4& mask) {
         VkColorComponentFlags vkMask = 0;
-        if (mask.x()) vkMask |= VK_COLOR_COMPONENT_R_BIT;
-        if (mask.y()) vkMask |= VK_COLOR_COMPONENT_G_BIT;
-        if (mask.z()) vkMask |= VK_COLOR_COMPONENT_B_BIT;
-        if (mask.w()) vkMask |= VK_COLOR_COMPONENT_A_BIT;
+        if (mask.r()) vkMask |= VK_COLOR_COMPONENT_R_BIT;
+        if (mask.g()) vkMask |= VK_COLOR_COMPONENT_G_BIT;
+        if (mask.b()) vkMask |= VK_COLOR_COMPONENT_B_BIT;
+        if (mask.a()) vkMask |= VK_COLOR_COMPONENT_A_BIT;
         return vkMask;
     }
 } // namespace MobileGL::MG_Backend::DirectVulkan
