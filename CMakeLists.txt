@@ -108,6 +108,10 @@ set(SPIRV_CROSS_STATIC         ON  CACHE BOOL "Prefer static libs" FORCE)
 add_subdirectory(3rdparty/glslang)
 add_subdirectory(3rdparty/SPIRV-Cross)
 
+set(XXHASH_BUILD_XXHSUM OFF)
+option(BUILD_SHARED_LIBS OFF)
+add_subdirectory(3rdparty/xxHash/build/cmake xxhash_build EXCLUDE_FROM_ALL)
+
 set(TRACY_ENABLE ${MOBILEGL_ENABLE_TRACY} CACHE BOOL "Enable Tracy, this is an internal variable" FORCE)
 
 if (TRACY_ENABLE)
@@ -209,6 +213,7 @@ set(SOURCE_FILES
     MobileGL/MG_Backend/DirectVulkan/Renderer/PipelineManager.cpp
     MobileGL/MG_Backend/DirectVulkan/Renderer/FrameContext.cpp
     MobileGL/MG_Backend/DirectVulkan/Renderer/VulkanRenderer.cpp
+    MobileGL/MG_Backend/DirectVulkan/Renderer/ProgramManager.cpp
 
     MobileGL/MG_State/GLState/Core.cpp
     MobileGL/MG_State/GLState/ErrorState/Error.cpp
@@ -242,6 +247,7 @@ set(MOBILEGL_LINK_LIBRARIES
         spirv-cross-c
         SPIRV-Tools-opt
         SPIRV-Tools
+        xxHash::xxhash
 )
 
 set(MOBILEGL_INCLUDE_DIR

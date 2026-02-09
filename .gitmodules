@@ -13,3 +13,6 @@
 [submodule "3rdparty/tracy"]
 	path = 3rdparty/tracy
 	url = https://github.com/wolfpld/tracy.git
+[submodule "3rdparty/xxHash"]
+	path = 3rdparty/xxHash
+	url = https://github.com/Cyan4973/xxHash.git
