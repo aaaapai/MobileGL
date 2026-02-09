@@ -14,3 +14,4 @@ MobileGLCodeManager
 .vscode
 .clangd
 MobileGL/MG_Test/build
+/build_*
