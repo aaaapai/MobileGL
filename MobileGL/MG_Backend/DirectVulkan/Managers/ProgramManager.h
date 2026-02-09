@@ -23,6 +23,8 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         ~ProgramManager();
 
         Vector<VkPipelineShaderStageCreateInfo>& CreatePipelineShaderStages(ProgramObject* programObject);
+        Vector<VkPipelineShaderStageCreateInfo>* GetPipelineShaderStages(HashType hash);
+        Vector<VkPipelineShaderStageCreateInfo>* GetPipelineShaderStages(ProgramObject* programObject);
     private:
 
         void Cleanup();

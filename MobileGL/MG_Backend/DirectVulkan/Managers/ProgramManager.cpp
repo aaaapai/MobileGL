@@ -17,6 +17,18 @@ namespace MobileGL::MG_Backend::DirectVulkan {
     }
 
     void ProgramManager::Cleanup() {
+        auto device = m_ctx.GetDevice();
+        if (device != VK_NULL_HANDLE) {
+            for (auto& [_, stages] : m_shaderStageCreateInfo) {
+                for (auto& stageInfo : stages) {
+                    if (stageInfo.module != VK_NULL_HANDLE) {
+                        vkDestroyShaderModule(device, stageInfo.module, nullptr);
+                        stageInfo.module = VK_NULL_HANDLE;
+                    }
+                }
+            }
+        }
+        m_shaderStageCreateInfo.clear();
         XXH64_freeState(m_hashState);
     }
 
@@ -25,10 +37,73 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         MOBILEGL_ASSERT(m_shaderStageCreateInfo.find(hash) == m_shaderStageCreateInfo.end(),
             "A program with the same hash has already been created");
         Vector<VkPipelineShaderStageCreateInfo> info;
+        auto& shaders = programObject->GetAttachedShaders();
+        auto& spirvBinaries = programObject->GetGeneratedSpirv();
+        MOBILEGL_ASSERT(shaders.size() == spirvBinaries.size(),
+            "Shader and SPIR-V binary count mismatch");
 
+        info.reserve(shaders.size());
 
+        auto device = m_ctx.GetDevice();
+        MOBILEGL_ASSERT(device != VK_NULL_HANDLE, "Vulkan device is null");
 
-        return info;
+        for (SizeT i = 0; i < shaders.size(); ++i) {
+            auto shaderStage = shaders[i]->GetShaderStage();
+            VkShaderStageFlagBits vkStage = VK_SHADER_STAGE_FLAG_BITS_MAX_ENUM;
+            switch (shaderStage) {
+                case ShaderStage::Vertex:
+                    vkStage = VK_SHADER_STAGE_VERTEX_BIT;
+                    break;
+                case ShaderStage::TessControl:
+                    vkStage = VK_SHADER_STAGE_TESSELLATION_CONTROL_BIT;
+                    break;
+                case ShaderStage::TessEval:
+                    vkStage = VK_SHADER_STAGE_TESSELLATION_EVALUATION_BIT;
+                    break;
+                case ShaderStage::Geometry:
+                    vkStage = VK_SHADER_STAGE_GEOMETRY_BIT;
+                    break;
+                case ShaderStage::Fragment:
+                    vkStage = VK_SHADER_STAGE_FRAGMENT_BIT;
+                    break;
+                case ShaderStage::Compute:
+                    vkStage = VK_SHADER_STAGE_COMPUTE_BIT;
+                    break;
+                default:
+                    MOBILEGL_ASSERT(false, "Unsupported shader stage");
+                    break;
+            }
+
+            auto& spirv = spirvBinaries[i];
+            MOBILEGL_ASSERT(!spirv.empty(), "SPIR-V binary is empty");
+            VkShaderModuleCreateInfo smci{VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO};
+            smci.codeSize = spirv.size() * sizeof(Uint);
+            smci.pCode = reinterpret_cast<const uint32_t*>(spirv.data());
+
+            VkShaderModule shaderModule = VK_NULL_HANDLE;
+            VK_VERIFY(vkCreateShaderModule(device, &smci, nullptr, &shaderModule), "vkCreateShaderModule");
+            MOBILEGL_ASSERT(shaderModule != VK_NULL_HANDLE, "Failed to create shader module");
+
+            VkPipelineShaderStageCreateInfo stageInfo{VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO};
+            stageInfo.stage = vkStage;
+            stageInfo.module = shaderModule;
+            stageInfo.pName = "main";
+            info.emplace_back(stageInfo);
+        }
+
+        auto [it, inserted] = m_shaderStageCreateInfo.emplace(hash, Move(info));
+        MOBILEGL_ASSERT(inserted, "Failed to cache shader stage create info");
+        return it->second;
+    }
+
+    Vector<VkPipelineShaderStageCreateInfo>* ProgramManager::GetPipelineShaderStages(HashType hash) {
+        auto it = m_shaderStageCreateInfo.find(hash);
+        if (it == m_shaderStageCreateInfo.end()) return nullptr;
+        return &it->second;
+    }
+
+    Vector<VkPipelineShaderStageCreateInfo>* ProgramManager::GetPipelineShaderStages(ProgramObject* programObject) {
+        return GetPipelineShaderStages(GetHash(programObject));
     }
 
     ProgramManager::HashType ProgramManager::GetHash(ProgramObject *programObject) {
