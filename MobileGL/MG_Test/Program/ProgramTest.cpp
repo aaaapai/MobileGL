@@ -983,7 +983,7 @@ TEST_F(ProgramTest, CompileAndLinkWithExplicitFragmentOut) {
 
     auto programObject = MG_State::pGLContext->GetCurrentProgram();
     auto& spirvs = programObject->GetGeneratedSpirv();
-    auto& fragSpirv = spirvs[0]; // 0 - fragment, 1 - vertex
+    auto& fragSpirv = spirvs[programObject->GetShaderIndexByStage(ShaderStage::Fragment)];
     char* pSrcfragOut = nullptr;
     const char* needle = "layout(location = 7) out vec4 fragColor;";
     // for (auto spirv: spirvs) {
