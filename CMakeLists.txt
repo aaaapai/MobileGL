@@ -213,7 +213,7 @@ set(SOURCE_FILES
     MobileGL/MG_Backend/DirectVulkan/Renderer/PipelineManager.cpp
     MobileGL/MG_Backend/DirectVulkan/Renderer/FrameContext.cpp
     MobileGL/MG_Backend/DirectVulkan/Renderer/VulkanRenderer.cpp
-    MobileGL/MG_Backend/DirectVulkan/Renderer/ProgramManager.cpp
+    MobileGL/MG_Backend/DirectVulkan/Managers/ProgramManager.cpp
 
     MobileGL/MG_State/GLState/Core.cpp
     MobileGL/MG_State/GLState/ErrorState/Error.cpp

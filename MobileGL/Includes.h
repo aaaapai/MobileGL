@@ -106,8 +106,6 @@
 #define TRACY_ZONECOLOR_BACKEND 0x00FF00
 #endif
 
-#include "xxhash.h"
-
 // Post-includes for significant project headers
 #include "MG_Util/Debug/Log.h"
 #include "MG_Util/Types.h"

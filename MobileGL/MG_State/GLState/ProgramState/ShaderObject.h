@@ -17,6 +17,7 @@ namespace MobileGL {
         Geometry,
         Fragment,
         Compute,
+        ShaderStageCount,
         Unknown = -1
     };
 
