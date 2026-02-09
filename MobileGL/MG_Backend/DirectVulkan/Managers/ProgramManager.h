@@ -1,4 +1,4 @@
-// MobileGL - MobileGL/MG_Backend/DirectVulkan/Renderer/ProgramManager.h
+// MobileGL - MobileGL/MG_Backend/DirectVulkan/Managers/ProgramManager.h
 // Copyright (c) 2025-2026 MobileGL-Dev
 // Licensed under the GNU Lesser General Public License v3.0:
 //   https://www.gnu.org/licenses/gpl-3.0.txt
@@ -17,13 +17,13 @@ namespace MobileGL::MG_Backend::DirectVulkan {
 
     class ProgramManager {
     public:
+        using ProgramObject = MobileGL::MG_State::GLState::ProgramObject;
         using HashType = XXH64_hash_t;
         ProgramManager(VulkanContext& ctx);
         ~ProgramManager();
 
-        Vector<VkPipelineShaderStageCreateInfo> CreatePipelineShaderStages();
+        Vector<VkPipelineShaderStageCreateInfo>& CreatePipelineShaderStages(ProgramObject* programObject);
     private:
-        using ProgramObject = MobileGL::MG_State::GLState::ProgramObject;
 
         void Cleanup();
         HashType GetHash(ProgramObject* programObject);
