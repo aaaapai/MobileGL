@@ -184,7 +184,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         return XXH64_digest(m_hashState);
     }
 
-    VkBlendFactor RenderStateManager::ResolveBlendFactor(BlendFactor factor) const {
+    VkBlendFactor RenderStateManager::ResolveBlendFactor(BlendFactor factor) {
         switch (factor) {
         case BlendFactor::Zero:
             return VK_BLEND_FACTOR_ZERO;
@@ -220,7 +220,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         }
     }
 
-    VkCompareOp RenderStateManager::ResolveDepthCompareOp(DepthTestFunc func) const {
+    VkCompareOp RenderStateManager::ResolveDepthCompareOp(DepthTestFunc func) {
         switch (func) {
         case DepthTestFunc::Never:
             return VK_COMPARE_OP_NEVER;
@@ -244,7 +244,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         }
     }
 
-    VkCullModeFlags RenderStateManager::ResolveCullMode(CullFaceMode mode) const {
+    VkCullModeFlags RenderStateManager::ResolveCullMode(CullFaceMode mode) {
         switch (mode) {
         case CullFaceMode::Front:
             return VK_CULL_MODE_FRONT_BIT;
@@ -258,7 +258,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         }
     }
 
-    VkColorComponentFlags RenderStateManager::ResolveColorWriteMask(const BoolVec4& mask) const {
+    VkColorComponentFlags RenderStateManager::ResolveColorWriteMask(const BoolVec4& mask) {
         VkColorComponentFlags vkMask = 0;
         if (mask.x()) vkMask |= VK_COLOR_COMPONENT_R_BIT;
         if (mask.y()) vkMask |= VK_COLOR_COMPONENT_G_BIT;

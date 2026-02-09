@@ -41,12 +41,12 @@ namespace MobileGL::MG_Backend::DirectVulkan {
 
     private:
         void Cleanup();
-        void PatchCreateInfoPointers(RenderStateInfo& stateInfo);
+        static void PatchCreateInfoPointers(RenderStateInfo& stateInfo);
         HashType GetHash(const RenderStateParameters& renderState, Uint colorAttachmentCount);
-        VkBlendFactor ResolveBlendFactor(BlendFactor factor) const;
-        VkCompareOp ResolveDepthCompareOp(DepthTestFunc func) const;
-        VkCullModeFlags ResolveCullMode(CullFaceMode mode) const;
-        VkColorComponentFlags ResolveColorWriteMask(const BoolVec4& mask) const;
+        static VkBlendFactor ResolveBlendFactor(BlendFactor factor);
+        static VkCompareOp ResolveDepthCompareOp(DepthTestFunc func);
+        static VkCullModeFlags ResolveCullMode(CullFaceMode mode);
+        static VkColorComponentFlags ResolveColorWriteMask(const BoolVec4& mask);
 
         UnorderedMap<HashType, RenderStateInfo> m_renderStateInfo;
         XXH64_state_t* const m_hashState = XXH64_createState();

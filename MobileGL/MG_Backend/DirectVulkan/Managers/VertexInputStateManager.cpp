@@ -113,7 +113,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         return XXH64_digest(m_hashState);
     }
 
-    Uint VertexInputStateManager::GetDataTypeByteSize(DataType type) const {
+    Uint VertexInputStateManager::GetDataTypeByteSize(DataType type) {
         switch (type) {
         case DataType::Int8:
         case DataType::Uint8:
@@ -135,7 +135,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         }
     }
 
-    VkFormat VertexInputStateManager::ResolveVertexFormat(const MG_State::GLState::VertexAttribute& attrib) const {
+    VkFormat VertexInputStateManager::ResolveVertexFormat(const MG_State::GLState::VertexAttribute& attrib) {
         auto size = attrib.Size;
 
         auto selectFormat = [size](VkFormat c1, VkFormat c2, VkFormat c3, VkFormat c4) {

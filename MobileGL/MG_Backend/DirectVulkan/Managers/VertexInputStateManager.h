@@ -33,10 +33,10 @@ namespace MobileGL::MG_Backend::DirectVulkan {
 
     private:
         void Cleanup();
-        void PatchCreateInfoPointers(VertexInputStateInfo& stateInfo);
+        static void PatchCreateInfoPointers(VertexInputStateInfo& stateInfo);
         HashType GetHash(VertexArrayObject* vaoObject);
-        VkFormat ResolveVertexFormat(const MG_State::GLState::VertexAttribute& attrib) const;
-        Uint GetDataTypeByteSize(DataType type) const;
+        static VkFormat ResolveVertexFormat(const MG_State::GLState::VertexAttribute& attrib);
+        static Uint GetDataTypeByteSize(DataType type);
 
         UnorderedMap<HashType, VertexInputStateInfo> m_vertexInputStateInfo;
         XXH64_state_t* const m_hashState = XXH64_createState();
