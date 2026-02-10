@@ -58,7 +58,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
 #elif defined VK_USE_PLATFORM_WIN32_KHR
                               VK_KHR_WIN32_SURFACE_EXTENSION_NAME
 #else
-#error "VulkanContext::CreateInstance: VK_KHR_*_surface extension not defined on this platform"
+#warning "VulkanContext::CreateInstance: VK_KHR_*_surface extension not defined on this platform"
 #endif
         }; // TODO: support more platforms
 
