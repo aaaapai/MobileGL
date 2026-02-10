@@ -264,7 +264,7 @@ namespace MobileGL {
             return EGL_TRUE;
         }
 
-        EGLSync CreateSync(void* dpy, unsigned int type, long const* attrib_list) {
+        EGLSync CreateSync(EGLDisplay dpy, EGLenum type, const EGLAttrib* attrib_list) {
             return reinterpret_cast<EGLSync>(0x1);
         }
 
@@ -272,34 +272,37 @@ namespace MobileGL {
             return EGL_TRUE;
         }
 
-        EGLint ClientWaitSync(void* dpy, void* sync, int flags, unsigned long timeout) {
+        EGLint ClientWaitSync(EGLDisplay dpy, EGLSync sync, EGLint flags, EGLTime timeout) {
             return EGL_CONDITION_SATISFIED;
         }
 
-        EGLBoolean GetSyncAttrib(void* dpy, void* sync, int attribute, long* value) {
+        EGLBoolean GetSyncAttrib(EGLDisplay dpy, EGLSync sync, EGLint attribute, EGLAttrib* value) {
             if (value) {
                 *value = 0;
             }
             return EGL_TRUE;
         }
 
-        EGLImage CreateImage(void* dpy, void* ctx, unsigned int target, void* buffer, long const* attrib_list) {
+        EGLImage CreateImage(EGLDisplay dpy, EGLContext ctx, EGLenum target, EGLClientBuffer buffer,
+                             const EGLAttrib* attrib_list) {
             return reinterpret_cast<EGLImage>(0x1);
         }
 
-        EGLBoolean DestroyImage(void* dpy, void* image) {
+        EGLBoolean DestroyImage(EGLDisplay dpy, EGLImage image) {
             return EGL_TRUE;
         }
 
-        EGLDisplay GetPlatformDisplay(unsigned int platform, void* native_display, long const* attrib_list) {
+        EGLDisplay GetPlatformDisplay(EGLenum platform, void* native_display, const EGLAttrib* attrib_list) {
             return reinterpret_cast<EGLDisplay>(0x1);
         }
 
-        EGLSurface CreatePlatformWindowSurface(void* dpy, void* config, void* native_window, long const* attrib_list) {
+        EGLSurface CreatePlatformWindowSurface(EGLDisplay dpy, EGLConfig config, void* native_window,
+                                               const EGLAttrib* attrib_list) {
             return reinterpret_cast<EGLSurface>(0x1);
         }
 
-        EGLSurface CreatePlatformPixmapSurface(void* dpy, void* config, void* native_pixmap, long const* attrib_list) {
+        EGLSurface CreatePlatformPixmapSurface(EGLDisplay dpy, EGLConfig config, void* native_pixmap,
+                                               const EGLAttrib* attrib_list) {
             return reinterpret_cast<EGLSurface>(0x1);
         }
 
