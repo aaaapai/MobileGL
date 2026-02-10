@@ -48,7 +48,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         appInfo.pApplicationName = appName.c_str();
 #ifdef VK_USE_PLATFORM_WIN32_KHR
         appInfo.apiVersion = VK_API_VERSION_1_3;
-#elif
+#else
         appInfo.apiVersion = VK_API_VERSION_1_1;
 #endif
 
