@@ -71,9 +71,11 @@ TEST(DirectVulkanSanity, ContextCreation) {
     EGLNativeWindowType nativewindow = glfwGetWin32Window(window);
 #endif
     EGLSurface surface = eglCreateWindowSurface(display, config, nativewindow, nullptr);
+    eglMakeCurrent(display, surface, surface, context);
 
     while(!glfwWindowShouldClose(window)) {
         glfwPollEvents();
+        eglSwapBuffers(display, surface);
     }
 
     glfwDestroyWindow(window);

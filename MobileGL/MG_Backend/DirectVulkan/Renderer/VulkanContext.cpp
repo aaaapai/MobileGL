@@ -46,7 +46,11 @@ namespace MobileGL::MG_Backend::DirectVulkan {
     void VulkanContext::CreateInstance(const std::string& appName) {
         VkApplicationInfo appInfo{VK_STRUCTURE_TYPE_APPLICATION_INFO};
         appInfo.pApplicationName = appName.c_str();
+#ifdef VK_USE_PLATFORM_WIN32_KHR
+        appInfo.apiVersion = VK_API_VERSION_1_3;
+#elif
         appInfo.apiVersion = VK_API_VERSION_1_1;
+#endif
 
         const char* exts[] = {VK_KHR_SURFACE_EXTENSION_NAME,
 #ifdef VK_USE_PLATFORM_ANDROID_KHR
