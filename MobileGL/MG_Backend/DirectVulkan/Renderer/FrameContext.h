@@ -8,21 +8,35 @@
 
 #pragma once
 #include <Includes.h>
+#include "VulkanContext.h"
+#include "VkCommon.h"
 
 namespace MobileGL::MG_Backend::DirectVulkan {
-    class VulkanContext;
-
-    struct FrameContext {
-        FrameContext() = default;
-        ~FrameContext();
-
-        void Initialize(VulkanContext& ctx, VkCommandPool pool);
-        void Cleanup(VulkanContext& ctx);
-
-        VkCommandBuffer CommandBuffer = VK_NULL_HANDLE;
-        VkSemaphore ImageAvailable = VK_NULL_HANDLE;
-        VkSemaphore RenderFinished = VK_NULL_HANDLE;
-        VkFence InFlightFence = VK_NULL_HANDLE;
-        Uint32 CurrentImageIndex = 0;
+    struct TrashBuffer {
+        VkBuffer buffer = VK_NULL_HANDLE;
+        VkDeviceMemory memory = VK_NULL_HANDLE;
+        Bool mapped = false;
     };
+    struct TrashImage {
+        VkImage image = VK_NULL_HANDLE;
+        VkDeviceMemory memory = VK_NULL_HANDLE;
+        VkImageView view = VK_NULL_HANDLE;
+        Vector<VkImageView> mipViews;
+    };
+    namespace VkManager {
+        struct FrameContext {
+            VkCommandBuffer CommandBuffer = VK_NULL_HANDLE;
+            VkSemaphore ImageAvailable = VK_NULL_HANDLE;
+            VkSemaphore RenderFinished = VK_NULL_HANDLE;
+            VkFence InFlightFence = VK_NULL_HANDLE;
+            Uint32 CurrentImageIndex = 0;
+            VkCommandPool CommandPool = VK_NULL_HANDLE;
+            Vector<TrashBuffer> TrashBuffers;
+            Vector<TrashImage> TrashImages;
+            // VkCommandPool CommandPool = VK_NULL_HANDLE;
+
+            void Initialize(VulkanContext& ctx, VkCommandPool pool);
+            void Cleanup(VulkanContext& ctx);
+        };
+    } // namespace VkManager
 } // namespace MobileGL::MG_Backend::DirectVulkan

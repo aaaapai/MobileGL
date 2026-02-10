@@ -7,127 +7,148 @@
 // End of Source File Header
 
 #include "SwapchainManager.h"
-#include "VulkanContext.h"
 
-namespace MobileGL::MG_Backend::DirectVulkan {
-    SwapchainManager::SwapchainManager(VulkanContext& ctx) : Ctx(ctx) {}
-    SwapchainManager::~SwapchainManager() {
-        Cleanup();
-    }
+namespace MobileGL::MG_Backend::DirectVulkan::VkManager {
+    namespace {
+        VkSurfaceFormatKHR ChooseSurfaceFormat(const Vector<VkSurfaceFormatKHR>& formats) {
+            for (const auto& f : formats) {
+                if ((f.format == VK_FORMAT_R8G8B8A8_UNORM || f.format == VK_FORMAT_B8G8R8A8_UNORM) &&
+                    f.colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR) {
+                    return f;
+                }
+            }
+            return formats.empty() ? VkSurfaceFormatKHR{VK_FORMAT_B8G8R8A8_UNORM, VK_COLOR_SPACE_SRGB_NONLINEAR_KHR}
+                                   : formats[0];
+        }
 
-    void SwapchainManager::Initialize() {
-        CreateSwapchainInternal();
-        CreateImageViews();
-        ImagesInFlight.resize(Images.size(), VK_NULL_HANDLE);
-    }
+        VkPresentModeKHR ChoosePresentMode(const Vector<VkPresentModeKHR>& modes) {
+            for (const auto& m : modes) {
+                if (m == VK_PRESENT_MODE_MAILBOX_KHR) return m;
+            }
+            return VK_PRESENT_MODE_FIFO_KHR;
+        }
+
+        VkExtent2D ChooseExtent(const VkSurfaceCapabilitiesKHR& caps, ANativeWindow* window) {
+            if (caps.currentExtent.width != UINT32_MAX) return caps.currentExtent;
+            VkExtent2D extent{640, 480};
+#ifdef VK_USE_PLATFORM_ANDROID_KHR
+            if (window) {
+                extent.width = static_cast<Uint32>(ANativeWindow_getWidth(window));
+                extent.height = static_cast<Uint32>(ANativeWindow_getHeight(window));
+            }
+#else
+            (void)window;
+#endif
+            extent.width = std::max(caps.minImageExtent.width, std::min(caps.maxImageExtent.width, extent.width));
+            extent.height = std::max(caps.minImageExtent.height, std::min(caps.maxImageExtent.height, extent.height));
+            return extent;
+        }
+    } // namespace
+
+    SwapchainManager::~SwapchainManager() { DestroySwapchain(); }
+
+    void SwapchainManager::Initialize() { CreateSwapchain(VK_NULL_HANDLE); }
 
     void SwapchainManager::Recreate() {
-        DestroyImageViews();
-        if (Swapchain != VK_NULL_HANDLE) {
-            vkDestroySwapchainKHR(Ctx.GetDevice(), Swapchain, nullptr);
-            Swapchain = VK_NULL_HANDLE;
+        DestroySwapchain();
+        CreateSwapchain(VK_NULL_HANDLE);
+    }
+
+    void SwapchainManager::SetFramebuffers(Vector<VkFramebuffer>&& framebuffers) { m_framebuffers = Move(framebuffers); }
+
+    void SwapchainManager::DestroySwapchain() {
+        auto device = m_ctx.GetDevice();
+        if (device == VK_NULL_HANDLE) return;
+        for (auto fb : m_framebuffers) {
+            if (fb != VK_NULL_HANDLE) vkDestroyFramebuffer(device, fb, nullptr);
         }
-        CreateSwapchainInternal();
-        CreateImageViews();
-        ImagesInFlight.resize(Images.size(), VK_NULL_HANDLE);
+        m_framebuffers.clear();
 
-        Framebuffers.clear();
-        MGLOG_D("Swapchain recreated");
-    }
-
-    void SwapchainManager::Cleanup() {
-        for (auto fb : Framebuffers)
-            if (fb != VK_NULL_HANDLE) vkDestroyFramebuffer(Ctx.GetDevice(), fb, nullptr);
-        Framebuffers.clear();
-        DestroyImageViews();
-        if (Swapchain != VK_NULL_HANDLE) {
-            vkDestroySwapchainKHR(Ctx.GetDevice(), Swapchain, nullptr);
-            Swapchain = VK_NULL_HANDLE;
+        for (auto view : m_imageViews) {
+            if (view != VK_NULL_HANDLE) vkDestroyImageView(device, view, nullptr);
         }
-    }
+        m_imageViews.clear();
+        m_images.clear();
+        m_imagesInFlight.clear();
 
-    void SwapchainManager::SetFramebuffers(std::vector<VkFramebuffer>&& fbs) {
-        Framebuffers = std::move(fbs);
-    }
-
-    VkPresentModeKHR SwapchainManager::QueryPossiblePresentMode() {
-        const auto& surface = Ctx.GetSurface();
-        const auto& phys = Ctx.GetPhysicalDevice();
-        Uint32 modeCount;
-        vkGetPhysicalDeviceSurfacePresentModesKHR(phys, surface, &modeCount, NULL);
-
-        Vector<VkPresentModeKHR> modes(modeCount);
-        vkGetPhysicalDeviceSurfacePresentModesKHR(phys, surface, &modeCount, modes.data());
-        VkPresentModeKHR presentMode = VK_PRESENT_MODE_FIFO_KHR;
-
-        for (auto m : modes) {
-            if (m == VK_PRESENT_MODE_MAILBOX_KHR) {
-                presentMode = m;
-                break;
-            }
-            if (m == VK_PRESENT_MODE_IMMEDIATE_KHR) {
-                presentMode = m;
-            }
+        if (m_swapchain != VK_NULL_HANDLE) {
+            vkDestroySwapchainKHR(device, m_swapchain, nullptr);
+            m_swapchain = VK_NULL_HANDLE;
         }
-
-        return presentMode;
+        m_format = VK_FORMAT_UNDEFINED;
+        m_extent = {0, 0};
     }
 
-    void SwapchainManager::CreateSwapchainInternal() {
-        VkSurfaceCapabilitiesKHR caps;
-        VK_VERIFY(vkGetPhysicalDeviceSurfaceCapabilitiesKHR(Ctx.GetPhysicalDevice(), Ctx.GetSurface(), &caps),
+    void SwapchainManager::CreateSwapchain(VkSwapchainKHR oldSwapchain) {
+        VkSurfaceCapabilitiesKHR caps{};
+        VK_VERIFY(vkGetPhysicalDeviceSurfaceCapabilitiesKHR(m_ctx.GetPhysicalDevice(), m_ctx.GetSurface(), &caps),
                   "vkGetPhysicalDeviceSurfaceCapabilitiesKHR");
 
-        Extent = caps.currentExtent;
-        ImageFormat = VK_FORMAT_R8G8B8A8_UNORM;
+        Uint32 fmtCount = 0;
+        vkGetPhysicalDeviceSurfaceFormatsKHR(m_ctx.GetPhysicalDevice(), m_ctx.GetSurface(), &fmtCount, nullptr);
+        Vector<VkSurfaceFormatKHR> formats(fmtCount);
+        if (fmtCount > 0) {
+            vkGetPhysicalDeviceSurfaceFormatsKHR(m_ctx.GetPhysicalDevice(), m_ctx.GetSurface(), &fmtCount,
+                                                 formats.data());
+        }
+
+        Uint32 modeCount = 0;
+        vkGetPhysicalDeviceSurfacePresentModesKHR(m_ctx.GetPhysicalDevice(), m_ctx.GetSurface(), &modeCount, nullptr);
+        Vector<VkPresentModeKHR> modes(modeCount);
+        if (modeCount > 0) {
+            vkGetPhysicalDeviceSurfacePresentModesKHR(m_ctx.GetPhysicalDevice(), m_ctx.GetSurface(), &modeCount,
+                                                      modes.data());
+        }
+
+        VkSurfaceFormatKHR surfaceFormat = ChooseSurfaceFormat(formats);
+        VkPresentModeKHR presentMode = ChoosePresentMode(modes);
+        VkExtent2D extent = ChooseExtent(caps, m_ctx.GetWindow());
+
+        Uint32 imageCount = caps.minImageCount + 1;
+        if (caps.maxImageCount > 0 && imageCount > caps.maxImageCount) imageCount = caps.maxImageCount;
 
         VkSwapchainCreateInfoKHR sci{VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR};
-        sci.surface = Ctx.GetSurface();
-        sci.minImageCount = std::max<uint32_t>(2, caps.minImageCount);
-        sci.imageFormat = ImageFormat;
-        sci.imageColorSpace = VK_COLOR_SPACE_SRGB_NONLINEAR_KHR;
-        sci.imageExtent = Extent;
+        sci.surface = m_ctx.GetSurface();
+        sci.minImageCount = imageCount;
+        sci.imageFormat = surfaceFormat.format;
+        sci.imageColorSpace = surfaceFormat.colorSpace;
+        sci.imageExtent = extent;
         sci.imageArrayLayers = 1;
-        sci.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
+        sci.imageUsage =
+            VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
         sci.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
         sci.preTransform = caps.currentTransform;
         sci.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
-        sci.presentMode = QueryPossiblePresentMode();
+        sci.presentMode = presentMode;
+        sci.clipped = VK_TRUE;
+        sci.oldSwapchain = oldSwapchain;
 
-        VK_VERIFY(vkCreateSwapchainKHR(Ctx.GetDevice(), &sci, nullptr, &Swapchain), "vkCreateSwapchainKHR");
+        VK_VERIFY(vkCreateSwapchainKHR(m_ctx.GetDevice(), &sci, nullptr, &m_swapchain), "vkCreateSwapchainKHR");
 
-        uint32_t count = 0;
-        VK_VERIFY(vkGetSwapchainImagesKHR(Ctx.GetDevice(), Swapchain, &count, nullptr),
-                  "vkGetSwapchainImagesKHR count");
-        Images.resize(count);
-        VK_VERIFY(vkGetSwapchainImagesKHR(Ctx.GetDevice(), Swapchain, &count, Images.data()),
-                  "vkGetSwapchainImagesKHR images");
-        MGLOG_D("Swapchain created (%u images)", count);
-    }
+        Uint32 actualCount = 0;
+        vkGetSwapchainImagesKHR(m_ctx.GetDevice(), m_swapchain, &actualCount, nullptr);
+        m_images.resize(actualCount);
+        vkGetSwapchainImagesKHR(m_ctx.GetDevice(), m_swapchain, &actualCount, m_images.data());
 
-    void SwapchainManager::CreateImageViews() {
-        DestroyImageViews();
-        ImageViews.resize(Images.size());
-        for (size_t i = 0; i < Images.size(); ++i) {
+        m_imageViews.clear();
+        m_imageViews.reserve(actualCount);
+        for (auto image : m_images) {
             VkImageViewCreateInfo ivci{VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
-            ivci.image = Images[i];
+            ivci.image = image;
             ivci.viewType = VK_IMAGE_VIEW_TYPE_2D;
-            ivci.format = ImageFormat;
-            ivci.components = {VK_COMPONENT_SWIZZLE_R, VK_COMPONENT_SWIZZLE_G, VK_COMPONENT_SWIZZLE_B,
-                               VK_COMPONENT_SWIZZLE_A};
+            ivci.format = surfaceFormat.format;
             ivci.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
             ivci.subresourceRange.baseMipLevel = 0;
             ivci.subresourceRange.levelCount = 1;
             ivci.subresourceRange.baseArrayLayer = 0;
             ivci.subresourceRange.layerCount = 1;
-            VK_VERIFY(vkCreateImageView(Ctx.GetDevice(), &ivci, nullptr, &ImageViews[i]), "vkCreateImageView");
+            VkImageView view = VK_NULL_HANDLE;
+            VK_VERIFY(vkCreateImageView(m_ctx.GetDevice(), &ivci, nullptr, &view), "vkCreateImageView swapchain");
+            m_imageViews.push_back(view);
         }
-        MGLOG_D("ImageViews created");
-    }
 
-    void SwapchainManager::DestroyImageViews() {
-        for (auto iv : ImageViews)
-            if (iv != VK_NULL_HANDLE) vkDestroyImageView(Ctx.GetDevice(), iv, nullptr);
-        ImageViews.clear();
+        m_imagesInFlight.assign(actualCount, VK_NULL_HANDLE);
+        m_format = surfaceFormat.format;
+        m_extent = extent;
     }
-} // namespace MobileGL::MG_Backend::DirectVulkan
+} // namespace MobileGL::MG_Backend::DirectVulkan::VkManager

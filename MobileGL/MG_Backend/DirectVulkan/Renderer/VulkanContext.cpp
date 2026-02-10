@@ -7,120 +7,159 @@
 // End of Source File Header
 
 #include "VulkanContext.h"
-#include "MG_Util/Types.h"
 
-namespace MobileGL::MG_Backend::DirectVulkan {
+namespace MobileGL::MG_Backend::DirectVulkan::VkManager {
+    namespace {
+        Bool CheckDeviceExtensionSupport(VkPhysicalDevice device, const Vector<const char*>& required) {
+            Uint32 count = 0;
+            vkEnumerateDeviceExtensionProperties(device, nullptr, &count, nullptr);
+            Vector<VkExtensionProperties> props(count);
+            if (count > 0) vkEnumerateDeviceExtensionProperties(device, nullptr, &count, props.data());
+
+            for (auto* ext : required) {
+                Bool found = false;
+                for (const auto& p : props) {
+                    if (std::strcmp(p.extensionName, ext) == 0) {
+                        found = true;
+                        break;
+                    }
+                }
+                if (!found) return false;
+            }
+            return true;
+        }
+
+        Bool FindGraphicsQueueFamily(VkPhysicalDevice device, VkSurfaceKHR surface, Uint32& outFamily) {
+            Uint32 count = 0;
+            vkGetPhysicalDeviceQueueFamilyProperties(device, &count, nullptr);
+            if (count == 0) return false;
+            Vector<VkQueueFamilyProperties> props(count);
+            vkGetPhysicalDeviceQueueFamilyProperties(device, &count, props.data());
+
+            for (Uint32 i = 0; i < count; ++i) {
+                if (!(props[i].queueFlags & VK_QUEUE_GRAPHICS_BIT)) continue;
+                if (surface != VK_NULL_HANDLE) {
+                    VkBool32 presentSupport = VK_FALSE;
+                    vkGetPhysicalDeviceSurfaceSupportKHR(device, i, surface, &presentSupport);
+                    if (!presentSupport) continue;
+                }
+                outFamily = i;
+                return true;
+            }
+            return false;
+        }
+    } // namespace
+
     VulkanContext::~VulkanContext() {
-        Shutdown();
+        Cleanup();
     }
 
-    void VulkanContext::Initialize(NativeWindowType window, const std::string& appName) {
-        if (Initialized) return;
-        CreateInstance(appName);
+    void VulkanContext::Initialize(ANativeWindow* window, const char* appName) {
+        if (m_instance != VK_NULL_HANDLE) return;
+        m_window = window;
+        CreateInstance(appName ? appName : "MobileGL-Vulkan");
         CreateSurface(window);
         PickPhysicalDevice();
-        CreateLogicalDevice();
-        Initialized = true;
-        MGLOG_D("VulkanContext initialized");
+        CreateDevice();
     }
 
-    void VulkanContext::Shutdown() {
-        if (!Initialized && Instance == VK_NULL_HANDLE) return;
-        if (Device != VK_NULL_HANDLE) {
-            vkDeviceWaitIdle(Device);
-            vkDestroyDevice(Device, nullptr);
-            Device = VK_NULL_HANDLE;
+    void VulkanContext::Cleanup() {
+        if (m_device != VK_NULL_HANDLE) {
+            vkDeviceWaitIdle(m_device);
+            vkDestroyDevice(m_device, nullptr);
+            m_device = VK_NULL_HANDLE;
         }
-        if (Surface != VK_NULL_HANDLE) {
-            vkDestroySurfaceKHR(Instance, Surface, nullptr);
-            Surface = VK_NULL_HANDLE;
+        if (m_surface != VK_NULL_HANDLE) {
+            vkDestroySurfaceKHR(m_instance, m_surface, nullptr);
+            m_surface = VK_NULL_HANDLE;
         }
-        if (Instance != VK_NULL_HANDLE) {
-            vkDestroyInstance(Instance, nullptr);
-            Instance = VK_NULL_HANDLE;
+        if (m_instance != VK_NULL_HANDLE) {
+            vkDestroyInstance(m_instance, nullptr);
+            m_instance = VK_NULL_HANDLE;
         }
-        Initialized = false;
-        MGLOG_D("VulkanContext shutdown");
+        m_physicalDevice = VK_NULL_HANDLE;
+        m_graphicsQueue = VK_NULL_HANDLE;
+        m_graphicsQueueFamily = ~0u;
+        m_window = nullptr;
     }
 
-    void VulkanContext::CreateInstance(const std::string& appName) {
-        VkApplicationInfo appInfo{VK_STRUCTURE_TYPE_APPLICATION_INFO};
-        appInfo.pApplicationName = appName.c_str();
-        appInfo.apiVersion = VK_API_VERSION_1_1;
+    void VulkanContext::CreateInstance(const char* appName) {
+        VkApplicationInfo app{VK_STRUCTURE_TYPE_APPLICATION_INFO};
+        app.pApplicationName = appName;
+        app.applicationVersion = VK_MAKE_VERSION(1, 1, 0);
+        app.pEngineName = "MobileGL";
+        app.engineVersion = VK_MAKE_VERSION(1, 1, 0);
+        app.apiVersion = VK_API_VERSION_1_1;
 
-        const char* exts[] = {VK_KHR_SURFACE_EXTENSION_NAME,
-#if __ANDROID__
-                              VK_KHR_ANDROID_SURFACE_EXTENSION_NAME
+        Vector<const char*> extensions;
+        extensions.push_back(VK_KHR_SURFACE_EXTENSION_NAME);
+#ifdef VK_USE_PLATFORM_ANDROID_KHR
+        extensions.push_back(VK_KHR_ANDROID_SURFACE_EXTENSION_NAME);
 #endif
-        }; // TODO: support more platforms
 
-        VkInstanceCreateInfo ci{VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO};
-        ci.pApplicationInfo = &appInfo;
-        ci.enabledExtensionCount = 2;
-        ci.ppEnabledExtensionNames = exts;
+        VkInstanceCreateInfo ici{VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO};
+        ici.pApplicationInfo = &app;
+        ici.enabledExtensionCount = static_cast<Uint32>(extensions.size());
+        ici.ppEnabledExtensionNames = extensions.data();
 
-        VK_VERIFY(vkCreateInstance(&ci, nullptr, &Instance), "vkCreateInstance failed");
+        VK_VERIFY(vkCreateInstance(&ici, nullptr, &m_instance), "vkCreateInstance");
     }
 
-    void VulkanContext::CreateSurface(NativeWindowType window) {
-#if __ANDROID__
-        if (!Instance) throw RuntimeError("Instance not created");
-
-        auto* nativeWindow = static_cast<ANativeWindow*>(window);
-        if (!nativeWindow) throw RuntimeError("ANativeWindowType is null");
-
+    void VulkanContext::CreateSurface(ANativeWindow* window) {
+        if (!window) return;
+#ifdef VK_USE_PLATFORM_ANDROID_KHR
         VkAndroidSurfaceCreateInfoKHR sci{VK_STRUCTURE_TYPE_ANDROID_SURFACE_CREATE_INFO_KHR};
-        sci.window = nativeWindow;
-        VK_VERIFY(vkCreateAndroidSurfaceKHR(Instance, &sci, nullptr, &Surface), "vkCreateAndroidSurfaceKHR failed");
+        sci.window = window;
+        VK_VERIFY(vkCreateAndroidSurfaceKHR(m_instance, &sci, nullptr, &m_surface), "vkCreateAndroidSurfaceKHR");
 #else
-        MGLOG_W("VulkanRenderer::Initialize called on a platform which is not supported yet"); // TODO: support more
-                                                                                               // platforms
+        (void)window;
 #endif
     }
 
     void VulkanContext::PickPhysicalDevice() {
-        uint32_t count = 0;
-        VK_VERIFY(vkEnumeratePhysicalDevices(Instance, &count, nullptr), "vkEnumeratePhysicalDevices count");
-        if (count == 0) throw RuntimeError("No physical devices");
-        std::vector<VkPhysicalDevice> devs(count);
-        VK_VERIFY(vkEnumeratePhysicalDevices(Instance, &count, devs.data()), "vkEnumeratePhysicalDevices");
+        Uint32 count = 0;
+        VK_VERIFY(vkEnumeratePhysicalDevices(m_instance, &count, nullptr), "vkEnumeratePhysicalDevices");
+        if (count == 0) throw RuntimeError("No Vulkan physical devices found");
 
-        for (auto d : devs) {
-            uint32_t qcount = 0;
-            vkGetPhysicalDeviceQueueFamilyProperties(d, &qcount, nullptr);
-            std::vector<VkQueueFamilyProperties> qprops(qcount);
-            vkGetPhysicalDeviceQueueFamilyProperties(d, &qcount, qprops.data());
-            for (uint32_t i = 0; i < qcount; ++i) {
-                VkBool32 present = VK_FALSE;
-                vkGetPhysicalDeviceSurfaceSupportKHR(d, i, Surface, &present);
-                if ((qprops[i].queueFlags & VK_QUEUE_GRAPHICS_BIT) && present) {
-                    PhysicalDevice = d;
-                    GraphicsQueueFamily = i;
-                    MGLOG_D("Picked physical device, queue family %u", i);
-                    return;
-                }
-            }
+        Vector<VkPhysicalDevice> devices(count);
+        VK_VERIFY(vkEnumeratePhysicalDevices(m_instance, &count, devices.data()), "vkEnumeratePhysicalDevices list");
+
+        Vector<const char*> requiredExts = {VK_KHR_SWAPCHAIN_EXTENSION_NAME};
+
+        for (auto device : devices) {
+            Uint32 family = ~0u;
+            if (!FindGraphicsQueueFamily(device, m_surface, family)) continue;
+            if (!CheckDeviceExtensionSupport(device, requiredExts)) continue;
+
+            m_physicalDevice = device;
+            m_graphicsQueueFamily = family;
+            break;
         }
-        throw RuntimeError("No suitable physical device");
+
+        if (m_physicalDevice == VK_NULL_HANDLE) {
+            throw RuntimeError("No suitable Vulkan physical device found");
+        }
     }
 
-    void VulkanContext::CreateLogicalDevice() {
-        float prio = 1.0f;
-        VkDeviceQueueCreateInfo dqci{VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO};
-        dqci.queueFamilyIndex = GraphicsQueueFamily;
-        dqci.queueCount = 1;
-        dqci.pQueuePriorities = &prio;
+    void VulkanContext::CreateDevice() {
+        float priority = 1.0f;
+        VkDeviceQueueCreateInfo qci{VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO};
+        qci.queueFamilyIndex = m_graphicsQueueFamily;
+        qci.queueCount = 1;
+        qci.pQueuePriorities = &priority;
 
-        const char* devExts[] = {VK_KHR_SWAPCHAIN_EXTENSION_NAME};
+        Vector<const char*> deviceExtensions = {VK_KHR_SWAPCHAIN_EXTENSION_NAME};
+
+        VkPhysicalDeviceFeatures features{};
 
         VkDeviceCreateInfo dci{VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO};
         dci.queueCreateInfoCount = 1;
-        dci.pQueueCreateInfos = &dqci;
-        dci.enabledExtensionCount = 1;
-        dci.ppEnabledExtensionNames = devExts;
+        dci.pQueueCreateInfos = &qci;
+        dci.enabledExtensionCount = static_cast<Uint32>(deviceExtensions.size());
+        dci.ppEnabledExtensionNames = deviceExtensions.data();
+        dci.pEnabledFeatures = &features;
 
-        VK_VERIFY(vkCreateDevice(PhysicalDevice, &dci, nullptr, &Device), "vkCreateDevice failed");
-        vkGetDeviceQueue(Device, GraphicsQueueFamily, 0, &GraphicsQueue);
-        MGLOG_D("Logical device created");
+        VK_VERIFY(vkCreateDevice(m_physicalDevice, &dci, nullptr, &m_device), "vkCreateDevice");
+        vkGetDeviceQueue(m_device, m_graphicsQueueFamily, 0, &m_graphicsQueue);
     }
-} // namespace MobileGL::MG_Backend::DirectVulkan
+} // namespace MobileGL::MG_Backend::DirectVulkan::VkManager

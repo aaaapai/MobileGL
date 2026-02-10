@@ -7,30 +7,37 @@
 // End of Source File Header
 
 #pragma once
-#include "Includes.h"
+#include <Includes.h>
+#include "../Renderer/VulkanContext.h"
+#include "../Renderer/VkCommon.h"
 #include "MG_State/GLState/ProgramState/ProgramObject.h"
-#include "Config.h"
-#include "xxhash.h"
 
-namespace MobileGL::MG_Backend::DirectVulkan {
-    class VulkanContext;
-
+namespace MobileGL::MG_Backend::DirectVulkan::VkManager {
     class ProgramManager {
     public:
-        using ProgramObject = MobileGL::MG_State::GLState::ProgramObject;
-        using HashType = XXH64_hash_t;
-        ProgramManager(VulkanContext& ctx);
+        using HashType = Uint64;
+
+        explicit ProgramManager(VulkanContext& ctx) : m_ctx(ctx) {}
         ~ProgramManager();
 
-        Vector<VkPipelineShaderStageCreateInfo>& CreatePipelineShaderStages(ProgramObject* programObject);
-        Vector<VkPipelineShaderStageCreateInfo>* GetPipelineShaderStages(HashType hash);
-        Vector<VkPipelineShaderStageCreateInfo>* GetPipelineShaderStages(ProgramObject* programObject);
-    private:
+        ProgramManager(const ProgramManager&) = delete;
+        ProgramManager& operator=(const ProgramManager&) = delete;
 
-        void Cleanup();
-        HashType GetHash(ProgramObject* programObject);
+        Vector<VkPipelineShaderStageCreateInfo>& CreatePipelineShaderStages(
+            MG_State::GLState::ProgramObject* program);
+
+    private:
+        struct ProgramStages {
+            HashType hash = 0;
+            Vector<VkPipelineShaderStageCreateInfo> stages;
+            Vector<VkShaderModule> modules;
+        };
+
+        void DestroyStages(ProgramStages& stages);
+        HashType ComputeSpvHash(MG_State::GLState::ProgramObject* program) const;
+        VkShaderStageFlagBits ToVkStage(ShaderStage stage) const;
+
         VulkanContext& m_ctx;
-        UnorderedMap<HashType, Vector<VkPipelineShaderStageCreateInfo>> m_shaderStageCreateInfo;
-        XXH64_state_t* const m_hashState = XXH64_createState();
+        UnorderedMap<const MG_State::GLState::ProgramObject*, ProgramStages> m_cache;
     };
-} // namespace MobileGL::MG_Backend::DirectVulkan
+} // namespace MobileGL::MG_Backend::DirectVulkan::VkManager

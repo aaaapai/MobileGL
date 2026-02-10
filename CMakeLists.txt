@@ -208,6 +208,7 @@ set(SOURCE_FILES
     MobileGL/MG_Backend/DirectGLES/Managers.cpp
 
     MobileGL/MG_Backend/DirectVulkan/DirectVulkan.cpp
+    MobileGL/MG_Backend/DirectVulkan/TmpImpl.cpp
     MobileGL/MG_Backend/DirectVulkan/Renderer/VulkanContext.cpp
     MobileGL/MG_Backend/DirectVulkan/Renderer/SwapchainManager.cpp
     MobileGL/MG_Backend/DirectVulkan/Renderer/PipelineManager.cpp

@@ -8,42 +8,41 @@
 
 #pragma once
 #include <Includes.h>
+#include "VulkanContext.h"
+#include "VkCommon.h"
 
-namespace MobileGL::MG_Backend::DirectVulkan {
-    class VulkanContext;
-
+namespace MobileGL::MG_Backend::DirectVulkan::VkManager {
     class SwapchainManager {
     public:
-        SwapchainManager(VulkanContext& ctx);
+        explicit SwapchainManager(VulkanContext& ctx) : m_ctx(ctx) {}
         ~SwapchainManager();
+
+        SwapchainManager(const SwapchainManager&) = delete;
+        SwapchainManager& operator=(const SwapchainManager&) = delete;
 
         void Initialize();
         void Recreate();
-        void Cleanup();
 
-        VkSwapchainKHR GetSwapchain() const { return Swapchain; }
-        VkFormat GetFormat() const { return ImageFormat; }
-        VkExtent2D GetExtent() const { return Extent; }
-        const std::vector<VkImageView>& GetImageViews() const { return ImageViews; }
-        const std::vector<VkFramebuffer>& GetFramebuffers() const { return Framebuffers; }
-        const std::vector<VkImage>& GetImages() const { return Images; }
-        std::vector<VkFence>& GetImagesInFlight() { return ImagesInFlight; }
-
-        void SetFramebuffers(std::vector<VkFramebuffer>&& fbs);
+        VkSwapchainKHR GetSwapchain() const { return m_swapchain; }
+        VkFormat GetFormat() const { return m_format; }
+        VkExtent2D GetExtent() const { return m_extent; }
+        const Vector<VkImage>& GetImages() const { return m_images; }
+        const Vector<VkImageView>& GetImageViews() const { return m_imageViews; }
+        const Vector<VkFramebuffer>& GetFramebuffers() const { return m_framebuffers; }
+        void SetFramebuffers(Vector<VkFramebuffer>&& framebuffers);
+        Vector<VkFence>& GetImagesInFlight() { return m_imagesInFlight; }
 
     private:
-        VulkanContext& Ctx;
-        VkSwapchainKHR Swapchain = VK_NULL_HANDLE;
-        VkFormat ImageFormat = VK_FORMAT_UNDEFINED;
-        VkExtent2D Extent{0, 0};
-        std::vector<VkImage> Images;
-        std::vector<VkImageView> ImageViews;
-        std::vector<VkFence> ImagesInFlight;
-        std::vector<VkFramebuffer> Framebuffers;
+        void CreateSwapchain(VkSwapchainKHR oldSwapchain);
+        void DestroySwapchain();
 
-        void CreateSwapchainInternal();
-        void CreateImageViews();
-        void DestroyImageViews();
-        VkPresentModeKHR QueryPossiblePresentMode();
+        VulkanContext& m_ctx;
+        VkSwapchainKHR m_swapchain = VK_NULL_HANDLE;
+        VkFormat m_format = VK_FORMAT_UNDEFINED;
+        VkExtent2D m_extent{0, 0};
+        Vector<VkImage> m_images;
+        Vector<VkImageView> m_imageViews;
+        Vector<VkFramebuffer> m_framebuffers;
+        Vector<VkFence> m_imagesInFlight;
     };
-} // namespace MobileGL::MG_Backend::DirectVulkan
+} // namespace MobileGL::MG_Backend::DirectVulkan::VkManager

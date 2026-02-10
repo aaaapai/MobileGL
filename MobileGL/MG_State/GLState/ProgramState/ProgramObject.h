@@ -113,7 +113,8 @@ namespace MobileGL {
                 Vector<Vector<unsigned>>& GetGeneratedSpirv() { return m_generatedSpirv; }
 
                 Int GetShaderIndexByStage(ShaderStage stage) const {
-                    auto it = std::find_if(m_shaders.begin(), m_shaders.end(),
+                    auto it = std::find_if(
+                        m_shaders.begin(), m_shaders.end(),
                         [stage](const SharedPtr<ShaderObject>& shader) { return shader->GetShaderStage() == stage; });
                     return it == m_shaders.end() ? -1 : std::distance(m_shaders.begin(), it);
                 }

@@ -8,6 +8,7 @@
 
 #include "EGLForVulkan.h"
 #include "MG_Backend/DirectVulkan/DirectVulkan.h"
+#include "MG_Backend/DirectVulkan/TmpImpl.h"
 #include <Config.h>
 #include <MG_State/GLState/ProgramState/ProgramObject.h>
 
@@ -88,6 +89,8 @@ namespace MobileGL {
         }
 
         void CreateWindowSurfaceForVulkan(NativeWindowType window) {
+            MobileGL::Backend::DirectVulkan::TmpImpl::InitVulkan(window);
+            return;
             MG_Backend::DirectVulkan::pVulkanRenderer = MakeUnique<MG_Backend::DirectVulkan::VulkanRenderer>(window);
             MG_Backend::DirectVulkan::pVulkanRenderer->Initialize();
 
@@ -102,6 +105,8 @@ namespace MobileGL {
         }
 
         EGLBoolean SwapBuffers(EGLDisplay dpy, EGLSurface draw) {
+            MobileGL::Backend::DirectVulkan::TmpImpl::Present();
+            return EGL_TRUE;
             if (!MG_Backend::DirectVulkan::pVulkanRenderer) {
                 MGLOG_E("EGLForVulkan::SwapBuffers called but VulkanRenderer is null");
                 return EGL_FALSE;

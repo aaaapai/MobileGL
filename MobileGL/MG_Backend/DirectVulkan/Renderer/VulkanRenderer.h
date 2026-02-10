@@ -8,67 +8,58 @@
 
 #pragma once
 #include <Includes.h>
+#include "VulkanContext.h"
+#include "SwapchainManager.h"
+#include "FrameContext.h"
+#include "VkCommon.h"
 
 namespace MobileGL::MG_Backend::DirectVulkan {
-    class VulkanContext;
-    class SwapchainManager;
-    class PipelineManager;
-    struct FrameContext;
-
-    using RenderCallback = std::function<void(VkCommandBuffer cmdBuf, uint32_t imageIndex, VkExtent2D extent)>;
-
-    struct RendererConfig {
-        Uint32 MaxFramesInFlight = 2;
-        String AppName = "MobileGL-VulkanRenderer";
-    };
-
     class VulkanRenderer {
     public:
-        VulkanRenderer(NativeWindowType window, const RendererConfig& cfg = {});
+        using RenderCallback = std::function<void(VkCommandBuffer, Uint32, VkExtent2D)>;
+
+        explicit VulkanRenderer(ANativeWindow* window);
         ~VulkanRenderer();
 
-        void Initialize();
-        void Shutdown();
+        VulkanRenderer(const VulkanRenderer&) = delete;
+        VulkanRenderer& operator=(const VulkanRenderer&) = delete;
 
+        void Initialize();
         void RenderFrame();
         void Present();
 
-        void RegisterRenderCallback(const std::string& name, RenderCallback cb);
-        void UnregisterRenderCallback(const std::string& name);
-
-        VkPipeline CreateGraphicsPipelineFromSpv(const std::string& key, const std::vector<uint32_t>& vsSpv,
-                                                 const std::vector<uint32_t>& fsSpv);
-
-        VkExtent2D GetExtent() const;
-
-        void WaitIdle();
+        VkPipeline CreateGraphicsPipelineFromSpv(const String& name, const Vector<Uint>& vertexSpv,
+                                                 const Vector<Uint>& fragmentSpv);
+        void RegisterRenderCallback(const String& name, RenderCallback callback);
 
     private:
-        NativeWindowType Window = 0;
-        RendererConfig Config;
-
-        std::unique_ptr<VulkanContext> Ctx;
-        std::unique_ptr<SwapchainManager> Swapchain;
-        std::unique_ptr<PipelineManager> PipelineMgr;
-
-        VkRenderPass RenderPass = VK_NULL_HANDLE;
-        VkCommandPool CommandPool = VK_NULL_HANDLE;
-
-        std::vector<std::unique_ptr<FrameContext>> Frames;
-        Uint32 CurrentFrame = 0;
-
-        // Render callbacks map
-        std::vector<std::pair<std::string, RenderCallback>> RenderCallbacks;
-
-        // Internals
+        void EnsureInitialized();
+        void CreateCommandPool();
         void CreateRenderPass();
         void DestroyRenderPass();
-        void CreateCommandPool();
-        void DestroyCommandPool();
+        void CreateFramebuffers();
         void CreateFrameResources();
         void DestroyFrameResources();
-        void RecordFrameCommandBuffer(FrameContext& frame, uint32_t imageIndex);
-        void RecreateSwapchainIfNeeded();
-        void FrameBegin();
+        void RecreateSwapchain();
+        void RecordAndSubmit(Uint32 imageIndex);
+        void DrawAndPresent();
+        void DestroyPipelines();
+
+        struct PipelineInfo {
+            VkPipeline pipeline = VK_NULL_HANDLE;
+            VkPipelineLayout layout = VK_NULL_HANDLE;
+        };
+
+        ANativeWindow* m_window = nullptr;
+        VkManager::VulkanContext m_ctx;
+        UniquePtr<VkManager::SwapchainManager> m_swapchain;
+        VkRenderPass m_renderPass = VK_NULL_HANDLE;
+        VkCommandPool m_commandPool = VK_NULL_HANDLE;
+        Vector<UniquePtr<VkManager::FrameContext>> m_frames;
+        Uint32 m_currentFrame = 0;
+        Bool m_initialized = false;
+
+        UnorderedMap<String, RenderCallback> m_callbacks;
+        UnorderedMap<String, PipelineInfo> m_pipelines;
     };
 } // namespace MobileGL::MG_Backend::DirectVulkan

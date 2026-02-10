@@ -38,6 +38,7 @@
 #include <expected>
 #include <iostream>
 #include <optional>
+#include <xxhash.h>
 #include <algorithm>
 #include <stdexcept>
 #include <functional>

@@ -7,46 +7,43 @@
 // End of Source File Header
 
 #include "FrameContext.h"
-#include "VulkanContext.h"
 
-namespace MobileGL::MG_Backend::DirectVulkan {
-    FrameContext::~FrameContext() = default;
-
+namespace MobileGL::MG_Backend::DirectVulkan::VkManager {
     void FrameContext::Initialize(VulkanContext& ctx, VkCommandPool pool) {
-        // allocate cmd
+        CommandPool = pool;
         VkCommandBufferAllocateInfo abci{VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO};
         abci.commandPool = pool;
         abci.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
         abci.commandBufferCount = 1;
         VK_VERIFY(vkAllocateCommandBuffers(ctx.GetDevice(), &abci, &CommandBuffer), "vkAllocateCommandBuffers");
 
-        // semaphores
         VkSemaphoreCreateInfo sci{VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO};
-        VK_VERIFY(vkCreateSemaphore(ctx.GetDevice(), &sci, nullptr, &ImageAvailable),
-                  "vkCreateSemaphore ImageAvailable");
-        VK_VERIFY(vkCreateSemaphore(ctx.GetDevice(), &sci, nullptr, &RenderFinished),
-                  "vkCreateSemaphore RenderFinished");
+        VK_VERIFY(vkCreateSemaphore(ctx.GetDevice(), &sci, nullptr, &ImageAvailable), "vkCreateSemaphore");
+        VK_VERIFY(vkCreateSemaphore(ctx.GetDevice(), &sci, nullptr, &RenderFinished), "vkCreateSemaphore");
 
-        // fence (start signaled)
         VkFenceCreateInfo fci{VK_STRUCTURE_TYPE_FENCE_CREATE_INFO};
         fci.flags = VK_FENCE_CREATE_SIGNALED_BIT;
         VK_VERIFY(vkCreateFence(ctx.GetDevice(), &fci, nullptr, &InFlightFence), "vkCreateFence");
     }
 
     void FrameContext::Cleanup(VulkanContext& ctx) {
+        auto device = ctx.GetDevice();
+        if (InFlightFence != VK_NULL_HANDLE) {
+            vkDestroyFence(device, InFlightFence, nullptr);
+            InFlightFence = VK_NULL_HANDLE;
+        }
         if (ImageAvailable != VK_NULL_HANDLE) {
-            vkDestroySemaphore(ctx.GetDevice(), ImageAvailable, nullptr);
+            vkDestroySemaphore(device, ImageAvailable, nullptr);
             ImageAvailable = VK_NULL_HANDLE;
         }
         if (RenderFinished != VK_NULL_HANDLE) {
-            vkDestroySemaphore(ctx.GetDevice(), RenderFinished, nullptr);
+            vkDestroySemaphore(device, RenderFinished, nullptr);
             RenderFinished = VK_NULL_HANDLE;
         }
-        if (InFlightFence != VK_NULL_HANDLE) {
-            vkDestroyFence(ctx.GetDevice(), InFlightFence, nullptr);
-            InFlightFence = VK_NULL_HANDLE;
+        if (CommandBuffer != VK_NULL_HANDLE) {
+            vkFreeCommandBuffers(device, CommandPool, 1, &CommandBuffer);
+            CommandBuffer = VK_NULL_HANDLE;
         }
-
-        CommandBuffer = VK_NULL_HANDLE;
+        CommandPool = VK_NULL_HANDLE;
     }
-} // namespace MobileGL::MG_Backend::DirectVulkan
+} // namespace MobileGL::MG_Backend::DirectVulkan::VkManager

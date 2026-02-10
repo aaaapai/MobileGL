@@ -8,43 +8,40 @@
 
 #pragma once
 #include <Includes.h>
+#include "VkCommon.h"
 
-#define VK_VERIFY(expr, ...)                                                                                           \
-    do {                                                                                                               \
-        VkResult _vk_verify_result = (expr);                                                                           \
-        if (_vk_verify_result != VK_SUCCESS) {                                                                         \
-            MGLOG_E("Vulkan error %d at %s:%d" __VA_OPT__(" - ") __VA_ARGS__, _vk_verify_result, __FILE__, __LINE__);  \
-        }                                                                                                              \
-    } while (0)
-
-namespace MobileGL::MG_Backend::DirectVulkan {
+namespace MobileGL::MG_Backend::DirectVulkan::VkManager {
     class VulkanContext {
     public:
         VulkanContext() = default;
         ~VulkanContext();
 
-        void Initialize(NativeWindowType window, const std::string& appName = "MobileGL-VulkanRenderer");
-        void Shutdown();
+        VulkanContext(const VulkanContext&) = delete;
+        VulkanContext& operator=(const VulkanContext&) = delete;
 
-        VkInstance GetInstance() const { return Instance; }
-        VkPhysicalDevice GetPhysicalDevice() const { return PhysicalDevice; }
-        VkDevice GetDevice() const { return Device; }
-        VkQueue GetGraphicsQueue() const { return GraphicsQueue; }
-        uint32_t GetGraphicsQueueFamily() const { return GraphicsQueueFamily; }
-        VkSurfaceKHR GetSurface() const { return Surface; }
+        void Initialize(ANativeWindow* window, const char* appName);
+        void Cleanup();
+
+        VkInstance GetInstance() const { return m_instance; }
+        VkPhysicalDevice GetPhysicalDevice() const { return m_physicalDevice; }
+        VkDevice GetDevice() const { return m_device; }
+        VkQueue GetGraphicsQueue() const { return m_graphicsQueue; }
+        Uint32 GetGraphicsQueueFamily() const { return m_graphicsQueueFamily; }
+        VkSurfaceKHR GetSurface() const { return m_surface; }
+        ANativeWindow* GetWindow() const { return m_window; }
 
     private:
-        void CreateInstance(const std::string& appName);
-        void CreateSurface(NativeWindowType window);
+        void CreateInstance(const char* appName);
+        void CreateSurface(ANativeWindow* window);
         void PickPhysicalDevice();
-        void CreateLogicalDevice();
+        void CreateDevice();
 
-        VkInstance Instance = VK_NULL_HANDLE;
-        VkPhysicalDevice PhysicalDevice = VK_NULL_HANDLE;
-        VkDevice Device = VK_NULL_HANDLE;
-        VkQueue GraphicsQueue = VK_NULL_HANDLE;
-        uint32_t GraphicsQueueFamily = UINT32_MAX;
-        VkSurfaceKHR Surface = VK_NULL_HANDLE;
-        bool Initialized = false;
+        VkInstance m_instance = VK_NULL_HANDLE;
+        VkPhysicalDevice m_physicalDevice = VK_NULL_HANDLE;
+        VkDevice m_device = VK_NULL_HANDLE;
+        VkQueue m_graphicsQueue = VK_NULL_HANDLE;
+        VkSurfaceKHR m_surface = VK_NULL_HANDLE;
+        Uint32 m_graphicsQueueFamily = ~0u;
+        ANativeWindow* m_window = nullptr;
     };
-} // namespace MobileGL::MG_Backend::DirectVulkan
+} // namespace MobileGL::MG_Backend::DirectVulkan::VkManager
