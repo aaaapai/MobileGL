@@ -49,9 +49,9 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         appInfo.apiVersion = VK_API_VERSION_1_1;
 
         const char* exts[] = {VK_KHR_SURFACE_EXTENSION_NAME,
-#if __ANDROID__
+#ifdef VK_USE_PLATFORM_ANDROID_KHR
                               VK_KHR_ANDROID_SURFACE_EXTENSION_NAME
-#elif _WIN32
+#elif defined VK_USE_PLATFORM_WIN32_KHR
                               VK_KHR_WIN32_SURFACE_EXTENSION_NAME
 #else
 #error "VulkanContext::CreateInstance: VK_KHR_*_surface extension not defined on this platform"
