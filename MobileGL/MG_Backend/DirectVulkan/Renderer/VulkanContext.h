@@ -12,9 +12,7 @@
 #define VK_VERIFY(expr, ...)                                                                                           \
     do {                                                                                                               \
         VkResult _vk_verify_result = (expr);                                                                           \
-        if (_vk_verify_result != VK_SUCCESS) {                                                                         \
-            MGLOG_E("Vulkan error %d at %s:%d" __VA_OPT__(" - ") __VA_ARGS__, _vk_verify_result, __FILE__, __LINE__);  \
-        }                                                                                                              \
+        MOBILEGL_ASSERT(_vk_verify_result == VK_SUCCESS, "Vulkan error %d at %s:%d" __VA_OPT__(" - ") __VA_ARGS__, _vk_verify_result, __FILE__, __LINE__);  \
     } while (0)
 
 namespace MobileGL::MG_Backend::DirectVulkan {

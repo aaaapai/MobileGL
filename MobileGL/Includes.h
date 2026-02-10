@@ -91,11 +91,18 @@
 #endif
 
 #ifdef __ANDROID__
-#define VK_USE_PLATFORM_ANDROID_KHR
 #include <unistd.h>
 #include <pthread.h>
 #include <android/log.h>
 #include <android/native_window.h>
+#endif
+
+#ifdef __ANDROID__
+#define VK_USE_PLATFORM_ANDROID_KHR
+#elif _WIN32
+#define VK_USE_PLATFORM_WIN32_KHR
+#else
+#warning "VK_USE_PLATFORM_*_KHR not defined for this platform!"
 #endif
 #include <vulkan/vulkan.h>
 

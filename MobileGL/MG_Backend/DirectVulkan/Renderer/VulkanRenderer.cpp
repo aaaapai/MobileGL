@@ -41,6 +41,8 @@ namespace MobileGL::MG_Backend::DirectVulkan {
     void VulkanRenderer::Shutdown() {
         if (!Ctx) return;
 
+        if (Ctx->GetDevice() == VK_NULL_HANDLE) return;
+
         vkDeviceWaitIdle(Ctx->GetDevice());
 
         DestroyFrameResources();

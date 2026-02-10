@@ -51,6 +51,10 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         const char* exts[] = {VK_KHR_SURFACE_EXTENSION_NAME,
 #if __ANDROID__
                               VK_KHR_ANDROID_SURFACE_EXTENSION_NAME
+#elif _WIN32
+                              VK_KHR_WIN32_SURFACE_EXTENSION_NAME
+#else
+#error "VulkanContext::CreateInstance: VK_KHR_*_surface extension not defined on this platform"
 #endif
         }; // TODO: support more platforms
 
@@ -63,16 +67,23 @@ namespace MobileGL::MG_Backend::DirectVulkan {
     }
 
     void VulkanContext::CreateSurface(NativeWindowType window) {
-#if __ANDROID__
         if (!Instance) throw RuntimeError("Instance not created");
-
+#if defined VK_USE_PLATFORM_ANDROID_KHR
         auto* nativeWindow = static_cast<ANativeWindow*>(window);
         if (!nativeWindow) throw RuntimeError("ANativeWindowType is null");
 
         VkAndroidSurfaceCreateInfoKHR sci{VK_STRUCTURE_TYPE_ANDROID_SURFACE_CREATE_INFO_KHR};
         sci.window = nativeWindow;
         VK_VERIFY(vkCreateAndroidSurfaceKHR(Instance, &sci, nullptr, &Surface), "vkCreateAndroidSurfaceKHR failed");
+#elif defined VK_USE_PLATFORM_WIN32_KHR
+        auto hwnd = static_cast<HWND>(window);
+        MOBILEGL_ASSERT(hwnd, "HWND is null");
+
+        VkWin32SurfaceCreateInfoKHR sci{VK_STRUCTURE_TYPE_WIN32_SURFACE_CREATE_INFO_KHR};
+        sci.hwnd = hwnd;
+        VK_VERIFY(vkCreateWin32SurfaceKHR(Instance, &sci, nullptr, &Surface), "vkCreateWin32SurfaceKHR failed");
 #else
+    //#warning "VulkanRenderer::Initialize called on a platform which is not supported yet"
         MGLOG_W("VulkanRenderer::Initialize called on a platform which is not supported yet"); // TODO: support more
                                                                                                // platforms
 #endif
