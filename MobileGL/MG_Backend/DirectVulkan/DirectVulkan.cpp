@@ -14,6 +14,9 @@ namespace MobileGL::MG_Backend::DirectVulkan {
     void Clear(GLbitfield mask) {}
 
     void DrawElements(GLenum mode, GLsizei count, GLenum type, const void* indices) {
-        pVulkanRenderer->RenderFrame();
+        (void)mode;
+        (void)count;
+        (void)type;
+        (void)indices;
     }
 } // namespace MobileGL::MG_Backend::DirectVulkan

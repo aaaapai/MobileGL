@@ -106,6 +106,8 @@ namespace MobileGL {
                 MGLOG_E("EGLForVulkan::SwapBuffers called but VulkanRenderer is null");
                 return EGL_FALSE;
             }
+            // TODO: replace this with real rendering code
+            MG_Backend::DirectVulkan::pVulkanRenderer->RenderFrame();
             MG_Backend::DirectVulkan::pVulkanRenderer->Present();
             return EGL_TRUE;
         }
