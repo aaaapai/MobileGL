@@ -7,9 +7,11 @@
 // End of Source File Header
 
 #include "GetProcAddress.h"
+#include "../MG_Backend/DirectGLES/multidraw.h"
+
 #define GETPROC(name, var)                                                                                             \
     if (strcmp(#name, var) == 0) {                                                                                     \
-        return (void*)name;                                                                                            \
+        return reinterpret_cast<void*>(name);                                                                            \
     }
 
 namespace MobileGL {
@@ -138,7 +140,7 @@ namespace MobileGL {
             GETPROC(glGetCompressedTexImage, name);
             GETPROC(glBlendFuncSeparate, name);
             GETPROC(glMultiDrawArrays, name);
-            GETPROC(glMultiDrawElements, name);
+            //GETPROC(glMultiDrawElements, name);
             GETPROC(glPointParameterf, name);
             GETPROC(glPointParameterfv, name);
             GETPROC(glPointParameteri, name);
@@ -362,7 +364,7 @@ namespace MobileGL {
             GETPROC(glDrawElementsBaseVertex, name);
             GETPROC(glDrawRangeElementsBaseVertex, name);
             GETPROC(glDrawElementsInstancedBaseVertex, name);
-            GETPROC(glMultiDrawElementsBaseVertex, name);
+            //GETPROC(glMultiDrawElementsBaseVertex, name);
             GETPROC(glProvokingVertex, name);
             GETPROC(glFenceSync, name);
             GETPROC(glIsSync, name);
@@ -1349,6 +1351,41 @@ namespace MobileGL {
             GETPROC(glFramebufferTextureMultiviewOVR, name);
             // GETPROC(glNamedFramebufferTextureMultiviewOVR, name);
 
+            std::string MultiDrawMode = "";
+            const char* MultiDrawMode_env = std::getenv("LIBGL_MULTIDRAW");
+            if (MultiDrawMode_env) {
+                MultiDrawMode = MultiDrawMode_env;
+            }
+            if (strcmp("glMultiDrawElements", name) == 0) {
+    
+                    if (MultiDrawMode == "Indirect") {
+                        return reinterpret_cast<void*>(glMultiDrawElements_indirect);
+                    }
+                    if (MultiDrawMode == "BaseVertex") {
+                        return reinterpret_cast<void*>(glMultiDrawElements);
+                    }
+                    if (MultiDrawMode == "Compute") {
+                        return reinterpret_cast<void*>(glMultiDrawElements_compute);
+                    } else {
+                        return reinterpret_cast<void*>(glMultiDrawElements);
+                    }
+                    
+            }
+
+            if (strcmp("glMultiDrawElementsBaseVertex", name) == 0) {
+                    if (MultiDrawMode == "Indirect") {
+                        return reinterpret_cast<void*>(glMultiDrawElementsBaseVertex_indirect);
+                    }
+                    if (MultiDrawMode == "BaseVertex") {
+                        return reinterpret_cast<void*>(glMultiDrawElementsBaseVertex);
+                    }
+                    if (MultiDrawMode == "Compute") {
+                        return reinterpret_cast<void*>(glMultiDrawElementsBaseVertex_compute);
+                    } else {
+                        return reinterpret_cast<void*>(glMultiDrawElementsBaseVertex);
+                    }
+            }
+    
             MGLOG_W("GetProcAddress(%s) = nullptr!", name);
             return nullptr;
         }

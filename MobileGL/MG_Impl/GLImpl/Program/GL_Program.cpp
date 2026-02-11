@@ -13,6 +13,8 @@
 #include <MG_Util/Converters/GLToMG/ProgramEnumConverter.h>
 #include <MG_Util/Converters/MGToGL/ProgramEnumConverter.h>
 #include <MG_Util/Converters/SPIRVCrossToGL/SpvcTypeConverter.h>
+#include <MG_Util/BackendLoaders/OpenGL/Loader.h>
+#include <MG_Util/Config/EnvChecker.h>
 
 namespace MobileGL {
     namespace MG_Impl::GLImpl {
@@ -303,6 +305,11 @@ namespace MobileGL {
                 *params = programObject->GetActiveUniformBlocksMaxNameLength();
                 MGLOG_D("%s: %s = %d", __func__, MG_Util::ConvertGLEnumToString(pname).c_str(), *params);
                 break;
+            case GL_PROGRAM_BINARY_RETRIEVABLE_HINT:
+                //*params = programObject->GetProgramBinaryRetrievableHint();
+                *params = GL_FALSE;
+                MGLOG_D("%s: %s = %d", __func__, MG_Util::ConvertGLEnumToString(pname).c_str(), *params);
+                break; //TODOOOOOOOOOOO
             case GL_COMPUTE_WORK_GROUP_SIZE: // GL >= 4.3
 
             case GL_PROGRAM_BINARY_LENGTH:
@@ -314,6 +321,7 @@ namespace MobileGL {
             case GL_GEOMETRY_INPUT_TYPE:
             case GL_GEOMETRY_OUTPUT_TYPE:
             default:
+                //MG_External::GLES::glGetProgramiv(program, pname, params);
                 MGLOG_D("%s: %s", __func__, MG_Util::ConvertGLEnumToString(pname).c_str());
                 MG_State::pGLContext->RecordError(
                     ErrorCode::InvalidEnum,
@@ -477,7 +485,11 @@ namespace MobileGL {
             auto programObject = TryToGetProgramObject(program);
             if (!programObject) return;
             MGLOG_D("%s: linking program %d", __func__, program);
-            programObject->Link(!MG_Config::RendererInfoPtr->BackendCapability.AllowVSOnlyPrograms);
+            if (MG_Util::CheckEnvANGLE()) {
+              programObject->Link(true);
+            } else {
+              programObject->Link(!MG_Config::RendererInfoPtr->BackendCapability.AllowVSOnlyPrograms);
+            }
         }
 
         void ShaderSource_State(GLuint shader, GLsizei count, const GLchar* const* string, const GLint* length) {

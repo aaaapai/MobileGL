@@ -47,6 +47,7 @@
 #if __cplusplus >= 202302L && MOBILEGL_LOG_ENABLE_STACKTRACE
 #include <stacktrace>
 #endif
+#include <ranges>
 
 // Include FastSTL
 #include <FastSTL/UnorderedMap.h>
@@ -77,10 +78,17 @@
 #include <glslang/Include/intermediate.h>
 #include <glslang/MachineIndependent/localintermediate.h>
 
+// Include shaderc headers
+#include <shaderc/visibility.h>
+#include <shaderc/env.h>
+#include <shaderc/status.h>
+#include <shaderc/shader.h>
+
 // Include headers for platform-specific functionality
 #ifdef __linux__
 #include <dlfcn.h>
 #include <pthread.h>
+#include <vulkan/vulkan.h>
 #endif
 
 #ifdef _WIN32
@@ -110,3 +118,5 @@
 // Post-includes for significant project headers
 #include "MG_Util/Debug/Log.h"
 #include "MG_Util/Types.h"
+
+#include <jemalloc/jemalloc.h>

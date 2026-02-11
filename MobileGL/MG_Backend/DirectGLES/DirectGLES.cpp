@@ -25,23 +25,9 @@
 #include <MG_Util/Converters/MGToGL/TextureEnumConverter.h>
 #include <MG_Util/Converters/MGToStr/TextureEnumConverter.h>
 #include <MG_Util/Converters/MGToGL/RenderStateEnumConverter.h>
+#include <MG_Util/Texture/PixelStoreProcessor.h>
 
 namespace MobileGL::MG_Backend::DirectGLES {
-    enum class DrawSyncBit : Uint32 {
-        None = 0,
-        IndexBuffer = 1 << 0,
-        IndirectBuffer = 1 << 1,
-        Instancing = 1 << 2
-    };
-
-    inline DrawSyncBit operator|(DrawSyncBit a, DrawSyncBit b) {
-        return static_cast<DrawSyncBit>(static_cast<uint32_t>(a) | static_cast<uint32_t>(b));
-    }
-
-    inline DrawSyncBit& operator|=(DrawSyncBit& a, DrawSyncBit b) {
-        a = a | b;
-        return a;
-    }
 
     namespace DebugImpl {
 #if MOBILEGL_LOG_ACTIVE_LEVEL <= MOBILEGL_LOG_LEVEL_DEBUG
@@ -751,6 +737,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
         for (GLsizei i = 0; i < drawcount; ++i) {
             MG_External::GLES::glDrawElementsBaseVertex(mode, count[i], type, indices[i], basevertex[i]);
         }
+        
     }
 
     void MultiDrawElementsIndirect(GLenum mode, GLenum type, const void* indirect, GLsizei drawcount, GLsizei stride) {
@@ -761,7 +748,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
         PrepareForDraw(syncBit);
 
         for (GLsizei i = 0; i < drawcount; ++i) {
-            const GLvoid* cmd = reinterpret_cast<const GLvoid*>(reinterpret_cast<const uint8_t*>(indirect) +
+            const GLvoid* cmd = reinterpret_cast<const GLvoid*>(reinterpret_cast<const std::uint8_t*>(indirect) +
                                                                 i * (stride ? stride : sizeof(GLsizei) * 4));
             MG_External::GLES::glDrawElementsIndirect(mode, type, cmd);
         }
@@ -775,7 +762,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
         PrepareForDraw(syncBit);
 
         for (GLsizei i = 0; i < drawcount; ++i) {
-            const GLvoid* cmd = reinterpret_cast<const GLvoid*>(reinterpret_cast<const uint8_t*>(indirect) +
+            const GLvoid* cmd = reinterpret_cast<const GLvoid*>(reinterpret_cast<const std::uint8_t*>(indirect) +
                                                                 i * (stride ? stride : sizeof(GLsizei) * 4));
             MG_External::GLES::glDrawArraysIndirect(mode, cmd);
         }
@@ -809,8 +796,83 @@ namespace MobileGL::MG_Backend::DirectGLES {
 
     void DrawElementsInstancedBaseInstance(GLenum mode, GLsizei count, GLenum type, const void* indices,
                                            GLsizei instancecount, GLuint baseinstance) {
-        // Not supported in OpenGL ES
-        MGLOG_W("DrawElementsInstancedBaseInstance is not supported in OpenGL ES.");
+    
+        DrawSyncBit syncBit = DrawSyncBit::IndexBuffer | DrawSyncBit::Instancing;
+        PrepareForDraw(syncBit);
+    
+        auto currentProgram = MG_State::pGLContext->GetCurrentProgram();
+        if (!currentProgram || !currentProgram->GetLinkStatus()) {
+            MGLOG_E("No valid program is currently bound.");
+            return;
+        }
+    
+        const auto& backendProgramIt = PrgramImpl::g_backendProgramObjects.find(currentProgram);
+        if (backendProgramIt == PrgramImpl::g_backendProgramObjects.end()) {
+            MGLOG_E("No backend program found.");
+            return;
+        }
+    
+        auto backendProgram = backendProgramIt->second;
+        auto backendProgramId = backendProgram->GetBackendProgramId();
+    
+        // 检查是否已经有baseInstance uniform位置
+        static UnorderedMap<GLuint, GLint> programBaseInstanceLocations;
+        GLint baseInstanceLocation = -1;
+    
+        auto it = programBaseInstanceLocations.find(backendProgramId);
+        if (it == programBaseInstanceLocations.end()) {
+            // 第一次使用这个程序，获取uniform位置
+            baseInstanceLocation = MG_External::GLES::glGetUniformLocation(backendProgramId, "u_BaseInstance");
+            if (baseInstanceLocation == -1) {
+                // 尝试其他可能的uniform名称
+                baseInstanceLocation = MG_External::GLES::glGetUniformLocation(backendProgramId, "baseInstance");
+                if (baseInstanceLocation == -1) {
+                    baseInstanceLocation = MG_External::GLES::glGetUniformLocation(backendProgramId, "u_baseinstance");
+                }
+            }
+            programBaseInstanceLocations[backendProgramId] = baseInstanceLocation;
+        } else {
+            baseInstanceLocation = it->second;
+        }
+    
+        // 保存当前的uniform值（如果有的话）
+        GLint savedBaseInstanceValue = 0;
+    
+        // 设置baseInstance uniform值
+        if (baseInstanceLocation != -1) {
+            MG_External::GLES::glUniform1ui(baseInstanceLocation, baseinstance);
+        } else {
+                // 如果程序中没有baseInstance uniform，我们需要修改顶点着色器
+                // 或者在绘制时使用其他技术来模拟
+                MGLOG_W("Program does not have a baseInstance uniform. Base instance offset may not work correctly.");
+        
+                // 替代方案：如果baseinstance不为0，我们可以使用多次绘制调用来模拟
+                if (baseinstance > 0) {
+                    MGLOG_W("Using multiple draw calls to simulate baseinstance = %u", baseinstance);
+            
+                    // 为每个实例单独绘制（性能较差，仅作为fallback）
+                for (GLuint instance = baseinstance; instance < baseinstance + instancecount; instance++) {
+                    if (baseInstanceLocation != -1) {
+                        MG_External::GLES::glUniform1ui(baseInstanceLocation, instance);
+                        MG_External::GLES::glDrawElements(mode, count, type, indices);
+                    } else {
+                        // 如果没有baseInstance uniform，我们可以尝试通过顶点属性来传递
+                        // 这里使用gl_InstanceID直接计算，需要特殊的顶点着色器
+                        MG_External::GLES::glDrawElements(mode, count, type, indices);
+                    }
+                }
+                return;
+            }
+        }
+        
+        // 执行实例化绘制
+        MG_External::GLES::glDrawElementsInstanced(mode, count, type, indices, instancecount);
+        
+        // 恢复baseInstance uniform值（如果需要）
+        if (baseInstanceLocation != -1 && savedBaseInstanceValue != baseinstance) {
+            // 我们可以恢复到0，或者保留当前值
+            MG_External::GLES::glUniform1ui(baseInstanceLocation, 0);
+        }
     }
 
     void DrawElementsInstanced(GLenum mode, GLsizei count, GLenum type, const void* indices, GLsizei instancecount) {
@@ -1322,18 +1384,27 @@ namespace MobileGL::MG_Backend::DirectGLES {
     }
 
     void GetTexImage(GLenum target, GLint level, GLenum format, GLenum type, void* pixels) {
+        DebugImpl::ErrorLopper errorLopper;
         MGLOG_D("GetTexImage: target=%s level=%d format=%s type=%s pixels=%p",
                 MG_Util::ConvertGLEnumToString(target).c_str(), level, MG_Util::ConvertGLEnumToString(format).c_str(),
                 MG_Util::ConvertGLEnumToString(type).c_str(), pixels);
 
-        MOBILEGL_ASSERT(format == GL_RGBA || format == GL_RGBA_INTEGER,
-                        "Only GL_RGBA and GL_RGBA_INTEGER are supported currently, while requested %s.",
+        MOBILEGL_ASSERT(format == GL_RGBA || format == GL_RGBA_INTEGER || format == GL_BGRA,
+                        "Only GL_RGBA, GL_RGBA_INTEGER and GL_BGRA are supported currently, while requested %s.",
                         MG_Util::ConvertGLEnumToString(format).c_str());
         MOBILEGL_ASSERT(type == GL_UNSIGNED_BYTE || type == GL_UNSIGNED_INT || type == GL_UNSIGNED_INT_2_10_10_10_REV ||
-                            type == GL_INT || type == GL_FLOAT,
+                            type == GL_INT || type == GL_FLOAT ||
+                            type == GL_UNSIGNED_INT_8_8_8_8 || type == GL_UNSIGNED_INT_8_8_8_8_REV,
                         "Only GL_UNSIGNED_BYTE, GL_UNSIGNED_INT, GL_UNSIGNED_INT_2_10_10_10_REV, "
-                        "GL_INT and GL_FLOAT are supported currently, while requested %s.",
+                        "GL_INT, GL_FLOAT, GL_UNSIGNED_INT_8_8_8_8 and GL_UNSIGNED_INT_8_8_8_8_REV "
+                        "are supported currently, while requested %s.",
                         MG_Util::ConvertGLEnumToString(type).c_str());
+
+        GLenum esFormat = format, esType = type;
+        if (esFormat == GL_BGRA)
+            esFormat = GL_RGBA;
+        if (esType == GL_UNSIGNED_INT_8_8_8_8 || esType == GL_UNSIGNED_INT_8_8_8_8_REV)
+            esType = GL_UNSIGNED_BYTE;
 
         MGLOG_D("GetTexImage: SyncNeccessaryTextures()");
         TextureImpl::SyncNeccessaryTextures();
@@ -1380,14 +1451,21 @@ namespace MobileGL::MG_Backend::DirectGLES {
             return;
         }
 
+        errorLopper.Loop([file = __FILE__, line = __LINE__](auto err) {
+            MGLOG_D("ES error (%s:%d): %s", file, line, MG_Util::ConvertGLEnumToString(err).c_str());
+        });
+
         MGLOG_D("GetTexImage: Applying TempPixelStoreParameterSync (PACK)");
         TempPixelStoreParameterSync tempPackParamsSync(false);
+
+        errorLopper.Loop([file = __FILE__, line = __LINE__](auto err) {
+            MGLOG_D("ES error (%s:%d): %s", file, line, MG_Util::ConvertGLEnumToString(err).c_str());
+        });
 
         const auto& storageType = textureObject->GetStorageType();
         MGLOG_D("GetTexImage: texture storage type = %d", (int)storageType);
 
         if (storageType == TextureStorageType::Buffer) {
-            MGLOG_E("GetTexImage: Texture storage type Buffer is not supported.");
             MGLOG_E("GetTexImage: Texture storage type Buffer is not supported.");
             return;
         }
@@ -1432,8 +1510,17 @@ namespace MobileGL::MG_Backend::DirectGLES {
             usePBO = false;
             MGLOG_D("GetTexImage: Not using PBO");
         }
-        MGLOG_D("GetTexImage: glReadPixels()");
-        MG_External::GLES::glReadPixels(0, 0, size.x(), size.y(), format, type, pixels);
+
+        errorLopper.Loop([file = __FILE__, line = __LINE__](auto err) {
+            MGLOG_D("ES error (%s:%d): %s", file, line, MG_Util::ConvertGLEnumToString(err).c_str());
+        });
+        MGLOG_D("GetTexImage: glReadPixels(0, 0, %d, %d, %s, %s, %p)", size.x(), size.y(),
+                MG_Util::ConvertGLEnumToString(esFormat).c_str(), MG_Util::ConvertGLEnumToString(esType).c_str(), pixels);
+        MG_External::GLES::glReadPixels(0, 0, size.x(), size.y(), esFormat, esType, pixels);
+
+        errorLopper.Loop([file = __FILE__, line = __LINE__](auto err) {
+            MGLOG_D("ES error (%s:%d): %s", file, line, MG_Util::ConvertGLEnumToString(err).c_str());
+        });
         if (usePBO) {
             // pull back to client memory if PBO is used
             MGLOG_D("ReadPixels: PBO used, mapping buffer to client memory");
@@ -1448,12 +1535,20 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 MG_External::GLES::glUnmapBuffer(GL_PIXEL_PACK_BUFFER);
             } else {
                 MGLOG_E("ReadPixels: glMapBufferRange returned nullptr");
-                MGLOG_E("ReadPixels: glMapBufferRange returned nullptr");
             }
             MGLOG_D("ReadPixels: Restoring previous pixel pack buffer binding %u", prevPixelPackBuffer);
 
             MG_External::GLES::glBindBuffer(GL_PIXEL_PACK_BUFFER, prevPixelPackBuffer);
+        } else {
+            if (esFormat == GL_RGBA && format == GL_BGRA && esType == GL_UNSIGNED_BYTE && type == GL_UNSIGNED_INT_8_8_8_8_REV) {
+                MGLOG_D("ReadPixels: ProcessColorSwizzle BGRA (not implemented)");
+
+            }
         }
+
+        errorLopper.Loop([file = __FILE__, line = __LINE__](auto err) {
+            MGLOG_D("ES error (%s:%d): %s", file, line, MG_Util::ConvertGLEnumToString(err).c_str());
+        });
         MGLOG_D("GetTexImage: finished");
     }
 
