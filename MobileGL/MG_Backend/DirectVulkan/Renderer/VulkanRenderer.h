@@ -44,6 +44,11 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         void Present();
 
     private:
+        struct QueueFamilyIndices {
+            Int32 graphicsFamily = -1;
+            Int32 presentFamily = -1;
+        };
+
         NativeWindowType m_window = 0;
         RendererConfig m_config;
 
@@ -53,10 +58,11 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         VkInstance m_instance = VK_NULL_HANDLE;
         VkDebugUtilsMessengerEXT m_debugMessenger = VK_NULL_HANDLE;
         VkPhysicalDevice m_physicalDevice = VK_NULL_HANDLE;
-        Int m_graphicsQueueFamilyIndex = -1;
         VkDevice m_device = VK_NULL_HANDLE;
         VkQueue m_graphicsQueue = VK_NULL_HANDLE;
         VkSurfaceKHR m_surface = VK_NULL_HANDLE;
+        Vector<VkQueueFamilyProperties> m_queueFamilies;
+        QueueFamilyIndices m_queueFamilyIndices;
 
         void CreateInstance();
         void DestroyInstance();
@@ -67,7 +73,8 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         void CreateLogicalDevice();
         void CreateSurface();
 
-        static Int GetGraphicsQueueFamilyIndexOfPhysicalDevice(VkPhysicalDevice device);
+        static Vector<VkQueueFamilyProperties> GetQueueFamilyFromPhysicalDevice(VkPhysicalDevice device);
+        static Uint32 GetQueueFamilyIndex(const Vector<VkQueueFamilyProperties>& queueFamilies, VkQueueFlagBits flag);
         static Vector<VkExtensionProperties> EnumerateInstanceExtensions();
         static constexpr const char* s_validationLayerNames[] = {
             "VK_LAYER_KHRONOS_validation"
