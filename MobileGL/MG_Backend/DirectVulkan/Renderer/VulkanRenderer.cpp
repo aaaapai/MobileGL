@@ -62,10 +62,14 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         CreateInstance();
         PickPhysicalDevice();
         CreateLogicalDevice();
+        CreateSurface();
         MGLOG_D("VulkanRenderer initialized");
     }
 
     void VulkanRenderer::Shutdown() {
+        if (m_surface != VK_NULL_HANDLE)
+            vkDestroySurfaceKHR(m_instance, m_surface, nullptr);
+
         if (m_device != VK_NULL_HANDLE)
             vkDestroyDevice(m_device, nullptr);
 
@@ -270,6 +274,28 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         }
         VK_VERIFY(vkCreateDevice(m_physicalDevice, &deviceCreateInfo, nullptr, &m_device), "vkCreateDevice");
         vkGetDeviceQueue(m_device, m_graphicsQueueFamilyIndex, 0, &m_graphicsQueue);
+    }
+
+    void VulkanRenderer::CreateSurface() {
+#if defined VK_USE_PLATFORM_ANDROID_KHR
+        auto* nativeWindow = static_cast<ANativeWindow*>(m_window);
+        if (!nativeWindow) throw RuntimeError("ANativeWindowType is null");
+
+        VkAndroidSurfaceCreateInfoKHR sci{VK_STRUCTURE_TYPE_ANDROID_SURFACE_CREATE_INFO_KHR};
+        sci.window = nativeWindow;
+        VK_VERIFY(vkCreateAndroidSurfaceKHR(m_instance, &sci, nullptr, &m_surface), "vkCreateAndroidSurfaceKHR failed");
+#elif defined VK_USE_PLATFORM_WIN32_KHR
+        auto hwnd = static_cast<HWND>(m_window);
+        MOBILEGL_ASSERT(hwnd, "HWND is null");
+
+        VkWin32SurfaceCreateInfoKHR sci{VK_STRUCTURE_TYPE_WIN32_SURFACE_CREATE_INFO_KHR};
+        sci.hwnd = hwnd;
+        VK_VERIFY(vkCreateWin32SurfaceKHR(m_instance, &sci, nullptr, &m_surface), "vkCreateWin32SurfaceKHR failed");
+#else
+        //#warning "VulkanRenderer::Initialize called on a platform which is not supported yet"
+        MGLOG_W("VulkanRenderer::Initialize called on a platform which is not supported yet"); // TODO: support more
+        // platforms
+#endif
     }
 
     Int VulkanRenderer::GetGraphicsQueueFamilyIndexOfPhysicalDevice(VkPhysicalDevice device) {

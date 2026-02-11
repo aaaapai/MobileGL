@@ -56,6 +56,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         Int m_graphicsQueueFamilyIndex = -1;
         VkDevice m_device = VK_NULL_HANDLE;
         VkQueue m_graphicsQueue = VK_NULL_HANDLE;
+        VkSurfaceKHR m_surface = VK_NULL_HANDLE;
 
         void CreateInstance();
         void DestroyInstance();
@@ -64,6 +65,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         VkDebugUtilsMessengerCreateInfoEXT PopulateDebugMessengerCreateInfo();
         void PickPhysicalDevice();
         void CreateLogicalDevice();
+        void CreateSurface();
 
         static Int GetGraphicsQueueFamilyIndexOfPhysicalDevice(VkPhysicalDevice device);
         static Vector<VkExtensionProperties> EnumerateInstanceExtensions();
