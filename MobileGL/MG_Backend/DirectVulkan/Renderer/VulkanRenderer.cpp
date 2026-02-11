@@ -51,7 +51,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
     }
 
     VulkanRenderer::VulkanRenderer(NativeWindowType window, const RendererConfig& cfg) : m_window(window), m_config(cfg) {
-        Initialize();
+        // Initialize();
     }
 
     VulkanRenderer::~VulkanRenderer() {
@@ -96,8 +96,8 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         }
 
         Bool validationLayerAvailable = CheckValidationLayerSupport();
-        MGLOG_D("Validation layers %s.", validationLayerAvailable ? "available" : "not available");
-        MGLOG_D("Validation layers %s.", m_config.EnableValidationLayers ? "requested" : "not requested");
+        MGLOG_I("Validation layers %s.", validationLayerAvailable ? "available" : "not available");
+        MGLOG_I("Validation layers %s.", m_config.EnableValidationLayers ? "requested" : "not requested");
 
         if (m_config.EnableValidationLayers && !validationLayerAvailable) {
             MOBILEGL_ASSERT(false, "Validation layers requested but not available!");
@@ -145,7 +145,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         auto debugMessengerCreateInfo = PopulateDebugMessengerCreateInfo();
         // Layers
         if (m_validationLayersEnabled) {
-            MGLOG_I("Enabling validation layer.");
+            MGLOG_I("Enabling validation layer...");
             instanceInfo.enabledLayerCount = static_cast<uint32_t>(std::size(s_validationLayerNames));
             instanceInfo.ppEnabledLayerNames = s_validationLayerNames;
             instanceInfo.pNext = &debugMessengerCreateInfo;
