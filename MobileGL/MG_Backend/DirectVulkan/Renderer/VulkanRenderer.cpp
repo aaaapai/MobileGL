@@ -60,18 +60,18 @@ namespace MobileGL::MG_Backend::DirectVulkan {
 
     void VulkanRenderer::Initialize() {
         CreateInstance();
+        CreateSurface();
         PickPhysicalDevice();
         CreateLogicalDevice();
-        CreateSurface();
         MGLOG_D("VulkanRenderer initialized");
     }
 
     void VulkanRenderer::Shutdown() {
-        if (m_surface != VK_NULL_HANDLE)
-            vkDestroySurfaceKHR(m_instance, m_surface, nullptr);
-
         if (m_device != VK_NULL_HANDLE)
             vkDestroyDevice(m_device, nullptr);
+
+        if (m_surface != VK_NULL_HANDLE)
+            vkDestroySurfaceKHR(m_instance, m_surface, nullptr);
 
         if (m_debugMessenger != VK_NULL_HANDLE)
             DestroyDebugMessenger();

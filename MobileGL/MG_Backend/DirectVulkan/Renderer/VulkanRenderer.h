@@ -59,10 +59,12 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         VkDebugUtilsMessengerEXT m_debugMessenger = VK_NULL_HANDLE;
         VkPhysicalDevice m_physicalDevice = VK_NULL_HANDLE;
         VkDevice m_device = VK_NULL_HANDLE;
-        VkQueue m_graphicsQueue = VK_NULL_HANDLE;
         VkSurfaceKHR m_surface = VK_NULL_HANDLE;
+
         Vector<VkQueueFamilyProperties> m_queueFamilies;
         QueueFamilyIndices m_queueFamilyIndices;
+
+        VkQueue m_graphicsQueue = VK_NULL_HANDLE;
 
         void CreateInstance();
         void DestroyInstance();
