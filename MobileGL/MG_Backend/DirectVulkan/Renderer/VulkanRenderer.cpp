@@ -13,8 +13,8 @@
 #include "FrameContext.h"
 
 namespace MobileGL::MG_Backend::DirectVulkan {
-    VulkanRenderer::VulkanRenderer(NativeWindowType window, const RendererConfig& cfg) : Window(window), Config(cfg) {
-        Ctx = std::make_unique<VulkanContext>();
+    VulkanRenderer::VulkanRenderer(NativeWindowType window, const RendererConfig& cfg) : m_window(window), m_config(cfg) {
+        m_context = std::make_unique<VulkanContext>();
     }
 
     VulkanRenderer::~VulkanRenderer() {
@@ -22,14 +22,14 @@ namespace MobileGL::MG_Backend::DirectVulkan {
     }
 
     void VulkanRenderer::Initialize() {
-        Ctx->Initialize(Window, Config.AppName);
+        m_context->Initialize(m_window, m_config.AppName);
 
-        Swapchain = std::make_unique<SwapchainManager>(*Ctx);
-        Swapchain->Initialize();
+        m_swapchain = std::make_unique<SwapchainManager>(*m_context);
+        m_swapchain->Initialize();
 
         CreateRenderPass();
 
-        PipelineMgr = std::make_unique<PipelineManager>(*Ctx);
+        m_pipelineMgr = std::make_unique<PipelineManager>(*m_context);
 
         CreateCommandPool();
         CreateFrameResources();
@@ -38,34 +38,34 @@ namespace MobileGL::MG_Backend::DirectVulkan {
     }
 
     void VulkanRenderer::Shutdown() {
-        if (!Ctx) return;
+        if (!m_context) return;
 
-        if (Ctx->GetDevice() == VK_NULL_HANDLE) return;
+        if (m_context->GetDevice() == VK_NULL_HANDLE) return;
 
-        vkDeviceWaitIdle(Ctx->GetDevice());
+        vkDeviceWaitIdle(m_context->GetDevice());
 
         DestroyFrameResources();
         DestroyCommandPool();
 
-        if (PipelineMgr) {
-            PipelineMgr->Cleanup();
-            PipelineMgr.reset();
+        if (m_pipelineMgr) {
+            m_pipelineMgr->Cleanup();
+            m_pipelineMgr.reset();
         }
         DestroyRenderPass();
-        if (Swapchain) {
-            Swapchain->Cleanup();
-            Swapchain.reset();
+        if (m_swapchain) {
+            m_swapchain->Cleanup();
+            m_swapchain.reset();
         }
-        if (Ctx) {
-            Ctx->Shutdown();
-            Ctx.reset();
+        if (m_context) {
+            m_context->Shutdown();
+            m_context.reset();
         }
         MGLOG_D("VulkanRenderer shutdown");
     }
 
     void VulkanRenderer::CreateRenderPass() {
         VkAttachmentDescription color{};
-        color.format = Swapchain->GetFormat();
+        color.format = m_swapchain->GetFormat();
         color.samples = VK_SAMPLE_COUNT_1_BIT;
         color.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
         color.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
@@ -84,69 +84,69 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         rpci.subpassCount = 1;
         rpci.pSubpasses = &sub;
 
-        VK_VERIFY(vkCreateRenderPass(Ctx->GetDevice(), &rpci, nullptr, &RenderPass), "vkCreateRenderPass");
+        VK_VERIFY(vkCreateRenderPass(m_context->GetDevice(), &rpci, nullptr, &m_renderPass), "vkCreateRenderPass");
 
         // Create framebuffers now (use swapchain imageviews)
-        const auto& imageViews = Swapchain->GetImageViews();
+        const auto& imageViews = m_swapchain->GetImageViews();
         std::vector<VkFramebuffer> fbs;
         fbs.reserve(imageViews.size());
         for (auto iv : imageViews) {
             VkImageView attachments[] = {iv};
             VkFramebufferCreateInfo fbci{VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO};
-            fbci.renderPass = RenderPass;
+            fbci.renderPass = m_renderPass;
             fbci.attachmentCount = 1;
             fbci.pAttachments = attachments;
-            fbci.width = Swapchain->GetExtent().width;
-            fbci.height = Swapchain->GetExtent().height;
+            fbci.width = m_swapchain->GetExtent().width;
+            fbci.height = m_swapchain->GetExtent().height;
             fbci.layers = 1;
             VkFramebuffer fb;
-            VK_VERIFY(vkCreateFramebuffer(Ctx->GetDevice(), &fbci, nullptr, &fb), "vkCreateFramebuffer");
+            VK_VERIFY(vkCreateFramebuffer(m_context->GetDevice(), &fbci, nullptr, &fb), "vkCreateFramebuffer");
             fbs.push_back(fb);
         }
-        Swapchain->SetFramebuffers(std::move(fbs));
+        m_swapchain->SetFramebuffers(std::move(fbs));
         MGLOG_D("RenderPass created and framebuffers set");
     }
 
     void VulkanRenderer::DestroyRenderPass() {
-        if (RenderPass != VK_NULL_HANDLE) {
-            vkDestroyRenderPass(Ctx->GetDevice(), RenderPass, nullptr);
-            RenderPass = VK_NULL_HANDLE;
+        if (m_renderPass != VK_NULL_HANDLE) {
+            vkDestroyRenderPass(m_context->GetDevice(), m_renderPass, nullptr);
+            m_renderPass = VK_NULL_HANDLE;
         }
     }
 
     void VulkanRenderer::CreateCommandPool() {
         VkCommandPoolCreateInfo cpci{VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO};
-        cpci.queueFamilyIndex = Ctx->GetGraphicsQueueFamily();
+        cpci.queueFamilyIndex = m_context->GetGraphicsQueueFamily();
         cpci.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
-        VK_VERIFY(vkCreateCommandPool(Ctx->GetDevice(), &cpci, nullptr, &CommandPool), "vkCreateCommandPool");
+        VK_VERIFY(vkCreateCommandPool(m_context->GetDevice(), &cpci, nullptr, &m_commandPool), "vkCreateCommandPool");
     }
 
     void VulkanRenderer::DestroyCommandPool() {
-        if (CommandPool != VK_NULL_HANDLE) {
-            vkDestroyCommandPool(Ctx->GetDevice(), CommandPool, nullptr);
-            CommandPool = VK_NULL_HANDLE;
+        if (m_commandPool != VK_NULL_HANDLE) {
+            vkDestroyCommandPool(m_context->GetDevice(), m_commandPool, nullptr);
+            m_commandPool = VK_NULL_HANDLE;
         }
     }
 
     void VulkanRenderer::CreateFrameResources() {
-        uint32_t imageCount = static_cast<uint32_t>(Swapchain->GetImageViews().size());
+        uint32_t imageCount = static_cast<uint32_t>(m_swapchain->GetImageViews().size());
         if (imageCount == 0) throw RuntimeError("Swapchain has zero images");
-        uint32_t frames = std::min<uint32_t>(Config.MaxFramesInFlight, imageCount);
-        Frames.clear();
+        uint32_t frames = std::min<uint32_t>(m_config.MaxFramesInFlight, imageCount);
+        m_frames.clear();
         for (uint32_t i = 0; i < frames; ++i) {
             auto fr = std::make_unique<FrameContext>();
-            fr->Initialize(*Ctx, CommandPool);
-            Frames.push_back(std::move(fr));
+            fr->Initialize(*m_context, m_commandPool);
+            m_frames.push_back(std::move(fr));
         }
-        CurrentFrame = 0;
+        m_currentFrame = 0;
         MGLOG_D("FrameResources created: %u", (uint32_t)Frames.size());
     }
 
     void VulkanRenderer::DestroyFrameResources() {
-        for (auto& f : Frames) {
-            if (f) f->Cleanup(*Ctx);
+        for (auto& f : m_frames) {
+            if (f) f->Cleanup(*m_context);
         }
-        Frames.clear();
+        m_frames.clear();
     }
 
     void VulkanRenderer::RecordFrameCommandBuffer(FrameContext& frame, uint32_t imageIndex) {
@@ -157,18 +157,18 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         VkClearValue clear{};
         clear.color = {{0.0f, 0.0f, 0.0f, 1.0f}};
         VkRenderPassBeginInfo rpbi{VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO};
-        rpbi.renderPass = RenderPass;
-        rpbi.framebuffer = Swapchain->GetFramebuffers()[imageIndex];
+        rpbi.renderPass = m_renderPass;
+        rpbi.framebuffer = m_swapchain->GetFramebuffers()[imageIndex];
         rpbi.renderArea.offset = {0, 0};
-        rpbi.renderArea.extent = Swapchain->GetExtent();
+        rpbi.renderArea.extent = m_swapchain->GetExtent();
         rpbi.clearValueCount = 1;
         rpbi.pClearValues = &clear;
 
         vkCmdBeginRenderPass(frame.CommandBuffer, &rpbi, VK_SUBPASS_CONTENTS_INLINE);
 
-        for (auto& kv : RenderCallbacks) {
+        for (auto& kv : m_renderCallbacks) {
             if (kv.second) {
-                kv.second(frame.CommandBuffer, imageIndex, Swapchain->GetExtent());
+                kv.second(frame.CommandBuffer, imageIndex, m_swapchain->GetExtent());
             }
         }
 
@@ -177,27 +177,27 @@ namespace MobileGL::MG_Backend::DirectVulkan {
     }
 
     void VulkanRenderer::RecreateSwapchainIfNeeded() {
-        vkDeviceWaitIdle(Ctx->GetDevice());
+        vkDeviceWaitIdle(m_context->GetDevice());
         DestroyFrameResources();
         DestroyRenderPass();
-        Swapchain->Recreate();
+        m_swapchain->Recreate();
         CreateRenderPass();
         CreateFrameResources();
     }
 
     // Wait fence & Acquire image & Record commands & Submit
     void VulkanRenderer::RenderFrame() {
-        if (!Ctx) throw RuntimeError("Renderer not initialized");
-        FrameContext& frame = *Frames[CurrentFrame];
+        if (!m_context) throw RuntimeError("Renderer not initialized");
+        FrameContext& frame = *m_frames[m_currentFrame];
 
         // Ensure the previous use of this frame context has fully completed
         // before reusing its semaphores in vkAcquireNextImageKHR.
-        VK_VERIFY(vkWaitForFences(Ctx->GetDevice(), 1, &frame.InFlightFence, VK_TRUE, UINT64_MAX), "vkWaitForFences");
+        VK_VERIFY(vkWaitForFences(m_context->GetDevice(), 1, &frame.InFlightFence, VK_TRUE, UINT64_MAX), "vkWaitForFences");
 
         if (!FrameBegin()) return;
 
         // Fence will be signaled by vkQueueSubmit below.
-        VK_VERIFY(vkResetFences(Ctx->GetDevice(), 1, &frame.InFlightFence), "vkResetFences");
+        VK_VERIFY(vkResetFences(m_context->GetDevice(), 1, &frame.InFlightFence), "vkResetFences");
 
         // Record commands
         VK_VERIFY(vkResetCommandBuffer(frame.CommandBuffer, 0), "vkResetCommandBuffer");
@@ -216,16 +216,16 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         si.signalSemaphoreCount = 1;
         si.pSignalSemaphores = signalSemaphores;
 
-        VK_VERIFY(vkQueueSubmit(Ctx->GetGraphicsQueue(), 1, &si, frame.InFlightFence), "vkQueueSubmit");
+        VK_VERIFY(vkQueueSubmit(m_context->GetGraphicsQueue(), 1, &si, frame.InFlightFence), "vkQueueSubmit");
     }
 
     bool VulkanRenderer::FrameBegin() {
-        FrameContext& frame = *Frames[CurrentFrame];
+        FrameContext& frame = *m_frames[m_currentFrame];
 
         while (true) {
             // Acquire image for this frame. Acquire can fail with OUT_OF_DATE during resize/minimize.
             Uint32 imageIndex = 0;
-            VkResult res = vkAcquireNextImageKHR(Ctx->GetDevice(), Swapchain->GetSwapchain(), UINT64_MAX,
+            VkResult res = vkAcquireNextImageKHR(m_context->GetDevice(), m_swapchain->GetSwapchain(), UINT64_MAX,
                                                  frame.ImageAvailable, VK_NULL_HANDLE, &imageIndex);
 
             if (res == VK_ERROR_OUT_OF_DATE_KHR) {
@@ -238,9 +238,9 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                 return false;
             }
 
-            auto& imagesInFlight = Swapchain->GetImagesInFlight();
+            auto& imagesInFlight = m_swapchain->GetImagesInFlight();
             if (imagesInFlight[imageIndex] != VK_NULL_HANDLE) {
-                vkWaitForFences(Ctx->GetDevice(), 1, &imagesInFlight[imageIndex], VK_TRUE, UINT64_MAX);
+                vkWaitForFences(m_context->GetDevice(), 1, &imagesInFlight[imageIndex], VK_TRUE, UINT64_MAX);
             }
             imagesInFlight[imageIndex] = frame.InFlightFence;
             frame.CurrentImageIndex = imageIndex;
@@ -249,19 +249,19 @@ namespace MobileGL::MG_Backend::DirectVulkan {
     }
 
     void VulkanRenderer::Present() {
-        if (!Ctx) throw RuntimeError("Renderer not initialized");
-        FrameContext& frame = *Frames[CurrentFrame];
+        if (!m_context) throw RuntimeError("Renderer not initialized");
+        FrameContext& frame = *m_frames[m_currentFrame];
 
         // Present
         VkPresentInfoKHR pi{VK_STRUCTURE_TYPE_PRESENT_INFO_KHR};
         VkSemaphore signalSemaphores[] = {frame.RenderFinished};
         pi.waitSemaphoreCount = 1;
         pi.pWaitSemaphores = signalSemaphores;
-        VkSwapchainKHR scs[] = {Swapchain->GetSwapchain()};
+        VkSwapchainKHR scs[] = {m_swapchain->GetSwapchain()};
         pi.swapchainCount = 1;
         pi.pSwapchains = scs;
         pi.pImageIndices = &frame.CurrentImageIndex;
-        VkResult pres = vkQueuePresentKHR(Ctx->GetGraphicsQueue(), &pi);
+        VkResult pres = vkQueuePresentKHR(m_context->GetGraphicsQueue(), &pi);
         if (pres == VK_ERROR_OUT_OF_DATE_KHR || pres == VK_SUBOPTIMAL_KHR) {
             MGLOG_D("vkQueuePresentKHR: out_of_date/suboptimal -> recreate");
             RecreateSwapchainIfNeeded();
@@ -269,35 +269,35 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             VK_VERIFY(pres, "vkQueuePresentKHR");
         }
 
-        CurrentFrame = (CurrentFrame + 1) % Frames.size();
+        m_currentFrame = (m_currentFrame + 1) % m_frames.size();
     }
 
-    void VulkanRenderer::RegisterRenderCallback(const std::string& name, RenderCallback cb) {
-        auto it = std::find_if(RenderCallbacks.begin(), RenderCallbacks.end(),
+    void VulkanRenderer::RegisterRenderCallback(const String& name, RenderCallback cb) {
+        auto it = std::find_if(m_renderCallbacks.begin(), m_renderCallbacks.end(),
                                [&](const auto& kv) { return kv.first == name; });
-        if (it != RenderCallbacks.end()) {
+        if (it != m_renderCallbacks.end()) {
             MGLOG_W("Render callback '%s' already registered", name.c_str());
             return;
         }
-        RenderCallbacks.emplace_back(name, std::move(cb));
+        m_renderCallbacks.emplace_back(name, std::move(cb));
     }
 
-    void VulkanRenderer::UnregisterRenderCallback(const std::string& name) {
-        RenderCallbacks.erase(std::remove_if(RenderCallbacks.begin(), RenderCallbacks.end(),
+    void VulkanRenderer::UnregisterRenderCallback(const String& name) {
+        m_renderCallbacks.erase(std::remove_if(m_renderCallbacks.begin(), m_renderCallbacks.end(),
                                              [&](const auto& kv) { return kv.first == name; }),
-                              RenderCallbacks.end());
+                              m_renderCallbacks.end());
     }
 
-    VkPipeline VulkanRenderer::CreateGraphicsPipelineFromSpv(const std::string& key, const std::vector<uint32_t>& vsSpv,
-                                                             const std::vector<uint32_t>& fsSpv) {
-        return PipelineMgr->CreateGraphicsPipelineFromSpv(key, vsSpv, fsSpv, RenderPass, Swapchain->GetExtent());
+    VkPipeline VulkanRenderer::CreateGraphicsPipelineFromSpv(const String& key, const Vector<uint32_t>& vsSpv,
+                                                             const Vector<uint32_t>& fsSpv) {
+        return m_pipelineMgr->CreateGraphicsPipelineFromSpv(key, vsSpv, fsSpv, m_renderPass, m_swapchain->GetExtent());
     }
 
     VkExtent2D VulkanRenderer::GetExtent() const {
-        return Swapchain ? Swapchain->GetExtent() : VkExtent2D{0, 0};
+        return m_swapchain ? m_swapchain->GetExtent() : VkExtent2D{0, 0};
     }
 
     void VulkanRenderer::WaitIdle() {
-        if (Ctx && Ctx->GetDevice() != VK_NULL_HANDLE) vkDeviceWaitIdle(Ctx->GetDevice());
+        if (m_context && m_context->GetDevice() != VK_NULL_HANDLE) vkDeviceWaitIdle(m_context->GetDevice());
     }
 } // namespace MobileGL::MG_Backend::DirectVulkan
