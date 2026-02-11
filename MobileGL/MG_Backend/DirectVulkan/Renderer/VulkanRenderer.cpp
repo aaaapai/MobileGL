@@ -60,6 +60,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
 
     void VulkanRenderer::Initialize() {
         CreateInstance();
+        PickPhysicalDevice();
         MGLOG_D("VulkanRenderer initialized");
     }
 
@@ -80,8 +81,8 @@ namespace MobileGL::MG_Backend::DirectVulkan {
     }
 
     void VulkanRenderer::CreateInstance() {
-        m_extensions = EnumerateExtensions();
-        MGLOG_I("Got %d Vulkan extensions: ", m_extensions.size());
+        m_extensions = EnumerateInstanceExtensions();
+        MGLOG_I("Got %d Vulkan instance extensions: ", m_extensions.size());
         for (auto& extension : m_extensions) {
             MGLOG_I("    %s (r.%u)", extension.extensionName, extension.specVersion);
         }
@@ -189,7 +190,77 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         return createInfo;
     }
 
-    Vector<VkExtensionProperties> VulkanRenderer::EnumerateExtensions() {
+    void VulkanRenderer::PickPhysicalDevice() {
+        Uint32 deviceCount = 0;
+        vkEnumeratePhysicalDevices(m_instance, &deviceCount, nullptr);
+        if (deviceCount == 0) {
+            MGLOG_E("No physical devices supporting Vulkan found.");
+        } else {
+            MGLOG_I("Found %d physical device(s).", deviceCount);
+        }
+
+        auto deviceTypeToStr = [](VkPhysicalDeviceType type) {
+            switch (type) {
+                case VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU:
+                    return "INTEGRATED_GPU";
+                case VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU:
+                    return "DISCRETE_GPU";
+                case VK_PHYSICAL_DEVICE_TYPE_CPU:
+                    return "CPU";
+                case VK_PHYSICAL_DEVICE_TYPE_VIRTUAL_GPU:
+                    return "VIRTUAL_GPU";
+                case VK_PHYSICAL_DEVICE_TYPE_OTHER:
+                    return "OTHER";
+                default:
+                    return "UNKNOWN";
+            }
+        };
+
+        Vector<VkPhysicalDevice> devices(deviceCount);
+        vkEnumeratePhysicalDevices(m_instance, &deviceCount, devices.data());
+        for (const auto& device : devices) {
+            VkPhysicalDeviceProperties deviceProperties;
+            vkGetPhysicalDeviceProperties(device, &deviceProperties);
+            auto apiVersion = deviceProperties.apiVersion;
+            MGLOG_I("    %s (Vulkan %d.%d.%d, %s)",
+                deviceProperties.deviceName,
+                VK_VERSION_MAJOR(apiVersion), VK_VERSION_MINOR(apiVersion), VK_VERSION_PATCH(apiVersion),
+                deviceTypeToStr(deviceProperties.deviceType));
+            // TODO: Properly check device eligibility
+            if (m_physicalDevice == VK_NULL_HANDLE && deviceProperties.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU) {
+                m_physicalDevice = device;
+                MGLOG_I("Physical device picked.");
+            }
+
+            if (m_physicalDevice == VK_NULL_HANDLE && CheckDeviceEligible(device)) {
+                m_physicalDevice = device;
+                MGLOG_I("Physical device picked.");
+            }
+        }
+
+        MOBILEGL_ASSERT(!devices.empty(), "No physical devices found.");
+        if (m_physicalDevice == VK_NULL_HANDLE) {
+            m_physicalDevice = devices[0];
+            MGLOG_I("No suitable physical device picked yet, defaulting to device 0.");
+        }
+    }
+
+    Bool VulkanRenderer::CheckDeviceEligible(VkPhysicalDevice device) {
+        Uint32 queueFamilyCount = 0;
+        vkGetPhysicalDeviceQueueFamilyProperties(device, &queueFamilyCount, nullptr);
+
+        Vector<VkQueueFamilyProperties> queueFamilies(queueFamilyCount);
+        vkGetPhysicalDeviceQueueFamilyProperties(device, &queueFamilyCount, queueFamilies.data());
+
+        for (const auto& queueFamily : queueFamilies) {
+            if (queueFamily.queueFlags & VK_QUEUE_GRAPHICS_BIT) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    Vector<VkExtensionProperties> VulkanRenderer::EnumerateInstanceExtensions() {
         Uint32 extensionCount = 0;
         VK_VERIFY(vkEnumerateInstanceExtensionProperties(nullptr, &extensionCount, nullptr));
         Vector<VkExtensionProperties> extensions(extensionCount);

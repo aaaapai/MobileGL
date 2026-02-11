@@ -51,13 +51,17 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         Vector<VkExtensionProperties> m_extensions;
         VkInstance m_instance = VK_NULL_HANDLE;
         VkDebugUtilsMessengerEXT m_debugMessenger = VK_NULL_HANDLE;
+        VkPhysicalDevice m_physicalDevice = VK_NULL_HANDLE;
 
         void CreateInstance();
         void DestroyInstance();
         VkResult SetupDebugMessenger();
         VkResult DestroyDebugMessenger();
         VkDebugUtilsMessengerCreateInfoEXT PopulateDebugMessengerCreateInfo();
-        static Vector<VkExtensionProperties> EnumerateExtensions();
+        void PickPhysicalDevice();
+        static Bool CheckDeviceEligible(VkPhysicalDevice device);
+
+        static Vector<VkExtensionProperties> EnumerateInstanceExtensions();
         static constexpr const char* s_validationLayerNames[] = {
             "VK_LAYER_KHRONOS_validation"
         };
