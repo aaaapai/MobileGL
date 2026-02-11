@@ -75,16 +75,16 @@ namespace MobileGL {
             }
 
             // Create pipeline
-            VkPipeline trianglePipeline = MG_Backend::DirectVulkan::pVulkanRenderer->CreateGraphicsPipelineFromSpv(
-                "TrianglePipeline", vsSpv, fsSpv);
-
-            // Register render callback
-            MG_Backend::DirectVulkan::pVulkanRenderer->RegisterRenderCallback(
-                "DrawTriangle", [trianglePipeline](VkCommandBuffer cmd, uint32_t imageIndex, VkExtent2D extent) {
-                    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, trianglePipeline);
-
-                    vkCmdDraw(cmd, 3, 1, 0, 0);
-                });
+            // VkPipeline trianglePipeline = MG_Backend::DirectVulkan::pVulkanRenderer->CreateGraphicsPipelineFromSpv(
+            //     "TrianglePipeline", vsSpv, fsSpv);
+            //
+            // // Register render callback
+            // MG_Backend::DirectVulkan::pVulkanRenderer->RegisterRenderCallback(
+            //     "DrawTriangle", [trianglePipeline](VkCommandBuffer cmd, uint32_t imageIndex, VkExtent2D extent) {
+            //         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, trianglePipeline);
+            //
+            //         vkCmdDraw(cmd, 3, 1, 0, 0);
+            //     });
         }
 
         void CreateWindowSurfaceForVulkan(NativeWindowType window) {
@@ -106,8 +106,6 @@ namespace MobileGL {
                 MGLOG_E("EGLForVulkan::SwapBuffers called but VulkanRenderer is null");
                 return EGL_FALSE;
             }
-            // TODO: replace this with real rendering code
-            MG_Backend::DirectVulkan::pVulkanRenderer->RenderFrame();
             MG_Backend::DirectVulkan::pVulkanRenderer->Present();
             return EGL_TRUE;
         }

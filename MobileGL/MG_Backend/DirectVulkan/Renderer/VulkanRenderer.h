@@ -7,7 +7,14 @@
 // End of Source File Header
 
 #pragma once
+#include "Config.h"
 #include <Includes.h>
+
+#define VK_VERIFY(expr, ...)                                                                                           \
+    do {                                                                                                               \
+        VkResult _vk_verify_result = (expr);                                                                           \
+        MOBILEGL_ASSERT(_vk_verify_result == VK_SUCCESS, "Vulkan error %d at %s:%d" __VA_OPT__(" - ") __VA_ARGS__, _vk_verify_result, __FILE__, __LINE__);  \
+    } while (0)
 
 namespace MobileGL::MG_Backend::DirectVulkan {
     class VulkanContext;
@@ -20,6 +27,9 @@ namespace MobileGL::MG_Backend::DirectVulkan {
     struct RendererConfig {
         Uint32 MaxFramesInFlight = 2;
         String AppName = "MobileGL-VulkanRenderer";
+        Version Version = MG_Config::CoreVersion;
+        Uint64 CacheVersion = MG_Config::CacheVersion;
+        Bool EnableValidationLayers = true;
     };
 
     class VulkanRenderer {
@@ -30,45 +40,33 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         void Initialize();
         void Shutdown();
 
-        void RenderFrame();
+        void Render();
         void Present();
-
-        void RegisterRenderCallback(const String& name, RenderCallback cb);
-        void UnregisterRenderCallback(const String& name);
-
-        VkPipeline CreateGraphicsPipelineFromSpv(const String& key, const Vector<uint32_t>& vsSpv,
-                                                 const Vector<uint32_t>& fsSpv);
-
-        VkExtent2D GetExtent() const;
-
-        void WaitIdle();
 
     private:
         NativeWindowType m_window = 0;
         RendererConfig m_config;
 
-        UniquePtr<VulkanContext> m_context;
-        UniquePtr<SwapchainManager> m_swapchain;
-        UniquePtr<PipelineManager> m_pipelineMgr;
+        // Vulkan objects
+        Vector<VkExtensionProperties> m_extensions;
+        VkInstance m_instance = VK_NULL_HANDLE;
+        VkDebugUtilsMessengerEXT m_debugMessenger = VK_NULL_HANDLE;
 
-        VkRenderPass m_renderPass = VK_NULL_HANDLE;
-        VkCommandPool m_commandPool = VK_NULL_HANDLE;
+        void CreateInstance();
+        void DestroyInstance();
+        VkResult SetupDebugMessenger();
+        VkResult DestroyDebugMessenger();
+        VkDebugUtilsMessengerCreateInfoEXT PopulateDebugMessengerCreateInfo();
+        static Vector<VkExtensionProperties> EnumerateExtensions();
+        static constexpr const char* s_validationLayerNames[] = {
+            "VK_LAYER_KHRONOS_validation"
+        };
+        static Bool CheckValidationLayerSupport();
 
-        Vector<UniquePtr<FrameContext>> m_frames;
-        Uint32 m_currentFrame = 0;
-
-        // Render callbacks map
-        Vector<std::pair<String, RenderCallback>> m_renderCallbacks;
-
-        // Internals
-        void CreateRenderPass();
-        void DestroyRenderPass();
-        void CreateCommandPool();
-        void DestroyCommandPool();
-        void CreateFrameResources();
-        void DestroyFrameResources();
-        void RecordFrameCommandBuffer(FrameContext& frame, uint32_t imageIndex);
-        void RecreateSwapchainIfNeeded();
-        bool FrameBegin();
+        static VKAPI_ATTR VkBool32 VKAPI_CALL DebugCallback(
+            VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity,
+            VkDebugUtilsMessageTypeFlagsEXT messageType,
+            const VkDebugUtilsMessengerCallbackDataEXT* pCallbackData,
+            void* pUserData);
     };
 } // namespace MobileGL::MG_Backend::DirectVulkan
