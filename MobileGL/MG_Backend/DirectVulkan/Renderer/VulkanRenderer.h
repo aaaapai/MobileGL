@@ -48,10 +48,14 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         RendererConfig m_config;
 
         // Vulkan objects
+        Bool m_validationLayersEnabled = false;
         Vector<VkExtensionProperties> m_extensions;
         VkInstance m_instance = VK_NULL_HANDLE;
         VkDebugUtilsMessengerEXT m_debugMessenger = VK_NULL_HANDLE;
         VkPhysicalDevice m_physicalDevice = VK_NULL_HANDLE;
+        Int m_graphicsQueueFamilyIndex = -1;
+        VkDevice m_device = VK_NULL_HANDLE;
+        VkQueue m_graphicsQueue = VK_NULL_HANDLE;
 
         void CreateInstance();
         void DestroyInstance();
@@ -59,8 +63,9 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         VkResult DestroyDebugMessenger();
         VkDebugUtilsMessengerCreateInfoEXT PopulateDebugMessengerCreateInfo();
         void PickPhysicalDevice();
-        static Bool CheckDeviceEligible(VkPhysicalDevice device);
+        void CreateLogicalDevice();
 
+        static Int GetGraphicsQueueFamilyIndexOfPhysicalDevice(VkPhysicalDevice device);
         static Vector<VkExtensionProperties> EnumerateInstanceExtensions();
         static constexpr const char* s_validationLayerNames[] = {
             "VK_LAYER_KHRONOS_validation"

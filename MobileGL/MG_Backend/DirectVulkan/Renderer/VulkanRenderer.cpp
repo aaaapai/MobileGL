@@ -61,13 +61,17 @@ namespace MobileGL::MG_Backend::DirectVulkan {
     void VulkanRenderer::Initialize() {
         CreateInstance();
         PickPhysicalDevice();
+        CreateLogicalDevice();
         MGLOG_D("VulkanRenderer initialized");
     }
 
     void VulkanRenderer::Shutdown() {
-        if (m_debugMessenger != VK_NULL_HANDLE) {
+        if (m_device != VK_NULL_HANDLE)
+            vkDestroyDevice(m_device, nullptr);
+
+        if (m_debugMessenger != VK_NULL_HANDLE)
             DestroyDebugMessenger();
-        }
+
         DestroyInstance();
         MGLOG_D("VulkanRenderer shut down completed");
     }
@@ -95,7 +99,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             MOBILEGL_ASSERT(false, "Validation layers requested but not available!");
         }
 
-        bool enableValidationLayers = m_config.EnableValidationLayers && validationLayerAvailable;
+        m_validationLayersEnabled = m_config.EnableValidationLayers && validationLayerAvailable;
 
         // ---------------- App info -------------------
         VkApplicationInfo appInfo = {};
@@ -127,7 +131,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
 #endif
 }; // TODO: support more platforms
 
-        if (enableValidationLayers) {
+        if (m_validationLayersEnabled) {
             exts.push_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
         }
 
@@ -136,7 +140,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
 
         auto debugMessengerCreateInfo = PopulateDebugMessengerCreateInfo();
         // Layers
-        if (enableValidationLayers) {
+        if (m_validationLayersEnabled) {
             MGLOG_I("Enabling validation layer.");
             instanceInfo.enabledLayerCount = static_cast<uint32_t>(std::size(s_validationLayerNames));
             instanceInfo.ppEnabledLayerNames = s_validationLayerNames;
@@ -148,7 +152,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
 
         VK_VERIFY(vkCreateInstance(&instanceInfo, nullptr, &m_instance), "vkCreateInstance failed");
 
-        if (enableValidationLayers)
+        if (m_validationLayersEnabled)
             VK_VERIFY(SetupDebugMessenger());
     }
 
@@ -227,13 +231,10 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                 VK_VERSION_MAJOR(apiVersion), VK_VERSION_MINOR(apiVersion), VK_VERSION_PATCH(apiVersion),
                 deviceTypeToStr(deviceProperties.deviceType));
             // TODO: Properly check device eligibility
-            if (m_physicalDevice == VK_NULL_HANDLE && deviceProperties.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU) {
+            Int gfxQueueIndex = GetGraphicsQueueFamilyIndexOfPhysicalDevice(device);
+            if (m_physicalDevice == VK_NULL_HANDLE && gfxQueueIndex != -1) {
                 m_physicalDevice = device;
-                MGLOG_I("Physical device picked.");
-            }
-
-            if (m_physicalDevice == VK_NULL_HANDLE && CheckDeviceEligible(device)) {
-                m_physicalDevice = device;
+                m_graphicsQueueFamilyIndex = gfxQueueIndex;
                 MGLOG_I("Physical device picked.");
             }
         }
@@ -245,19 +246,45 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         }
     }
 
-    Bool VulkanRenderer::CheckDeviceEligible(VkPhysicalDevice device) {
+    void VulkanRenderer::CreateLogicalDevice() {
+        VkDeviceQueueCreateInfo queueCreateInfo{};
+        queueCreateInfo.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
+        queueCreateInfo.queueFamilyIndex = m_graphicsQueueFamilyIndex;
+        queueCreateInfo.queueCount = 1;
+        Float queuePriority = 1.0f;
+        queueCreateInfo.pQueuePriorities = &queuePriority;
+
+        VkPhysicalDeviceFeatures deviceFeatures{};
+        // TODO: query and make use of device features
+
+        VkDeviceCreateInfo deviceCreateInfo{};
+        deviceCreateInfo.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
+        deviceCreateInfo.pQueueCreateInfos = &queueCreateInfo;
+        deviceCreateInfo.queueCreateInfoCount = 1;
+        deviceCreateInfo.pEnabledFeatures = &deviceFeatures;
+        if (m_validationLayersEnabled) {
+            deviceCreateInfo.enabledLayerCount = static_cast<uint32_t>(std::size(s_validationLayerNames));
+            deviceCreateInfo.ppEnabledLayerNames = s_validationLayerNames;
+        } else {
+            deviceCreateInfo.enabledLayerCount = 0;
+        }
+        VK_VERIFY(vkCreateDevice(m_physicalDevice, &deviceCreateInfo, nullptr, &m_device), "vkCreateDevice");
+        vkGetDeviceQueue(m_device, m_graphicsQueueFamilyIndex, 0, &m_graphicsQueue);
+    }
+
+    Int VulkanRenderer::GetGraphicsQueueFamilyIndexOfPhysicalDevice(VkPhysicalDevice device) {
         Uint32 queueFamilyCount = 0;
         vkGetPhysicalDeviceQueueFamilyProperties(device, &queueFamilyCount, nullptr);
 
         Vector<VkQueueFamilyProperties> queueFamilies(queueFamilyCount);
         vkGetPhysicalDeviceQueueFamilyProperties(device, &queueFamilyCount, queueFamilies.data());
 
-        for (const auto& queueFamily : queueFamilies) {
-            if (queueFamily.queueFlags & VK_QUEUE_GRAPHICS_BIT) {
-                return true;
+        for (Int i = 0; i < queueFamilies.size(); ++i) {
+            if (queueFamilies[i].queueFlags & VK_QUEUE_GRAPHICS_BIT) {
+                return i;
             }
         }
-        return false;
+        return -1;
     }
 
     Vector<VkExtensionProperties> VulkanRenderer::EnumerateInstanceExtensions() {
