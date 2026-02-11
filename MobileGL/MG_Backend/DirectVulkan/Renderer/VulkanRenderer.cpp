@@ -207,69 +207,112 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             MGLOG_I("Found %d physical device(s).", deviceCount);
         }
 
-        auto deviceTypeToStr = [](VkPhysicalDeviceType type) {
-            switch (type) {
-                case VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU:
-                    return "INTEGRATED_GPU";
-                case VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU:
-                    return "DISCRETE_GPU";
-                case VK_PHYSICAL_DEVICE_TYPE_CPU:
-                    return "CPU";
-                case VK_PHYSICAL_DEVICE_TYPE_VIRTUAL_GPU:
-                    return "VIRTUAL_GPU";
-                case VK_PHYSICAL_DEVICE_TYPE_OTHER:
-                    return "OTHER";
-                default:
-                    return "UNKNOWN";
-            }
-        };
+        MOBILEGL_ASSERT(deviceCount > 0, "No physical devices found.");
 
         Vector<VkPhysicalDevice> devices(deviceCount);
         vkEnumeratePhysicalDevices(m_instance, &deviceCount, devices.data());
-        for (const auto& device : devices) {
-            VkPhysicalDeviceProperties deviceProperties;
-            vkGetPhysicalDeviceProperties(device, &deviceProperties);
-            auto apiVersion = deviceProperties.apiVersion;
-            MGLOG_I("    %s (Vulkan %d.%d.%d, %s)",
-                deviceProperties.deviceName,
-                VK_VERSION_MAJOR(apiVersion), VK_VERSION_MINOR(apiVersion), VK_VERSION_PATCH(apiVersion),
-                deviceTypeToStr(deviceProperties.deviceType));
-            // TODO: Properly check device eligibility
-            m_queueFamilies = GetQueueFamilyFromPhysicalDevice(device);
-            auto gfxQueueFamily = GetQueueFamilyIndex(m_queueFamilies, VK_QUEUE_GRAPHICS_BIT);
-            if (m_physicalDevice == VK_NULL_HANDLE && gfxQueueFamily != -1) {
-                m_physicalDevice = device;
-                m_queueFamilyIndices.graphicsFamily = gfxQueueFamily;
-                MGLOG_I("Physical device picked.");
-            }
+        for (Int i = 0; i < deviceCount; i++) {
+            if (CheckPhysicalDeviceEligibilityAndCompare(devices[i], m_physicalDevice, m_physicalDevice))
+                MGLOG_I("Picked physical device %d.", i);
         }
 
-        MOBILEGL_ASSERT(!devices.empty(), "No physical devices found.");
-        if (m_physicalDevice == VK_NULL_HANDLE) {
-            m_physicalDevice = devices[0];
+        if (m_physicalDevice.handle == VK_NULL_HANDLE) {
+            m_physicalDevice.handle = devices[0];
+            vkGetPhysicalDeviceProperties(devices[0], &m_physicalDevice.properties);
             MGLOG_I("No suitable physical device picked yet, defaulting to device 0.");
             MGLOG_W("No graphics queue found on physical device. Picking a device that doesn't do graphics?");
         }
+    }
 
-        m_queueFamilyIndices.presentFamily = GetPresentQueueFamilyIndex(m_queueFamilies, m_queueFamilyIndices.graphicsFamily);
+    Bool VulkanRenderer::CheckPhysicalDeviceEligibilityAndCompare(
+        VkPhysicalDevice device, const PhysicalDevice& otherDevice, PhysicalDevice& outDevice) {
+        const auto deviceTypeToStr = [](VkPhysicalDeviceType type) {
+            switch (type) {
+            case VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU:
+                return "INTEGRATED_GPU";
+            case VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU:
+                return "DISCRETE_GPU";
+            case VK_PHYSICAL_DEVICE_TYPE_CPU:
+                return "CPU";
+            case VK_PHYSICAL_DEVICE_TYPE_VIRTUAL_GPU:
+                return "VIRTUAL_GPU";
+            case VK_PHYSICAL_DEVICE_TYPE_OTHER:
+                return "OTHER";
+            default:
+                return "UNKNOWN";
+            }
+        };
+
+        PhysicalDevice newDevice;
+        newDevice.handle = device;
+
+        vkGetPhysicalDeviceProperties(device, &newDevice.properties);
+        const auto& deviceProperties = newDevice.properties;
+        auto apiVersion = deviceProperties.apiVersion;
+        MGLOG_I("    %s (Vulkan %d.%d.%d, %s)",
+            deviceProperties.deviceName,
+            VK_VERSION_MAJOR(apiVersion), VK_VERSION_MINOR(apiVersion), VK_VERSION_PATCH(apiVersion),
+            deviceTypeToStr(deviceProperties.deviceType));
+
+        Vector<VkQueueFamilyProperties> queueFamilies = GetQueueFamilyFromPhysicalDevice(device);
+        newDevice.queueFamilies.graphicsFamily = GetQueueFamilyIndex(queueFamilies, VK_QUEUE_GRAPHICS_BIT);
+        if (newDevice.queueFamilies.graphicsFamily == -1) {
+            outDevice = otherDevice;
+            MGLOG_I("    Ignored physical device: No graphics queue family.");
+            return false;
+        }
+
+        newDevice.queueFamilies.presentFamily =
+            GetPresentQueueFamilyIndex(newDevice, queueFamilies, newDevice.queueFamilies.graphicsFamily);
+        if (newDevice.queueFamilies.presentFamily == -1) {
+            outDevice = otherDevice;
+            MGLOG_I("    Ignored physical device: No present queue family.");
+            return false;
+        }
+
+        // Pick discrete GPU
+        if (newDevice.properties.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU &&
+            otherDevice.properties.deviceType != VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU) {
+            outDevice = newDevice;
+            MGLOG_I("    Picked physical device: Discrete GPU.");
+            return true;
+        }
+
+        // Pick integrated GPU if no discrete GPU
+        if (newDevice.properties.deviceType == VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU &&
+            otherDevice.properties.deviceType != VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU) {
+            outDevice = newDevice;
+            MGLOG_I("    Picked physical device: Integrated GPU and the other is not discrete.");
+            return true;
+        }
+
+        // Ignore other GPU when discrete GPU found
+        if (newDevice.properties.deviceType != VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU &&
+            otherDevice.properties.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU) {
+            outDevice = newDevice;
+            MGLOG_I("    Ignored physical device: Already picked discrete GPU.");
+            return false;
+        }
+
+        return false;
     }
 
     void VulkanRenderer::CreateLogicalDeviceAndQueues() {
         Float queuePriority = 1.0f;
 
         Vector<VkDeviceQueueCreateInfo> queueCreateInfos;
-        MOBILEGL_ASSERT(m_queueFamilyIndices.graphicsFamily != -1, "Graphics queue family not found.");
+        MOBILEGL_ASSERT(m_physicalDevice.queueFamilies.graphicsFamily != -1, "Graphics queue family not found.");
         VkDeviceQueueCreateInfo& gfxQueueCreateInfo = queueCreateInfos.emplace_back();
         gfxQueueCreateInfo.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
-        gfxQueueCreateInfo.queueFamilyIndex = m_queueFamilyIndices.graphicsFamily;
+        gfxQueueCreateInfo.queueFamilyIndex = m_physicalDevice.queueFamilies.graphicsFamily;
         gfxQueueCreateInfo.queueCount = 1;
         gfxQueueCreateInfo.pQueuePriorities = &queuePriority;
 
-        if (m_queueFamilyIndices.graphicsFamily != m_queueFamilyIndices.presentFamily) {
-            MOBILEGL_ASSERT(m_queueFamilyIndices.presentFamily != -1, "Present queue family not found.");
+        if (m_physicalDevice.queueFamilies.graphicsFamily != m_physicalDevice.queueFamilies.presentFamily) {
+            MOBILEGL_ASSERT(m_physicalDevice.queueFamilies.presentFamily != -1, "Present queue family not found.");
             VkDeviceQueueCreateInfo& presentQueueCreateInfo = queueCreateInfos.emplace_back();
             presentQueueCreateInfo.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
-            presentQueueCreateInfo.queueFamilyIndex = m_queueFamilyIndices.presentFamily;
+            presentQueueCreateInfo.queueFamilyIndex = m_physicalDevice.queueFamilies.presentFamily;
             presentQueueCreateInfo.queueCount = 1;
             presentQueueCreateInfo.pQueuePriorities = &queuePriority;
         }
@@ -288,12 +331,12 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         } else {
             deviceCreateInfo.enabledLayerCount = 0;
         }
-        VK_VERIFY(vkCreateDevice(m_physicalDevice, &deviceCreateInfo, nullptr, &m_device), "vkCreateDevice");
+        VK_VERIFY(vkCreateDevice(m_physicalDevice.handle, &deviceCreateInfo, nullptr, &m_device), "vkCreateDevice");
         MGLOG_I("Logical device created.");
 
         // Queues
-        vkGetDeviceQueue(m_device, m_queueFamilyIndices.graphicsFamily, 0, &m_graphicsQueue);
-        vkGetDeviceQueue(m_device, m_queueFamilyIndices.presentFamily, 0, &m_presentQueue);
+        vkGetDeviceQueue(m_device, m_physicalDevice.queueFamilies.graphicsFamily, 0, &m_graphicsQueue);
+        vkGetDeviceQueue(m_device, m_physicalDevice.queueFamilies.presentFamily, 0, &m_presentQueue);
         MGLOG_I("Queues got successfully.");
     }
 
@@ -338,18 +381,19 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         return -1;
     }
 
-    Int VulkanRenderer::GetPresentQueueFamilyIndex(const Vector<VkQueueFamilyProperties>& queueFamilies,
-                                                      Int preferredFamilyIndex) const {
+    Int VulkanRenderer::GetPresentQueueFamilyIndex(
+        const PhysicalDevice& physicalDevice,
+        const Vector<VkQueueFamilyProperties>& queueFamilies, Int preferredFamilyIndex) const {
         if (preferredFamilyIndex != -1) {
             VkBool32 supportsPresent = false;
-            vkGetPhysicalDeviceSurfaceSupportKHR(m_physicalDevice, preferredFamilyIndex, m_surface, &supportsPresent);
+            vkGetPhysicalDeviceSurfaceSupportKHR(physicalDevice.handle, preferredFamilyIndex, m_surface, &supportsPresent);
             if (supportsPresent)
                 return preferredFamilyIndex;
         }
 
         for (Uint32 i = 0; i < queueFamilies.size(); i++) {
             VkBool32 supportsPresent = false;
-            vkGetPhysicalDeviceSurfaceSupportKHR(m_physicalDevice, i, m_surface, &supportsPresent);
+            vkGetPhysicalDeviceSurfaceSupportKHR(physicalDevice.handle, i, m_surface, &supportsPresent);
             if (supportsPresent)
                 return i;
         }

@@ -49,6 +49,12 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             Int32 presentFamily = -1;
         };
 
+        struct PhysicalDevice {
+            QueueFamilyIndices queueFamilies;
+            VkPhysicalDeviceProperties properties;
+            VkPhysicalDevice handle = VK_NULL_HANDLE;
+        };
+
         NativeWindowType m_window = 0;
         RendererConfig m_config;
 
@@ -57,12 +63,13 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         Vector<VkExtensionProperties> m_extensions;
         VkInstance m_instance = VK_NULL_HANDLE;
         VkDebugUtilsMessengerEXT m_debugMessenger = VK_NULL_HANDLE;
-        VkPhysicalDevice m_physicalDevice = VK_NULL_HANDLE;
+        PhysicalDevice m_physicalDevice;
+        // VkPhysicalDevice m_physicalDevice = VK_NULL_HANDLE;
         VkDevice m_device = VK_NULL_HANDLE;
         VkSurfaceKHR m_surface = VK_NULL_HANDLE;
 
-        Vector<VkQueueFamilyProperties> m_queueFamilies;
-        QueueFamilyIndices m_queueFamilyIndices;
+        // Vector<VkQueueFamilyProperties> m_queueFamilies;
+        // QueueFamilyIndices m_queueFamilyIndices;
 
         VkQueue m_graphicsQueue = VK_NULL_HANDLE;
         VkQueue m_presentQueue = VK_NULL_HANDLE;
@@ -73,10 +80,11 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         VkResult DestroyDebugMessenger();
         VkDebugUtilsMessengerCreateInfoEXT PopulateDebugMessengerCreateInfo();
         void PickPhysicalDevice();
+        Bool CheckPhysicalDeviceEligibilityAndCompare(VkPhysicalDevice device, const PhysicalDevice& compareWithDevice, PhysicalDevice& outDevice);
         void CreateLogicalDeviceAndQueues();
         void CreateSurface();
 
-        Int GetPresentQueueFamilyIndex(const Vector<VkQueueFamilyProperties>& queueFamilies, Int preferredFamilyIndex = -1) const;
+        Int GetPresentQueueFamilyIndex(const PhysicalDevice& physicalDevice, const Vector<VkQueueFamilyProperties>& queueFamilies, Int preferredFamilyIndex = -1) const;
 
         static Vector<VkQueueFamilyProperties> GetQueueFamilyFromPhysicalDevice(VkPhysicalDevice device);
         static Int GetQueueFamilyIndex(const Vector<VkQueueFamilyProperties>& queueFamilies, VkQueueFlagBits flag);
