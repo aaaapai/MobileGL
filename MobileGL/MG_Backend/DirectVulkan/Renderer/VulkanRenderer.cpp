@@ -62,7 +62,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         CreateInstance();
         CreateSurface();
         PickPhysicalDevice();
-        CreateLogicalDevice();
+        CreateLogicalDeviceAndQueues();
         MGLOG_D("VulkanRenderer initialized");
     }
 
@@ -248,24 +248,39 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         if (m_physicalDevice == VK_NULL_HANDLE) {
             m_physicalDevice = devices[0];
             MGLOG_I("No suitable physical device picked yet, defaulting to device 0.");
+            MGLOG_W("No graphics queue found on physical device. Picking a device that doesn't do graphics?");
         }
+
+        m_queueFamilyIndices.presentFamily = GetPresentQueueFamilyIndex(m_queueFamilies, m_queueFamilyIndices.graphicsFamily);
     }
 
-    void VulkanRenderer::CreateLogicalDevice() {
-        VkDeviceQueueCreateInfo queueCreateInfo{};
-        queueCreateInfo.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
-        queueCreateInfo.queueFamilyIndex = m_queueFamilyIndices.graphicsFamily;
-        queueCreateInfo.queueCount = 1;
+    void VulkanRenderer::CreateLogicalDeviceAndQueues() {
         Float queuePriority = 1.0f;
-        queueCreateInfo.pQueuePriorities = &queuePriority;
+
+        Vector<VkDeviceQueueCreateInfo> queueCreateInfos;
+        MOBILEGL_ASSERT(m_queueFamilyIndices.graphicsFamily != -1, "Graphics queue family not found.");
+        VkDeviceQueueCreateInfo& gfxQueueCreateInfo = queueCreateInfos.emplace_back();
+        gfxQueueCreateInfo.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
+        gfxQueueCreateInfo.queueFamilyIndex = m_queueFamilyIndices.graphicsFamily;
+        gfxQueueCreateInfo.queueCount = 1;
+        gfxQueueCreateInfo.pQueuePriorities = &queuePriority;
+
+        if (m_queueFamilyIndices.graphicsFamily != m_queueFamilyIndices.presentFamily) {
+            MOBILEGL_ASSERT(m_queueFamilyIndices.presentFamily != -1, "Present queue family not found.");
+            VkDeviceQueueCreateInfo& presentQueueCreateInfo = queueCreateInfos.emplace_back();
+            presentQueueCreateInfo.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
+            presentQueueCreateInfo.queueFamilyIndex = m_queueFamilyIndices.presentFamily;
+            presentQueueCreateInfo.queueCount = 1;
+            presentQueueCreateInfo.pQueuePriorities = &queuePriority;
+        }
 
         VkPhysicalDeviceFeatures deviceFeatures{};
         // TODO: query and make use of device features
 
         VkDeviceCreateInfo deviceCreateInfo{};
         deviceCreateInfo.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
-        deviceCreateInfo.pQueueCreateInfos = &queueCreateInfo;
-        deviceCreateInfo.queueCreateInfoCount = 1;
+        deviceCreateInfo.pQueueCreateInfos = queueCreateInfos.data();
+        deviceCreateInfo.queueCreateInfoCount = queueCreateInfos.size();
         deviceCreateInfo.pEnabledFeatures = &deviceFeatures;
         if (m_validationLayersEnabled) {
             deviceCreateInfo.enabledLayerCount = static_cast<uint32_t>(std::size(s_validationLayerNames));
@@ -274,7 +289,12 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             deviceCreateInfo.enabledLayerCount = 0;
         }
         VK_VERIFY(vkCreateDevice(m_physicalDevice, &deviceCreateInfo, nullptr, &m_device), "vkCreateDevice");
+        MGLOG_I("Logical device created.");
+
+        // Queues
         vkGetDeviceQueue(m_device, m_queueFamilyIndices.graphicsFamily, 0, &m_graphicsQueue);
+        vkGetDeviceQueue(m_device, m_queueFamilyIndices.presentFamily, 0, &m_presentQueue);
+        MGLOG_I("Queues got successfully.");
     }
 
     void VulkanRenderer::CreateSurface() {
@@ -308,11 +328,30 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         return queueFamilies;
     }
 
-    Uint32 VulkanRenderer::GetQueueFamilyIndex(const Vector<VkQueueFamilyProperties>& queueFamilies, VkQueueFlagBits flag) {
+    Int VulkanRenderer::GetQueueFamilyIndex(const Vector<VkQueueFamilyProperties>& queueFamilies,
+                                               VkQueueFlagBits flag) {
         for (Uint32 i = 0; i < queueFamilies.size(); i++) {
             if (queueFamilies[i].queueFlags & flag) {
                 return i;
             }
+        }
+        return -1;
+    }
+
+    Int VulkanRenderer::GetPresentQueueFamilyIndex(const Vector<VkQueueFamilyProperties>& queueFamilies,
+                                                      Int preferredFamilyIndex) const {
+        if (preferredFamilyIndex != -1) {
+            VkBool32 supportsPresent = false;
+            vkGetPhysicalDeviceSurfaceSupportKHR(m_physicalDevice, preferredFamilyIndex, m_surface, &supportsPresent);
+            if (supportsPresent)
+                return preferredFamilyIndex;
+        }
+
+        for (Uint32 i = 0; i < queueFamilies.size(); i++) {
+            VkBool32 supportsPresent = false;
+            vkGetPhysicalDeviceSurfaceSupportKHR(m_physicalDevice, i, m_surface, &supportsPresent);
+            if (supportsPresent)
+                return i;
         }
         return -1;
     }
