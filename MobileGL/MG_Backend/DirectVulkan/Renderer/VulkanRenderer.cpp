@@ -265,7 +265,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         Bool deviceExtSupported = IsNecessaryDeviceExtensionSupported(newVkDevice);
         if (!deviceExtSupported) {
             outBetterDevice = otherDevice;
-            MGLOG_I("    Ignored physical device: Some of the required device extension not supported on this device.");
+            MGLOG_I("    Ignored physical device. (Reason: Some of the required device extension not supported on this device)");
             return false;
         }
 
@@ -273,7 +273,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         newDevice.swapchainCapabilities = GetSwapchainCapabilities(newVkDevice, surface);
         if (!newDevice.swapchainCapabilities.IsComplete()) {
             outBetterDevice = otherDevice;
-            MGLOG_I("    Ignored physical device: Swapchain capabilities not met.");
+            MGLOG_I("    Ignored physical device. (Reason: Swapchain capabilities not met)");
             return false;
         }
 
@@ -282,7 +282,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         newDevice.queueFamilies.graphicsFamily = GetQueueFamilyIndex(queueFamilies, VK_QUEUE_GRAPHICS_BIT);
         if (newDevice.queueFamilies.graphicsFamily == -1) {
             outBetterDevice = otherDevice;
-            MGLOG_I("    Ignored physical device: No graphics queue family.");
+            MGLOG_I("    Ignored physical device. (Reason: No graphics queue family)");
             return false;
         }
 
@@ -290,7 +290,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             GetPresentQueueFamilyIndex(newDevice, surface, queueFamilies, newDevice.queueFamilies.graphicsFamily);
         if (newDevice.queueFamilies.presentFamily == -1) {
             outBetterDevice = otherDevice;
-            MGLOG_I("    Ignored physical device: No present queue family.");
+            MGLOG_I("    Ignored physical device. (Reason: No present queue family)");
             return false;
         }
 
@@ -298,7 +298,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         if (newDevice.properties.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU &&
             otherDevice.properties.deviceType != VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU) {
             outBetterDevice = newDevice;
-            MGLOG_I("    Picked physical device: Discrete GPU.");
+            MGLOG_I("    Picked physical device. (Reason: Discrete GPU)");
             return true;
         }
 
@@ -306,7 +306,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         if (newDevice.properties.deviceType == VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU &&
             otherDevice.properties.deviceType != VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU) {
             outBetterDevice = newDevice;
-            MGLOG_I("    Picked physical device: Integrated GPU and no discrete one found yet.");
+            MGLOG_I("    Picked physical device. (Reason: Integrated GPU and no discrete one found yet)");
             return true;
         }
 
@@ -314,7 +314,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         if (newDevice.properties.deviceType != VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU &&
             otherDevice.properties.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU) {
             outBetterDevice = newDevice;
-            MGLOG_I("    Ignored physical device: Already picked discrete GPU.");
+            MGLOG_I("    Ignored physical device. (Reason: Already picked discrete GPU)");
             return false;
         }
 
