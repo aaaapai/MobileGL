@@ -87,6 +87,9 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         VkDevice m_device = VK_NULL_HANDLE;
         VkSurfaceKHR m_surface = VK_NULL_HANDLE;
         VkSwapchainKHR m_swapchain = VK_NULL_HANDLE;
+        Vector<VkImage> m_swapchainImages;
+        VkExtent2D m_swapChainExtent;
+        Vector<VkImageView> m_swapChainImageViews;
 
         // Vector<VkQueueFamilyProperties> m_queueFamilies;
         // QueueFamilyIndices m_queueFamilyIndices;
@@ -102,6 +105,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         void PickPhysicalDevice();
         void CreateLogicalDeviceAndQueues();
         void CreateSwapchain();
+        void CreateSwapchainImageViews();
 
         static Int GetPresentQueueFamilyIndex(
             const PhysicalDevice& physicalDevice, VkSurfaceKHR surface,

@@ -64,6 +64,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         PickPhysicalDevice();
         CreateLogicalDeviceAndQueues();
         CreateSwapchain();
+        CreateSwapchainImageViews();
         MGLOG_D("VulkanRenderer initialized");
     }
 
@@ -802,7 +803,21 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         sci.clipped = VK_TRUE;
         sci.oldSwapchain = VK_NULL_HANDLE;
         VK_VERIFY(vkCreateSwapchainKHR(m_device, &sci, nullptr, &m_swapchain));
-        MGLOG_I("Swapchain created.");
+
+        Uint32 gotImageCount = 0;
+        VK_VERIFY(vkGetSwapchainImagesKHR(m_device, m_swapchain, &gotImageCount, nullptr));
+        m_swapchainImages.resize(gotImageCount);
+        VK_VERIFY(vkGetSwapchainImagesKHR(m_device, m_swapchain, &gotImageCount, m_swapchainImages.data()));
+        m_swapChainExtent = swapchainCaps.currentExtent;
+
+        MGLOG_I("Swapchain created, extent = %dx%d", m_swapChainExtent.width, m_swapChainExtent.height);
+    }
+
+    void VulkanRenderer::CreateSwapchainImageViews() {
+        m_swapChainImageViews.resize(m_swapchainImages.size());
+        for (size_t i = 0; i < m_swapChainImageViews.size(); i++) {
+
+        }
     }
 
     void VulkanRenderer::CreateSurface() {
