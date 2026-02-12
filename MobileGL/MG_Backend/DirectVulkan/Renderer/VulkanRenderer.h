@@ -16,6 +16,8 @@
         MOBILEGL_ASSERT(_vk_verify_result == VK_SUCCESS, "Vulkan error %d at %s:%d" __VA_OPT__(" - ") __VA_ARGS__, _vk_verify_result, __FILE__, __LINE__);  \
     } while (0)
 
+#define ENUM_STR_CASE(c) case c: return #c;
+
 namespace MobileGL::MG_Backend::DirectVulkan {
     class VulkanContext;
     class SwapchainManager;
