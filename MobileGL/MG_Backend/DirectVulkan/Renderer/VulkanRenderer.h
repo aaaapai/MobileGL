@@ -84,6 +84,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         // VkPhysicalDevice m_physicalDevice = VK_NULL_HANDLE;
         VkDevice m_device = VK_NULL_HANDLE;
         VkSurfaceKHR m_surface = VK_NULL_HANDLE;
+        VkSwapchainKHR m_swapchain = VK_NULL_HANDLE;
 
         // Vector<VkQueueFamilyProperties> m_queueFamilies;
         // QueueFamilyIndices m_queueFamilyIndices;
@@ -92,13 +93,13 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         VkQueue m_presentQueue = VK_NULL_HANDLE;
 
         void CreateInstance();
-        void DestroyInstance();
         VkResult SetupDebugMessenger();
         VkResult DestroyDebugMessenger();
         VkDebugUtilsMessengerCreateInfoEXT PopulateDebugMessengerCreateInfo();
+        void CreateSurface();
         void PickPhysicalDevice();
         void CreateLogicalDeviceAndQueues();
-        void CreateSurface();
+        void CreateSwapchain();
 
         static Int GetPresentQueueFamilyIndex(
             const PhysicalDevice& physicalDevice, VkSurfaceKHR surface,
@@ -109,6 +110,8 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         static Bool IsNecessaryDeviceExtensionSupported(VkPhysicalDevice device);
         static SwapchainCapabilities GetSwapchainCapabilities(VkPhysicalDevice physicalDevice, VkSurfaceKHR surface);
         static Bool GetMoreCapablePhysicalDevice(VkPhysicalDevice newVkDevice, VkSurfaceKHR surface, const PhysicalDevice& compareWithDevice, PhysicalDevice& outBetterDevice);
+        static VkSurfaceFormatKHR ChooseSwapchainSurfaceFormat(const Vector<VkSurfaceFormatKHR>& availableFormats);
+        static VkPresentModeKHR ChooseSwapchainPresentMode(const Vector<VkPresentModeKHR>& availablePresentModes);
         static constexpr const char* s_validationLayerNames[] = {
             "VK_LAYER_KHRONOS_validation"
         };

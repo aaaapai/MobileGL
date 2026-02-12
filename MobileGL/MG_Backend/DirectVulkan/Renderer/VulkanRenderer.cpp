@@ -67,16 +67,30 @@ namespace MobileGL::MG_Backend::DirectVulkan {
     }
 
     void VulkanRenderer::Shutdown() {
-        if (m_device != VK_NULL_HANDLE)
+        if (m_swapchain != VK_NULL_HANDLE) {
+            vkDestroySwapchainKHR(m_device, m_swapchain, nullptr);
+            m_swapchain = VK_NULL_HANDLE;
+        }
+
+        if (m_device != VK_NULL_HANDLE) {
             vkDestroyDevice(m_device, nullptr);
+            m_device = VK_NULL_HANDLE;
+        }
 
-        if (m_surface != VK_NULL_HANDLE)
+        if (m_surface != VK_NULL_HANDLE) {
             vkDestroySurfaceKHR(m_instance, m_surface, nullptr);
+            m_surface = VK_NULL_HANDLE;
+        }
 
-        if (m_debugMessenger != VK_NULL_HANDLE)
+        if (m_debugMessenger != VK_NULL_HANDLE) {
             DestroyDebugMessenger();
+            m_debugMessenger = VK_NULL_HANDLE;
+        }
 
-        DestroyInstance();
+        if (m_instance != VK_NULL_HANDLE) {
+            vkDestroyInstance(m_instance, nullptr);
+            m_instance = VK_NULL_HANDLE;
+        }
         MGLOG_I("VulkanRenderer shut down completed");
     }
 
@@ -158,13 +172,6 @@ namespace MobileGL::MG_Backend::DirectVulkan {
 
         if (m_validationLayersEnabled)
             VK_VERIFY(SetupDebugMessenger());
-    }
-
-    void VulkanRenderer::DestroyInstance() {
-        if (m_instance != VK_NULL_HANDLE) {
-            vkDestroyInstance(m_instance, nullptr);
-            m_instance = VK_NULL_HANDLE;
-        }
     }
 
     VkResult VulkanRenderer::SetupDebugMessenger() {
@@ -314,6 +321,32 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         return false;
     }
 
+    VkSurfaceFormatKHR VulkanRenderer::ChooseSwapchainSurfaceFormat(
+        const Vector<VkSurfaceFormatKHR>& availableFormats) {
+        for (const auto& availableFormat : availableFormats) {
+            if (availableFormat.format == VK_FORMAT_B8G8R8A8_SRGB && availableFormat.colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR) {
+                return availableFormat;
+            }
+        }
+
+        // TODO: Properly rank other formats
+        return availableFormats[0];
+    }
+
+    VkPresentModeKHR VulkanRenderer::ChooseSwapchainPresentMode(
+        const Vector<VkPresentModeKHR>& availablePresentModes) {
+        for (const auto& presentMode : availablePresentModes) {
+            if (presentMode == VK_PRESENT_MODE_IMMEDIATE_KHR) {
+                return presentMode;
+            } else if (presentMode == VK_PRESENT_MODE_MAILBOX_KHR) {
+                return presentMode;
+            }
+        }
+
+        // TODO: Properly rank other modes
+        return availablePresentModes[0];
+    }
+
     Bool VulkanRenderer::IsNecessaryDeviceExtensionSupported(VkPhysicalDevice device) {
         Uint32 extensionCount = 0;
         vkEnumerateDeviceExtensionProperties(device, nullptr, &extensionCount, nullptr);
@@ -411,6 +444,8 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         vkGetDeviceQueue(m_device, m_physicalDevice.queueFamilies.presentFamily, 0, &m_presentQueue);
         MGLOG_I("Queues got successfully.");
     }
+
+    void VulkanRenderer::CreateSwapchain() {}
 
     void VulkanRenderer::CreateSurface() {
 #if defined VK_USE_PLATFORM_ANDROID_KHR
