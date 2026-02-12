@@ -80,7 +80,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         VkResult DestroyDebugMessenger();
         VkDebugUtilsMessengerCreateInfoEXT PopulateDebugMessengerCreateInfo();
         void PickPhysicalDevice();
-        Bool CheckPhysicalDeviceEligibilityAndCompare(VkPhysicalDevice device, const PhysicalDevice& compareWithDevice, PhysicalDevice& outDevice);
+        Bool GetMoreCapablePhysicalDevice(VkPhysicalDevice newVkDevice, const PhysicalDevice& compareWithDevice, PhysicalDevice& outBetterDevice);
         void CreateLogicalDeviceAndQueues();
         void CreateSurface();
 
@@ -89,8 +89,12 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         static Vector<VkQueueFamilyProperties> GetQueueFamilyFromPhysicalDevice(VkPhysicalDevice device);
         static Int GetQueueFamilyIndex(const Vector<VkQueueFamilyProperties>& queueFamilies, VkQueueFlagBits flag);
         static Vector<VkExtensionProperties> EnumerateInstanceExtensions();
+        static Bool IsNecessaryDeviceExtensionSupported(VkPhysicalDevice device);
         static constexpr const char* s_validationLayerNames[] = {
             "VK_LAYER_KHRONOS_validation"
+        };
+        static constexpr const char* s_deviceExtensionNames[] = {
+            VK_KHR_SWAPCHAIN_EXTENSION_NAME
         };
         static Bool CheckValidationLayerSupport();
 

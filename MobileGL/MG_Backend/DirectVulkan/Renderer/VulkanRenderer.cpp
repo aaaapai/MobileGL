@@ -77,7 +77,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             DestroyDebugMessenger();
 
         DestroyInstance();
-        MGLOG_D("VulkanRenderer shut down completed");
+        MGLOG_I("VulkanRenderer shut down completed");
     }
 
     void VulkanRenderer::Render() {
@@ -212,7 +212,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         Vector<VkPhysicalDevice> devices(deviceCount);
         vkEnumeratePhysicalDevices(m_instance, &deviceCount, devices.data());
         for (Int i = 0; i < deviceCount; i++) {
-            if (CheckPhysicalDeviceEligibilityAndCompare(devices[i], m_physicalDevice, m_physicalDevice))
+            if (GetMoreCapablePhysicalDevice(devices[i], m_physicalDevice, m_physicalDevice))
                 MGLOG_I("Picked physical device %d.", i);
         }
 
@@ -224,8 +224,8 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         }
     }
 
-    Bool VulkanRenderer::CheckPhysicalDeviceEligibilityAndCompare(
-        VkPhysicalDevice device, const PhysicalDevice& otherDevice, PhysicalDevice& outDevice) {
+    Bool VulkanRenderer::GetMoreCapablePhysicalDevice(
+        VkPhysicalDevice newVkDevice, const PhysicalDevice& otherDevice, PhysicalDevice& outBetterDevice) {
         const auto deviceTypeToStr = [](VkPhysicalDeviceType type) {
             switch (type) {
             case VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU:
@@ -244,9 +244,9 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         };
 
         PhysicalDevice newDevice;
-        newDevice.handle = device;
+        newDevice.handle = newVkDevice;
 
-        vkGetPhysicalDeviceProperties(device, &newDevice.properties);
+        vkGetPhysicalDeviceProperties(newVkDevice, &newDevice.properties);
         const auto& deviceProperties = newDevice.properties;
         auto apiVersion = deviceProperties.apiVersion;
         MGLOG_I("    %s (Vulkan %d.%d.%d, %s)",
@@ -254,10 +254,17 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             VK_VERSION_MAJOR(apiVersion), VK_VERSION_MINOR(apiVersion), VK_VERSION_PATCH(apiVersion),
             deviceTypeToStr(deviceProperties.deviceType));
 
-        Vector<VkQueueFamilyProperties> queueFamilies = GetQueueFamilyFromPhysicalDevice(device);
+        Bool deviceExtSupported = IsNecessaryDeviceExtensionSupported(newVkDevice);
+        if (!deviceExtSupported) {
+            outBetterDevice = otherDevice;
+            MGLOG_I("    Ignored physical device: Some of the required device extension not supported on this device.");
+            return false;
+        }
+
+        Vector<VkQueueFamilyProperties> queueFamilies = GetQueueFamilyFromPhysicalDevice(newVkDevice);
         newDevice.queueFamilies.graphicsFamily = GetQueueFamilyIndex(queueFamilies, VK_QUEUE_GRAPHICS_BIT);
         if (newDevice.queueFamilies.graphicsFamily == -1) {
-            outDevice = otherDevice;
+            outBetterDevice = otherDevice;
             MGLOG_I("    Ignored physical device: No graphics queue family.");
             return false;
         }
@@ -265,7 +272,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         newDevice.queueFamilies.presentFamily =
             GetPresentQueueFamilyIndex(newDevice, queueFamilies, newDevice.queueFamilies.graphicsFamily);
         if (newDevice.queueFamilies.presentFamily == -1) {
-            outDevice = otherDevice;
+            outBetterDevice = otherDevice;
             MGLOG_I("    Ignored physical device: No present queue family.");
             return false;
         }
@@ -273,7 +280,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         // Pick discrete GPU
         if (newDevice.properties.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU &&
             otherDevice.properties.deviceType != VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU) {
-            outDevice = newDevice;
+            outBetterDevice = newDevice;
             MGLOG_I("    Picked physical device: Discrete GPU.");
             return true;
         }
@@ -281,7 +288,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         // Pick integrated GPU if no discrete GPU
         if (newDevice.properties.deviceType == VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU &&
             otherDevice.properties.deviceType != VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU) {
-            outDevice = newDevice;
+            outBetterDevice = newDevice;
             MGLOG_I("    Picked physical device: Integrated GPU and the other is not discrete.");
             return true;
         }
@@ -289,12 +296,39 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         // Ignore other GPU when discrete GPU found
         if (newDevice.properties.deviceType != VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU &&
             otherDevice.properties.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU) {
-            outDevice = newDevice;
+            outBetterDevice = newDevice;
             MGLOG_I("    Ignored physical device: Already picked discrete GPU.");
             return false;
         }
 
         return false;
+    }
+
+    Bool VulkanRenderer::IsNecessaryDeviceExtensionSupported(VkPhysicalDevice device) {
+        Uint32 extensionCount = 0;
+        vkEnumerateDeviceExtensionProperties(device, nullptr, &extensionCount, nullptr);
+
+        std::vector<VkExtensionProperties> availableExtensions(extensionCount);
+        vkEnumerateDeviceExtensionProperties(device, nullptr, &extensionCount, availableExtensions.data());
+
+        MGLOG_I("Got %u Vulkan device extensions: ", extensionCount);
+        for (auto& extension : availableExtensions) {
+            MGLOG_I("    %s (r.%u)", extension.extensionName, extension.specVersion);
+        }
+
+        for (SizeT i = 0; i < std::size(s_deviceExtensionNames); ++i) {
+            Bool found = false;
+            for (const auto& extension : availableExtensions) {
+                if (strcmp(extension.extensionName, s_deviceExtensionNames[i]) == 0) {
+                    found = true;
+                    break;
+                }
+            }
+            if (!found)
+                return false;
+        }
+
+        return true;
     }
 
     void VulkanRenderer::CreateLogicalDeviceAndQueues() {
