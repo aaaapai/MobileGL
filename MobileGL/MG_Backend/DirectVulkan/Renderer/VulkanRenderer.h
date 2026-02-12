@@ -87,6 +87,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         VkDevice m_device = VK_NULL_HANDLE;
         VkSurfaceKHR m_surface = VK_NULL_HANDLE;
         VkSwapchainKHR m_swapchain = VK_NULL_HANDLE;
+        VkSurfaceFormatKHR m_swapchainSurfaceFormat;
         Vector<VkImage> m_swapchainImages;
         VkExtent2D m_swapChainExtent;
         Vector<VkImageView> m_swapChainImageViews;

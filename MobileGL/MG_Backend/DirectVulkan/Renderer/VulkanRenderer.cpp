@@ -69,6 +69,11 @@ namespace MobileGL::MG_Backend::DirectVulkan {
     }
 
     void VulkanRenderer::Shutdown() {
+        for (auto imageView : m_swapChainImageViews) {
+            vkDestroyImageView(m_device, imageView, nullptr);
+        }
+        m_swapChainImageViews.clear();
+
         if (m_swapchain != VK_NULL_HANDLE) {
             vkDestroySwapchainKHR(m_device, m_swapchain, nullptr);
             m_swapchain = VK_NULL_HANDLE;
@@ -762,8 +767,8 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         for (auto& surfaceFormat : supportedSurfaceFormats) {
             MGLOG_I("    [%s, %s]", surfaceFormatToStr(surfaceFormat.format), colorSpaceToStr(surfaceFormat.colorSpace));
         }
-        auto surfaceFormat = ChooseSwapchainSurfaceFormat(supportedSurfaceFormats);
-        MGLOG_I("Picked surface format: [%s, %s]", surfaceFormatToStr(surfaceFormat.format), colorSpaceToStr(surfaceFormat.colorSpace));
+        m_swapchainSurfaceFormat = ChooseSwapchainSurfaceFormat(supportedSurfaceFormats);
+        MGLOG_I("Picked surface format: [%s, %s]", surfaceFormatToStr(m_swapchainSurfaceFormat.format), colorSpaceToStr(m_swapchainSurfaceFormat.colorSpace));
 
         auto& supportedPresentModes = m_physicalDevice.swapchainCapabilities.presentModes;
         MGLOG_I("Got %d present mode: ", supportedPresentModes.size());
@@ -780,8 +785,8 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         VkSwapchainCreateInfoKHR sci{VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR};
         sci.surface = m_surface;
         sci.minImageCount = imageCount;
-        sci.imageFormat = surfaceFormat.format;
-        sci.imageColorSpace = surfaceFormat.colorSpace;
+        sci.imageFormat = m_swapchainSurfaceFormat.format;
+        sci.imageColorSpace = m_swapchainSurfaceFormat.colorSpace;
         sci.imageExtent = swapchainCaps.currentExtent;
         sci.imageArrayLayers = 1;
         sci.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
@@ -816,8 +821,23 @@ namespace MobileGL::MG_Backend::DirectVulkan {
     void VulkanRenderer::CreateSwapchainImageViews() {
         m_swapChainImageViews.resize(m_swapchainImages.size());
         for (size_t i = 0; i < m_swapChainImageViews.size(); i++) {
-
+            VkImageViewCreateInfo createInfo{};
+            createInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+            createInfo.image = m_swapchainImages[i];
+            createInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
+            createInfo.format = m_swapchainSurfaceFormat.format;
+            createInfo.components.r = VK_COMPONENT_SWIZZLE_IDENTITY;
+            createInfo.components.g = VK_COMPONENT_SWIZZLE_IDENTITY;
+            createInfo.components.b = VK_COMPONENT_SWIZZLE_IDENTITY;
+            createInfo.components.a = VK_COMPONENT_SWIZZLE_IDENTITY;
+            createInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+            createInfo.subresourceRange.baseMipLevel = 0;
+            createInfo.subresourceRange.levelCount = 1;
+            createInfo.subresourceRange.baseArrayLayer = 0;
+            createInfo.subresourceRange.layerCount = 1;
+            VK_VERIFY(vkCreateImageView(m_device, &createInfo, nullptr, &m_swapChainImageViews[i]));
         }
+        MGLOG_I("Swapchain image views created");
     }
 
     void VulkanRenderer::CreateSurface() {
