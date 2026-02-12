@@ -212,7 +212,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         Vector<VkPhysicalDevice> devices(deviceCount);
         vkEnumeratePhysicalDevices(m_instance, &deviceCount, devices.data());
         for (Int i = 0; i < deviceCount; i++) {
-            if (GetMoreCapablePhysicalDevice(devices[i], m_physicalDevice, m_physicalDevice))
+            if (GetMoreCapablePhysicalDevice(devices[i], m_surface, m_physicalDevice, m_physicalDevice))
                 MGLOG_I("Picked physical device %d.", i);
         }
 
@@ -225,7 +225,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
     }
 
     Bool VulkanRenderer::GetMoreCapablePhysicalDevice(
-        VkPhysicalDevice newVkDevice, const PhysicalDevice& otherDevice, PhysicalDevice& outBetterDevice) {
+        VkPhysicalDevice newVkDevice, VkSurfaceKHR surface, const PhysicalDevice& otherDevice, PhysicalDevice& outBetterDevice) {
         const auto deviceTypeToStr = [](VkPhysicalDeviceType type) {
             switch (type) {
             case VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU:
@@ -254,6 +254,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             VK_VERSION_MAJOR(apiVersion), VK_VERSION_MINOR(apiVersion), VK_VERSION_PATCH(apiVersion),
             deviceTypeToStr(deviceProperties.deviceType));
 
+        // Check device extensions (including swapchain extension)
         Bool deviceExtSupported = IsNecessaryDeviceExtensionSupported(newVkDevice);
         if (!deviceExtSupported) {
             outBetterDevice = otherDevice;
@@ -261,6 +262,15 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             return false;
         }
 
+        // Check swapchain capabilities
+        newDevice.swapchainCapabilities = GetSwapchainCapabilities(newVkDevice, surface);
+        if (!newDevice.swapchainCapabilities.IsComplete()) {
+            outBetterDevice = otherDevice;
+            MGLOG_I("    Ignored physical device: Swapchain capabilities not met.");
+            return false;
+        }
+
+        // Check queue families
         Vector<VkQueueFamilyProperties> queueFamilies = GetQueueFamilyFromPhysicalDevice(newVkDevice);
         newDevice.queueFamilies.graphicsFamily = GetQueueFamilyIndex(queueFamilies, VK_QUEUE_GRAPHICS_BIT);
         if (newDevice.queueFamilies.graphicsFamily == -1) {
@@ -270,7 +280,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         }
 
         newDevice.queueFamilies.presentFamily =
-            GetPresentQueueFamilyIndex(newDevice, queueFamilies, newDevice.queueFamilies.graphicsFamily);
+            GetPresentQueueFamilyIndex(newDevice, surface, queueFamilies, newDevice.queueFamilies.graphicsFamily);
         if (newDevice.queueFamilies.presentFamily == -1) {
             outBetterDevice = otherDevice;
             MGLOG_I("    Ignored physical device: No present queue family.");
@@ -289,7 +299,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         if (newDevice.properties.deviceType == VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU &&
             otherDevice.properties.deviceType != VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU) {
             outBetterDevice = newDevice;
-            MGLOG_I("    Picked physical device: Integrated GPU and the other is not discrete.");
+            MGLOG_I("    Picked physical device: Integrated GPU and no discrete one found yet.");
             return true;
         }
 
@@ -320,15 +330,41 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             Bool found = false;
             for (const auto& extension : availableExtensions) {
                 if (strcmp(extension.extensionName, s_deviceExtensionNames[i]) == 0) {
+                    MGLOG_I("Required extension found: %s", s_deviceExtensionNames[i]);
                     found = true;
                     break;
                 }
             }
-            if (!found)
+            if (!found) {
+                    MGLOG_I("Required extension not found: %s", s_deviceExtensionNames[i]);
                 return false;
+            }
         }
 
         return true;
+    }
+
+    VulkanRenderer::SwapchainCapabilities VulkanRenderer::GetSwapchainCapabilities(VkPhysicalDevice device, VkSurfaceKHR surface) {
+        SwapchainCapabilities swapchainCapabilities;
+
+        VK_VERIFY(vkGetPhysicalDeviceSurfaceCapabilitiesKHR(device, surface, &swapchainCapabilities.capabilities));
+        Uint32 formatCount;
+        VK_VERIFY(vkGetPhysicalDeviceSurfaceFormatsKHR(device, surface, &formatCount, nullptr));
+
+        if (formatCount != 0) {
+            swapchainCapabilities.surfaceFormats.resize(formatCount);
+            VK_VERIFY(vkGetPhysicalDeviceSurfaceFormatsKHR(device, surface, &formatCount, swapchainCapabilities.surfaceFormats.data()));
+        }
+
+        Uint32 presentModeCount;
+        VK_VERIFY(vkGetPhysicalDeviceSurfacePresentModesKHR(device, surface, &presentModeCount, nullptr));
+
+        if (presentModeCount != 0) {
+            swapchainCapabilities.presentModes.resize(presentModeCount);
+            VK_VERIFY(vkGetPhysicalDeviceSurfacePresentModesKHR(device, surface, &presentModeCount, swapchainCapabilities.presentModes.data()));
+        }
+
+        return swapchainCapabilities;
     }
 
     void VulkanRenderer::CreateLogicalDeviceAndQueues() {
@@ -365,6 +401,8 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         } else {
             deviceCreateInfo.enabledLayerCount = 0;
         }
+        deviceCreateInfo.enabledExtensionCount = static_cast<uint32_t>(std::size(s_deviceExtensionNames));
+        deviceCreateInfo.ppEnabledExtensionNames = s_deviceExtensionNames;
         VK_VERIFY(vkCreateDevice(m_physicalDevice.handle, &deviceCreateInfo, nullptr, &m_device), "vkCreateDevice");
         MGLOG_I("Logical device created.");
 
@@ -416,18 +454,18 @@ namespace MobileGL::MG_Backend::DirectVulkan {
     }
 
     Int VulkanRenderer::GetPresentQueueFamilyIndex(
-        const PhysicalDevice& physicalDevice,
-        const Vector<VkQueueFamilyProperties>& queueFamilies, Int preferredFamilyIndex) const {
+        const PhysicalDevice& physicalDevice, VkSurfaceKHR surface,
+        const Vector<VkQueueFamilyProperties>& queueFamilies, Int preferredFamilyIndex) {
         if (preferredFamilyIndex != -1) {
             VkBool32 supportsPresent = false;
-            vkGetPhysicalDeviceSurfaceSupportKHR(physicalDevice.handle, preferredFamilyIndex, m_surface, &supportsPresent);
+            vkGetPhysicalDeviceSurfaceSupportKHR(physicalDevice.handle, preferredFamilyIndex, surface, &supportsPresent);
             if (supportsPresent)
                 return preferredFamilyIndex;
         }
 
         for (Uint32 i = 0; i < queueFamilies.size(); i++) {
             VkBool32 supportsPresent = false;
-            vkGetPhysicalDeviceSurfaceSupportKHR(physicalDevice.handle, i, m_surface, &supportsPresent);
+            vkGetPhysicalDeviceSurfaceSupportKHR(physicalDevice.handle, i, surface, &supportsPresent);
             if (supportsPresent)
                 return i;
         }
