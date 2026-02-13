@@ -7,7 +7,6 @@
 // End of Source File Header
 
 #include "ProgramManager.h"
-#include "MG_Backend/DirectVulkan/Renderer/VulkanContext.h"
 
 namespace MobileGL::MG_Backend::DirectVulkan {
     ProgramManager::ProgramManager(VulkanContext &ctx): m_ctx(ctx) {}
