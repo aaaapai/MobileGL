@@ -8,6 +8,8 @@
 
 #include "VulkanRenderer.h"
 
+#include "MG_State/GLState/ProgramState/ProgramObject.h"
+
 namespace MobileGL::MG_Backend::DirectVulkan {
     VkBool32 VulkanRenderer::DebugCallback(VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity,
                                            VkDebugUtilsMessageTypeFlagsEXT messageType,
@@ -54,6 +56,161 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         Shutdown();
     }
 
+    const char* demoFS = R"(#version 460
+        layout(location = 0) in vec3 fragColor;
+        layout(location = 0) out vec4 outColor;
+        void main() {
+            outColor = vec4(fragColor, 1.0);
+        }
+)";
+    const char* demoVS = R"(#version 460
+    layout(location = 0) out vec3 fragColor;
+    vec2 positions[3] = vec2[](vec2(0.0, -0.5), vec2(0.5, 0.5), vec2(-0.5, 0.5));
+    vec3 colors[3] = vec3[](vec3(1.0, 0.0, 0.0), vec3(0.0, 1.0, 0.0), vec3(0.0, 0.0, 1.0));
+    void main() {
+        gl_Position = vec4(positions[gl_VertexID], 0.0, 1.0);
+        fragColor = colors[gl_VertexID];
+    }
+)";
+    void VulkanRenderer::PrepareDemoPipeline() {
+        MGLOG_D("PrepareDemoRes called");
+
+        // Create shader&program object
+        auto programObject = MG_State::GLState::ProgramObject(0);
+        auto vsObject = MakeShared<MG_State::GLState::ShaderObject>(ShaderStage::Vertex, 0);
+        vsObject->SetShaderSource(demoVS);
+        vsObject->Compile();
+        if (!vsObject->GetCompileStatus()) {
+            MGLOG_E("Vertex shader compilation failed: %s", vsObject->GetInfoLog().c_str());
+            return;
+        }
+        auto fsObject = MakeShared<MG_State::GLState::ShaderObject>(ShaderStage::Fragment, 1);
+        fsObject->SetShaderSource(demoFS);
+        fsObject->Compile();
+        if (!fsObject->GetCompileStatus()) {
+            MGLOG_E("Fragment shader compilation failed: %s", fsObject->GetInfoLog().c_str());
+            return;
+        }
+        programObject.AttachShader(vsObject);
+        programObject.AttachShader(fsObject);
+        programObject.Link();
+        if (!programObject.GetLinkStatus()) {
+            MGLOG_E("Program linking failed: %s", programObject.GetInfoLog().c_str());
+            return;
+        }
+
+        Vector<Uint> vsSpv;
+        Vector<Uint> fsSpv;
+
+        auto& shaderSpirvs = programObject.GetGeneratedSpirv();
+        auto& attachedShaders = programObject.GetAttachedShaders();
+        for (int index = 0; index < attachedShaders.size(); ++index) {
+            auto& shader = attachedShaders[index];
+            auto& spirvCode = shaderSpirvs[index];
+            if (shader->GetShaderStage() == ShaderStage::Vertex) {
+                vsSpv = spirvCode;
+            } else if (shader->GetShaderStage() == ShaderStage::Fragment) {
+                fsSpv = spirvCode;
+            }
+        }
+
+        VkShaderModuleCreateInfo smci{VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO};
+        smci.codeSize = vsSpv.size() * sizeof(uint32_t);
+        smci.pCode = vsSpv.data();
+        VkShaderModule vs;
+        VK_VERIFY(vkCreateShaderModule(m_device, &smci, nullptr, &vs), "vkCreateShaderModule VS");
+
+        smci.codeSize = fsSpv.size() * sizeof(uint32_t);
+        smci.pCode = fsSpv.data();
+        VkShaderModule fs;
+        VK_VERIFY(vkCreateShaderModule(m_device, &smci, nullptr, &fs), "vkCreateShaderModule FS");
+
+        VkPipelineShaderStageCreateInfo stages[2]{};
+        stages[0] = {VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO};
+        stages[0].stage = VK_SHADER_STAGE_VERTEX_BIT;
+        stages[0].module = vs;
+        stages[0].pName = "main";
+        stages[1] = {VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO};
+        stages[1].stage = VK_SHADER_STAGE_FRAGMENT_BIT;
+        stages[1].module = fs;
+        stages[1].pName = "main";
+
+        VkPipelineLayoutCreateInfo plci{VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
+        VK_VERIFY(vkCreatePipelineLayout(m_device, &plci, nullptr, &m_pipelineLayout), "vkCreatePipelineLayout");
+
+        // Create the rest of pipeline component
+        VkPipelineVertexInputStateCreateInfo vertexInput{VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO};
+        vertexInput.vertexBindingDescriptionCount = 0;
+        vertexInput.vertexAttributeDescriptionCount = 0;
+
+        VkPipelineInputAssemblyStateCreateInfo ia{VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO};
+        ia.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+
+        VkViewport vp{};
+        vp.x = 0;
+        vp.y = 0;
+        vp.width = (float)m_swapChainExtent.width;
+        vp.height = (float)m_swapChainExtent.height;
+        vp.minDepth = 0;
+        vp.maxDepth = 1;
+        VkRect2D scissor{{0, 0}, m_swapChainExtent};
+        VkPipelineViewportStateCreateInfo vpci{VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO};
+        vpci.viewportCount = 1;
+        vpci.pViewports = &vp;
+        vpci.scissorCount = 1;
+        vpci.pScissors = &scissor;
+
+        VkPipelineRasterizationStateCreateInfo raster{VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO};
+        raster.polygonMode = VK_POLYGON_MODE_FILL;
+        raster.cullMode = VK_CULL_MODE_NONE;
+        raster.frontFace = VK_FRONT_FACE_CLOCKWISE;
+        raster.lineWidth = 1.0f;
+
+        VkPipelineMultisampleStateCreateInfo ms{VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO};
+        ms.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+
+        VkPipelineColorBlendAttachmentState colorAttach{};
+        colorAttach.colorWriteMask =
+            VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+        colorAttach.blendEnable = VK_FALSE;
+        VkPipelineColorBlendStateCreateInfo blend{VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO};
+        blend.attachmentCount = 1;
+        blend.pAttachments = &colorAttach;
+
+        // Create Pipeline
+        VkGraphicsPipelineCreateInfo gpi{VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO};
+        gpi.stageCount = 2;
+        gpi.pStages = stages;
+        gpi.pVertexInputState = &vertexInput;
+        gpi.pInputAssemblyState = &ia;
+        gpi.pViewportState = &vpci;
+        gpi.pRasterizationState = &raster;
+        gpi.pMultisampleState = &ms;
+        gpi.pColorBlendState = &blend;
+        gpi.layout = m_pipelineLayout;
+        gpi.renderPass = m_renderPass;
+        gpi.subpass = 0;
+
+        VK_VERIFY(vkCreateGraphicsPipelines(m_device, VK_NULL_HANDLE, 1, &gpi, nullptr, &m_pipeline),
+                  "vkCreateGraphicsPipelines");
+
+        vkDestroyShaderModule(m_device, vs, nullptr);
+        vkDestroyShaderModule(m_device, fs, nullptr);
+
+        MGLOG_I("PrepareDemoPipeline completed");
+
+        // VkPipeline trianglePipeline = MG_Backend::DirectVulkan::pVulkanRenderer->CreateGraphicsPipelineFromSpv(
+        //     "TrianglePipeline", vsSpv, fsSpv);
+        //
+        // // Register render callback
+        // MG_Backend::DirectVulkan::pVulkanRenderer->RegisterRenderCallback(
+        //     "DrawTriangle", [trianglePipeline](VkCommandBuffer cmd, uint32_t imageIndex, VkExtent2D extent) {
+        //         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, trianglePipeline);
+        //
+        //         vkCmdDraw(cmd, 3, 1, 0, 0);
+        //     });
+    }
+
     void VulkanRenderer::Initialize() {
         CreateInstance();
         CreateSurface();
@@ -64,10 +221,19 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         CreateCommandPool();
         CreateCommandBuffer();
         CreateDefaultRenderPass();
+        PrepareDemoPipeline();
         MGLOG_D("VulkanRenderer initialized");
     }
 
     void VulkanRenderer::Shutdown() {
+        if (m_pipeline != VK_NULL_HANDLE) {
+            vkDestroyPipeline(m_device, m_pipeline, nullptr);
+        }
+
+        if (m_pipelineLayout != VK_NULL_HANDLE) {
+            vkDestroyPipelineLayout(m_device, m_pipelineLayout, nullptr);
+        }
+
         for (auto fb : m_framebuffers) {
             vkDestroyFramebuffer(m_device, fb, nullptr);
         }

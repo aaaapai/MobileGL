@@ -15,83 +15,9 @@
 namespace MobileGL {
     namespace MG_Impl::EGLImpl {
         // TODO: complete EGL impl for Vulkan
-
-        const char* demoFS = R"(#version 460
-        layout(location = 0) in vec3 fragColor;
-        layout(location = 0) out vec4 outColor;
-        void main() {
-            outColor = vec4(fragColor, 1.0);
-        }
-)";
-        const char* demoVS = R"(#version 460
-        layout(location = 0) out vec3 fragColor;
-        vec2 positions[3] = vec2[](vec2(0.0, -0.5), vec2(0.5, 0.5), vec2(-0.5, 0.5));
-        vec3 colors[3] = vec3[](vec3(1.0, 0.0, 0.0), vec3(0.0, 1.0, 0.0), vec3(0.0, 0.0, 1.0));
-        void main() {
-            gl_Position = vec4(positions[gl_VertexID], 0.0, 1.0);
-            fragColor = colors[gl_VertexID];
-        }
-)";
-        void PrepareDemoRes() {
-            MGLOG_D("EGLForVulkan::PrepareDemoRes called");
-
-            // Create shader&program object
-            auto programObject = MG_State::GLState::ProgramObject(0);
-            auto vsObject = MakeShared<MG_State::GLState::ShaderObject>(ShaderStage::Vertex, 0);
-            vsObject->SetShaderSource(demoVS);
-            vsObject->Compile();
-            if (!vsObject->GetCompileStatus()) {
-                MGLOG_E("Vertex shader compilation failed: %s", vsObject->GetInfoLog().c_str());
-                return;
-            }
-            auto fsObject = MakeShared<MG_State::GLState::ShaderObject>(ShaderStage::Fragment, 1);
-            fsObject->SetShaderSource(demoFS);
-            fsObject->Compile();
-            if (!fsObject->GetCompileStatus()) {
-                MGLOG_E("Fragment shader compilation failed: %s", fsObject->GetInfoLog().c_str());
-                return;
-            }
-            programObject.AttachShader(vsObject);
-            programObject.AttachShader(fsObject);
-            programObject.Link();
-            if (!programObject.GetLinkStatus()) {
-                MGLOG_E("Program linking failed: %s", programObject.GetInfoLog().c_str());
-                return;
-            }
-
-            Vector<Uint> vsSpv;
-            Vector<Uint> fsSpv;
-
-            auto& shaderSpirvs = programObject.GetGeneratedSpirv();
-            auto& attachedShaders = programObject.GetAttachedShaders();
-            for (int index = 0; index < attachedShaders.size(); ++index) {
-                auto& shader = attachedShaders[index];
-                auto& spirvCode = shaderSpirvs[index];
-                if (shader->GetShaderStage() == ShaderStage::Vertex) {
-                    vsSpv = spirvCode;
-                } else if (shader->GetShaderStage() == ShaderStage::Fragment) {
-                    fsSpv = spirvCode;
-                }
-            }
-
-            // Create pipeline
-            // VkPipeline trianglePipeline = MG_Backend::DirectVulkan::pVulkanRenderer->CreateGraphicsPipelineFromSpv(
-            //     "TrianglePipeline", vsSpv, fsSpv);
-            //
-            // // Register render callback
-            // MG_Backend::DirectVulkan::pVulkanRenderer->RegisterRenderCallback(
-            //     "DrawTriangle", [trianglePipeline](VkCommandBuffer cmd, uint32_t imageIndex, VkExtent2D extent) {
-            //         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, trianglePipeline);
-            //
-            //         vkCmdDraw(cmd, 3, 1, 0, 0);
-            //     });
-        }
-
         void CreateWindowSurfaceForVulkan(NativeWindowType window) {
             MG_Backend::DirectVulkan::pVulkanRenderer = MakeUnique<MG_Backend::DirectVulkan::VulkanRenderer>(window);
             MG_Backend::DirectVulkan::pVulkanRenderer->Initialize();
-
-            PrepareDemoRes(); // for demo use
         }
 
         EGLSurface CreateWindowSurface(EGLDisplay dpy, EGLConfig config, NativeWindowType window,

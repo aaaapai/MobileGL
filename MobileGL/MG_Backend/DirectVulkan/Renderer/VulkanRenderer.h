@@ -99,6 +99,9 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         VkRenderPass m_renderPass = VK_NULL_HANDLE;
         Vector<VkFramebuffer> m_framebuffers;
 
+        VkPipelineLayout m_pipelineLayout = VK_NULL_HANDLE;
+        VkPipeline m_pipeline = VK_NULL_HANDLE;
+
         void CreateInstance();
         VkResult SetupDebugMessenger();
         VkResult DestroyDebugMessenger();
@@ -111,6 +114,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         void CreateCommandPool();
         void CreateCommandBuffer();
         void CreateDefaultRenderPass();
+        void PrepareDemoPipeline();
 
         static Int GetPresentQueueFamilyIndex(
             const PhysicalDevice& physicalDevice, VkSurfaceKHR surface,
