@@ -37,7 +37,9 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         void Initialize();
         void Shutdown();
 
+        void BeginRenderPass();
         void Render();
+        void EndRenderPass();
         void Present();
 
     private:
@@ -85,7 +87,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         VkSurfaceFormatKHR m_swapchainSurfaceFormat;
         Vector<VkImage> m_swapchainImages;
         VkExtent2D m_swapChainExtent;
-        Vector<VkImageView> m_swapChainImageViews;
+        Vector<VkImageView> m_swapchainImageViews;
 
         // Vector<VkQueueFamilyProperties> m_queueFamilies;
         // QueueFamilyIndices m_queueFamilyIndices;

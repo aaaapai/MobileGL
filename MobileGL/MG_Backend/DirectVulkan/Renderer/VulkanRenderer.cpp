@@ -249,10 +249,10 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             m_commandPool = VK_NULL_HANDLE;
         }
 
-        for (auto imageView : m_swapChainImageViews) {
+        for (auto imageView : m_swapchainImageViews) {
             vkDestroyImageView(m_device, imageView, nullptr);
         }
-        m_swapChainImageViews.clear();
+        m_swapchainImageViews.clear();
 
         if (m_swapchain != VK_NULL_HANDLE) {
             vkDestroySwapchainKHR(m_device, m_swapchain, nullptr);
@@ -281,7 +281,14 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         MGLOG_I("VulkanRenderer shut down completed");
     }
 
+    void VulkanRenderer::BeginRenderPass() {
+    }
+
     void VulkanRenderer::Render() {
+
+    }
+
+    void VulkanRenderer::EndRenderPass() {
 
     }
 
@@ -959,7 +966,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         MGLOG_I("Picked present mode: %s", presentModeToStr(presentMode));
 
         const auto& swapchainCaps = m_physicalDevice.swapchainCapabilities.capabilities;
-        auto imageCount = std::max<uint32_t>(2, swapchainCaps.minImageCount);
+        auto imageCount = std::max<uint32_t>(m_config.MaxFramesInFlight, swapchainCaps.minImageCount);
         MGLOG_I("Set minImageCount = %u", imageCount);
 
         VkSwapchainCreateInfoKHR sci{VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR};
@@ -995,12 +1002,12 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         VK_VERIFY(vkGetSwapchainImagesKHR(m_device, m_swapchain, &gotImageCount, m_swapchainImages.data()));
         m_swapChainExtent = swapchainCaps.currentExtent;
 
-        MGLOG_I("Swapchain created, extent = %dx%d", m_swapChainExtent.width, m_swapChainExtent.height);
+        MGLOG_I("Swapchain created, extent = %dx%d, swapchain imageCount = %d", m_swapChainExtent.width, m_swapChainExtent.height, gotImageCount);
     }
 
     void VulkanRenderer::CreateSwapchainImageViews() {
-        m_swapChainImageViews.resize(m_swapchainImages.size());
-        for (size_t i = 0; i < m_swapChainImageViews.size(); i++) {
+        m_swapchainImageViews.resize(m_swapchainImages.size());
+        for (size_t i = 0; i < m_swapchainImageViews.size(); i++) {
             VkImageViewCreateInfo createInfo{};
             createInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
             createInfo.image = m_swapchainImages[i];
@@ -1015,7 +1022,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             createInfo.subresourceRange.levelCount = 1;
             createInfo.subresourceRange.baseArrayLayer = 0;
             createInfo.subresourceRange.layerCount = 1;
-            VK_VERIFY(vkCreateImageView(m_device, &createInfo, nullptr, &m_swapChainImageViews[i]));
+            VK_VERIFY(vkCreateImageView(m_device, &createInfo, nullptr, &m_swapchainImageViews[i]));
         }
         MGLOG_I("Swapchain image views created");
     }
@@ -1062,7 +1069,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         VK_VERIFY(vkCreateRenderPass(m_device, &rpci, nullptr, &m_renderPass), "vkCreateRenderPass");
 
         // Create framebuffers now (use swapchain imageviews)
-        const auto& imageViews = m_swapChainImageViews;
+        const auto& imageViews = m_swapchainImageViews;
         Vector<VkFramebuffer>& fbs = m_framebuffers;
         fbs.reserve(imageViews.size());
         for (auto iv : imageViews) {
