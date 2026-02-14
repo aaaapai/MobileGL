@@ -94,7 +94,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         VkQueue m_presentQueue = VK_NULL_HANDLE;
 
         VkCommandPool m_commandPool = VK_NULL_HANDLE;
-        VkCommandBuffer m_commandBuffer = VK_NULL_HANDLE;
+        Vector<VkCommandBuffer> m_commandBuffers;
 
         VkRenderPass m_renderPass = VK_NULL_HANDLE;
         Vector<VkFramebuffer> m_framebuffers;
@@ -104,9 +104,9 @@ namespace MobileGL::MG_Backend::DirectVulkan {
 
         Uint m_imageIndexAcquired = 0;
         Uint m_currentFrameIndex = 0;
-        VkSemaphore m_imageAvailableSemaphore;
-        VkSemaphore m_renderFinishedSemaphore;
-        VkFence m_imageInFlightFence;
+        Vector<VkSemaphore> m_imageAvailableSemaphores;
+        Vector<VkSemaphore> m_renderFinishedSemaphores;
+        Vector<VkFence> m_imageInFlightFences;
 
         void CreateInstance();
         VkResult SetupDebugMessenger();
@@ -118,7 +118,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         void CreateSwapchain();
         void CreateSwapchainImageViews();
         void CreateCommandPool();
-        void CreateCommandBuffer();
+        void CreateCommandBuffers();
         void CreateDefaultRenderPass();
         void PrepareDemoPipeline();
         void CreateSyncObjects();
