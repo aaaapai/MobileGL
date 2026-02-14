@@ -338,11 +338,11 @@ namespace MobileGL::MG_Backend::DirectVulkan {
 
     VkPresentModeKHR VulkanRenderer::ChooseSwapchainPresentMode(
         const Vector<VkPresentModeKHR>& availablePresentModes) {
-        for (const auto& presentMode : availablePresentModes) {
-            if (presentMode == VK_PRESENT_MODE_IMMEDIATE_KHR) {
-                return presentMode;
-            } else if (presentMode == VK_PRESENT_MODE_MAILBOX_KHR) {
-                return presentMode;
+        for (auto desiredPresentMode : s_desiredPresentModes) {
+            for (const auto& presentMode : availablePresentModes) {
+                if (presentMode == desiredPresentMode) {
+                    return presentMode;
+                }
             }
         }
 

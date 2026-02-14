@@ -19,11 +19,6 @@
 #define ENUM_STR_CASE(c) case c: return #c;
 
 namespace MobileGL::MG_Backend::DirectVulkan {
-    class VulkanContext;
-    class SwapchainManager;
-    class PipelineManager;
-    struct FrameContext;
-
     using RenderCallback = std::function<void(VkCommandBuffer cmdBuf, uint32_t imageIndex, VkExtent2D extent)>;
 
     struct RendererConfig {
@@ -119,6 +114,12 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         static Bool GetMoreCapablePhysicalDevice(VkPhysicalDevice newVkDevice, VkSurfaceKHR surface, const PhysicalDevice& compareWithDevice, PhysicalDevice& outBetterDevice);
         static VkSurfaceFormatKHR ChooseSwapchainSurfaceFormat(const Vector<VkSurfaceFormatKHR>& availableFormats);
         static VkPresentModeKHR ChooseSwapchainPresentMode(const Vector<VkPresentModeKHR>& availablePresentModes);
+        static constexpr VkPresentModeKHR s_desiredPresentModes[] {
+            VK_PRESENT_MODE_MAILBOX_KHR,
+            VK_PRESENT_MODE_IMMEDIATE_KHR,
+            VK_PRESENT_MODE_FIFO_RELAXED_KHR,
+            VK_PRESENT_MODE_FIFO_KHR
+        };
         static constexpr const char* s_validationLayerNames[] = {
             "VK_LAYER_KHRONOS_validation"
         };
