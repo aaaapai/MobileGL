@@ -139,6 +139,12 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         VK_VERIFY(vkCreatePipelineLayout(m_device, &plci, nullptr, &m_pipelineLayout), "vkCreatePipelineLayout");
 
         // Create the rest of pipeline component
+
+        VkPipelineDynamicStateCreateInfo dynamicState{};
+        dynamicState.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
+        dynamicState.dynamicStateCount = static_cast<uint32_t>(std::size(s_dynamicStates));
+        dynamicState.pDynamicStates = s_dynamicStates;
+
         VkPipelineVertexInputStateCreateInfo vertexInput{VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO};
         vertexInput.vertexBindingDescriptionCount = 0;
         vertexInput.vertexAttributeDescriptionCount = 0;
@@ -187,6 +193,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         gpi.pRasterizationState = &raster;
         gpi.pMultisampleState = &ms;
         gpi.pColorBlendState = &blend;
+        gpi.pDynamicState = &dynamicState;
         gpi.layout = m_pipelineLayout;
         gpi.renderPass = m_renderPass;
         gpi.subpass = 0;
@@ -238,6 +245,8 @@ namespace MobileGL::MG_Backend::DirectVulkan {
     }
 
     void VulkanRenderer::Shutdown() {
+        VK_VERIFY(vkDeviceWaitIdle(m_device));
+
         if (m_imageInFlightFence != VK_NULL_HANDLE) {
             vkDestroyFence(m_device, m_imageInFlightFence, nullptr);
             m_imageInFlightFence = VK_NULL_HANDLE;
@@ -306,16 +315,17 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         MGLOG_I("VulkanRenderer shut down completed");
     }
 
-    void VulkanRenderer::BeginCommandBuffer() {
+    void VulkanRenderer::Render() {
         VK_VERIFY(vkResetCommandBuffer(m_commandBuffer, 0));
+
+        // Begin command buffer
         VkCommandBufferBeginInfo beginInfo{};
         beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
         beginInfo.flags = 0;
         beginInfo.pInheritanceInfo = nullptr;
         VK_VERIFY(vkBeginCommandBuffer(m_commandBuffer, &beginInfo));
-    }
 
-    void VulkanRenderer::BeginRenderPass() {
+        // Begin render pass
         VkRenderPassBeginInfo renderPassInfo{};
         renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
         renderPassInfo.renderPass = m_renderPass;
@@ -326,9 +336,8 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         renderPassInfo.clearValueCount = 1;
         renderPassInfo.pClearValues = &clearColor;
         vkCmdBeginRenderPass(m_commandBuffer, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
-    }
 
-    void VulkanRenderer::Render() {
+        // Render commands
         vkCmdBindPipeline(m_commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, m_pipeline);
 
         VkViewport viewport{};
@@ -346,13 +355,11 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         vkCmdSetScissor(m_commandBuffer, 0, 1, &scissor);
 
         vkCmdDraw(m_commandBuffer, 3, 1, 0, 0);
-    }
 
-    void VulkanRenderer::EndRenderPass() {
+        // End render pass
         vkCmdEndRenderPass(m_commandBuffer);
-    }
 
-    void VulkanRenderer::EndCommandBuffer() {
+        // End command buffer
         VK_VERIFY(vkEndCommandBuffer(m_commandBuffer));
     }
 
@@ -360,6 +367,37 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         VK_VERIFY(vkWaitForFences(m_device, 1, &m_imageInFlightFence, VK_TRUE, UINT64_MAX));
         VK_VERIFY(vkResetFences(m_device, 1, &m_imageInFlightFence));
         VK_VERIFY(vkAcquireNextImageKHR(m_device, m_swapchain, UINT64_MAX, m_imageAvailableSemaphore, VK_NULL_HANDLE, &m_imageIndexAcquired));
+
+        // Do demo drawing
+        VK_VERIFY(vkResetCommandBuffer(m_commandBuffer, 0));
+        Render();
+        VkSubmitInfo submitInfo{};
+        submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+
+        VkSemaphore waitSemaphores[] = {m_imageAvailableSemaphore};
+        VkPipelineStageFlags waitStages[] = {VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT};
+        submitInfo.waitSemaphoreCount = 1;
+        submitInfo.pWaitSemaphores = waitSemaphores;
+        submitInfo.pWaitDstStageMask = waitStages;
+        submitInfo.commandBufferCount = 1;
+        submitInfo.pCommandBuffers = &m_commandBuffer;
+        VkSemaphore signalSemaphores[] = {m_renderFinishedSemaphore};
+        submitInfo.signalSemaphoreCount = 1;
+        submitInfo.pSignalSemaphores = signalSemaphores;
+        VK_VERIFY(vkQueueSubmit(m_graphicsQueue, 1, &submitInfo, m_imageInFlightFence));
+
+        VkPresentInfoKHR presentInfo{};
+        presentInfo.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
+
+        presentInfo.waitSemaphoreCount = 1;
+        presentInfo.pWaitSemaphores = signalSemaphores;
+
+        VkSwapchainKHR swapChains[] = {m_swapchain};
+        presentInfo.swapchainCount = 1;
+        presentInfo.pSwapchains = swapChains;
+        presentInfo.pImageIndices = &m_imageIndexAcquired;
+        presentInfo.pResults = nullptr;
+        VK_VERIFY(vkQueuePresentKHR(m_presentQueue, &presentInfo));
     }
 
     void VulkanRenderer::CreateInstance() {
