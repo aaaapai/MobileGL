@@ -61,10 +61,16 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         CreateLogicalDeviceAndQueues();
         CreateSwapchain();
         CreateSwapchainImageViews();
+        CreateCommandPool();
         MGLOG_D("VulkanRenderer initialized");
     }
 
     void VulkanRenderer::Shutdown() {
+        if (m_commandPool != VK_NULL_HANDLE) {
+            vkDestroyCommandPool(m_device, m_commandPool, nullptr);
+            m_commandPool = VK_NULL_HANDLE;
+        }
+
         for (auto imageView : m_swapChainImageViews) {
             vkDestroyImageView(m_device, imageView, nullptr);
         }
@@ -834,6 +840,24 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             VK_VERIFY(vkCreateImageView(m_device, &createInfo, nullptr, &m_swapChainImageViews[i]));
         }
         MGLOG_I("Swapchain image views created");
+    }
+
+    void VulkanRenderer::CreateCommandPool() {
+        VkCommandPoolCreateInfo createInfo{VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO};
+        createInfo.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
+        createInfo.queueFamilyIndex = m_physicalDevice.queueFamilies.graphicsFamily;
+        VK_VERIFY(vkCreateCommandPool(m_device, &createInfo, nullptr, &m_commandPool));
+        MGLOG_I("Command pool created");
+    }
+
+    void VulkanRenderer::CreateCommandBuffer() {
+        VkCommandBufferAllocateInfo allocInfo{};
+        allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+        allocInfo.commandPool = m_commandPool;
+        allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+        allocInfo.commandBufferCount = 1;
+        VK_VERIFY(vkAllocateCommandBuffers(m_device, &allocInfo, &m_commandBuffer));
+        MGLOG_I("Command buffer created");
     }
 
     void VulkanRenderer::CreateSurface() {

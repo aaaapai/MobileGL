@@ -93,6 +93,9 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         VkQueue m_graphicsQueue = VK_NULL_HANDLE;
         VkQueue m_presentQueue = VK_NULL_HANDLE;
 
+        VkCommandPool m_commandPool = VK_NULL_HANDLE;
+        VkCommandBuffer m_commandBuffer = VK_NULL_HANDLE;
+
         void CreateInstance();
         VkResult SetupDebugMessenger();
         VkResult DestroyDebugMessenger();
@@ -102,6 +105,8 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         void CreateLogicalDeviceAndQueues();
         void CreateSwapchain();
         void CreateSwapchainImageViews();
+        void CreateCommandPool();
+        void CreateCommandBuffer();
 
         static Int GetPresentQueueFamilyIndex(
             const PhysicalDevice& physicalDevice, VkSurfaceKHR surface,
