@@ -62,10 +62,22 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         CreateSwapchain();
         CreateSwapchainImageViews();
         CreateCommandPool();
+        CreateCommandBuffer();
+        CreateDefaultRenderPass();
         MGLOG_D("VulkanRenderer initialized");
     }
 
     void VulkanRenderer::Shutdown() {
+        for (auto fb : m_framebuffers) {
+            vkDestroyFramebuffer(m_device, fb, nullptr);
+        }
+        m_framebuffers.clear();
+
+        if (m_renderPass != VK_NULL_HANDLE) {
+            vkDestroyRenderPass(m_device, m_renderPass, nullptr);
+            m_renderPass = VK_NULL_HANDLE;
+        }
+
         if (m_commandPool != VK_NULL_HANDLE) {
             vkDestroyCommandPool(m_device, m_commandPool, nullptr);
             m_commandPool = VK_NULL_HANDLE;
@@ -858,6 +870,49 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         allocInfo.commandBufferCount = 1;
         VK_VERIFY(vkAllocateCommandBuffers(m_device, &allocInfo, &m_commandBuffer));
         MGLOG_I("Command buffer created");
+    }
+
+    void VulkanRenderer::CreateDefaultRenderPass() {
+        VkAttachmentDescription color{};
+        color.format = m_swapchainSurfaceFormat.format;
+        color.samples = VK_SAMPLE_COUNT_1_BIT;
+        color.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+        color.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+        color.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+        color.finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+
+        VkAttachmentReference colorRef{0, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL};
+        VkSubpassDescription sub{};
+        sub.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
+        sub.colorAttachmentCount = 1;
+        sub.pColorAttachments = &colorRef;
+
+        VkRenderPassCreateInfo rpci{VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO};
+        rpci.attachmentCount = 1;
+        rpci.pAttachments = &color;
+        rpci.subpassCount = 1;
+        rpci.pSubpasses = &sub;
+
+        VK_VERIFY(vkCreateRenderPass(m_device, &rpci, nullptr, &m_renderPass), "vkCreateRenderPass");
+
+        // Create framebuffers now (use swapchain imageviews)
+        const auto& imageViews = m_swapChainImageViews;
+        Vector<VkFramebuffer>& fbs = m_framebuffers;
+        fbs.reserve(imageViews.size());
+        for (auto iv : imageViews) {
+            VkImageView attachments[] = {iv};
+            VkFramebufferCreateInfo fbci{VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO};
+            fbci.renderPass = m_renderPass;
+            fbci.attachmentCount = 1;
+            fbci.pAttachments = attachments;
+            fbci.width = m_swapChainExtent.width;
+            fbci.height = m_swapChainExtent.height;
+            fbci.layers = 1;
+            VkFramebuffer fb;
+            VK_VERIFY(vkCreateFramebuffer(m_device, &fbci, nullptr, &fb), "vkCreateFramebuffer");
+            fbs.push_back(fb);
+        }
+        MGLOG_D("RenderPass created and framebuffers set");
     }
 
     void VulkanRenderer::CreateSurface() {
