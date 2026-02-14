@@ -37,9 +37,11 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         void Initialize();
         void Shutdown();
 
+        void BeginCommandBuffer();
         void BeginRenderPass();
         void Render();
         void EndRenderPass();
+        void EndCommandBuffer();
         void Present();
 
     private:
@@ -104,6 +106,12 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         VkPipelineLayout m_pipelineLayout = VK_NULL_HANDLE;
         VkPipeline m_pipeline = VK_NULL_HANDLE;
 
+        Uint m_imageIndexAcquired = 0;
+        Uint m_currentFrameIndex = 0;
+        VkSemaphore m_imageAvailableSemaphore;
+        VkSemaphore m_renderFinishedSemaphore;
+        VkFence m_imageInFlightFence;
+
         void CreateInstance();
         VkResult SetupDebugMessenger();
         VkResult DestroyDebugMessenger();
@@ -117,6 +125,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         void CreateCommandBuffer();
         void CreateDefaultRenderPass();
         void PrepareDemoPipeline();
+        void CreateSyncObjects();
 
         static Int GetPresentQueueFamilyIndex(
             const PhysicalDevice& physicalDevice, VkSurfaceKHR surface,

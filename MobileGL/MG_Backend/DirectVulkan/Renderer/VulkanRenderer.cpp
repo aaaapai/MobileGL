@@ -211,6 +211,17 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         //     });
     }
 
+    void VulkanRenderer::CreateSyncObjects() {
+        VkSemaphoreCreateInfo semaphoreInfo{VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO};
+        VkFenceCreateInfo fenceInfo{VK_STRUCTURE_TYPE_FENCE_CREATE_INFO};
+        fenceInfo.flags = VK_FENCE_CREATE_SIGNALED_BIT;
+        VK_VERIFY(vkCreateSemaphore(m_device, &semaphoreInfo, nullptr, &m_imageAvailableSemaphore));
+        VK_VERIFY(vkCreateSemaphore(m_device, &semaphoreInfo, nullptr, &m_renderFinishedSemaphore));
+        VK_VERIFY(vkCreateFence(m_device, &fenceInfo, nullptr, &m_imageInFlightFence));
+
+        MGLOG_I("CreateSyncObjects completed");
+    }
+
     void VulkanRenderer::Initialize() {
         CreateInstance();
         CreateSurface();
@@ -222,10 +233,24 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         CreateCommandBuffer();
         CreateDefaultRenderPass();
         PrepareDemoPipeline();
+        CreateSyncObjects();
         MGLOG_D("VulkanRenderer initialized");
     }
 
     void VulkanRenderer::Shutdown() {
+        if (m_imageInFlightFence != VK_NULL_HANDLE) {
+            vkDestroyFence(m_device, m_imageInFlightFence, nullptr);
+            m_imageInFlightFence = VK_NULL_HANDLE;
+        }
+
+        if (m_renderFinishedSemaphore != VK_NULL_HANDLE) {
+            vkDestroySemaphore(m_device, m_renderFinishedSemaphore, nullptr);
+        }
+
+        if (m_imageAvailableSemaphore != VK_NULL_HANDLE) {
+            vkDestroySemaphore(m_device, m_imageAvailableSemaphore, nullptr);
+        }
+
         if (m_pipeline != VK_NULL_HANDLE) {
             vkDestroyPipeline(m_device, m_pipeline, nullptr);
         }
@@ -281,19 +306,60 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         MGLOG_I("VulkanRenderer shut down completed");
     }
 
+    void VulkanRenderer::BeginCommandBuffer() {
+        VK_VERIFY(vkResetCommandBuffer(m_commandBuffer, 0));
+        VkCommandBufferBeginInfo beginInfo{};
+        beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+        beginInfo.flags = 0;
+        beginInfo.pInheritanceInfo = nullptr;
+        VK_VERIFY(vkBeginCommandBuffer(m_commandBuffer, &beginInfo));
+    }
+
     void VulkanRenderer::BeginRenderPass() {
+        VkRenderPassBeginInfo renderPassInfo{};
+        renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+        renderPassInfo.renderPass = m_renderPass;
+        renderPassInfo.framebuffer = m_framebuffers[m_imageIndexAcquired];
+        renderPassInfo.renderArea.offset = {0, 0};
+        renderPassInfo.renderArea.extent = m_swapChainExtent;
+        VkClearValue clearColor = {{{0.0f, 0.0f, 0.0f, 1.0f}}};
+        renderPassInfo.clearValueCount = 1;
+        renderPassInfo.pClearValues = &clearColor;
+        vkCmdBeginRenderPass(m_commandBuffer, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
     }
 
     void VulkanRenderer::Render() {
+        vkCmdBindPipeline(m_commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, m_pipeline);
 
+        VkViewport viewport{};
+        viewport.x = 0.0f;
+        viewport.y = 0.0f;
+        viewport.width = static_cast<float>(m_swapChainExtent.width);
+        viewport.height = static_cast<float>(m_swapChainExtent.height);
+        viewport.minDepth = 0.0f;
+        viewport.maxDepth = 1.0f;
+        vkCmdSetViewport(m_commandBuffer, 0, 1, &viewport);
+
+        VkRect2D scissor{};
+        scissor.offset = {0, 0};
+        scissor.extent = m_swapChainExtent;
+        vkCmdSetScissor(m_commandBuffer, 0, 1, &scissor);
+
+        vkCmdDraw(m_commandBuffer, 3, 1, 0, 0);
     }
 
     void VulkanRenderer::EndRenderPass() {
+        vkCmdEndRenderPass(m_commandBuffer);
+    }
 
+    void VulkanRenderer::EndCommandBuffer() {
+        VK_VERIFY(vkEndCommandBuffer(m_commandBuffer));
     }
 
     void VulkanRenderer::Present() {
-
+        VK_VERIFY(vkWaitForFences(m_device, 1, &m_imageInFlightFence, VK_TRUE, UINT64_MAX));
+        VK_VERIFY(vkResetFences(m_device, 1, &m_imageInFlightFence));
+        VK_VERIFY(vkAcquireNextImageKHR(m_device, m_swapchain, UINT64_MAX, m_imageAvailableSemaphore, VK_NULL_HANDLE, &m_imageIndexAcquired));
     }
 
     void VulkanRenderer::CreateInstance() {
