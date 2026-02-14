@@ -205,17 +205,6 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         vkDestroyShaderModule(m_device, fs, nullptr);
 
         MGLOG_I("PrepareDemoPipeline completed");
-
-        // VkPipeline trianglePipeline = MG_Backend::DirectVulkan::pVulkanRenderer->CreateGraphicsPipelineFromSpv(
-        //     "TrianglePipeline", vsSpv, fsSpv);
-        //
-        // // Register render callback
-        // MG_Backend::DirectVulkan::pVulkanRenderer->RegisterRenderCallback(
-        //     "DrawTriangle", [trianglePipeline](VkCommandBuffer cmd, uint32_t imageIndex, VkExtent2D extent) {
-        //         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, trianglePipeline);
-        //
-        //         vkCmdDraw(cmd, 3, 1, 0, 0);
-        //     });
     }
 
     void VulkanRenderer::CreateSyncObjects() {
@@ -248,6 +237,14 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         CreateDefaultRenderPass();
         PrepareDemoPipeline();
         CreateSyncObjects();
+
+        // Prime the first frame so Render() always targets an acquired swapchain image.
+        VK_VERIFY(vkWaitForFences(m_device, 1, &m_imageInFlightFences[m_currentFrameIndex], VK_TRUE, UINT64_MAX));
+        VK_VERIFY(vkResetFences(m_device, 1, &m_imageInFlightFences[m_currentFrameIndex]));
+        VK_VERIFY(vkAcquireNextImageKHR(m_device, m_swapchain, UINT64_MAX,
+                                        m_imageAvailableSemaphores[m_currentFrameIndex],
+                                        VK_NULL_HANDLE, &m_imageIndexAcquired));
+
         MGLOG_D("VulkanRenderer initialized");
     }
 
@@ -373,18 +370,11 @@ namespace MobileGL::MG_Backend::DirectVulkan {
     }
 
     void VulkanRenderer::Present() {
-        VK_VERIFY(vkWaitForFences(m_device, 1, &m_imageInFlightFences[m_currentFrameIndex], VK_TRUE, UINT64_MAX));
-        VK_VERIFY(vkResetFences(m_device, 1, &m_imageInFlightFences[m_currentFrameIndex]));
-        VK_VERIFY(vkAcquireNextImageKHR(m_device, m_swapchain, UINT64_MAX, m_imageAvailableSemaphores[m_currentFrameIndex], VK_NULL_HANDLE, &m_imageIndexAcquired));
-
-        // Do demo drawing
-        VK_VERIFY(vkResetCommandBuffer(m_commandBuffers[m_currentFrameIndex], 0));
-        Render();
+        // 1) Submit current frame work.
         VkSubmitInfo submitInfo{};
         submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-
         VkSemaphore waitSemaphores[] = {m_imageAvailableSemaphores[m_currentFrameIndex]};
-        VkPipelineStageFlags waitStages[] = {VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT};
+        VkPipelineStageFlags waitStages[] = {VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT};
         submitInfo.waitSemaphoreCount = 1;
         submitInfo.pWaitSemaphores = waitSemaphores;
         submitInfo.pWaitDstStageMask = waitStages;
@@ -395,19 +385,27 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         submitInfo.pSignalSemaphores = signalSemaphores;
         VK_VERIFY(vkQueueSubmit(m_graphicsQueue, 1, &submitInfo, m_imageInFlightFences[m_currentFrameIndex]));
 
+        // 2) Present current frame.
         VkPresentInfoKHR presentInfo{};
         presentInfo.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
-
         presentInfo.waitSemaphoreCount = 1;
         presentInfo.pWaitSemaphores = signalSemaphores;
-
         VkSwapchainKHR swapChains[] = {m_swapchain};
         presentInfo.swapchainCount = 1;
         presentInfo.pSwapchains = swapChains;
         presentInfo.pImageIndices = &m_imageIndexAcquired;
         presentInfo.pResults = nullptr;
         VK_VERIFY(vkQueuePresentKHR(m_presentQueue, &presentInfo));
+
+        // 3) Advance frame slot.
         m_currentFrameIndex = (m_currentFrameIndex + 1) % m_swapchainImages.size();
+
+        // 4) Wait/reset/acquire for next frame.
+        VK_VERIFY(vkWaitForFences(m_device, 1, &m_imageInFlightFences[m_currentFrameIndex], VK_TRUE, UINT64_MAX));
+        VK_VERIFY(vkResetFences(m_device, 1, &m_imageInFlightFences[m_currentFrameIndex]));
+        VK_VERIFY(vkAcquireNextImageKHR(m_device, m_swapchain, UINT64_MAX,
+                                        m_imageAvailableSemaphores[m_currentFrameIndex],
+                                        VK_NULL_HANDLE, &m_imageIndexAcquired));
     }
 
     void VulkanRenderer::CreateInstance() {
@@ -1003,7 +1001,6 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                 ENUM_STR_CASE(VK_FORMAT_PVRTC1_4BPP_SRGB_BLOCK_IMG)
                 ENUM_STR_CASE(VK_FORMAT_PVRTC2_2BPP_SRGB_BLOCK_IMG)
                 ENUM_STR_CASE(VK_FORMAT_PVRTC2_4BPP_SRGB_BLOCK_IMG)
-                ENUM_STR_CASE(VK_FORMAT_R16G16_SFIXED5_NV)
                 ENUM_STR_CASE(VK_FORMAT_A1B5G5R5_UNORM_PACK16_KHR)
                 ENUM_STR_CASE(VK_FORMAT_A8_UNORM_KHR)
                 default:
