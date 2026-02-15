@@ -10,6 +10,18 @@
 
 #include "MG_State/GLState/ProgramState/ProgramObject.h"
 
+//#ifndef VK_INSTANCE_CREATE_ENUMERATE_PORTABILITY_BIT_KHR
+//#define VK_INSTANCE_CREATE_ENUMERATE_PORTABILITY_BIT_KHR 0x00000001
+//#endif
+//
+//#ifndef VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME
+//#define VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME "VK_KHR_portability_enumeration"
+//#endif
+//
+//#ifndef VK_EXT_METAL_SURFACE_EXTENSION_NAME
+//#define VK_EXT_METAL_SURFACE_EXTENSION_NAME "VK_EXT_metal_surface"
+//#endif
+
 namespace MobileGL::MG_Backend::DirectVulkan {
     VkBool32 VulkanRenderer::DebugCallback(VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity,
                                            VkDebugUtilsMessageTypeFlagsEXT messageType,
@@ -155,11 +167,11 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         VkViewport vp{};
         vp.x = 0;
         vp.y = 0;
-        vp.width = (float)m_swapChainExtent.width;
-        vp.height = (float)m_swapChainExtent.height;
+        vp.width = (float)m_swapchainExtent.width;
+        vp.height = (float)m_swapchainExtent.height;
         vp.minDepth = 0;
         vp.maxDepth = 1;
-        VkRect2D scissor{{0, 0}, m_swapChainExtent};
+        VkRect2D scissor{{0, 0}, m_swapchainExtent};
         VkPipelineViewportStateCreateInfo vpci{VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO};
         vpci.viewportCount = 1;
         vpci.pViewports = &vp;
@@ -212,11 +224,11 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         VkFenceCreateInfo fenceInfo{VK_STRUCTURE_TYPE_FENCE_CREATE_INFO};
         fenceInfo.flags = VK_FENCE_CREATE_SIGNALED_BIT;
 
-        m_imageAvailableSemaphores.resize(m_swapchainImages.size(), VK_NULL_HANDLE);
-        m_renderFinishedSemaphores.resize(m_swapchainImages.size(), VK_NULL_HANDLE);
-        m_imageInFlightFences.resize(m_swapchainImages.size(), VK_NULL_HANDLE);
+        m_imageAvailableSemaphores.resize(m_config.MaxFramesInFlight, VK_NULL_HANDLE);
+        m_renderFinishedSemaphores.resize(m_config.MaxFramesInFlight, VK_NULL_HANDLE);
+        m_imageInFlightFences.resize(m_config.MaxFramesInFlight, VK_NULL_HANDLE);
 
-        for (SizeT i = 0; i < m_swapchainImages.size(); i++) {
+        for (SizeT i = 0; i < m_config.MaxFramesInFlight; i++) {
             VK_VERIFY(vkCreateSemaphore(m_device, &semaphoreInfo, nullptr, &m_imageAvailableSemaphores[i]));
             VK_VERIFY(vkCreateSemaphore(m_device, &semaphoreInfo, nullptr, &m_renderFinishedSemaphores[i]));
             VK_VERIFY(vkCreateFence(m_device, &fenceInfo, nullptr, &m_imageInFlightFences[i]));
@@ -230,11 +242,12 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         CreateSurface();
         PickPhysicalDevice();
         CreateLogicalDeviceAndQueues();
-        CreateSwapchain();
-        CreateSwapchainImageViews();
+
         CreateCommandPool();
         CreateCommandBuffers();
-        CreateDefaultRenderPass();
+
+        RecreateSwapchain();
+
         PrepareDemoPipeline();
         CreateSyncObjects();
 
@@ -274,29 +287,11 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             vkDestroyPipelineLayout(m_device, m_pipelineLayout, nullptr);
         }
 
-        for (auto fb : m_framebuffers) {
-            vkDestroyFramebuffer(m_device, fb, nullptr);
-        }
-        m_framebuffers.clear();
-
-        if (m_renderPass != VK_NULL_HANDLE) {
-            vkDestroyRenderPass(m_device, m_renderPass, nullptr);
-            m_renderPass = VK_NULL_HANDLE;
-        }
+        ShutdownSwapchain();
 
         if (m_commandPool != VK_NULL_HANDLE) {
             vkDestroyCommandPool(m_device, m_commandPool, nullptr);
             m_commandPool = VK_NULL_HANDLE;
-        }
-
-        for (auto imageView : m_swapchainImageViews) {
-            vkDestroyImageView(m_device, imageView, nullptr);
-        }
-        m_swapchainImageViews.clear();
-
-        if (m_swapchain != VK_NULL_HANDLE) {
-            vkDestroySwapchainKHR(m_device, m_swapchain, nullptr);
-            m_swapchain = VK_NULL_HANDLE;
         }
 
         if (m_device != VK_NULL_HANDLE) {
@@ -337,7 +332,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         renderPassInfo.renderPass = m_renderPass;
         renderPassInfo.framebuffer = m_framebuffers[m_imageIndexAcquired];
         renderPassInfo.renderArea.offset = {0, 0};
-        renderPassInfo.renderArea.extent = m_swapChainExtent;
+        renderPassInfo.renderArea.extent = m_swapchainExtent;
         VkClearValue clearColor = {{{0.0f, 0.0f, 0.0f, 1.0f}}};
         renderPassInfo.clearValueCount = 1;
         renderPassInfo.pClearValues = &clearColor;
@@ -349,15 +344,15 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         VkViewport viewport{};
         viewport.x = 0.0f;
         viewport.y = 0.0f;
-        viewport.width = static_cast<float>(m_swapChainExtent.width);
-        viewport.height = static_cast<float>(m_swapChainExtent.height);
+        viewport.width = static_cast<float>(m_swapchainExtent.width);
+        viewport.height = static_cast<float>(m_swapchainExtent.height);
         viewport.minDepth = 0.0f;
         viewport.maxDepth = 1.0f;
         vkCmdSetViewport(m_commandBuffers[m_currentFrameIndex], 0, 1, &viewport);
 
         VkRect2D scissor{};
         scissor.offset = {0, 0};
-        scissor.extent = m_swapChainExtent;
+        scissor.extent = m_swapchainExtent;
         vkCmdSetScissor(m_commandBuffers[m_currentFrameIndex], 0, 1, &scissor);
 
         vkCmdDraw(m_commandBuffers[m_currentFrameIndex], 3, 1, 0, 0);
@@ -398,7 +393,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         VK_VERIFY(vkQueuePresentKHR(m_presentQueue, &presentInfo));
 
         // 3) Advance frame slot.
-        m_currentFrameIndex = (m_currentFrameIndex + 1) % m_swapchainImages.size();
+        m_currentFrameIndex = (m_currentFrameIndex + 1) % m_config.MaxFramesInFlight;
 
         // 4) Wait/reset/acquire for next frame.
         VK_VERIFY(vkWaitForFences(m_device, 1, &m_imageInFlightFences[m_currentFrameIndex], VK_TRUE, UINT64_MAX));
@@ -1141,9 +1136,9 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         VK_VERIFY(vkGetSwapchainImagesKHR(m_device, m_swapchain, &gotImageCount, nullptr));
         m_swapchainImages.resize(gotImageCount, VK_NULL_HANDLE);
         VK_VERIFY(vkGetSwapchainImagesKHR(m_device, m_swapchain, &gotImageCount, m_swapchainImages.data()));
-        m_swapChainExtent = swapchainCaps.currentExtent;
+        m_swapchainExtent = swapchainCaps.currentExtent;
 
-        MGLOG_I("Swapchain created, extent = %dx%d, swapchain imageCount = %d", m_swapChainExtent.width, m_swapChainExtent.height, gotImageCount);
+        MGLOG_I("Swapchain created, extent = %dx%d, swapchain imageCount = %d", m_swapchainExtent.width, m_swapchainExtent.height, gotImageCount);
     }
 
     void VulkanRenderer::CreateSwapchainImageViews() {
@@ -1177,12 +1172,12 @@ namespace MobileGL::MG_Backend::DirectVulkan {
     }
 
     void VulkanRenderer::CreateCommandBuffers() {
-        m_commandBuffers.resize(m_swapchainImages.size(), VK_NULL_HANDLE);
+        m_commandBuffers.resize(m_config.MaxFramesInFlight, VK_NULL_HANDLE);
         VkCommandBufferAllocateInfo allocInfo{};
         allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
         allocInfo.commandPool = m_commandPool;
         allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-        allocInfo.commandBufferCount = m_swapchainImages.size();
+        allocInfo.commandBufferCount = m_config.MaxFramesInFlight;
         VK_VERIFY(vkAllocateCommandBuffers(m_device, &allocInfo, m_commandBuffers.data()));
         MGLOG_I("Command buffer created");
     }
@@ -1210,6 +1205,10 @@ namespace MobileGL::MG_Backend::DirectVulkan {
 
         VK_VERIFY(vkCreateRenderPass(m_device, &rpci, nullptr, &m_renderPass), "vkCreateRenderPass");
 
+        MGLOG_D("RenderPass created.");
+    }
+
+    void VulkanRenderer::CreateDefaultFramebuffers() {
         // Create framebuffers now (use swapchain imageviews)
         const auto& imageViews = m_swapchainImageViews;
         Vector<VkFramebuffer>& fbs = m_framebuffers;
@@ -1220,14 +1219,14 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             fbci.renderPass = m_renderPass;
             fbci.attachmentCount = 1;
             fbci.pAttachments = attachments;
-            fbci.width = m_swapChainExtent.width;
-            fbci.height = m_swapChainExtent.height;
+            fbci.width = m_swapchainExtent.width;
+            fbci.height = m_swapchainExtent.height;
             fbci.layers = 1;
             VkFramebuffer fb;
             VK_VERIFY(vkCreateFramebuffer(m_device, &fbci, nullptr, &fb), "vkCreateFramebuffer");
             fbs.push_back(fb);
         }
-        MGLOG_D("RenderPass created and framebuffers set");
+        MGLOG_D("Default framebuffer created.");
     }
 
     void VulkanRenderer::CreateSurface() {
@@ -1319,6 +1318,40 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             }
         }
         return false;
+    }
+
+    void VulkanRenderer::ShutdownSwapchain() {
+        for (auto fb : m_framebuffers) {
+            vkDestroyFramebuffer(m_device, fb, nullptr);
+        }
+        m_framebuffers.clear();
+
+        if (m_renderPass != VK_NULL_HANDLE) {
+            vkDestroyRenderPass(m_device, m_renderPass, nullptr);
+            m_renderPass = VK_NULL_HANDLE;
+        }
+
+
+        for (auto imageView : m_swapchainImageViews) {
+            vkDestroyImageView(m_device, imageView, nullptr);
+        }
+        m_swapchainImageViews.clear();
+
+        if (m_swapchain != VK_NULL_HANDLE) {
+            vkDestroySwapchainKHR(m_device, m_swapchain, nullptr);
+            m_swapchain = VK_NULL_HANDLE;
+        }
+    }
+
+    void VulkanRenderer::RecreateSwapchain() {
+        vkDeviceWaitIdle(m_device);
+
+        ShutdownSwapchain();
+
+        CreateSwapchain();
+        CreateSwapchainImageViews();
+        CreateDefaultRenderPass();
+        CreateDefaultFramebuffers();
     }
 
 } // namespace MobileGL::MG_Backend::DirectVulkan
