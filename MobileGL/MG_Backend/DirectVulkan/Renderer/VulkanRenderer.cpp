@@ -450,10 +450,17 @@ namespace MobileGL::MG_Backend::DirectVulkan {
       VK_KHR_ANDROID_SURFACE_EXTENSION_NAME
 #elif defined VK_USE_PLATFORM_WIN32_KHR
       VK_KHR_WIN32_SURFACE_EXTENSION_NAME
+#elif defined VK_USE_PLATFORM_METAL_EXT
+      VK_EXT_METAL_SURFACE_EXTENSION_NAME
 #else
 #warning "VulkanContext::CreateInstance: VK_KHR_*_surface extension not defined on this platform"
 #endif
 }; // TODO: support more platforms
+
+#if defined(VK_USE_PLATFORM_METAL_EXT)
+        exts.push_back(VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME);
+        instanceInfo.flags |= VK_INSTANCE_CREATE_ENUMERATE_PORTABILITY_BIT_KHR;
+#endif
 
         if (m_validationLayersEnabled) {
             exts.push_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
@@ -740,8 +747,31 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         } else {
             deviceCreateInfo.enabledLayerCount = 0;
         }
-        deviceCreateInfo.enabledExtensionCount = static_cast<uint32_t>(std::size(s_deviceExtensionNames));
-        deviceCreateInfo.ppEnabledExtensionNames = s_deviceExtensionNames;
+
+        Vector<const char*> enabledDeviceExtensions;
+        enabledDeviceExtensions.reserve(std::size(s_deviceExtensionNames) + 1);
+        for (const char* extensionName : s_deviceExtensionNames) {
+            enabledDeviceExtensions.push_back(extensionName);
+        }
+
+#ifdef VK_KHR_PORTABILITY_SUBSET_EXTENSION_NAME
+        Uint32 extensionCount = 0;
+        VK_VERIFY(vkEnumerateDeviceExtensionProperties(m_physicalDevice.handle, nullptr, &extensionCount, nullptr));
+        Vector<VkExtensionProperties> availableExtensions(extensionCount);
+        VK_VERIFY(vkEnumerateDeviceExtensionProperties(
+            m_physicalDevice.handle, nullptr, &extensionCount, availableExtensions.data()));
+
+        for (const auto& extension : availableExtensions) {
+            if (strcmp(extension.extensionName, VK_KHR_PORTABILITY_SUBSET_EXTENSION_NAME) == 0) {
+                enabledDeviceExtensions.push_back(VK_KHR_PORTABILITY_SUBSET_EXTENSION_NAME);
+                MGLOG_I("Enabled optional device extension: %s", VK_KHR_PORTABILITY_SUBSET_EXTENSION_NAME);
+                break;
+            }
+        }
+#endif
+
+        deviceCreateInfo.enabledExtensionCount = static_cast<Uint32>(enabledDeviceExtensions.size());
+        deviceCreateInfo.ppEnabledExtensionNames = enabledDeviceExtensions.data();
         VK_VERIFY(vkCreateDevice(m_physicalDevice.handle, &deviceCreateInfo, nullptr, &m_device), "vkCreateDevice");
         MGLOG_I("Logical device created.");
 
@@ -1215,6 +1245,12 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         VkWin32SurfaceCreateInfoKHR sci{VK_STRUCTURE_TYPE_WIN32_SURFACE_CREATE_INFO_KHR};
         sci.hwnd = hwnd;
         VK_VERIFY(vkCreateWin32SurfaceKHR(m_instance, &sci, nullptr, &m_surface), "vkCreateWin32SurfaceKHR failed");
+#elif defined VK_USE_PLATFORM_METAL_EXT
+        MOBILEGL_ASSERT(m_window, "CAMetalLayer is null");
+
+        VkMetalSurfaceCreateInfoEXT sci{VK_STRUCTURE_TYPE_METAL_SURFACE_CREATE_INFO_EXT};
+        sci.pLayer = reinterpret_cast<const void*>(m_window);
+        VK_VERIFY(vkCreateMetalSurfaceEXT(m_instance, &sci, nullptr, &m_surface), "vkCreateMetalSurfaceEXT failed");
 #else
         //#warning "VulkanRenderer::Initialize called on a platform which is not supported yet"
         MGLOG_W("VulkanRenderer::Initialize called on a platform which is not supported yet"); // TODO: support more

@@ -16,11 +16,18 @@
 #include <EGL/egl.h>
 #ifdef _WIN32
     #define GLFW_EXPOSE_NATIVE_WIN32
+#elif defined(__APPLE__)
+    #define GLFW_EXPOSE_NATIVE_COCOA
 #endif
 #include "MG_Backend/DirectVulkan/DirectVulkan.h"
 #include "MG_Backend/DirectVulkan/Renderer/VulkanRenderer.h"
 
 #include <GLFW/glfw3native.h>
+#ifdef __APPLE__
+#include <objc/message.h>
+#include <objc/objc.h>
+#include <objc/runtime.h>
+#endif
 
 int main() {
     glfwInit();
@@ -41,8 +48,26 @@ int main() {
 
     glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
     GLFWwindow* window = glfwCreateWindow(800, 600, "MobileGL ContextCreation", nullptr, nullptr);
+    EGLNativeWindowType nativewindow = nullptr;
 #ifdef _WIN32
-    EGLNativeWindowType nativewindow = glfwGetWin32Window(window);
+    nativewindow = glfwGetWin32Window(window);
+#elif defined(__APPLE__)
+    void* cocoaWindow = glfwGetCocoaWindow(window);
+    MOBILEGL_ASSERT(cocoaWindow, "glfwGetCocoaWindow returned null");
+    auto msgSendObj = reinterpret_cast<id (*)(id, SEL)>(objc_msgSend);
+    auto msgSendVoidObj = reinterpret_cast<void (*)(id, SEL, id)>(objc_msgSend);
+    auto msgSendVoidBool = reinterpret_cast<void (*)(id, SEL, bool)>(objc_msgSend);
+    id contentView = msgSendObj(static_cast<id>(cocoaWindow), sel_registerName("contentView"));
+    MOBILEGL_ASSERT(contentView, "Failed to query NSWindow.contentView");
+    msgSendVoidBool(contentView, sel_registerName("setWantsLayer:"), true);
+
+    id metalLayerClass = reinterpret_cast<id>(objc_getClass("CAMetalLayer"));
+    MOBILEGL_ASSERT(metalLayerClass, "Failed to lookup CAMetalLayer class");
+    id metalLayer = msgSendObj(metalLayerClass, sel_registerName("layer"));
+    MOBILEGL_ASSERT(metalLayer, "Failed to create CAMetalLayer");
+
+    msgSendVoidObj(contentView, sel_registerName("setLayer:"), metalLayer);
+    nativewindow = reinterpret_cast<EGLNativeWindowType>(metalLayer);
 #endif
     EGLSurface surface = eglCreateWindowSurface(display, config, nativewindow, nullptr);
     eglMakeCurrent(display, surface, surface, context);

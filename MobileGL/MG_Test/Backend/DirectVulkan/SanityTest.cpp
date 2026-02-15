@@ -46,8 +46,15 @@ TEST(DirectVulkanSanity, WindowCreation) {
 #include <EGL/egl.h>
 #ifdef _WIN32
     #define GLFW_EXPOSE_NATIVE_WIN32
+#elif defined(__APPLE__)
+    #define GLFW_EXPOSE_NATIVE_COCOA
 #endif
 #include <GLFW/glfw3native.h>
+#ifdef __APPLE__
+#include <objc/message.h>
+#include <objc/objc.h>
+#include <objc/runtime.h>
+#endif
 TEST(DirectVulkanSanity, ContextCreation) {
     glfwInit();
 
@@ -67,8 +74,26 @@ TEST(DirectVulkanSanity, ContextCreation) {
 
     glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
     GLFWwindow* window = glfwCreateWindow(800, 600, "MobileGL ContextCreation", nullptr, nullptr);
+    EGLNativeWindowType nativewindow = nullptr;
 #ifdef _WIN32
-    EGLNativeWindowType nativewindow = glfwGetWin32Window(window);
+    nativewindow = glfwGetWin32Window(window);
+#elif defined(__APPLE__)
+    void* cocoaWindow = glfwGetCocoaWindow(window);
+    ASSERT_NE(cocoaWindow, nullptr);
+    auto msgSendObj = reinterpret_cast<id (*)(id, SEL)>(objc_msgSend);
+    auto msgSendVoidObj = reinterpret_cast<void (*)(id, SEL, id)>(objc_msgSend);
+    auto msgSendVoidBool = reinterpret_cast<void (*)(id, SEL, bool)>(objc_msgSend);
+    id contentView = msgSendObj(static_cast<id>(cocoaWindow), sel_registerName("contentView"));
+    ASSERT_NE(contentView, nullptr);
+    msgSendVoidBool(contentView, sel_registerName("setWantsLayer:"), true);
+
+    id metalLayerClass = reinterpret_cast<id>(objc_getClass("CAMetalLayer"));
+    ASSERT_NE(metalLayerClass, nullptr);
+    id metalLayer = msgSendObj(metalLayerClass, sel_registerName("layer"));
+    ASSERT_NE(metalLayer, nullptr);
+
+    msgSendVoidObj(contentView, sel_registerName("setLayer:"), metalLayer);
+    nativewindow = reinterpret_cast<EGLNativeWindowType>(metalLayer);
 #endif
     EGLSurface surface = eglCreateWindowSurface(display, config, nativewindow, nullptr);
     eglMakeCurrent(display, surface, surface, context);
