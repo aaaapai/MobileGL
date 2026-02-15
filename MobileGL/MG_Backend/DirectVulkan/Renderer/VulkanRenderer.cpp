@@ -390,17 +390,29 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         presentInfo.pSwapchains = swapChains;
         presentInfo.pImageIndices = &m_imageIndexAcquired;
         presentInfo.pResults = nullptr;
-        VK_VERIFY(vkQueuePresentKHR(m_presentQueue, &presentInfo));
+        auto result = vkQueuePresentKHR(m_presentQueue, &presentInfo);
+        if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR) {
+            MGLOG_D("Present, vkQueuePresentKHR got %d, recreating swapchain", result);
+            RecreateSwapchain();
+            result = VK_SUCCESS;
+        }
+        VK_VERIFY(result, "Present, vkQueuePresentKHR");
 
         // 3) Advance frame slot.
         m_currentFrameIndex = (m_currentFrameIndex + 1) % m_config.MaxFramesInFlight;
 
         // 4) Wait/reset/acquire for next frame.
-        VK_VERIFY(vkWaitForFences(m_device, 1, &m_imageInFlightFences[m_currentFrameIndex], VK_TRUE, UINT64_MAX));
-        VK_VERIFY(vkResetFences(m_device, 1, &m_imageInFlightFences[m_currentFrameIndex]));
-        VK_VERIFY(vkAcquireNextImageKHR(m_device, m_swapchain, UINT64_MAX,
+        VK_VERIFY(vkWaitForFences(m_device, 1, &m_imageInFlightFences[m_currentFrameIndex], VK_TRUE, UINT64_MAX), "Present, vkWaitForFences");
+        VK_VERIFY(vkResetFences(m_device, 1, &m_imageInFlightFences[m_currentFrameIndex]), "Present, vkResetFences");
+        result = vkAcquireNextImageKHR(m_device, m_swapchain, UINT64_MAX,
                                         m_imageAvailableSemaphores[m_currentFrameIndex],
-                                        VK_NULL_HANDLE, &m_imageIndexAcquired));
+                                        VK_NULL_HANDLE, &m_imageIndexAcquired);
+        if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR) {
+            MGLOG_D("Present, vkAcquireNextImageKHR got %d, recreating swapchain", result);
+            RecreateSwapchain();
+            result = VK_SUCCESS;
+        }
+        VK_VERIFY(result, "Present, vkAcquireNextImageKHR");
     }
 
     void VulkanRenderer::CreateInstance() {
@@ -1084,6 +1096,8 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                     return "UNKNOWN_TRANSFORM";
             }
         };
+
+        m_physicalDevice.swapchainCapabilities = GetSwapchainCapabilities(m_physicalDevice.handle, m_surface);
 
         auto& supportedSurfaceFormats = m_physicalDevice.swapchainCapabilities.surfaceFormats;
         MGLOG_I("Got %d surface formats: ", supportedSurfaceFormats.size());
