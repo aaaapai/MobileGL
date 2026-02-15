@@ -10,17 +10,17 @@
 
 #include "MG_State/GLState/ProgramState/ProgramObject.h"
 
-//#ifndef VK_INSTANCE_CREATE_ENUMERATE_PORTABILITY_BIT_KHR
-//#define VK_INSTANCE_CREATE_ENUMERATE_PORTABILITY_BIT_KHR 0x00000001
-//#endif
+// #ifndef VK_INSTANCE_CREATE_ENUMERATE_PORTABILITY_BIT_KHR
+// #define VK_INSTANCE_CREATE_ENUMERATE_PORTABILITY_BIT_KHR 0x00000001
+// #endif
 //
-//#ifndef VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME
-//#define VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME "VK_KHR_portability_enumeration"
-//#endif
+// #ifndef VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME
+// #define VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME "VK_KHR_portability_enumeration"
+// #endif
 //
-//#ifndef VK_EXT_METAL_SURFACE_EXTENSION_NAME
-//#define VK_EXT_METAL_SURFACE_EXTENSION_NAME "VK_EXT_metal_surface"
-//#endif
+// #ifndef VK_EXT_METAL_SURFACE_EXTENSION_NAME
+// #define VK_EXT_METAL_SURFACE_EXTENSION_NAME "VK_EXT_metal_surface"
+// #endif
 
 namespace MobileGL::MG_Backend::DirectVulkan {
     VkBool32 VulkanRenderer::DebugCallback(VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity,
@@ -28,39 +28,40 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                                            const VkDebugUtilsMessengerCallbackDataEXT* pCallbackData, void* pUserData) {
         auto typeToString = [](VkDebugUtilsMessageTypeFlagsEXT messageType) {
             switch (messageType) {
-                case VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT:
-                    return "General";
-                case VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT:
-                    return "Validation";
-                case VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT:
-                    return "Performance";
-                case VK_DEBUG_UTILS_MESSAGE_TYPE_DEVICE_ADDRESS_BINDING_BIT_EXT:
-                    return "DeviceAddressBinding";
-                default:
-                    return "Other";
+            case VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT:
+                return "General";
+            case VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT:
+                return "Validation";
+            case VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT:
+                return "Performance";
+            case VK_DEBUG_UTILS_MESSAGE_TYPE_DEVICE_ADDRESS_BINDING_BIT_EXT:
+                return "DeviceAddressBinding";
+            default:
+                return "Other";
             }
         };
 
         switch (messageSeverity) {
-            case VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT:
-                MGLOG_E("Vulkan Debug: [%s] %s", typeToString(messageType), pCallbackData->pMessage);
-                break;
-            case VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT:
-                MGLOG_W("Vulkan Debug: [%s] %s", typeToString(messageType), pCallbackData->pMessage);
-                break;
-            case VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT:
-                MGLOG_I("Vulkan Debug: [%s] %s", typeToString(messageType), pCallbackData->pMessage);
-                break;
-            case VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT:
-                MGLOG_D("Vulkan Debug: [%s] %s", typeToString(messageType), pCallbackData->pMessage);
-                break;
-            default:
-                break;
-            }
+        case VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT:
+            MGLOG_E("Vulkan Debug: [%s] %s", typeToString(messageType), pCallbackData->pMessage);
+            break;
+        case VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT:
+            MGLOG_W("Vulkan Debug: [%s] %s", typeToString(messageType), pCallbackData->pMessage);
+            break;
+        case VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT:
+            MGLOG_I("Vulkan Debug: [%s] %s", typeToString(messageType), pCallbackData->pMessage);
+            break;
+        case VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT:
+            MGLOG_D("Vulkan Debug: [%s] %s", typeToString(messageType), pCallbackData->pMessage);
+            break;
+        default:
+            break;
+        }
         return VK_FALSE;
     }
 
-    VulkanRenderer::VulkanRenderer(NativeWindowType window, const RendererConfig& cfg) : m_window(window), m_config(cfg) {
+    VulkanRenderer::VulkanRenderer(NativeWindowType window, const RendererConfig& cfg)
+        : m_window(window), m_config(cfg) {
         // Initialize();
     }
 
@@ -255,8 +256,8 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         VK_VERIFY(vkWaitForFences(m_device, 1, &m_imageInFlightFences[m_currentFrameIndex], VK_TRUE, UINT64_MAX));
         VK_VERIFY(vkResetFences(m_device, 1, &m_imageInFlightFences[m_currentFrameIndex]));
         VK_VERIFY(vkAcquireNextImageKHR(m_device, m_swapchain, UINT64_MAX,
-                                        m_imageAvailableSemaphores[m_currentFrameIndex],
-                                        VK_NULL_HANDLE, &m_imageIndexAcquired));
+                                        m_imageAvailableSemaphores[m_currentFrameIndex], VK_NULL_HANDLE,
+                                        &m_imageIndexAcquired));
 
         MGLOG_D("VulkanRenderer initialized");
     }
@@ -264,17 +265,17 @@ namespace MobileGL::MG_Backend::DirectVulkan {
     void VulkanRenderer::Shutdown() {
         VK_VERIFY(vkDeviceWaitIdle(m_device));
 
-        for (auto fence: m_imageInFlightFences) {
+        for (auto fence : m_imageInFlightFences) {
             vkDestroyFence(m_device, fence, nullptr);
         }
         m_imageInFlightFences.clear();
 
-        for (auto s: m_renderFinishedSemaphores) {
+        for (auto s : m_renderFinishedSemaphores) {
             vkDestroySemaphore(m_device, s, nullptr);
         }
         m_renderFinishedSemaphores.clear();
 
-        for (auto s: m_imageAvailableSemaphores) {
+        for (auto s : m_imageAvailableSemaphores) {
             vkDestroySemaphore(m_device, s, nullptr);
         }
         m_imageAvailableSemaphores.clear();
@@ -402,11 +403,12 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         m_currentFrameIndex = (m_currentFrameIndex + 1) % m_config.MaxFramesInFlight;
 
         // 4) Wait/reset/acquire for next frame.
-        VK_VERIFY(vkWaitForFences(m_device, 1, &m_imageInFlightFences[m_currentFrameIndex], VK_TRUE, UINT64_MAX), "Present, vkWaitForFences");
+        VK_VERIFY(vkWaitForFences(m_device, 1, &m_imageInFlightFences[m_currentFrameIndex], VK_TRUE, UINT64_MAX),
+                  "Present, vkWaitForFences");
         VK_VERIFY(vkResetFences(m_device, 1, &m_imageInFlightFences[m_currentFrameIndex]), "Present, vkResetFences");
-        result = vkAcquireNextImageKHR(m_device, m_swapchain, UINT64_MAX,
-                                        m_imageAvailableSemaphores[m_currentFrameIndex],
-                                        VK_NULL_HANDLE, &m_imageIndexAcquired);
+        result =
+            vkAcquireNextImageKHR(m_device, m_swapchain, UINT64_MAX, m_imageAvailableSemaphores[m_currentFrameIndex],
+                                  VK_NULL_HANDLE, &m_imageIndexAcquired);
         if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR) {
             MGLOG_D("Present, vkAcquireNextImageKHR got %d, recreating swapchain", result);
             RecreateSwapchain();
@@ -427,7 +429,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         MGLOG_I("Validation layers %s.", m_config.EnableValidationLayers ? "requested" : "not requested");
 
         if (m_config.EnableValidationLayers && !validationLayerAvailable) {
-            MOBILEGL_ASSERT(false, "Validation layers requested but not available!");
+            MGLOG_I("Validation layers not available! Disabling validation layers.");
         }
 
         m_validationLayersEnabled = m_config.EnableValidationLayers && validationLayerAvailable;
@@ -445,7 +447,6 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         appInfo.apiVersion = VK_API_VERSION_1_1;
 #endif
 
-
         // ---------------- Instance info -------------------
         VkInstanceCreateInfo instanceInfo = {};
         instanceInfo.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
@@ -454,15 +455,15 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         // Extensions
         Vector<const char*> exts = {VK_KHR_SURFACE_EXTENSION_NAME,
 #ifdef VK_USE_PLATFORM_ANDROID_KHR
-      VK_KHR_ANDROID_SURFACE_EXTENSION_NAME
+                                    VK_KHR_ANDROID_SURFACE_EXTENSION_NAME
 #elif defined VK_USE_PLATFORM_WIN32_KHR
-      VK_KHR_WIN32_SURFACE_EXTENSION_NAME
+                                    VK_KHR_WIN32_SURFACE_EXTENSION_NAME
 #elif defined VK_USE_PLATFORM_METAL_EXT
-      VK_EXT_METAL_SURFACE_EXTENSION_NAME
+                                    VK_EXT_METAL_SURFACE_EXTENSION_NAME
 #else
 #warning "VulkanContext::CreateInstance: VK_KHR_*_surface extension not defined on this platform"
 #endif
-}; // TODO: support more platforms
+        }; // TODO: support more platforms
 
 #if defined(VK_USE_PLATFORM_METAL_EXT)
         exts.push_back(VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME);
@@ -490,22 +491,22 @@ namespace MobileGL::MG_Backend::DirectVulkan {
 
         VK_VERIFY(vkCreateInstance(&instanceInfo, nullptr, &m_instance), "vkCreateInstance failed");
 
-        if (m_validationLayersEnabled)
-            VK_VERIFY(SetupDebugMessenger());
+        if (m_validationLayersEnabled) VK_VERIFY(SetupDebugMessenger());
     }
 
     VkResult VulkanRenderer::SetupDebugMessenger() {
         auto createInfo = PopulateDebugMessengerCreateInfo();
-        auto vkCreateDebugUtilsMessengerEXT = (PFN_vkCreateDebugUtilsMessengerEXT) vkGetInstanceProcAddr(m_instance, "vkCreateDebugUtilsMessengerEXT");
-        if (!vkCreateDebugUtilsMessengerEXT)
-            return VK_ERROR_EXTENSION_NOT_PRESENT;
+        auto vkCreateDebugUtilsMessengerEXT =
+            (PFN_vkCreateDebugUtilsMessengerEXT)vkGetInstanceProcAddr(m_instance, "vkCreateDebugUtilsMessengerEXT");
+        if (!vkCreateDebugUtilsMessengerEXT) return VK_ERROR_EXTENSION_NOT_PRESENT;
         VK_VERIFY(vkCreateDebugUtilsMessengerEXT(m_instance, &createInfo, nullptr, &m_debugMessenger));
         return VK_SUCCESS;
     }
 
     VkResult VulkanRenderer::DestroyDebugMessenger() {
         if (m_debugMessenger != VK_NULL_HANDLE) {
-            auto func = (PFN_vkDestroyDebugUtilsMessengerEXT) vkGetInstanceProcAddr(m_instance, "vkDestroyDebugUtilsMessengerEXT");
+            auto func = (PFN_vkDestroyDebugUtilsMessengerEXT)vkGetInstanceProcAddr(m_instance,
+                                                                                   "vkDestroyDebugUtilsMessengerEXT");
             if (func != nullptr) {
                 func(m_instance, m_debugMessenger, nullptr);
             } else {
@@ -518,8 +519,12 @@ namespace MobileGL::MG_Backend::DirectVulkan {
     VkDebugUtilsMessengerCreateInfoEXT VulkanRenderer::PopulateDebugMessengerCreateInfo() {
         VkDebugUtilsMessengerCreateInfoEXT createInfo{};
         createInfo.sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT;
-        createInfo.messageSeverity = VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT;
-        createInfo.messageType = VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT;
+        createInfo.messageSeverity = VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT |
+                                     VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT |
+                                     VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT;
+        createInfo.messageType = VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT |
+                                 VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT |
+                                 VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT;
         createInfo.pfnUserCallback = DebugCallback;
         createInfo.pUserData = this;
         return createInfo;
@@ -551,8 +556,9 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         }
     }
 
-    Bool VulkanRenderer::GetMoreCapablePhysicalDevice(
-        VkPhysicalDevice newVkDevice, VkSurfaceKHR surface, const PhysicalDevice& otherDevice, PhysicalDevice& outBetterDevice) {
+    Bool VulkanRenderer::GetMoreCapablePhysicalDevice(VkPhysicalDevice newVkDevice, VkSurfaceKHR surface,
+                                                      const PhysicalDevice& otherDevice,
+                                                      PhysicalDevice& outBetterDevice) {
         const auto deviceTypeToStr = [](VkPhysicalDeviceType type) {
             switch (type) {
             case VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU:
@@ -576,16 +582,16 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         vkGetPhysicalDeviceProperties(newVkDevice, &newDevice.properties);
         const auto& deviceProperties = newDevice.properties;
         auto apiVersion = deviceProperties.apiVersion;
-        MGLOG_I("    %s (Vulkan %d.%d.%d, %s)",
-            deviceProperties.deviceName,
-            VK_VERSION_MAJOR(apiVersion), VK_VERSION_MINOR(apiVersion), VK_VERSION_PATCH(apiVersion),
-            deviceTypeToStr(deviceProperties.deviceType));
+        MGLOG_I("    %s (Vulkan %d.%d.%d, %s)", deviceProperties.deviceName, VK_VERSION_MAJOR(apiVersion),
+                VK_VERSION_MINOR(apiVersion), VK_VERSION_PATCH(apiVersion),
+                deviceTypeToStr(deviceProperties.deviceType));
 
         // Check device extensions (including swapchain extension)
         Bool deviceExtSupported = IsNecessaryDeviceExtensionSupported(newVkDevice);
         if (!deviceExtSupported) {
             outBetterDevice = otherDevice;
-            MGLOG_I("    Ignored physical device. (Reason: Some of the required device extension not supported on this device)");
+            MGLOG_I("    Ignored physical device. (Reason: Some of the required device extension not supported on this "
+                    "device)");
             return false;
         }
 
@@ -644,7 +650,8 @@ namespace MobileGL::MG_Backend::DirectVulkan {
     VkSurfaceFormatKHR VulkanRenderer::ChooseSwapchainSurfaceFormat(
         const Vector<VkSurfaceFormatKHR>& availableFormats) {
         for (const auto& availableFormat : availableFormats) {
-            if (availableFormat.format == VK_FORMAT_B8G8R8A8_SRGB && availableFormat.colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR) {
+            if (availableFormat.format == VK_FORMAT_B8G8R8A8_SRGB &&
+                availableFormat.colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR) {
                 return availableFormat;
             }
         }
@@ -653,8 +660,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         return availableFormats[0];
     }
 
-    VkPresentModeKHR VulkanRenderer::ChooseSwapchainPresentMode(
-        const Vector<VkPresentModeKHR>& availablePresentModes) {
+    VkPresentModeKHR VulkanRenderer::ChooseSwapchainPresentMode(const Vector<VkPresentModeKHR>& availablePresentModes) {
         for (auto desiredPresentMode : s_desiredPresentModes) {
             for (const auto& presentMode : availablePresentModes) {
                 if (presentMode == desiredPresentMode) {
@@ -689,7 +695,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                 }
             }
             if (!found) {
-                    MGLOG_I("Required extension not found: %s", s_deviceExtensionNames[i]);
+                MGLOG_I("Required extension not found: %s", s_deviceExtensionNames[i]);
                 return false;
             }
         }
@@ -697,7 +703,8 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         return true;
     }
 
-    VulkanRenderer::SwapchainCapabilities VulkanRenderer::GetSwapchainCapabilities(VkPhysicalDevice device, VkSurfaceKHR surface) {
+    VulkanRenderer::SwapchainCapabilities VulkanRenderer::GetSwapchainCapabilities(VkPhysicalDevice device,
+                                                                                   VkSurfaceKHR surface) {
         SwapchainCapabilities swapchainCapabilities;
 
         VK_VERIFY(vkGetPhysicalDeviceSurfaceCapabilitiesKHR(device, surface, &swapchainCapabilities.capabilities));
@@ -706,7 +713,8 @@ namespace MobileGL::MG_Backend::DirectVulkan {
 
         if (formatCount != 0) {
             swapchainCapabilities.surfaceFormats.resize(formatCount);
-            VK_VERIFY(vkGetPhysicalDeviceSurfaceFormatsKHR(device, surface, &formatCount, swapchainCapabilities.surfaceFormats.data()));
+            VK_VERIFY(vkGetPhysicalDeviceSurfaceFormatsKHR(device, surface, &formatCount,
+                                                           swapchainCapabilities.surfaceFormats.data()));
         }
 
         Uint32 presentModeCount;
@@ -714,7 +722,8 @@ namespace MobileGL::MG_Backend::DirectVulkan {
 
         if (presentModeCount != 0) {
             swapchainCapabilities.presentModes.resize(presentModeCount);
-            VK_VERIFY(vkGetPhysicalDeviceSurfacePresentModesKHR(device, surface, &presentModeCount, swapchainCapabilities.presentModes.data()));
+            VK_VERIFY(vkGetPhysicalDeviceSurfacePresentModesKHR(device, surface, &presentModeCount,
+                                                                swapchainCapabilities.presentModes.data()));
         }
 
         return swapchainCapabilities;
@@ -765,8 +774,8 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         Uint32 extensionCount = 0;
         VK_VERIFY(vkEnumerateDeviceExtensionProperties(m_physicalDevice.handle, nullptr, &extensionCount, nullptr));
         Vector<VkExtensionProperties> availableExtensions(extensionCount);
-        VK_VERIFY(vkEnumerateDeviceExtensionProperties(
-            m_physicalDevice.handle, nullptr, &extensionCount, availableExtensions.data()));
+        VK_VERIFY(vkEnumerateDeviceExtensionProperties(m_physicalDevice.handle, nullptr, &extensionCount,
+                                                       availableExtensions.data()));
 
         for (const auto& extension : availableExtensions) {
             if (strcmp(extension.extensionName, VK_KHR_PORTABILITY_SUBSET_EXTENSION_NAME) == 0) {
@@ -1040,8 +1049,8 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                 ENUM_STR_CASE(VK_FORMAT_PVRTC2_4BPP_SRGB_BLOCK_IMG)
                 ENUM_STR_CASE(VK_FORMAT_A1B5G5R5_UNORM_PACK16_KHR)
                 ENUM_STR_CASE(VK_FORMAT_A8_UNORM_KHR)
-                default:
-                    return "UNKNOWN_FORMAT";
+            default:
+                return "UNKNOWN_FORMAT";
             }
         };
 
@@ -1063,8 +1072,8 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                 ENUM_STR_CASE(VK_COLOR_SPACE_PASS_THROUGH_EXT)
                 ENUM_STR_CASE(VK_COLOR_SPACE_EXTENDED_SRGB_NONLINEAR_EXT)
                 ENUM_STR_CASE(VK_COLOR_SPACE_DISPLAY_NATIVE_AMD)
-                default:
-                    return "UNKNOWN_COLOR_SPACE";
+            default:
+                return "UNKNOWN_COLOR_SPACE";
             }
         };
 
@@ -1076,8 +1085,8 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                 ENUM_STR_CASE(VK_PRESENT_MODE_FIFO_RELAXED_KHR)
                 ENUM_STR_CASE(VK_PRESENT_MODE_SHARED_DEMAND_REFRESH_KHR)
                 ENUM_STR_CASE(VK_PRESENT_MODE_SHARED_CONTINUOUS_REFRESH_KHR)
-                default:
-                    return "UNKNOWN_PRESENT_MODE";
+            default:
+                return "UNKNOWN_PRESENT_MODE";
             }
         };
 
@@ -1092,8 +1101,8 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                 ENUM_STR_CASE(VK_SURFACE_TRANSFORM_HORIZONTAL_MIRROR_ROTATE_180_BIT_KHR)
                 ENUM_STR_CASE(VK_SURFACE_TRANSFORM_HORIZONTAL_MIRROR_ROTATE_270_BIT_KHR)
                 ENUM_STR_CASE(VK_SURFACE_TRANSFORM_INHERIT_BIT_KHR)
-                default:
-                    return "UNKNOWN_TRANSFORM";
+            default:
+                return "UNKNOWN_TRANSFORM";
             }
         };
 
@@ -1102,10 +1111,12 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         auto& supportedSurfaceFormats = m_physicalDevice.swapchainCapabilities.surfaceFormats;
         MGLOG_I("Got %d surface formats: ", supportedSurfaceFormats.size());
         for (auto& surfaceFormat : supportedSurfaceFormats) {
-            MGLOG_I("    [%s, %s]", surfaceFormatToStr(surfaceFormat.format), colorSpaceToStr(surfaceFormat.colorSpace));
+            MGLOG_I("    [%s, %s]", surfaceFormatToStr(surfaceFormat.format),
+                    colorSpaceToStr(surfaceFormat.colorSpace));
         }
         m_swapchainSurfaceFormat = ChooseSwapchainSurfaceFormat(supportedSurfaceFormats);
-        MGLOG_I("Picked surface format: [%s, %s]", surfaceFormatToStr(m_swapchainSurfaceFormat.format), colorSpaceToStr(m_swapchainSurfaceFormat.colorSpace));
+        MGLOG_I("Picked surface format: [%s, %s]", surfaceFormatToStr(m_swapchainSurfaceFormat.format),
+                colorSpaceToStr(m_swapchainSurfaceFormat.colorSpace));
 
         auto& supportedPresentModes = m_physicalDevice.swapchainCapabilities.presentModes;
         MGLOG_I("Got %d present mode: ", supportedPresentModes.size());
@@ -1127,14 +1138,15 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         sci.imageExtent = swapchainCaps.currentExtent;
         sci.imageArrayLayers = 1;
         sci.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
-        Uint32 queueFamilyIndices[] = { (Uint)m_physicalDevice.queueFamilies.graphicsFamily, (Uint)m_physicalDevice.queueFamilies.presentFamily };
+        Uint32 queueFamilyIndices[] = {(Uint)m_physicalDevice.queueFamilies.graphicsFamily,
+                                       (Uint)m_physicalDevice.queueFamilies.presentFamily};
         if (m_physicalDevice.queueFamilies.graphicsFamily != m_physicalDevice.queueFamilies.presentFamily) {
             sci.imageSharingMode = VK_SHARING_MODE_CONCURRENT;
             sci.queueFamilyIndexCount = 2;
             sci.pQueueFamilyIndices = queueFamilyIndices;
         } else {
             sci.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
-            sci.queueFamilyIndexCount = 0; // Optional
+            sci.queueFamilyIndexCount = 0;     // Optional
             sci.pQueueFamilyIndices = nullptr; // Optional
         }
         sci.preTransform = swapchainCaps.currentTransform;
@@ -1152,7 +1164,8 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         VK_VERIFY(vkGetSwapchainImagesKHR(m_device, m_swapchain, &gotImageCount, m_swapchainImages.data()));
         m_swapchainExtent = swapchainCaps.currentExtent;
 
-        MGLOG_I("Swapchain created, extent = %dx%d, swapchain imageCount = %d", m_swapchainExtent.width, m_swapchainExtent.height, gotImageCount);
+        MGLOG_I("Swapchain created, extent = %dx%d, swapchain imageCount = %d", m_swapchainExtent.width,
+                m_swapchainExtent.height, gotImageCount);
     }
 
     void VulkanRenderer::CreateSwapchainImageViews() {
@@ -1265,9 +1278,9 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         sci.pLayer = reinterpret_cast<const void*>(m_window);
         VK_VERIFY(vkCreateMetalSurfaceEXT(m_instance, &sci, nullptr, &m_surface), "vkCreateMetalSurfaceEXT failed");
 #else
-        //#warning "VulkanRenderer::Initialize called on a platform which is not supported yet"
+        // #warning "VulkanRenderer::Initialize called on a platform which is not supported yet"
         MGLOG_W("VulkanRenderer::Initialize called on a platform which is not supported yet"); // TODO: support more
-        // platforms
+                                                                                               // platforms
 #endif
     }
 
@@ -1281,7 +1294,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
     }
 
     Int VulkanRenderer::GetQueueFamilyIndex(const Vector<VkQueueFamilyProperties>& queueFamilies,
-                                               VkQueueFlagBits flag) {
+                                            VkQueueFlagBits flag) {
         for (Uint32 i = 0; i < queueFamilies.size(); i++) {
             if (queueFamilies[i].queueFlags & flag) {
                 return i;
@@ -1290,21 +1303,20 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         return -1;
     }
 
-    Int VulkanRenderer::GetPresentQueueFamilyIndex(
-        const PhysicalDevice& physicalDevice, VkSurfaceKHR surface,
-        const Vector<VkQueueFamilyProperties>& queueFamilies, Int preferredFamilyIndex) {
+    Int VulkanRenderer::GetPresentQueueFamilyIndex(const PhysicalDevice& physicalDevice, VkSurfaceKHR surface,
+                                                   const Vector<VkQueueFamilyProperties>& queueFamilies,
+                                                   Int preferredFamilyIndex) {
         if (preferredFamilyIndex != -1) {
             VkBool32 supportsPresent = false;
-            vkGetPhysicalDeviceSurfaceSupportKHR(physicalDevice.handle, preferredFamilyIndex, surface, &supportsPresent);
-            if (supportsPresent)
-                return preferredFamilyIndex;
+            vkGetPhysicalDeviceSurfaceSupportKHR(physicalDevice.handle, preferredFamilyIndex, surface,
+                                                 &supportsPresent);
+            if (supportsPresent) return preferredFamilyIndex;
         }
 
         for (Uint32 i = 0; i < queueFamilies.size(); i++) {
             VkBool32 supportsPresent = false;
             vkGetPhysicalDeviceSurfaceSupportKHR(physicalDevice.handle, i, surface, &supportsPresent);
-            if (supportsPresent)
-                return i;
+            if (supportsPresent) return i;
         }
         return -1;
     }
@@ -1344,7 +1356,6 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             vkDestroyRenderPass(m_device, m_renderPass, nullptr);
             m_renderPass = VK_NULL_HANDLE;
         }
-
 
         for (auto imageView : m_swapchainImageViews) {
             vkDestroyImageView(m_device, imageView, nullptr);
