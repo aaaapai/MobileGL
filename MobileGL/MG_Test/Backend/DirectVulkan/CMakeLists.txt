@@ -2,6 +2,10 @@ cmake_minimum_required(VERSION 3.14)
 
 message(STATUS "Generating build files for MobileGL DirectVulkan Integration Test...")
 
+if (APPLE)
+    find_library(QUARTZCORE_FRAMEWORK QuartzCore REQUIRED)
+endif()
+
 add_executable(
         DirectVulkanSanityTest
         SanityTest.cpp
@@ -32,6 +36,10 @@ target_link_libraries(
         GTest::gtest_main
         ${LINK_LIBRARIES}
 )
+if (APPLE)
+    target_link_libraries(DirectVulkanSanityTest PRIVATE objc)
+    target_link_libraries(DirectVulkanSanityTest PRIVATE ${QUARTZCORE_FRAMEWORK})
+endif()
 target_compile_definitions(DirectVulkanSanityTest PRIVATE -DNOMINMAX)
 
 include(GoogleTest)
@@ -66,5 +74,8 @@ target_link_libraries(
         DirectVulkanTestExec PRIVATE
         ${LINK_LIBRARIES}
 )
+if (APPLE)
+    target_link_libraries(DirectVulkanTestExec PRIVATE objc)
+    target_link_libraries(DirectVulkanTestExec PRIVATE ${QUARTZCORE_FRAMEWORK})
+endif()
 target_compile_definitions(DirectVulkanTestExec PRIVATE -DNOMINMAX)
-
