@@ -228,6 +228,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         m_imageAvailableSemaphores.resize(m_config.MaxFramesInFlight, VK_NULL_HANDLE);
         m_renderFinishedSemaphores.resize(m_config.MaxFramesInFlight, VK_NULL_HANDLE);
         m_imageInFlightFences.resize(m_config.MaxFramesInFlight, VK_NULL_HANDLE);
+        m_hasCommandBufferRecorded.assign(m_config.MaxFramesInFlight, false);
 
         for (SizeT i = 0; i < m_config.MaxFramesInFlight; i++) {
             VK_VERIFY(vkCreateSemaphore(m_device, &semaphoreInfo, nullptr, &m_imageAvailableSemaphores[i]));
@@ -279,6 +280,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             vkDestroySemaphore(m_device, s, nullptr);
         }
         m_imageAvailableSemaphores.clear();
+        m_hasCommandBufferRecorded.clear();
 
         if (m_pipeline != VK_NULL_HANDLE) {
             vkDestroyPipeline(m_device, m_pipeline, nullptr);
@@ -363,23 +365,69 @@ namespace MobileGL::MG_Backend::DirectVulkan {
 
         // End command buffer
         VK_VERIFY(vkEndCommandBuffer(m_commandBuffers[m_currentFrameIndex]));
+        m_hasCommandBufferRecorded[m_currentFrameIndex] = true;
     }
 
     void VulkanRenderer::Present() {
+        MOBILEGL_ASSERT(m_imageIndexAcquired < m_swapchainImages.size(), "Present, acquired image index out of range");
+        const Bool hasRecordedWork = m_hasCommandBufferRecorded[m_currentFrameIndex];
+        Bool needsLayoutTransitionForPresent = false;
+
+        if (!hasRecordedWork) {
+            auto& acquiredImageLayout = m_swapchainImageLayouts[m_imageIndexAcquired];
+            if (acquiredImageLayout != VK_IMAGE_LAYOUT_PRESENT_SRC_KHR &&
+                acquiredImageLayout != VK_IMAGE_LAYOUT_SHARED_PRESENT_KHR) {
+                needsLayoutTransitionForPresent = true;
+
+                VK_VERIFY(vkResetCommandBuffer(m_commandBuffers[m_currentFrameIndex], 0),
+                          "Present, vkResetCommandBuffer(layout transition)");
+
+                VkCommandBufferBeginInfo beginInfo{};
+                beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+                VK_VERIFY(vkBeginCommandBuffer(m_commandBuffers[m_currentFrameIndex], &beginInfo),
+                          "Present, vkBeginCommandBuffer(layout transition)");
+
+                VkImageMemoryBarrier presentBarrier{};
+                presentBarrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+                presentBarrier.srcAccessMask = 0;
+                presentBarrier.dstAccessMask = 0;
+                presentBarrier.oldLayout = acquiredImageLayout;
+                presentBarrier.newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+                presentBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+                presentBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+                presentBarrier.image = m_swapchainImages[m_imageIndexAcquired];
+                presentBarrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+                presentBarrier.subresourceRange.baseMipLevel = 0;
+                presentBarrier.subresourceRange.levelCount = 1;
+                presentBarrier.subresourceRange.baseArrayLayer = 0;
+                presentBarrier.subresourceRange.layerCount = 1;
+                vkCmdPipelineBarrier(m_commandBuffers[m_currentFrameIndex], VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+                                     VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, 0, 0, nullptr, 0, nullptr, 1,
+                                     &presentBarrier);
+
+                VK_VERIFY(vkEndCommandBuffer(m_commandBuffers[m_currentFrameIndex]),
+                          "Present, vkEndCommandBuffer(layout transition)");
+            }
+        }
+
+        const Bool shouldSubmitCommandBuffer = hasRecordedWork || needsLayoutTransitionForPresent;
+
         // 1) Submit current frame work.
         VkSubmitInfo submitInfo{};
         submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
         VkSemaphore waitSemaphores[] = {m_imageAvailableSemaphores[m_currentFrameIndex]};
-        VkPipelineStageFlags waitStages[] = {VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT};
+        VkPipelineStageFlags waitStages[] = {VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT};
         submitInfo.waitSemaphoreCount = 1;
         submitInfo.pWaitSemaphores = waitSemaphores;
         submitInfo.pWaitDstStageMask = waitStages;
-        submitInfo.commandBufferCount = 1;
-        submitInfo.pCommandBuffers = &m_commandBuffers[m_currentFrameIndex];
+        submitInfo.commandBufferCount = shouldSubmitCommandBuffer ? 1U : 0U;
+        submitInfo.pCommandBuffers = shouldSubmitCommandBuffer ? &m_commandBuffers[m_currentFrameIndex] : nullptr;
         VkSemaphore signalSemaphores[] = {m_renderFinishedSemaphores[m_currentFrameIndex]};
         submitInfo.signalSemaphoreCount = 1;
         submitInfo.pSignalSemaphores = signalSemaphores;
         VK_VERIFY(vkQueueSubmit(m_graphicsQueue, 1, &submitInfo, m_imageInFlightFences[m_currentFrameIndex]));
+        m_hasCommandBufferRecorded[m_currentFrameIndex] = false;
+        m_swapchainImageLayouts[m_imageIndexAcquired] = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
 
         // 2) Present current frame.
         VkPresentInfoKHR presentInfo{};
@@ -1162,6 +1210,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         VK_VERIFY(vkGetSwapchainImagesKHR(m_device, m_swapchain, &gotImageCount, nullptr));
         m_swapchainImages.resize(gotImageCount, VK_NULL_HANDLE);
         VK_VERIFY(vkGetSwapchainImagesKHR(m_device, m_swapchain, &gotImageCount, m_swapchainImages.data()));
+        m_swapchainImageLayouts.assign(gotImageCount, VK_IMAGE_LAYOUT_UNDEFINED);
         m_swapchainExtent = swapchainCaps.currentExtent;
 
         MGLOG_I("Swapchain created, extent = %dx%d, swapchain imageCount = %d", m_swapchainExtent.width,
@@ -1366,6 +1415,8 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             vkDestroySwapchainKHR(m_device, m_swapchain, nullptr);
             m_swapchain = VK_NULL_HANDLE;
         }
+        m_swapchainImages.clear();
+        m_swapchainImageLayouts.clear();
     }
 
     void VulkanRenderer::RecreateSwapchain() {
@@ -1377,6 +1428,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         CreateSwapchainImageViews();
         CreateDefaultRenderPass();
         CreateDefaultFramebuffers();
+        std::fill(m_hasCommandBufferRecorded.begin(), m_hasCommandBufferRecorded.end(), false);
     }
 
 } // namespace MobileGL::MG_Backend::DirectVulkan

@@ -86,6 +86,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         VkSwapchainKHR m_swapchain = VK_NULL_HANDLE;
         VkSurfaceFormatKHR m_swapchainSurfaceFormat;
         Vector<VkImage> m_swapchainImages;
+        Vector<VkImageLayout> m_swapchainImageLayouts;
         VkExtent2D m_swapchainExtent;
         Vector<VkImageView> m_swapchainImageViews;
 
@@ -109,6 +110,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         Vector<VkSemaphore> m_imageAvailableSemaphores;
         Vector<VkSemaphore> m_renderFinishedSemaphores;
         Vector<VkFence> m_imageInFlightFences;
+        Vector<Bool> m_hasCommandBufferRecorded;
 
         void CreateInstance();
         VkResult SetupDebugMessenger();
