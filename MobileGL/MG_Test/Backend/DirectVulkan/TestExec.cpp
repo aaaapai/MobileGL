@@ -74,7 +74,7 @@ int main() {
 
     while(!glfwWindowShouldClose(window)) {
         glfwPollEvents();
-        // MobileGL::MG_Backend::DirectVulkan::pVulkanRenderer->RenderFrame();
+        MobileGL::MG_Backend::DirectVulkan::pVulkanRenderer->Render();
         eglSwapBuffers(display, surface);
     }
 
