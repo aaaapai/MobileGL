@@ -1420,6 +1420,13 @@ namespace MobileGL::MG_Backend::DirectVulkan {
     }
 
     void VulkanRenderer::RecreateSwapchain() {
+        // Handle cases like minimize on Windows, where swapchain could return a 0x0 extent
+        m_physicalDevice.swapchainCapabilities = GetSwapchainCapabilities(m_physicalDevice.handle, m_surface);
+        if (m_physicalDevice.swapchainCapabilities.capabilities.currentExtent.width == 0 ||
+            m_physicalDevice.swapchainCapabilities.capabilities.currentExtent.height == 0) {
+            return;
+        }
+
         vkDeviceWaitIdle(m_device);
 
         ShutdownSwapchain();
