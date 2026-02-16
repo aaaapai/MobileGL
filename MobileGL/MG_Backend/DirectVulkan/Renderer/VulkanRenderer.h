@@ -8,6 +8,7 @@
 
 #pragma once
 #include "Config.h"
+#include "FrameContext.h"
 #include "SwapchainObject.h"
 #include <Includes.h>
 
@@ -76,7 +77,6 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         VkQueue m_presentQueue = VK_NULL_HANDLE;
 
         VkCommandPool m_commandPool = VK_NULL_HANDLE;
-        Vector<VkCommandBuffer> m_commandBuffers;
 
         VkRenderPass m_renderPass = VK_NULL_HANDLE;
         Vector<VkFramebuffer> m_framebuffers;
@@ -86,10 +86,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
 
         Uint m_imageIndexAcquired = 0;
         Uint m_currentFrameIndex = 0;
-        Vector<VkSemaphore> m_imageAvailableSemaphores;
-        Vector<VkSemaphore> m_renderFinishedSemaphores;
-        Vector<VkFence> m_imageInFlightFences;
-        Vector<Bool> m_hasCommandBufferRecorded;
+        Vector<FrameContext> m_frameContexts;
 
         void CreateInstance();
         VkResult SetupDebugMessenger();

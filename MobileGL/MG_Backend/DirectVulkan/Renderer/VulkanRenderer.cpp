@@ -214,15 +214,14 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         VkFenceCreateInfo fenceInfo{VK_STRUCTURE_TYPE_FENCE_CREATE_INFO};
         fenceInfo.flags = VK_FENCE_CREATE_SIGNALED_BIT;
 
-        m_imageAvailableSemaphores.resize(m_config.MaxFramesInFlight, VK_NULL_HANDLE);
-        m_renderFinishedSemaphores.resize(m_config.MaxFramesInFlight, VK_NULL_HANDLE);
-        m_imageInFlightFences.resize(m_config.MaxFramesInFlight, VK_NULL_HANDLE);
-        m_hasCommandBufferRecorded.assign(m_config.MaxFramesInFlight, false);
+        m_frameContexts.resize(m_config.MaxFramesInFlight);
 
         for (SizeT i = 0; i < m_config.MaxFramesInFlight; i++) {
-            VK_VERIFY(vkCreateSemaphore(m_device, &semaphoreInfo, nullptr, &m_imageAvailableSemaphores[i]));
-            VK_VERIFY(vkCreateSemaphore(m_device, &semaphoreInfo, nullptr, &m_renderFinishedSemaphores[i]));
-            VK_VERIFY(vkCreateFence(m_device, &fenceInfo, nullptr, &m_imageInFlightFences[i]));
+            auto& frameContext = m_frameContexts[i];
+            VK_VERIFY(vkCreateSemaphore(m_device, &semaphoreInfo, nullptr, &frameContext.imageAvailableSemaphore));
+            VK_VERIFY(vkCreateSemaphore(m_device, &semaphoreInfo, nullptr, &frameContext.renderFinishedSemaphore));
+            VK_VERIFY(vkCreateFence(m_device, &fenceInfo, nullptr, &frameContext.imageInFlightFence));
+            frameContext.hasCommandBufferRecorded = false;
         }
 
         MGLOG_I("CreateSyncObjects completed");
@@ -243,10 +242,11 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         CreateSyncObjects();
 
         // Prime the first frame so Render() always targets an acquired swapchain image.
-        VK_VERIFY(vkWaitForFences(m_device, 1, &m_imageInFlightFences[m_currentFrameIndex], VK_TRUE, UINT64_MAX));
-        VK_VERIFY(vkResetFences(m_device, 1, &m_imageInFlightFences[m_currentFrameIndex]));
+        auto& frameContext = m_frameContexts[m_currentFrameIndex];
+        VK_VERIFY(vkWaitForFences(m_device, 1, &frameContext.imageInFlightFence, VK_TRUE, UINT64_MAX));
+        VK_VERIFY(vkResetFences(m_device, 1, &frameContext.imageInFlightFence));
         VK_VERIFY(vkAcquireNextImageKHR(m_device, m_swapchainObject.GetHandle(), UINT64_MAX,
-                                        m_imageAvailableSemaphores[m_currentFrameIndex], VK_NULL_HANDLE,
+                                        frameContext.imageAvailableSemaphore, VK_NULL_HANDLE,
                                         &m_imageIndexAcquired));
 
         MGLOG_D("VulkanRenderer initialized");
@@ -255,21 +255,22 @@ namespace MobileGL::MG_Backend::DirectVulkan {
     void VulkanRenderer::Shutdown() {
         VK_VERIFY(vkDeviceWaitIdle(m_device));
 
-        for (auto fence : m_imageInFlightFences) {
-            vkDestroyFence(m_device, fence, nullptr);
+        for (auto& frameContext : m_frameContexts) {
+            if (frameContext.imageInFlightFence != VK_NULL_HANDLE) {
+                vkDestroyFence(m_device, frameContext.imageInFlightFence, nullptr);
+                frameContext.imageInFlightFence = VK_NULL_HANDLE;
+            }
+            if (frameContext.renderFinishedSemaphore != VK_NULL_HANDLE) {
+                vkDestroySemaphore(m_device, frameContext.renderFinishedSemaphore, nullptr);
+                frameContext.renderFinishedSemaphore = VK_NULL_HANDLE;
+            }
+            if (frameContext.imageAvailableSemaphore != VK_NULL_HANDLE) {
+                vkDestroySemaphore(m_device, frameContext.imageAvailableSemaphore, nullptr);
+                frameContext.imageAvailableSemaphore = VK_NULL_HANDLE;
+            }
+            frameContext.hasCommandBufferRecorded = false;
         }
-        m_imageInFlightFences.clear();
-
-        for (auto s : m_renderFinishedSemaphores) {
-            vkDestroySemaphore(m_device, s, nullptr);
-        }
-        m_renderFinishedSemaphores.clear();
-
-        for (auto s : m_imageAvailableSemaphores) {
-            vkDestroySemaphore(m_device, s, nullptr);
-        }
-        m_imageAvailableSemaphores.clear();
-        m_hasCommandBufferRecorded.clear();
+        m_frameContexts.clear();
 
         if (m_pipeline != VK_NULL_HANDLE) {
             vkDestroyPipeline(m_device, m_pipeline, nullptr);
@@ -309,14 +310,15 @@ namespace MobileGL::MG_Backend::DirectVulkan {
     }
 
     void VulkanRenderer::Render() {
-        VK_VERIFY(vkResetCommandBuffer(m_commandBuffers[m_currentFrameIndex], 0));
+        auto& frameContext = m_frameContexts[m_currentFrameIndex];
+        VK_VERIFY(vkResetCommandBuffer(frameContext.commandBuffer, 0));
 
         // Begin command buffer
         VkCommandBufferBeginInfo beginInfo{};
         beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
         beginInfo.flags = 0;
         beginInfo.pInheritanceInfo = nullptr;
-        VK_VERIFY(vkBeginCommandBuffer(m_commandBuffers[m_currentFrameIndex], &beginInfo));
+        VK_VERIFY(vkBeginCommandBuffer(frameContext.commandBuffer, &beginInfo));
 
         // Begin render pass
         VkRenderPassBeginInfo renderPassInfo{};
@@ -329,10 +331,10 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         VkClearValue clearColor = {{{0.0f, 0.0f, 0.0f, 1.0f}}};
         renderPassInfo.clearValueCount = 1;
         renderPassInfo.pClearValues = &clearColor;
-        vkCmdBeginRenderPass(m_commandBuffers[m_currentFrameIndex], &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
+        vkCmdBeginRenderPass(frameContext.commandBuffer, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
 
         // Render commands
-        vkCmdBindPipeline(m_commandBuffers[m_currentFrameIndex], VK_PIPELINE_BIND_POINT_GRAPHICS, m_pipeline);
+        vkCmdBindPipeline(frameContext.commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, m_pipeline);
 
         VkViewport viewport{};
         viewport.x = 0.0f;
@@ -341,27 +343,28 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         viewport.height = static_cast<float>(swapchainExtent.height);
         viewport.minDepth = 0.0f;
         viewport.maxDepth = 1.0f;
-        vkCmdSetViewport(m_commandBuffers[m_currentFrameIndex], 0, 1, &viewport);
+        vkCmdSetViewport(frameContext.commandBuffer, 0, 1, &viewport);
 
         VkRect2D scissor{};
         scissor.offset = {0, 0};
         scissor.extent = swapchainExtent;
-        vkCmdSetScissor(m_commandBuffers[m_currentFrameIndex], 0, 1, &scissor);
+        vkCmdSetScissor(frameContext.commandBuffer, 0, 1, &scissor);
 
-        vkCmdDraw(m_commandBuffers[m_currentFrameIndex], 3, 1, 0, 0);
+        vkCmdDraw(frameContext.commandBuffer, 3, 1, 0, 0);
 
         // End render pass
-        vkCmdEndRenderPass(m_commandBuffers[m_currentFrameIndex]);
+        vkCmdEndRenderPass(frameContext.commandBuffer);
 
         // End command buffer
-        VK_VERIFY(vkEndCommandBuffer(m_commandBuffers[m_currentFrameIndex]));
-        m_hasCommandBufferRecorded[m_currentFrameIndex] = true;
+        VK_VERIFY(vkEndCommandBuffer(frameContext.commandBuffer));
+        frameContext.hasCommandBufferRecorded = true;
     }
 
     void VulkanRenderer::Present() {
         MOBILEGL_ASSERT(m_imageIndexAcquired < m_swapchainObject.GetImageCount(),
                         "Present, acquired image index out of range");
-        const Bool hasRecordedWork = m_hasCommandBufferRecorded[m_currentFrameIndex];
+        auto& frameContext = m_frameContexts[m_currentFrameIndex];
+        const Bool hasRecordedWork = frameContext.hasCommandBufferRecorded;
         Bool needsLayoutTransitionForPresent = false;
 
         if (!hasRecordedWork) {
@@ -370,12 +373,12 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                 acquiredImageLayout != VK_IMAGE_LAYOUT_SHARED_PRESENT_KHR) {
                 needsLayoutTransitionForPresent = true;
 
-                VK_VERIFY(vkResetCommandBuffer(m_commandBuffers[m_currentFrameIndex], 0),
+                VK_VERIFY(vkResetCommandBuffer(frameContext.commandBuffer, 0),
                           "Present, vkResetCommandBuffer(layout transition)");
 
                 VkCommandBufferBeginInfo beginInfo{};
                 beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-                VK_VERIFY(vkBeginCommandBuffer(m_commandBuffers[m_currentFrameIndex], &beginInfo),
+                VK_VERIFY(vkBeginCommandBuffer(frameContext.commandBuffer, &beginInfo),
                           "Present, vkBeginCommandBuffer(layout transition)");
 
                 VkImageMemoryBarrier presentBarrier{};
@@ -392,11 +395,11 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                 presentBarrier.subresourceRange.levelCount = 1;
                 presentBarrier.subresourceRange.baseArrayLayer = 0;
                 presentBarrier.subresourceRange.layerCount = 1;
-                vkCmdPipelineBarrier(m_commandBuffers[m_currentFrameIndex], VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+                vkCmdPipelineBarrier(frameContext.commandBuffer, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
                                      VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, 0, 0, nullptr, 0, nullptr, 1,
                                      &presentBarrier);
 
-                VK_VERIFY(vkEndCommandBuffer(m_commandBuffers[m_currentFrameIndex]),
+                VK_VERIFY(vkEndCommandBuffer(frameContext.commandBuffer),
                           "Present, vkEndCommandBuffer(layout transition)");
             }
         }
@@ -406,18 +409,18 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         // 1) Submit current frame work.
         VkSubmitInfo submitInfo{};
         submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-        VkSemaphore waitSemaphores[] = {m_imageAvailableSemaphores[m_currentFrameIndex]};
+        VkSemaphore waitSemaphores[] = {frameContext.imageAvailableSemaphore};
         VkPipelineStageFlags waitStages[] = {VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT};
         submitInfo.waitSemaphoreCount = 1;
         submitInfo.pWaitSemaphores = waitSemaphores;
         submitInfo.pWaitDstStageMask = waitStages;
         submitInfo.commandBufferCount = shouldSubmitCommandBuffer ? 1U : 0U;
-        submitInfo.pCommandBuffers = shouldSubmitCommandBuffer ? &m_commandBuffers[m_currentFrameIndex] : nullptr;
-        VkSemaphore signalSemaphores[] = {m_renderFinishedSemaphores[m_currentFrameIndex]};
+        submitInfo.pCommandBuffers = shouldSubmitCommandBuffer ? &frameContext.commandBuffer : nullptr;
+        VkSemaphore signalSemaphores[] = {frameContext.renderFinishedSemaphore};
         submitInfo.signalSemaphoreCount = 1;
         submitInfo.pSignalSemaphores = signalSemaphores;
-        VK_VERIFY(vkQueueSubmit(m_graphicsQueue, 1, &submitInfo, m_imageInFlightFences[m_currentFrameIndex]));
-        m_hasCommandBufferRecorded[m_currentFrameIndex] = false;
+        VK_VERIFY(vkQueueSubmit(m_graphicsQueue, 1, &submitInfo, frameContext.imageInFlightFence));
+        frameContext.hasCommandBufferRecorded = false;
         m_swapchainObject.SetImageLayout(m_imageIndexAcquired, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
 
         // 2) Present current frame.
@@ -442,12 +445,13 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         m_currentFrameIndex = (m_currentFrameIndex + 1) % m_config.MaxFramesInFlight;
 
         // 4) Wait/reset/acquire for next frame.
-        VK_VERIFY(vkWaitForFences(m_device, 1, &m_imageInFlightFences[m_currentFrameIndex], VK_TRUE, UINT64_MAX),
+        auto& nextFrameContext = m_frameContexts[m_currentFrameIndex];
+        VK_VERIFY(vkWaitForFences(m_device, 1, &nextFrameContext.imageInFlightFence, VK_TRUE, UINT64_MAX),
                   "Present, vkWaitForFences");
-        VK_VERIFY(vkResetFences(m_device, 1, &m_imageInFlightFences[m_currentFrameIndex]), "Present, vkResetFences");
+        VK_VERIFY(vkResetFences(m_device, 1, &nextFrameContext.imageInFlightFence), "Present, vkResetFences");
         result =
             vkAcquireNextImageKHR(m_device, m_swapchainObject.GetHandle(), UINT64_MAX,
-                                  m_imageAvailableSemaphores[m_currentFrameIndex], VK_NULL_HANDLE,
+                                  nextFrameContext.imageAvailableSemaphore, VK_NULL_HANDLE,
                                   &m_imageIndexAcquired);
         if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR) {
             MGLOG_D("Present, vkAcquireNextImageKHR got %d, recreating swapchain", result);
@@ -801,13 +805,17 @@ namespace MobileGL::MG_Backend::DirectVulkan {
     }
 
     void VulkanRenderer::CreateCommandBuffers() {
-        m_commandBuffers.resize(m_config.MaxFramesInFlight, VK_NULL_HANDLE);
+        m_frameContexts.resize(m_config.MaxFramesInFlight);
+        Vector<VkCommandBuffer> commandBuffers(m_config.MaxFramesInFlight, VK_NULL_HANDLE);
         VkCommandBufferAllocateInfo allocInfo{};
         allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
         allocInfo.commandPool = m_commandPool;
         allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
         allocInfo.commandBufferCount = m_config.MaxFramesInFlight;
-        VK_VERIFY(vkAllocateCommandBuffers(m_device, &allocInfo, m_commandBuffers.data()));
+        VK_VERIFY(vkAllocateCommandBuffers(m_device, &allocInfo, commandBuffers.data()));
+        for (SizeT i = 0; i < m_config.MaxFramesInFlight; ++i) {
+            m_frameContexts[i].commandBuffer = commandBuffers[i];
+        }
         MGLOG_I("Command buffer created");
     }
 
@@ -978,7 +986,9 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         CreateSwapchain();
         CreateDefaultRenderPass();
         CreateDefaultFramebuffers();
-        std::fill(m_hasCommandBufferRecorded.begin(), m_hasCommandBufferRecorded.end(), false);
+        for (auto& frameContext : m_frameContexts) {
+            frameContext.hasCommandBufferRecorded = false;
+        }
     }
 
 } // namespace MobileGL::MG_Backend::DirectVulkan
