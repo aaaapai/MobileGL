@@ -19,6 +19,7 @@
 #elif defined(__APPLE__)
     #define GLFW_EXPOSE_NATIVE_COCOA
 #endif
+#include "Init.h"
 #include "MG_Backend/DirectVulkan/DirectVulkan.h"
 #include "MG_Backend/DirectVulkan/Renderer/VulkanRenderer.h"
 
@@ -72,12 +73,18 @@ int main() {
     EGLSurface surface = eglCreateWindowSurface(display, config, nativewindow, nullptr);
     eglMakeCurrent(display, surface, surface, context);
 
+    MobileGL::MG_Initialize();
+
     int i = 0;
     while(!glfwWindowShouldClose(window)) {
         glfwPollEvents();
 
-        if (i % 2 == 0)
-            MobileGL::MG_Backend::DirectVulkan::pVulkanRenderer->Render();
+        if (i % 1000 > 500)
+            glClearColor(1.0f, 0.0f, 0.0f, 1.0f);
+        else
+            glClearColor(0.0f, 1.0f, 0.0f, 1.0f);
+        glClear(GL_COLOR_BUFFER_BIT);
+        MobileGL::MG_Backend::DirectVulkan::pVulkanRenderer->Render();
         eglSwapBuffers(display, surface);
     }
 

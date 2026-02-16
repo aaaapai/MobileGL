@@ -11,6 +11,7 @@
 #include "FrameContext.h"
 #include "ProgramFactory.h"
 #include "SwapchainObject.h"
+#include "MG_Util/Math/VectorTypes.h"
 #include <Includes.h>
 
 #include "../VkIncludes.h"
@@ -24,6 +25,9 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         void Initialize();
         void Shutdown();
 
+        void RequestClear(GLbitfield mask, const FloatVec4& color);
+        Bool ConsumePendingColorClear(VkClearColorValue& outClearColor);
+        void EnsureFrameRecordingStarted();
         void Render();
         void Present();
 
@@ -69,7 +73,8 @@ namespace MobileGL::MG_Backend::DirectVulkan {
 
         VkCommandPool m_commandPool = VK_NULL_HANDLE;
 
-        VkRenderPass m_renderPass = VK_NULL_HANDLE;
+        VkRenderPass m_renderPassLoad = VK_NULL_HANDLE;
+        VkRenderPass m_renderPassClear = VK_NULL_HANDLE;
         Vector<VkFramebuffer> m_framebuffers;
 
         VkPipelineLayout m_pipelineLayout = VK_NULL_HANDLE;
@@ -77,6 +82,9 @@ namespace MobileGL::MG_Backend::DirectVulkan {
 
         Uint m_imageIndexAcquired = 0;
         FrameContext m_frameContext;
+        Bool m_pendingColorClear = false;
+        VkClearColorValue m_pendingClearColor = {{0.0f, 0.0f, 0.0f, 1.0f}};
+        Bool m_isMainRenderPassActive = false;
 
         UniquePtr<ProgramFactory> m_programFactory;
 
@@ -91,8 +99,12 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         void CreateCommandPool();
         void CreateFrameContexts();
         void CreateDefaultRenderPass();
+        VkRenderPass CreateDefaultRenderPass(VkAttachmentLoadOp loadOp);
         void CreateDefaultFramebuffers();
         void PrepareDemoPipeline();
+        void TransitionSwapchainImageToColorAttachment(VkCommandBuffer commandBuffer, Uint32 imageIndex);
+        void RecordColorClear(VkCommandBuffer commandBuffer, const VkClearColorValue& clearColor);
+        void EndFrameRecordingIfNeeded();
 
         void ShutdownSwapchain();
 

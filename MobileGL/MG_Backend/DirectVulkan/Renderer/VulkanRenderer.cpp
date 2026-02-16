@@ -163,7 +163,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         gpi.pColorBlendState = &blend;
         gpi.pDynamicState = &dynamicState;
         gpi.layout = m_pipelineLayout;
-        gpi.renderPass = m_renderPass;
+        gpi.renderPass = m_renderPassLoad;
         gpi.subpass = 0;
 
         VK_VERIFY(vkCreateGraphicsPipelines(m_device, VK_NULL_HANDLE, 1, &gpi, nullptr, &m_pipeline),
@@ -247,21 +247,127 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         MGLOG_I("VulkanRenderer shut down completed");
     }
 
-    void VulkanRenderer::Render() {
-        VkCommandBuffer& commandBuffer = m_frameContext.BeginCommandRecording();
+    void VulkanRenderer::RequestClear(GLbitfield mask, const FloatVec4& color) {
+        if ((mask & GL_COLOR_BUFFER_BIT) == 0) {
+            return;
+        }
 
-        // Begin render pass
+        m_pendingClearColor.float32[0] = color.x();
+        m_pendingClearColor.float32[1] = color.y();
+        m_pendingClearColor.float32[2] = color.z();
+        m_pendingClearColor.float32[3] = color.w();
+        m_pendingColorClear = true;
+    }
+
+    Bool VulkanRenderer::ConsumePendingColorClear(VkClearColorValue& outClearColor) {
+        if (!m_pendingColorClear) {
+            return false;
+        }
+
+        outClearColor = m_pendingClearColor;
+        m_pendingColorClear = false;
+        return true;
+    }
+
+    void VulkanRenderer::TransitionSwapchainImageToColorAttachment(VkCommandBuffer commandBuffer, Uint32 imageIndex) {
+        const auto oldLayout = m_swapchainObject.GetImageLayout(imageIndex);
+        if (oldLayout == VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL) {
+            return;
+        }
+
+        VkImageMemoryBarrier barrier{};
+        barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+        barrier.srcAccessMask = 0;
+        barrier.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+        barrier.oldLayout = oldLayout;
+        barrier.newLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+        barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        barrier.image = m_swapchainObject.GetImage(imageIndex);
+        barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        barrier.subresourceRange.baseMipLevel = 0;
+        barrier.subresourceRange.levelCount = 1;
+        barrier.subresourceRange.baseArrayLayer = 0;
+        barrier.subresourceRange.layerCount = 1;
+
+        vkCmdPipelineBarrier(commandBuffer, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+                             0, 0, nullptr, 0, nullptr, 1, &barrier);
+        m_swapchainObject.SetImageLayout(imageIndex, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+    }
+
+    void VulkanRenderer::RecordColorClear(VkCommandBuffer commandBuffer, const VkClearColorValue& clearColor) {
+        VkClearAttachment clearAttachment{};
+        clearAttachment.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        clearAttachment.colorAttachment = 0;
+        clearAttachment.clearValue.color = clearColor;
+
+        VkClearRect clearRect{};
+        clearRect.rect.offset = {0, 0};
+        clearRect.rect.extent = m_swapchainObject.GetExtent();
+        clearRect.baseArrayLayer = 0;
+        clearRect.layerCount = 1;
+
+        vkCmdClearAttachments(commandBuffer, 1, &clearAttachment, 1, &clearRect);
+    }
+
+    void VulkanRenderer::EnsureFrameRecordingStarted() {
+        auto& frame = m_frameContext.GetCurrent();
+        if (frame.isCommandRecording) {
+            return;
+        }
+
+        if (frame.hasCommandBufferRecorded) {
+            MGLOG_W("EnsureFrameRecordingStarted skipped: current frame command buffer is already finalized");
+            return;
+        }
+
+        VkCommandBuffer& commandBuffer = m_frameContext.BeginCommandRecording();
+        TransitionSwapchainImageToColorAttachment(commandBuffer, m_imageIndexAcquired);
+
+        const Bool useRenderPassClearValue = m_pendingColorClear;
+        VkClearValue clearValue{};
+        if (useRenderPassClearValue) {
+            clearValue.color = m_pendingClearColor;
+            m_pendingColorClear = false;
+        }
+
         VkRenderPassBeginInfo renderPassInfo{};
         renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
-        renderPassInfo.renderPass = m_renderPass;
+        renderPassInfo.renderPass = useRenderPassClearValue ? m_renderPassClear : m_renderPassLoad;
         renderPassInfo.framebuffer = m_framebuffers[m_imageIndexAcquired];
         renderPassInfo.renderArea.offset = {0, 0};
-        const auto swapchainExtent = m_swapchainObject.GetExtent();
-        renderPassInfo.renderArea.extent = swapchainExtent;
-        VkClearValue clearColor = {{{0.0f, 0.0f, 0.0f, 1.0f}}};
-        renderPassInfo.clearValueCount = 1;
-        renderPassInfo.pClearValues = &clearColor;
+        renderPassInfo.renderArea.extent = m_swapchainObject.GetExtent();
+        renderPassInfo.clearValueCount = useRenderPassClearValue ? 1 : 0;
+        renderPassInfo.pClearValues = useRenderPassClearValue ? &clearValue : nullptr;
         vkCmdBeginRenderPass(commandBuffer, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
+        m_isMainRenderPassActive = true;
+    }
+
+    void VulkanRenderer::EndFrameRecordingIfNeeded() {
+        auto& frame = m_frameContext.GetCurrent();
+        if (!frame.isCommandRecording) {
+            return;
+        }
+
+        if (m_isMainRenderPassActive) {
+            vkCmdEndRenderPass(frame.commandBuffer);
+            m_isMainRenderPassActive = false;
+        }
+        m_frameContext.EndCommandRecording();
+    }
+
+    void VulkanRenderer::Render() {
+        // Route test rendering through the same frame-start logic used by draw calls,
+        // so pending glClear() state can be consumed consistently.
+        EnsureFrameRecordingStarted();
+        auto& frame = m_frameContext.GetCurrent();
+        if (!frame.isCommandRecording || !m_isMainRenderPassActive) {
+            MGLOG_W("Render skipped: frame recording was not started");
+            return;
+        }
+
+        VkCommandBuffer& commandBuffer = frame.commandBuffer;
+        const auto swapchainExtent = m_swapchainObject.GetExtent();
 
         // Render commands
         vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, m_pipeline);
@@ -281,18 +387,24 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         vkCmdSetScissor(commandBuffer, 0, 1, &scissor);
 
         vkCmdDraw(commandBuffer, 3, 1, 0, 0);
-
-        // End render pass
-        vkCmdEndRenderPass(commandBuffer);
-
-        // End command buffer
-        m_frameContext.EndCommandRecording();
     }
 
     void VulkanRenderer::Present() {
         MOBILEGL_ASSERT(m_imageIndexAcquired < m_swapchainObject.GetImageCount(),
                         "Present, acquired image index out of range");
         auto& frame = m_frameContext.GetCurrent();
+        if (m_pendingColorClear && frame.isCommandRecording && m_isMainRenderPassActive) {
+            RecordColorClear(frame.commandBuffer, m_pendingClearColor);
+            m_pendingColorClear = false;
+        } else if (m_pendingColorClear && frame.hasCommandBufferRecorded) {
+            MGLOG_W("Dropping pending clear for current frame because command buffer is already finalized");
+            VkClearColorValue droppedClearColor{};
+            ConsumePendingColorClear(droppedClearColor);
+        } else if (m_pendingColorClear) {
+            EnsureFrameRecordingStarted();
+        }
+        EndFrameRecordingIfNeeded();
+
         const auto acquiredImageLayout = m_swapchainObject.GetImageLayout(m_imageIndexAcquired);
         const Bool needsLayoutTransitionForPresent =
             m_frameContext.TransitionToPresent(m_swapchainObject.GetImage(m_imageIndexAcquired), acquiredImageLayout);
@@ -671,13 +783,13 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         MGLOG_I("Command pool created");
     }
 
-    void VulkanRenderer::CreateDefaultRenderPass() {
+    VkRenderPass VulkanRenderer::CreateDefaultRenderPass(VkAttachmentLoadOp loadOp) {
         VkAttachmentDescription color{};
         color.format = m_swapchainObject.GetSurfaceFormat().format;
         color.samples = VK_SAMPLE_COUNT_1_BIT;
-        color.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+        color.loadOp = loadOp;
         color.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-        color.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+        color.initialLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
         color.finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
 
         VkAttachmentReference colorRef{0, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL};
@@ -692,9 +804,15 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         rpci.subpassCount = 1;
         rpci.pSubpasses = &sub;
 
-        VK_VERIFY(vkCreateRenderPass(m_device, &rpci, nullptr, &m_renderPass), "vkCreateRenderPass");
+        VkRenderPass renderPass = VK_NULL_HANDLE;
+        VK_VERIFY(vkCreateRenderPass(m_device, &rpci, nullptr, &renderPass), "vkCreateRenderPass");
+        return renderPass;
+    }
 
-        MGLOG_D("RenderPass created.");
+    void VulkanRenderer::CreateDefaultRenderPass() {
+        m_renderPassLoad = CreateDefaultRenderPass(VK_ATTACHMENT_LOAD_OP_LOAD);
+        m_renderPassClear = CreateDefaultRenderPass(VK_ATTACHMENT_LOAD_OP_CLEAR);
+        MGLOG_D("RenderPasses created (LOAD/CLEAR).");
     }
 
     void VulkanRenderer::CreateDefaultFramebuffers() {
@@ -706,7 +824,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         for (auto iv : imageViews) {
             VkImageView attachments[] = {iv};
             VkFramebufferCreateInfo fbci{VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO};
-            fbci.renderPass = m_renderPass;
+            fbci.renderPass = m_renderPassLoad;
             fbci.attachmentCount = 1;
             fbci.pAttachments = attachments;
             fbci.width = swapchainExtent.width;
@@ -815,9 +933,14 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         }
         m_framebuffers.clear();
 
-        if (m_renderPass != VK_NULL_HANDLE) {
-            vkDestroyRenderPass(m_device, m_renderPass, nullptr);
-            m_renderPass = VK_NULL_HANDLE;
+        if (m_renderPassClear != VK_NULL_HANDLE) {
+            vkDestroyRenderPass(m_device, m_renderPassClear, nullptr);
+            m_renderPassClear = VK_NULL_HANDLE;
+        }
+
+        if (m_renderPassLoad != VK_NULL_HANDLE) {
+            vkDestroyRenderPass(m_device, m_renderPassLoad, nullptr);
+            m_renderPassLoad = VK_NULL_HANDLE;
         }
 
         m_swapchainObject.Shutdown(m_device);
@@ -842,6 +965,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             m_frameContext.GetCurrent().isCommandRecording = false;
             m_frameContext.GetCurrent().hasCommandBufferRecorded = false;
         }
+        m_isMainRenderPassActive = false;
     }
 
 } // namespace MobileGL::MG_Backend::DirectVulkan

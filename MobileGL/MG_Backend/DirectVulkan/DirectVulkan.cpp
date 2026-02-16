@@ -7,13 +7,25 @@
 // End of Source File Header
 
 #include "DirectVulkan.h"
+#include "MG_State/GLState/Core.h"
 
 namespace MobileGL::MG_Backend::DirectVulkan {
     UniquePtr<VulkanRenderer> pVulkanRenderer = nullptr;
 
-    void Clear(GLbitfield mask) {}
+    void Clear(GLbitfield mask) {
+        if (!pVulkanRenderer || !MG_State::pGLContext) {
+            return;
+        }
+
+        const auto& clearColor = MG_State::pGLContext->GetClearColor();
+        pVulkanRenderer->RequestClear(mask, clearColor);
+    }
 
     void DrawElements(GLenum mode, GLsizei count, GLenum type, const void* indices) {
+        if (pVulkanRenderer) {
+            pVulkanRenderer->EnsureFrameRecordingStarted();
+        }
+
         (void)mode;
         (void)count;
         (void)type;
