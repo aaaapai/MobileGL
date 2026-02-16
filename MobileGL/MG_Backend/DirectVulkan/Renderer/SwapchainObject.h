@@ -28,7 +28,8 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         static VkSurfaceFormatKHR ChooseSwapchainSurfaceFormat(const Vector<VkSurfaceFormatKHR>& availableFormats);
         static VkPresentModeKHR ChooseSwapchainPresentMode(const Vector<VkPresentModeKHR>& availablePresentModes);
 
-        void Create(VkDevice device, const VkSwapchainCreateInfoKHR& createInfo);
+        void Create(VkDevice device, VkPhysicalDevice physicalDevice, VkSurfaceKHR surface, Uint32 graphicsQueueFamily,
+                    Uint32 presentQueueFamily, Uint32 minImageCountHint);
         void Shutdown(VkDevice device);
 
         VkSwapchainKHR GetHandle() const { return m_swapchain; }

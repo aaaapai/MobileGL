@@ -7,6 +7,7 @@
 // End of Source File Header
 
 #include "SwapchainObject.h"
+#include <vulkan/vk_enum_string_helper.h>
 
 namespace MobileGL::MG_Backend::DirectVulkan {
     SwapchainObject::SwapchainCapabilities SwapchainObject::GetSwapchainCapabilities(VkPhysicalDevice physicalDevice,
@@ -63,7 +64,60 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         return availablePresentModes[0];
     }
 
-    void SwapchainObject::Create(VkDevice device, const VkSwapchainCreateInfoKHR& createInfo) {
+    void SwapchainObject::Create(VkDevice device, VkPhysicalDevice physicalDevice, VkSurfaceKHR surface,
+                                 Uint32 graphicsQueueFamily, Uint32 presentQueueFamily, Uint32 minImageCountHint) {
+        const auto swapchainCapabilities = GetSwapchainCapabilities(physicalDevice, surface);
+        MOBILEGL_ASSERT(swapchainCapabilities.IsComplete(),
+                        "SwapchainObject::Create failed: incomplete swapchain capabilities");
+
+        MGLOG_I("Got %d surface formats:", swapchainCapabilities.surfaceFormats.size());
+        for (const auto& sf : swapchainCapabilities.surfaceFormats) {
+            MGLOG_I("    [%s, %s]", string_VkFormat(sf.format), string_VkColorSpaceKHR(sf.colorSpace));
+        }
+
+        const auto pickedSurfaceFormat = ChooseSwapchainSurfaceFormat(swapchainCapabilities.surfaceFormats);
+        MGLOG_I("Picked surface format: [%s, %s]", string_VkFormat(pickedSurfaceFormat.format),
+                string_VkColorSpaceKHR(pickedSurfaceFormat.colorSpace));
+
+        MGLOG_I("Got %d present modes:", swapchainCapabilities.presentModes.size());
+        for (const auto& pm : swapchainCapabilities.presentModes) {
+            MGLOG_I("    %s", string_VkPresentModeKHR(pm));
+        }
+
+        const auto presentMode = ChooseSwapchainPresentMode(swapchainCapabilities.presentModes);
+        MGLOG_I("Picked present mode: %s", string_VkPresentModeKHR(presentMode));
+
+        const auto& swapchainCaps = swapchainCapabilities.capabilities;
+        const auto targetImageCount = std::max<Uint32>(minImageCountHint, swapchainCaps.minImageCount);
+        MGLOG_I("Set minImageCount = %u", targetImageCount);
+        MGLOG_I("Swapchain currentTransform = %s",
+                string_VkSurfaceTransformFlagBitsKHR(swapchainCaps.currentTransform));
+
+        VkSwapchainCreateInfoKHR createInfo{VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR};
+        createInfo.surface = surface;
+        createInfo.minImageCount = targetImageCount;
+        createInfo.imageFormat = pickedSurfaceFormat.format;
+        createInfo.imageColorSpace = pickedSurfaceFormat.colorSpace;
+        createInfo.imageExtent = swapchainCaps.currentExtent;
+        createInfo.imageArrayLayers = 1;
+        createInfo.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
+        Uint32 queueFamilyIndices[] = {graphicsQueueFamily, presentQueueFamily};
+        if (graphicsQueueFamily != presentQueueFamily) {
+            createInfo.imageSharingMode = VK_SHARING_MODE_CONCURRENT;
+            createInfo.queueFamilyIndexCount = 2;
+            createInfo.pQueueFamilyIndices = queueFamilyIndices;
+        } else {
+            createInfo.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
+            createInfo.queueFamilyIndexCount = 0;
+            createInfo.pQueueFamilyIndices = nullptr;
+        }
+        createInfo.preTransform = swapchainCaps.currentTransform;
+        MGLOG_I("Set swapchain preTransform = %s", string_VkSurfaceTransformFlagBitsKHR(createInfo.preTransform));
+        createInfo.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
+        createInfo.presentMode = presentMode;
+        createInfo.clipped = VK_TRUE;
+        createInfo.oldSwapchain = VK_NULL_HANDLE;
+
         m_surfaceFormat = {createInfo.imageFormat, createInfo.imageColorSpace};
         m_extent = createInfo.imageExtent;
 

@@ -209,6 +209,7 @@ set(SOURCE_FILES
 
     MobileGL/MG_Backend/DirectVulkan/DirectVulkan.cpp
     MobileGL/MG_Backend/DirectVulkan/Renderer/VulkanRenderer.cpp
+    MobileGL/MG_Backend/DirectVulkan/Renderer/SwapchainObject.cpp
 #    MobileGL/MG_Backend/DirectVulkan/Managers/ProgramManager.cpp
 #    MobileGL/MG_Backend/DirectVulkan/Managers/VertexInputStateManager.cpp
 #    MobileGL/MG_Backend/DirectVulkan/Managers/RenderStateManager.cpp
