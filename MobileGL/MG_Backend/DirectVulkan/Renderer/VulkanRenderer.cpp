@@ -10,18 +10,6 @@
 
 #include "MG_State/GLState/ProgramState/ProgramObject.h"
 
-// #ifndef VK_INSTANCE_CREATE_ENUMERATE_PORTABILITY_BIT_KHR
-// #define VK_INSTANCE_CREATE_ENUMERATE_PORTABILITY_BIT_KHR 0x00000001
-// #endif
-//
-// #ifndef VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME
-// #define VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME "VK_KHR_portability_enumeration"
-// #endif
-//
-// #ifndef VK_EXT_METAL_SURFACE_EXTENSION_NAME
-// #define VK_EXT_METAL_SURFACE_EXTENSION_NAME "VK_EXT_metal_surface"
-// #endif
-
 namespace MobileGL::MG_Backend::DirectVulkan {
     VkBool32 VulkanRenderer::DebugCallback(VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity,
                                            VkDebugUtilsMessageTypeFlagsEXT messageType,
