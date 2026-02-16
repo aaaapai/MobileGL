@@ -15,14 +15,14 @@ namespace MobileGL::MG_Backend::DirectVulkan {
 
     void Clear(GLbitfield mask) {
         if (USE_TMP_IMPL) {
-            MobileGL::Backend::DirectVulkan::TmpImpl::Clear(mask);
+            MobileGL::MG_Backend::DirectVulkan::TmpImpl::Clear(mask);
             return;
         }
     }
 
     void DrawElements(GLenum mode, GLsizei count, GLenum type, const void* indices) {
         if (USE_TMP_IMPL) {
-            MobileGL::Backend::DirectVulkan::TmpImpl::DrawElements(mode, count, type, indices);
+            MobileGL::MG_Backend::DirectVulkan::TmpImpl::DrawElements(mode, count, type, indices);
             return;
         }
         pVulkanRenderer->RenderFrame();

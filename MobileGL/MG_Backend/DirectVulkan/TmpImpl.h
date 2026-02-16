@@ -9,7 +9,7 @@
 #pragma once
 #include <Includes.h>
 
-namespace MobileGL::Backend::DirectVulkan::TmpImpl {
+namespace MobileGL::MG_Backend::DirectVulkan::TmpImpl {
     void Present();
     void FrameBegin();
     void InitVulkan(ANativeWindow* window);
@@ -50,4 +50,4 @@ namespace MobileGL::Backend::DirectVulkan::TmpImpl {
                            GLsizei height);
     void GenerateMipmap(GLenum target);
     void Present();
-} // namespace MobileGL::Backend::DirectVulkan::TmpImpl
+} // namespace MobileGL::MG_Backend::DirectVulkan::TmpImpl

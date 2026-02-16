@@ -20,7 +20,7 @@
 #include <xxhash.h>
 
 #define DEBUG_TRACE_POINT() MGLOG_D("DV TmpImpl Trace: %s:%d", __func__, __LINE__)
-namespace MobileGL::Backend::DirectVulkan::TmpImpl {
+namespace MobileGL::MG_Backend::DirectVulkan::TmpImpl {
     namespace {
         class PendingClearInfo;
         void BeginRenderPass(GLbitfield clearMask, const PendingClearInfo* clearInfo);
@@ -411,7 +411,7 @@ namespace MobileGL::Backend::DirectVulkan::TmpImpl {
                     if (view != VK_NULL_HANDLE) trash.mipViews.push_back(view);
                 }
             }
-            frame.TrashImages.push_back(std::move(trash));
+            frame.TrashImages.push_back(Move(trash));
 
             res.view = VK_NULL_HANDLE;
             res.image = VK_NULL_HANDLE;
@@ -1434,8 +1434,8 @@ namespace MobileGL::Backend::DirectVulkan::TmpImpl {
 
             DestroyBackendFramebuffer(backend);
 
-            backend.attachments = std::move(newAttachments);
-            backend.attachmentIndex = std::move(newIndex);
+            backend.attachments = Move(newAttachments);
+            backend.attachmentIndex = Move(newIndex);
             backend.extent = extent;
             backend.colorAttachmentCount = nEffectiveBuffers;
             backend.hasDepth = useDepthAttachment;
@@ -2119,6 +2119,16 @@ namespace MobileGL::Backend::DirectVulkan::TmpImpl {
             Memset(g.nullUbo.mapped, 0, 256);
         }
 
+        VkManager::ShaderTransformFlags GetShaderTransformFlags() {
+            VkManager::ShaderTransformFlags flags = VkManager::ShaderTransformBit::PositionZRemap;
+            const auto& currentDrawFBO =
+                MG_State::pGLContext->GetFramebufferBindingSlot(FramebufferTarget::Draw).GetBoundObject();
+            if (currentDrawFBO == MG_Impl::GLImpl::FramebufferImpl::pDefaultFramebufferInfo->defaultFBO) {
+                flags |= VkManager::ShaderTransformBit::PositionYFlip;
+            }
+            return flags;
+        }
+
         ProgramResource& GetProgramResource(ProgramObject* program) {
             auto& slot = g.programs[program];
             Uint64 newHash = ComputeProgramSpvHash(program);
@@ -2131,10 +2141,11 @@ namespace MobileGL::Backend::DirectVulkan::TmpImpl {
 
             slot.program = program;
             slot.spvHash = newHash;
-            slot.programHash = newHash;
 
+            VkManager::ShaderTransformFlags transformFlags = GetShaderTransformFlags();
             if (!g.programMgr) g.programMgr = MakeUnique<DV::ProgramManager>(*g.ctx);
-            slot.shaderStages = &g.programMgr->CreatePipelineShaderStages(program);
+            slot.shaderStages = &g.programMgr->CreatePipelineShaderStages(program, transformFlags);
+            slot.programHash = g.programMgr->ComputeProgramHash(program, transformFlags);
 
             ReflectProgramResources(program, slot);
 
@@ -2239,7 +2250,7 @@ namespace MobileGL::Backend::DirectVulkan::TmpImpl {
                                        VkRenderPass renderPass, Uint32 colorAttachmentCount, Bool hasDepth,
                                        Uint64 renderPassKey) {
             if (!g.programMgr) g.programMgr = MakeUnique<DV::ProgramManager>(*g.ctx);
-            prog.shaderStages = &g.programMgr->CreatePipelineShaderStages(prog.program);
+            prog.shaderStages = &g.programMgr->CreatePipelineShaderStages(prog.program, GetShaderTransformFlags());
             if (!prog.shaderStages || prog.shaderStages->empty()) {
                 MGLOG_E("Vulkan: shader stages are empty for program %u (hash=%llu)", prog.program->GetExternalIndex(),
                         static_cast<unsigned long long>(prog.programHash));
@@ -2274,8 +2285,8 @@ namespace MobileGL::Backend::DirectVulkan::TmpImpl {
             key.depthTest = rs.DepthTestEnabled ? 1u : 0u;
             key.depthWrite = rs.DepthMask ? 1u : 0u;
             key.depthFunc = static_cast<Uint32>(rs.DepthFunc);
-            key.cullEnable = rs.CullFaceEnabled ? 1u : 0u;
-            key.cullMode = static_cast<Uint32>(rs.CullFaceModeSetting);
+            key.cullEnable = 0;
+            key.cullMode = 0;
             key.colorMask = (rs.ColorMask.x() ? 1u : 0u) | (rs.ColorMask.y() ? 2u : 0u) | (rs.ColorMask.z() ? 4u : 0u) |
                             (rs.ColorMask.w() ? 8u : 0u);
             key.srcRGB = static_cast<Uint32>(rs.BlendStates[0].SrcFactorRGB);
@@ -2337,7 +2348,7 @@ namespace MobileGL::Backend::DirectVulkan::TmpImpl {
             DEBUG_TRACE_POINT();
             VkPipelineRasterizationStateCreateInfo raster{VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO};
             raster.polygonMode = VK_POLYGON_MODE_FILL;
-            raster.cullMode = rs.CullFaceEnabled ? ToVkCullMode(rs.CullFaceModeSetting) : VK_CULL_MODE_NONE;
+            raster.cullMode = VK_CULL_MODE_NONE;
             raster.frontFace = VK_FRONT_FACE_CLOCKWISE;
             raster.lineWidth = 1.0f;
 
@@ -2703,7 +2714,7 @@ namespace MobileGL::Backend::DirectVulkan::TmpImpl {
                 VK_VERIFY(vkCreateFramebuffer(g.ctx->GetDevice(), &fbci, nullptr, &fb), "vkCreateFramebuffer");
                 fbs.push_back(fb);
             }
-            g.swapchain->SetFramebuffers(std::move(fbs));
+            g.swapchain->SetFramebuffers(Move(fbs));
         }
 
         void DestroyFrameResources() {
@@ -2722,7 +2733,7 @@ namespace MobileGL::Backend::DirectVulkan::TmpImpl {
             for (Uint32 i = 0; i < frames; ++i) {
                 auto fr = MakeUnique<DV::FrameContext>();
                 fr->Initialize(*g.ctx, g.commandPool);
-                g.frames.push_back(std::move(fr));
+                g.frames.push_back(Move(fr));
             }
             g.frameDescriptorPools.clear();
             g.frameDescriptorPools.resize(frames);
@@ -3445,4 +3456,4 @@ namespace MobileGL::Backend::DirectVulkan::TmpImpl {
         }
         clearInfo.mask |= validMask;
     }
-} // namespace MobileGL::Backend::DirectVulkan::TmpImpl
+} // namespace MobileGL::MG_Backend::DirectVulkan::TmpImpl
