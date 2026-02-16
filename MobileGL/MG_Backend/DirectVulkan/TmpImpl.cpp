@@ -3244,126 +3244,53 @@ namespace MobileGL::MG_Backend::DirectVulkan::TmpImpl {
     void BlitFramebuffer(GLint srcX0, GLint srcY0, GLint srcX1, GLint srcY1, GLint dstX0, GLint dstY0, GLint dstX1,
                          GLint dstY1, GLbitfield mask, GLenum filter) {
         EnsureInitialized();
-        if ((mask & GL_COLOR_BUFFER_BIT) == 0) {
-            MGLOG_W("BlitFramebuffer: only color blit is supported");
-            return;
-        }
+        GLbitfield validMask = mask & (GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
+        if (!validMask) return;
 
-        auto& readSlot = MG_State::pGLContext->GetFramebufferBindingSlot(FramebufferTarget::Read);
         auto& drawSlot = MG_State::pGLContext->GetFramebufferBindingSlot(FramebufferTarget::Draw);
-        auto readFBO = readSlot.GetBoundObject();
+        auto& readSlot = MG_State::pGLContext->GetFramebufferBindingSlot(FramebufferTarget::Read);
         auto drawFBO = drawSlot.GetBoundObject();
-        if (!readFBO || !drawFBO) {
-            MGLOG_E("BlitFramebuffer: read/draw framebuffer not bound");
+        auto readFBO = readSlot.GetBoundObject();
+        if (!drawFBO || !readFBO) {
+            MGLOG_E("BlitFramebuffer: draw/read framebuffer is not bound");
             return;
         }
 
-        auto getBackendFBO = [&](const SharedPtr<FramebufferObject>& stateFBO) -> SharedPtr<BackendFramebufferObject> {
-            auto it = g.framebuffers.find(stateFBO);
-            SharedPtr<BackendFramebufferObject> backend;
+        auto defaultFBO = MG_Impl::GLImpl::FramebufferImpl::pDefaultFramebufferInfo->defaultFBO;
+
+        auto& pending = g.pendingClears;
+        auto pendingDrawIt = pending.find(drawFBO);
+        if (pendingDrawIt != pending.end() && pendingDrawIt->second.mask) {
+            if (!EnsureRenderPassBound()) return;
+        }
+
+        auto ensureBackendFbo = [&](const SharedPtr<FramebufferObject>& fbo, SharedPtr<BackendFramebufferObject>& out,
+                                    Bool& isDefault) -> Bool {
+            if (fbo == defaultFBO) {
+                isDefault = true;
+                out = nullptr;
+                return true;
+            }
+
+            isDefault = false;
+            auto it = g.framebuffers.find(fbo);
             if (it == g.framebuffers.end()) {
-                backend = MakeShared<BackendFramebufferObject>();
-                g.framebuffers[stateFBO] = backend;
+                auto backend = MakeShared<BackendFramebufferObject>();
+                g.framebuffers[fbo] = backend;
+                out = backend;
             } else {
-                backend = it->second;
+                out = it->second;
             }
-            if (!SyncFramebufferObject(*backend, stateFBO)) return nullptr;
-            return backend;
+            if (!SyncFramebufferObject(*out, fbo)) return false;
+            return out->IsValid();
         };
 
-        auto readBackend = getBackendFBO(readFBO);
-        auto drawBackend = getBackendFBO(drawFBO);
-        bool readDefault = readFBO == MG_Impl::GLImpl::FramebufferImpl::pDefaultFramebufferInfo->defaultFBO;
-        bool drawDefault = drawFBO == MG_Impl::GLImpl::FramebufferImpl::pDefaultFramebufferInfo->defaultFBO;
-        if (!readDefault && !readBackend) return;
-        if (!drawDefault && !drawBackend) return;
-
-        auto pickSrcType = [&](const BackendFramebufferObject& backend) -> FramebufferAttachmentType {
-            auto type = backend.frontendReadBuffer;
-            if (type == FramebufferAttachmentType::None) return FramebufferAttachmentType::Color0;
-            return type;
-        };
-        auto pickDstType = [&](const BackendFramebufferObject& backend) -> FramebufferAttachmentType {
-            auto type = backend.frontendDrawBuffers[0];
-            if (type == FramebufferAttachmentType::None) return FramebufferAttachmentType::Color0;
-            return type;
-        };
-
-        FramebufferAttachmentType srcType = FramebufferAttachmentType::Color0;
-        FramebufferAttachmentType dstType = FramebufferAttachmentType::Color0;
-        if (!readDefault && readBackend) srcType = pickSrcType(*readBackend);
-        if (!drawDefault && drawBackend) dstType = pickDstType(*drawBackend);
-
-        auto resolveImage = [&](BackendFramebufferObject& backend, FramebufferAttachmentType type, VkImage& image,
-                                VkImageLayout*& layout, VkExtent2D& extent, VkFormat& format,
-                                bool& isRenderbuffer) -> bool {
-            Int32 idx = backend.attachmentIndex[static_cast<SizeT>(type)];
-            if (idx < 0 || static_cast<SizeT>(idx) >= backend.attachments.size()) return false;
-            const auto& att = backend.attachments[static_cast<SizeT>(idx)];
-            if (att.texture) {
-                auto& texRes = SyncTexture(att.texture);
-                image = texRes.image;
-                layout = &texRes.layout;
-                extent = {texRes.extent.width, texRes.extent.height};
-                format = texRes.format;
-                isRenderbuffer = false;
-                return image != VK_NULL_HANDLE;
-            }
-            if (att.renderbuffer) {
-                auto& rbRes = SyncRenderbuffer(att.renderbuffer);
-                image = rbRes.image;
-                layout = &rbRes.layout;
-                extent = rbRes.extent;
-                format = rbRes.format;
-                isRenderbuffer = true;
-                return image != VK_NULL_HANDLE;
-            }
-            return false;
-        };
-
-        VkImage srcImage = VK_NULL_HANDLE;
-        VkImage dstImage = VK_NULL_HANDLE;
-        VkImageLayout* srcLayout = nullptr;
-        VkImageLayout* dstLayout = nullptr;
-        VkExtent2D srcExtent{0, 0};
-        VkExtent2D dstExtent{0, 0};
-        VkFormat srcFormat = VK_FORMAT_UNDEFINED;
-        VkFormat dstFormat = VK_FORMAT_UNDEFINED;
-        bool srcIsRb = false;
-        bool dstIsRb = false;
-
-        if (readDefault) {
-            auto& frame = *g.frames[g.currentFrame];
-            const auto& images = g.swapchain->GetImages();
-            if (frame.CurrentImageIndex >= images.size()) return;
-            srcImage = images[frame.CurrentImageIndex];
-            srcLayout = &g.swapchainImageLayouts[frame.CurrentImageIndex];
-            srcExtent = g.swapchain->GetExtent();
-            srcFormat = g.swapchain->GetFormat();
-        } else {
-            if (!resolveImage(*readBackend, srcType, srcImage, srcLayout, srcExtent, srcFormat, srcIsRb)) {
-                MGLOG_E("BlitFramebuffer: failed to resolve source image");
-                return;
-            }
-        }
-        if (drawDefault) {
-            auto& frame = *g.frames[g.currentFrame];
-            const auto& images = g.swapchain->GetImages();
-            if (frame.CurrentImageIndex >= images.size()) return;
-            dstImage = images[frame.CurrentImageIndex];
-            dstLayout = &g.swapchainImageLayouts[frame.CurrentImageIndex];
-            dstExtent = g.swapchain->GetExtent();
-            dstFormat = g.swapchain->GetFormat();
-        } else {
-            if (!resolveImage(*drawBackend, dstType, dstImage, dstLayout, dstExtent, dstFormat, dstIsRb)) {
-                MGLOG_E("BlitFramebuffer: failed to resolve destination image");
-                return;
-            }
-        }
-        if (dstIsRb) {
-            MGLOG_W("BlitFramebuffer: renderbuffer destination is not supported yet");
-            return;
-        }
+        SharedPtr<BackendFramebufferObject> readBackend = nullptr;
+        SharedPtr<BackendFramebufferObject> drawBackend = nullptr;
+        Bool readIsDefault = false;
+        Bool drawIsDefault = false;
+        if (!ensureBackendFbo(readFBO, readBackend, readIsDefault)) return;
+        if (!ensureBackendFbo(drawFBO, drawBackend, drawIsDefault)) return;
 
         BeginCommandBuffer();
         auto& frame = *g.frames[g.currentFrame];
@@ -3374,34 +3301,438 @@ namespace MobileGL::MG_Backend::DirectVulkan::TmpImpl {
             g.recordingFramebuffer = VK_NULL_HANDLE;
         }
 
-        VkImageLayout oldSrc = srcLayout ? *srcLayout : VK_IMAGE_LAYOUT_UNDEFINED;
-        VkImageLayout oldDst = dstLayout ? *dstLayout : VK_IMAGE_LAYOUT_UNDEFINED;
+        struct BlitImageRef {
+            VkImage image = VK_NULL_HANDLE;
+            VkFormat format = VK_FORMAT_UNDEFINED;
+            VkImageAspectFlags aspect = 0;
+            VkImageLayout layout = VK_IMAGE_LAYOUT_UNDEFINED;
+            VkImageLayout restoreLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+            VkImageLayout* trackedLayout = nullptr;
+            VkExtent2D extent{0, 0};
+        };
 
-        VkImageAspectFlags aspect = VK_IMAGE_ASPECT_COLOR_BIT;
-        CmdTransitionImageLayout(frame.CommandBuffer, srcImage, oldSrc, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, aspect);
-        CmdTransitionImageLayout(frame.CommandBuffer, dstImage, oldDst, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, aspect);
+        auto stageForLayout = [](VkImageLayout layout) -> VkPipelineStageFlags {
+            switch (layout) {
+            case VK_IMAGE_LAYOUT_UNDEFINED:
+                return VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
+            case VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL:
+            case VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL:
+                return VK_PIPELINE_STAGE_TRANSFER_BIT;
+            case VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL:
+                return VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+            case VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL:
+                return VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;
+            case VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL:
+                return VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+            case VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL:
+                return VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT | VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
+            case VK_IMAGE_LAYOUT_PRESENT_SRC_KHR:
+                return VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT;
+            default:
+                return VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
+            }
+        };
 
-        VkImageBlit blit{};
-        blit.srcSubresource.aspectMask = aspect;
-        blit.srcSubresource.mipLevel = 0;
-        blit.srcSubresource.baseArrayLayer = 0;
-        blit.srcSubresource.layerCount = 1;
-        blit.dstSubresource = blit.srcSubresource;
+        auto accessForLayout = [](VkImageLayout layout) -> VkAccessFlags {
+            switch (layout) {
+            case VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL:
+                return VK_ACCESS_TRANSFER_READ_BIT;
+            case VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL:
+                return VK_ACCESS_TRANSFER_WRITE_BIT;
+            case VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL:
+                return VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+            case VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL:
+                return VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+            case VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL:
+                return VK_ACCESS_SHADER_READ_BIT;
+            case VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL:
+                return VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT;
+            default:
+                return 0;
+            }
+        };
 
-        blit.srcOffsets[0] = {srcX0, srcY0, 0};
-        blit.srcOffsets[1] = {srcX1, srcY1, 1};
-        blit.dstOffsets[0] = {dstX0, dstY0, 0};
-        blit.dstOffsets[1] = {dstX1, dstY1, 1};
+        auto transitionForBlit = [&](BlitImageRef& ref, VkImageLayout newLayout, VkImageAspectFlags aspectMask) {
+            if (ref.image == VK_NULL_HANDLE || ref.layout == newLayout || aspectMask == 0) return;
+            VkImageMemoryBarrier barrier{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER};
+            barrier.oldLayout = ref.layout;
+            barrier.newLayout = newLayout;
+            barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+            barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+            barrier.image = ref.image;
+            barrier.subresourceRange.aspectMask = aspectMask;
+            barrier.subresourceRange.baseMipLevel = 0;
+            barrier.subresourceRange.levelCount = 1;
+            barrier.subresourceRange.baseArrayLayer = 0;
+            barrier.subresourceRange.layerCount = 1;
+            barrier.srcAccessMask = accessForLayout(ref.layout);
+            barrier.dstAccessMask = accessForLayout(newLayout);
 
-        VkFilter vkFilter = (filter == GL_LINEAR) ? VK_FILTER_LINEAR : VK_FILTER_NEAREST;
-        vkCmdBlitImage(frame.CommandBuffer, srcImage, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, dstImage,
-                       VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &blit, vkFilter);
+            vkCmdPipelineBarrier(frame.CommandBuffer, stageForLayout(ref.layout), stageForLayout(newLayout), 0, 0,
+                                 nullptr, 0, nullptr, 1, &barrier);
+            ref.layout = newLayout;
+            if (ref.trackedLayout) *ref.trackedLayout = newLayout;
+        };
 
-        CmdTransitionImageLayout(frame.CommandBuffer, srcImage, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, oldSrc, aspect);
-        CmdTransitionImageLayout(frame.CommandBuffer, dstImage, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, oldDst, aspect);
+        auto resolveDefaultColor = [&](BlitImageRef& out) -> Bool {
+            if (g.frames.empty()) return false;
+            const auto& images = g.swapchain->GetImages();
+            Uint32 imageIndex = frame.CurrentImageIndex;
+            if (imageIndex >= images.size()) return false;
+            out.image = images[imageIndex];
+            out.format = g.swapchain->GetFormat();
+            out.aspect = VK_IMAGE_ASPECT_COLOR_BIT;
+            out.layout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+            out.restoreLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+            out.trackedLayout = nullptr;
+            out.extent = g.swapchain->GetExtent();
+            return out.image != VK_NULL_HANDLE;
+        };
 
-        if (srcLayout) *srcLayout = oldSrc;
-        if (dstLayout) *dstLayout = oldDst;
+        auto resolveDefaultDepthStencil = [&](BlitImageRef& out) -> Bool {
+            if (g.depthImage == VK_NULL_HANDLE || g.depthFormat == VK_FORMAT_UNDEFINED) return false;
+            out.image = g.depthImage;
+            out.format = g.depthFormat;
+            out.aspect = AspectForFormat(g.depthFormat) & (VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT);
+            out.layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+            out.restoreLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+            out.trackedLayout = nullptr;
+            out.extent = g.swapchain->GetExtent();
+            return out.aspect != 0;
+        };
+
+        auto resolveBackendAttachment = [&](const SharedPtr<BackendFramebufferObject>& backend,
+                                            FramebufferAttachmentType type, BlitImageRef& out) -> Bool {
+            if (!backend) return false;
+            Int32 idx = backend->attachmentIndex[static_cast<SizeT>(type)];
+            if (idx < 0 || static_cast<SizeT>(idx) >= backend->attachments.size()) return false;
+            const auto& info = backend->attachments[static_cast<SizeT>(idx)];
+            if (info.texture) {
+                auto& tex = SyncTexture(info.texture);
+                if (!tex.valid || tex.image == VK_NULL_HANDLE) return false;
+                out.image = tex.image;
+                out.format = tex.format;
+                out.aspect = AspectForFormat(tex.format);
+                out.layout = tex.layout;
+                out.restoreLayout = LayoutForFramebufferAttachment(type, tex.format);
+                out.trackedLayout = &tex.layout;
+                out.extent = {tex.extent.width, tex.extent.height};
+                return true;
+            }
+            if (info.renderbuffer) {
+                auto& rb = SyncRenderbuffer(info.renderbuffer);
+                if (!rb.valid || rb.image == VK_NULL_HANDLE) return false;
+                out.image = rb.image;
+                out.format = rb.format;
+                out.aspect = AspectForFormat(rb.format);
+                out.layout = rb.layout;
+                out.restoreLayout = LayoutForFramebufferAttachment(type, rb.format);
+                out.trackedLayout = &rb.layout;
+                out.extent = rb.extent;
+                return true;
+            }
+            return false;
+        };
+
+        auto clampCoord = [](GLint v, Uint32 upper) -> Int32 { return std::clamp(v, 0, static_cast<GLint>(upper)); };
+
+        auto hasBlitFeature = [&](VkFormat fmt, VkFormatFeatureFlagBits bit) -> Bool {
+            VkFormatProperties props{};
+            vkGetPhysicalDeviceFormatProperties(g.ctx->GetPhysicalDevice(), fmt, &props);
+            return (props.optimalTilingFeatures & bit) != 0;
+        };
+
+        auto blitOrCopyColor = [&](BlitImageRef src, BlitImageRef dst) {
+            if (src.image == VK_NULL_HANDLE || dst.image == VK_NULL_HANDLE) return;
+            if (src.image == dst.image) {
+                MGLOG_W("BlitFramebuffer: skip color blit on the same image");
+                return;
+            }
+
+            Int32 sx0 = clampCoord(srcX0, src.extent.width);
+            Int32 sy0 = clampCoord(srcY0, src.extent.height);
+            Int32 sx1 = clampCoord(srcX1, src.extent.width);
+            Int32 sy1 = clampCoord(srcY1, src.extent.height);
+            GLint dstY0Resolved = dstY0;
+            GLint dstY1Resolved = dstY1;
+            if (drawIsDefault) {
+                GLint h = static_cast<GLint>(dst.extent.height);
+                dstY0Resolved = h - dstY0;
+                dstY1Resolved = h - dstY1;
+            }
+            Int32 dx0 = clampCoord(dstX0, dst.extent.width);
+            Int32 dy0 = clampCoord(dstY0Resolved, dst.extent.height);
+            Int32 dx1 = clampCoord(dstX1, dst.extent.width);
+            Int32 dy1 = clampCoord(dstY1Resolved, dst.extent.height);
+            if (sx0 == sx1 || sy0 == sy1 || dx0 == dx1 || dy0 == dy1) return;
+
+            VkFilter vkFilter = (filter == GL_LINEAR) ? VK_FILTER_LINEAR : VK_FILTER_NEAREST;
+            if (filter != GL_NEAREST && filter != GL_LINEAR) {
+                MGLOG_W("BlitFramebuffer: unsupported filter 0x%x, fallback to GL_NEAREST", filter);
+                vkFilter = VK_FILTER_NEAREST;
+            }
+            if (vkFilter == VK_FILTER_LINEAR &&
+                !hasBlitFeature(src.format, VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_LINEAR_BIT)) {
+                vkFilter = VK_FILTER_NEAREST;
+            }
+
+            Bool canBlit = hasBlitFeature(src.format, VK_FORMAT_FEATURE_BLIT_SRC_BIT) &&
+                           hasBlitFeature(dst.format, VK_FORMAT_FEATURE_BLIT_DST_BIT);
+            Bool srcRectPositive = sx1 > sx0 && sy1 > sy0;
+            Bool dstRectPositive = dx1 > dx0 && dy1 > dy0;
+            Bool sameExtent = (sx1 - sx0) == (dx1 - dx0) && (sy1 - sy0) == (dy1 - dy0);
+            Bool canCopy = src.format == dst.format && srcRectPositive && dstRectPositive && sameExtent;
+
+            transitionForBlit(src, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_ASPECT_COLOR_BIT);
+            transitionForBlit(dst, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_ASPECT_COLOR_BIT);
+
+            if (canBlit) {
+                VkImageBlit region{};
+                region.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+                region.srcSubresource.mipLevel = 0;
+                region.srcSubresource.baseArrayLayer = 0;
+                region.srcSubresource.layerCount = 1;
+                region.srcOffsets[0] = {sx0, sy0, 0};
+                region.srcOffsets[1] = {sx1, sy1, 1};
+                region.dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+                region.dstSubresource.mipLevel = 0;
+                region.dstSubresource.baseArrayLayer = 0;
+                region.dstSubresource.layerCount = 1;
+                region.dstOffsets[0] = {dx0, dy0, 0};
+                region.dstOffsets[1] = {dx1, dy1, 1};
+                vkCmdBlitImage(frame.CommandBuffer, src.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, dst.image,
+                               VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region, vkFilter);
+            } else if (canCopy) {
+                VkImageCopy region{};
+                region.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+                region.srcSubresource.mipLevel = 0;
+                region.srcSubresource.baseArrayLayer = 0;
+                region.srcSubresource.layerCount = 1;
+                region.srcOffset = {sx0, sy0, 0};
+                region.dstSubresource = region.srcSubresource;
+                region.dstOffset = {dx0, dy0, 0};
+                region.extent = {static_cast<Uint32>(sx1 - sx0), static_cast<Uint32>(sy1 - sy0), 1};
+                vkCmdCopyImage(frame.CommandBuffer, src.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, dst.image,
+                               VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
+            } else {
+                MGLOG_W("BlitFramebuffer: color blit unsupported for current source/destination format or region");
+            }
+
+            transitionForBlit(src, src.restoreLayout, VK_IMAGE_ASPECT_COLOR_BIT);
+            transitionForBlit(dst, dst.restoreLayout, VK_IMAGE_ASPECT_COLOR_BIT);
+        };
+
+        auto blitOrCopyDepthStencil = [&](BlitImageRef src, BlitImageRef dst, VkImageAspectFlags requestedAspect) {
+            VkImageAspectFlags opAspect = requestedAspect & src.aspect & dst.aspect;
+            if (!opAspect || src.image == VK_NULL_HANDLE || dst.image == VK_NULL_HANDLE) return;
+            if (src.image == dst.image) {
+                MGLOG_W("BlitFramebuffer: skip depth/stencil blit on the same image");
+                return;
+            }
+
+            Int32 sx0 = clampCoord(srcX0, src.extent.width);
+            Int32 sy0 = clampCoord(srcY0, src.extent.height);
+            Int32 sx1 = clampCoord(srcX1, src.extent.width);
+            Int32 sy1 = clampCoord(srcY1, src.extent.height);
+            GLint dstY0Resolved = dstY0;
+            GLint dstY1Resolved = dstY1;
+            if (drawIsDefault) {
+                GLint h = static_cast<GLint>(dst.extent.height);
+                dstY0Resolved = h - dstY0;
+                dstY1Resolved = h - dstY1;
+            }
+            Int32 dx0 = clampCoord(dstX0, dst.extent.width);
+            Int32 dy0 = clampCoord(dstY0Resolved, dst.extent.height);
+            Int32 dx1 = clampCoord(dstX1, dst.extent.width);
+            Int32 dy1 = clampCoord(dstY1Resolved, dst.extent.height);
+            if (sx0 == sx1 || sy0 == sy1 || dx0 == dx1 || dy0 == dy1) return;
+
+            Bool canBlit = hasBlitFeature(src.format, VK_FORMAT_FEATURE_BLIT_SRC_BIT) &&
+                           hasBlitFeature(dst.format, VK_FORMAT_FEATURE_BLIT_DST_BIT);
+            Bool srcRectPositive = sx1 > sx0 && sy1 > sy0;
+            Bool dstRectPositive = dx1 > dx0 && dy1 > dy0;
+            Bool sameExtent = (sx1 - sx0) == (dx1 - dx0) && (sy1 - sy0) == (dy1 - dy0);
+            Bool canCopy = src.format == dst.format && srcRectPositive && dstRectPositive && sameExtent;
+
+            transitionForBlit(src, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, opAspect);
+            transitionForBlit(dst, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, opAspect);
+
+            if (canBlit) {
+                VkImageBlit region{};
+                region.srcSubresource.aspectMask = opAspect;
+                region.srcSubresource.mipLevel = 0;
+                region.srcSubresource.baseArrayLayer = 0;
+                region.srcSubresource.layerCount = 1;
+                region.srcOffsets[0] = {sx0, sy0, 0};
+                region.srcOffsets[1] = {sx1, sy1, 1};
+                region.dstSubresource.aspectMask = opAspect;
+                region.dstSubresource.mipLevel = 0;
+                region.dstSubresource.baseArrayLayer = 0;
+                region.dstSubresource.layerCount = 1;
+                region.dstOffsets[0] = {dx0, dy0, 0};
+                region.dstOffsets[1] = {dx1, dy1, 1};
+                vkCmdBlitImage(frame.CommandBuffer, src.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, dst.image,
+                               VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region, VK_FILTER_NEAREST);
+            } else if (canCopy) {
+                VkImageCopy region{};
+                region.srcSubresource.aspectMask = opAspect;
+                region.srcSubresource.mipLevel = 0;
+                region.srcSubresource.baseArrayLayer = 0;
+                region.srcSubresource.layerCount = 1;
+                region.srcOffset = {sx0, sy0, 0};
+                region.dstSubresource = region.srcSubresource;
+                region.dstOffset = {dx0, dy0, 0};
+                region.extent = {static_cast<Uint32>(sx1 - sx0), static_cast<Uint32>(sy1 - sy0), 1};
+                vkCmdCopyImage(frame.CommandBuffer, src.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, dst.image,
+                               VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
+            } else {
+                MGLOG_W("BlitFramebuffer: depth/stencil blit unsupported for current format or region");
+            }
+
+            transitionForBlit(src, src.restoreLayout, opAspect);
+            transitionForBlit(dst, dst.restoreLayout, opAspect);
+        };
+
+        if (validMask & GL_COLOR_BUFFER_BIT) {
+            BlitImageRef srcColor{};
+            Bool srcColorValid = false;
+            if (readIsDefault) {
+                srcColorValid = resolveDefaultColor(srcColor);
+            } else {
+                FramebufferAttachmentType readType = readFBO->GetReadBuffer();
+                if (readType >= FramebufferAttachmentType::Color0 && readType <= FramebufferAttachmentType::Color31) {
+                    srcColorValid = resolveBackendAttachment(readBackend, readType, srcColor);
+                } else {
+                    MGLOG_W("BlitFramebuffer: read buffer is not a color attachment");
+                }
+            }
+
+            if (srcColorValid) {
+                Vector<BlitImageRef> dstColors;
+                if (drawIsDefault) {
+                    BlitImageRef dstColor{};
+                    if (resolveDefaultColor(dstColor)) dstColors.push_back(dstColor);
+                } else {
+                    const auto& drawBuffers = drawFBO->GetDrawBuffers();
+                    for (Uint32 i = 0; i < FramebufferObject::MAX_DRAW_BUFFERS; ++i) {
+                        FramebufferAttachmentType buf = drawBuffers[i];
+                        if (buf < FramebufferAttachmentType::Color0 || buf > FramebufferAttachmentType::Color31) {
+                            continue;
+                        }
+                        BlitImageRef dstColor{};
+                        if (!resolveBackendAttachment(drawBackend, buf, dstColor)) continue;
+                        bool duplicated = false;
+                        for (const auto& existing : dstColors) {
+                            if (existing.image == dstColor.image) {
+                                duplicated = true;
+                                break;
+                            }
+                        }
+                        if (!duplicated) dstColors.push_back(dstColor);
+                    }
+                }
+
+                for (const auto& dst : dstColors) {
+                    blitOrCopyColor(srcColor, dst);
+                }
+            }
+        }
+
+        VkImageAspectFlags requestedDsAspect = 0;
+        if (validMask & GL_DEPTH_BUFFER_BIT) requestedDsAspect |= VK_IMAGE_ASPECT_DEPTH_BIT;
+        if (validMask & GL_STENCIL_BUFFER_BIT) requestedDsAspect |= VK_IMAGE_ASPECT_STENCIL_BIT;
+        if (requestedDsAspect != 0) {
+            if (filter == GL_LINEAR) {
+                MGLOG_W("BlitFramebuffer: GL_LINEAR is invalid for depth/stencil blit, forcing nearest");
+            }
+
+            BlitImageRef srcDs{};
+            BlitImageRef dstDs{};
+            Bool srcValid = false;
+            Bool dstValid = false;
+
+            if (readIsDefault) {
+                srcValid = resolveDefaultDepthStencil(srcDs);
+            } else {
+                if ((requestedDsAspect & VK_IMAGE_ASPECT_DEPTH_BIT) &&
+                    resolveBackendAttachment(readBackend, FramebufferAttachmentType::Depth, srcDs)) {
+                    srcValid = true;
+                } else if ((requestedDsAspect & VK_IMAGE_ASPECT_STENCIL_BIT) &&
+                           resolveBackendAttachment(readBackend, FramebufferAttachmentType::Stencil, srcDs)) {
+                    srcValid = true;
+                }
+            }
+
+            if (drawIsDefault) {
+                dstValid = resolveDefaultDepthStencil(dstDs);
+            } else {
+                if ((requestedDsAspect & VK_IMAGE_ASPECT_DEPTH_BIT) &&
+                    resolveBackendAttachment(drawBackend, FramebufferAttachmentType::Depth, dstDs)) {
+                    dstValid = true;
+                } else if ((requestedDsAspect & VK_IMAGE_ASPECT_STENCIL_BIT) &&
+                           resolveBackendAttachment(drawBackend, FramebufferAttachmentType::Stencil, dstDs)) {
+                    dstValid = true;
+                }
+            }
+
+            if (srcValid && dstValid) {
+                blitOrCopyDepthStencil(srcDs, dstDs, requestedDsAspect);
+            }
+        }
+    }
+
+    void DrawElementsBaseVertex(GLenum mode, GLsizei count, GLenum type, const GLvoid* indices, GLint basevertex) {
+        VkPipeline pipeline = VK_NULL_HANDLE;
+        VkDescriptorSet drawSet = VK_NULL_HANDLE;
+        VertexArrayObject* vao = nullptr;
+        const RenderStateParameters* rs = nullptr;
+        ProgramResource* prog = nullptr;
+        DV::FrameContext* frame = nullptr;
+        if (!PrepareForDraw(mode, pipeline, drawSet, vao, rs, prog, frame)) return;
+
+        if (vao) {
+            for (Uint32 i = 0; i < VertexArrayObject::MAX_VERTEX_ATTRIBS; ++i) {
+                const auto& attr = vao->GetAttribute(i);
+                if (!attr.Enabled || !attr.Buffer) continue;
+                auto& vbo = SyncBuffer(attr.Buffer.get());
+                VkDeviceSize offset = 0;
+                VkBuffer buf = vbo.buffer;
+                vkCmdBindVertexBuffers(frame->CommandBuffer, i, 1, &buf, &offset);
+            }
+        }
+
+        VkIndexType indexType = ToVkIndexType(type);
+        Uint32 indexSize = IndexTypeSize(type);
+        VkDeviceSize indexOffset = 0;
+
+        BufferResource* iboRes = nullptr;
+        if (vao) {
+            auto ibo = vao->GetIndexBufferBindingSlot().GetBoundObject();
+            if (ibo) {
+                iboRes = &SyncBuffer(ibo.get());
+                indexOffset = reinterpret_cast<uintptr_t>(indices);
+            }
+        }
+
+        BufferResource tempIndex;
+        if (!iboRes && indices) {
+            VkDeviceSize sz = static_cast<VkDeviceSize>(count) * indexSize;
+            CreateBuffer(sz, VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
+                         VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, tempIndex);
+            Memcpy(tempIndex.mapped, indices, sz);
+            iboRes = &tempIndex;
+            indexOffset = 0;
+        }
+
+        if (iboRes && iboRes->buffer != VK_NULL_HANDLE) {
+            vkCmdBindIndexBuffer(frame->CommandBuffer, iboRes->buffer, 0, indexType);
+            Uint32 firstIndex = indexSize ? static_cast<Uint32>(indexOffset / indexSize) : 0;
+            vkCmdDrawIndexed(frame->CommandBuffer, count, 1, firstIndex, basevertex, 0);
+        }
+
+        if (tempIndex.buffer != VK_NULL_HANDLE || tempIndex.memory != VK_NULL_HANDLE) {
+            frame->TrashBuffers.push_back({tempIndex.buffer, tempIndex.memory, tempIndex.mapped != nullptr});
+        }
     }
 
     void DrawArrays(GLenum mode, GLint first, GLsizei count) {

@@ -13,6 +13,7 @@
 #include <MG_Backend/DirectGLES/DirectGLES.h>
 #endif
 #if MOBILEGL_BACKEND == MOBILEGL_BACKEND_TYPE_DIRECT_VULKAN
+#include <MG_Backend/DirectVulkan/TmpImpl.h>
 #include <MG_Backend/DirectVulkan/DirectVulkan.h>
 #endif
 #include <MG_Util/BackendLoaders/OpenGL/Loader.h>
@@ -78,6 +79,8 @@ namespace MobileGL {
 #endif
 #if MOBILEGL_BACKEND == MOBILEGL_BACKEND_TYPE_DIRECT_GLES
             MG_Backend::DirectGLES::DrawElementsBaseVertex(mode, count, type, indices, basevertex);
+#elif MOBILEGL_BACKEND == MOBILEGL_BACKEND_TYPE_DIRECT_VULKAN
+            MG_Backend::DirectVulkan::TmpImpl::DrawElementsBaseVertex(mode, count, type, indices, basevertex);
 #endif
         }
 

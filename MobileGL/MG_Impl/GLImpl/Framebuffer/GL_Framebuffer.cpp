@@ -19,6 +19,9 @@
 #if MOBILEGL_BACKEND == MOBILEGL_BACKEND_TYPE_DIRECT_GLES
 #include <MG_Backend/DirectGLES/DirectGLES.h>
 #endif
+#if MOBILEGL_BACKEND == MOBILEGL_BACKEND_TYPE_DIRECT_VULKAN
+#include <MG_Backend/DirectVulkan/TmpImpl.h>
+#endif
 
 namespace MobileGL {
     namespace MG_Impl::GLImpl {
@@ -27,6 +30,9 @@ namespace MobileGL {
 #if MOBILEGL_BACKEND == MOBILEGL_BACKEND_TYPE_DIRECT_GLES
             MG_Backend::DirectGLES::BlitFramebuffer(srcX0, srcY0, srcX1, srcY1, dstX0, dstY0, dstX1, dstY1, mask,
                                                     filter);
+#elif MOBILEGL_BACKEND == MOBILEGL_BACKEND_TYPE_DIRECT_VULKAN
+            MG_Backend::DirectVulkan::TmpImpl::BlitFramebuffer(srcX0, srcY0, srcX1, srcY1, dstX0, dstY0, dstX1, dstY1,
+                                                               mask, filter);
 #endif
         }
 
