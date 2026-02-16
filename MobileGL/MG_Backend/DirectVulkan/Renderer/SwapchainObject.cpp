@@ -7,7 +7,35 @@
 // End of Source File Header
 
 #include "SwapchainObject.h"
+
+#if defined(__has_include)
+#if __has_include(<vulkan/vk_enum_string_helper.h>)
 #include <vulkan/vk_enum_string_helper.h>
+#define MOBILEGL_HAS_VK_ENUM_STRING_HELPER 1
+#else
+#define MOBILEGL_HAS_VK_ENUM_STRING_HELPER 0
+#endif
+#else
+#define MOBILEGL_HAS_VK_ENUM_STRING_HELPER 0
+#endif
+
+#if !MOBILEGL_HAS_VK_ENUM_STRING_HELPER
+static const char* string_VkFormat(VkFormat) {
+    return "VkFormat(unknown)";
+}
+
+static const char* string_VkColorSpaceKHR(VkColorSpaceKHR) {
+    return "VkColorSpaceKHR(unknown)";
+}
+
+static const char* string_VkPresentModeKHR(VkPresentModeKHR) {
+    return "VkPresentModeKHR(unknown)";
+}
+
+static const char* string_VkSurfaceTransformFlagBitsKHR(VkSurfaceTransformFlagBitsKHR) {
+    return "VkSurfaceTransformFlagBitsKHR(unknown)";
+}
+#endif
 
 namespace MobileGL::MG_Backend::DirectVulkan {
     SwapchainObject::SwapchainCapabilities SwapchainObject::GetSwapchainCapabilities(VkPhysicalDevice physicalDevice,
