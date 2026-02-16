@@ -48,7 +48,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         return VK_FALSE;
     }
 
-    VulkanRenderer::VulkanRenderer(NativeWindowType window, const RendererConfig& cfg)
+    VulkanRenderer::VulkanRenderer(NativeWindowType window, const VulkanRendererConfig& cfg)
         : m_window(window), m_config(cfg) {
         // Initialize();
     }
@@ -100,41 +100,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             return;
         }
 
-        Vector<Uint> vsSpv;
-        Vector<Uint> fsSpv;
-
-        auto& shaderSpirvs = programObject.GetGeneratedSpirv();
-        auto& attachedShaders = programObject.GetAttachedShaders();
-        for (int index = 0; index < attachedShaders.size(); ++index) {
-            auto& shader = attachedShaders[index];
-            auto& spirvCode = shaderSpirvs[index];
-            if (shader->GetShaderStage() == ShaderStage::Vertex) {
-                vsSpv = spirvCode;
-            } else if (shader->GetShaderStage() == ShaderStage::Fragment) {
-                fsSpv = spirvCode;
-            }
-        }
-
-        VkShaderModuleCreateInfo smci{VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO};
-        smci.codeSize = vsSpv.size() * sizeof(uint32_t);
-        smci.pCode = vsSpv.data();
-        VkShaderModule vs;
-        VK_VERIFY(vkCreateShaderModule(m_device, &smci, nullptr, &vs), "vkCreateShaderModule VS");
-
-        smci.codeSize = fsSpv.size() * sizeof(uint32_t);
-        smci.pCode = fsSpv.data();
-        VkShaderModule fs;
-        VK_VERIFY(vkCreateShaderModule(m_device, &smci, nullptr, &fs), "vkCreateShaderModule FS");
-
-        VkPipelineShaderStageCreateInfo stages[2]{};
-        stages[0] = {VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO};
-        stages[0].stage = VK_SHADER_STAGE_VERTEX_BIT;
-        stages[0].module = vs;
-        stages[0].pName = "main";
-        stages[1] = {VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO};
-        stages[1].stage = VK_SHADER_STAGE_FRAGMENT_BIT;
-        stages[1].module = fs;
-        stages[1].pName = "main";
+        auto& stages = m_programFactory->GetOrCreatePipelineShaderStages(programObject, ProgramFactory::CompileOptionBit::None);
 
         VkPipelineLayoutCreateInfo plci{VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
         VK_VERIFY(vkCreatePipelineLayout(m_device, &plci, nullptr, &m_pipelineLayout), "vkCreatePipelineLayout");
@@ -188,7 +154,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         // Create Pipeline
         VkGraphicsPipelineCreateInfo gpi{VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO};
         gpi.stageCount = 2;
-        gpi.pStages = stages;
+        gpi.pStages = stages.data();
         gpi.pVertexInputState = &vertexInput;
         gpi.pInputAssemblyState = &ia;
         gpi.pViewportState = &vpci;
@@ -203,8 +169,8 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         VK_VERIFY(vkCreateGraphicsPipelines(m_device, VK_NULL_HANDLE, 1, &gpi, nullptr, &m_pipeline),
                   "vkCreateGraphicsPipelines");
 
-        vkDestroyShaderModule(m_device, vs, nullptr);
-        vkDestroyShaderModule(m_device, fs, nullptr);
+        // vkDestroyShaderModule(m_device, vs, nullptr);
+        // vkDestroyShaderModule(m_device, fs, nullptr);
 
         MGLOG_I("PrepareDemoPipeline completed");
     }
@@ -225,6 +191,8 @@ namespace MobileGL::MG_Backend::DirectVulkan {
 
         RecreateSwapchain();
 
+        m_programFactory = MakeUnique<ProgramFactory>(m_device, m_config);
+
         PrepareDemoPipeline();
         CreateFrameContexts();
 
@@ -240,6 +208,8 @@ namespace MobileGL::MG_Backend::DirectVulkan {
 
     void VulkanRenderer::Shutdown() {
         VK_VERIFY(vkDeviceWaitIdle(m_device));
+
+        m_programFactory.reset();
 
         m_frameContext.Destroy(m_device, m_commandPool);
 

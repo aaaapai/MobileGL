@@ -30,6 +30,7 @@ namespace MobileGL {
                 Int GetFragmentDataLocation(const char* name);
 
                 Vector<SharedPtr<ShaderObject>>& GetAttachedShaders();
+                const Vector<SharedPtr<ShaderObject>>& GetAttachedShaders() const;
                 const String& GetInfoLog() const { return m_infoLog; }
                 Int GetUniformMaxLength() const { return m_uniformNameMaxLength; }
                 Uint GetUniformCount() { return m_activeUniformCount; }
@@ -111,6 +112,7 @@ namespace MobileGL {
                 Uint GetUniformBlockBinding(Uint index) const { return m_uniformBlockBinding[index]; }
 
                 Vector<Vector<unsigned>>& GetGeneratedSpirv() { return m_generatedSpirv; }
+                const Vector<Vector<unsigned>>& GetGeneratedSpirv() const { return m_generatedSpirv; }
 
                 Int GetShaderIndexByStage(ShaderStage stage) const {
                     auto it = std::find_if(m_shaders.begin(), m_shaders.end(),

@@ -8,6 +8,8 @@
 
 #pragma once
 
+#include "VulkanRendererConfig.h"
+
 #define VK_VERIFY(expr, ...)                                                                                           \
     do {                                                                                                               \
         VkResult _vk_verify_result = (expr);                                                                           \
@@ -15,3 +17,9 @@
     } while (0)
 
 #define ENUM_STR_CASE(c) case c: return #c;
+
+#define XXHASH_VERIFY(expr, ...)                                                                                       \
+    do {                                                                                                               \
+        XXH_errorcode _xxh_verify_result = (expr);                                                                     \
+        MOBILEGL_ASSERT(_xxh_verify_result == XXH_OK, "XXHash error %d at %s:%d" __VA_OPT__(" - ") __VA_ARGS__, _xxh_verify_result, __FILE__, __LINE__);  \
+    } while (0)

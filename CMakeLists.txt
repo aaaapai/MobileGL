@@ -211,9 +211,7 @@ set(SOURCE_FILES
     MobileGL/MG_Backend/DirectVulkan/Renderer/VulkanRenderer.cpp
     MobileGL/MG_Backend/DirectVulkan/Renderer/SwapchainObject.cpp
     MobileGL/MG_Backend/DirectVulkan/Renderer/FrameContext.cpp
-#    MobileGL/MG_Backend/DirectVulkan/Managers/ProgramManager.cpp
-#    MobileGL/MG_Backend/DirectVulkan/Managers/VertexInputStateManager.cpp
-#    MobileGL/MG_Backend/DirectVulkan/Managers/RenderStateManager.cpp
+    MobileGL/MG_Backend/DirectVulkan/Renderer/ProgramFactory.cpp
 
     MobileGL/MG_State/GLState/Core.cpp
     MobileGL/MG_State/GLState/ErrorState/Error.cpp
@@ -282,7 +280,7 @@ target_include_directories(${CMAKE_PROJECT_NAME} PUBLIC
 )
 
 target_link_libraries(${CMAKE_PROJECT_NAME}
-    PRIVATE
+    PUBLIC
     ${MOBILEGL_LINK_LIBRARIES}
 )
 
@@ -310,7 +308,7 @@ if(NOT ANDROID)
     )
 
     target_link_libraries(${CMAKE_PROJECT_NAME}_s
-        PRIVATE
+        PUBLIC
         ${MOBILEGL_LINK_LIBRARIES}
     )
 endif()

@@ -179,6 +179,10 @@ namespace MobileGL {
                 return m_shaders;
             }
 
+            const Vector<SharedPtr<ShaderObject>>& ProgramObject::GetAttachedShaders() const {
+                return m_shaders;
+            }
+
             void ProgramObject::DoReflection() {
                 if (!m_program) {
                     MGLOG_E("ProgramObject %u: DoReflection called but m_program is null", m_externalIndex);

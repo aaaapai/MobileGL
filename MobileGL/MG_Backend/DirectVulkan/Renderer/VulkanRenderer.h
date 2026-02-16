@@ -9,25 +9,16 @@
 #pragma once
 #include "Config.h"
 #include "FrameContext.h"
+#include "ProgramFactory.h"
 #include "SwapchainObject.h"
 #include <Includes.h>
 
 #include "../VkIncludes.h"
 
 namespace MobileGL::MG_Backend::DirectVulkan {
-    using RenderCallback = std::function<void(VkCommandBuffer cmdBuf, uint32_t imageIndex, VkExtent2D extent)>;
-
-    struct RendererConfig {
-        Uint32 MaxFramesInFlight = 2;
-        String AppName = "MobileGL-VulkanRenderer";
-        Version Version = MG_Config::CoreVersion;
-        Uint64 CacheVersion = MG_Config::CacheVersion;
-        Bool EnableValidationLayers = true;
-    };
-
     class VulkanRenderer {
     public:
-        VulkanRenderer(NativeWindowType window, const RendererConfig& cfg = {});
+        VulkanRenderer(NativeWindowType window, const VulkanRendererConfig& cfg = {});
         ~VulkanRenderer();
 
         void Initialize();
@@ -57,7 +48,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         };
 
         NativeWindowType m_window = 0;
-        RendererConfig m_config;
+        VulkanRendererConfig m_config;
 
         // Vulkan objects
         Bool m_validationLayersEnabled = false;
@@ -86,6 +77,8 @@ namespace MobileGL::MG_Backend::DirectVulkan {
 
         Uint m_imageIndexAcquired = 0;
         FrameContext m_frameContext;
+
+        UniquePtr<ProgramFactory> m_programFactory;
 
         void CreateInstance();
         VkResult SetupDebugMessenger();

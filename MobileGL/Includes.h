@@ -50,6 +50,9 @@
 // Include FastSTL
 #include <FastSTL/UnorderedMap.h>
 
+// Include xxHash
+#include <xxhash.h>
+
 // Include spirv_cross
 #include <spirv_cross/spirv_cross_c.h>
 
