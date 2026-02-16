@@ -98,7 +98,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
     }
 
     void FrameContext::SetCurrentCommandBuffer(VkCommandBuffer value) {
-        SetCurrentHasCommandBufferRecorded(false);
+        SetCurrentCommandBufferRecorded(false);
         GetCommandBuffer(GetCurrentFrameIndex()) = value;
     }
 
@@ -114,7 +114,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         GetImageInFlightFence(GetCurrentFrameIndex()) = value;
     }
 
-    void FrameContext::SetCurrentHasCommandBufferRecorded(Bool value) {
+    void FrameContext::SetCurrentCommandBufferRecorded(Bool value) {
         SetHasCommandBufferRecorded(GetCurrentFrameIndex(), value);
     }
 
@@ -134,8 +134,8 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         return GetImageInFlightFence(GetCurrentFrameIndex());
     }
 
-    Bool FrameContext::GetCurrentHasCommandBufferRecorded() const {
-        return GetHasCommandBufferRecorded(GetCurrentFrameIndex());
+    Bool FrameContext::HasCurrentCommandBufferRecorded() const {
+        return HasCommandBufferRecorded(GetCurrentFrameIndex());
     }
 
     const VkCommandBuffer& FrameContext::GetCommandBuffer(Uint32 frameIndex) const {
@@ -158,7 +158,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         return imageInFlightFences[frameIndex];
     }
 
-    Bool FrameContext::GetHasCommandBufferRecorded(Uint32 frameIndex) const {
+    Bool FrameContext::HasCommandBufferRecorded(Uint32 frameIndex) const {
         AssertValidFrameIndex(frameIndex);
         return hasCommandBufferRecorded[frameIndex];
     }

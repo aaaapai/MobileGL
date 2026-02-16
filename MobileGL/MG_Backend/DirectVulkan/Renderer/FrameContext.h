@@ -31,19 +31,19 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         void SetCurrentImageAvailableSemaphore(VkSemaphore value);
         void SetCurrentRenderFinishedSemaphore(VkSemaphore value);
         void SetCurrentImageInFlightFence(VkFence value);
-        void SetCurrentHasCommandBufferRecorded(Bool value);
+        void SetCurrentCommandBufferRecorded(Bool value);
 
         VkCommandBuffer& GetCurrentCommandBuffer();
         VkSemaphore& GetCurrentImageAvailableSemaphore();
         VkSemaphore& GetCurrentRenderFinishedSemaphore();
         VkFence& GetCurrentImageInFlightFence();
-        Bool GetCurrentHasCommandBufferRecorded() const;
+        Bool HasCurrentCommandBufferRecorded() const;
 
         const VkCommandBuffer& GetCommandBuffer(Uint32 frameIndex) const;
         const VkSemaphore& GetImageAvailableSemaphore(Uint32 frameIndex) const;
         const VkSemaphore& GetRenderFinishedSemaphore(Uint32 frameIndex) const;
         const VkFence& GetImageInFlightFence(Uint32 frameIndex) const;
-        Bool GetHasCommandBufferRecorded(Uint32 frameIndex) const;
+        Bool HasCommandBufferRecorded(Uint32 frameIndex) const;
         const VkCommandBuffer& GetCurrentCommandBuffer() const;
         const VkSemaphore& GetCurrentImageAvailableSemaphore() const;
         const VkSemaphore& GetCurrentRenderFinishedSemaphore() const;

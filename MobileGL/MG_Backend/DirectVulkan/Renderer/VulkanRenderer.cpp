@@ -328,14 +328,14 @@ namespace MobileGL::MG_Backend::DirectVulkan {
 
         // End command buffer
         VK_VERIFY(vkEndCommandBuffer(commandBuffer));
-        m_frameContext.SetCurrentHasCommandBufferRecorded(true);
+        m_frameContext.SetCurrentCommandBufferRecorded(true);
     }
 
     void VulkanRenderer::Present() {
         MOBILEGL_ASSERT(m_imageIndexAcquired < m_swapchainObject.GetImageCount(),
                         "Present, acquired image index out of range");
         VkCommandBuffer& commandBuffer = m_frameContext.GetCurrentCommandBuffer();
-        const Bool hasRecordedWork = m_frameContext.GetCurrentHasCommandBufferRecorded();
+        const Bool hasRecordedWork = m_frameContext.HasCurrentCommandBufferRecorded();
         Bool needsLayoutTransitionForPresent = false;
 
         if (!hasRecordedWork) {
@@ -391,7 +391,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         submitInfo.signalSemaphoreCount = 1;
         submitInfo.pSignalSemaphores = signalSemaphores;
         VK_VERIFY(vkQueueSubmit(m_graphicsQueue, 1, &submitInfo, m_frameContext.GetCurrentImageInFlightFence()));
-        m_frameContext.SetCurrentHasCommandBufferRecorded(false);
+        m_frameContext.SetCurrentCommandBufferRecorded(false);
         m_swapchainObject.SetImageLayout(m_imageIndexAcquired, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
 
         // 2) Present current frame.
