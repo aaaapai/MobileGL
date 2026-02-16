@@ -76,6 +76,90 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         GetCurrent().hasCommandBufferRecorded = false;
     }
 
+    Bool FrameContext::TransitionToPresent(VkImage image, VkImageLayout oldLayout, VkImageLayout presentLayout) {
+        auto& frame = GetCurrent();
+        if (frame.hasCommandBufferRecorded || oldLayout == presentLayout ||
+            oldLayout == VK_IMAGE_LAYOUT_SHARED_PRESENT_KHR) {
+            return false;
+        }
+
+        VK_VERIFY(vkResetCommandBuffer(frame.commandBuffer, 0), "TransitionToPresent, vkResetCommandBuffer");
+
+        VkCommandBufferBeginInfo beginInfo{};
+        beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+        VK_VERIFY(vkBeginCommandBuffer(frame.commandBuffer, &beginInfo), "TransitionToPresent, vkBeginCommandBuffer");
+
+        VkImageMemoryBarrier presentBarrier{};
+        presentBarrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+        presentBarrier.srcAccessMask = 0;
+        presentBarrier.dstAccessMask = 0;
+        presentBarrier.oldLayout = oldLayout;
+        presentBarrier.newLayout = presentLayout;
+        presentBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        presentBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        presentBarrier.image = image;
+        presentBarrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        presentBarrier.subresourceRange.baseMipLevel = 0;
+        presentBarrier.subresourceRange.levelCount = 1;
+        presentBarrier.subresourceRange.baseArrayLayer = 0;
+        presentBarrier.subresourceRange.layerCount = 1;
+        vkCmdPipelineBarrier(frame.commandBuffer, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
+                             0, 0, nullptr, 0, nullptr, 1, &presentBarrier);
+
+        VK_VERIFY(vkEndCommandBuffer(frame.commandBuffer), "TransitionToPresent, vkEndCommandBuffer");
+        return true;
+    }
+
+    FrameContext::SubmitInfoPacket FrameContext::GetSubmitInfo(Bool shouldSubmitCommandBuffer) const {
+        const auto& frame = GetCurrent();
+        SubmitInfoPacket packet{};
+        packet.waitSemaphore = frame.imageAvailableSemaphore;
+        packet.signalSemaphore = frame.renderFinishedSemaphore;
+        packet.commandBuffer = frame.commandBuffer;
+
+        packet.submitInfo.waitSemaphoreCount = 1;
+        packet.submitInfo.pWaitSemaphores = &packet.waitSemaphore;
+        packet.submitInfo.pWaitDstStageMask = &packet.waitDstStageMask;
+        packet.submitInfo.commandBufferCount = shouldSubmitCommandBuffer ? 1U : 0U;
+        packet.submitInfo.pCommandBuffers = shouldSubmitCommandBuffer ? &packet.commandBuffer : nullptr;
+        packet.submitInfo.signalSemaphoreCount = 1;
+        packet.submitInfo.pSignalSemaphores = &packet.signalSemaphore;
+        return packet;
+    }
+
+    FrameContext::PresentInfoPacket FrameContext::GetPresentInfo(VkSwapchainKHR swapchain, const Uint32& imageIndex) const {
+        const auto& frame = GetCurrent();
+        PresentInfoPacket packet{};
+        packet.waitSemaphore = frame.renderFinishedSemaphore;
+        packet.swapchain = swapchain;
+        packet.imageIndex = &imageIndex;
+
+        packet.presentInfo.waitSemaphoreCount = 1;
+        packet.presentInfo.pWaitSemaphores = &packet.waitSemaphore;
+        packet.presentInfo.swapchainCount = 1;
+        packet.presentInfo.pSwapchains = &packet.swapchain;
+        packet.presentInfo.pImageIndices = packet.imageIndex;
+        packet.presentInfo.pResults = nullptr;
+        return packet;
+    }
+
+    VkResult FrameContext::WaitAndAcquireNextImage(VkDevice device, VkSwapchainKHR swapchain, Uint32& outImageIndex,
+                                                   Uint64 timeout, VkFence acquireFence) {
+        auto& frame = GetCurrent();
+        VkResult result = vkWaitForFences(device, 1, &frame.imageInFlightFence, VK_TRUE, timeout);
+        if (result != VK_SUCCESS) {
+            return result;
+        }
+
+        result = vkResetFences(device, 1, &frame.imageInFlightFence);
+        if (result != VK_SUCCESS) {
+            return result;
+        }
+
+        return vkAcquireNextImageKHR(device, swapchain, timeout, frame.imageAvailableSemaphore, acquireFence,
+                                     &outImageIndex);
+    }
+
     Uint32 FrameContext::GetCurrentFrameIndex() const {
         return currentFrameIndex;
     }

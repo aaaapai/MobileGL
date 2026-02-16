@@ -14,6 +14,21 @@
 namespace MobileGL::MG_Backend::DirectVulkan {
     class FrameContext {
     public:
+        struct SubmitInfoPacket {
+            VkPipelineStageFlags waitDstStageMask = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
+            VkSemaphore waitSemaphore = VK_NULL_HANDLE;
+            VkSemaphore signalSemaphore = VK_NULL_HANDLE;
+            VkCommandBuffer commandBuffer = VK_NULL_HANDLE;
+            VkSubmitInfo submitInfo{VK_STRUCTURE_TYPE_SUBMIT_INFO};
+        };
+
+        struct PresentInfoPacket {
+            VkSemaphore waitSemaphore = VK_NULL_HANDLE;
+            VkSwapchainKHR swapchain = VK_NULL_HANDLE;
+            const Uint32* imageIndex = nullptr;
+            VkPresentInfoKHR presentInfo{VK_STRUCTURE_TYPE_PRESENT_INFO_KHR};
+        };
+
         struct FrameData {
             VkCommandBuffer commandBuffer = VK_NULL_HANDLE;
             VkSemaphore imageAvailableSemaphore = VK_NULL_HANDLE;
@@ -24,9 +39,17 @@ namespace MobileGL::MG_Backend::DirectVulkan {
 
         VkResult Initialize(VkDevice device, VkCommandPool commandPool, Uint32 frameCount);
         void Destroy(VkDevice device, VkCommandPool commandPool);
+
+        // Lifecycle functions
         FrameData& GetCurrent();
         const FrameData& GetCurrent() const;
         void AdvanceToNext();
+        Bool TransitionToPresent(VkImage image, VkImageLayout oldLayout,
+                                 VkImageLayout presentLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
+        SubmitInfoPacket GetSubmitInfo(Bool shouldSubmitCommandBuffer) const;
+        PresentInfoPacket GetPresentInfo(VkSwapchainKHR swapchain, const Uint32& imageIndex) const;
+        VkResult WaitAndAcquireNextImage(VkDevice device, VkSwapchainKHR swapchain, Uint32& outImageIndex,
+                                         Uint64 timeout = UINT64_MAX, VkFence acquireFence = VK_NULL_HANDLE);
 
         Uint32 GetCurrentFrameIndex() const;
         Uint32 GetFrameCount() const;

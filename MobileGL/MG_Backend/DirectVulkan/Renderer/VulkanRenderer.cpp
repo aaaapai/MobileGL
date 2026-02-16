@@ -197,12 +197,8 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         CreateFrameContexts();
 
         // Prime the first frame so Render() always targets an acquired swapchain image.
-        auto& frame = m_frameContext.GetCurrent();
-        VK_VERIFY(vkWaitForFences(m_device, 1, &frame.imageInFlightFence, VK_TRUE, UINT64_MAX));
-        VK_VERIFY(vkResetFences(m_device, 1, &frame.imageInFlightFence));
-        VK_VERIFY(vkAcquireNextImageKHR(m_device, m_swapchainObject.GetHandle(), UINT64_MAX,
-                                        frame.imageAvailableSemaphore, VK_NULL_HANDLE,
-                                        &m_imageIndexAcquired));
+        VK_VERIFY(m_frameContext.WaitAndAcquireNextImage(m_device, m_swapchainObject.GetHandle(), m_imageIndexAcquired),
+                  "Initialize, WaitAndAcquireNextImage");
 
         MGLOG_D("VulkanRenderer initialized");
     }
@@ -307,77 +303,20 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         MOBILEGL_ASSERT(m_imageIndexAcquired < m_swapchainObject.GetImageCount(),
                         "Present, acquired image index out of range");
         auto& frame = m_frameContext.GetCurrent();
-        VkCommandBuffer& commandBuffer = frame.commandBuffer;
-        const Bool hasRecordedWork = frame.hasCommandBufferRecorded;
-        Bool needsLayoutTransitionForPresent = false;
-
-        if (!hasRecordedWork) {
-            const auto acquiredImageLayout = m_swapchainObject.GetImageLayout(m_imageIndexAcquired);
-            if (acquiredImageLayout != VK_IMAGE_LAYOUT_PRESENT_SRC_KHR &&
-                acquiredImageLayout != VK_IMAGE_LAYOUT_SHARED_PRESENT_KHR) {
-                needsLayoutTransitionForPresent = true;
-
-                VK_VERIFY(vkResetCommandBuffer(commandBuffer, 0),
-                          "Present, vkResetCommandBuffer(layout transition)");
-
-                VkCommandBufferBeginInfo beginInfo{};
-                beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-                VK_VERIFY(vkBeginCommandBuffer(commandBuffer, &beginInfo),
-                          "Present, vkBeginCommandBuffer(layout transition)");
-
-                VkImageMemoryBarrier presentBarrier{};
-                presentBarrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
-                presentBarrier.srcAccessMask = 0;
-                presentBarrier.dstAccessMask = 0;
-                presentBarrier.oldLayout = acquiredImageLayout;
-                presentBarrier.newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
-                presentBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-                presentBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-                presentBarrier.image = m_swapchainObject.GetImage(m_imageIndexAcquired);
-                presentBarrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-                presentBarrier.subresourceRange.baseMipLevel = 0;
-                presentBarrier.subresourceRange.levelCount = 1;
-                presentBarrier.subresourceRange.baseArrayLayer = 0;
-                presentBarrier.subresourceRange.layerCount = 1;
-                vkCmdPipelineBarrier(commandBuffer, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
-                                     VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, 0, 0, nullptr, 0, nullptr, 1,
-                                     &presentBarrier);
-
-                VK_VERIFY(vkEndCommandBuffer(commandBuffer),
-                          "Present, vkEndCommandBuffer(layout transition)");
-            }
-        }
-
-        const Bool shouldSubmitCommandBuffer = hasRecordedWork || needsLayoutTransitionForPresent;
+        const auto acquiredImageLayout = m_swapchainObject.GetImageLayout(m_imageIndexAcquired);
+        const Bool needsLayoutTransitionForPresent =
+            m_frameContext.TransitionToPresent(m_swapchainObject.GetImage(m_imageIndexAcquired), acquiredImageLayout);
+        const Bool shouldSubmitCommandBuffer = frame.hasCommandBufferRecorded || needsLayoutTransitionForPresent;
 
         // 1) Submit current frame work.
-        VkSubmitInfo submitInfo{};
-        submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-        VkSemaphore waitSemaphores[] = {frame.imageAvailableSemaphore};
-        VkPipelineStageFlags waitStages[] = {VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT};
-        submitInfo.waitSemaphoreCount = 1;
-        submitInfo.pWaitSemaphores = waitSemaphores;
-        submitInfo.pWaitDstStageMask = waitStages;
-        submitInfo.commandBufferCount = shouldSubmitCommandBuffer ? 1U : 0U;
-        submitInfo.pCommandBuffers = shouldSubmitCommandBuffer ? &commandBuffer : nullptr;
-        VkSemaphore signalSemaphores[] = {frame.renderFinishedSemaphore};
-        submitInfo.signalSemaphoreCount = 1;
-        submitInfo.pSignalSemaphores = signalSemaphores;
-        VK_VERIFY(vkQueueSubmit(m_graphicsQueue, 1, &submitInfo, frame.imageInFlightFence));
+        auto submitPacket = m_frameContext.GetSubmitInfo(shouldSubmitCommandBuffer);
+        VK_VERIFY(vkQueueSubmit(m_graphicsQueue, 1, &submitPacket.submitInfo, frame.imageInFlightFence));
         frame.hasCommandBufferRecorded = false;
         m_swapchainObject.SetImageLayout(m_imageIndexAcquired, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
 
         // 2) Present current frame.
-        VkPresentInfoKHR presentInfo{};
-        presentInfo.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
-        presentInfo.waitSemaphoreCount = 1;
-        presentInfo.pWaitSemaphores = signalSemaphores;
-        VkSwapchainKHR swapChains[] = {m_swapchainObject.GetHandle()};
-        presentInfo.swapchainCount = 1;
-        presentInfo.pSwapchains = swapChains;
-        presentInfo.pImageIndices = &m_imageIndexAcquired;
-        presentInfo.pResults = nullptr;
-        auto result = vkQueuePresentKHR(m_presentQueue, &presentInfo);
+        auto presentPacket = m_frameContext.GetPresentInfo(m_swapchainObject.GetHandle(), m_imageIndexAcquired);
+        auto result = vkQueuePresentKHR(m_presentQueue, &presentPacket.presentInfo);
         if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR) {
             MGLOG_D("Present, vkQueuePresentKHR got %d, recreating swapchain", result);
             RecreateSwapchain();
@@ -389,15 +328,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         m_frameContext.AdvanceToNext();
 
         // 4) Wait/reset/acquire for next frame.
-        auto& nextFrame = m_frameContext.GetCurrent();
-        VK_VERIFY(vkWaitForFences(m_device, 1, &nextFrame.imageInFlightFence, VK_TRUE, UINT64_MAX),
-                  "Present, vkWaitForFences");
-        VK_VERIFY(vkResetFences(m_device, 1, &nextFrame.imageInFlightFence),
-                  "Present, vkResetFences");
-        result =
-            vkAcquireNextImageKHR(m_device, m_swapchainObject.GetHandle(), UINT64_MAX,
-                                  nextFrame.imageAvailableSemaphore, VK_NULL_HANDLE,
-                                  &m_imageIndexAcquired);
+        result = m_frameContext.WaitAndAcquireNextImage(m_device, m_swapchainObject.GetHandle(), m_imageIndexAcquired);
         if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR) {
             MGLOG_D("Present, vkAcquireNextImageKHR got %d, recreating swapchain", result);
             RecreateSwapchain();
