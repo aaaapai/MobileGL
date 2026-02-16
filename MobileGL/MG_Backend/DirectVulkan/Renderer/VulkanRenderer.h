@@ -85,8 +85,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         VkPipeline m_pipeline = VK_NULL_HANDLE;
 
         Uint m_imageIndexAcquired = 0;
-        Uint m_currentFrameIndex = 0;
-        Vector<FrameContext> m_frameContexts;
+        FrameContext m_frameContext;
 
         void CreateInstance();
         VkResult SetupDebugMessenger();
@@ -97,11 +96,10 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         void CreateLogicalDeviceAndQueues();
         void CreateSwapchain();
         void CreateCommandPool();
-        void CreateCommandBuffers();
+        void CreateFrameContexts();
         void CreateDefaultRenderPass();
         void CreateDefaultFramebuffers();
         void PrepareDemoPipeline();
-        void CreateSyncObjects();
 
         void ShutdownSwapchain();
 

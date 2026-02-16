@@ -72,9 +72,12 @@ int main() {
     EGLSurface surface = eglCreateWindowSurface(display, config, nativewindow, nullptr);
     eglMakeCurrent(display, surface, surface, context);
 
+    int i = 0;
     while(!glfwWindowShouldClose(window)) {
         glfwPollEvents();
-        MobileGL::MG_Backend::DirectVulkan::pVulkanRenderer->Render();
+
+        if (i % 2 == 0)
+            MobileGL::MG_Backend::DirectVulkan::pVulkanRenderer->Render();
         eglSwapBuffers(display, surface);
     }
 
