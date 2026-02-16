@@ -11,13 +11,10 @@
 namespace MobileGL::MG_Backend::DirectVulkan {
     VkResult FrameContext::Initialize(VkDevice device, VkCommandPool commandPool, Uint32 frameCount) {
         Destroy(device, commandPool);
-        commandBuffers.resize(frameCount, VK_NULL_HANDLE);
-        imageAvailableSemaphores.resize(frameCount, VK_NULL_HANDLE);
-        renderFinishedSemaphores.resize(frameCount, VK_NULL_HANDLE);
-        imageInFlightFences.resize(frameCount, VK_NULL_HANDLE);
-        hasCommandBufferRecorded.assign(frameCount, false);
+        m_frames.assign(frameCount, {});
         currentFrameIndex = 0;
 
+        Vector<VkCommandBuffer> commandBuffers(frameCount, VK_NULL_HANDLE);
         VkCommandBufferAllocateInfo allocInfo{};
         allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
         allocInfo.commandPool = commandPool;
@@ -26,6 +23,9 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         VkResult result = vkAllocateCommandBuffers(device, &allocInfo, commandBuffers.data());
         if (result != VK_SUCCESS) {
             return result;
+        }
+        for (Uint32 i = 0; i < frameCount; ++i) {
+            m_frames[i].commandBuffer = commandBuffers[i];
         }
 
         VkSemaphoreCreateInfo semaphoreInfo{VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO};
@@ -44,24 +44,36 @@ namespace MobileGL::MG_Backend::DirectVulkan {
     }
 
     void FrameContext::Destroy(VkDevice device, VkCommandPool commandPool) {
-        const Uint32 frameCount = static_cast<Uint32>(commandBuffers.size());
+        const Uint32 frameCount = static_cast<Uint32>(m_frames.size());
+        Vector<VkCommandBuffer> commandBuffers(frameCount, VK_NULL_HANDLE);
+        for (Uint32 i = 0; i < frameCount; ++i) {
+            commandBuffers[i] = m_frames[i].commandBuffer;
+        }
+
         for (Uint32 i = 0; i < frameCount; ++i) {
             DestroySyncObjectsForFrame(device, i);
         }
-        if (device != VK_NULL_HANDLE && commandPool != VK_NULL_HANDLE && !commandBuffers.empty()) {
+        if (device != VK_NULL_HANDLE && commandPool != VK_NULL_HANDLE && !m_frames.empty()) {
             vkFreeCommandBuffers(device, commandPool, frameCount, commandBuffers.data());
         }
-        commandBuffers.clear();
-        imageAvailableSemaphores.clear();
-        renderFinishedSemaphores.clear();
-        imageInFlightFences.clear();
-        hasCommandBufferRecorded.clear();
+        m_frames.clear();
         currentFrameIndex = 0;
     }
 
-    void FrameContext::AdvanceFrame() {
-        MOBILEGL_ASSERT(!commandBuffers.empty(), "FrameContext is not initialized");
-        currentFrameIndex = (currentFrameIndex + 1) % static_cast<Uint32>(commandBuffers.size());
+    FrameContext::FrameData& FrameContext::GetCurrent() {
+        MOBILEGL_ASSERT(!m_frames.empty(), "FrameContext is not initialized");
+        return m_frames[currentFrameIndex];
+    }
+
+    const FrameContext::FrameData& FrameContext::GetCurrent() const {
+        MOBILEGL_ASSERT(!m_frames.empty(), "FrameContext is not initialized");
+        return m_frames[currentFrameIndex];
+    }
+
+    void FrameContext::AdvanceToNext() {
+        MOBILEGL_ASSERT(!m_frames.empty(), "FrameContext is not initialized");
+        currentFrameIndex = (currentFrameIndex + 1) % static_cast<Uint32>(m_frames.size());
+        GetCurrent().hasCommandBufferRecorded = false;
     }
 
     Uint32 FrameContext::GetCurrentFrameIndex() const {
@@ -69,172 +81,63 @@ namespace MobileGL::MG_Backend::DirectVulkan {
     }
 
     Uint32 FrameContext::GetFrameCount() const {
-        return static_cast<Uint32>(commandBuffers.size());
-    }
-
-    VkCommandBuffer& FrameContext::GetCommandBuffer(Uint32 frameIndex) {
-        AssertValidFrameIndex(frameIndex);
-        return commandBuffers[frameIndex];
-    }
-
-    VkSemaphore& FrameContext::GetImageAvailableSemaphore(Uint32 frameIndex) {
-        AssertValidFrameIndex(frameIndex);
-        return imageAvailableSemaphores[frameIndex];
-    }
-
-    VkSemaphore& FrameContext::GetRenderFinishedSemaphore(Uint32 frameIndex) {
-        AssertValidFrameIndex(frameIndex);
-        return renderFinishedSemaphores[frameIndex];
-    }
-
-    VkFence& FrameContext::GetImageInFlightFence(Uint32 frameIndex) {
-        AssertValidFrameIndex(frameIndex);
-        return imageInFlightFences[frameIndex];
-    }
-
-    void FrameContext::SetHasCommandBufferRecorded(Uint32 frameIndex, Bool value) {
-        AssertValidFrameIndex(frameIndex);
-        hasCommandBufferRecorded[frameIndex] = value;
-    }
-
-    void FrameContext::SetCurrentCommandBuffer(VkCommandBuffer value) {
-        SetCurrentCommandBufferRecorded(false);
-        GetCommandBuffer(GetCurrentFrameIndex()) = value;
-    }
-
-    void FrameContext::SetCurrentImageAvailableSemaphore(VkSemaphore value) {
-        GetImageAvailableSemaphore(GetCurrentFrameIndex()) = value;
-    }
-
-    void FrameContext::SetCurrentRenderFinishedSemaphore(VkSemaphore value) {
-        GetRenderFinishedSemaphore(GetCurrentFrameIndex()) = value;
-    }
-
-    void FrameContext::SetCurrentImageInFlightFence(VkFence value) {
-        GetImageInFlightFence(GetCurrentFrameIndex()) = value;
-    }
-
-    void FrameContext::SetCurrentCommandBufferRecorded(Bool value) {
-        SetHasCommandBufferRecorded(GetCurrentFrameIndex(), value);
-    }
-
-    VkCommandBuffer& FrameContext::GetCurrentCommandBuffer() {
-        return GetCommandBuffer(GetCurrentFrameIndex());
-    }
-
-    VkSemaphore& FrameContext::GetCurrentImageAvailableSemaphore() {
-        return GetImageAvailableSemaphore(GetCurrentFrameIndex());
-    }
-
-    VkSemaphore& FrameContext::GetCurrentRenderFinishedSemaphore() {
-        return GetRenderFinishedSemaphore(GetCurrentFrameIndex());
-    }
-
-    VkFence& FrameContext::GetCurrentImageInFlightFence() {
-        return GetImageInFlightFence(GetCurrentFrameIndex());
-    }
-
-    Bool FrameContext::HasCurrentCommandBufferRecorded() const {
-        return HasCommandBufferRecorded(GetCurrentFrameIndex());
-    }
-
-    const VkCommandBuffer& FrameContext::GetCommandBuffer(Uint32 frameIndex) const {
-        AssertValidFrameIndex(frameIndex);
-        return commandBuffers[frameIndex];
-    }
-
-    const VkSemaphore& FrameContext::GetImageAvailableSemaphore(Uint32 frameIndex) const {
-        AssertValidFrameIndex(frameIndex);
-        return imageAvailableSemaphores[frameIndex];
-    }
-
-    const VkSemaphore& FrameContext::GetRenderFinishedSemaphore(Uint32 frameIndex) const {
-        AssertValidFrameIndex(frameIndex);
-        return renderFinishedSemaphores[frameIndex];
-    }
-
-    const VkFence& FrameContext::GetImageInFlightFence(Uint32 frameIndex) const {
-        AssertValidFrameIndex(frameIndex);
-        return imageInFlightFences[frameIndex];
-    }
-
-    Bool FrameContext::HasCommandBufferRecorded(Uint32 frameIndex) const {
-        AssertValidFrameIndex(frameIndex);
-        return hasCommandBufferRecorded[frameIndex];
-    }
-
-    const VkCommandBuffer& FrameContext::GetCurrentCommandBuffer() const {
-        return GetCommandBuffer(GetCurrentFrameIndex());
-    }
-
-    const VkSemaphore& FrameContext::GetCurrentImageAvailableSemaphore() const {
-        return GetImageAvailableSemaphore(GetCurrentFrameIndex());
-    }
-
-    const VkSemaphore& FrameContext::GetCurrentRenderFinishedSemaphore() const {
-        return GetRenderFinishedSemaphore(GetCurrentFrameIndex());
-    }
-
-    const VkFence& FrameContext::GetCurrentImageInFlightFence() const {
-        return GetImageInFlightFence(GetCurrentFrameIndex());
-    }
-
-    void FrameContext::ResetPerFrameState() {
-        for (SizeT i = 0; i < hasCommandBufferRecorded.size(); ++i) {
-            hasCommandBufferRecorded[i] = false;
-        }
+        return static_cast<Uint32>(m_frames.size());
     }
 
     void FrameContext::AssertValidFrameIndex(Uint32 frameIndex) const {
-        MOBILEGL_ASSERT(frameIndex < commandBuffers.size(), "FrameContext index out of range");
+        MOBILEGL_ASSERT(frameIndex < m_frames.size(), "FrameContext index out of range");
     }
 
     VkResult FrameContext::CreateSyncObjectsForFrame(VkDevice device, Uint32 frameIndex,
                                                      const VkSemaphoreCreateInfo& semaphoreInfo,
                                                      const VkFenceCreateInfo& fenceInfo) {
+        AssertValidFrameIndex(frameIndex);
         DestroySyncObjectsForFrame(device, frameIndex);
 
+        auto& frame = m_frames[frameIndex];
         VkResult result =
-            vkCreateSemaphore(device, &semaphoreInfo, nullptr, &imageAvailableSemaphores[frameIndex]);
+            vkCreateSemaphore(device, &semaphoreInfo, nullptr, &frame.imageAvailableSemaphore);
         if (result != VK_SUCCESS) {
             return result;
         }
 
-        result = vkCreateSemaphore(device, &semaphoreInfo, nullptr, &renderFinishedSemaphores[frameIndex]);
+        result = vkCreateSemaphore(device, &semaphoreInfo, nullptr, &frame.renderFinishedSemaphore);
         if (result != VK_SUCCESS) {
-            vkDestroySemaphore(device, imageAvailableSemaphores[frameIndex], nullptr);
-            imageAvailableSemaphores[frameIndex] = VK_NULL_HANDLE;
+            vkDestroySemaphore(device, frame.imageAvailableSemaphore, nullptr);
+            frame.imageAvailableSemaphore = VK_NULL_HANDLE;
             return result;
         }
 
-        result = vkCreateFence(device, &fenceInfo, nullptr, &imageInFlightFences[frameIndex]);
+        result = vkCreateFence(device, &fenceInfo, nullptr, &frame.imageInFlightFence);
         if (result != VK_SUCCESS) {
-            vkDestroySemaphore(device, renderFinishedSemaphores[frameIndex], nullptr);
-            vkDestroySemaphore(device, imageAvailableSemaphores[frameIndex], nullptr);
-            renderFinishedSemaphores[frameIndex] = VK_NULL_HANDLE;
-            imageAvailableSemaphores[frameIndex] = VK_NULL_HANDLE;
+            vkDestroySemaphore(device, frame.renderFinishedSemaphore, nullptr);
+            vkDestroySemaphore(device, frame.imageAvailableSemaphore, nullptr);
+            frame.renderFinishedSemaphore = VK_NULL_HANDLE;
+            frame.imageAvailableSemaphore = VK_NULL_HANDLE;
             return result;
         }
 
-        hasCommandBufferRecorded[frameIndex] = false;
+        frame.hasCommandBufferRecorded = false;
         return VK_SUCCESS;
     }
 
     void FrameContext::DestroySyncObjectsForFrame(VkDevice device, Uint32 frameIndex) {
-        if (device != VK_NULL_HANDLE && imageInFlightFences[frameIndex] != VK_NULL_HANDLE) {
-            vkDestroyFence(device, imageInFlightFences[frameIndex], nullptr);
+        AssertValidFrameIndex(frameIndex);
+        auto& frame = m_frames[frameIndex];
+        if (device != VK_NULL_HANDLE && frame.imageInFlightFence != VK_NULL_HANDLE) {
+            vkDestroyFence(device, frame.imageInFlightFence, nullptr);
         }
-        imageInFlightFences[frameIndex] = VK_NULL_HANDLE;
+        frame.imageInFlightFence = VK_NULL_HANDLE;
 
-        if (device != VK_NULL_HANDLE && renderFinishedSemaphores[frameIndex] != VK_NULL_HANDLE) {
-            vkDestroySemaphore(device, renderFinishedSemaphores[frameIndex], nullptr);
+        if (device != VK_NULL_HANDLE && frame.renderFinishedSemaphore != VK_NULL_HANDLE) {
+            vkDestroySemaphore(device, frame.renderFinishedSemaphore, nullptr);
         }
-        renderFinishedSemaphores[frameIndex] = VK_NULL_HANDLE;
+        frame.renderFinishedSemaphore = VK_NULL_HANDLE;
 
-        if (device != VK_NULL_HANDLE && imageAvailableSemaphores[frameIndex] != VK_NULL_HANDLE) {
-            vkDestroySemaphore(device, imageAvailableSemaphores[frameIndex], nullptr);
+        if (device != VK_NULL_HANDLE && frame.imageAvailableSemaphore != VK_NULL_HANDLE) {
+            vkDestroySemaphore(device, frame.imageAvailableSemaphore, nullptr);
         }
-        imageAvailableSemaphores[frameIndex] = VK_NULL_HANDLE;
-        hasCommandBufferRecorded[frameIndex] = false;
+        frame.imageAvailableSemaphore = VK_NULL_HANDLE;
+        frame.hasCommandBufferRecorded = false;
     }
 } // namespace MobileGL::MG_Backend::DirectVulkan

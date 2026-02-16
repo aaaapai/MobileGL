@@ -197,10 +197,11 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         CreateFrameContexts();
 
         // Prime the first frame so Render() always targets an acquired swapchain image.
-        VK_VERIFY(vkWaitForFences(m_device, 1, &m_frameContext.GetCurrentImageInFlightFence(), VK_TRUE, UINT64_MAX));
-        VK_VERIFY(vkResetFences(m_device, 1, &m_frameContext.GetCurrentImageInFlightFence()));
+        auto& frame = m_frameContext.GetCurrent();
+        VK_VERIFY(vkWaitForFences(m_device, 1, &frame.imageInFlightFence, VK_TRUE, UINT64_MAX));
+        VK_VERIFY(vkResetFences(m_device, 1, &frame.imageInFlightFence));
         VK_VERIFY(vkAcquireNextImageKHR(m_device, m_swapchainObject.GetHandle(), UINT64_MAX,
-                                        m_frameContext.GetCurrentImageAvailableSemaphore(), VK_NULL_HANDLE,
+                                        frame.imageAvailableSemaphore, VK_NULL_HANDLE,
                                         &m_imageIndexAcquired));
 
         MGLOG_D("VulkanRenderer initialized");
@@ -251,7 +252,8 @@ namespace MobileGL::MG_Backend::DirectVulkan {
     }
 
     void VulkanRenderer::Render() {
-        VkCommandBuffer& commandBuffer = m_frameContext.GetCurrentCommandBuffer();
+        auto& frame = m_frameContext.GetCurrent();
+        VkCommandBuffer& commandBuffer = frame.commandBuffer;
         VK_VERIFY(vkResetCommandBuffer(commandBuffer, 0));
 
         // Begin command buffer
@@ -298,14 +300,15 @@ namespace MobileGL::MG_Backend::DirectVulkan {
 
         // End command buffer
         VK_VERIFY(vkEndCommandBuffer(commandBuffer));
-        m_frameContext.SetCurrentCommandBufferRecorded(true);
+        frame.hasCommandBufferRecorded = true;
     }
 
     void VulkanRenderer::Present() {
         MOBILEGL_ASSERT(m_imageIndexAcquired < m_swapchainObject.GetImageCount(),
                         "Present, acquired image index out of range");
-        VkCommandBuffer& commandBuffer = m_frameContext.GetCurrentCommandBuffer();
-        const Bool hasRecordedWork = m_frameContext.HasCurrentCommandBufferRecorded();
+        auto& frame = m_frameContext.GetCurrent();
+        VkCommandBuffer& commandBuffer = frame.commandBuffer;
+        const Bool hasRecordedWork = frame.hasCommandBufferRecorded;
         Bool needsLayoutTransitionForPresent = false;
 
         if (!hasRecordedWork) {
@@ -350,18 +353,18 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         // 1) Submit current frame work.
         VkSubmitInfo submitInfo{};
         submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-        VkSemaphore waitSemaphores[] = {m_frameContext.GetCurrentImageAvailableSemaphore()};
+        VkSemaphore waitSemaphores[] = {frame.imageAvailableSemaphore};
         VkPipelineStageFlags waitStages[] = {VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT};
         submitInfo.waitSemaphoreCount = 1;
         submitInfo.pWaitSemaphores = waitSemaphores;
         submitInfo.pWaitDstStageMask = waitStages;
         submitInfo.commandBufferCount = shouldSubmitCommandBuffer ? 1U : 0U;
         submitInfo.pCommandBuffers = shouldSubmitCommandBuffer ? &commandBuffer : nullptr;
-        VkSemaphore signalSemaphores[] = {m_frameContext.GetCurrentRenderFinishedSemaphore()};
+        VkSemaphore signalSemaphores[] = {frame.renderFinishedSemaphore};
         submitInfo.signalSemaphoreCount = 1;
         submitInfo.pSignalSemaphores = signalSemaphores;
-        VK_VERIFY(vkQueueSubmit(m_graphicsQueue, 1, &submitInfo, m_frameContext.GetCurrentImageInFlightFence()));
-        m_frameContext.SetCurrentCommandBufferRecorded(false);
+        VK_VERIFY(vkQueueSubmit(m_graphicsQueue, 1, &submitInfo, frame.imageInFlightFence));
+        frame.hasCommandBufferRecorded = false;
         m_swapchainObject.SetImageLayout(m_imageIndexAcquired, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
 
         // 2) Present current frame.
@@ -383,16 +386,17 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         VK_VERIFY(result, "Present, vkQueuePresentKHR");
 
         // 3) Advance frame slot.
-        m_frameContext.AdvanceFrame();
+        m_frameContext.AdvanceToNext();
 
         // 4) Wait/reset/acquire for next frame.
-        VK_VERIFY(vkWaitForFences(m_device, 1, &m_frameContext.GetCurrentImageInFlightFence(), VK_TRUE, UINT64_MAX),
+        auto& nextFrame = m_frameContext.GetCurrent();
+        VK_VERIFY(vkWaitForFences(m_device, 1, &nextFrame.imageInFlightFence, VK_TRUE, UINT64_MAX),
                   "Present, vkWaitForFences");
-        VK_VERIFY(vkResetFences(m_device, 1, &m_frameContext.GetCurrentImageInFlightFence()),
+        VK_VERIFY(vkResetFences(m_device, 1, &nextFrame.imageInFlightFence),
                   "Present, vkResetFences");
         result =
             vkAcquireNextImageKHR(m_device, m_swapchainObject.GetHandle(), UINT64_MAX,
-                                  m_frameContext.GetCurrentImageAvailableSemaphore(), VK_NULL_HANDLE,
+                                  nextFrame.imageAvailableSemaphore, VK_NULL_HANDLE,
                                   &m_imageIndexAcquired);
         if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR) {
             MGLOG_D("Present, vkAcquireNextImageKHR got %d, recreating swapchain", result);
@@ -912,7 +916,9 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         CreateSwapchain();
         CreateDefaultRenderPass();
         CreateDefaultFramebuffers();
-        m_frameContext.ResetPerFrameState();
+        if (m_frameContext.GetFrameCount() > 0) {
+            m_frameContext.GetCurrent().hasCommandBufferRecorded = false;
+        }
     }
 
 } // namespace MobileGL::MG_Backend::DirectVulkan

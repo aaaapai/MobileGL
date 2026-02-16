@@ -14,40 +14,22 @@
 namespace MobileGL::MG_Backend::DirectVulkan {
     class FrameContext {
     public:
+        struct FrameData {
+            VkCommandBuffer commandBuffer = VK_NULL_HANDLE;
+            VkSemaphore imageAvailableSemaphore = VK_NULL_HANDLE;
+            VkSemaphore renderFinishedSemaphore = VK_NULL_HANDLE;
+            VkFence imageInFlightFence = VK_NULL_HANDLE;
+            Bool hasCommandBufferRecorded = false;
+        };
+
         VkResult Initialize(VkDevice device, VkCommandPool commandPool, Uint32 frameCount);
         void Destroy(VkDevice device, VkCommandPool commandPool);
-        void AdvanceFrame();
-        void ResetPerFrameState();
+        FrameData& GetCurrent();
+        const FrameData& GetCurrent() const;
+        void AdvanceToNext();
 
         Uint32 GetCurrentFrameIndex() const;
         Uint32 GetFrameCount() const;
-
-        VkCommandBuffer& GetCommandBuffer(Uint32 frameIndex);
-        VkSemaphore& GetImageAvailableSemaphore(Uint32 frameIndex);
-        VkSemaphore& GetRenderFinishedSemaphore(Uint32 frameIndex);
-        VkFence& GetImageInFlightFence(Uint32 frameIndex);
-        void SetHasCommandBufferRecorded(Uint32 frameIndex, Bool value);
-        void SetCurrentCommandBuffer(VkCommandBuffer value);
-        void SetCurrentImageAvailableSemaphore(VkSemaphore value);
-        void SetCurrentRenderFinishedSemaphore(VkSemaphore value);
-        void SetCurrentImageInFlightFence(VkFence value);
-        void SetCurrentCommandBufferRecorded(Bool value);
-
-        VkCommandBuffer& GetCurrentCommandBuffer();
-        VkSemaphore& GetCurrentImageAvailableSemaphore();
-        VkSemaphore& GetCurrentRenderFinishedSemaphore();
-        VkFence& GetCurrentImageInFlightFence();
-        Bool HasCurrentCommandBufferRecorded() const;
-
-        const VkCommandBuffer& GetCommandBuffer(Uint32 frameIndex) const;
-        const VkSemaphore& GetImageAvailableSemaphore(Uint32 frameIndex) const;
-        const VkSemaphore& GetRenderFinishedSemaphore(Uint32 frameIndex) const;
-        const VkFence& GetImageInFlightFence(Uint32 frameIndex) const;
-        Bool HasCommandBufferRecorded(Uint32 frameIndex) const;
-        const VkCommandBuffer& GetCurrentCommandBuffer() const;
-        const VkSemaphore& GetCurrentImageAvailableSemaphore() const;
-        const VkSemaphore& GetCurrentRenderFinishedSemaphore() const;
-        const VkFence& GetCurrentImageInFlightFence() const;
 
     private:
         void AssertValidFrameIndex(Uint32 frameIndex) const;
@@ -57,11 +39,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                                            const VkFenceCreateInfo& fenceInfo);
         void DestroySyncObjectsForFrame(VkDevice device, Uint32 frameIndex);
 
-        Vector<VkCommandBuffer> commandBuffers;
-        Vector<VkSemaphore> imageAvailableSemaphores;
-        Vector<VkSemaphore> renderFinishedSemaphores;
-        Vector<VkFence> imageInFlightFences;
-        Vector<Bool> hasCommandBufferRecorded;
+        Vector<FrameData> m_frames;
         Uint32 currentFrameIndex = 0;
     };
 } // namespace MobileGL::MG_Backend::DirectVulkan
