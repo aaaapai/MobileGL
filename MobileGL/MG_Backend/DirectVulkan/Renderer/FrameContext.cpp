@@ -70,24 +70,51 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         return m_frames[currentFrameIndex];
     }
 
+    Bool FrameContext::IsCommandRecording() const {
+        return GetCurrent().isCommandRecording;
+    }
+
     void FrameContext::AdvanceToNext() {
         MOBILEGL_ASSERT(!m_frames.empty(), "FrameContext is not initialized");
         currentFrameIndex = (currentFrameIndex + 1) % static_cast<Uint32>(m_frames.size());
+        GetCurrent().isCommandRecording = false;
         GetCurrent().hasCommandBufferRecorded = false;
+    }
+
+    VkCommandBuffer& FrameContext::BeginCommandRecording(VkCommandBufferUsageFlags flags,
+                                                         const VkCommandBufferInheritanceInfo* pInheritanceInfo) {
+        auto& frame = GetCurrent();
+        MOBILEGL_ASSERT(!frame.isCommandRecording, "BeginCommandRecording called while command buffer is already recording");
+
+        frame.hasCommandBufferRecorded = false;
+        VK_VERIFY(vkResetCommandBuffer(frame.commandBuffer, 0), "BeginCommandRecording, vkResetCommandBuffer");
+
+        VkCommandBufferBeginInfo beginInfo{};
+        beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+        beginInfo.flags = flags;
+        beginInfo.pInheritanceInfo = pInheritanceInfo;
+        VK_VERIFY(vkBeginCommandBuffer(frame.commandBuffer, &beginInfo), "BeginCommandRecording, vkBeginCommandBuffer");
+
+        frame.isCommandRecording = true;
+        return frame.commandBuffer;
+    }
+
+    void FrameContext::EndCommandRecording() {
+        auto& frame = GetCurrent();
+        MOBILEGL_ASSERT(frame.isCommandRecording, "EndCommandRecording called without active command buffer recording");
+        VK_VERIFY(vkEndCommandBuffer(frame.commandBuffer), "EndCommandRecording, vkEndCommandBuffer");
+        frame.isCommandRecording = false;
+        frame.hasCommandBufferRecorded = true;
     }
 
     Bool FrameContext::TransitionToPresent(VkImage image, VkImageLayout oldLayout, VkImageLayout presentLayout) {
         auto& frame = GetCurrent();
-        if (frame.hasCommandBufferRecorded || oldLayout == presentLayout ||
+        if (frame.hasCommandBufferRecorded || frame.isCommandRecording || oldLayout == presentLayout ||
             oldLayout == VK_IMAGE_LAYOUT_SHARED_PRESENT_KHR) {
             return false;
         }
 
-        VK_VERIFY(vkResetCommandBuffer(frame.commandBuffer, 0), "TransitionToPresent, vkResetCommandBuffer");
-
-        VkCommandBufferBeginInfo beginInfo{};
-        beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-        VK_VERIFY(vkBeginCommandBuffer(frame.commandBuffer, &beginInfo), "TransitionToPresent, vkBeginCommandBuffer");
+        auto& commandBuffer = BeginCommandRecording();
 
         VkImageMemoryBarrier presentBarrier{};
         presentBarrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
@@ -103,15 +130,16 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         presentBarrier.subresourceRange.levelCount = 1;
         presentBarrier.subresourceRange.baseArrayLayer = 0;
         presentBarrier.subresourceRange.layerCount = 1;
-        vkCmdPipelineBarrier(frame.commandBuffer, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
-                             0, 0, nullptr, 0, nullptr, 1, &presentBarrier);
+        vkCmdPipelineBarrier(commandBuffer, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, 0, 0,
+                             nullptr, 0, nullptr, 1, &presentBarrier);
 
-        VK_VERIFY(vkEndCommandBuffer(frame.commandBuffer), "TransitionToPresent, vkEndCommandBuffer");
+        EndCommandRecording();
         return true;
     }
 
     FrameContext::SubmitInfoPacket FrameContext::GetSubmitInfo(Bool shouldSubmitCommandBuffer) const {
         const auto& frame = GetCurrent();
+        MOBILEGL_ASSERT(!frame.isCommandRecording, "GetSubmitInfo called while command buffer recording is still active");
         SubmitInfoPacket packet{};
         packet.waitSemaphore = frame.imageAvailableSemaphore;
         packet.signalSemaphore = frame.renderFinishedSemaphore;
@@ -202,6 +230,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         }
 
         frame.hasCommandBufferRecorded = false;
+        frame.isCommandRecording = false;
         return VK_SUCCESS;
     }
 
@@ -222,6 +251,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             vkDestroySemaphore(device, frame.imageAvailableSemaphore, nullptr);
         }
         frame.imageAvailableSemaphore = VK_NULL_HANDLE;
+        frame.isCommandRecording = false;
         frame.hasCommandBufferRecorded = false;
     }
 } // namespace MobileGL::MG_Backend::DirectVulkan

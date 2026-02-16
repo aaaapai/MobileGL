@@ -248,16 +248,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
     }
 
     void VulkanRenderer::Render() {
-        auto& frame = m_frameContext.GetCurrent();
-        VkCommandBuffer& commandBuffer = frame.commandBuffer;
-        VK_VERIFY(vkResetCommandBuffer(commandBuffer, 0));
-
-        // Begin command buffer
-        VkCommandBufferBeginInfo beginInfo{};
-        beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-        beginInfo.flags = 0;
-        beginInfo.pInheritanceInfo = nullptr;
-        VK_VERIFY(vkBeginCommandBuffer(commandBuffer, &beginInfo));
+        VkCommandBuffer& commandBuffer = m_frameContext.BeginCommandRecording();
 
         // Begin render pass
         VkRenderPassBeginInfo renderPassInfo{};
@@ -295,8 +286,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         vkCmdEndRenderPass(commandBuffer);
 
         // End command buffer
-        VK_VERIFY(vkEndCommandBuffer(commandBuffer));
-        frame.hasCommandBufferRecorded = true;
+        m_frameContext.EndCommandRecording();
     }
 
     void VulkanRenderer::Present() {
@@ -311,6 +301,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         // 1) Submit current frame work.
         auto submitPacket = m_frameContext.GetSubmitInfo(shouldSubmitCommandBuffer);
         VK_VERIFY(vkQueueSubmit(m_graphicsQueue, 1, &submitPacket.submitInfo, frame.imageInFlightFence));
+        frame.isCommandRecording = false;
         frame.hasCommandBufferRecorded = false;
         m_swapchainObject.SetImageLayout(m_imageIndexAcquired, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
 
@@ -848,6 +839,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         CreateDefaultRenderPass();
         CreateDefaultFramebuffers();
         if (m_frameContext.GetFrameCount() > 0) {
+            m_frameContext.GetCurrent().isCommandRecording = false;
             m_frameContext.GetCurrent().hasCommandBufferRecorded = false;
         }
     }

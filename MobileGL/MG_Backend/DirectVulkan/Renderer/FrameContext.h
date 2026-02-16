@@ -34,6 +34,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             VkSemaphore imageAvailableSemaphore = VK_NULL_HANDLE;
             VkSemaphore renderFinishedSemaphore = VK_NULL_HANDLE;
             VkFence imageInFlightFence = VK_NULL_HANDLE;
+            Bool isCommandRecording = false;
             Bool hasCommandBufferRecorded = false;
         };
 
@@ -43,7 +44,11 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         // Lifecycle functions
         FrameData& GetCurrent();
         const FrameData& GetCurrent() const;
+        Bool IsCommandRecording() const;
         void AdvanceToNext();
+        VkCommandBuffer& BeginCommandRecording(VkCommandBufferUsageFlags flags = 0,
+                                               const VkCommandBufferInheritanceInfo* pInheritanceInfo = nullptr);
+        void EndCommandRecording();
         Bool TransitionToPresent(VkImage image, VkImageLayout oldLayout,
                                  VkImageLayout presentLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
         SubmitInfoPacket GetSubmitInfo(Bool shouldSubmitCommandBuffer) const;
