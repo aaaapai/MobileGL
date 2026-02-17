@@ -7,6 +7,7 @@
 // End of Source File Header
 
 #include "VulkanRenderer.h"
+#include "VertexInputStateBuilder.h"
 
 #include "MG_State/GLState/ProgramState/ProgramObject.h"
 
@@ -112,9 +113,8 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         dynamicState.dynamicStateCount = static_cast<uint32_t>(std::size(s_dynamicStates));
         dynamicState.pDynamicStates = s_dynamicStates;
 
-        VkPipelineVertexInputStateCreateInfo vertexInput{VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO};
-        vertexInput.vertexBindingDescriptionCount = 0;
-        vertexInput.vertexAttributeDescriptionCount = 0;
+        VertexInputStateBuilder vertexInputBuilder;
+        const auto& vertexInput = vertexInputBuilder.Build();
 
         VkPipelineInputAssemblyStateCreateInfo ia{VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO};
         ia.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
@@ -444,7 +444,12 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         m_frameContext.EndCommandRecording();
     }
 
-    void VulkanRenderer::DrawArrays(GLenum mode, GLint first, GLsizei count) {
+    void VulkanRenderer::DrawArrays(const DrawArrayPayload& payload) {
+        if (payload.mode != GL_TRIANGLES) {
+            MGLOG_W("DrawArrays skipped: primitive mode %u is not supported yet", payload.mode);
+            return;
+        }
+
         EnsureFrameRecordingStarted();
         auto& frame = m_frameContext.GetCurrent();
         if (!frame.isCommandRecording || !m_isMainRenderPassActive) {
@@ -471,7 +476,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         scissor.extent = swapchainExtent;
         vkCmdSetScissor(commandBuffer, 0, 1, &scissor);
 
-        vkCmdDraw(commandBuffer, static_cast<Uint32>(count), 1, static_cast<Uint32>(first), 0);
+        vkCmdDraw(commandBuffer, static_cast<Uint32>(payload.count), 1, static_cast<Uint32>(payload.first), 0);
     }
 
     void VulkanRenderer::DrawElements(GLenum type, GLsizei count, const void* indexData, SizeT indexDataSizeBytes) {

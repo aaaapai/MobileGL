@@ -19,6 +19,20 @@
 #include "../VkIncludes.h"
 
 namespace MobileGL::MG_Backend::DirectVulkan {
+    struct DrawArrayPayload {
+        GLenum mode = GL_TRIANGLES;
+        GLint first = 0;
+        GLsizei count = 0;
+        Bool hasPositionStream = false;
+        const void* positionData = nullptr;
+        SizeT positionDataSizeBytes = 0;
+        SizeT positionStrideBytes = 0;
+        SizeT positionOffsetBytes = 0;
+        GLenum positionType = GL_FLOAT;
+        GLint positionSize = 0;
+        Bool positionNormalized = false;
+    };
+
     class VulkanRenderer {
     public:
         VulkanRenderer(NativeWindowType window, const VulkanRendererConfig& cfg = {});
@@ -30,7 +44,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         void RequestClear(GLbitfield mask, const FloatVec4& color, Float depth, Uint32 stencil);
         Bool ConsumePendingColorClear(VkClearColorValue& outClearColor);
         void EnsureFrameRecordingStarted();
-        void DrawArrays(GLenum mode, GLint first, GLsizei count);
+        void DrawArrays(const DrawArrayPayload& payload);
         void DrawElements(GLenum type, GLsizei count, const void* indexData, SizeT indexDataSizeBytes);
         void Render();
         void Present();

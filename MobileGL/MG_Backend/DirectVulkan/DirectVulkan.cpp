@@ -85,6 +85,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
 
     void DrawArrays(GLenum mode, GLint first, GLsizei count) {
         MOBILEGL_ASSERT(pVulkanRenderer, "DirectVulkan::DrawArrays called with null VulkanRenderer");
+        MOBILEGL_ASSERT(MG_State::pGLContext, "DirectVulkan::DrawArrays called with null GL context");
 
         if (first < 0) {
             MGLOG_W("DrawArrays skipped: first (%d) must be non-negative", first);
@@ -105,7 +106,39 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             return;
         }
 
-        pVulkanRenderer->DrawArrays(mode, first, count);
+        DrawArrayPayload payload{};
+        payload.mode = mode;
+        payload.first = first;
+        payload.count = count;
+
+        const auto vao = MG_State::pGLContext->GetBoundVertexArray();
+        if (vao) {
+            const auto& attr0 = vao->GetAttribute(0);
+            if (attr0.Enabled && attr0.Buffer) {
+                const auto positionData = attr0.Buffer->GetDataReadOnly();
+                if (positionData && !positionData->empty()) {
+                    payload.hasPositionStream = true;
+                    payload.positionData = positionData->data();
+                    payload.positionDataSizeBytes = attr0.Buffer->GetSize();
+                    payload.positionOffsetBytes = attr0.Offset;
+                    payload.positionStrideBytes = attr0.Stride > 0 ? static_cast<SizeT>(attr0.Stride) : 0;
+                    payload.positionSize = attr0.Size;
+                    payload.positionNormalized = attr0.Normalized;
+
+                    switch (attr0.Type) {
+                    case DataType::Float32:
+                        payload.positionType = GL_FLOAT;
+                        break;
+                    default:
+                        payload.positionType = GL_FLOAT;
+                        payload.hasPositionStream = false;
+                        break;
+                    }
+                }
+            }
+        }
+
+        pVulkanRenderer->DrawArrays(payload);
     }
 } // namespace MobileGL::MG_Backend::DirectVulkan
 
