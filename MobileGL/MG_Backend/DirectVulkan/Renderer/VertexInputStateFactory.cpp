@@ -7,6 +7,7 @@
 // End of Source File Header
 
 #include "VertexInputStateFactory.h"
+#include "MG_Util/Converters/MGToStr/DataTypeConverter.h"
 
 namespace MobileGL::MG_Backend::DirectVulkan {
     VertexInputStateFactory::HashType VertexInputStateFactory::ComputeHash(
@@ -52,16 +53,16 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             }
 
             const auto vkFormat = ToVkVertexFormat(attr.Type, attr.Size, attr.Normalized, attr.IsInteger);
-            if (vkFormat != VK_FORMAT_UNDEFINED) {
-                MGLOG_W("Skipping unsupported vertex attribute layout (location=%u, type=%d, size=%d)",
-                        location, static_cast<Int>(attr.Type), attr.Size);
+            if (vkFormat == VK_FORMAT_UNDEFINED) {
+                MGLOG_W("Skipping unsupported vertex attribute layout (location=%u, type=%s, size=%d)",
+                        location, MG_Util::ConvertDataTypeToString(attr.Type).c_str(), attr.Size);
                 continue;
             }
 
             const SizeT componentSize = GetComponentSize(attr.Type);
             if (componentSize == 0) {
-                MGLOG_W("Skipping vertex attribute with unknown component size (location=%u, type=%d)",
-                        location, static_cast<Int>(attr.Type));
+                MGLOG_W("Skipping vertex attribute with unknown component size (location=%u, type=%s)",
+                        location, MG_Util::ConvertDataTypeToString(attr.Type).c_str());
                 continue;
             }
 
@@ -73,7 +74,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
 
             builder
                 .AddBinding(location, stride, inputRate)
-                .AddAttribute(location, location, vkFormat, 0);
+                .AddAttribute(location, location, vkFormat, static_cast<Uint32>(attr.Offset));
         }
 
         const auto& state = builder.Build();
