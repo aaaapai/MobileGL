@@ -9,6 +9,7 @@
 #pragma once
 #include "Config.h"
 #include "FrameContext.h"
+#include "PipelineFactory.h"
 #include "ProgramFactory.h"
 #include "SwapchainObject.h"
 #include "VkBufferObject.h"
@@ -117,7 +118,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
 
         VkPipelineLayout m_pipelineLayout = VK_NULL_HANDLE;
         VkPipeline m_pipeline = VK_NULL_HANDLE;
-        UnorderedMap<Uint64, VkPipeline> m_pipelineVariants;
+        Uint64 m_demoProgramHash = 0;
         Vector<VkPipelineShaderStageCreateInfo> m_demoPipelineStages;
         VkBufferObject m_vertexBuffer;
         VkBufferObject m_indexBuffer;
@@ -130,6 +131,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         Uint32 m_pendingClearStencil = 0;
         Bool m_isMainRenderPassActive = false;
 
+        UniquePtr<PipelineFactory> m_pipelineFactory;
         UniquePtr<ProgramFactory> m_programFactory;
         UniquePtr<VertexInputStateFactory> m_vertexInputStateFactory;
 
@@ -151,9 +153,8 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         VkRenderPass CreateDefaultRenderPass(VkAttachmentLoadOp loadOp);
         void CreateDefaultFramebuffers();
         void PrepareDemoPipeline();
-        VkPipeline CreateGraphicsPipeline(const VkPipelineVertexInputStateCreateInfo& vertexInputState) const;
-        VkPipeline GetOrCreatePipelineVariant(Uint64 hash, const VkPipelineVertexInputStateCreateInfo& vertexInputState);
-        void DestroyPipelineVariants();
+        VkPipeline GetOrCreatePipeline(Uint64 programHash, Uint64 vertexInputHash,
+                                       const VkPipelineVertexInputStateCreateInfo& vertexInputState);
         void TransitionSwapchainImageToColorAttachment(VkCommandBuffer commandBuffer, Uint32 imageIndex);
         void TransitionDepthStencilImageToAttachment(VkCommandBuffer commandBuffer, Uint32 imageIndex);
         void RecordColorClear(VkCommandBuffer commandBuffer, const VkClearColorValue& clearColor);

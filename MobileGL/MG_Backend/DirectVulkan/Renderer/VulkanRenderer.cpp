@@ -76,96 +76,21 @@ namespace MobileGL::MG_Backend::DirectVulkan {
     }
 )";
 
-    VkPipeline VulkanRenderer::CreateGraphicsPipeline(const VkPipelineVertexInputStateCreateInfo& vertexInputState) const {
-        MOBILEGL_ASSERT(!m_demoPipelineStages.empty(), "CreateGraphicsPipeline requires shader stages");
+    VkPipeline VulkanRenderer::GetOrCreatePipeline(
+        Uint64 programHash, Uint64 vertexInputHash, const VkPipelineVertexInputStateCreateInfo& vertexInputState) {
+        MOBILEGL_ASSERT(m_pipelineFactory != nullptr, "PipelineFactory is not initialized");
+        MOBILEGL_ASSERT(!m_demoPipelineStages.empty(), "GetOrCreatePipeline requires shader stages");
 
-        VkPipelineDynamicStateCreateInfo dynamicState{};
-        dynamicState.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
-        dynamicState.dynamicStateCount = static_cast<uint32_t>(std::size(s_dynamicStates));
-        dynamicState.pDynamicStates = s_dynamicStates;
-
-        VkPipelineInputAssemblyStateCreateInfo ia{VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO};
-        ia.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
-
-        VkViewport vp{};
-        vp.x = 0;
-        vp.y = 0;
-        const auto swapchainExtent = m_swapchainObject.GetExtent();
-        vp.width = (float)swapchainExtent.width;
-        vp.height = (float)swapchainExtent.height;
-        vp.minDepth = 0;
-        vp.maxDepth = 1;
-        VkRect2D scissor{{0, 0}, swapchainExtent};
-        VkPipelineViewportStateCreateInfo vpci{VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO};
-        vpci.viewportCount = 1;
-        vpci.pViewports = &vp;
-        vpci.scissorCount = 1;
-        vpci.pScissors = &scissor;
-
-        VkPipelineRasterizationStateCreateInfo raster{VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO};
-        raster.polygonMode = VK_POLYGON_MODE_FILL;
-        raster.cullMode = VK_CULL_MODE_NONE;
-        raster.frontFace = VK_FRONT_FACE_CLOCKWISE;
-        raster.lineWidth = 1.0f;
-
-        VkPipelineMultisampleStateCreateInfo ms{VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO};
-        ms.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
-
-        VkPipelineDepthStencilStateCreateInfo depthStencil{VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO};
-        depthStencil.depthTestEnable = VK_FALSE;
-        depthStencil.depthWriteEnable = VK_FALSE;
-        depthStencil.depthCompareOp = VK_COMPARE_OP_ALWAYS;
-        depthStencil.depthBoundsTestEnable = VK_FALSE;
-        depthStencil.stencilTestEnable = VK_FALSE;
-
-        VkPipelineColorBlendAttachmentState colorAttach{};
-        colorAttach.colorWriteMask =
-            VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
-        colorAttach.blendEnable = VK_FALSE;
-        VkPipelineColorBlendStateCreateInfo blend{VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO};
-        blend.attachmentCount = 1;
-        blend.pAttachments = &colorAttach;
-
-        VkGraphicsPipelineCreateInfo gpi{VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO};
-        gpi.stageCount = static_cast<Uint32>(m_demoPipelineStages.size());
-        gpi.pStages = m_demoPipelineStages.data();
-        gpi.pVertexInputState = &vertexInputState;
-        gpi.pInputAssemblyState = &ia;
-        gpi.pViewportState = &vpci;
-        gpi.pRasterizationState = &raster;
-        gpi.pMultisampleState = &ms;
-        gpi.pDepthStencilState = &depthStencil;
-        gpi.pColorBlendState = &blend;
-        gpi.pDynamicState = &dynamicState;
-        gpi.layout = m_pipelineLayout;
-        gpi.renderPass = m_renderPassLoad;
-        gpi.subpass = 0;
-
-        VkPipeline pipeline = VK_NULL_HANDLE;
-        VK_VERIFY(vkCreateGraphicsPipelines(m_device, VK_NULL_HANDLE, 1, &gpi, nullptr, &pipeline),
-                  "vkCreateGraphicsPipelines");
-        return pipeline;
-    }
-
-    VkPipeline VulkanRenderer::GetOrCreatePipelineVariant(
-        Uint64 hash, const VkPipelineVertexInputStateCreateInfo& vertexInputState) {
-        const auto it = m_pipelineVariants.find(hash);
-        if (it != m_pipelineVariants.end()) {
-            return it->second;
-        }
-
-        VkPipeline pipeline = CreateGraphicsPipeline(vertexInputState);
-        m_pipelineVariants.emplace(hash, pipeline);
-        return pipeline;
-    }
-
-    void VulkanRenderer::DestroyPipelineVariants() {
-        for (auto& pair : m_pipelineVariants) {
-            if (pair.second != VK_NULL_HANDLE) {
-                vkDestroyPipeline(m_device, pair.second, nullptr);
-            }
-        }
-        m_pipelineVariants.clear();
+        PipelineFactory::PipelineCreatePayload payload{};
+        payload.programHash = programHash;
+        payload.vertexInputHash = vertexInputHash;
+        payload.pipelineLayout = m_pipelineLayout;
+        payload.renderPass = m_renderPassLoad;
+        payload.subpass = 0;
+        payload.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+        payload.stages = &m_demoPipelineStages;
+        payload.vertexInputState = &vertexInputState;
+        return m_pipelineFactory->GetOrCreatePipeline(payload);
     }
 
     void VulkanRenderer::PrepareDemoPipeline() {
@@ -196,6 +121,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         }
 
         auto& stages = m_programFactory->GetOrCreatePipelineShaderStages(programObject, ProgramFactory::CompileOptionBit::None);
+        m_demoProgramHash = m_programFactory->ComputeHash(programObject, ProgramFactory::CompileOptionBit::None);
         m_demoPipelineStages = stages;
 
         VkPipelineLayoutCreateInfo plci{VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
@@ -203,7 +129,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
 
         VertexInputStateBuilder vertexInputBuilder;
         const auto& vertexInput = vertexInputBuilder.Build();
-        m_pipeline = CreateGraphicsPipeline(vertexInput);
+        m_pipeline = GetOrCreatePipeline(m_demoProgramHash, 0, vertexInput);
 
         // vkDestroyShaderModule(m_device, vs, nullptr);
         // vkDestroyShaderModule(m_device, fs, nullptr);
@@ -228,6 +154,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
 
         RecreateSwapchain();
 
+        m_pipelineFactory = MakeUnique<PipelineFactory>(m_device, m_config);
         m_programFactory = MakeUnique<ProgramFactory>(m_device, m_config);
         m_vertexInputStateFactory = MakeUnique<VertexInputStateFactory>(m_config);
 
@@ -244,6 +171,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
     void VulkanRenderer::Shutdown() {
         VK_VERIFY(vkDeviceWaitIdle(m_device));
 
+        m_pipelineFactory.reset();
         m_programFactory.reset();
         m_vertexInputStateFactory.reset();
         m_vertexBuffer.Destroy();
@@ -251,11 +179,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
 
         m_frameContext.Destroy(m_device, m_commandPool);
 
-        if (m_pipeline != VK_NULL_HANDLE) {
-            vkDestroyPipeline(m_device, m_pipeline, nullptr);
-            m_pipeline = VK_NULL_HANDLE;
-        }
-        DestroyPipelineVariants();
+        m_pipeline = VK_NULL_HANDLE;
 
         if (m_pipelineLayout != VK_NULL_HANDLE) {
             vkDestroyPipelineLayout(m_device, m_pipelineLayout, nullptr);
@@ -500,7 +424,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
 
         VkPipeline pipelineToBind = m_pipeline;
         if (vertexInputState) {
-            pipelineToBind = GetOrCreatePipelineVariant(vertexInputState->hash, vertexInputState->state);
+            pipelineToBind = GetOrCreatePipeline(m_demoProgramHash, vertexInputState->hash, vertexInputState->state);
             if (pipelineToBind == VK_NULL_HANDLE) {
                 MGLOG_W("DrawArrays skipped: failed to create/get pipeline variant");
                 return;
@@ -604,7 +528,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
 
         VkPipeline pipelineToBind = m_pipeline;
         if (vertexInputState) {
-            pipelineToBind = GetOrCreatePipelineVariant(vertexInputState->hash, vertexInputState->state);
+            pipelineToBind = GetOrCreatePipeline(m_demoProgramHash, vertexInputState->hash, vertexInputState->state);
             if (pipelineToBind == VK_NULL_HANDLE) {
                 MGLOG_W("DrawElements skipped: failed to create/get pipeline variant");
                 return;
@@ -1465,15 +1389,14 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         CreateDepthStencilResources();
         CreateDefaultRenderPass();
         CreateDefaultFramebuffers();
-        DestroyPipelineVariants();
-        if (m_pipeline != VK_NULL_HANDLE) {
-            vkDestroyPipeline(m_device, m_pipeline, nullptr);
-            m_pipeline = VK_NULL_HANDLE;
+        if (m_pipelineFactory) {
+            m_pipelineFactory->DestroyAll();
         }
-        if (!m_demoPipelineStages.empty() && m_pipelineLayout != VK_NULL_HANDLE) {
+        m_pipeline = VK_NULL_HANDLE;
+        if (!m_demoPipelineStages.empty() && m_pipelineLayout != VK_NULL_HANDLE && m_pipelineFactory) {
             VertexInputStateBuilder vertexInputBuilder;
             const auto& vertexInput = vertexInputBuilder.Build();
-            m_pipeline = CreateGraphicsPipeline(vertexInput);
+            m_pipeline = GetOrCreatePipeline(m_demoProgramHash, 0, vertexInput);
         }
         if (m_frameContext.GetFrameCount() > 0) {
             m_frameContext.GetCurrent().isCommandRecording = false;
