@@ -107,6 +107,7 @@ set(SPIRV_CROSS_STATIC         ON  CACHE BOOL "Prefer static libs" FORCE)
 # add_subdirectory(3rdparty/DiligentCore)
 add_subdirectory(3rdparty/glslang)
 add_subdirectory(3rdparty/SPIRV-Cross)
+add_subdirectory(3rdparty/VulkanMemoryAllocator)
 
 set(XXHASH_BUILD_XXHSUM OFF)
 option(BUILD_SHARED_LIBS OFF)
@@ -208,10 +209,12 @@ set(SOURCE_FILES
     MobileGL/MG_Backend/DirectGLES/Managers.cpp
 
     MobileGL/MG_Backend/DirectVulkan/DirectVulkan.cpp
+    MobileGL/MG_Backend/DirectVulkan/VmaImpl.cpp
     MobileGL/MG_Backend/DirectVulkan/Renderer/VulkanRenderer.cpp
     MobileGL/MG_Backend/DirectVulkan/Renderer/SwapchainObject.cpp
     MobileGL/MG_Backend/DirectVulkan/Renderer/FrameContext.cpp
     MobileGL/MG_Backend/DirectVulkan/Renderer/ProgramFactory.cpp
+    MobileGL/MG_Backend/DirectVulkan/Renderer/VkBufferObject.cpp
 
     MobileGL/MG_State/GLState/Core.cpp
     MobileGL/MG_State/GLState/ErrorState/Error.cpp
@@ -246,6 +249,7 @@ set(MOBILEGL_LINK_LIBRARIES
         SPIRV-Tools-opt
         SPIRV-Tools
         xxHash::xxhash
+        GPUOpen::VulkanMemoryAllocator
 )
 
 set(MOBILEGL_INCLUDE_DIR

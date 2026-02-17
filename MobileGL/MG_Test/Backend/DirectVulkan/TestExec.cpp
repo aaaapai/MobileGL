@@ -8,20 +8,26 @@
 
 #include <iostream>
 #include <vector>
+#include <cassert>
 
 #include <vulkan/vulkan.h>
+#define GLFW_INCLUDE_NONE
 #include <GLFW/glfw3.h>
 
-#define EGLAPI
+#define GL_GLEXT_PROTOTYPES
+#include <GL/glcorearb.h>
+#include <GL/glext.h>
+#undef GL_GLEXT_PROTOTYPES
+
+#ifndef EGLAPI
+#define EGLAPI extern
+#endif
 #include <EGL/egl.h>
 #ifdef _WIN32
     #define GLFW_EXPOSE_NATIVE_WIN32
 #elif defined(__APPLE__)
     #define GLFW_EXPOSE_NATIVE_COCOA
 #endif
-#include "Init.h"
-#include "MG_Backend/DirectVulkan/DirectVulkan.h"
-#include "MG_Backend/DirectVulkan/Renderer/VulkanRenderer.h"
 
 #include <GLFW/glfw3native.h>
 #ifdef __APPLE__
@@ -29,6 +35,10 @@
 #include <objc/objc.h>
 #include <objc/runtime.h>
 #endif
+
+namespace MobileGL {
+    void MG_Initialize();
+}
 
 int main() {
     glfwInit();
@@ -75,6 +85,16 @@ int main() {
 
     MobileGL::MG_Initialize();
 
+    GLuint vao = 0;
+    glGenVertexArrays(1, &vao);
+    glBindVertexArray(vao);
+
+    static constexpr GLushort kTriangleIndices[] = {0, 1, 2};
+    GLuint ebo = 0;
+    glGenBuffers(1, &ebo);
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ebo);
+    glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(kTriangleIndices), kTriangleIndices, GL_STATIC_DRAW);
+
     int i = 0;
     while(!glfwWindowShouldClose(window)) {
         glfwPollEvents();
@@ -85,7 +105,7 @@ int main() {
             glClearColor(0.0f, 1.0f, 0.0f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT);
         if (i % 500 > 250)
-            glDrawArrays(GL_TRIANGLES, 0, 3);
+            glDrawElements(GL_TRIANGLES, 3, GL_UNSIGNED_SHORT, nullptr);
         eglSwapBuffers(display, surface);
         ++i;
     }
