@@ -378,6 +378,9 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                 (!drawTargetsDefault && m_activeDrawFboExternalIndex != drawFboExternalIndex);
             if (activeTargetMismatch) {
                 vkCmdEndRenderPass(frame.commandBuffer);
+                if (m_activeRenderTargetIsDefault) {
+                    m_swapchainObject.SetImageLayout(m_imageIndexAcquired, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
+                }
                 m_isMainRenderPassActive = false;
                 m_activeRenderPass = VK_NULL_HANDLE;
                 m_activeRenderExtent = {0, 0};
@@ -529,6 +532,9 @@ namespace MobileGL::MG_Backend::DirectVulkan {
 
         if (m_isMainRenderPassActive) {
             vkCmdEndRenderPass(frame.commandBuffer);
+            if (m_activeRenderTargetIsDefault) {
+                m_swapchainObject.SetImageLayout(m_imageIndexAcquired, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
+            }
             m_isMainRenderPassActive = false;
             m_activeRenderPass = VK_NULL_HANDLE;
             m_activeRenderExtent = {0, 0};
@@ -831,6 +837,9 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         VkCommandBuffer commandBuffer = frame.commandBuffer;
         if (m_isMainRenderPassActive) {
             vkCmdEndRenderPass(commandBuffer);
+            if (m_activeRenderTargetIsDefault) {
+                m_swapchainObject.SetImageLayout(m_imageIndexAcquired, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
+            }
             m_isMainRenderPassActive = false;
             m_activeRenderPass = VK_NULL_HANDLE;
             m_activeRenderExtent = {0, 0};
@@ -972,6 +981,9 @@ namespace MobileGL::MG_Backend::DirectVulkan {
 
                 if (m_isMainRenderPassActive) {
                     vkCmdEndRenderPass(commandBuffer);
+                    if (m_activeRenderTargetIsDefault) {
+                        m_swapchainObject.SetImageLayout(m_imageIndexAcquired, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
+                    }
                     m_isMainRenderPassActive = false;
                     m_activeRenderPass = VK_NULL_HANDLE;
                     m_activeRenderExtent = {0, 0};
