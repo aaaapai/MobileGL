@@ -143,6 +143,13 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         VkPipelineMultisampleStateCreateInfo ms{VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO};
         ms.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
 
+        VkPipelineDepthStencilStateCreateInfo depthStencil{VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO};
+        depthStencil.depthTestEnable = VK_FALSE;
+        depthStencil.depthWriteEnable = VK_FALSE;
+        depthStencil.depthCompareOp = VK_COMPARE_OP_ALWAYS;
+        depthStencil.depthBoundsTestEnable = VK_FALSE;
+        depthStencil.stencilTestEnable = VK_FALSE;
+
         VkPipelineColorBlendAttachmentState colorAttach{};
         colorAttach.colorWriteMask =
             VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
@@ -160,6 +167,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         gpi.pViewportState = &vpci;
         gpi.pRasterizationState = &raster;
         gpi.pMultisampleState = &ms;
+        gpi.pDepthStencilState = &depthStencil;
         gpi.pColorBlendState = &blend;
         gpi.pDynamicState = &dynamicState;
         gpi.layout = m_pipelineLayout;
@@ -186,6 +194,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         CreateSurface();
         PickPhysicalDevice();
         CreateLogicalDeviceAndQueues();
+        CreateAllocator();
 
         CreateCommandPool();
 
@@ -207,6 +216,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         VK_VERIFY(vkDeviceWaitIdle(m_device));
 
         m_programFactory.reset();
+        m_indexBuffer.Destroy();
 
         m_frameContext.Destroy(m_device, m_commandPool);
 
@@ -224,6 +234,8 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             vkDestroyCommandPool(m_device, m_commandPool, nullptr);
             m_commandPool = VK_NULL_HANDLE;
         }
+
+        DestroyAllocator();
 
         if (m_device != VK_NULL_HANDLE) {
             vkDestroyDevice(m_device, nullptr);
@@ -460,6 +472,71 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         vkCmdSetScissor(commandBuffer, 0, 1, &scissor);
 
         vkCmdDraw(commandBuffer, static_cast<Uint32>(count), 1, static_cast<Uint32>(first), 0);
+    }
+
+    void VulkanRenderer::DrawElements(GLenum type, GLsizei count, const void* indexData, SizeT indexDataSizeBytes) {
+        EnsureFrameRecordingStarted();
+        auto& frame = m_frameContext.GetCurrent();
+        if (!frame.isCommandRecording || !m_isMainRenderPassActive) {
+            MGLOG_W("DrawElements skipped: frame recording was not started");
+            return;
+        }
+
+        VkIndexType vkIndexType = VK_INDEX_TYPE_MAX_ENUM;
+        switch (type) {
+        case GL_UNSIGNED_SHORT:
+            vkIndexType = VK_INDEX_TYPE_UINT16;
+            break;
+        case GL_UNSIGNED_INT:
+            vkIndexType = VK_INDEX_TYPE_UINT32;
+            break;
+        default:
+            MGLOG_W("DrawElements skipped: index type %u is not supported yet", type);
+            return;
+        }
+
+        MOBILEGL_ASSERT(indexData != nullptr, "DrawElements requires non-null indexData");
+        MOBILEGL_ASSERT(indexDataSizeBytes > 0, "DrawElements requires non-zero index data size");
+
+        if (!m_indexBuffer.IsValid() || m_indexBuffer.GetSize() < indexDataSizeBytes) {
+            m_indexBuffer.Destroy();
+            const Bool created = m_indexBuffer.Create(
+                m_allocator, static_cast<VkDeviceSize>(indexDataSizeBytes),
+                VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
+                VMA_MEMORY_USAGE_AUTO,
+                VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT);
+            if (!created) {
+                MGLOG_E("DrawElements skipped: failed to create index buffer");
+                return;
+            }
+        }
+
+        if (!m_indexBuffer.Upload(indexData, static_cast<VkDeviceSize>(indexDataSizeBytes), 0)) {
+            MGLOG_E("DrawElements skipped: failed to upload index data");
+            return;
+        }
+
+        VkCommandBuffer& commandBuffer = frame.commandBuffer;
+        const auto swapchainExtent = m_swapchainObject.GetExtent();
+
+        vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, m_pipeline);
+
+        VkViewport viewport{};
+        viewport.x = 0.0f;
+        viewport.y = 0.0f;
+        viewport.width = static_cast<float>(swapchainExtent.width);
+        viewport.height = static_cast<float>(swapchainExtent.height);
+        viewport.minDepth = 0.0f;
+        viewport.maxDepth = 1.0f;
+        vkCmdSetViewport(commandBuffer, 0, 1, &viewport);
+
+        VkRect2D scissor{};
+        scissor.offset = {0, 0};
+        scissor.extent = swapchainExtent;
+        vkCmdSetScissor(commandBuffer, 0, 1, &scissor);
+
+        vkCmdBindIndexBuffer(commandBuffer, m_indexBuffer.GetHandle(), 0, vkIndexType);
+        vkCmdDrawIndexed(commandBuffer, static_cast<Uint32>(count), 1, 0, 0, 0);
     }
 
     void VulkanRenderer::Render() {
@@ -876,6 +953,31 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         vkGetDeviceQueue(m_device, m_physicalDevice.queueFamilies.graphicsFamily, 0, &m_graphicsQueue);
         vkGetDeviceQueue(m_device, m_physicalDevice.queueFamilies.presentFamily, 0, &m_presentQueue);
         MGLOG_I("Queues got successfully.");
+    }
+
+    void VulkanRenderer::CreateAllocator() {
+        MOBILEGL_ASSERT(m_instance != VK_NULL_HANDLE, "CreateAllocator requires valid VkInstance");
+        MOBILEGL_ASSERT(m_physicalDevice.handle != VK_NULL_HANDLE, "CreateAllocator requires valid physical device");
+        MOBILEGL_ASSERT(m_device != VK_NULL_HANDLE, "CreateAllocator requires valid VkDevice");
+
+        if (m_allocator != nullptr) {
+            return;
+        }
+
+        VmaAllocatorCreateInfo allocatorInfo{};
+        allocatorInfo.instance = m_instance;
+        allocatorInfo.physicalDevice = m_physicalDevice.handle;
+        allocatorInfo.device = m_device;
+        allocatorInfo.vulkanApiVersion = VK_API_VERSION_1_0;
+
+        VK_VERIFY(vmaCreateAllocator(&allocatorInfo, &m_allocator), "vmaCreateAllocator");
+    }
+
+    void VulkanRenderer::DestroyAllocator() {
+        if (m_allocator != nullptr) {
+            vmaDestroyAllocator(m_allocator);
+            m_allocator = nullptr;
+        }
     }
 
     void VulkanRenderer::CreateSwapchain() {

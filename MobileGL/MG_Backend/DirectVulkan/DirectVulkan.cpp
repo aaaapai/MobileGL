@@ -24,6 +24,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
 
     void DrawElements(GLenum mode, GLsizei count, GLenum type, const void* indices) {
         MOBILEGL_ASSERT(pVulkanRenderer, "DirectVulkan::DrawElements called with null VulkanRenderer");
+        MOBILEGL_ASSERT(MG_State::pGLContext, "DirectVulkan::DrawElements called with null GL context");
 
         if (count < 0) {
             MGLOG_W("DrawElements skipped: count (%d) must be non-negative", count);
@@ -39,11 +40,47 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             return;
         }
 
-        pVulkanRenderer->EnsureFrameRecordingStarted();
+        SizeT indexSize = 0;
+        switch (type) {
+        case GL_UNSIGNED_SHORT:
+            indexSize = sizeof(Uint16);
+            break;
+        case GL_UNSIGNED_INT:
+            indexSize = sizeof(Uint32);
+            break;
+        default:
+            MGLOG_W("DrawElements skipped: index type %u is not supported yet", type);
+            return;
+        }
 
-        (void)mode;
-        (void)type;
-        (void)indices;
+        const auto vao = MG_State::pGLContext->GetBoundVertexArray();
+        if (!vao) {
+            MGLOG_W("DrawElements skipped: no bound VAO");
+            return;
+        }
+
+        const auto indexBuffer = vao->GetIndexBufferBindingSlot().GetBoundObject();
+        if (!indexBuffer) {
+            MGLOG_W("DrawElements skipped: no bound ELEMENT_ARRAY_BUFFER");
+            return;
+        }
+
+        const auto indexData = indexBuffer->GetDataReadOnly();
+        if (!indexData || indexData->empty()) {
+            MGLOG_W("DrawElements skipped: ELEMENT_ARRAY_BUFFER has no data");
+            return;
+        }
+
+        const SizeT byteOffset = reinterpret_cast<SizeT>(indices);
+        const SizeT requiredBytes = static_cast<SizeT>(count) * indexSize;
+        if (byteOffset + requiredBytes > indexBuffer->GetSize()) {
+            MGLOG_W("DrawElements skipped: index range out of bounds (offset=%zu, size=%zu, buffer=%zu)",
+                    byteOffset, requiredBytes, indexBuffer->GetSize());
+            return;
+        }
+
+        const Uint8* src = indexData->data() + byteOffset;
+        pVulkanRenderer->DrawElements(type, count, src, requiredBytes);
     }
 
     void DrawArrays(GLenum mode, GLint first, GLsizei count) {

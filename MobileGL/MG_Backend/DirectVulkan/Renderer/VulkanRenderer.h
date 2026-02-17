@@ -11,8 +11,10 @@
 #include "FrameContext.h"
 #include "ProgramFactory.h"
 #include "SwapchainObject.h"
+#include "VkBufferObject.h"
 #include "MG_Util/Math/VectorTypes.h"
 #include <Includes.h>
+#include <vk_mem_alloc.h>
 
 #include "../VkIncludes.h"
 
@@ -29,6 +31,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         Bool ConsumePendingColorClear(VkClearColorValue& outClearColor);
         void EnsureFrameRecordingStarted();
         void DrawArrays(GLenum mode, GLint first, GLsizei count);
+        void DrawElements(GLenum type, GLsizei count, const void* indexData, SizeT indexDataSizeBytes);
         void Render();
         void Present();
 
@@ -63,6 +66,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         PhysicalDevice m_physicalDevice;
         // VkPhysicalDevice m_physicalDevice = VK_NULL_HANDLE;
         VkDevice m_device = VK_NULL_HANDLE;
+        VmaAllocator m_allocator = nullptr;
         VkSurfaceKHR m_surface = VK_NULL_HANDLE;
         SwapchainObject m_swapchainObject;
 
@@ -85,6 +89,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
 
         VkPipelineLayout m_pipelineLayout = VK_NULL_HANDLE;
         VkPipeline m_pipeline = VK_NULL_HANDLE;
+        VkBufferObject m_indexBuffer;
 
         Uint m_imageIndexAcquired = 0;
         FrameContext m_frameContext;
@@ -103,6 +108,8 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         void CreateSurface();
         void PickPhysicalDevice();
         void CreateLogicalDeviceAndQueues();
+        void CreateAllocator();
+        void DestroyAllocator();
         void CreateSwapchain();
         void CreateCommandPool();
         void CreateFrameContexts();
