@@ -135,6 +135,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         VkPipelineLayout m_pipelineLayout = VK_NULL_HANDLE;
         Vector<UniquePtr<VkBufferObject>> m_vertexBuffers;
         VkBufferObject m_indexBuffer;
+        Vector<Vector<VkBufferObject>> m_deferredBufferReleases;
 
         Uint m_imageIndexAcquired = 0;
         FrameContext m_frameContext;
@@ -177,6 +178,8 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         void RecordColorClear(VkCommandBuffer commandBuffer, const VkClearColorValue& clearColor);
         void RecordDepthStencilClear(VkCommandBuffer commandBuffer, GLbitfield mask, Float depth, Uint32 stencil);
         void EndFrameRecordingIfNeeded();
+        void DeferDestroyBuffer(VkBufferObject& buffer);
+        void CollectDeferredBufferReleases(Uint32 frameIndex);
         Bool UploadAndBindVertexStreams(
             const VertexInputStateFactory::BackendVertexInputState& vertexInputState,
             const MG_State::GLState::VertexArrayObject& vertexArray,

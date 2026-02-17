@@ -140,6 +140,8 @@ namespace MobileGL::MG_Backend::DirectVulkan {
 
         PrepareDemoPipeline();
         CreateFrameContexts();
+        m_deferredBufferReleases.clear();
+        m_deferredBufferReleases.resize(m_frameContext.GetFrameCount());
 
         // Prime the first frame so Render() always targets an acquired swapchain image.
         VK_VERIFY(m_frameContext.WaitAndAcquireNextImage(m_device, m_swapchainObject.GetHandle(), m_imageIndexAcquired),
@@ -165,6 +167,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         }
         m_vertexBuffers.clear();
         m_indexBuffer.Destroy();
+        m_deferredBufferReleases.clear();
 
         m_frameContext.Destroy(m_device, m_commandPool);
 
@@ -545,6 +548,24 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         m_frameContext.EndCommandRecording();
     }
 
+    void VulkanRenderer::DeferDestroyBuffer(VkBufferObject& buffer) {
+        if (!buffer.IsValid()) {
+            return;
+        }
+        const Uint32 frameIndex = m_frameContext.GetCurrentFrameIndex();
+        if (m_deferredBufferReleases.size() < m_frameContext.GetFrameCount()) {
+            m_deferredBufferReleases.resize(m_frameContext.GetFrameCount());
+        }
+        m_deferredBufferReleases[frameIndex].push_back(std::move(buffer));
+    }
+
+    void VulkanRenderer::CollectDeferredBufferReleases(Uint32 frameIndex) {
+        if (frameIndex >= m_deferredBufferReleases.size()) {
+            return;
+        }
+        m_deferredBufferReleases[frameIndex].clear();
+    }
+
     Bool VulkanRenderer::UploadAndBindVertexStreams(
         const VertexInputStateFactory::BackendVertexInputState& vertexInputState,
         const MG_State::GLState::VertexArrayObject& vertexArray,
@@ -598,7 +619,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             auto& backendBuffer = *m_vertexBuffers[binding];
             const SizeT sourceSize = sourceBuffer->GetSize();
             if (!backendBuffer.IsValid() || backendBuffer.GetSize() < sourceSize) {
-                backendBuffer.Destroy();
+                DeferDestroyBuffer(backendBuffer);
                 const Bool created = backendBuffer.Create(
                     m_allocator, static_cast<VkDeviceSize>(sourceSize),
                     VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
@@ -751,7 +772,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         }
 
         if (!m_indexBuffer.IsValid() || m_indexBuffer.GetSize() < payload.indexDataSizeBytes) {
-            m_indexBuffer.Destroy();
+            DeferDestroyBuffer(m_indexBuffer);
             const Bool created = m_indexBuffer.Create(
                 m_allocator, static_cast<VkDeviceSize>(payload.indexDataSizeBytes),
                 VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
@@ -1154,6 +1175,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             result = VK_SUCCESS;
         }
         VK_VERIFY(result, "Present, vkAcquireNextImageKHR");
+        CollectDeferredBufferReleases(m_frameContext.GetCurrentFrameIndex());
     }
 
     void VulkanRenderer::CreateInstance() {
@@ -1856,6 +1878,8 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             m_frameContext.GetCurrent().isCommandRecording = false;
             m_frameContext.GetCurrent().hasCommandBufferRecorded = false;
         }
+        m_deferredBufferReleases.clear();
+        m_deferredBufferReleases.resize(m_frameContext.GetFrameCount());
         m_isMainRenderPassActive = false;
         m_activeRenderPass = VK_NULL_HANDLE;
         m_activeRenderExtent = {0, 0};
