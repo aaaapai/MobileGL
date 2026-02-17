@@ -56,9 +56,15 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                                           const MG_State::GLState::FramebufferAttachmentObject& colorAttachment,
                                           Uint16 glObjectVersion);
         void DestroyOffscreenColorTarget(OffscreenColorTarget& target);
-        Bool TransitionColorTargetForAttachment(VkCommandBuffer commandBuffer, OffscreenColorTarget& target);
-        Bool TransitionDepthStencilTargetForAttachment(VkCommandBuffer commandBuffer, OffscreenColorTarget& target);
-        Bool TransitionColorTargetForBlitSrc(VkCommandBuffer commandBuffer, OffscreenColorTarget& target);
+        Bool TransitionImageLayout(VkCommandBuffer commandBuffer,
+                                   VkImage image,
+                                   VkImageLayout& trackedLayout,
+                                   VkImageLayout newLayout,
+                                   VkPipelineStageFlags srcStageMask,
+                                   VkPipelineStageFlags dstStageMask,
+                                   VkAccessFlags srcAccessMask,
+                                   VkAccessFlags dstAccessMask,
+                                   VkImageAspectFlags aspectMask);
         Uint32 FindMemoryType(Uint32 typeFilter, VkMemoryPropertyFlags properties) const;
         static VkFormat ResolveColorFormat(const MG_State::GLState::FramebufferAttachmentObject& colorAttachment);
         static VkFormat ResolveDepthStencilFormat(const MG_State::GLState::FramebufferAttachmentObject& depthAttachment,

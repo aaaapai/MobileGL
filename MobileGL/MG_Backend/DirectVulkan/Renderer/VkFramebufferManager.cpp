@@ -52,8 +52,39 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                     glFboExternalIndex);
             return false;
         }
-        return TransitionColorTargetForAttachment(commandBuffer, it->second) &&
-               TransitionDepthStencilTargetForAttachment(commandBuffer, it->second);
+        auto& target = it->second;
+        if (!TransitionImageLayout(commandBuffer,
+                                   target.image,
+                                   target.layout,
+                                   VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+                                   VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+                                   VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+                                   0,
+                                   VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
+                                   VK_IMAGE_ASPECT_COLOR_BIT)) {
+            return false;
+        }
+
+        if (target.depthStencilImage == VK_NULL_HANDLE) {
+            return true;
+        }
+
+        VkImageAspectFlags aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
+        if (target.depthStencilFormat == VK_FORMAT_D24_UNORM_S8_UINT ||
+            target.depthStencilFormat == VK_FORMAT_D32_SFLOAT_S8_UINT) {
+            aspectMask |= VK_IMAGE_ASPECT_STENCIL_BIT;
+        }
+
+        return TransitionImageLayout(commandBuffer,
+                                     target.depthStencilImage,
+                                     target.depthStencilLayout,
+                                     VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
+                                     VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+                                     VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT,
+                                     0,
+                                     VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT |
+                                         VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
+                                     aspectMask);
     }
 
     Bool VkFramebufferManager::TransitionOffscreenColorToTransferSrc(VkCommandBuffer commandBuffer,
@@ -64,7 +95,16 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                     glFboExternalIndex);
             return false;
         }
-        return TransitionColorTargetForBlitSrc(commandBuffer, it->second);
+        auto& target = it->second;
+        return TransitionImageLayout(commandBuffer,
+                                     target.image,
+                                     target.layout,
+                                     VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                                     VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+                                     VK_PIPELINE_STAGE_TRANSFER_BIT,
+                                     0,
+                                     VK_ACCESS_TRANSFER_READ_BIT,
+                                     VK_IMAGE_ASPECT_COLOR_BIT);
     }
 
     Bool VkFramebufferManager::GetOffscreenColorImage(Uint glFboExternalIndex, VkImage& outImage,
@@ -333,92 +373,39 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         target.glObjectVersion = 0;
     }
 
-    Bool VkFramebufferManager::TransitionColorTargetForAttachment(VkCommandBuffer commandBuffer,
-                                                                  OffscreenColorTarget& target) {
-        if (target.layout == VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL) {
+    Bool VkFramebufferManager::TransitionImageLayout(VkCommandBuffer commandBuffer,
+                                                     VkImage image,
+                                                     VkImageLayout& trackedLayout,
+                                                     VkImageLayout newLayout,
+                                                     VkPipelineStageFlags srcStageMask,
+                                                     VkPipelineStageFlags dstStageMask,
+                                                     VkAccessFlags srcAccessMask,
+                                                     VkAccessFlags dstAccessMask,
+                                                     VkImageAspectFlags aspectMask) {
+        if (image == VK_NULL_HANDLE) {
+            return false;
+        }
+        if (trackedLayout == newLayout) {
             return true;
         }
 
         VkImageMemoryBarrier barrier{};
         barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
-        barrier.srcAccessMask = 0;
-        barrier.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
-        barrier.oldLayout = target.layout;
-        barrier.newLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+        barrier.srcAccessMask = srcAccessMask;
+        barrier.dstAccessMask = dstAccessMask;
+        barrier.oldLayout = trackedLayout;
+        barrier.newLayout = newLayout;
         barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
         barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        barrier.image = target.image;
-        barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-        barrier.subresourceRange.baseMipLevel = 0;
-        barrier.subresourceRange.levelCount = 1;
-        barrier.subresourceRange.baseArrayLayer = 0;
-        barrier.subresourceRange.layerCount = 1;
-        vkCmdPipelineBarrier(commandBuffer, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
-                             VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
-                             0, 0, nullptr, 0, nullptr, 1, &barrier);
-        target.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-        return true;
-    }
-
-    Bool VkFramebufferManager::TransitionDepthStencilTargetForAttachment(VkCommandBuffer commandBuffer,
-                                                                         OffscreenColorTarget& target) {
-        if (target.depthStencilImage == VK_NULL_HANDLE) {
-            return true;
-        }
-        if (target.depthStencilLayout == VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL) {
-            return true;
-        }
-
-        VkImageAspectFlags aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
-        if (target.depthStencilFormat == VK_FORMAT_D24_UNORM_S8_UINT ||
-            target.depthStencilFormat == VK_FORMAT_D32_SFLOAT_S8_UINT) {
-            aspectMask |= VK_IMAGE_ASPECT_STENCIL_BIT;
-        }
-
-        VkImageMemoryBarrier barrier{};
-        barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
-        barrier.srcAccessMask = 0;
-        barrier.dstAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
-        barrier.oldLayout = target.depthStencilLayout;
-        barrier.newLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
-        barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        barrier.image = target.depthStencilImage;
+        barrier.image = image;
         barrier.subresourceRange.aspectMask = aspectMask;
         barrier.subresourceRange.baseMipLevel = 0;
         barrier.subresourceRange.levelCount = 1;
         barrier.subresourceRange.baseArrayLayer = 0;
         barrier.subresourceRange.layerCount = 1;
-        vkCmdPipelineBarrier(commandBuffer, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
-                             VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT,
-                             0, 0, nullptr, 0, nullptr, 1, &barrier);
-        target.depthStencilLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
-        return true;
-    }
+        vkCmdPipelineBarrier(commandBuffer, srcStageMask, dstStageMask, 0, 0, nullptr, 0, nullptr, 1, &barrier);
 
-    Bool VkFramebufferManager::TransitionColorTargetForBlitSrc(VkCommandBuffer commandBuffer,
-                                                               OffscreenColorTarget& target) {
-        if (target.layout == VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL) {
-            return true;
-        }
-
-        VkImageMemoryBarrier barrier{};
-        barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
-        barrier.srcAccessMask = 0;
-        barrier.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
-        barrier.oldLayout = target.layout;
-        barrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
-        barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        barrier.image = target.image;
-        barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-        barrier.subresourceRange.baseMipLevel = 0;
-        barrier.subresourceRange.levelCount = 1;
-        barrier.subresourceRange.baseArrayLayer = 0;
-        barrier.subresourceRange.layerCount = 1;
-        vkCmdPipelineBarrier(commandBuffer, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
-                             0, 0, nullptr, 0, nullptr, 1, &barrier);
-        target.layout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+        trackedLayout = newLayout;
         return true;
     }
 
