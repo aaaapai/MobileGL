@@ -62,7 +62,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
     }
 
     VkPipeline VulkanRenderer::GetOrCreatePipeline(
-        const MG_State::GLState::ProgramObject& program, Uint64 vertexInputHash,
+        const MG_State::GLState::ProgramObject& program, VkPipelineLayout pipelineLayout, Uint64 vertexInputHash,
         const VkPipelineVertexInputStateCreateInfo& vertexInputState) {
         MOBILEGL_ASSERT(m_pipelineFactory != nullptr, "PipelineFactory is not initialized");
         MOBILEGL_ASSERT(m_programFactory != nullptr, "ProgramFactory is not initialized");
@@ -76,7 +76,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         PipelineFactory::PipelineCreatePayload payload{};
         payload.programHash = programHash;
         payload.vertexInputHash = vertexInputHash;
-        payload.pipelineLayout = m_pipelineLayout;
+        payload.pipelineLayout = pipelineLayout;
         payload.renderPass = (m_activeRenderPass != VK_NULL_HANDLE) ? m_activeRenderPass : m_renderPassLoad;
         payload.subpass = 0;
         payload.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
@@ -89,14 +89,6 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         MGLOG_D("PrepareDemoPipeline called");
 
         VkPipelineLayoutCreateInfo plci{VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
-        VkDescriptorSetLayout descriptorSetLayouts[1] = {VK_NULL_HANDLE};
-        if (m_uniformDescriptorBinder) {
-            descriptorSetLayouts[0] = m_uniformDescriptorBinder->GetDescriptorSetLayout();
-        }
-        if (descriptorSetLayouts[0] != VK_NULL_HANDLE) {
-            plci.setLayoutCount = 1;
-            plci.pSetLayouts = descriptorSetLayouts;
-        }
         VK_VERIFY(vkCreatePipelineLayout(m_device, &plci, nullptr, &m_pipelineLayout), "vkCreatePipelineLayout");
 
         MGLOG_I("PrepareDemoPipeline completed");
@@ -124,10 +116,16 @@ namespace MobileGL::MG_Backend::DirectVulkan {
 
         m_pipelineFactory = MakeUnique<PipelineFactory>(m_device, m_config);
         m_programFactory = MakeUnique<ProgramFactory>(m_device, m_config);
+        m_textureSamplerManager = MakeUnique<VkTextureSamplerManager>();
+        if (!m_textureSamplerManager->Initialize({m_device, m_physicalDevice.handle, m_commandPool, m_graphicsQueue})) {
+            MGLOG_E("VkTextureSamplerManager initialization failed. Sampler/texture descriptors will fallback.");
+            m_textureSamplerManager.reset();
+        }
         m_uniformDescriptorBinder = MakeUnique<UniformDescriptorBinder>();
         if (!m_uniformDescriptorBinder->Initialize(m_device, m_allocator,
                                                    m_physicalDevice.properties.limits.minUniformBufferOffsetAlignment,
-                                                   m_config.MaxFramesInFlight)) {
+                                                   m_config.MaxFramesInFlight, 16, 64, 4 * 1024 * 1024,
+                                                   m_textureSamplerManager.get())) {
             MGLOG_E("UniformDescriptorBinder initialization failed. UBO sync on Vulkan backend is disabled.");
             m_uniformDescriptorBinder.reset();
         }
@@ -155,6 +153,10 @@ namespace MobileGL::MG_Backend::DirectVulkan {
 
         m_pipelineFactory.reset();
         m_programFactory.reset();
+        if (m_textureSamplerManager) {
+            m_textureSamplerManager->Shutdown();
+            m_textureSamplerManager.reset();
+        }
         m_vertexInputStateFactory.reset();
         if (m_framebufferManager) {
             m_framebufferManager->Shutdown();
@@ -677,7 +679,17 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             vertexInputInfo = &emptyVertexInputBuilder.Build();
         }
 
-        VkPipeline pipelineToBind = GetOrCreatePipeline(*payload.program, vertexInputHash, *vertexInputInfo);
+        VkPipelineLayout pipelineLayoutToUse = m_pipelineLayout;
+        if (m_uniformDescriptorBinder) {
+            pipelineLayoutToUse = m_uniformDescriptorBinder->GetOrCreatePipelineLayout(*payload.program);
+            if (pipelineLayoutToUse == VK_NULL_HANDLE) {
+                MGLOG_W("DrawArrays skipped: failed to get pipeline layout for program");
+                return;
+            }
+        }
+
+        VkPipeline pipelineToBind = GetOrCreatePipeline(*payload.program, pipelineLayoutToUse, vertexInputHash,
+                                                        *vertexInputInfo);
         if (pipelineToBind == VK_NULL_HANDLE) {
             MGLOG_W("DrawArrays skipped: failed to create/get pipeline");
             return;
@@ -685,7 +697,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
 
         vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineToBind);
         if (m_uniformDescriptorBinder &&
-            !m_uniformDescriptorBinder->BindProgramUniformBuffers(commandBuffer, m_pipelineLayout, *payload.program,
+            !m_uniformDescriptorBinder->BindProgramUniformBuffers(commandBuffer, pipelineLayoutToUse, *payload.program,
                                                                   m_frameContext.GetCurrentFrameIndex())) {
             MGLOG_W("DrawArrays skipped: failed to bind uniform descriptors");
             return;
@@ -765,7 +777,17 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             vertexInputInfo = &emptyVertexInputBuilder.Build();
         }
 
-        VkPipeline pipelineToBind = GetOrCreatePipeline(*payload.drawArray.program, vertexInputHash, *vertexInputInfo);
+        VkPipelineLayout pipelineLayoutToUse = m_pipelineLayout;
+        if (m_uniformDescriptorBinder) {
+            pipelineLayoutToUse = m_uniformDescriptorBinder->GetOrCreatePipelineLayout(*payload.drawArray.program);
+            if (pipelineLayoutToUse == VK_NULL_HANDLE) {
+                MGLOG_W("DrawElements skipped: failed to get pipeline layout for program");
+                return;
+            }
+        }
+
+        VkPipeline pipelineToBind = GetOrCreatePipeline(*payload.drawArray.program, pipelineLayoutToUse, vertexInputHash,
+                                                        *vertexInputInfo);
         if (pipelineToBind == VK_NULL_HANDLE) {
             MGLOG_W("DrawElements skipped: failed to create/get pipeline");
             return;
@@ -794,7 +816,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
 
         vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineToBind);
         if (m_uniformDescriptorBinder &&
-            !m_uniformDescriptorBinder->BindProgramUniformBuffers(commandBuffer, m_pipelineLayout,
+            !m_uniformDescriptorBinder->BindProgramUniformBuffers(commandBuffer, pipelineLayoutToUse,
                                                                   *payload.drawArray.program,
                                                                   m_frameContext.GetCurrentFrameIndex())) {
             MGLOG_W("DrawElements skipped: failed to bind uniform descriptors");

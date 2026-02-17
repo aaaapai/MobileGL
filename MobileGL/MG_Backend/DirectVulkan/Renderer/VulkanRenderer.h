@@ -16,6 +16,7 @@
 #include "VertexInputStateFactory.h"
 #include "VkBufferObject.h"
 #include "VkFramebufferManager.h"
+#include "VkTextureSamplerManager.h"
 #include "MG_Util/Math/VectorTypes.h"
 #include <Includes.h>
 #include <vk_mem_alloc.h>
@@ -152,6 +153,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         UniquePtr<UniformDescriptorBinder> m_uniformDescriptorBinder;
         UniquePtr<VertexInputStateFactory> m_vertexInputStateFactory;
         UniquePtr<VkFramebufferManager> m_framebufferManager;
+        UniquePtr<VkTextureSamplerManager> m_textureSamplerManager;
 
         void CreateInstance();
         VkResult SetupDebugMessenger();
@@ -171,7 +173,8 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         VkRenderPass CreateDefaultRenderPass(VkAttachmentLoadOp loadOp);
         void CreateDefaultFramebuffers();
         void PrepareDemoPipeline();
-        VkPipeline GetOrCreatePipeline(const MG_State::GLState::ProgramObject& program, Uint64 vertexInputHash,
+        VkPipeline GetOrCreatePipeline(const MG_State::GLState::ProgramObject& program, VkPipelineLayout pipelineLayout,
+                                       Uint64 vertexInputHash,
                                        const VkPipelineVertexInputStateCreateInfo& vertexInputState);
         void TransitionSwapchainImageToColorAttachment(VkCommandBuffer commandBuffer, Uint32 imageIndex);
         void TransitionDepthStencilImageToAttachment(VkCommandBuffer commandBuffer, Uint32 imageIndex);
