@@ -46,6 +46,11 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         }
 
         VertexInputStateBuilder builder;
+        const void* sourceBuffer = nullptr;
+        Uint32 sourceStride = 0;
+        VkVertexInputRate sourceInputRate = VK_VERTEX_INPUT_RATE_VERTEX;
+        Bool hasBinding = false;
+
         for (Uint32 location = 0; location < MG_State::GLState::VertexArrayObject::MAX_VERTEX_ATTRIBS; ++location) {
             const auto& attr = vao.GetAttribute(location);
             if (!attr.Enabled || !attr.Buffer) {
@@ -72,9 +77,30 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             const VkVertexInputRate inputRate =
                 (attr.Divisor == 0) ? VK_VERTEX_INPUT_RATE_VERTEX : VK_VERTEX_INPUT_RATE_INSTANCE;
 
-            builder
-                .AddBinding(location, stride, inputRate)
-                .AddAttribute(location, location, vkFormat, static_cast<Uint32>(attr.Offset));
+            if (!hasBinding) {
+                sourceBuffer = attr.Buffer.get();
+                sourceStride = stride;
+                sourceInputRate = inputRate;
+                builder.AddBinding(0, sourceStride, sourceInputRate);
+                hasBinding = true;
+            } else {
+                if (attr.Buffer.get() != sourceBuffer) {
+                    MGLOG_W("Skipping vertex attribute at location %u: only single-buffer vertex input is supported for now",
+                            location);
+                    continue;
+                }
+                if (stride != sourceStride) {
+                    MGLOG_W("Skipping vertex attribute at location %u: stride mismatch (%u vs %u) for single-binding path",
+                            location, stride, sourceStride);
+                    continue;
+                }
+                if (inputRate != sourceInputRate) {
+                    MGLOG_W("Skipping vertex attribute at location %u: input-rate mismatch for single-binding path", location);
+                    continue;
+                }
+            }
+
+            builder.AddAttribute(location, 0, vkFormat, static_cast<Uint32>(attr.Offset));
         }
 
         const auto& state = builder.Build();

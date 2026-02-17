@@ -134,26 +134,46 @@ int main() {
     glGenVertexArrays(1, &vao);
     glBindVertexArray(vao);
 
-    static constexpr GLushort kQuadIndices[] = {0, 1, 2, 2, 3, 0};
+    static constexpr GLfloat kQuadVertices[] = {
+        // triangle 1
+        -0.6f, -0.6f, 1.0f, 0.0f, 0.0f,
+         0.6f, -0.6f, 0.0f, 1.0f, 0.0f,
+         0.6f,  0.6f, 0.0f, 0.0f, 1.0f,
+        // triangle 2
+         0.6f,  0.6f, 1.0f, 0.0f, 0.0f,
+        -0.6f,  0.6f, 0.0f, 1.0f, 0.0f,
+        -0.6f, -0.6f, 0.0f, 0.0f, 1.0f
+    };
+
+    GLuint vbo = 0;
+    glGenBuffers(1, &vbo);
+    glBindBuffer(GL_ARRAY_BUFFER, vbo);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(kQuadVertices), kQuadVertices, GL_STATIC_DRAW);
+    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, static_cast<GLsizei>(5 * sizeof(GLfloat)), nullptr);
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, static_cast<GLsizei>(5 * sizeof(GLfloat)),
+                          reinterpret_cast<const void*>(2 * sizeof(GLfloat)));
+    glEnableVertexAttribArray(1);
+
+    static constexpr GLushort kQuadIndices[] = {0, 1, 2, 3, 4, 5};
     GLuint ebo = 0;
     glGenBuffers(1, &ebo);
     glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ebo);
     glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(kQuadIndices), kQuadIndices, GL_STATIC_DRAW);
 
-    static constexpr const char* kVertexShaderSource = R"(#version 330 core
+static constexpr const char* kVertexShaderSource = R"(#version 330 core
+layout(location = 0) in vec2 aPos;
+layout(location = 1) in vec3 aColor;
+out vec3 vColor;
 void main() {
-    const vec2 kPositions[4] = vec2[](
-        vec2(-0.6, -0.6),
-        vec2( 0.6, -0.6),
-        vec2( 0.6,  0.6),
-        vec2(-0.6,  0.6)
-    );
-    gl_Position = vec4(kPositions[gl_VertexID], 0.0, 1.0);
+    gl_Position = vec4(aPos, 0.0, 1.0);
+    vColor = aColor;
 })";
     static constexpr const char* kFragmentShaderSource = R"(#version 330 core
+in vec3 vColor;
 layout(location = 0) out vec4 outColor;
 void main() {
-    outColor = vec4(0.95, 0.85, 0.2, 1.0);
+    outColor = vec4(vColor, 1.0);
 })";
 
     const GLuint vs = glCreateShader(GL_VERTEX_SHADER);
@@ -199,6 +219,7 @@ void main() {
     }
 
     glDeleteProgram(program);
+    glDeleteBuffers(1, &vbo);
     glDeleteBuffers(1, &ebo);
     glDeleteVertexArrays(1, &vao);
 
