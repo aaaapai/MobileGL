@@ -129,7 +129,12 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         m_pipelineFactory.reset();
         m_programFactory.reset();
         m_vertexInputStateFactory.reset();
-        m_vertexBuffer.Destroy();
+        for (auto& vertexBuffer : m_vertexBuffers) {
+            if (vertexBuffer) {
+                vertexBuffer->Destroy();
+            }
+        }
+        m_vertexBuffers.clear();
         m_indexBuffer.Destroy();
 
         m_frameContext.Destroy(m_device, m_commandPool);
@@ -355,6 +360,83 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         m_frameContext.EndCommandRecording();
     }
 
+    Bool VulkanRenderer::UploadAndBindVertexStreams(
+        const VertexInputStateFactory::BackendVertexInputState& vertexInputState,
+        const MG_State::GLState::VertexArrayObject& vertexArray,
+        VkCommandBuffer commandBuffer) {
+        if (vertexInputState.bindings.empty()) {
+            return true;
+        }
+
+        const auto bindingCount = vertexInputState.bindings.size();
+        if (vertexInputState.bindingBufferKeys.size() != bindingCount) {
+            MGLOG_E("UploadAndBindVertexStreams failed: binding metadata mismatch");
+            return false;
+        }
+
+        if (m_vertexBuffers.size() < bindingCount) {
+            m_vertexBuffers.resize(bindingCount);
+        }
+
+        Vector<VkBuffer> vkBuffers(bindingCount, VK_NULL_HANDLE);
+        Vector<VkDeviceSize> vkOffsets(bindingCount, 0);
+
+        for (SizeT binding = 0; binding < bindingCount; ++binding) {
+            const SizeT bufferKey = vertexInputState.bindingBufferKeys[binding];
+            const MG_State::GLState::BufferObject* sourceBuffer = nullptr;
+            for (Uint32 location = 0; location < MG_State::GLState::VertexArrayObject::MAX_VERTEX_ATTRIBS; ++location) {
+                const auto& attr = vertexArray.GetAttribute(location);
+                if (!attr.Enabled || !attr.Buffer) {
+                    continue;
+                }
+                if (reinterpret_cast<SizeT>(attr.Buffer.get()) == bufferKey) {
+                    sourceBuffer = attr.Buffer.get();
+                    break;
+                }
+            }
+
+            if (!sourceBuffer) {
+                MGLOG_W("UploadAndBindVertexStreams skipped: no source buffer for binding %zu", binding);
+                return false;
+            }
+
+            const auto sourceData = sourceBuffer->GetDataReadOnly();
+            if (!sourceData || sourceData->empty()) {
+                MGLOG_W("UploadAndBindVertexStreams skipped: source buffer has no data for binding %zu", binding);
+                return false;
+            }
+
+            if (!m_vertexBuffers[binding]) {
+                m_vertexBuffers[binding] = MakeUnique<VkBufferObject>();
+            }
+
+            auto& backendBuffer = *m_vertexBuffers[binding];
+            const SizeT sourceSize = sourceBuffer->GetSize();
+            if (!backendBuffer.IsValid() || backendBuffer.GetSize() < sourceSize) {
+                backendBuffer.Destroy();
+                const Bool created = backendBuffer.Create(
+                    m_allocator, static_cast<VkDeviceSize>(sourceSize),
+                    VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+                    VMA_MEMORY_USAGE_AUTO,
+                    VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT);
+                if (!created) {
+                    MGLOG_E("UploadAndBindVertexStreams skipped: failed to create backend buffer for binding %zu", binding);
+                    return false;
+                }
+            }
+
+            if (!backendBuffer.Upload(sourceData->data(), static_cast<VkDeviceSize>(sourceSize), 0)) {
+                MGLOG_E("UploadAndBindVertexStreams skipped: failed to upload binding %zu", binding);
+                return false;
+            }
+
+            vkBuffers[binding] = backendBuffer.GetHandle();
+        }
+
+        vkCmdBindVertexBuffers(commandBuffer, 0, static_cast<Uint32>(bindingCount), vkBuffers.data(), vkOffsets.data());
+        return true;
+    }
+
     void VulkanRenderer::DrawArrays(const DrawArrayPayload& payload) {
         if (payload.mode != GL_TRIANGLES) {
             MGLOG_W("DrawArrays skipped: primitive mode %u is not supported yet", payload.mode);
@@ -395,48 +477,16 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             return;
         }
 
-        if (vertexInputState && !vertexInputState->bindings.empty()) {
-            if (!payload.hasPositionStream || payload.positionData == nullptr || payload.positionDataSizeBytes == 0) {
-                MGLOG_W("DrawArrays skipped: vertex input expects stream but payload has no position data");
-                return;
-            }
-
-            if (vertexInputState->bindings.size() != 1) {
-                MGLOG_W("DrawArrays skipped: only single-binding vertex input is supported for now (bindings=%zu)",
-                        vertexInputState->bindings.size());
-                return;
-            }
-            if (vertexInputState->bindings[0].binding != 0) {
-                MGLOG_W("DrawArrays skipped: only binding 0 is supported for now (binding=%u)",
-                        vertexInputState->bindings[0].binding);
-                return;
-            }
-
-            if (!m_vertexBuffer.IsValid() || m_vertexBuffer.GetSize() < payload.positionDataSizeBytes) {
-                m_vertexBuffer.Destroy();
-                const Bool created = m_vertexBuffer.Create(
-                    m_allocator, static_cast<VkDeviceSize>(payload.positionDataSizeBytes),
-                    VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
-                    VMA_MEMORY_USAGE_AUTO,
-                    VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT);
-                if (!created) {
-                    MGLOG_E("DrawArrays skipped: failed to create vertex buffer");
-                    return;
-                }
-            }
-
-            if (!m_vertexBuffer.Upload(payload.positionData, static_cast<VkDeviceSize>(payload.positionDataSizeBytes), 0)) {
-                MGLOG_E("DrawArrays skipped: failed to upload vertex data");
-                return;
-            }
-        }
-
         vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineToBind);
 
         if (vertexInputState && !vertexInputState->bindings.empty()) {
-            VkBuffer vertexBufferHandle = m_vertexBuffer.GetHandle();
-            VkDeviceSize vertexBufferOffset = 0;
-            vkCmdBindVertexBuffers(commandBuffer, 0, 1, &vertexBufferHandle, &vertexBufferOffset);
+            if (!payload.vertexArray) {
+                MGLOG_W("DrawArrays skipped: vertex input requires VAO");
+                return;
+            }
+            if (!UploadAndBindVertexStreams(*vertexInputState, *payload.vertexArray, commandBuffer)) {
+                return;
+            }
         }
 
         VkViewport viewport{};
@@ -509,44 +559,6 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             return;
         }
 
-        if (vertexInputState && !vertexInputState->bindings.empty()) {
-            if (!payload.drawArray.hasPositionStream || payload.drawArray.positionData == nullptr ||
-                payload.drawArray.positionDataSizeBytes == 0) {
-                MGLOG_W("DrawElements skipped: vertex input expects stream but payload has no position data");
-                return;
-            }
-
-            if (vertexInputState->bindings.size() != 1) {
-                MGLOG_W("DrawElements skipped: only single-binding vertex input is supported for now (bindings=%zu)",
-                        vertexInputState->bindings.size());
-                return;
-            }
-            if (vertexInputState->bindings[0].binding != 0) {
-                MGLOG_W("DrawElements skipped: only binding 0 is supported for now (binding=%u)",
-                        vertexInputState->bindings[0].binding);
-                return;
-            }
-
-            if (!m_vertexBuffer.IsValid() || m_vertexBuffer.GetSize() < payload.drawArray.positionDataSizeBytes) {
-                m_vertexBuffer.Destroy();
-                const Bool created = m_vertexBuffer.Create(
-                    m_allocator, static_cast<VkDeviceSize>(payload.drawArray.positionDataSizeBytes),
-                    VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
-                    VMA_MEMORY_USAGE_AUTO,
-                    VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT);
-                if (!created) {
-                    MGLOG_E("DrawElements skipped: failed to create vertex buffer");
-                    return;
-                }
-            }
-
-            if (!m_vertexBuffer.Upload(payload.drawArray.positionData,
-                                       static_cast<VkDeviceSize>(payload.drawArray.positionDataSizeBytes), 0)) {
-                MGLOG_E("DrawElements skipped: failed to upload vertex data");
-                return;
-            }
-        }
-
         if (!m_indexBuffer.IsValid() || m_indexBuffer.GetSize() < payload.indexDataSizeBytes) {
             m_indexBuffer.Destroy();
             const Bool created = m_indexBuffer.Create(
@@ -571,9 +583,13 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineToBind);
 
         if (vertexInputState && !vertexInputState->bindings.empty()) {
-            VkBuffer vertexBufferHandle = m_vertexBuffer.GetHandle();
-            VkDeviceSize vertexBufferOffset = 0;
-            vkCmdBindVertexBuffers(commandBuffer, 0, 1, &vertexBufferHandle, &vertexBufferOffset);
+            if (!payload.drawArray.vertexArray) {
+                MGLOG_W("DrawElements skipped: vertex input requires VAO");
+                return;
+            }
+            if (!UploadAndBindVertexStreams(*vertexInputState, *payload.drawArray.vertexArray, commandBuffer)) {
+                return;
+            }
         }
 
         VkViewport viewport{};

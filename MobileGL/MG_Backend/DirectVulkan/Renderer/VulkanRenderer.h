@@ -12,6 +12,7 @@
 #include "PipelineFactory.h"
 #include "ProgramFactory.h"
 #include "SwapchainObject.h"
+#include "VertexInputStateFactory.h"
 #include "VkBufferObject.h"
 #include "MG_Util/Math/VectorTypes.h"
 #include <Includes.h>
@@ -25,8 +26,6 @@ namespace MobileGL::MG_State::GLState {
 }
 
 namespace MobileGL::MG_Backend::DirectVulkan {
-    class VertexInputStateFactory;
-
     struct DrawArrayPayload {
         GLenum mode = GL_TRIANGLES;
         GLint first = 0;
@@ -119,7 +118,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         Vector<VkImageLayout> m_depthStencilImageLayouts;
 
         VkPipelineLayout m_pipelineLayout = VK_NULL_HANDLE;
-        VkBufferObject m_vertexBuffer;
+        Vector<UniquePtr<VkBufferObject>> m_vertexBuffers;
         VkBufferObject m_indexBuffer;
 
         Uint m_imageIndexAcquired = 0;
@@ -159,6 +158,10 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         void RecordColorClear(VkCommandBuffer commandBuffer, const VkClearColorValue& clearColor);
         void RecordDepthStencilClear(VkCommandBuffer commandBuffer, GLbitfield mask, Float depth, Uint32 stencil);
         void EndFrameRecordingIfNeeded();
+        Bool UploadAndBindVertexStreams(
+            const VertexInputStateFactory::BackendVertexInputState& vertexInputState,
+            const MG_State::GLState::VertexArrayObject& vertexArray,
+            VkCommandBuffer commandBuffer);
 
         void ShutdownSwapchain();
 

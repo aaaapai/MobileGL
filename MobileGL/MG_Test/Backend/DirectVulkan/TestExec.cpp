@@ -134,25 +134,40 @@ int main() {
     glGenVertexArrays(1, &vao);
     glBindVertexArray(vao);
 
-    static constexpr GLfloat kQuadVertices[] = {
+    static constexpr GLfloat kQuadPositions[] = {
         // triangle 1
-        -0.6f, -0.6f, 1.0f, 0.0f, 0.0f,
-         0.6f, -0.6f, 0.0f, 1.0f, 0.0f,
-         0.6f,  0.6f, 0.0f, 0.0f, 1.0f,
+        -0.6f, -0.6f,
+         0.6f, -0.6f,
+         0.6f,  0.6f,
         // triangle 2
-         0.6f,  0.6f, 1.0f, 0.0f, 0.0f,
-        -0.6f,  0.6f, 0.0f, 1.0f, 0.0f,
-        -0.6f, -0.6f, 0.0f, 0.0f, 1.0f
+         0.6f,  0.6f,
+        -0.6f,  0.6f,
+        -0.6f, -0.6f
     };
 
-    GLuint vbo = 0;
-    glGenBuffers(1, &vbo);
-    glBindBuffer(GL_ARRAY_BUFFER, vbo);
-    glBufferData(GL_ARRAY_BUFFER, sizeof(kQuadVertices), kQuadVertices, GL_STATIC_DRAW);
-    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, static_cast<GLsizei>(5 * sizeof(GLfloat)), nullptr);
+    static constexpr GLfloat kQuadColors[] = {
+        // triangle 1: RGB
+        1.0f, 0.0f, 0.0f,
+        0.0f, 1.0f, 0.0f,
+        0.0f, 0.0f, 1.0f,
+        // triangle 2: RGB
+        1.0f, 0.0f, 0.0f,
+        0.0f, 1.0f, 0.0f,
+        0.0f, 0.0f, 1.0f
+    };
+
+    GLuint positionVbo = 0;
+    glGenBuffers(1, &positionVbo);
+    glBindBuffer(GL_ARRAY_BUFFER, positionVbo);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(kQuadPositions), kQuadPositions, GL_STATIC_DRAW);
+    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, static_cast<GLsizei>(2 * sizeof(GLfloat)), nullptr);
     glEnableVertexAttribArray(0);
-    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, static_cast<GLsizei>(5 * sizeof(GLfloat)),
-                          reinterpret_cast<const void*>(2 * sizeof(GLfloat)));
+
+    GLuint colorVbo = 0;
+    glGenBuffers(1, &colorVbo);
+    glBindBuffer(GL_ARRAY_BUFFER, colorVbo);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(kQuadColors), kQuadColors, GL_STATIC_DRAW);
+    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, static_cast<GLsizei>(3 * sizeof(GLfloat)), nullptr);
     glEnableVertexAttribArray(1);
 
     static constexpr GLushort kQuadIndices[] = {0, 1, 2, 3, 4, 5};
@@ -219,7 +234,8 @@ void main() {
     }
 
     glDeleteProgram(program);
-    glDeleteBuffers(1, &vbo);
+    glDeleteBuffers(1, &positionVbo);
+    glDeleteBuffers(1, &colorVbo);
     glDeleteBuffers(1, &ebo);
     glDeleteVertexArrays(1, &vao);
 

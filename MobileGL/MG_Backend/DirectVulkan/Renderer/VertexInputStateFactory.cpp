@@ -8,6 +8,7 @@
 
 #include "VertexInputStateFactory.h"
 #include "MG_Util/Converters/MGToStr/DataTypeConverter.h"
+#include <utility>
 
 namespace MobileGL::MG_Backend::DirectVulkan {
     VertexInputStateFactory::HashType VertexInputStateFactory::ComputeHash(
@@ -30,8 +31,8 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             XXHASH_VERIFY(XXH64_update(m_hashState, &attr.IsInteger, sizeof(attr.IsInteger)));
             XXHASH_VERIFY(XXH64_update(m_hashState, &attr.Divisor, sizeof(attr.Divisor)));
 
-            const Uint bufferIndex = attr.Buffer ? attr.Buffer->GetExternalIndex() : 0;
-            XXHASH_VERIFY(XXH64_update(m_hashState, &bufferIndex, sizeof(bufferIndex)));
+            const SizeT bufferKey = reinterpret_cast<SizeT>(attr.Buffer.get());
+            XXHASH_VERIFY(XXH64_update(m_hashState, &bufferKey, sizeof(bufferKey)));
         }
 
         return XXH64_digest(m_hashState);
@@ -46,10 +47,10 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         }
 
         VertexInputStateBuilder builder;
-        const void* sourceBuffer = nullptr;
-        Uint32 sourceStride = 0;
-        VkVertexInputRate sourceInputRate = VK_VERTEX_INPUT_RATE_VERTEX;
-        Bool hasBinding = false;
+        UnorderedMap<SizeT, Uint32> bindingByBufferKey;
+        UnorderedMap<SizeT, Uint32> strideByBufferKey;
+        UnorderedMap<SizeT, VkVertexInputRate> inputRateByBufferKey;
+        Vector<SizeT> bindingBufferKeys;
 
         for (Uint32 location = 0; location < MG_State::GLState::VertexArrayObject::MAX_VERTEX_ATTRIBS; ++location) {
             const auto& attr = vao.GetAttribute(location);
@@ -77,30 +78,30 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             const VkVertexInputRate inputRate =
                 (attr.Divisor == 0) ? VK_VERTEX_INPUT_RATE_VERTEX : VK_VERTEX_INPUT_RATE_INSTANCE;
 
-            if (!hasBinding) {
-                sourceBuffer = attr.Buffer.get();
-                sourceStride = stride;
-                sourceInputRate = inputRate;
-                builder.AddBinding(0, sourceStride, sourceInputRate);
-                hasBinding = true;
+            const SizeT bufferKey = reinterpret_cast<SizeT>(attr.Buffer.get());
+            Uint32 binding = 0;
+            auto itBinding = bindingByBufferKey.find(bufferKey);
+            if (itBinding == bindingByBufferKey.end()) {
+                binding = static_cast<Uint32>(bindingByBufferKey.size());
+                bindingByBufferKey.emplace(bufferKey, binding);
+                strideByBufferKey.emplace(bufferKey, stride);
+                inputRateByBufferKey.emplace(bufferKey, inputRate);
+                bindingBufferKeys.push_back(bufferKey);
+                builder.AddBinding(binding, stride, inputRate);
             } else {
-                if (attr.Buffer.get() != sourceBuffer) {
-                    MGLOG_W("Skipping vertex attribute at location %u: only single-buffer vertex input is supported for now",
-                            location);
+                binding = itBinding->second;
+                if (strideByBufferKey[bufferKey] != stride) {
+                    MGLOG_W("Skipping vertex attribute at location %u: stride mismatch (%u vs %u) on same buffer",
+                            location, stride, strideByBufferKey[bufferKey]);
                     continue;
                 }
-                if (stride != sourceStride) {
-                    MGLOG_W("Skipping vertex attribute at location %u: stride mismatch (%u vs %u) for single-binding path",
-                            location, stride, sourceStride);
-                    continue;
-                }
-                if (inputRate != sourceInputRate) {
-                    MGLOG_W("Skipping vertex attribute at location %u: input-rate mismatch for single-binding path", location);
+                if (inputRateByBufferKey[bufferKey] != inputRate) {
+                    MGLOG_W("Skipping vertex attribute at location %u: input-rate mismatch on same buffer", location);
                     continue;
                 }
             }
 
-            builder.AddAttribute(location, 0, vkFormat, static_cast<Uint32>(attr.Offset));
+            builder.AddAttribute(location, binding, vkFormat, static_cast<Uint32>(attr.Offset));
         }
 
         const auto& state = builder.Build();
@@ -109,6 +110,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         entry.hash = hash;
         entry.bindings = builder.GetBindings();
         entry.attributes = builder.GetAttributes();
+        entry.bindingBufferKeys = std::move(bindingBufferKeys);
         entry.state = state;
         entry.state.pVertexBindingDescriptions = entry.bindings.empty() ? nullptr : entry.bindings.data();
         entry.state.pVertexAttributeDescriptions = entry.attributes.empty() ? nullptr : entry.attributes.data();

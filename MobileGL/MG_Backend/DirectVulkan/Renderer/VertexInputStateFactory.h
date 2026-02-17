@@ -23,6 +23,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             HashType hash = 0;
             Vector<VkVertexInputBindingDescription> bindings;
             Vector<VkVertexInputAttributeDescription> attributes;
+            Vector<SizeT> bindingBufferKeys;
             VkPipelineVertexInputStateCreateInfo state{
                 VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO
             };
