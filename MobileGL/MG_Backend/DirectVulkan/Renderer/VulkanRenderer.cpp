@@ -10,6 +10,7 @@
 #include "VertexInputStateFactory.h"
 #include "VertexInputStateBuilder.h"
 
+#include "MG_State/GLState/Core.h"
 #include "MG_State/GLState/ProgramState/ProgramObject.h"
 
 namespace MobileGL::MG_Backend::DirectVulkan {
@@ -130,6 +131,11 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             m_uniformDescriptorBinder.reset();
         }
         m_vertexInputStateFactory = MakeUnique<VertexInputStateFactory>(m_config);
+        m_framebufferManager = MakeUnique<VkFramebufferManager>();
+        if (!m_framebufferManager->Initialize({m_device, m_physicalDevice.handle})) {
+            MGLOG_E("VkFramebufferManager initialization failed. Offscreen FBO clear path is disabled.");
+            m_framebufferManager.reset();
+        }
 
         PrepareDemoPipeline();
         CreateFrameContexts();
@@ -147,6 +153,10 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         m_pipelineFactory.reset();
         m_programFactory.reset();
         m_vertexInputStateFactory.reset();
+        if (m_framebufferManager) {
+            m_framebufferManager->Shutdown();
+            m_framebufferManager.reset();
+        }
         for (auto& vertexBuffer : m_vertexBuffers) {
             if (vertexBuffer) {
                 vertexBuffer->Destroy();
@@ -197,11 +207,20 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         MGLOG_I("VulkanRenderer shut down completed");
     }
 
-    void VulkanRenderer::RequestClear(GLbitfield mask, const FloatVec4& color, Float depth, Uint32 stencil) {
+    void VulkanRenderer::RequestClear(GLbitfield mask, const FloatVec4& color, Float depth, Uint32 stencil,
+                                      Uint drawFboExternalIndex, Bool isDefaultFramebufferTarget) {
         const GLbitfield supportedMask = GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT;
         const GLbitfield requestMask = (mask & supportedMask);
         if (requestMask == 0) {
             return;
+        }
+
+        if (m_pendingClearMask != 0 &&
+            (m_pendingClearDrawFboExternalIndex != drawFboExternalIndex ||
+             m_pendingClearTargetsDefaultFramebuffer != isDefaultFramebufferTarget)) {
+            MGLOG_W("Pending clear target changed from FBO %u to FBO %u before execution; dropping previous pending clear",
+                    m_pendingClearDrawFboExternalIndex, drawFboExternalIndex);
+            m_pendingClearMask = 0;
         }
 
         if ((requestMask & GL_COLOR_BUFFER_BIT) != 0) {
@@ -216,6 +235,8 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         if ((requestMask & GL_STENCIL_BUFFER_BIT) != 0) {
             m_pendingClearStencil = stencil;
         }
+        m_pendingClearDrawFboExternalIndex = drawFboExternalIndex;
+        m_pendingClearTargetsDefaultFramebuffer = isDefaultFramebufferTarget;
         m_pendingClearMask |= requestMask;
     }
 
@@ -330,6 +351,22 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         m_depthStencilImageLayouts[imageIndex] = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
     }
 
+    Bool VulkanRenderer::RecordOffscreenColorClear(VkCommandBuffer commandBuffer) {
+        if (!m_framebufferManager || !MG_State::pGLContext) {
+            return false;
+        }
+
+        const auto fbo = MG_State::pGLContext->GetFramebufferObject(m_pendingClearDrawFboExternalIndex);
+        if (!fbo) {
+            MGLOG_W("RecordOffscreenColorClear skipped: draw FBO %u not found", m_pendingClearDrawFboExternalIndex);
+            return false;
+        }
+        if (!m_framebufferManager->EnsureOffscreenColorTarget(m_pendingClearDrawFboExternalIndex, *fbo)) {
+            return false;
+        }
+        return m_framebufferManager->ClearColor(commandBuffer, m_pendingClearDrawFboExternalIndex, m_pendingClearColor);
+    }
+
     void VulkanRenderer::EnsureFrameRecordingStarted() {
         auto& frame = m_frameContext.GetCurrent();
         if (frame.isCommandRecording) {
@@ -345,6 +382,47 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         if (m_uniformDescriptorBinder) {
             m_uniformDescriptorBinder->BeginFrame(m_frameContext.GetCurrentFrameIndex());
         }
+
+        if (m_pendingClearMask != 0 && !m_pendingClearTargetsDefaultFramebuffer) {
+            if ((m_pendingClearMask & GL_COLOR_BUFFER_BIT) != 0) {
+                if (!RecordOffscreenColorClear(commandBuffer)) {
+                    MGLOG_W("Failed to clear non-default FBO %u color attachment",
+                            m_pendingClearDrawFboExternalIndex);
+                }
+                m_pendingClearMask &= ~GL_COLOR_BUFFER_BIT;
+            }
+            if ((m_pendingClearMask & (GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT)) != 0) {
+                MGLOG_W("Depth/stencil clear on non-default FBO is not implemented yet (FBO %u)",
+                        m_pendingClearDrawFboExternalIndex);
+                m_pendingClearMask &= ~(GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
+            }
+
+            // This frame touched only offscreen resources. Present still requires
+            // the acquired swapchain image to be in PRESENT layout.
+            const auto swapchainOldLayout = m_swapchainObject.GetImageLayout(m_imageIndexAcquired);
+            if (swapchainOldLayout != VK_IMAGE_LAYOUT_PRESENT_SRC_KHR &&
+                swapchainOldLayout != VK_IMAGE_LAYOUT_SHARED_PRESENT_KHR) {
+                VkImageMemoryBarrier presentBarrier{};
+                presentBarrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+                presentBarrier.srcAccessMask = 0;
+                presentBarrier.dstAccessMask = 0;
+                presentBarrier.oldLayout = swapchainOldLayout;
+                presentBarrier.newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+                presentBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+                presentBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+                presentBarrier.image = m_swapchainObject.GetImage(m_imageIndexAcquired);
+                presentBarrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+                presentBarrier.subresourceRange.baseMipLevel = 0;
+                presentBarrier.subresourceRange.levelCount = 1;
+                presentBarrier.subresourceRange.baseArrayLayer = 0;
+                presentBarrier.subresourceRange.layerCount = 1;
+                vkCmdPipelineBarrier(commandBuffer, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
+                                     0, 0, nullptr, 0, nullptr, 1, &presentBarrier);
+                m_swapchainObject.SetImageLayout(m_imageIndexAcquired, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
+            }
+            return;
+        }
+
         TransitionSwapchainImageToColorAttachment(commandBuffer, m_imageIndexAcquired);
         TransitionDepthStencilImageToAttachment(commandBuffer, m_imageIndexAcquired);
 
@@ -648,6 +726,124 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         vkCmdDrawIndexed(commandBuffer, static_cast<Uint32>(payload.drawArray.count), 1, 0, 0, 0);
     }
 
+    Bool VulkanRenderer::BlitFramebuffer(GLint srcX0, GLint srcY0, GLint srcX1, GLint srcY1, GLint dstX0, GLint dstY0,
+                                         GLint dstX1, GLint dstY1, GLbitfield mask, GLenum filter,
+                                         Uint readFboExternalIndex, Uint drawFboExternalIndex,
+                                         Bool readIsDefaultFramebuffer, Bool drawIsDefaultFramebuffer) {
+        if ((mask & GL_COLOR_BUFFER_BIT) == 0 || (mask & ~GL_COLOR_BUFFER_BIT) != 0) {
+            MGLOG_W("BlitFramebuffer skipped: only GL_COLOR_BUFFER_BIT is supported in Vulkan backend for now");
+            return false;
+        }
+        if (readIsDefaultFramebuffer || !drawIsDefaultFramebuffer) {
+            MGLOG_W("BlitFramebuffer skipped: currently only read=offscreen FBO and draw=default FBO is supported");
+            return false;
+        }
+
+        auto& frame = m_frameContext.GetCurrent();
+        if (frame.hasCommandBufferRecorded) {
+            MGLOG_W("BlitFramebuffer skipped: current frame command buffer is already finalized");
+            return false;
+        }
+
+        if (!frame.isCommandRecording) {
+            m_frameContext.BeginCommandRecording();
+            if (m_uniformDescriptorBinder) {
+                m_uniformDescriptorBinder->BeginFrame(m_frameContext.GetCurrentFrameIndex());
+            }
+        }
+
+        VkCommandBuffer commandBuffer = frame.commandBuffer;
+        if (m_isMainRenderPassActive) {
+            vkCmdEndRenderPass(commandBuffer);
+            m_isMainRenderPassActive = false;
+        }
+
+        if (!m_framebufferManager || !MG_State::pGLContext) {
+            MGLOG_W("BlitFramebuffer skipped: framebuffer manager is unavailable");
+            return false;
+        }
+
+        (void)drawFboExternalIndex;
+        const auto readFbo = MG_State::pGLContext->GetFramebufferObject(readFboExternalIndex);
+        if (!readFbo) {
+            MGLOG_W("BlitFramebuffer skipped: read FBO %u not found", readFboExternalIndex);
+            return false;
+        }
+        if (!m_framebufferManager->EnsureOffscreenColorTarget(readFboExternalIndex, *readFbo)) {
+            return false;
+        }
+        if (!m_framebufferManager->TransitionOffscreenColorToTransferSrc(commandBuffer, readFboExternalIndex)) {
+            return false;
+        }
+
+        VkImage srcImage = VK_NULL_HANDLE;
+        VkExtent2D srcExtent{};
+        if (!m_framebufferManager->GetOffscreenColorImage(readFboExternalIndex, srcImage, srcExtent)) {
+            MGLOG_W("BlitFramebuffer skipped: offscreen image for FBO %u is unavailable", readFboExternalIndex);
+            return false;
+        }
+
+        const auto swapchainOldLayout = m_swapchainObject.GetImageLayout(m_imageIndexAcquired);
+        if (swapchainOldLayout != VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL) {
+            VkImageMemoryBarrier toTransferDstBarrier{};
+            toTransferDstBarrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+            toTransferDstBarrier.srcAccessMask = 0;
+            toTransferDstBarrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+            toTransferDstBarrier.oldLayout = swapchainOldLayout;
+            toTransferDstBarrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+            toTransferDstBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+            toTransferDstBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+            toTransferDstBarrier.image = m_swapchainObject.GetImage(m_imageIndexAcquired);
+            toTransferDstBarrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+            toTransferDstBarrier.subresourceRange.baseMipLevel = 0;
+            toTransferDstBarrier.subresourceRange.levelCount = 1;
+            toTransferDstBarrier.subresourceRange.baseArrayLayer = 0;
+            toTransferDstBarrier.subresourceRange.layerCount = 1;
+            vkCmdPipelineBarrier(commandBuffer, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
+                                 0, 0, nullptr, 0, nullptr, 1, &toTransferDstBarrier);
+            m_swapchainObject.SetImageLayout(m_imageIndexAcquired, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+        }
+
+        VkImageBlit blitRegion{};
+        blitRegion.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        blitRegion.srcSubresource.mipLevel = 0;
+        blitRegion.srcSubresource.baseArrayLayer = 0;
+        blitRegion.srcSubresource.layerCount = 1;
+        blitRegion.srcOffsets[0] = {srcX0, srcY0, 0};
+        blitRegion.srcOffsets[1] = {srcX1, srcY1, 1};
+        blitRegion.dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        blitRegion.dstSubresource.mipLevel = 0;
+        blitRegion.dstSubresource.baseArrayLayer = 0;
+        blitRegion.dstSubresource.layerCount = 1;
+        blitRegion.dstOffsets[0] = {dstX0, dstY0, 0};
+        blitRegion.dstOffsets[1] = {dstX1, dstY1, 1};
+
+        vkCmdBlitImage(commandBuffer, srcImage, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                       m_swapchainObject.GetImage(m_imageIndexAcquired), VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                       1, &blitRegion, (filter == GL_LINEAR ? VK_FILTER_LINEAR : VK_FILTER_NEAREST));
+
+        VkImageMemoryBarrier toPresentBarrier{};
+        toPresentBarrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+        toPresentBarrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+        toPresentBarrier.dstAccessMask = 0;
+        toPresentBarrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+        toPresentBarrier.newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+        toPresentBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        toPresentBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        toPresentBarrier.image = m_swapchainObject.GetImage(m_imageIndexAcquired);
+        toPresentBarrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        toPresentBarrier.subresourceRange.baseMipLevel = 0;
+        toPresentBarrier.subresourceRange.levelCount = 1;
+        toPresentBarrier.subresourceRange.baseArrayLayer = 0;
+        toPresentBarrier.subresourceRange.layerCount = 1;
+        vkCmdPipelineBarrier(commandBuffer, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
+                             0, 0, nullptr, 0, nullptr, 1, &toPresentBarrier);
+        m_swapchainObject.SetImageLayout(m_imageIndexAcquired, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
+
+        (void)srcExtent;
+        return true;
+    }
+
     void VulkanRenderer::Render() {
         // Route test rendering through the same frame-start logic used by draw calls,
         // so pending glClear() state can be consumed consistently.
@@ -669,17 +865,35 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         MOBILEGL_ASSERT(m_imageIndexAcquired < m_swapchainObject.GetImageCount(),
                         "Present, acquired image index out of range");
         auto& frame = m_frameContext.GetCurrent();
-        if (m_pendingClearMask != 0 && frame.isCommandRecording && m_isMainRenderPassActive) {
-            if ((m_pendingClearMask & GL_COLOR_BUFFER_BIT) != 0) {
-                RecordColorClear(frame.commandBuffer, m_pendingClearColor);
-            }
-            if ((m_pendingClearMask & (GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT)) != 0) {
-                RecordDepthStencilClear(frame.commandBuffer, m_pendingClearMask, m_pendingClearDepth, m_pendingClearStencil);
-            }
-            m_pendingClearMask = 0;
-        } else if (m_pendingClearMask != 0 && frame.hasCommandBufferRecorded) {
+        if (m_pendingClearMask != 0 && frame.hasCommandBufferRecorded) {
             MGLOG_W("Dropping pending clear for current frame because command buffer is already finalized");
             m_pendingClearMask = 0;
+        } else if (m_pendingClearMask != 0 && frame.isCommandRecording) {
+            if (m_pendingClearTargetsDefaultFramebuffer && m_isMainRenderPassActive) {
+                if ((m_pendingClearMask & GL_COLOR_BUFFER_BIT) != 0) {
+                    RecordColorClear(frame.commandBuffer, m_pendingClearColor);
+                }
+                if ((m_pendingClearMask & (GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT)) != 0) {
+                    RecordDepthStencilClear(frame.commandBuffer, m_pendingClearMask, m_pendingClearDepth, m_pendingClearStencil);
+                }
+                m_pendingClearMask = 0;
+            } else if (!m_pendingClearTargetsDefaultFramebuffer) {
+                if ((m_pendingClearMask & GL_COLOR_BUFFER_BIT) != 0) {
+                    if (!RecordOffscreenColorClear(frame.commandBuffer)) {
+                        MGLOG_W("Present: failed to clear non-default FBO %u color attachment",
+                                m_pendingClearDrawFboExternalIndex);
+                    }
+                    m_pendingClearMask &= ~GL_COLOR_BUFFER_BIT;
+                }
+                if ((m_pendingClearMask & (GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT)) != 0) {
+                    MGLOG_W("Present: depth/stencil clear on non-default FBO is not implemented yet (FBO %u)",
+                            m_pendingClearDrawFboExternalIndex);
+                    m_pendingClearMask &= ~(GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
+                }
+            } else {
+                MGLOG_W("Present: pending default-FBO clear cannot execute because no render pass is active");
+                m_pendingClearMask = 0;
+            }
         } else if (m_pendingClearMask != 0) {
             EnsureFrameRecordingStarted();
         }

@@ -147,14 +147,13 @@ namespace MobileGL {
                 if (attrib.flags & ShaderCompileBits::CompileForOpenGL) {
                     tshader->setEnvInput(glslang::EShSourceGlsl, lang, glslang::EShClientVulkan, 450);
                     tshader->setEnvClient(glslang::EShClientOpenGL, glslang::EShTargetOpenGL_450);
-                    tshader->setEnvTarget(glslang::EShTargetSpv, glslang::EShTargetSpv_1_5);
+                    tshader->setEnvTarget(glslang::EShTargetSpv, glslang::EShTargetSpv_1_3);
                 } else {
                     tshader->setEnvInput(glslang::EShSourceGlsl, lang, glslang::EShClientVulkan, 450);
-                    tshader->setEnvClient(glslang::EShClientVulkan, glslang::EShTargetVulkan_1_3);
-                    tshader->setEnvTarget(glslang::EShTargetSpv,
-                                          ((attrib.flags & ShaderCompileBits::EmitDiscardAsDemote)
-                                               ? glslang::EShTargetSpv_1_6
-                                               : glslang::EShTargetSpv_1_5));
+                    // MobileGL runtime currently creates Vulkan 1.1 instance/device on Android path,
+                    // so generated SPIR-V must not exceed SPIR-V 1.3.
+                    tshader->setEnvClient(glslang::EShClientVulkan, glslang::EShTargetVulkan_1_1);
+                    tshader->setEnvTarget(glslang::EShTargetSpv, glslang::EShTargetSpv_1_3);
                     tshader->setEnvInputVulkanRulesRelaxed(); // using EXT_vulkan_glsl_relaxed for gl_VertexID and
                                                               // gl_InstanceID?
                 }
@@ -233,7 +232,7 @@ namespace MobileGL {
                 OptimizerOptions options;
                 options.set_run_validator(false);
 
-                Optimizer optimizer(SPV_ENV_UNIVERSAL_1_5);
+                Optimizer optimizer(SPV_ENV_VULKAN_1_1);
 
                 optimizer.RegisterPass(EliminateFloatEqualsZeroPass::CreateEliminateFloatEqualsZeroPass());
 

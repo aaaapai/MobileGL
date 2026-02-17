@@ -132,6 +132,22 @@ int main() {
 
     MobileGL::MG_Initialize();
 
+    GLuint offscreenTex = 0;
+    GLuint offscreenFbo = 0;
+    glGenTextures(1, &offscreenTex);
+    glBindTexture(GL_TEXTURE_2D, offscreenTex);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 256, 256, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+    glBindTexture(GL_TEXTURE_2D, 0);
+
+    glGenFramebuffers(1, &offscreenFbo);
+    glBindFramebuffer(GL_FRAMEBUFFER, offscreenFbo);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, offscreenTex, 0);
+    const GLenum offscreenFboStatus = glCheckFramebufferStatus(GL_FRAMEBUFFER);
+    std::cout << "Offscreen FBO status = 0x" << std::hex << offscreenFboStatus << std::dec << std::endl;
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+
     GLuint vao = 0;
     glGenVertexArrays(1, &vao);
     glBindVertexArray(vao);
@@ -246,30 +262,30 @@ void main() {
     glBindBufferBase(GL_UNIFORM_BUFFER, 1, colorUbo);
     glBindBuffer(GL_UNIFORM_BUFFER, 0);
 
-    const auto startTime = std::chrono::steady_clock::now();
-
     int i = 0;
     while(!glfwWindowShouldClose(window)) {
         glfwPollEvents();
 
-        if (i % 1000 > 500)
+        const bool useOffscreenPath = ((i / 100) % 2) == 0;
+        if (useOffscreenPath) {
+            glBindFramebuffer(GL_FRAMEBUFFER, offscreenFbo);
             glClearColor(1.0f, 0.0f, 0.0f, 1.0f);
-        else
-            glClearColor(0.0f, 1.0f, 0.0f, 1.0f);
-        glClear(GL_COLOR_BUFFER_BIT);
-        if (i % 500 > 250) {
-            glUseProgram(program);
-            const auto now = std::chrono::steady_clock::now();
-            const float t = std::chrono::duration<float>(now - startTime).count();
-            glUniform1f(iTimeLocation, t);
+            glClear(GL_COLOR_BUFFER_BIT);
 
-            uboColorData[0] = 0.5f + 0.5f * std::sin(t * 0.7f);
-            uboColorData[1] = 0.5f + 0.5f * std::sin(t * 1.1f + 1.2f);
-            uboColorData[2] = 0.5f + 0.5f * std::sin(t * 1.5f + 2.4f);
-            glBindBuffer(GL_UNIFORM_BUFFER, colorUbo);
-            glBufferSubData(GL_UNIFORM_BUFFER, 0, sizeof(uboColorData), uboColorData);
-            glBindBuffer(GL_UNIFORM_BUFFER, 0);
-            glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_SHORT, nullptr);
+            glBindFramebuffer(GL_READ_FRAMEBUFFER, offscreenFbo);
+            glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
+            glBlitFramebuffer(0, 0, 256, 256, 0, 0, 800, 600, GL_COLOR_BUFFER_BIT, GL_NEAREST);
+            glBindFramebuffer(GL_FRAMEBUFFER, 0);
+        } else {
+            glBindFramebuffer(GL_FRAMEBUFFER, 0);
+            glClearColor(0.0f, 1.0f, 0.0f, 1.0f);
+            glClear(GL_COLOR_BUFFER_BIT);
+        }
+
+        if (i % 100 == 0) {
+            std::cout << "frame=" << i
+                      << " path=" << (useOffscreenPath ? "offscreen-clear+blit" : "default-clear")
+                      << std::endl;
         }
         eglSwapBuffers(display, surface);
         ++i;
@@ -281,6 +297,8 @@ void main() {
     glDeleteBuffers(1, &colorVbo);
     glDeleteBuffers(1, &ebo);
     glDeleteVertexArrays(1, &vao);
+    glDeleteFramebuffers(1, &offscreenFbo);
+    glDeleteTextures(1, &offscreenTex);
 
     glfwDestroyWindow(window);
 

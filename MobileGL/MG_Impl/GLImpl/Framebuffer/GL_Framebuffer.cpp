@@ -19,6 +19,9 @@
 #if MOBILEGL_BACKEND == MOBILEGL_BACKEND_TYPE_DIRECT_GLES
 #include <MG_Backend/DirectGLES/DirectGLES.h>
 #endif
+#if MOBILEGL_BACKEND == MOBILEGL_BACKEND_TYPE_DIRECT_VULKAN
+#include <MG_Backend/DirectVulkan/DirectVulkan.h>
+#endif
 
 namespace MobileGL {
     namespace MG_Impl::GLImpl {
@@ -27,7 +30,67 @@ namespace MobileGL {
 #if MOBILEGL_BACKEND == MOBILEGL_BACKEND_TYPE_DIRECT_GLES
             MG_Backend::DirectGLES::BlitFramebuffer(srcX0, srcY0, srcX1, srcY1, dstX0, dstY0, dstX1, dstY1, mask,
                                                     filter);
+#elif MOBILEGL_BACKEND == MOBILEGL_BACKEND_TYPE_DIRECT_VULKAN
+            MG_Backend::DirectVulkan::BlitFramebuffer(srcX0, srcY0, srcX1, srcY1, dstX0, dstY0, dstX1, dstY1, mask,
+                                                      filter);
 #endif
+        }
+
+        Bool BlitFramebuffer_State(GLint srcX0, GLint srcY0, GLint srcX1, GLint srcY1, GLint dstX0, GLint dstY0,
+                                   GLint dstX1, GLint dstY1, GLbitfield mask, GLenum filter) {
+            (void)srcX0;
+            (void)srcY0;
+            (void)srcX1;
+            (void)srcY1;
+            (void)dstX0;
+            (void)dstY0;
+            (void)dstX1;
+            (void)dstY1;
+
+            constexpr GLbitfield kSupportedMask = GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT;
+            if ((mask & kSupportedMask) == 0 || (mask & ~kSupportedMask) != 0) {
+                MG_State::pGLContext->RecordError(
+                    ErrorCode::InvalidValue,
+                    MakeShared<GenericErrorInfo>("MG_Impl/GLImpl", __func__,
+                                                 "`mask` must contain COLOR/DEPTH/STENCIL bits only."));
+                return false;
+            }
+
+            if (filter != GL_NEAREST && filter != GL_LINEAR) {
+                MG_State::pGLContext->RecordError(
+                    ErrorCode::InvalidEnum,
+                    MakeShared<GenericErrorInfo>("MG_Impl/GLImpl", __func__,
+                                                 "`filter` must be GL_NEAREST or GL_LINEAR."));
+                return false;
+            }
+
+            if ((mask & (GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT)) != 0 && filter != GL_NEAREST) {
+                MG_State::pGLContext->RecordError(
+                    ErrorCode::InvalidOperation,
+                    MakeShared<GenericErrorInfo>("MG_Impl/GLImpl", __func__,
+                                                 "Depth/stencil blit requires GL_NEAREST filter."));
+                return false;
+            }
+
+            const auto readFbo = MG_State::pGLContext->GetFramebufferBindingSlot(FramebufferTarget::Read).GetBoundObject();
+            const auto drawFbo = MG_State::pGLContext->GetFramebufferBindingSlot(FramebufferTarget::Draw).GetBoundObject();
+            if (!readFbo || !drawFbo) {
+                MG_State::pGLContext->RecordError(
+                    ErrorCode::InvalidOperation,
+                    MakeShared<GenericErrorInfo>("MG_Impl/GLImpl", __func__,
+                                                 "Read/draw framebuffer binding is null."));
+                return false;
+            }
+
+            if (!readFbo->CheckCompleteness() || !drawFbo->CheckCompleteness()) {
+                MG_State::pGLContext->RecordError(
+                    ErrorCode::InvalidFramebufferOperation,
+                    MakeShared<GenericErrorInfo>("MG_Impl/GLImpl", __func__,
+                                                 "Read/draw framebuffer is incomplete."));
+                return false;
+            }
+
+            return true;
         }
 
         void SampleMaski_State(GLuint maskNumber, GLbitfield mask) {
@@ -748,6 +811,9 @@ namespace MobileGL {
 
         void BlitFramebuffer(GLint srcX0, GLint srcY0, GLint srcX1, GLint srcY1, GLint dstX0, GLint dstY0, GLint dstX1,
                              GLint dstY1, GLbitfield mask, GLenum filter) {
+            if (!BlitFramebuffer_State(srcX0, srcY0, srcX1, srcY1, dstX0, dstY0, dstX1, dstY1, mask, filter)) {
+                return;
+            }
             BlitFramebuffer_Backend(srcX0, srcY0, srcX1, srcY1, dstX0, dstY0, dstX1, dstY1, mask, filter);
         }
 

@@ -15,6 +15,7 @@
 #include "UniformDescriptorBinder.h"
 #include "VertexInputStateFactory.h"
 #include "VkBufferObject.h"
+#include "VkFramebufferManager.h"
 #include "MG_Util/Math/VectorTypes.h"
 #include <Includes.h>
 #include <vk_mem_alloc.h>
@@ -58,11 +59,15 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         void Initialize();
         void Shutdown();
 
-        void RequestClear(GLbitfield mask, const FloatVec4& color, Float depth, Uint32 stencil);
+        void RequestClear(GLbitfield mask, const FloatVec4& color, Float depth, Uint32 stencil,
+                          Uint drawFboExternalIndex, Bool isDefaultFramebufferTarget);
         Bool ConsumePendingColorClear(VkClearColorValue& outClearColor);
         void EnsureFrameRecordingStarted();
         void DrawArrays(const DrawArrayPayload& payload);
         void DrawElements(const DrawElementPayload& payload);
+        Bool BlitFramebuffer(GLint srcX0, GLint srcY0, GLint srcX1, GLint srcY1, GLint dstX0, GLint dstY0, GLint dstX1,
+                             GLint dstY1, GLbitfield mask, GLenum filter, Uint readFboExternalIndex,
+                             Uint drawFboExternalIndex, Bool readIsDefaultFramebuffer, Bool drawIsDefaultFramebuffer);
         void Render();
         void Present();
 
@@ -128,12 +133,15 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         VkClearColorValue m_pendingClearColor = {{0.0f, 0.0f, 0.0f, 1.0f}};
         Float m_pendingClearDepth = 1.0f;
         Uint32 m_pendingClearStencil = 0;
+        Uint m_pendingClearDrawFboExternalIndex = 0;
+        Bool m_pendingClearTargetsDefaultFramebuffer = true;
         Bool m_isMainRenderPassActive = false;
 
         UniquePtr<PipelineFactory> m_pipelineFactory;
         UniquePtr<ProgramFactory> m_programFactory;
         UniquePtr<UniformDescriptorBinder> m_uniformDescriptorBinder;
         UniquePtr<VertexInputStateFactory> m_vertexInputStateFactory;
+        UniquePtr<VkFramebufferManager> m_framebufferManager;
 
         void CreateInstance();
         VkResult SetupDebugMessenger();
@@ -159,6 +167,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         void TransitionDepthStencilImageToAttachment(VkCommandBuffer commandBuffer, Uint32 imageIndex);
         void RecordColorClear(VkCommandBuffer commandBuffer, const VkClearColorValue& clearColor);
         void RecordDepthStencilClear(VkCommandBuffer commandBuffer, GLbitfield mask, Float depth, Uint32 stencil);
+        Bool RecordOffscreenColorClear(VkCommandBuffer commandBuffer);
         void EndFrameRecordingIfNeeded();
         Bool UploadAndBindVertexStreams(
             const VertexInputStateFactory::BackendVertexInputState& vertexInputState,
