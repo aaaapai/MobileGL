@@ -29,7 +29,9 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         Bool EnsureOffscreenColorTarget(Uint glFboExternalIndex, const MG_State::GLState::FramebufferObject& glFbo);
         Bool TransitionOffscreenColorToAttachment(VkCommandBuffer commandBuffer, Uint glFboExternalIndex);
         Bool TransitionOffscreenColorToTransferSrc(VkCommandBuffer commandBuffer, Uint glFboExternalIndex);
+        Bool TransitionOffscreenColorTextureToShaderRead(VkCommandBuffer commandBuffer, Uint textureExternalIndex);
         Bool GetOffscreenColorImage(Uint glFboExternalIndex, VkImage& outImage, VkExtent2D& outExtent) const;
+        Bool GetOffscreenColorViewByTexture(Uint textureExternalIndex, VkImageView& outImageView) const;
         Bool GetOffscreenRenderTarget(Uint glFboExternalIndex, VkRenderPass& outRenderPass, VkFramebuffer& outFramebuffer,
                                       VkExtent2D& outExtent, VkFormat& outDepthStencilFormat) const;
 
@@ -49,6 +51,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             VkRenderPass renderPassLoad = VK_NULL_HANDLE;
             VkFramebuffer framebuffer = VK_NULL_HANDLE;
             Uint16 glObjectVersion = 0;
+            Uint colorTextureExternalIndex = 0;
         };
 
         Bool RecreateOffscreenColorTarget(OffscreenColorTarget& target,

@@ -19,6 +19,8 @@ namespace MobileGL::MG_State::GLState {
 }
 
 namespace MobileGL::MG_Backend::DirectVulkan {
+    class VkFramebufferManager;
+
     class UniformDescriptorBinder {
     public:
         enum class BindingKind : Uint8 {
@@ -30,7 +32,8 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         Bool Initialize(VkDevice device, VmaAllocator allocator, VkDeviceSize minUniformBufferOffsetAlignment,
                         Uint32 frameCount, Uint32 maxBindings = 16, Uint32 setsPerFrame = 64,
                         VkDeviceSize perFrameUploadBytes = 4 * 1024 * 1024,
-                        VkTextureSamplerManager* textureSamplerManager = nullptr);
+                        VkTextureSamplerManager* textureSamplerManager = nullptr,
+                        VkFramebufferManager* framebufferManager = nullptr);
         void Shutdown();
 
         void BeginFrame(Uint32 frameIndex);
@@ -51,11 +54,18 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             VkPipelineLayout pipelineLayout = VK_NULL_HANDLE;
             Vector<BindingKind> bindingKinds;
             Vector<Uint32> dynamicBindings;
+            Vector<Int> samplerUniformLocationByBinding;
+            Vector<TextureTarget> samplerTextureTargetByBinding;
         };
 
         static VkDeviceSize AlignUp(VkDeviceSize value, VkDeviceSize alignment);
         static Uint64 ComputeProgramHash(const MG_State::GLState::ProgramObject& program);
         static Bool IsSamplerUniformType(GLenum glType);
+        static TextureTarget UniformTypeToTextureTarget(GLenum glType);
+        Bool ReflectSamplerBindings(const MG_State::GLState::ProgramObject& program, ProgramLayout& layout) const;
+        Bool ResolveSamplerDescriptor(VkCommandBuffer commandBuffer, const MG_State::GLState::ProgramObject& program,
+                                      const ProgramLayout& layout, Uint32 binding,
+                                      VkDescriptorImageInfo& outImageInfo) const;
         Bool ReflectBindingKinds(const MG_State::GLState::ProgramObject& program, Vector<BindingKind>& outKinds) const;
         ProgramLayout* GetOrCreateProgramLayout(const MG_State::GLState::ProgramObject& program);
         Bool AllocateUploadRegion(FrameResources& frame, VkDeviceSize size, VkDeviceSize& outOffset);
@@ -74,6 +84,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         Uint32 m_maxBindings = 0;
         Uint32 m_setsPerFrame = 0;
         VkTextureSamplerManager* m_textureSamplerManager = nullptr;
+        VkFramebufferManager* m_framebufferManager = nullptr;
     };
 } // namespace MobileGL::MG_Backend::DirectVulkan
 

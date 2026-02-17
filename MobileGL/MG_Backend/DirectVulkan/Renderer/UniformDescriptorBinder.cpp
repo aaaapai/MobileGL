@@ -8,6 +8,7 @@
 
 #include "UniformDescriptorBinder.h"
 
+#include "VkFramebufferManager.h"
 #include "MG_State/GLState/Core.h"
 #include "MG_State/GLState/ProgramState/ProgramObject.h"
 #include "MG_Util/ShaderTranspiler/Types.h"
@@ -82,10 +83,62 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         }
     }
 
+    TextureTarget UniformDescriptorBinder::UniformTypeToTextureTarget(GLenum glType) {
+        switch (glType) {
+        case GL_SAMPLER_1D:
+        case GL_INT_SAMPLER_1D:
+        case GL_UNSIGNED_INT_SAMPLER_1D:
+            return TextureTarget::Texture1D;
+        case GL_SAMPLER_3D:
+        case GL_INT_SAMPLER_3D:
+        case GL_UNSIGNED_INT_SAMPLER_3D:
+            return TextureTarget::Texture3D;
+        case GL_SAMPLER_CUBE:
+        case GL_SAMPLER_CUBE_SHADOW:
+        case GL_INT_SAMPLER_CUBE:
+        case GL_UNSIGNED_INT_SAMPLER_CUBE:
+            return TextureTarget::TextureCubeMap;
+        case GL_SAMPLER_2D_MULTISAMPLE:
+        case GL_INT_SAMPLER_2D_MULTISAMPLE:
+        case GL_UNSIGNED_INT_SAMPLER_2D_MULTISAMPLE:
+            return TextureTarget::Texture2DMultisample;
+        case GL_SAMPLER_BUFFER:
+        case GL_INT_SAMPLER_BUFFER:
+        case GL_UNSIGNED_INT_SAMPLER_BUFFER:
+            return TextureTarget::TextureBuffer;
+        case GL_SAMPLER_1D_ARRAY:
+        case GL_SAMPLER_1D_ARRAY_SHADOW:
+        case GL_INT_SAMPLER_1D_ARRAY:
+        case GL_UNSIGNED_INT_SAMPLER_1D_ARRAY:
+            return TextureTarget::Texture1DArray;
+        case GL_SAMPLER_2D_ARRAY:
+        case GL_SAMPLER_2D_ARRAY_SHADOW:
+        case GL_INT_SAMPLER_2D_ARRAY:
+        case GL_UNSIGNED_INT_SAMPLER_2D_ARRAY:
+            return TextureTarget::Texture2DArray;
+        case GL_SAMPLER_2D_MULTISAMPLE_ARRAY:
+        case GL_INT_SAMPLER_2D_MULTISAMPLE_ARRAY:
+        case GL_UNSIGNED_INT_SAMPLER_2D_MULTISAMPLE_ARRAY:
+            return TextureTarget::Texture2DMultisampleArray;
+        case GL_SAMPLER_2D_RECT:
+        case GL_SAMPLER_2D_RECT_SHADOW:
+        case GL_INT_SAMPLER_2D_RECT:
+        case GL_UNSIGNED_INT_SAMPLER_2D_RECT:
+            return TextureTarget::TextureRectangle;
+        case GL_SAMPLER_2D:
+        case GL_SAMPLER_2D_SHADOW:
+        case GL_INT_SAMPLER_2D:
+        case GL_UNSIGNED_INT_SAMPLER_2D:
+        default:
+            return TextureTarget::Texture2D;
+        }
+    }
+
     Bool UniformDescriptorBinder::Initialize(VkDevice device, VmaAllocator allocator,
                                              VkDeviceSize minUniformBufferOffsetAlignment, Uint32 frameCount,
                                              Uint32 maxBindings, Uint32 setsPerFrame, VkDeviceSize perFrameUploadBytes,
-                                             VkTextureSamplerManager* textureSamplerManager) {
+                                             VkTextureSamplerManager* textureSamplerManager,
+                                             VkFramebufferManager* framebufferManager) {
         Shutdown();
 
         MOBILEGL_ASSERT(device != VK_NULL_HANDLE, "UniformDescriptorBinder::Initialize requires valid VkDevice");
@@ -102,6 +155,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         m_maxBindings = maxBindings;
         m_setsPerFrame = setsPerFrame;
         m_textureSamplerManager = textureSamplerManager;
+        m_framebufferManager = framebufferManager;
 
         m_frames.resize(m_frameCount);
         for (Uint32 frameIndex = 0; frameIndex < m_frameCount; ++frameIndex) {
@@ -156,6 +210,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         m_maxBindings = 0;
         m_setsPerFrame = 0;
         m_textureSamplerManager = nullptr;
+        m_framebufferManager = nullptr;
     }
 
     void UniformDescriptorBinder::BeginFrame(Uint32 frameIndex) {
@@ -232,6 +287,130 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         return true;
     }
 
+    Bool UniformDescriptorBinder::ReflectSamplerBindings(const MG_State::GLState::ProgramObject& program,
+                                                         ProgramLayout& layout) const {
+        layout.samplerUniformLocationByBinding.assign(m_maxBindings, -1);
+        layout.samplerTextureTargetByBinding.assign(m_maxBindings, TextureTarget::Texture2D);
+
+        const auto& spirv = program.GetGeneratedSpirv();
+        for (const auto& module : spirv) {
+            if (module.empty()) {
+                continue;
+            }
+
+            spvc_context context = nullptr;
+            spvc_parsed_ir ir = nullptr;
+            spvc_compiler compiler = nullptr;
+            spvc_resources resources = nullptr;
+
+            if (spvc_context_create(&context) != SPVC_SUCCESS) {
+                return false;
+            }
+            if (spvc_context_parse_spirv(context, module.data(), module.size(), &ir) != SPVC_SUCCESS) {
+                spvc_context_destroy(context);
+                continue;
+            }
+            if (spvc_context_create_compiler(context, SPVC_BACKEND_GLSL, ir, SPVC_CAPTURE_MODE_TAKE_OWNERSHIP,
+                                             &compiler) != SPVC_SUCCESS) {
+                spvc_context_destroy(context);
+                continue;
+            }
+            if (spvc_compiler_create_shader_resources(compiler, &resources) != SPVC_SUCCESS) {
+                spvc_context_destroy(context);
+                continue;
+            }
+
+            const spvc_reflected_resource* list = nullptr;
+            size_t count = 0;
+            if (spvc_resources_get_resource_list_for_type(resources, SPVC_RESOURCE_TYPE_SAMPLED_IMAGE, &list, &count) ==
+                SPVC_SUCCESS) {
+                for (size_t i = 0; i < count; ++i) {
+                    const Uint32 binding =
+                        spvc_compiler_get_decoration(compiler, list[i].id, SpvDecorationBinding);
+                    if (binding >= m_maxBindings) {
+                        continue;
+                    }
+
+                    String uniformName = list[i].name ? list[i].name : "";
+                    Int location = program.GetUniformLocation(uniformName);
+                    if (location < 0) {
+                        const auto arraySuffix = uniformName.find("[0]");
+                        if (arraySuffix != String::npos) {
+                            uniformName = uniformName.substr(0, arraySuffix);
+                            location = program.GetUniformLocation(uniformName);
+                        }
+                    }
+                    if (location < 0) {
+                        continue;
+                    }
+
+                    layout.samplerUniformLocationByBinding[binding] = location;
+                    layout.samplerTextureTargetByBinding[binding] =
+                        UniformTypeToTextureTarget(program.GetUniformType(static_cast<Uint>(location)));
+                }
+            }
+
+            spvc_context_destroy(context);
+        }
+
+        return true;
+    }
+
+    Bool UniformDescriptorBinder::ResolveSamplerDescriptor(VkCommandBuffer commandBuffer,
+                                                           const MG_State::GLState::ProgramObject& program,
+                                                           const ProgramLayout& layout, Uint32 binding,
+                                                           VkDescriptorImageInfo& outImageInfo) const {
+        if (!m_textureSamplerManager || !MG_State::pGLContext || binding >= layout.samplerUniformLocationByBinding.size()) {
+            return false;
+        }
+
+        const Int location = layout.samplerUniformLocationByBinding[binding];
+        if (location < 0) {
+            return false;
+        }
+
+        const Int unit = program.GetUniformSamplerOrImageUnitIndex(static_cast<Uint>(location));
+        if (unit < 0) {
+            return false;
+        }
+
+        auto& textureUnit = MG_State::pGLContext->GetTextureUnitObject(unit);
+        const auto samplerOverride = textureUnit.GetSamplerObject();
+
+        const TextureTarget preferredTarget = layout.samplerTextureTargetByBinding[binding];
+        auto texture = textureUnit.GetBindingSlot(preferredTarget).GetBoundObject();
+        if (!texture) {
+            auto& slots = textureUnit.GetAllBindingSlots();
+            for (auto& slot : slots) {
+                texture = slot.GetBoundObject();
+                if (texture) {
+                    break;
+                }
+            }
+        }
+        if (!texture) {
+            return false;
+        }
+
+        if (m_framebufferManager &&
+            m_framebufferManager->TransitionOffscreenColorTextureToShaderRead(commandBuffer, texture->GetExternalIndex())) {
+            VkImageView offscreenView = VK_NULL_HANDLE;
+            if (m_framebufferManager->GetOffscreenColorViewByTexture(texture->GetExternalIndex(), offscreenView) &&
+                offscreenView != VK_NULL_HANDLE) {
+                VkDescriptorImageInfo sampledInfo{};
+                if (!m_textureSamplerManager->SyncTextureAndGetDescriptor(*texture, samplerOverride.get(), sampledInfo)) {
+                    return false;
+                }
+                sampledInfo.imageView = offscreenView;
+                sampledInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+                outImageInfo = sampledInfo;
+                return true;
+            }
+        }
+
+        return m_textureSamplerManager->SyncTextureAndGetDescriptor(*texture, samplerOverride.get(), outImageInfo);
+    }
+
     UniformDescriptorBinder::ProgramLayout* UniformDescriptorBinder::GetOrCreateProgramLayout(
         const MG_State::GLState::ProgramObject& program) {
         const Uint64 hash = ComputeProgramHash(program);
@@ -244,6 +423,10 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         layout.hash = hash;
         if (!ReflectBindingKinds(program, layout.bindingKinds)) {
             MGLOG_E("UniformDescriptorBinder::GetOrCreateProgramLayout failed: reflection failed");
+            return nullptr;
+        }
+        if (!ReflectSamplerBindings(program, layout)) {
+            MGLOG_E("UniformDescriptorBinder::GetOrCreateProgramLayout failed: sampler reflection failed");
             return nullptr;
         }
 
@@ -476,11 +659,20 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                 writes.push_back(write);
                 dynamicOffsets.push_back(static_cast<Uint32>(payloadOffset));
             } else {
-                if (!hasFallbackImage) {
+                VkDescriptorImageInfo imageInfo{};
+                Bool hasImage = ResolveSamplerDescriptor(commandBuffer, program, *layout, binding, imageInfo);
+                if (!hasImage) {
+                    if (!hasFallbackImage) {
+                        MGLOG_E("UniformDescriptorBinder::BindProgramUniformBuffers failed: fallback sampler/texture is unavailable");
+                        return false;
+                    }
+                    imageInfo = fallbackImageInfo;
+                }
+                if (imageInfo.sampler == VK_NULL_HANDLE || imageInfo.imageView == VK_NULL_HANDLE) {
                     MGLOG_E("UniformDescriptorBinder::BindProgramUniformBuffers failed: fallback sampler/texture is unavailable");
                     return false;
                 }
-                imageInfos.push_back(fallbackImageInfo);
+                imageInfos.push_back(imageInfo);
                 write.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
                 write.pImageInfo = &imageInfos.back();
                 writes.push_back(write);

@@ -107,6 +107,30 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                                      VK_IMAGE_ASPECT_COLOR_BIT);
     }
 
+    Bool VkFramebufferManager::TransitionOffscreenColorTextureToShaderRead(VkCommandBuffer commandBuffer,
+                                                                            Uint textureExternalIndex) {
+        for (auto& [_, target] : m_offscreenColorTargets) {
+            if (target.colorTextureExternalIndex != textureExternalIndex || target.image == VK_NULL_HANDLE) {
+                continue;
+            }
+            const Bool fromUndefined = (target.layout == VK_IMAGE_LAYOUT_UNDEFINED);
+            return TransitionImageLayout(commandBuffer,
+                                         target.image,
+                                         target.layout,
+                                         VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                                         fromUndefined ? VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT
+                                                       : (VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT |
+                                                          VK_PIPELINE_STAGE_TRANSFER_BIT),
+                                         VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+                                         fromUndefined ? 0
+                                                       : (VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT |
+                                                          VK_ACCESS_TRANSFER_WRITE_BIT),
+                                         VK_ACCESS_SHADER_READ_BIT,
+                                         VK_IMAGE_ASPECT_COLOR_BIT);
+        }
+        return false;
+    }
+
     Bool VkFramebufferManager::GetOffscreenColorImage(Uint glFboExternalIndex, VkImage& outImage,
                                                       VkExtent2D& outExtent) const {
         auto it = m_offscreenColorTargets.find(glFboExternalIndex);
@@ -116,6 +140,17 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         outImage = it->second.image;
         outExtent = it->second.extent;
         return true;
+    }
+
+    Bool VkFramebufferManager::GetOffscreenColorViewByTexture(Uint textureExternalIndex, VkImageView& outImageView) const {
+        for (const auto& [_, target] : m_offscreenColorTargets) {
+            if (target.colorTextureExternalIndex != textureExternalIndex || target.imageView == VK_NULL_HANDLE) {
+                continue;
+            }
+            outImageView = target.imageView;
+            return true;
+        }
+        return false;
     }
 
     Bool VkFramebufferManager::GetOffscreenRenderTarget(Uint glFboExternalIndex, VkRenderPass& outRenderPass,
@@ -162,7 +197,8 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         imageInfo.format = format;
         imageInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
         imageInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-        imageInfo.usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
+        imageInfo.usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT |
+            VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
         imageInfo.samples = VK_SAMPLE_COUNT_1_BIT;
         imageInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
         VK_VERIFY(vkCreateImage(m_device, &imageInfo, nullptr, &target.image), "vkCreateImage(offscreen color)");
@@ -329,6 +365,9 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         target.depthStencilLayout = VK_IMAGE_LAYOUT_UNDEFINED;
         target.depthStencilFormat = depthStencilFormat;
         target.glObjectVersion = glObjectVersion;
+        target.colorTextureExternalIndex =
+            (colorAttachment.IsTexture() && colorAttachment.GetTexture()) ? colorAttachment.GetTexture()->GetExternalIndex()
+                                                                          : 0;
         return true;
     }
 
@@ -371,6 +410,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         target.format = VK_FORMAT_UNDEFINED;
         target.depthStencilFormat = VK_FORMAT_UNDEFINED;
         target.glObjectVersion = 0;
+        target.colorTextureExternalIndex = 0;
     }
 
     Bool VkFramebufferManager::TransitionImageLayout(VkCommandBuffer commandBuffer,

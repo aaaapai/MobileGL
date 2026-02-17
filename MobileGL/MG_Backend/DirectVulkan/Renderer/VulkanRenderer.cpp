@@ -121,20 +121,21 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             MGLOG_E("VkTextureSamplerManager initialization failed. Sampler/texture descriptors will fallback.");
             m_textureSamplerManager.reset();
         }
-        m_uniformDescriptorBinder = MakeUnique<UniformDescriptorBinder>();
-        if (!m_uniformDescriptorBinder->Initialize(m_device, m_allocator,
-                                                   m_physicalDevice.properties.limits.minUniformBufferOffsetAlignment,
-                                                   m_config.MaxFramesInFlight, 16, 64, 4 * 1024 * 1024,
-                                                   m_textureSamplerManager.get())) {
-            MGLOG_E("UniformDescriptorBinder initialization failed. UBO sync on Vulkan backend is disabled.");
-            m_uniformDescriptorBinder.reset();
-        }
-        m_vertexInputStateFactory = MakeUnique<VertexInputStateFactory>(m_config);
         m_framebufferManager = MakeUnique<VkFramebufferManager>();
         if (!m_framebufferManager->Initialize({m_device, m_physicalDevice.handle})) {
             MGLOG_E("VkFramebufferManager initialization failed. Offscreen FBO clear path is disabled.");
             m_framebufferManager.reset();
         }
+        m_uniformDescriptorBinder = MakeUnique<UniformDescriptorBinder>();
+        if (!m_uniformDescriptorBinder->Initialize(m_device, m_allocator,
+                                                   m_physicalDevice.properties.limits.minUniformBufferOffsetAlignment,
+                                                   m_config.MaxFramesInFlight, 16, 64, 4 * 1024 * 1024,
+                                                   m_textureSamplerManager.get(),
+                                                   m_framebufferManager.get())) {
+            MGLOG_E("UniformDescriptorBinder initialization failed. UBO sync on Vulkan backend is disabled.");
+            m_uniformDescriptorBinder.reset();
+        }
+        m_vertexInputStateFactory = MakeUnique<VertexInputStateFactory>(m_config);
 
         PrepareDemoPipeline();
         CreateFrameContexts();

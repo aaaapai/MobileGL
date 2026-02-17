@@ -35,7 +35,7 @@ namespace MobileGL {
                 Int GetUniformMaxLength() const { return m_uniformNameMaxLength; }
                 Uint GetUniformCount() { return m_activeUniformCount; }
                 Uint GetMaxUniformLocation() const { return m_maxUniformLocation; }
-                Int GetUniformLocation(const String& name) {
+                Int GetUniformLocation(const String& name) const {
                     const auto it = m_uniformLocations.find(name);
                     if (it == m_uniformLocations.end()) return -1;
                     return (Int)it->second;
