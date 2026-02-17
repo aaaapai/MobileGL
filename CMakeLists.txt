@@ -255,6 +255,14 @@ set(MOBILEGL_LINK_LIBRARIES
         GPUOpen::VulkanMemoryAllocator
 )
 
+set(MOBILEGL_COMPILE_DEF
+        -DVMA_STATIC_VULKAN_FUNCTIONS=0
+        -DVMA_DYNAMIC_VULKAN_FUNCTIONS=1
+        -DVMA_VULKAN_VERSION=1001000
+)
+
+message(STATUS "MOBILEGL_COMPILE_DEF=${MOBILEGL_COMPILE_DEF}")
+
 set(MOBILEGL_INCLUDE_DIR
         ${CMAKE_SOURCE_DIR}/include
         ${CMAKE_SOURCE_DIR}/MobileGL
@@ -291,6 +299,11 @@ target_link_libraries(${CMAKE_PROJECT_NAME}
     ${MOBILEGL_LINK_LIBRARIES}
 )
 
+target_compile_definitions(${CMAKE_PROJECT_NAME}
+        PUBLIC
+        ${MOBILEGL_COMPILE_DEF}
+)
+
 if(NOT ANDROID)
     add_library(${CMAKE_PROJECT_NAME}_s STATIC 
         ${SOURCE_FILES}
@@ -317,6 +330,11 @@ if(NOT ANDROID)
     target_link_libraries(${CMAKE_PROJECT_NAME}_s
         PUBLIC
         ${MOBILEGL_LINK_LIBRARIES}
+    )
+
+    target_compile_definitions(${CMAKE_PROJECT_NAME}_s
+            PUBLIC
+            ${MOBILEGL_COMPILE_DEF}
     )
 endif()
 

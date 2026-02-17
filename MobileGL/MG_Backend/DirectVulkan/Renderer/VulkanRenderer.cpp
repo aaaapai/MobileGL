@@ -1020,9 +1020,13 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         }
 
         VmaAllocatorCreateInfo allocatorInfo{};
+        VmaVulkanFunctions vulkanFunctions{};
+        vulkanFunctions.vkGetInstanceProcAddr = vkGetInstanceProcAddr;
+        vulkanFunctions.vkGetDeviceProcAddr = vkGetDeviceProcAddr;
         allocatorInfo.instance = m_instance;
         allocatorInfo.physicalDevice = m_physicalDevice.handle;
         allocatorInfo.device = m_device;
+        allocatorInfo.pVulkanFunctions = &vulkanFunctions;
         allocatorInfo.vulkanApiVersion = VK_API_VERSION_1_0;
 
         VK_VERIFY(vmaCreateAllocator(&allocatorInfo, &m_allocator), "vmaCreateAllocator");
