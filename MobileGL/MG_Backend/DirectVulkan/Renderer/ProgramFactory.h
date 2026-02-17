@@ -29,12 +29,45 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             Vector<VkPipelineShaderStageCreateInfo> stages;
             Vector<VkShaderModule> modules;
 
+            BackendProgramObject() = default;
+            BackendProgramObject(const BackendProgramObject&) = delete;
+            BackendProgramObject& operator=(const BackendProgramObject&) = delete;
+            BackendProgramObject(BackendProgramObject&& other) noexcept {
+                hash = other.hash;
+                device = other.device;
+                stages = std::move(other.stages);
+                modules = std::move(other.modules);
+                other.hash = 0;
+                other.device = VK_NULL_HANDLE;
+            }
+            BackendProgramObject& operator=(BackendProgramObject&& other) noexcept {
+                if (this == &other) {
+                    return *this;
+                }
+                DestroyModules();
+                stages.clear();
+                hash = other.hash;
+                device = other.device;
+                stages = std::move(other.stages);
+                modules = std::move(other.modules);
+                other.hash = 0;
+                other.device = VK_NULL_HANDLE;
+                return *this;
+            }
+
             ~BackendProgramObject() {
+                DestroyModules();
+                stages.clear();
+            }
+
+        private:
+            void DestroyModules() {
                 for (auto module: modules) {
-                    vkDestroyShaderModule(device, module, nullptr);
+                    if (module != VK_NULL_HANDLE && device != VK_NULL_HANDLE) {
+                        vkDestroyShaderModule(device, module, nullptr);
+                    }
                 }
                 modules.clear();
-                stages.clear();
             }
         };
 
