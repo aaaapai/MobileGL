@@ -40,6 +40,13 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         Bool positionNormalized = false;
     };
 
+    struct DrawElementPayload {
+        DrawArrayPayload drawArray;
+        GLenum indexType = GL_UNSIGNED_SHORT;
+        const void* indexData = nullptr;
+        SizeT indexDataSizeBytes = 0;
+    };
+
     class VulkanRenderer {
     public:
         VulkanRenderer(NativeWindowType window, const VulkanRendererConfig& cfg = {});
@@ -52,7 +59,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         Bool ConsumePendingColorClear(VkClearColorValue& outClearColor);
         void EnsureFrameRecordingStarted();
         void DrawArrays(const DrawArrayPayload& payload);
-        void DrawElements(GLenum type, GLsizei count, const void* indexData, SizeT indexDataSizeBytes);
+        void DrawElements(const DrawElementPayload& payload);
         void Render();
         void Present();
 

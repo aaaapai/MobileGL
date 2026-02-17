@@ -568,7 +568,12 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         vkCmdDraw(commandBuffer, static_cast<Uint32>(payload.count), 1, static_cast<Uint32>(payload.first), 0);
     }
 
-    void VulkanRenderer::DrawElements(GLenum type, GLsizei count, const void* indexData, SizeT indexDataSizeBytes) {
+    void VulkanRenderer::DrawElements(const DrawElementPayload& payload) {
+        if (payload.drawArray.mode != GL_TRIANGLES) {
+            MGLOG_W("DrawElements skipped: primitive mode %u is not supported yet", payload.drawArray.mode);
+            return;
+        }
+
         EnsureFrameRecordingStarted();
         auto& frame = m_frameContext.GetCurrent();
         if (!frame.isCommandRecording || !m_isMainRenderPassActive) {
@@ -577,7 +582,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         }
 
         VkIndexType vkIndexType = VK_INDEX_TYPE_MAX_ENUM;
-        switch (type) {
+        switch (payload.indexType) {
         case GL_UNSIGNED_SHORT:
             vkIndexType = VK_INDEX_TYPE_UINT16;
             break;
@@ -585,17 +590,69 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             vkIndexType = VK_INDEX_TYPE_UINT32;
             break;
         default:
-            MGLOG_W("DrawElements skipped: index type %u is not supported yet", type);
+            MGLOG_W("DrawElements skipped: index type %u is not supported yet", payload.indexType);
             return;
         }
 
-        MOBILEGL_ASSERT(indexData != nullptr, "DrawElements requires non-null indexData");
-        MOBILEGL_ASSERT(indexDataSizeBytes > 0, "DrawElements requires non-zero index data size");
+        MOBILEGL_ASSERT(payload.indexData != nullptr, "DrawElements requires non-null indexData");
+        MOBILEGL_ASSERT(payload.indexDataSizeBytes > 0, "DrawElements requires non-zero index data size");
 
-        if (!m_indexBuffer.IsValid() || m_indexBuffer.GetSize() < indexDataSizeBytes) {
+        const VertexInputStateFactory::BackendVertexInputState* vertexInputState = nullptr;
+        if (payload.drawArray.vertexArray && m_vertexInputStateFactory) {
+            vertexInputState = &m_vertexInputStateFactory->GetOrCreateVertexInputState(*payload.drawArray.vertexArray);
+        }
+
+        VkPipeline pipelineToBind = m_pipeline;
+        if (vertexInputState) {
+            pipelineToBind = GetOrCreatePipelineVariant(vertexInputState->hash, vertexInputState->state);
+            if (pipelineToBind == VK_NULL_HANDLE) {
+                MGLOG_W("DrawElements skipped: failed to create/get pipeline variant");
+                return;
+            }
+        }
+
+        if (vertexInputState && !vertexInputState->bindings.empty()) {
+            if (!payload.drawArray.hasPositionStream || payload.drawArray.positionData == nullptr ||
+                payload.drawArray.positionDataSizeBytes == 0) {
+                MGLOG_W("DrawElements skipped: vertex input expects stream but payload has no position data");
+                return;
+            }
+
+            if (vertexInputState->bindings.size() != 1) {
+                MGLOG_W("DrawElements skipped: only single-binding vertex input is supported for now (bindings=%zu)",
+                        vertexInputState->bindings.size());
+                return;
+            }
+            if (vertexInputState->bindings[0].binding != 0) {
+                MGLOG_W("DrawElements skipped: only binding 0 is supported for now (binding=%u)",
+                        vertexInputState->bindings[0].binding);
+                return;
+            }
+
+            if (!m_vertexBuffer.IsValid() || m_vertexBuffer.GetSize() < payload.drawArray.positionDataSizeBytes) {
+                m_vertexBuffer.Destroy();
+                const Bool created = m_vertexBuffer.Create(
+                    m_allocator, static_cast<VkDeviceSize>(payload.drawArray.positionDataSizeBytes),
+                    VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+                    VMA_MEMORY_USAGE_AUTO,
+                    VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT);
+                if (!created) {
+                    MGLOG_E("DrawElements skipped: failed to create vertex buffer");
+                    return;
+                }
+            }
+
+            if (!m_vertexBuffer.Upload(payload.drawArray.positionData,
+                                       static_cast<VkDeviceSize>(payload.drawArray.positionDataSizeBytes), 0)) {
+                MGLOG_E("DrawElements skipped: failed to upload vertex data");
+                return;
+            }
+        }
+
+        if (!m_indexBuffer.IsValid() || m_indexBuffer.GetSize() < payload.indexDataSizeBytes) {
             m_indexBuffer.Destroy();
             const Bool created = m_indexBuffer.Create(
-                m_allocator, static_cast<VkDeviceSize>(indexDataSizeBytes),
+                m_allocator, static_cast<VkDeviceSize>(payload.indexDataSizeBytes),
                 VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
                 VMA_MEMORY_USAGE_AUTO,
                 VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT);
@@ -605,7 +662,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             }
         }
 
-        if (!m_indexBuffer.Upload(indexData, static_cast<VkDeviceSize>(indexDataSizeBytes), 0)) {
+        if (!m_indexBuffer.Upload(payload.indexData, static_cast<VkDeviceSize>(payload.indexDataSizeBytes), 0)) {
             MGLOG_E("DrawElements skipped: failed to upload index data");
             return;
         }
@@ -613,7 +670,13 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         VkCommandBuffer& commandBuffer = frame.commandBuffer;
         const auto swapchainExtent = m_swapchainObject.GetExtent();
 
-        vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, m_pipeline);
+        vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineToBind);
+
+        if (vertexInputState && !vertexInputState->bindings.empty()) {
+            VkBuffer vertexBufferHandle = m_vertexBuffer.GetHandle();
+            VkDeviceSize vertexBufferOffset = 0;
+            vkCmdBindVertexBuffers(commandBuffer, 0, 1, &vertexBufferHandle, &vertexBufferOffset);
+        }
 
         VkViewport viewport{};
         viewport.x = 0.0f;
@@ -630,7 +693,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         vkCmdSetScissor(commandBuffer, 0, 1, &scissor);
 
         vkCmdBindIndexBuffer(commandBuffer, m_indexBuffer.GetHandle(), 0, vkIndexType);
-        vkCmdDrawIndexed(commandBuffer, static_cast<Uint32>(count), 1, 0, 0, 0);
+        vkCmdDrawIndexed(commandBuffer, static_cast<Uint32>(payload.drawArray.count), 1, 0, 0, 0);
     }
 
     void VulkanRenderer::Render() {
