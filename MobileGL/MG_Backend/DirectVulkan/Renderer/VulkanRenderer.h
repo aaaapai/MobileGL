@@ -28,6 +28,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         void RequestClear(GLbitfield mask, const FloatVec4& color, Float depth, Uint32 stencil);
         Bool ConsumePendingColorClear(VkClearColorValue& outClearColor);
         void EnsureFrameRecordingStarted();
+        void DrawArrays(GLenum mode, GLint first, GLsizei count);
         void Render();
         void Present();
 

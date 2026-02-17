@@ -1,4 +1,4 @@
-// MobileGL - MobileGL/MG_Impl/GLImpl/Drawing/GL_Drawing.cpp
+﻿// MobileGL - MobileGL/MG_Impl/GLImpl/Drawing/GL_Drawing.cpp
 // Copyright (c) 2025-2026 MobileGL-Dev
 // Licensed under the GNU Lesser General Public License v3.0:
 //   https://www.gnu.org/licenses/gpl-3.0.txt
@@ -68,6 +68,8 @@ namespace MobileGL {
 #endif
 #if MOBILEGL_BACKEND == MOBILEGL_BACKEND_TYPE_DIRECT_GLES
             MG_Backend::DirectGLES::DrawArrays(mode, first, count);
+#elif MOBILEGL_BACKEND == MOBILEGL_BACKEND_TYPE_DIRECT_VULKAN
+            MG_Backend::DirectVulkan::DrawArrays(mode, first, count);
 #endif
         }
 
@@ -285,3 +287,4 @@ namespace MobileGL {
 
     } // namespace MG_Impl::GLImpl
 } // namespace MobileGL
+

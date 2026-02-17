@@ -84,7 +84,8 @@ int main() {
         else
             glClearColor(0.0f, 1.0f, 0.0f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT);
-        MobileGL::MG_Backend::DirectVulkan::pVulkanRenderer->Render();
+        if (i % 500 > 250)
+            glDrawArrays(GL_TRIANGLES, 0, 3);
         eglSwapBuffers(display, surface);
         ++i;
     }

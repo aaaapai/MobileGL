@@ -432,6 +432,36 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         m_frameContext.EndCommandRecording();
     }
 
+    void VulkanRenderer::DrawArrays(GLenum mode, GLint first, GLsizei count) {
+        EnsureFrameRecordingStarted();
+        auto& frame = m_frameContext.GetCurrent();
+        if (!frame.isCommandRecording || !m_isMainRenderPassActive) {
+            MGLOG_W("DrawArrays skipped: frame recording was not started");
+            return;
+        }
+
+        VkCommandBuffer& commandBuffer = frame.commandBuffer;
+        const auto swapchainExtent = m_swapchainObject.GetExtent();
+
+        vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, m_pipeline);
+
+        VkViewport viewport{};
+        viewport.x = 0.0f;
+        viewport.y = 0.0f;
+        viewport.width = static_cast<float>(swapchainExtent.width);
+        viewport.height = static_cast<float>(swapchainExtent.height);
+        viewport.minDepth = 0.0f;
+        viewport.maxDepth = 1.0f;
+        vkCmdSetViewport(commandBuffer, 0, 1, &viewport);
+
+        VkRect2D scissor{};
+        scissor.offset = {0, 0};
+        scissor.extent = swapchainExtent;
+        vkCmdSetScissor(commandBuffer, 0, 1, &scissor);
+
+        vkCmdDraw(commandBuffer, static_cast<Uint32>(count), 1, static_cast<Uint32>(first), 0);
+    }
+
     void VulkanRenderer::Render() {
         // Route test rendering through the same frame-start logic used by draw calls,
         // so pending glClear() state can be consumed consistently.
