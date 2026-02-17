@@ -86,6 +86,7 @@ int main() {
         glClear(GL_COLOR_BUFFER_BIT);
         MobileGL::MG_Backend::DirectVulkan::pVulkanRenderer->Render();
         eglSwapBuffers(display, surface);
+        ++i;
     }
 
     glfwDestroyWindow(window);

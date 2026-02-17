@@ -247,25 +247,35 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         MGLOG_I("VulkanRenderer shut down completed");
     }
 
-    void VulkanRenderer::RequestClear(GLbitfield mask, const FloatVec4& color) {
-        if ((mask & GL_COLOR_BUFFER_BIT) == 0) {
+    void VulkanRenderer::RequestClear(GLbitfield mask, const FloatVec4& color, Float depth, Uint32 stencil) {
+        const GLbitfield supportedMask = GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT;
+        const GLbitfield requestMask = (mask & supportedMask);
+        if (requestMask == 0) {
             return;
         }
 
-        m_pendingClearColor.float32[0] = color.x();
-        m_pendingClearColor.float32[1] = color.y();
-        m_pendingClearColor.float32[2] = color.z();
-        m_pendingClearColor.float32[3] = color.w();
-        m_pendingColorClear = true;
+        if ((requestMask & GL_COLOR_BUFFER_BIT) != 0) {
+            m_pendingClearColor.float32[0] = color.x();
+            m_pendingClearColor.float32[1] = color.y();
+            m_pendingClearColor.float32[2] = color.z();
+            m_pendingClearColor.float32[3] = color.w();
+        }
+        if ((requestMask & GL_DEPTH_BUFFER_BIT) != 0) {
+            m_pendingClearDepth = depth;
+        }
+        if ((requestMask & GL_STENCIL_BUFFER_BIT) != 0) {
+            m_pendingClearStencil = stencil;
+        }
+        m_pendingClearMask |= requestMask;
     }
 
     Bool VulkanRenderer::ConsumePendingColorClear(VkClearColorValue& outClearColor) {
-        if (!m_pendingColorClear) {
+        if ((m_pendingClearMask & GL_COLOR_BUFFER_BIT) == 0) {
             return false;
         }
 
         outClearColor = m_pendingClearColor;
-        m_pendingColorClear = false;
+        m_pendingClearMask &= ~GL_COLOR_BUFFER_BIT;
         return true;
     }
 
@@ -310,6 +320,66 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         vkCmdClearAttachments(commandBuffer, 1, &clearAttachment, 1, &clearRect);
     }
 
+    void VulkanRenderer::RecordDepthStencilClear(VkCommandBuffer commandBuffer, GLbitfield mask, Float depth, Uint32 stencil) {
+        VkImageAspectFlags aspectMask = 0;
+        if ((mask & GL_DEPTH_BUFFER_BIT) != 0) {
+            aspectMask |= VK_IMAGE_ASPECT_DEPTH_BIT;
+        }
+        if ((mask & GL_STENCIL_BUFFER_BIT) != 0 && HasStencilComponent(m_depthStencilFormat)) {
+            aspectMask |= VK_IMAGE_ASPECT_STENCIL_BIT;
+        }
+        if (aspectMask == 0) {
+            return;
+        }
+
+        VkClearAttachment clearAttachment{};
+        clearAttachment.aspectMask = aspectMask;
+        clearAttachment.clearValue.depthStencil.depth = depth;
+        clearAttachment.clearValue.depthStencil.stencil = stencil;
+
+        VkClearRect clearRect{};
+        clearRect.rect.offset = {0, 0};
+        clearRect.rect.extent = m_swapchainObject.GetExtent();
+        clearRect.baseArrayLayer = 0;
+        clearRect.layerCount = 1;
+
+        vkCmdClearAttachments(commandBuffer, 1, &clearAttachment, 1, &clearRect);
+    }
+
+    void VulkanRenderer::TransitionDepthStencilImageToAttachment(VkCommandBuffer commandBuffer, Uint32 imageIndex) {
+        if (m_depthStencilImageLayouts.empty()) {
+            return;
+        }
+
+        const auto oldLayout = m_depthStencilImageLayouts[imageIndex];
+        if (oldLayout == VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL) {
+            return;
+        }
+
+        VkImageMemoryBarrier barrier{};
+        barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+        barrier.srcAccessMask = 0;
+        barrier.dstAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+        barrier.oldLayout = oldLayout;
+        barrier.newLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+        barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        barrier.image = m_depthStencilImages[imageIndex];
+        barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
+        if (HasStencilComponent(m_depthStencilFormat)) {
+            barrier.subresourceRange.aspectMask |= VK_IMAGE_ASPECT_STENCIL_BIT;
+        }
+        barrier.subresourceRange.baseMipLevel = 0;
+        barrier.subresourceRange.levelCount = 1;
+        barrier.subresourceRange.baseArrayLayer = 0;
+        barrier.subresourceRange.layerCount = 1;
+
+        vkCmdPipelineBarrier(commandBuffer, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+                             VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT,
+                             0, 0, nullptr, 0, nullptr, 1, &barrier);
+        m_depthStencilImageLayouts[imageIndex] = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+    }
+
     void VulkanRenderer::EnsureFrameRecordingStarted() {
         auto& frame = m_frameContext.GetCurrent();
         if (frame.isCommandRecording) {
@@ -323,12 +393,13 @@ namespace MobileGL::MG_Backend::DirectVulkan {
 
         VkCommandBuffer& commandBuffer = m_frameContext.BeginCommandRecording();
         TransitionSwapchainImageToColorAttachment(commandBuffer, m_imageIndexAcquired);
+        TransitionDepthStencilImageToAttachment(commandBuffer, m_imageIndexAcquired);
 
-        const Bool useRenderPassClearValue = m_pendingColorClear;
-        VkClearValue clearValue{};
+        const Bool useRenderPassClearValue = (m_pendingClearMask & GL_COLOR_BUFFER_BIT) != 0;
+        VkClearValue clearValues[1]{};
         if (useRenderPassClearValue) {
-            clearValue.color = m_pendingClearColor;
-            m_pendingColorClear = false;
+            clearValues[0].color = m_pendingClearColor;
+            m_pendingClearMask &= ~GL_COLOR_BUFFER_BIT;
         }
 
         VkRenderPassBeginInfo renderPassInfo{};
@@ -338,9 +409,14 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         renderPassInfo.renderArea.offset = {0, 0};
         renderPassInfo.renderArea.extent = m_swapchainObject.GetExtent();
         renderPassInfo.clearValueCount = useRenderPassClearValue ? 1 : 0;
-        renderPassInfo.pClearValues = useRenderPassClearValue ? &clearValue : nullptr;
+        renderPassInfo.pClearValues = useRenderPassClearValue ? clearValues : nullptr;
         vkCmdBeginRenderPass(commandBuffer, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
         m_isMainRenderPassActive = true;
+
+        if ((m_pendingClearMask & (GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT)) != 0) {
+            RecordDepthStencilClear(commandBuffer, m_pendingClearMask, m_pendingClearDepth, m_pendingClearStencil);
+            m_pendingClearMask &= ~(GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
+        }
     }
 
     void VulkanRenderer::EndFrameRecordingIfNeeded() {
@@ -393,14 +469,18 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         MOBILEGL_ASSERT(m_imageIndexAcquired < m_swapchainObject.GetImageCount(),
                         "Present, acquired image index out of range");
         auto& frame = m_frameContext.GetCurrent();
-        if (m_pendingColorClear && frame.isCommandRecording && m_isMainRenderPassActive) {
-            RecordColorClear(frame.commandBuffer, m_pendingClearColor);
-            m_pendingColorClear = false;
-        } else if (m_pendingColorClear && frame.hasCommandBufferRecorded) {
+        if (m_pendingClearMask != 0 && frame.isCommandRecording && m_isMainRenderPassActive) {
+            if ((m_pendingClearMask & GL_COLOR_BUFFER_BIT) != 0) {
+                RecordColorClear(frame.commandBuffer, m_pendingClearColor);
+            }
+            if ((m_pendingClearMask & (GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT)) != 0) {
+                RecordDepthStencilClear(frame.commandBuffer, m_pendingClearMask, m_pendingClearDepth, m_pendingClearStencil);
+            }
+            m_pendingClearMask = 0;
+        } else if (m_pendingClearMask != 0 && frame.hasCommandBufferRecorded) {
             MGLOG_W("Dropping pending clear for current frame because command buffer is already finalized");
-            VkClearColorValue droppedClearColor{};
-            ConsumePendingColorClear(droppedClearColor);
-        } else if (m_pendingColorClear) {
+            m_pendingClearMask = 0;
+        } else if (m_pendingClearMask != 0) {
             EnsureFrameRecordingStarted();
         }
         EndFrameRecordingIfNeeded();
@@ -775,6 +855,124 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                                  m_config.MaxFramesInFlight);
     }
 
+    Uint32 VulkanRenderer::FindMemoryType(Uint32 typeFilter, VkMemoryPropertyFlags properties) const {
+        VkPhysicalDeviceMemoryProperties memProperties{};
+        vkGetPhysicalDeviceMemoryProperties(m_physicalDevice.handle, &memProperties);
+
+        for (Uint32 i = 0; i < memProperties.memoryTypeCount; i++) {
+            if ((typeFilter & (1 << i)) && (memProperties.memoryTypes[i].propertyFlags & properties) == properties) {
+                return i;
+            }
+        }
+
+        MOBILEGL_ASSERT(false, "Failed to find suitable memory type.");
+        return 0;
+    }
+
+    Bool VulkanRenderer::HasStencilComponent(VkFormat format) {
+        return format == VK_FORMAT_D24_UNORM_S8_UINT || format == VK_FORMAT_D32_SFLOAT_S8_UINT;
+    }
+
+    VkFormat VulkanRenderer::FindSupportedDepthStencilFormat(VkPhysicalDevice physicalDevice) {
+        const VkFormat candidates[] = {
+            VK_FORMAT_D24_UNORM_S8_UINT,
+            VK_FORMAT_D32_SFLOAT_S8_UINT,
+            VK_FORMAT_D32_SFLOAT
+        };
+        for (VkFormat format : candidates) {
+            VkFormatProperties props{};
+            vkGetPhysicalDeviceFormatProperties(physicalDevice, format, &props);
+            if ((props.optimalTilingFeatures & VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT) != 0) {
+                return format;
+            }
+        }
+        return VK_FORMAT_UNDEFINED;
+    }
+
+    void VulkanRenderer::CreateDepthStencilResources() {
+        const auto imageCount = static_cast<Uint32>(m_swapchainObject.GetImageCount());
+        if (imageCount == 0) {
+            return;
+        }
+
+        m_depthStencilFormat = FindSupportedDepthStencilFormat(m_physicalDevice.handle);
+        MOBILEGL_ASSERT(m_depthStencilFormat != VK_FORMAT_UNDEFINED, "No supported depth/stencil format found.");
+
+        const auto extent = m_swapchainObject.GetExtent();
+        m_depthStencilImages.assign(imageCount, VK_NULL_HANDLE);
+        m_depthStencilImageMemories.assign(imageCount, VK_NULL_HANDLE);
+        m_depthStencilImageViews.assign(imageCount, VK_NULL_HANDLE);
+        m_depthStencilImageLayouts.assign(imageCount, VK_IMAGE_LAYOUT_UNDEFINED);
+
+        for (Uint32 i = 0; i < imageCount; ++i) {
+            VkImageCreateInfo imageInfo{};
+            imageInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+            imageInfo.imageType = VK_IMAGE_TYPE_2D;
+            imageInfo.extent.width = extent.width;
+            imageInfo.extent.height = extent.height;
+            imageInfo.extent.depth = 1;
+            imageInfo.mipLevels = 1;
+            imageInfo.arrayLayers = 1;
+            imageInfo.format = m_depthStencilFormat;
+            imageInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
+            imageInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+            imageInfo.usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
+            imageInfo.samples = VK_SAMPLE_COUNT_1_BIT;
+            imageInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+            VK_VERIFY(vkCreateImage(m_device, &imageInfo, nullptr, &m_depthStencilImages[i]), "vkCreateImage(depth)");
+
+            VkMemoryRequirements memRequirements{};
+            vkGetImageMemoryRequirements(m_device, m_depthStencilImages[i], &memRequirements);
+
+            VkMemoryAllocateInfo allocInfo{};
+            allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+            allocInfo.allocationSize = memRequirements.size;
+            allocInfo.memoryTypeIndex = FindMemoryType(memRequirements.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+            VK_VERIFY(vkAllocateMemory(m_device, &allocInfo, nullptr, &m_depthStencilImageMemories[i]), "vkAllocateMemory(depth)");
+            VK_VERIFY(vkBindImageMemory(m_device, m_depthStencilImages[i], m_depthStencilImageMemories[i], 0), "vkBindImageMemory(depth)");
+
+            VkImageViewCreateInfo viewInfo{};
+            viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+            viewInfo.image = m_depthStencilImages[i];
+            viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
+            viewInfo.format = m_depthStencilFormat;
+            viewInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
+            if (HasStencilComponent(m_depthStencilFormat)) {
+                viewInfo.subresourceRange.aspectMask |= VK_IMAGE_ASPECT_STENCIL_BIT;
+            }
+            viewInfo.subresourceRange.baseMipLevel = 0;
+            viewInfo.subresourceRange.levelCount = 1;
+            viewInfo.subresourceRange.baseArrayLayer = 0;
+            viewInfo.subresourceRange.layerCount = 1;
+            VK_VERIFY(vkCreateImageView(m_device, &viewInfo, nullptr, &m_depthStencilImageViews[i]), "vkCreateImageView(depth)");
+        }
+    }
+
+    void VulkanRenderer::DestroyDepthStencilResources() {
+        for (auto view : m_depthStencilImageViews) {
+            if (view != VK_NULL_HANDLE) {
+                vkDestroyImageView(m_device, view, nullptr);
+            }
+        }
+        m_depthStencilImageViews.clear();
+
+        for (auto image : m_depthStencilImages) {
+            if (image != VK_NULL_HANDLE) {
+                vkDestroyImage(m_device, image, nullptr);
+            }
+        }
+        m_depthStencilImages.clear();
+
+        for (auto memory : m_depthStencilImageMemories) {
+            if (memory != VK_NULL_HANDLE) {
+                vkFreeMemory(m_device, memory, nullptr);
+            }
+        }
+        m_depthStencilImageMemories.clear();
+        m_depthStencilImageLayouts.clear();
+        m_depthStencilFormat = VK_FORMAT_UNDEFINED;
+    }
+
     void VulkanRenderer::CreateCommandPool() {
         VkCommandPoolCreateInfo createInfo{VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO};
         createInfo.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
@@ -792,15 +990,29 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         color.initialLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
         color.finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
 
+        VkAttachmentDescription depthStencil{};
+        depthStencil.format = m_depthStencilFormat;
+        depthStencil.samples = VK_SAMPLE_COUNT_1_BIT;
+        depthStencil.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
+        depthStencil.storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+        depthStencil.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
+        depthStencil.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+        depthStencil.initialLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+        depthStencil.finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+
         VkAttachmentReference colorRef{0, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL};
+        VkAttachmentReference depthStencilRef{1, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL};
         VkSubpassDescription sub{};
         sub.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
         sub.colorAttachmentCount = 1;
         sub.pColorAttachments = &colorRef;
+        sub.pDepthStencilAttachment = &depthStencilRef;
+
+        VkAttachmentDescription attachments[] = {color, depthStencil};
 
         VkRenderPassCreateInfo rpci{VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO};
-        rpci.attachmentCount = 1;
-        rpci.pAttachments = &color;
+        rpci.attachmentCount = static_cast<Uint32>(std::size(attachments));
+        rpci.pAttachments = attachments;
         rpci.subpassCount = 1;
         rpci.pSubpasses = &sub;
 
@@ -821,11 +1033,11 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         const auto swapchainExtent = m_swapchainObject.GetExtent();
         Vector<VkFramebuffer>& fbs = m_framebuffers;
         fbs.reserve(imageViews.size());
-        for (auto iv : imageViews) {
-            VkImageView attachments[] = {iv};
+        for (SizeT i = 0; i < imageViews.size(); ++i) {
+            VkImageView attachments[] = {imageViews[i], m_depthStencilImageViews[i]};
             VkFramebufferCreateInfo fbci{VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO};
             fbci.renderPass = m_renderPassLoad;
-            fbci.attachmentCount = 1;
+            fbci.attachmentCount = static_cast<Uint32>(std::size(attachments));
             fbci.pAttachments = attachments;
             fbci.width = swapchainExtent.width;
             fbci.height = swapchainExtent.height;
@@ -933,6 +1145,8 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         }
         m_framebuffers.clear();
 
+        DestroyDepthStencilResources();
+
         if (m_renderPassClear != VK_NULL_HANDLE) {
             vkDestroyRenderPass(m_device, m_renderPassClear, nullptr);
             m_renderPassClear = VK_NULL_HANDLE;
@@ -959,6 +1173,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         ShutdownSwapchain();
 
         CreateSwapchain();
+        CreateDepthStencilResources();
         CreateDefaultRenderPass();
         CreateDefaultFramebuffers();
         if (m_frameContext.GetFrameCount() > 0) {

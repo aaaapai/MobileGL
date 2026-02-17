@@ -18,7 +18,9 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         }
 
         const auto& clearColor = MG_State::pGLContext->GetClearColor();
-        pVulkanRenderer->RequestClear(mask, clearColor);
+        const auto clearDepth = MG_State::pGLContext->GetClearDepth();
+        const auto clearStencil = static_cast<Uint32>(MG_State::pGLContext->GetClearStencil());
+        pVulkanRenderer->RequestClear(mask, clearColor, clearDepth, clearStencil);
     }
 
     void DrawElements(GLenum mode, GLsizei count, GLenum type, const void* indices) {
