@@ -154,7 +154,19 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         }
         createInfo.preTransform = swapchainCaps.currentTransform;
         MGLOG_I("Set swapchain preTransform = %s", string_VkSurfaceTransformFlagBitsKHR(createInfo.preTransform));
+        const VkCompositeAlphaFlagBitsKHR compositeAlphaCandidates[] = {
+            VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR,
+            VK_COMPOSITE_ALPHA_PRE_MULTIPLIED_BIT_KHR,
+            VK_COMPOSITE_ALPHA_POST_MULTIPLIED_BIT_KHR,
+            VK_COMPOSITE_ALPHA_INHERIT_BIT_KHR
+        };
         createInfo.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
+        for (auto candidate : compositeAlphaCandidates) {
+            if ((swapchainCaps.supportedCompositeAlpha & candidate) != 0) {
+                createInfo.compositeAlpha = candidate;
+                break;
+            }
+        }
         createInfo.presentMode = presentMode;
         createInfo.clipped = VK_TRUE;
         createInfo.oldSwapchain = VK_NULL_HANDLE;
