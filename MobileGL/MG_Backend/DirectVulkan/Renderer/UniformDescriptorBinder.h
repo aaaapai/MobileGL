@@ -56,6 +56,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             Vector<Uint32> dynamicBindings;
             Vector<Int> samplerUniformLocationByBinding;
             Vector<TextureTarget> samplerTextureTargetByBinding;
+            Int globalUboBinding = -1;
         };
 
         static VkDeviceSize AlignUp(VkDeviceSize value, VkDeviceSize alignment);
@@ -63,6 +64,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         static Bool IsSamplerUniformType(GLenum glType);
         static TextureTarget UniformTypeToTextureTarget(GLenum glType);
         Bool ReflectSamplerBindings(const MG_State::GLState::ProgramObject& program, ProgramLayout& layout) const;
+        Bool ReflectGlobalUboBinding(const MG_State::GLState::ProgramObject& program, ProgramLayout& layout) const;
         Bool ResolveSamplerDescriptor(VkCommandBuffer commandBuffer, const MG_State::GLState::ProgramObject& program,
                                       const ProgramLayout& layout, Uint32 binding,
                                       VkDescriptorImageInfo& outImageInfo) const;

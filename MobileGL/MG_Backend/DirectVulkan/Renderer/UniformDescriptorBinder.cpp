@@ -356,6 +356,64 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         return true;
     }
 
+    Bool UniformDescriptorBinder::ReflectGlobalUboBinding(const MG_State::GLState::ProgramObject& program,
+                                                          ProgramLayout& layout) const {
+        layout.globalUboBinding = -1;
+
+        const auto& spirv = program.GetGeneratedSpirv();
+        for (const auto& module : spirv) {
+            if (module.empty()) {
+                continue;
+            }
+
+            spvc_context context = nullptr;
+            spvc_parsed_ir ir = nullptr;
+            spvc_compiler compiler = nullptr;
+            spvc_resources resources = nullptr;
+
+            if (spvc_context_create(&context) != SPVC_SUCCESS) {
+                return false;
+            }
+            if (spvc_context_parse_spirv(context, module.data(), module.size(), &ir) != SPVC_SUCCESS) {
+                spvc_context_destroy(context);
+                continue;
+            }
+            if (spvc_context_create_compiler(context, SPVC_BACKEND_GLSL, ir, SPVC_CAPTURE_MODE_TAKE_OWNERSHIP,
+                                             &compiler) != SPVC_SUCCESS) {
+                spvc_context_destroy(context);
+                continue;
+            }
+            if (spvc_compiler_create_shader_resources(compiler, &resources) != SPVC_SUCCESS) {
+                spvc_context_destroy(context);
+                continue;
+            }
+
+            const spvc_reflected_resource* list = nullptr;
+            size_t count = 0;
+            if (spvc_resources_get_resource_list_for_type(resources, SPVC_RESOURCE_TYPE_UNIFORM_BUFFER, &list, &count) ==
+                SPVC_SUCCESS) {
+                for (size_t i = 0; i < count; ++i) {
+                    const char* name = list[i].name ? list[i].name : "";
+                    if (std::strstr(name, MG_Util::ShaderTranspiler::GLOBAL_UBO_NAME) == nullptr) {
+                        continue;
+                    }
+                    const Uint32 binding =
+                        spvc_compiler_get_decoration(compiler, list[i].id, SpvDecorationBinding);
+                    if (binding < m_maxBindings) {
+                        layout.globalUboBinding = static_cast<Int>(binding);
+                    }
+                    break;
+                }
+            }
+
+            spvc_context_destroy(context);
+            if (layout.globalUboBinding >= 0) {
+                break;
+            }
+        }
+        return true;
+    }
+
     Bool UniformDescriptorBinder::ResolveSamplerDescriptor(VkCommandBuffer commandBuffer,
                                                            const MG_State::GLState::ProgramObject& program,
                                                            const ProgramLayout& layout, Uint32 binding,
@@ -427,6 +485,10 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         }
         if (!ReflectSamplerBindings(program, layout)) {
             MGLOG_E("UniformDescriptorBinder::GetOrCreateProgramLayout failed: sampler reflection failed");
+            return nullptr;
+        }
+        if (!ReflectGlobalUboBinding(program, layout)) {
+            MGLOG_E("UniformDescriptorBinder::GetOrCreateProgramLayout failed: global UBO reflection failed");
             return nullptr;
         }
 
@@ -507,18 +569,6 @@ namespace MobileGL::MG_Backend::DirectVulkan {
 
             VkDeviceSize blockSize = static_cast<VkDeviceSize>(program.GetUBOSizeAt(blockIndex));
             if (blockSize == 0) {
-                continue;
-            }
-
-            const auto& blockName = program.GetUniformBlockName(blockIndex);
-            if (blockName == MG_Util::ShaderTranspiler::GLOBAL_UBO_NAME) {
-                const void* globalUboData = program.GetUBOData();
-                const VkDeviceSize globalUboSize = static_cast<VkDeviceSize>(program.GetUBOSize());
-                if (globalUboData == nullptr || globalUboSize == 0) {
-                    continue;
-                }
-                outData[binding] = globalUboData;
-                outSizes[binding] = std::min(blockSize, globalUboSize);
                 continue;
             }
 
@@ -633,8 +683,18 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                 const void* payload = bindingData[binding];
                 VkDeviceSize payloadSize = bindingSizes[binding];
                 if (payload == nullptr || payloadSize == 0) {
-                    payload = kFallbackData;
-                    payloadSize = sizeof(kFallbackData);
+                    if (layout->globalUboBinding == static_cast<Int>(binding)) {
+                        const void* globalUboData = program.GetUBOData();
+                        const VkDeviceSize globalUboSize = static_cast<VkDeviceSize>(program.GetUBOSize());
+                        if (globalUboData != nullptr && globalUboSize > 0) {
+                            payload = globalUboData;
+                            payloadSize = globalUboSize;
+                        }
+                    }
+                    if (payload == nullptr || payloadSize == 0) {
+                        payload = kFallbackData;
+                        payloadSize = sizeof(kFallbackData);
+                    }
                 }
 
                 VkDeviceSize payloadOffset = 0;
