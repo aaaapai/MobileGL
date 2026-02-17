@@ -103,6 +103,9 @@ namespace MobileGL::MG_Backend::DirectVulkan {
     void VulkanRenderer::CreateFrameContexts() {
         VK_VERIFY(m_frameContext.Initialize(m_device, m_commandPool, m_config.MaxFramesInFlight),
                   "CreateFrameContexts");
+        VK_VERIFY(m_frameContext.InitializeSwapchainSemaphores(
+                      m_device, static_cast<Uint32>(m_swapchainObject.GetImageCount())),
+                  "CreateFrameContexts, InitializeSwapchainSemaphores");
         MGLOG_I("CreateFrameContexts completed");
     }
 
@@ -688,7 +691,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         const Bool shouldSubmitCommandBuffer = frame.hasCommandBufferRecorded || needsLayoutTransitionForPresent;
 
         // 1) Submit current frame work.
-        auto submitPacket = m_frameContext.GetSubmitInfo(shouldSubmitCommandBuffer);
+        auto submitPacket = m_frameContext.GetSubmitInfo(shouldSubmitCommandBuffer, m_imageIndexAcquired);
         VK_VERIFY(vkQueueSubmit(m_graphicsQueue, 1, &submitPacket.submitInfo, frame.imageInFlightFence));
         frame.isCommandRecording = false;
         frame.hasCommandBufferRecorded = false;
@@ -1399,6 +1402,9 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         ShutdownSwapchain();
 
         CreateSwapchain();
+        VK_VERIFY(m_frameContext.InitializeSwapchainSemaphores(
+                      m_device, static_cast<Uint32>(m_swapchainObject.GetImageCount())),
+                  "RecreateSwapchain, InitializeSwapchainSemaphores");
         CreateDepthStencilResources();
         CreateDefaultRenderPass();
         CreateDefaultFramebuffers();

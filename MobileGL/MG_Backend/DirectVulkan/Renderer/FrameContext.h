@@ -32,7 +32,6 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         struct FrameData {
             VkCommandBuffer commandBuffer = VK_NULL_HANDLE;
             VkSemaphore imageAvailableSemaphore = VK_NULL_HANDLE;
-            VkSemaphore renderFinishedSemaphore = VK_NULL_HANDLE;
             VkFence imageInFlightFence = VK_NULL_HANDLE;
             Bool isCommandRecording = false;
             Bool hasCommandBufferRecorded = false;
@@ -49,9 +48,11 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         VkCommandBuffer& BeginCommandRecording(VkCommandBufferUsageFlags flags = 0,
                                                const VkCommandBufferInheritanceInfo* pInheritanceInfo = nullptr);
         void EndCommandRecording();
+        VkResult InitializeSwapchainSemaphores(VkDevice device, Uint32 swapchainImageCount);
+        void DestroySwapchainSemaphores(VkDevice device);
         Bool TransitionToPresent(VkImage image, VkImageLayout oldLayout,
                                  VkImageLayout presentLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
-        SubmitInfoPacket GetSubmitInfo(Bool shouldSubmitCommandBuffer) const;
+        SubmitInfoPacket GetSubmitInfo(Bool shouldSubmitCommandBuffer, Uint32 swapchainImageIndex) const;
         PresentInfoPacket GetPresentInfo(VkSwapchainKHR swapchain, const Uint32& imageIndex) const;
         VkResult WaitAndAcquireNextImage(VkDevice device, VkSwapchainKHR swapchain, Uint32& outImageIndex,
                                          Uint64 timeout = UINT64_MAX, VkFence acquireFence = VK_NULL_HANDLE);
@@ -61,6 +62,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
 
     private:
         void AssertValidFrameIndex(Uint32 frameIndex) const;
+        void AssertValidSwapchainImageIndex(Uint32 imageIndex) const;
 
         VkResult CreateSyncObjectsForFrame(VkDevice device, Uint32 frameIndex,
                                            const VkSemaphoreCreateInfo& semaphoreInfo,
@@ -68,6 +70,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         void DestroySyncObjectsForFrame(VkDevice device, Uint32 frameIndex);
 
         Vector<FrameData> m_frames;
+        Vector<VkSemaphore> m_swapchainImageRenderFinishedSemaphores;
         Uint32 currentFrameIndex = 0;
     };
 } // namespace MobileGL::MG_Backend::DirectVulkan

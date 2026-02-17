@@ -53,6 +53,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         for (Uint32 i = 0; i < frameCount; ++i) {
             DestroySyncObjectsForFrame(device, i);
         }
+        DestroySwapchainSemaphores(device);
         if (device != VK_NULL_HANDLE && commandPool != VK_NULL_HANDLE && !m_frames.empty()) {
             vkFreeCommandBuffers(device, commandPool, frameCount, commandBuffers.data());
         }
@@ -107,6 +108,36 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         frame.hasCommandBufferRecorded = true;
     }
 
+    VkResult FrameContext::InitializeSwapchainSemaphores(VkDevice device, Uint32 swapchainImageCount) {
+        DestroySwapchainSemaphores(device);
+        if (swapchainImageCount == 0) {
+            return VK_SUCCESS;
+        }
+
+        m_swapchainImageRenderFinishedSemaphores.assign(swapchainImageCount, VK_NULL_HANDLE);
+        VkSemaphoreCreateInfo semaphoreInfo{VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO};
+        for (Uint32 imageIndex = 0; imageIndex < swapchainImageCount; ++imageIndex) {
+            VkResult result =
+                vkCreateSemaphore(device, &semaphoreInfo, nullptr, &m_swapchainImageRenderFinishedSemaphores[imageIndex]);
+            if (result != VK_SUCCESS) {
+                DestroySwapchainSemaphores(device);
+                return result;
+            }
+        }
+        return VK_SUCCESS;
+    }
+
+    void FrameContext::DestroySwapchainSemaphores(VkDevice device) {
+        if (device != VK_NULL_HANDLE) {
+            for (auto semaphore : m_swapchainImageRenderFinishedSemaphores) {
+                if (semaphore != VK_NULL_HANDLE) {
+                    vkDestroySemaphore(device, semaphore, nullptr);
+                }
+            }
+        }
+        m_swapchainImageRenderFinishedSemaphores.clear();
+    }
+
     Bool FrameContext::TransitionToPresent(VkImage image, VkImageLayout oldLayout, VkImageLayout presentLayout) {
         auto& frame = GetCurrent();
         if (frame.hasCommandBufferRecorded || frame.isCommandRecording || oldLayout == presentLayout ||
@@ -137,12 +168,14 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         return true;
     }
 
-    FrameContext::SubmitInfoPacket FrameContext::GetSubmitInfo(Bool shouldSubmitCommandBuffer) const {
+    FrameContext::SubmitInfoPacket FrameContext::GetSubmitInfo(Bool shouldSubmitCommandBuffer,
+                                                               Uint32 swapchainImageIndex) const {
         const auto& frame = GetCurrent();
         MOBILEGL_ASSERT(!frame.isCommandRecording, "GetSubmitInfo called while command buffer recording is still active");
+        AssertValidSwapchainImageIndex(swapchainImageIndex);
         SubmitInfoPacket packet{};
         packet.waitSemaphore = frame.imageAvailableSemaphore;
-        packet.signalSemaphore = frame.renderFinishedSemaphore;
+        packet.signalSemaphore = m_swapchainImageRenderFinishedSemaphores[swapchainImageIndex];
         packet.commandBuffer = frame.commandBuffer;
 
         packet.submitInfo.waitSemaphoreCount = 1;
@@ -156,9 +189,9 @@ namespace MobileGL::MG_Backend::DirectVulkan {
     }
 
     FrameContext::PresentInfoPacket FrameContext::GetPresentInfo(VkSwapchainKHR swapchain, const Uint32& imageIndex) const {
-        const auto& frame = GetCurrent();
+        AssertValidSwapchainImageIndex(imageIndex);
         PresentInfoPacket packet{};
-        packet.waitSemaphore = frame.renderFinishedSemaphore;
+        packet.waitSemaphore = m_swapchainImageRenderFinishedSemaphores[imageIndex];
         packet.swapchain = swapchain;
         packet.imageIndex = &imageIndex;
 
@@ -200,6 +233,11 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         MOBILEGL_ASSERT(frameIndex < m_frames.size(), "FrameContext index out of range");
     }
 
+    void FrameContext::AssertValidSwapchainImageIndex(Uint32 imageIndex) const {
+        MOBILEGL_ASSERT(imageIndex < m_swapchainImageRenderFinishedSemaphores.size(),
+                        "FrameContext swapchain image index out of range");
+    }
+
     VkResult FrameContext::CreateSyncObjectsForFrame(VkDevice device, Uint32 frameIndex,
                                                      const VkSemaphoreCreateInfo& semaphoreInfo,
                                                      const VkFenceCreateInfo& fenceInfo) {
@@ -213,18 +251,9 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             return result;
         }
 
-        result = vkCreateSemaphore(device, &semaphoreInfo, nullptr, &frame.renderFinishedSemaphore);
-        if (result != VK_SUCCESS) {
-            vkDestroySemaphore(device, frame.imageAvailableSemaphore, nullptr);
-            frame.imageAvailableSemaphore = VK_NULL_HANDLE;
-            return result;
-        }
-
         result = vkCreateFence(device, &fenceInfo, nullptr, &frame.imageInFlightFence);
         if (result != VK_SUCCESS) {
-            vkDestroySemaphore(device, frame.renderFinishedSemaphore, nullptr);
             vkDestroySemaphore(device, frame.imageAvailableSemaphore, nullptr);
-            frame.renderFinishedSemaphore = VK_NULL_HANDLE;
             frame.imageAvailableSemaphore = VK_NULL_HANDLE;
             return result;
         }
@@ -241,11 +270,6 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             vkDestroyFence(device, frame.imageInFlightFence, nullptr);
         }
         frame.imageInFlightFence = VK_NULL_HANDLE;
-
-        if (device != VK_NULL_HANDLE && frame.renderFinishedSemaphore != VK_NULL_HANDLE) {
-            vkDestroySemaphore(device, frame.renderFinishedSemaphore, nullptr);
-        }
-        frame.renderFinishedSemaphore = VK_NULL_HANDLE;
 
         if (device != VK_NULL_HANDLE && frame.imageAvailableSemaphore != VK_NULL_HANDLE) {
             vkDestroySemaphore(device, frame.imageAvailableSemaphore, nullptr);
