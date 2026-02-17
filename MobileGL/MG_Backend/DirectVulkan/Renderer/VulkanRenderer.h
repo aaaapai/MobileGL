@@ -110,6 +110,9 @@ namespace MobileGL::MG_Backend::DirectVulkan {
 
         VkPipelineLayout m_pipelineLayout = VK_NULL_HANDLE;
         VkPipeline m_pipeline = VK_NULL_HANDLE;
+        UnorderedMap<Uint64, VkPipeline> m_pipelineVariants;
+        Vector<VkPipelineShaderStageCreateInfo> m_demoPipelineStages;
+        VkBufferObject m_vertexBuffer;
         VkBufferObject m_indexBuffer;
 
         Uint m_imageIndexAcquired = 0;
@@ -141,6 +144,9 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         VkRenderPass CreateDefaultRenderPass(VkAttachmentLoadOp loadOp);
         void CreateDefaultFramebuffers();
         void PrepareDemoPipeline();
+        VkPipeline CreateGraphicsPipeline(const VkPipelineVertexInputStateCreateInfo& vertexInputState) const;
+        VkPipeline GetOrCreatePipelineVariant(Uint64 hash, const VkPipelineVertexInputStateCreateInfo& vertexInputState);
+        void DestroyPipelineVariants();
         void TransitionSwapchainImageToColorAttachment(VkCommandBuffer commandBuffer, Uint32 imageIndex);
         void TransitionDepthStencilImageToAttachment(VkCommandBuffer commandBuffer, Uint32 imageIndex);
         void RecordColorClear(VkCommandBuffer commandBuffer, const VkClearColorValue& clearColor);

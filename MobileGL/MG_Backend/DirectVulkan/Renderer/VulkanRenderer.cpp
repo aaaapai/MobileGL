@@ -75,47 +75,14 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         fragColor = colors[gl_VertexID];
     }
 )";
-    void VulkanRenderer::PrepareDemoPipeline() {
-        MGLOG_D("PrepareDemoRes called");
 
-        // Create shader&program object
-        auto programObject = MG_State::GLState::ProgramObject(0);
-        auto vsObject = MakeShared<MG_State::GLState::ShaderObject>(ShaderStage::Vertex, 0);
-        vsObject->SetShaderSource(demoVS);
-        vsObject->Compile();
-        if (!vsObject->GetCompileStatus()) {
-            MGLOG_E("Vertex shader compilation failed: %s", vsObject->GetInfoLog().c_str());
-            return;
-        }
-        auto fsObject = MakeShared<MG_State::GLState::ShaderObject>(ShaderStage::Fragment, 1);
-        fsObject->SetShaderSource(demoFS);
-        fsObject->Compile();
-        if (!fsObject->GetCompileStatus()) {
-            MGLOG_E("Fragment shader compilation failed: %s", fsObject->GetInfoLog().c_str());
-            return;
-        }
-        programObject.AttachShader(vsObject);
-        programObject.AttachShader(fsObject);
-        programObject.Link();
-        if (!programObject.GetLinkStatus()) {
-            MGLOG_E("Program linking failed: %s", programObject.GetInfoLog().c_str());
-            return;
-        }
-
-        auto& stages = m_programFactory->GetOrCreatePipelineShaderStages(programObject, ProgramFactory::CompileOptionBit::None);
-
-        VkPipelineLayoutCreateInfo plci{VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
-        VK_VERIFY(vkCreatePipelineLayout(m_device, &plci, nullptr, &m_pipelineLayout), "vkCreatePipelineLayout");
-
-        // Create the rest of pipeline component
+    VkPipeline VulkanRenderer::CreateGraphicsPipeline(const VkPipelineVertexInputStateCreateInfo& vertexInputState) const {
+        MOBILEGL_ASSERT(!m_demoPipelineStages.empty(), "CreateGraphicsPipeline requires shader stages");
 
         VkPipelineDynamicStateCreateInfo dynamicState{};
         dynamicState.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
         dynamicState.dynamicStateCount = static_cast<uint32_t>(std::size(s_dynamicStates));
         dynamicState.pDynamicStates = s_dynamicStates;
-
-        VertexInputStateBuilder vertexInputBuilder;
-        const auto& vertexInput = vertexInputBuilder.Build();
 
         VkPipelineInputAssemblyStateCreateInfo ia{VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO};
         ia.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
@@ -159,11 +126,10 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         blend.attachmentCount = 1;
         blend.pAttachments = &colorAttach;
 
-        // Create Pipeline
         VkGraphicsPipelineCreateInfo gpi{VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO};
-        gpi.stageCount = 2;
-        gpi.pStages = stages.data();
-        gpi.pVertexInputState = &vertexInput;
+        gpi.stageCount = static_cast<Uint32>(m_demoPipelineStages.size());
+        gpi.pStages = m_demoPipelineStages.data();
+        gpi.pVertexInputState = &vertexInputState;
         gpi.pInputAssemblyState = &ia;
         gpi.pViewportState = &vpci;
         gpi.pRasterizationState = &raster;
@@ -175,8 +141,69 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         gpi.renderPass = m_renderPassLoad;
         gpi.subpass = 0;
 
-        VK_VERIFY(vkCreateGraphicsPipelines(m_device, VK_NULL_HANDLE, 1, &gpi, nullptr, &m_pipeline),
+        VkPipeline pipeline = VK_NULL_HANDLE;
+        VK_VERIFY(vkCreateGraphicsPipelines(m_device, VK_NULL_HANDLE, 1, &gpi, nullptr, &pipeline),
                   "vkCreateGraphicsPipelines");
+        return pipeline;
+    }
+
+    VkPipeline VulkanRenderer::GetOrCreatePipelineVariant(
+        Uint64 hash, const VkPipelineVertexInputStateCreateInfo& vertexInputState) {
+        const auto it = m_pipelineVariants.find(hash);
+        if (it != m_pipelineVariants.end()) {
+            return it->second;
+        }
+
+        VkPipeline pipeline = CreateGraphicsPipeline(vertexInputState);
+        m_pipelineVariants.emplace(hash, pipeline);
+        return pipeline;
+    }
+
+    void VulkanRenderer::DestroyPipelineVariants() {
+        for (auto& pair : m_pipelineVariants) {
+            if (pair.second != VK_NULL_HANDLE) {
+                vkDestroyPipeline(m_device, pair.second, nullptr);
+            }
+        }
+        m_pipelineVariants.clear();
+    }
+
+    void VulkanRenderer::PrepareDemoPipeline() {
+        MGLOG_D("PrepareDemoRes called");
+
+        // Create shader&program object
+        auto programObject = MG_State::GLState::ProgramObject(0);
+        auto vsObject = MakeShared<MG_State::GLState::ShaderObject>(ShaderStage::Vertex, 0);
+        vsObject->SetShaderSource(demoVS);
+        vsObject->Compile();
+        if (!vsObject->GetCompileStatus()) {
+            MGLOG_E("Vertex shader compilation failed: %s", vsObject->GetInfoLog().c_str());
+            return;
+        }
+        auto fsObject = MakeShared<MG_State::GLState::ShaderObject>(ShaderStage::Fragment, 1);
+        fsObject->SetShaderSource(demoFS);
+        fsObject->Compile();
+        if (!fsObject->GetCompileStatus()) {
+            MGLOG_E("Fragment shader compilation failed: %s", fsObject->GetInfoLog().c_str());
+            return;
+        }
+        programObject.AttachShader(vsObject);
+        programObject.AttachShader(fsObject);
+        programObject.Link();
+        if (!programObject.GetLinkStatus()) {
+            MGLOG_E("Program linking failed: %s", programObject.GetInfoLog().c_str());
+            return;
+        }
+
+        auto& stages = m_programFactory->GetOrCreatePipelineShaderStages(programObject, ProgramFactory::CompileOptionBit::None);
+        m_demoPipelineStages = stages;
+
+        VkPipelineLayoutCreateInfo plci{VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
+        VK_VERIFY(vkCreatePipelineLayout(m_device, &plci, nullptr, &m_pipelineLayout), "vkCreatePipelineLayout");
+
+        VertexInputStateBuilder vertexInputBuilder;
+        const auto& vertexInput = vertexInputBuilder.Build();
+        m_pipeline = CreateGraphicsPipeline(vertexInput);
 
         // vkDestroyShaderModule(m_device, vs, nullptr);
         // vkDestroyShaderModule(m_device, fs, nullptr);
@@ -219,13 +246,16 @@ namespace MobileGL::MG_Backend::DirectVulkan {
 
         m_programFactory.reset();
         m_vertexInputStateFactory.reset();
+        m_vertexBuffer.Destroy();
         m_indexBuffer.Destroy();
 
         m_frameContext.Destroy(m_device, m_commandPool);
 
         if (m_pipeline != VK_NULL_HANDLE) {
             vkDestroyPipeline(m_device, m_pipeline, nullptr);
+            m_pipeline = VK_NULL_HANDLE;
         }
+        DestroyPipelineVariants();
 
         if (m_pipelineLayout != VK_NULL_HANDLE) {
             vkDestroyPipelineLayout(m_device, m_pipelineLayout, nullptr);
@@ -453,8 +483,9 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             return;
         }
 
+        const VertexInputStateFactory::BackendVertexInputState* vertexInputState = nullptr;
         if (payload.vertexArray && m_vertexInputStateFactory) {
-            (void)m_vertexInputStateFactory->GetOrCreateVertexInputState(*payload.vertexArray);
+            vertexInputState = &m_vertexInputStateFactory->GetOrCreateVertexInputState(*payload.vertexArray);
         }
 
         EnsureFrameRecordingStarted();
@@ -467,7 +498,58 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         VkCommandBuffer& commandBuffer = frame.commandBuffer;
         const auto swapchainExtent = m_swapchainObject.GetExtent();
 
-        vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, m_pipeline);
+        VkPipeline pipelineToBind = m_pipeline;
+        if (vertexInputState) {
+            pipelineToBind = GetOrCreatePipelineVariant(vertexInputState->hash, vertexInputState->state);
+            if (pipelineToBind == VK_NULL_HANDLE) {
+                MGLOG_W("DrawArrays skipped: failed to create/get pipeline variant");
+                return;
+            }
+        }
+
+        if (vertexInputState && !vertexInputState->bindings.empty()) {
+            if (!payload.hasPositionStream || payload.positionData == nullptr || payload.positionDataSizeBytes == 0) {
+                MGLOG_W("DrawArrays skipped: vertex input expects stream but payload has no position data");
+                return;
+            }
+
+            if (vertexInputState->bindings.size() != 1) {
+                MGLOG_W("DrawArrays skipped: only single-binding vertex input is supported for now (bindings=%zu)",
+                        vertexInputState->bindings.size());
+                return;
+            }
+            if (vertexInputState->bindings[0].binding != 0) {
+                MGLOG_W("DrawArrays skipped: only binding 0 is supported for now (binding=%u)",
+                        vertexInputState->bindings[0].binding);
+                return;
+            }
+
+            if (!m_vertexBuffer.IsValid() || m_vertexBuffer.GetSize() < payload.positionDataSizeBytes) {
+                m_vertexBuffer.Destroy();
+                const Bool created = m_vertexBuffer.Create(
+                    m_allocator, static_cast<VkDeviceSize>(payload.positionDataSizeBytes),
+                    VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+                    VMA_MEMORY_USAGE_AUTO,
+                    VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT);
+                if (!created) {
+                    MGLOG_E("DrawArrays skipped: failed to create vertex buffer");
+                    return;
+                }
+            }
+
+            if (!m_vertexBuffer.Upload(payload.positionData, static_cast<VkDeviceSize>(payload.positionDataSizeBytes), 0)) {
+                MGLOG_E("DrawArrays skipped: failed to upload vertex data");
+                return;
+            }
+        }
+
+        vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineToBind);
+
+        if (vertexInputState && !vertexInputState->bindings.empty()) {
+            VkBuffer vertexBufferHandle = m_vertexBuffer.GetHandle();
+            VkDeviceSize vertexBufferOffset = 0;
+            vkCmdBindVertexBuffers(commandBuffer, 0, 1, &vertexBufferHandle, &vertexBufferOffset);
+        }
 
         VkViewport viewport{};
         viewport.x = 0.0f;
@@ -1320,6 +1402,16 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         CreateDepthStencilResources();
         CreateDefaultRenderPass();
         CreateDefaultFramebuffers();
+        DestroyPipelineVariants();
+        if (m_pipeline != VK_NULL_HANDLE) {
+            vkDestroyPipeline(m_device, m_pipeline, nullptr);
+            m_pipeline = VK_NULL_HANDLE;
+        }
+        if (!m_demoPipelineStages.empty() && m_pipelineLayout != VK_NULL_HANDLE) {
+            VertexInputStateBuilder vertexInputBuilder;
+            const auto& vertexInput = vertexInputBuilder.Build();
+            m_pipeline = CreateGraphicsPipeline(vertexInput);
+        }
         if (m_frameContext.GetFrameCount() > 0) {
             m_frameContext.GetCurrent().isCommandRecording = false;
             m_frameContext.GetCurrent().hasCommandBufferRecorded = false;
