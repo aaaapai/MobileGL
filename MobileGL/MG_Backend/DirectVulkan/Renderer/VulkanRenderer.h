@@ -74,6 +74,15 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         void RecreateSwapchain();
 
     private:
+        struct PendingClearState {
+            GLbitfield mask = 0;
+            VkClearColorValue color = {{0.0f, 0.0f, 0.0f, 1.0f}};
+            Float depth = 1.0f;
+            Uint32 stencil = 0;
+            Uint drawFboExternalIndex = 0;
+            Bool targetsDefaultFramebuffer = true;
+        };
+
         struct QueueFamilyIndices {
             Int32 graphicsFamily = -1;
             Int32 presentFamily = -1;
@@ -129,13 +138,13 @@ namespace MobileGL::MG_Backend::DirectVulkan {
 
         Uint m_imageIndexAcquired = 0;
         FrameContext m_frameContext;
-        GLbitfield m_pendingClearMask = 0;
-        VkClearColorValue m_pendingClearColor = {{0.0f, 0.0f, 0.0f, 1.0f}};
-        Float m_pendingClearDepth = 1.0f;
-        Uint32 m_pendingClearStencil = 0;
-        Uint m_pendingClearDrawFboExternalIndex = 0;
-        Bool m_pendingClearTargetsDefaultFramebuffer = true;
+        UnorderedMap<Uint64, PendingClearState> m_pendingClears;
         Bool m_isMainRenderPassActive = false;
+        VkRenderPass m_activeRenderPass = VK_NULL_HANDLE;
+        VkExtent2D m_activeRenderExtent = {0, 0};
+        VkFormat m_activeDepthStencilFormat = VK_FORMAT_UNDEFINED;
+        Bool m_activeRenderTargetIsDefault = true;
+        Uint m_activeDrawFboExternalIndex = 0;
 
         UniquePtr<PipelineFactory> m_pipelineFactory;
         UniquePtr<ProgramFactory> m_programFactory;
@@ -167,7 +176,6 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         void TransitionDepthStencilImageToAttachment(VkCommandBuffer commandBuffer, Uint32 imageIndex);
         void RecordColorClear(VkCommandBuffer commandBuffer, const VkClearColorValue& clearColor);
         void RecordDepthStencilClear(VkCommandBuffer commandBuffer, GLbitfield mask, Float depth, Uint32 stencil);
-        Bool RecordOffscreenColorClear(VkCommandBuffer commandBuffer);
         void EndFrameRecordingIfNeeded();
         Bool UploadAndBindVertexStreams(
             const VertexInputStateFactory::BackendVertexInputState& vertexInputState,
@@ -185,6 +193,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         static Bool IsNecessaryDeviceExtensionSupported(VkPhysicalDevice device);
         static Bool GetMoreCapablePhysicalDevice(VkPhysicalDevice newVkDevice, VkSurfaceKHR surface, const PhysicalDevice& compareWithDevice, PhysicalDevice& outBetterDevice);
         Uint32 FindMemoryType(Uint32 typeFilter, VkMemoryPropertyFlags properties) const;
+        static Uint64 BuildPendingClearKey(Uint drawFboExternalIndex, Bool targetsDefaultFramebuffer);
         static Bool HasStencilComponent(VkFormat format);
         static VkFormat FindSupportedDepthStencilFormat(VkPhysicalDevice physicalDevice);
         static constexpr VkDynamicState s_dynamicStates[] = {

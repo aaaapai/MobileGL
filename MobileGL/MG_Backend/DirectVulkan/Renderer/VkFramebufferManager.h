@@ -27,9 +27,11 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         void Shutdown();
 
         Bool EnsureOffscreenColorTarget(Uint glFboExternalIndex, const MG_State::GLState::FramebufferObject& glFbo);
-        Bool ClearColor(VkCommandBuffer commandBuffer, Uint glFboExternalIndex, const VkClearColorValue& clearColor);
+        Bool TransitionOffscreenColorToAttachment(VkCommandBuffer commandBuffer, Uint glFboExternalIndex);
         Bool TransitionOffscreenColorToTransferSrc(VkCommandBuffer commandBuffer, Uint glFboExternalIndex);
         Bool GetOffscreenColorImage(Uint glFboExternalIndex, VkImage& outImage, VkExtent2D& outExtent) const;
+        Bool GetOffscreenRenderTarget(Uint glFboExternalIndex, VkRenderPass& outRenderPass, VkFramebuffer& outFramebuffer,
+                                      VkExtent2D& outExtent, VkFormat& outDepthStencilFormat) const;
 
     private:
         struct OffscreenColorTarget {
@@ -39,17 +41,29 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             VkImageLayout layout = VK_IMAGE_LAYOUT_UNDEFINED;
             VkExtent2D extent = {0, 0};
             VkFormat format = VK_FORMAT_UNDEFINED;
+            VkImage depthStencilImage = VK_NULL_HANDLE;
+            VkDeviceMemory depthStencilMemory = VK_NULL_HANDLE;
+            VkImageView depthStencilImageView = VK_NULL_HANDLE;
+            VkImageLayout depthStencilLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+            VkFormat depthStencilFormat = VK_FORMAT_UNDEFINED;
+            VkRenderPass renderPassLoad = VK_NULL_HANDLE;
+            VkFramebuffer framebuffer = VK_NULL_HANDLE;
             Uint16 glObjectVersion = 0;
         };
 
         Bool RecreateOffscreenColorTarget(OffscreenColorTarget& target,
+                                          const MG_State::GLState::FramebufferObject& glFbo,
                                           const MG_State::GLState::FramebufferAttachmentObject& colorAttachment,
                                           Uint16 glObjectVersion);
         void DestroyOffscreenColorTarget(OffscreenColorTarget& target);
-        Bool TransitionColorTargetForClear(VkCommandBuffer commandBuffer, OffscreenColorTarget& target);
+        Bool TransitionColorTargetForAttachment(VkCommandBuffer commandBuffer, OffscreenColorTarget& target);
+        Bool TransitionDepthStencilTargetForAttachment(VkCommandBuffer commandBuffer, OffscreenColorTarget& target);
         Bool TransitionColorTargetForBlitSrc(VkCommandBuffer commandBuffer, OffscreenColorTarget& target);
         Uint32 FindMemoryType(Uint32 typeFilter, VkMemoryPropertyFlags properties) const;
         static VkFormat ResolveColorFormat(const MG_State::GLState::FramebufferAttachmentObject& colorAttachment);
+        static VkFormat ResolveDepthStencilFormat(const MG_State::GLState::FramebufferAttachmentObject& depthAttachment,
+                                                  const MG_State::GLState::FramebufferAttachmentObject& stencilAttachment);
+        VkFormat FindSupportedDepthStencilFormat(const Vector<VkFormat>& candidates) const;
 
         VkDevice m_device = VK_NULL_HANDLE;
         VkPhysicalDevice m_physicalDevice = VK_NULL_HANDLE;
