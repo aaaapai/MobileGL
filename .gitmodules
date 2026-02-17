@@ -16,3 +16,6 @@
 [submodule "3rdparty/xxHash"]
 	path = 3rdparty/xxHash
 	url = https://github.com/Cyan4973/xxHash.git
+[submodule "3rdparty/VulkanMemoryAllocator"]
+	path = 3rdparty/VulkanMemoryAllocator
+	url = https://github.com/GPUOpen-LibrariesAndSDKs/VulkanMemoryAllocator.git
