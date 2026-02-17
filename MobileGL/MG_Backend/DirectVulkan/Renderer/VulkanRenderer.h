@@ -35,21 +35,12 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         GLsizei count = 0;
         const MG_State::GLState::ProgramObject* program = nullptr;
         const MG_State::GLState::VertexArrayObject* vertexArray = nullptr;
-        Bool hasPositionStream = false;
-        const void* positionData = nullptr;
-        SizeT positionDataSizeBytes = 0;
-        SizeT positionStrideBytes = 0;
-        SizeT positionOffsetBytes = 0;
-        GLenum positionType = GL_FLOAT;
-        GLint positionSize = 0;
-        Bool positionNormalized = false;
     };
 
     struct DrawElementPayload {
         DrawArrayPayload drawArray;
         GLenum indexType = GL_UNSIGNED_SHORT;
-        const void* indexData = nullptr;
-        SizeT indexDataSizeBytes = 0;
+        SizeT indexByteOffset = 0;
     };
 
     class VulkanRenderer {
@@ -185,7 +176,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         void CollectDeferredBufferReleases(Uint32 frameIndex);
         Bool UploadAndBindVertexStreams(
             const VertexInputStateFactory::BackendVertexInputState& vertexInputState,
-            const MG_State::GLState::VertexArrayObject& vertexArray,
+            const DrawArrayPayload& payload,
             VkCommandBuffer commandBuffer);
 
         void ShutdownSwapchain();

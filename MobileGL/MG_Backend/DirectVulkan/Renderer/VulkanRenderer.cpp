@@ -571,7 +571,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
 
     Bool VulkanRenderer::UploadAndBindVertexStreams(
         const VertexInputStateFactory::BackendVertexInputState& vertexInputState,
-        const MG_State::GLState::VertexArrayObject& vertexArray,
+        const DrawArrayPayload& payload,
         VkCommandBuffer commandBuffer) {
         if (vertexInputState.bindings.empty()) {
             return true;
@@ -590,19 +590,27 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         Vector<VkBuffer> vkBuffers(bindingCount, VK_NULL_HANDLE);
         Vector<VkDeviceSize> vkOffsets(bindingCount, 0);
 
-        for (SizeT binding = 0; binding < bindingCount; ++binding) {
-            const SizeT bufferKey = vertexInputState.bindingBufferKeys[binding];
-            const MG_State::GLState::BufferObject* sourceBuffer = nullptr;
+        auto findBufferByKey = [&](SizeT bufferKey) -> const MG_State::GLState::BufferObject* {
+            if (!payload.vertexArray) {
+                return nullptr;
+            }
+            const auto& attrs = payload.vertexArray->GetAllAttributes();
             for (Uint32 location = 0; location < MG_State::GLState::VertexArrayObject::MAX_VERTEX_ATTRIBS; ++location) {
-                const auto& attr = vertexArray.GetAttribute(location);
-                if (!attr.Enabled || !attr.Buffer) {
+                const auto& attr = attrs[location];
+                if (!attr.Buffer) {
                     continue;
                 }
-                if (reinterpret_cast<SizeT>(attr.Buffer.get()) == bufferKey) {
-                    sourceBuffer = attr.Buffer.get();
-                    break;
+                const auto* buffer = attr.Buffer.get();
+                if (reinterpret_cast<SizeT>(buffer) == bufferKey) {
+                    return buffer;
                 }
             }
+            return nullptr;
+        };
+
+        for (SizeT binding = 0; binding < bindingCount; ++binding) {
+            const SizeT bufferKey = vertexInputState.bindingBufferKeys[binding];
+            const MG_State::GLState::BufferObject* sourceBuffer = findBufferByKey(bufferKey);
 
             if (!sourceBuffer) {
                 MGLOG_W("UploadAndBindVertexStreams skipped: no source buffer for binding %zu", binding);
@@ -709,7 +717,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                 MGLOG_W("DrawArrays skipped: vertex input requires VAO");
                 return;
             }
-            if (!UploadAndBindVertexStreams(*vertexInputState, *payload.vertexArray, commandBuffer)) {
+            if (!UploadAndBindVertexStreams(*vertexInputState, payload, commandBuffer)) {
                 return;
             }
         }
@@ -757,8 +765,25 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             return;
         }
 
-        MOBILEGL_ASSERT(payload.indexData != nullptr, "DrawElements requires non-null indexData");
-        MOBILEGL_ASSERT(payload.indexDataSizeBytes > 0, "DrawElements requires non-zero index data size");
+        if (payload.drawArray.vertexArray == nullptr) {
+            MGLOG_W("DrawElements skipped: no VAO provided");
+            return;
+        }
+
+        // VertexArrayObject currently exposes index-buffer binding through non-const accessor.
+        auto* vao = const_cast<MG_State::GLState::VertexArrayObject*>(payload.drawArray.vertexArray);
+        const auto indexBuffer = vao->GetIndexBufferBindingSlot().GetBoundObject();
+        if (!indexBuffer) {
+            MGLOG_W("DrawElements skipped: VAO has no bound ELEMENT_ARRAY_BUFFER");
+            return;
+        }
+
+        const auto indexData = indexBuffer->GetDataReadOnly();
+        MOBILEGL_ASSERT(indexData != nullptr && !indexData->empty(), "DrawElements requires non-empty EBO data");
+        const SizeT indexSize = (payload.indexType == GL_UNSIGNED_SHORT) ? sizeof(Uint16) : sizeof(Uint32);
+        const SizeT indexDataSizeBytes = static_cast<SizeT>(payload.drawArray.count) * indexSize;
+        MOBILEGL_ASSERT(payload.indexByteOffset + indexDataSizeBytes <= indexBuffer->GetSize(),
+                        "DrawElements index range out of bounds");
 
         const VertexInputStateFactory::BackendVertexInputState* vertexInputState = nullptr;
         if (payload.drawArray.vertexArray && m_vertexInputStateFactory) {
@@ -794,10 +819,10 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             return;
         }
 
-        if (!m_indexBuffer.IsValid() || m_indexBuffer.GetSize() < payload.indexDataSizeBytes) {
+        if (!m_indexBuffer.IsValid() || m_indexBuffer.GetSize() < indexDataSizeBytes) {
             DeferDestroyBuffer(m_indexBuffer);
             const Bool created = m_indexBuffer.Create(
-                m_allocator, static_cast<VkDeviceSize>(payload.indexDataSizeBytes),
+                m_allocator, static_cast<VkDeviceSize>(indexDataSizeBytes),
                 VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
                 VMA_MEMORY_USAGE_AUTO,
                 VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT);
@@ -807,7 +832,8 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             }
         }
 
-        if (!m_indexBuffer.Upload(payload.indexData, static_cast<VkDeviceSize>(payload.indexDataSizeBytes), 0)) {
+        if (!m_indexBuffer.Upload(indexData->data() + payload.indexByteOffset, static_cast<VkDeviceSize>(indexDataSizeBytes),
+                                  0)) {
             MGLOG_E("DrawElements skipped: failed to upload index data");
             return;
         }
@@ -829,7 +855,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                 MGLOG_W("DrawElements skipped: vertex input requires VAO");
                 return;
             }
-            if (!UploadAndBindVertexStreams(*vertexInputState, *payload.drawArray.vertexArray, commandBuffer)) {
+            if (!UploadAndBindVertexStreams(*vertexInputState, payload.drawArray, commandBuffer)) {
                 return;
             }
         }

@@ -101,32 +101,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         payload.drawArray.program = currentProgram ? currentProgram.get() : nullptr;
         payload.drawArray.vertexArray = vao.get();
         payload.indexType = type;
-        payload.indexData = indexData->data() + byteOffset;
-        payload.indexDataSizeBytes = requiredBytes;
-
-        const auto& attr0 = vao->GetAttribute(0);
-        if (attr0.Enabled && attr0.Buffer) {
-            const auto positionData = attr0.Buffer->GetDataReadOnly();
-            if (positionData && !positionData->empty()) {
-                payload.drawArray.hasPositionStream = true;
-                payload.drawArray.positionData = positionData->data();
-                payload.drawArray.positionDataSizeBytes = attr0.Buffer->GetSize();
-                payload.drawArray.positionOffsetBytes = attr0.Offset;
-                payload.drawArray.positionStrideBytes = attr0.Stride > 0 ? static_cast<SizeT>(attr0.Stride) : 0;
-                payload.drawArray.positionSize = attr0.Size;
-                payload.drawArray.positionNormalized = attr0.Normalized;
-
-                switch (attr0.Type) {
-                case DataType::Float32:
-                    payload.drawArray.positionType = GL_FLOAT;
-                    break;
-                default:
-                    payload.drawArray.positionType = GL_FLOAT;
-                    payload.drawArray.hasPositionStream = false;
-                    break;
-                }
-            }
-        }
+        payload.indexByteOffset = byteOffset;
 
         pVulkanRenderer->DrawElements(payload);
     }
@@ -163,31 +138,6 @@ namespace MobileGL::MG_Backend::DirectVulkan {
 
         const auto vao = MG_State::pGLContext->GetBoundVertexArray();
         payload.vertexArray = vao ? vao.get() : nullptr;
-        if (vao) {
-            const auto& attr0 = vao->GetAttribute(0);
-            if (attr0.Enabled && attr0.Buffer) {
-                const auto positionData = attr0.Buffer->GetDataReadOnly();
-                if (positionData && !positionData->empty()) {
-                    payload.hasPositionStream = true;
-                    payload.positionData = positionData->data();
-                    payload.positionDataSizeBytes = attr0.Buffer->GetSize();
-                    payload.positionOffsetBytes = attr0.Offset;
-                    payload.positionStrideBytes = attr0.Stride > 0 ? static_cast<SizeT>(attr0.Stride) : 0;
-                    payload.positionSize = attr0.Size;
-                    payload.positionNormalized = attr0.Normalized;
-
-                    switch (attr0.Type) {
-                    case DataType::Float32:
-                        payload.positionType = GL_FLOAT;
-                        break;
-                    default:
-                        payload.positionType = GL_FLOAT;
-                        payload.hasPositionStream = false;
-                        break;
-                    }
-                }
-            }
-        }
 
         pVulkanRenderer->DrawArrays(payload);
     }
