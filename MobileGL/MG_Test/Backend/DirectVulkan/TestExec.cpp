@@ -9,6 +9,7 @@
 #include <iostream>
 #include <vector>
 #include <cassert>
+#include <string>
 
 #include <vulkan/vulkan.h>
 #define GLFW_INCLUDE_NONE
@@ -38,6 +39,50 @@
 
 namespace MobileGL {
     void MG_Initialize();
+}
+
+static bool CheckShaderCompile(GLuint shader, const char* label) {
+    GLint status = GL_FALSE;
+    glGetShaderiv(shader, GL_COMPILE_STATUS, &status);
+    if (status == GL_TRUE) {
+        return true;
+    }
+
+    GLint logLength = 0;
+    glGetShaderiv(shader, GL_INFO_LOG_LENGTH, &logLength);
+    std::string log;
+    if (logLength > 0) {
+        log.resize(static_cast<size_t>(logLength));
+        GLsizei written = 0;
+        glGetShaderInfoLog(shader, logLength, &written, log.data());
+        if (written >= 0 && static_cast<size_t>(written) < log.size()) {
+            log.resize(static_cast<size_t>(written));
+        }
+    }
+    std::cerr << label << " compile failed: " << log << std::endl;
+    return false;
+}
+
+static bool CheckProgramLink(GLuint program) {
+    GLint status = GL_FALSE;
+    glGetProgramiv(program, GL_LINK_STATUS, &status);
+    if (status == GL_TRUE) {
+        return true;
+    }
+
+    GLint logLength = 0;
+    glGetProgramiv(program, GL_INFO_LOG_LENGTH, &logLength);
+    std::string log;
+    if (logLength > 0) {
+        log.resize(static_cast<size_t>(logLength));
+        GLsizei written = 0;
+        glGetProgramInfoLog(program, logLength, &written, log.data());
+        if (written >= 0 && static_cast<size_t>(written) < log.size()) {
+            log.resize(static_cast<size_t>(written));
+        }
+    }
+    std::cerr << "Program link failed: " << log << std::endl;
+    return false;
 }
 
 int main() {
@@ -89,11 +134,52 @@ int main() {
     glGenVertexArrays(1, &vao);
     glBindVertexArray(vao);
 
-    static constexpr GLushort kTriangleIndices[] = {0, 1, 2};
+    static constexpr GLushort kQuadIndices[] = {0, 1, 2, 2, 3, 0};
     GLuint ebo = 0;
     glGenBuffers(1, &ebo);
     glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ebo);
-    glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(kTriangleIndices), kTriangleIndices, GL_STATIC_DRAW);
+    glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(kQuadIndices), kQuadIndices, GL_STATIC_DRAW);
+
+    static constexpr const char* kVertexShaderSource = R"(#version 330 core
+void main() {
+    const vec2 kPositions[4] = vec2[](
+        vec2(-0.6, -0.6),
+        vec2( 0.6, -0.6),
+        vec2( 0.6,  0.6),
+        vec2(-0.6,  0.6)
+    );
+    gl_Position = vec4(kPositions[gl_VertexID], 0.0, 1.0);
+})";
+    static constexpr const char* kFragmentShaderSource = R"(#version 330 core
+layout(location = 0) out vec4 outColor;
+void main() {
+    outColor = vec4(0.95, 0.85, 0.2, 1.0);
+})";
+
+    const GLuint vs = glCreateShader(GL_VERTEX_SHADER);
+    glShaderSource(vs, 1, &kVertexShaderSource, nullptr);
+    glCompileShader(vs);
+    if (!CheckShaderCompile(vs, "Vertex shader")) {
+        return 1;
+    }
+
+    const GLuint fs = glCreateShader(GL_FRAGMENT_SHADER);
+    glShaderSource(fs, 1, &kFragmentShaderSource, nullptr);
+    glCompileShader(fs);
+    if (!CheckShaderCompile(fs, "Fragment shader")) {
+        return 1;
+    }
+
+    const GLuint program = glCreateProgram();
+    glAttachShader(program, vs);
+    glAttachShader(program, fs);
+    glLinkProgram(program);
+    if (!CheckProgramLink(program)) {
+        return 1;
+    }
+    glUseProgram(program);
+    glDeleteShader(vs);
+    glDeleteShader(fs);
 
     int i = 0;
     while(!glfwWindowShouldClose(window)) {
@@ -104,11 +190,17 @@ int main() {
         else
             glClearColor(0.0f, 1.0f, 0.0f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT);
-        if (i % 500 > 250)
-            glDrawElements(GL_TRIANGLES, 3, GL_UNSIGNED_SHORT, nullptr);
+        if (i % 500 > 250) {
+            glUseProgram(program);
+            glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_SHORT, nullptr);
+        }
         eglSwapBuffers(display, surface);
         ++i;
     }
+
+    glDeleteProgram(program);
+    glDeleteBuffers(1, &ebo);
+    glDeleteVertexArrays(1, &vao);
 
     glfwDestroyWindow(window);
 

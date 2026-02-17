@@ -83,6 +83,8 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         payload.drawArray.mode = mode;
         payload.drawArray.first = 0;
         payload.drawArray.count = count;
+        const auto currentProgram = MG_State::pGLContext->GetCurrentProgram();
+        payload.drawArray.program = currentProgram ? currentProgram.get() : nullptr;
         payload.drawArray.vertexArray = vao.get();
         payload.indexType = type;
         payload.indexData = indexData->data() + byteOffset;
@@ -142,6 +144,8 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         payload.mode = mode;
         payload.first = first;
         payload.count = count;
+        const auto currentProgram = MG_State::pGLContext->GetCurrentProgram();
+        payload.program = currentProgram ? currentProgram.get() : nullptr;
 
         const auto vao = MG_State::pGLContext->GetBoundVertexArray();
         payload.vertexArray = vao ? vao.get() : nullptr;

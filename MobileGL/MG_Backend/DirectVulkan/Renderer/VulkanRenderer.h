@@ -20,6 +20,7 @@
 #include "../VkIncludes.h"
 
 namespace MobileGL::MG_State::GLState {
+    class ProgramObject;
     class VertexArrayObject;
 }
 
@@ -30,6 +31,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         GLenum mode = GL_TRIANGLES;
         GLint first = 0;
         GLsizei count = 0;
+        const MG_State::GLState::ProgramObject* program = nullptr;
         const MG_State::GLState::VertexArrayObject* vertexArray = nullptr;
         Bool hasPositionStream = false;
         const void* positionData = nullptr;
@@ -117,9 +119,6 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         Vector<VkImageLayout> m_depthStencilImageLayouts;
 
         VkPipelineLayout m_pipelineLayout = VK_NULL_HANDLE;
-        VkPipeline m_pipeline = VK_NULL_HANDLE;
-        Uint64 m_demoProgramHash = 0;
-        Vector<VkPipelineShaderStageCreateInfo> m_demoPipelineStages;
         VkBufferObject m_vertexBuffer;
         VkBufferObject m_indexBuffer;
 
@@ -153,7 +152,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         VkRenderPass CreateDefaultRenderPass(VkAttachmentLoadOp loadOp);
         void CreateDefaultFramebuffers();
         void PrepareDemoPipeline();
-        VkPipeline GetOrCreatePipeline(Uint64 programHash, Uint64 vertexInputHash,
+        VkPipeline GetOrCreatePipeline(const MG_State::GLState::ProgramObject& program, Uint64 vertexInputHash,
                                        const VkPipelineVertexInputStateCreateInfo& vertexInputState);
         void TransitionSwapchainImageToColorAttachment(VkCommandBuffer commandBuffer, Uint32 imageIndex);
         void TransitionDepthStencilImageToAttachment(VkCommandBuffer commandBuffer, Uint32 imageIndex);
