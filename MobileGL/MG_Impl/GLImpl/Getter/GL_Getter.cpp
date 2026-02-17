@@ -721,7 +721,7 @@ namespace MobileGL {
                 *params = 0; // TODO
                 break;
             case GL_STENCIL_CLEAR_VALUE:
-                *params = 0; // TODO
+                *params = MG_State::pGLContext->GetClearStencil();
                 break;
             case GL_STENCIL_FAIL:
                 *params = 0; // TODO

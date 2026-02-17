@@ -312,6 +312,14 @@ namespace MobileGL {
                 return m_renderState.GetClearDepth();
             }
 
+            void GLContext::SetClearStencil(Int stencil) {
+                m_renderState.SetClearStencil(stencil);
+            }
+
+            Int GLContext::GetClearStencil() const {
+                return m_renderState.GetClearStencil();
+            }
+
             void GLContext::SetPixelStoreParam(PixelStoreParam param, Int value) {
                 m_renderState.SetPixelStoreParam(param, value);
             }
