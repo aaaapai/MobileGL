@@ -215,6 +215,7 @@ set(SOURCE_FILES
     MobileGL/MG_Backend/DirectVulkan/Renderer/FrameContext.cpp
     MobileGL/MG_Backend/DirectVulkan/Renderer/ProgramFactory.cpp
     MobileGL/MG_Backend/DirectVulkan/Renderer/VertexInputStateBuilder.cpp
+    MobileGL/MG_Backend/DirectVulkan/Renderer/VertexInputStateFactory.cpp
     MobileGL/MG_Backend/DirectVulkan/Renderer/VkBufferObject.cpp
 
     MobileGL/MG_State/GLState/Core.cpp

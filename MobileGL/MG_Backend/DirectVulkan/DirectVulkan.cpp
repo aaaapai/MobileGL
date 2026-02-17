@@ -112,6 +112,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         payload.count = count;
 
         const auto vao = MG_State::pGLContext->GetBoundVertexArray();
+        payload.vertexArray = vao ? vao.get() : nullptr;
         if (vao) {
             const auto& attr0 = vao->GetAttribute(0);
             if (attr0.Enabled && attr0.Buffer) {

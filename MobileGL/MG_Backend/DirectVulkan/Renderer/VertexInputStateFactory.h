@@ -1,0 +1,47 @@
+// MobileGL - MobileGL/MG_Backend/DirectVulkan/Renderer/VertexInputStateFactory.h
+// Copyright (c) 2025-2026 MobileGL-Dev
+// Licensed under the GNU Lesser General Public License v3.0:
+//   https://www.gnu.org/licenses/gpl-3.0.txt
+//   https://www.gnu.org/licenses/lgpl-3.0.txt
+// SPDX-License-Identifier: LGPL-3.0-only
+// End of Source File Header
+
+#pragma once
+
+#include "Config.h"
+#include "VertexInputStateBuilder.h"
+#include "MG_State/GLState/VertexArrayState/VertexArrayObject.h"
+#include <Includes.h>
+#include "../VkIncludes.h"
+
+namespace MobileGL::MG_Backend::DirectVulkan {
+    class VertexInputStateFactory {
+    public:
+        using HashType = Uint64;
+
+        struct BackendVertexInputState {
+            HashType hash = 0;
+            Vector<VkVertexInputBindingDescription> bindings;
+            Vector<VkVertexInputAttributeDescription> attributes;
+            VkPipelineVertexInputStateCreateInfo state{
+                VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO
+            };
+        };
+
+        explicit VertexInputStateFactory(const VulkanRendererConfig& config):
+            m_config(config) {}
+        ~VertexInputStateFactory() = default;
+        VertexInputStateFactory(const VertexInputStateFactory&) = delete;
+
+        HashType ComputeHash(const MG_State::GLState::VertexArrayObject& vao) const;
+        const BackendVertexInputState& GetOrCreateVertexInputState(const MG_State::GLState::VertexArrayObject& vao);
+
+    private:
+        static VkFormat ToVkVertexFormat(DataType type, Int size, Bool normalized, Bool isInteger);
+        static SizeT GetComponentSize(DataType type);
+
+        const VulkanRendererConfig& m_config;
+        UnorderedMap<HashType, BackendVertexInputState> m_cache;
+        static inline XXH64_state_t* m_hashState = XXH64_createState();
+    };
+} // namespace MobileGL::MG_Backend::DirectVulkan

@@ -18,11 +18,18 @@
 
 #include "../VkIncludes.h"
 
+namespace MobileGL::MG_State::GLState {
+    class VertexArrayObject;
+}
+
 namespace MobileGL::MG_Backend::DirectVulkan {
+    class VertexInputStateFactory;
+
     struct DrawArrayPayload {
         GLenum mode = GL_TRIANGLES;
         GLint first = 0;
         GLsizei count = 0;
+        const MG_State::GLState::VertexArrayObject* vertexArray = nullptr;
         Bool hasPositionStream = false;
         const void* positionData = nullptr;
         SizeT positionDataSizeBytes = 0;
@@ -114,6 +121,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         Bool m_isMainRenderPassActive = false;
 
         UniquePtr<ProgramFactory> m_programFactory;
+        UniquePtr<VertexInputStateFactory> m_vertexInputStateFactory;
 
         void CreateInstance();
         VkResult SetupDebugMessenger();

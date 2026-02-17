@@ -20,6 +20,8 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         VertexInputStateBuilder& AddAttribute(Uint32 location, Uint32 binding, VkFormat format, Uint32 offset);
 
         const VkPipelineVertexInputStateCreateInfo& Build();
+        const Vector<VkVertexInputBindingDescription>& GetBindings() const;
+        const Vector<VkVertexInputAttributeDescription>& GetAttributes() const;
 
     private:
         VkPipelineVertexInputStateCreateInfo m_state{};

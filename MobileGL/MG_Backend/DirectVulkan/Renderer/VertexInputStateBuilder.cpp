@@ -53,4 +53,12 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         m_state.pVertexAttributeDescriptions = m_attributes.empty() ? nullptr : m_attributes.data();
         return m_state;
     }
+
+    const Vector<VkVertexInputBindingDescription>& VertexInputStateBuilder::GetBindings() const {
+        return m_bindings;
+    }
+
+    const Vector<VkVertexInputAttributeDescription>& VertexInputStateBuilder::GetAttributes() const {
+        return m_attributes;
+    }
 } // namespace MobileGL::MG_Backend::DirectVulkan

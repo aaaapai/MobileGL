@@ -7,6 +7,7 @@
 // End of Source File Header
 
 #include "VulkanRenderer.h"
+#include "VertexInputStateFactory.h"
 #include "VertexInputStateBuilder.h"
 
 #include "MG_State/GLState/ProgramState/ProgramObject.h"
@@ -201,6 +202,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         RecreateSwapchain();
 
         m_programFactory = MakeUnique<ProgramFactory>(m_device, m_config);
+        m_vertexInputStateFactory = MakeUnique<VertexInputStateFactory>(m_config);
 
         PrepareDemoPipeline();
         CreateFrameContexts();
@@ -216,6 +218,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         VK_VERIFY(vkDeviceWaitIdle(m_device));
 
         m_programFactory.reset();
+        m_vertexInputStateFactory.reset();
         m_indexBuffer.Destroy();
 
         m_frameContext.Destroy(m_device, m_commandPool);
@@ -448,6 +451,10 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         if (payload.mode != GL_TRIANGLES) {
             MGLOG_W("DrawArrays skipped: primitive mode %u is not supported yet", payload.mode);
             return;
+        }
+
+        if (payload.vertexArray && m_vertexInputStateFactory) {
+            (void)m_vertexInputStateFactory->GetOrCreateVertexInputState(*payload.vertexArray);
         }
 
         EnsureFrameRecordingStarted();
