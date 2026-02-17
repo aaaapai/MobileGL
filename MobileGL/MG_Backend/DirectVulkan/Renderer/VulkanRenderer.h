@@ -12,6 +12,7 @@
 #include "PipelineFactory.h"
 #include "ProgramFactory.h"
 #include "SwapchainObject.h"
+#include "UniformDescriptorBinder.h"
 #include "VertexInputStateFactory.h"
 #include "VkBufferObject.h"
 #include "MG_Util/Math/VectorTypes.h"
@@ -131,6 +132,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
 
         UniquePtr<PipelineFactory> m_pipelineFactory;
         UniquePtr<ProgramFactory> m_programFactory;
+        UniquePtr<UniformDescriptorBinder> m_uniformDescriptorBinder;
         UniquePtr<VertexInputStateFactory> m_vertexInputStateFactory;
 
         void CreateInstance();

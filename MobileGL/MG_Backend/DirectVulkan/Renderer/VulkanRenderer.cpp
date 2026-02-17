@@ -87,6 +87,14 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         MGLOG_D("PrepareDemoPipeline called");
 
         VkPipelineLayoutCreateInfo plci{VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
+        VkDescriptorSetLayout descriptorSetLayouts[1] = {VK_NULL_HANDLE};
+        if (m_uniformDescriptorBinder) {
+            descriptorSetLayouts[0] = m_uniformDescriptorBinder->GetDescriptorSetLayout();
+        }
+        if (descriptorSetLayouts[0] != VK_NULL_HANDLE) {
+            plci.setLayoutCount = 1;
+            plci.pSetLayouts = descriptorSetLayouts;
+        }
         VK_VERIFY(vkCreatePipelineLayout(m_device, &plci, nullptr, &m_pipelineLayout), "vkCreatePipelineLayout");
 
         MGLOG_I("PrepareDemoPipeline completed");
@@ -111,6 +119,13 @@ namespace MobileGL::MG_Backend::DirectVulkan {
 
         m_pipelineFactory = MakeUnique<PipelineFactory>(m_device, m_config);
         m_programFactory = MakeUnique<ProgramFactory>(m_device, m_config);
+        m_uniformDescriptorBinder = MakeUnique<UniformDescriptorBinder>();
+        if (!m_uniformDescriptorBinder->Initialize(m_device, m_allocator,
+                                                   m_physicalDevice.properties.limits.minUniformBufferOffsetAlignment,
+                                                   m_config.MaxFramesInFlight)) {
+            MGLOG_E("UniformDescriptorBinder initialization failed. UBO sync on Vulkan backend is disabled.");
+            m_uniformDescriptorBinder.reset();
+        }
         m_vertexInputStateFactory = MakeUnique<VertexInputStateFactory>(m_config);
 
         PrepareDemoPipeline();
@@ -142,6 +157,10 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         if (m_pipelineLayout != VK_NULL_HANDLE) {
             vkDestroyPipelineLayout(m_device, m_pipelineLayout, nullptr);
             m_pipelineLayout = VK_NULL_HANDLE;
+        }
+        if (m_uniformDescriptorBinder) {
+            m_uniformDescriptorBinder->Shutdown();
+            m_uniformDescriptorBinder.reset();
         }
 
         ShutdownSwapchain();
@@ -320,6 +339,9 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         }
 
         VkCommandBuffer& commandBuffer = m_frameContext.BeginCommandRecording();
+        if (m_uniformDescriptorBinder) {
+            m_uniformDescriptorBinder->BeginFrame(m_frameContext.GetCurrentFrameIndex());
+        }
         TransitionSwapchainImageToColorAttachment(commandBuffer, m_imageIndexAcquired);
         TransitionDepthStencilImageToAttachment(commandBuffer, m_imageIndexAcquired);
 
@@ -478,6 +500,12 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         }
 
         vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineToBind);
+        if (m_uniformDescriptorBinder &&
+            !m_uniformDescriptorBinder->BindProgramUniformBuffers(commandBuffer, m_pipelineLayout, *payload.program,
+                                                                  m_frameContext.GetCurrentFrameIndex())) {
+            MGLOG_W("DrawArrays skipped: failed to bind uniform descriptors");
+            return;
+        }
 
         if (vertexInputState && !vertexInputState->bindings.empty()) {
             if (!payload.vertexArray) {
@@ -581,6 +609,13 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         const auto swapchainExtent = m_swapchainObject.GetExtent();
 
         vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineToBind);
+        if (m_uniformDescriptorBinder &&
+            !m_uniformDescriptorBinder->BindProgramUniformBuffers(commandBuffer, m_pipelineLayout,
+                                                                  *payload.drawArray.program,
+                                                                  m_frameContext.GetCurrentFrameIndex())) {
+            MGLOG_W("DrawElements skipped: failed to bind uniform descriptors");
+            return;
+        }
 
         if (vertexInputState && !vertexInputState->bindings.empty()) {
             if (!payload.drawArray.vertexArray) {

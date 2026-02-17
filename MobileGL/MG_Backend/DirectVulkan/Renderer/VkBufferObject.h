@@ -20,6 +20,8 @@ namespace MobileGL::MG_Backend::DirectVulkan {
 
         VkBufferObject(const VkBufferObject&) = delete;
         VkBufferObject& operator=(const VkBufferObject&) = delete;
+        VkBufferObject(VkBufferObject&& other) noexcept;
+        VkBufferObject& operator=(VkBufferObject&& other) noexcept;
 
         Bool Create(VmaAllocator allocator, VkDeviceSize size, VkBufferUsageFlags usage,
                     VmaMemoryUsage memoryUsage, VmaAllocationCreateFlags allocationFlags = 0);
@@ -38,4 +40,3 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         VkDeviceSize m_size = 0;
     };
 } // namespace MobileGL::MG_Backend::DirectVulkan
-

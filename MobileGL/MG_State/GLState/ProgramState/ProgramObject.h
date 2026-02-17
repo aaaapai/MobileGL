@@ -69,6 +69,7 @@ namespace MobileGL {
                 GLenum GetAttribType(Uint index) const { return m_attribTypes[index]; }
                 const String& GetAttribName(Uint index) const { return m_attribs[index]; }
                 void* MapUBO() { return m_uboScratch.data(); }
+                const void* GetUBOData() const { return m_uboScratch.data(); }
                 Uint GetUBOSize() const { return static_cast<Uint>(m_uboScratch.size()); }
 
                 void SetUniformSamplerOrImageUnitIndex(Uint location, Int unit) {

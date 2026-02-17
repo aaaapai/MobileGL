@@ -10,6 +10,8 @@
 #include <vector>
 #include <cassert>
 #include <string>
+#include <chrono>
+#include <cmath>
 
 #include <vulkan/vulkan.h>
 #define GLFW_INCLUDE_NONE
@@ -180,15 +182,22 @@ static constexpr const char* kVertexShaderSource = R"(#version 330 core
 layout(location = 0) in vec2 aPos;
 layout(location = 1) in vec3 aColor;
 out vec3 vColor;
+uniform float iTime;
 void main() {
-    gl_Position = vec4(aPos, 0.0, 1.0);
+    float wobble = 0.05 * sin(iTime);
+    gl_Position = vec4(aPos.x, aPos.y + wobble, 0.0, 1.0);
     vColor = aColor;
 })";
     static constexpr const char* kFragmentShaderSource = R"(#version 330 core
 in vec3 vColor;
 layout(location = 0) out vec4 outColor;
+layout(std140, binding = 1) uniform ColorBlock {
+    vec3 uColor;
+};
+uniform float iTime;
 void main() {
-    outColor = vec4(vColor, 1.0);
+    float pulse = 0.5 + 0.5 * sin(iTime * 1.7);
+    outColor = vec4(vColor * uColor * pulse, 1.0);
 })";
 
     const GLuint vs = glCreateShader(GL_VERTEX_SHADER);
@@ -216,6 +225,29 @@ void main() {
     glDeleteShader(vs);
     glDeleteShader(fs);
 
+    const GLint iTimeLocation = glGetUniformLocation(program, "iTime");
+    if (iTimeLocation < 0) {
+        std::cerr << "Failed to get uniform location for iTime" << std::endl;
+        return 1;
+    }
+
+    const GLuint colorBlockIndex = glGetUniformBlockIndex(program, "ColorBlock");
+    if (colorBlockIndex == GL_INVALID_INDEX) {
+        std::cerr << "Failed to get uniform block index for ColorBlock" << std::endl;
+        return 1;
+    }
+    glUniformBlockBinding(program, colorBlockIndex, 1);
+
+    GLuint colorUbo = 0;
+    glGenBuffers(1, &colorUbo);
+    glBindBuffer(GL_UNIFORM_BUFFER, colorUbo);
+    alignas(16) GLfloat uboColorData[4] = {1.0f, 0.6f, 0.2f, 0.0f};
+    glBufferData(GL_UNIFORM_BUFFER, sizeof(uboColorData), uboColorData, GL_DYNAMIC_DRAW);
+    glBindBufferBase(GL_UNIFORM_BUFFER, 1, colorUbo);
+    glBindBuffer(GL_UNIFORM_BUFFER, 0);
+
+    const auto startTime = std::chrono::steady_clock::now();
+
     int i = 0;
     while(!glfwWindowShouldClose(window)) {
         glfwPollEvents();
@@ -227,6 +259,16 @@ void main() {
         glClear(GL_COLOR_BUFFER_BIT);
         if (i % 500 > 250) {
             glUseProgram(program);
+            const auto now = std::chrono::steady_clock::now();
+            const float t = std::chrono::duration<float>(now - startTime).count();
+            glUniform1f(iTimeLocation, t);
+
+            uboColorData[0] = 0.5f + 0.5f * std::sin(t * 0.7f);
+            uboColorData[1] = 0.5f + 0.5f * std::sin(t * 1.1f + 1.2f);
+            uboColorData[2] = 0.5f + 0.5f * std::sin(t * 1.5f + 2.4f);
+            glBindBuffer(GL_UNIFORM_BUFFER, colorUbo);
+            glBufferSubData(GL_UNIFORM_BUFFER, 0, sizeof(uboColorData), uboColorData);
+            glBindBuffer(GL_UNIFORM_BUFFER, 0);
             glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_SHORT, nullptr);
         }
         eglSwapBuffers(display, surface);
@@ -234,6 +276,7 @@ void main() {
     }
 
     glDeleteProgram(program);
+    glDeleteBuffers(1, &colorUbo);
     glDeleteBuffers(1, &positionVbo);
     glDeleteBuffers(1, &colorVbo);
     glDeleteBuffers(1, &ebo);

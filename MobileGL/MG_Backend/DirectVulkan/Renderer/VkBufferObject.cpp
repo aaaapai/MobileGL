@@ -9,6 +9,37 @@
 #include "VkBufferObject.h"
 
 namespace MobileGL::MG_Backend::DirectVulkan {
+    VkBufferObject::VkBufferObject(VkBufferObject&& other) noexcept {
+        m_allocator = other.m_allocator;
+        m_buffer = other.m_buffer;
+        m_allocation = other.m_allocation;
+        m_size = other.m_size;
+
+        other.m_allocator = nullptr;
+        other.m_buffer = VK_NULL_HANDLE;
+        other.m_allocation = nullptr;
+        other.m_size = 0;
+    }
+
+    VkBufferObject& VkBufferObject::operator=(VkBufferObject&& other) noexcept {
+        if (this == &other) {
+            return *this;
+        }
+
+        Destroy();
+
+        m_allocator = other.m_allocator;
+        m_buffer = other.m_buffer;
+        m_allocation = other.m_allocation;
+        m_size = other.m_size;
+
+        other.m_allocator = nullptr;
+        other.m_buffer = VK_NULL_HANDLE;
+        other.m_allocation = nullptr;
+        other.m_size = 0;
+        return *this;
+    }
+
     VkBufferObject::~VkBufferObject() {
         Destroy();
     }
@@ -77,4 +108,3 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         return true;
     }
 } // namespace MobileGL::MG_Backend::DirectVulkan
-
