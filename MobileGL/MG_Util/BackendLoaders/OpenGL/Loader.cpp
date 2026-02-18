@@ -40,8 +40,8 @@ namespace MobileGL::MG_Util::BackendLoader {
 
     inline void* ProcAddress(void* lib, const char* name) {
 
-        if (MG_External::EGL::eglGetProcAddress) {
-            LOG_W("Using eglGetProcAddress");
+        if (eglGetProcAddress) {
+            MGLOG_W("Using eglGetProcAddress");
             void* func = (void*)MG_External::EGL::eglGetProcAddress(name);
             if (func) return func;
         }
@@ -562,7 +562,7 @@ namespace MobileGL::MG_Util::BackendLoader {
         
         const char* libgl_egl = std::getenv("LIBGL_EGL");
         if (libgl_egl && strcmp(libgl_egl, "libEGL_mesa.so") == 0) {
-          LOG_W("Warning: You are using Mesa Zink!");
+          MGLOG_W("Warning: You are using Mesa Zink!");
     
           configAttribs[10] = EGL_RENDERABLE_TYPE;
           configAttribs[11] = EGL_OPENGL_ES2_BIT;
