@@ -24,6 +24,9 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             VkRenderPass renderPass = VK_NULL_HANDLE;
             Uint32 subpass = 0;
             VkPrimitiveTopology topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+            Bool depthTestEnable = false;
+            Bool depthWriteEnable = false;
+            VkCompareOp depthCompareOp = VK_COMPARE_OP_ALWAYS;
             const Vector<VkPipelineShaderStageCreateInfo>* stages = nullptr;
             const VkPipelineVertexInputStateCreateInfo* vertexInputState = nullptr;
         };

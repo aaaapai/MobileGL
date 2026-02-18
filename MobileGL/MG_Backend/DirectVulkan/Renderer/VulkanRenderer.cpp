@@ -72,6 +72,19 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             return VK_NULL_HANDLE;
         }
         const Uint64 programHash = m_programFactory->ComputeHash(program, ProgramFactory::CompileOptionBit::None);
+        auto toVkCompareOp = [](DepthTestFunc func) -> VkCompareOp {
+            switch (func) {
+            case DepthTestFunc::Never: return VK_COMPARE_OP_NEVER;
+            case DepthTestFunc::Less: return VK_COMPARE_OP_LESS;
+            case DepthTestFunc::Equal: return VK_COMPARE_OP_EQUAL;
+            case DepthTestFunc::LessEqual: return VK_COMPARE_OP_LESS_OR_EQUAL;
+            case DepthTestFunc::Greater: return VK_COMPARE_OP_GREATER;
+            case DepthTestFunc::NotEqual: return VK_COMPARE_OP_NOT_EQUAL;
+            case DepthTestFunc::GreaterEqual: return VK_COMPARE_OP_GREATER_OR_EQUAL;
+            case DepthTestFunc::Always: return VK_COMPARE_OP_ALWAYS;
+            default: return VK_COMPARE_OP_ALWAYS;
+            }
+        };
 
         PipelineFactory::PipelineCreatePayload payload{};
         payload.programHash = programHash;
@@ -80,6 +93,12 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         payload.renderPass = (m_activeRenderPass != VK_NULL_HANDLE) ? m_activeRenderPass : m_renderPassLoad;
         payload.subpass = 0;
         payload.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+        if (MG_State::pGLContext != nullptr) {
+            const Bool depthTestEnabled = MG_State::pGLContext->IsCapabilityEnabled(CapabilityInput::DepthTest);
+            payload.depthTestEnable = depthTestEnabled;
+            payload.depthWriteEnable = depthTestEnabled && MG_State::pGLContext->GetDepthMask();
+            payload.depthCompareOp = toVkCompareOp(MG_State::pGLContext->GetDepthFunc());
+        }
         payload.stages = &stages;
         payload.vertexInputState = &vertexInputState;
         return m_pipelineFactory->GetOrCreatePipeline(payload);
