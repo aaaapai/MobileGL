@@ -1,4 +1,4 @@
-name: Clean All Branches Workflows - Keep Last 1 Day - FIXED
+name: Python Clean - Delete All Old Runs
 
 on:
   workflow_dispatch:
@@ -8,20 +8,10 @@ on:
         required: true
         default: 'true'
         type: boolean
-      confirm_delete:
-        description: 'dry_run=false时，输入"YES"确认删除'
+      days_old:
+        description: '删除多少天前的运行'
         required: true
-        default: ''
-        type: string
-      concurrency:
-        description: '并发数（默认10）'
-        required: true
-        default: '10'
-        type: string
-      target_branch:
-        description: '指定分支（留空则处理所有分支）'
-        required: false
-        default: ''
+        default: '1'
         type: string
 
 jobs:
@@ -33,196 +23,131 @@ jobs:
       contents: read
       
     steps:
-    - name: Check confirmation
-      if: ${{ github.event.inputs.dry_run == 'false' && github.event.inputs.confirm_delete != 'YES' }}
-      run: |
-        echo "❌ 操作取消：未确认删除"
-        echo "dry_run=false 时需要输入 confirm_delete=YES"
-        exit 1
-    
-    - name: Clean workflow runs from all branches
+    - name: Setup Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+        
+    - name: Install requests
+      run: pip install requests
+        
+    - name: Delete old runs
       env:
-        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         REPO: ${{ github.repository }}
         DRY_RUN: ${{ github.event.inputs.dry_run }}
-        CONCURRENCY: ${{ github.event.inputs.concurrency }}
-        TARGET_BRANCH: ${{ github.event.inputs.target_branch }}
+        DAYS_OLD: ${{ github.event.inputs.days_old }}
       run: |
-        # 计算1天前的日期
-        CUTOFF_DATE=$(date -d "1 day ago" -u +"%Y-%m-%dT%H:%M:%SZ")
-        echo "🔍 清理配置:"
-        echo "   仓库: $REPO"
-        if [ -n "$TARGET_BRANCH" ]; then
-          echo "   目标分支: $TARGET_BRANCH"
-        else
-          echo "   目标分支: 所有分支"
-        fi
-        echo "   保留: 1天内的运行（<$CUTOFF_DATE 的将被删除）"
-        echo "   模拟运行: $DRY_RUN"
-        echo "   并发数: $CONCURRENCY"
-        echo ""
+        python - <<'EOF'
+        import os
+        import requests
+        from datetime import datetime, timedelta
+        import time
         
-        # 获取所有分支（如果不指定分支）
-        if [ -z "$TARGET_BRANCH" ]; then
-          echo "📋 获取所有分支..."
-          BRANCHES=$(gh api repos/$REPO/branches --paginate | jq -r '.[].name')
-          BRANCH_COUNT=$(echo "$BRANCHES" | wc -l)
-          echo "找到 $BRANCH_COUNT 个分支"
-        else
-          BRANCHES="$TARGET_BRANCH"
-          echo "仅处理指定分支: $TARGET_BRANCH"
-        fi
+        token = os.environ.get('GITHUB_TOKEN')
+        repo = os.environ.get('REPO')
+        dry_run = os.environ.get('DRY_RUN', 'true').lower() == 'true'
+        days_old = int(os.environ.get('DAYS_OLD', 1))
         
-        # 创建临时文件来存储统计信息
-        DELETED_FILE=$(mktemp)
-        SKIPPED_FILE=$(mktemp)
-        RUNNING_FILE=$(mktemp)
-        RUNS_TO_DELETE_FILE=$(mktemp)
+        headers = {
+            'Authorization': f'token {token}',
+            'Accept': 'application/vnd.github.v3+json'
+        }
         
-        echo "0" > $DELETED_FILE
-        echo "0" > $SKIPPED_FILE
-        echo "0" > $RUNNING_FILE
+        # 计算截止日期
+        cutoff_date = (datetime.utcnow() - timedelta(days=days_old)).isoformat()
         
-        # 遍历每个分支
-        for BRANCH in $BRANCHES; do
-          echo -e "\n📦 处理分支: $BRANCH"
-          
-          PAGE=1
-          BRANCH_DELETED=0
-          BRANCH_SKIPPED=0
-          BRANCH_RUNNING=0
-          
-          while true; do
-            # 获取该分支的工作流运行
-            echo "   获取第 $PAGE 页..."
+        print(f"🔍 清理配置:")
+        print(f"  仓库: {repo}")
+        print(f"  删除 {days_old} 天前的运行 (截止: {cutoff_date})")
+        print(f"  模拟模式: {dry_run}")
+        print()
+        
+        # 获取所有运行
+        print("获取所有运行...")
+        runs_to_delete = []
+        page = 1
+        
+        while True:
+            url = f"https://api.github.com/repos/{repo}/actions/runs"
+            params = {
+                'per_page': 100,
+                'page': page
+            }
             
-            # 直接使用gh获取运行列表
-            RUNS=$(gh api repos/$REPO/actions/runs \
-              --method GET \
-              -F branch="$BRANCH" \
-              -F per_page=100 \
-              -F page=$PAGE 2>/dev/null)
+            response = requests.get(url, headers=headers, params=params)
+            if response.status_code != 200:
+                print(f"错误: {response.status_code}")
+                break
+                
+            data = response.json()
+            runs = data.get('workflow_runs', [])
             
-            # 检查是否成功
-            if [ $? -ne 0 ]; then
-              echo "   警告: 获取分支 $BRANCH 第 $PAGE 页失败"
-              break
-            fi
+            if not runs:
+                break
+                
+            for run in runs:
+                run_id = run['id']
+                created_at = run['created_at']
+                status = run['status']
+                branch = run['head_branch']
+                name = run.get('name', '未命名')
+                
+                # 跳过进行中的
+                if status in ['in_progress', 'queued', 'pending']:
+                    continue
+                    
+                # 检查日期
+                if created_at < cutoff_date:
+                    runs_to_delete.append({
+                        'id': run_id,
+                        'name': name,
+                        'date': created_at,
+                        'branch': branch
+                    })
+                    print(f"  ✓ 标记删除 #{run_id} - {name} ({created_at}) [{branch}]")
             
-            # 提取运行列表
-            RUNS_COUNT=$(echo "$RUNS" | jq '.workflow_runs | length')
-            if [ "$RUNS_COUNT" -eq "0" ]; then
-              break
-            fi
+            if len(runs) < 100:
+                break
+                
+            page += 1
+            time.sleep(0.5)
+        
+        total = len(runs_to_delete)
+        print(f"\n📊 找到 {total} 个需要删除的运行")
+        
+        if total == 0:
+            print("✅ 没有需要删除的运行")
+            exit(0)
             
-            # 使用数组存储运行信息
-            RUN_IDS=($(echo "$RUNS" | jq -r '.workflow_runs[].id'))
-            RUN_NAMES=($(echo "$RUNS" | jq -r '.workflow_runs[].name // "未命名"'))
-            RUN_DATES=($(echo "$RUNS" | jq -r '.workflow_runs[].created_at'))
-            RUN_STATUSES=($(echo "$RUNS" | jq -r '.workflow_runs[].status'))
+        if dry_run:
+            print("\n🔍 [模拟模式] 以上是将会删除的运行")
+            print("设置 dry_run=false 实际删除")
+            exit(0)
             
-            # 处理每个运行
-            for i in "${!RUN_IDS[@]}"; do
-              RUN_ID="${RUN_IDS[$i]}"
-              RUN_NAME="${RUN_NAMES[$i]}"
-              RUN_DATE="${RUN_DATES[$i]}"
-              RUN_STATUS="${RUN_STATUSES[$i]}"
-              
-              # 检查运行状态
-              if [ "$RUN_STATUS" = "in_progress" ] || [ "$RUN_STATUS" = "queued" ] || [ "$RUN_STATUS" = "pending" ]; then
-                echo "     ⏳ 跳过进行中的运行 #$RUN_ID - $RUN_NAME (状态: $RUN_STATUS)"
-                BRANCH_RUNNING=$((BRANCH_RUNNING + 1))
-                continue
-              fi
-              
-              # 检查日期
-              if [[ "$RUN_DATE" > "$CUTOFF_DATE" ]]; then
-                echo "     ✅ 保留1天内的运行 #$RUN_ID (日期: $RUN_DATE)"
-                BRANCH_SKIPPED=$((BRANCH_SKIPPED + 1))
-                continue
-              fi
-              
-              # 添加到删除列表
-              echo "     🗑️ 标记删除 #$RUN_ID - $RUN_NAME (日期: $RUN_DATE)"
-              echo "$RUN_ID" >> $RUNS_TO_DELETE_FILE
-              BRANCH_DELETED=$((BRANCH_DELETED + 1))
-            done
+        # 删除
+        print(f"\n🗑️ 开始删除 {total} 个运行...")
+        deleted = 0
+        failed = 0
+        
+        for i, run in enumerate(runs_to_delete, 1):
+            run_id = run['id']
+            url = f"https://api.github.com/repos/{repo}/actions/runs/{run_id}"
             
-            # 检查是否有下一页
-            TOTAL_COUNT=$(echo "$RUNS" | jq '.total_count')
-            if [ $((PAGE * 100)) -ge "$TOTAL_COUNT" ]; then
-              break
-            fi
-            PAGE=$((PAGE + 1))
-            sleep 0.5
-          done
-          
-          echo "   分支 $BRANCH 统计: 删除: $BRANCH_DELETED, 保留: $BRANCH_SKIPPED, 进行中: $BRANCH_RUNNING"
-          
-          # 更新全局统计
-          echo $(($(cat $DELETED_FILE) + BRANCH_DELETED)) > $DELETED_FILE
-          echo $(($(cat $SKIPPED_FILE) + BRANCH_SKIPPED)) > $SKIPPED_FILE
-          echo $(($(cat $RUNNING_FILE) + BRANCH_RUNNING)) > $RUNNING_FILE
-        done
+            print(f"进度: [{i}/{total}] 删除 #{run_id}...", end=' ')
+            
+            response = requests.delete(url, headers=headers)
+            if response.status_code == 204:
+                deleted += 1
+                print("✓ 成功")
+            else:
+                failed += 1
+                print(f"✗ 失败 ({response.status_code})")
+            
+            time.sleep(0.2)
         
-        # 读取最终统计
-        TOTAL_DELETED=$(cat $DELETED_FILE)
-        TOTAL_SKIPPED=$(cat $SKIPPED_FILE)
-        TOTAL_RUNNING=$(cat $RUNNING_FILE)
-        TOTAL_RUNS=$((TOTAL_DELETED + TOTAL_SKIPPED + TOTAL_RUNNING))
+        print(f"\n✅ 完成!")
+        print(f"  成功: {deleted}")
+        print(f"  失败: {failed}")
         
-        echo -e "\n📊 总体统计:"
-        echo "   总运行数: $TOTAL_RUNS"
-        echo "   待删除: $TOTAL_DELETED 个"
-        echo "   1天内保留: $TOTAL_SKIPPED 个"
-        echo "   进行中: $TOTAL_RUNNING 个"
-        
-        if [ $TOTAL_DELETED -eq 0 ]; then
-          echo "✅ 没有需要删除的工作流运行"
-          rm -f $DELETED_FILE $SKIPPED_FILE $RUNNING_FILE $RUNS_TO_DELETE_FILE
-          exit 0
-        fi
-        
-        # 模拟运行
-        if [ "$DRY_RUN" = "true" ]; then
-          echo -e "\n🔍 [模拟模式] 将删除以上 $TOTAL_DELETED 个工作流运行"
-          echo "设置 dry_run=false 并输入 confirm_delete=YES 实际删除"
-          rm -f $DELETED_FILE $SKIPPED_FILE $RUNNING_FILE
-          rm -f $RUNS_TO_DELETE_FILE
-          exit 0
-        fi
-        
-        # 实际删除
-        echo -e "\n🗑️ 开始删除 $TOTAL_DELETED 个工作流运行（并发: $CONCURRENCY）..."
-        
-        # 读取所有要删除的ID
-        mapfile -t RUN_IDS_TO_DELETE < $RUNS_TO_DELETE_FILE
-        
-        # 并行删除
-        DELETED=0
-        FAILED=0
-        
-        for RUN_ID in "${RUN_IDS_TO_DELETE[@]}"; do
-          DELETED=$((DELETED + 1))
-          echo -ne "\r进度: [$DELETED/$TOTAL_DELETED] 删除 #$RUN_ID..."
-          
-          if gh api -X DELETE repos/$REPO/actions/runs/$RUN_ID --silent 2>/dev/null; then
-            echo -e "\r✓ [$DELETED/$TOTAL_DELETED] 删除成功 #$RUN_ID"
-          else
-            FAILED=$((FAILED + 1))
-            echo -e "\r✗ [$DELETED/$TOTAL_DELETED] 删除失败 #$RUN_ID"
-          fi
-          
-          # 控制并发
-          if [ $((DELETED % CONCURRENCY)) -eq 0 ]; then
-            sleep 1
-          fi
-        done
-        
-        echo -e "\n✅ 删除完成！"
-        echo "   总计: $TOTAL_DELETED"
-        echo "   成功: $((TOTAL_DELETED - FAILED))"
-        echo "   失败: $FAILED"
-        
-        # 清理临时文件
-        rm -f $DELETED_FILE $SKIPPED_FILE $RUNNING_FILE $RUNS_TO_DELETE_FILE
+        EOF
