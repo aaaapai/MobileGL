@@ -208,11 +208,11 @@ namespace MobileGL::MG_Util::PixelStoreProcessor {
 
         bool needSwizzle = false;
         static Vector<TextureSwizzleParam> swizzle;
-        swizzle = { TextureSwizzleParam::Red, TextureSwizzleParam::Green,
-                    TextureSwizzleParam::Blue, TextureSwizzleParam::Alpha };
+        swizzle = {TextureSwizzleParam::Red, TextureSwizzleParam::Green, TextureSwizzleParam::Blue,
+                   TextureSwizzleParam::Alpha};
         if (srcInternalFormat == TextureInternalFormat::RGBA && dstInputFormat == TextureInputFormat::BGRA) {
-            swizzle = { TextureSwizzleParam::Blue, TextureSwizzleParam::Green,
-                       TextureSwizzleParam::Red, TextureSwizzleParam::Alpha };
+            swizzle = {TextureSwizzleParam::Blue, TextureSwizzleParam::Green, TextureSwizzleParam::Red,
+                       TextureSwizzleParam::Alpha};
             needSwizzle = true;
         }
         if (dstDataType == TexturePixelDataType::UnsignedInt8888) {
