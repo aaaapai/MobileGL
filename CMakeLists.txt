@@ -18,6 +18,9 @@ if (CMAKE_CXX_COMPILER_ID MATCHES "MSVC")
 endif()
 
 enable_language(CXX)
+enable_language(C)
+
+set(CMAKE_C_STANDARD 23)
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_ANDROID_LD "lld")
@@ -191,6 +194,9 @@ set(SOURCE_FILES
     MobileGL/MG_State/GLState/SamplerState/SamplerState.cpp
     MobileGL/MG_State/GLState/RenderbufferState/RenderbufferObject.cpp
     MobileGL/MG_State/GLState/RenderbufferState/RenderbufferState.cpp
+
+    MobileGL/MG_Util/Config/config.cpp
+    MobileGL/MG_Util/Config/settings.cpp
 )
 
 set(MOBILEGL_LINK_LIBRARIES
