@@ -10,7 +10,7 @@
 #include "MG_Util/Types.h"
 
 namespace MobileGL::MG_Util::BackendLoader {
-    static void* OpenLib(const Vector<String>& names) {
+    static void* OpenLib(const Vector<String>& names, const char* overrides = nullptr) {
 #if !defined(__WIN32) && !defined(_WIN32) && !defined(__APPLE__)
         static const String LibPathPrefixes[] = {
             "/opt/vc/lib/", "/usr/local/lib/", "/usr/lib/", "/usr/lib/x86_64-linux-gnu/",
@@ -19,7 +19,13 @@ namespace MobileGL::MG_Util::BackendLoader {
 
         void* lib = nullptr;
 
-        Int flags = RTLD_LOCAL | RTLD_NOW;
+        Int flags = RTLD_LOCAL | RTLD_LAZY;
+        if (overrides) {
+                    if ((lib = dlopen(overrides, flags))) {
+                        //strncpy(path_name, overrides, PATH_MAX);
+                        return lib;
+                    }
+        }
         for (const auto& prefix : LibPathPrefixes) {
             for (const auto& name : names) {
                 String path_name = prefix + name;
@@ -33,10 +39,16 @@ namespace MobileGL::MG_Util::BackendLoader {
     }
 
     inline void* ProcAddress(void* lib, const char* name) {
+
+        if (MG_External::EGL::eglGetProcAddress) {
+            void* func = (void*)MG_External::EGL::eglGetProcAddress(name);
+            if (func) return func;
+        }
+
 #if !defined(__WIN32) && !defined(_WIN32) && !defined(__APPLE__)
         return dlsym(lib, name);
 #else
-        return nullptrptr;
+        return nullptr;
 #endif
     }
 
@@ -430,8 +442,21 @@ namespace MobileGL::MG_Util::BackendLoader {
     }
 
     Bool AcquireEGLFunctions(MG_External::EGLFunctionsTable& funcs) {
+        void* eglLib = nullptr;
         static const Vector<String> EGLLibNames = {"libEGL.so"};
-        void* eglLib = OpenLib(EGLLibNames);
+        const char* libgl_egl = std::getenv("LIBGL_EGL");
+        if (libgl_egl && strcmp(libgl_egl, "libEGL_mesa.so") == 0) {
+            setenv("GALLIUM_DRIVER", "zink", 1);
+            setenv("MESA_LOADER_DRIVER_OVERRIDE", "zink", 1);
+            setenv("MESA_GL_VERSION_OVERRIDE", "3.2", 1);
+            setenv("MESA_GLSL_VERSION_OVERRIDE", "320", 1);
+            setenv("mesa_glthread", "true", 1);
+        }
+        if (libgl_egl) {
+            eglLib = OpenLib(EGLLibNames, libgl_egl);
+        } else {
+            eglLib = OpenLib(EGLLibNames);
+        }
         if (!eglLib) {
             MGLOG_E("Failed to open libEGL.so");
             return false;
@@ -513,6 +538,7 @@ namespace MobileGL::MG_Util::BackendLoader {
             eglDisplay = EGL_NO_DISPLAY;
         }
     }
+
     inline Bool InitTmpEGLContext(const MG_External::EGLFunctionsTable& eglFuncs) {
         EGLint configAttribs[] = {EGL_RED_SIZE,
                                   8,
@@ -522,13 +548,27 @@ namespace MobileGL::MG_Util::BackendLoader {
                                   8,
                                   EGL_ALPHA_SIZE,
                                   8,
+                                  EGL_DEPTH_SIZE,
+                                  24,
+                                  EGL_BUFFER_SIZE,
+                                  32,
                                   EGL_SURFACE_TYPE,
-                                  EGL_PBUFFER_BIT,
+                                  EGL_WINDOW_BIT|EGL_PBUFFER_BIT,
                                   EGL_RENDERABLE_TYPE,
-                                  EGL_OPENGL_ES2_BIT,
+                                  EGL_OPENGL_ES3_BIT,
                                   EGL_NONE};
 
-        EGLint ctxAttribs[] = {EGL_CONTEXT_CLIENT_VERSION, 2, EGL_NONE};
+        
+        const char* libgl_egl = std::getenv("LIBGL_EGL");
+        if (libgl_egl && strcmp(libgl_egl, "libEGL_mesa.so") == 0) {
+          LOG_W("Warning: You are using Mesa Zink!");
+    
+          configAttribs[10] = EGL_RENDERABLE_TYPE;
+          configAttribs[11] = EGL_OPENGL_ES2_BIT;
+          configAttribs[15] = EGL_OPENGL_ES2_BIT;
+
+        }
+        EGLint ctxAttribs[] = {EGL_CONTEXT_CLIENT_VERSION, 3, EGL_NONE};
 
         EGLint pbAttribs[] = {EGL_WIDTH, 32, EGL_HEIGHT, 32, EGL_NONE};
 
