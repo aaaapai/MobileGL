@@ -1,6 +1,9 @@
 #!/bin/bash
 # set -e
 
+vpython3 ./3rdparty/glslang/update_glslang_sources.py
+cd ../..
+
 # git clone --depth 1 https://github.com/aaaapai/FastSTL.git ./include/FastSTL
 cmake_build () {
   ANDROID_ABI=$1
