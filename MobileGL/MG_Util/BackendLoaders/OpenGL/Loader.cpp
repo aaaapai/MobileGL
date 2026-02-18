@@ -612,10 +612,10 @@ namespace MobileGL::MG_Util::BackendLoader {
         glesFuncs.glGetIntegerv(GL_MAJOR_VERSION, &caps.GLESVersion.Major);
         glesFuncs.glGetIntegerv(GL_MINOR_VERSION, &caps.GLESVersion.Minor);
 
-        caps.GLESVersionString = ToString(glesFuncs.glGetString(GL_VERSION));
-        caps.GLESRendererString = ToString(gpuName);
-        caps.GLESVendorString = ToString(vendorName);
-        caps.GLESShadingLanguageVersionString = ToString(glesFuncs.glGetString(GL_SHADING_LANGUAGE_VERSION));
+        caps.GLESVersionString = String((char*)glesFuncs.glGetString(GL_VERSION));
+        caps.GLESRendererString = Sttring((char*)gpuName);
+        caps.GLESVendorString = String((char*)vendorName);
+        caps.GLESShadingLanguageVersionString = String((char*)glesFuncs.glGetString(GL_SHADING_LANGUAGE_VERSION));
 
         GLint extCount = 0;
         glesFuncs.glGetIntegerv(GL_NUM_EXTENSIONS, &extCount);
