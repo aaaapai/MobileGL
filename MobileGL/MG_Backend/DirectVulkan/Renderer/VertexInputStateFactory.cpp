@@ -60,14 +60,14 @@ namespace MobileGL::MG_Backend::DirectVulkan {
 
             const auto vkFormat = ToVkVertexFormat(attr.Type, attr.Size, attr.Normalized, attr.IsInteger);
             if (vkFormat == VK_FORMAT_UNDEFINED) {
-                MGLOG_W("Skipping unsupported vertex attribute layout (location=%u, type=%s, size=%d)",
+                MGLOG_D("Skipping unsupported vertex attribute layout (location=%u, type=%s, size=%d)",
                         location, MG_Util::ConvertDataTypeToString(attr.Type).c_str(), attr.Size);
                 continue;
             }
 
             const SizeT componentSize = GetComponentSize(attr.Type);
             if (componentSize == 0) {
-                MGLOG_W("Skipping vertex attribute with unknown component size (location=%u, type=%s)",
+                MGLOG_D("Skipping vertex attribute with unknown component size (location=%u, type=%s)",
                         location, MG_Util::ConvertDataTypeToString(attr.Type).c_str());
                 continue;
             }
@@ -91,12 +91,12 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             } else {
                 binding = itBinding->second;
                 if (strideByBufferKey[bufferKey] != stride) {
-                    MGLOG_W("Skipping vertex attribute at location %u: stride mismatch (%u vs %u) on same buffer",
+                    MGLOG_D("Skipping vertex attribute at location %u: stride mismatch (%u vs %u) on same buffer",
                             location, stride, strideByBufferKey[bufferKey]);
                     continue;
                 }
                 if (inputRateByBufferKey[bufferKey] != inputRate) {
-                    MGLOG_W("Skipping vertex attribute at location %u: input-rate mismatch on same buffer", location);
+                    MGLOG_D("Skipping vertex attribute at location %u: input-rate mismatch on same buffer", location);
                     continue;
                 }
             }

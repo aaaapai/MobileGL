@@ -68,7 +68,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         MOBILEGL_ASSERT(m_programFactory != nullptr, "ProgramFactory is not initialized");
         auto& stages = m_programFactory->GetOrCreatePipelineShaderStages(program, ProgramFactory::CompileOptionBit::None);
         if (stages.empty()) {
-            MGLOG_W("GetOrCreatePipeline skipped: program has no shader stages");
+            MGLOG_D("GetOrCreatePipeline skipped: program has no shader stages");
             return VK_NULL_HANDLE;
         }
         const Uint64 programHash = m_programFactory->ComputeHash(program, ProgramFactory::CompileOptionBit::None);
@@ -365,7 +365,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
     void VulkanRenderer::EnsureFrameRecordingStarted() {
         auto& frame = m_frameContext.GetCurrent();
         if (frame.hasCommandBufferRecorded) {
-            MGLOG_W("EnsureFrameRecordingStarted skipped: current frame command buffer is already finalized");
+            MGLOG_D("EnsureFrameRecordingStarted skipped: current frame command buffer is already finalized");
             return;
         }
 
@@ -411,11 +411,11 @@ namespace MobileGL::MG_Backend::DirectVulkan {
 
         if (!drawTargetsDefault) {
             if (!m_framebufferManager || !drawFbo) {
-                MGLOG_W("EnsureFrameRecordingStarted skipped: offscreen draw target is unavailable");
+                MGLOG_D("EnsureFrameRecordingStarted skipped: offscreen draw target is unavailable");
                 return;
             }
             if (!m_framebufferManager->EnsureOffscreenColorTarget(drawFboExternalIndex, *drawFbo)) {
-                MGLOG_W("EnsureFrameRecordingStarted skipped: failed to materialize offscreen target for FBO %u",
+                MGLOG_D("EnsureFrameRecordingStarted skipped: failed to materialize offscreen target for FBO %u",
                         drawFboExternalIndex);
                 return;
             }
@@ -445,7 +445,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             }
 
             if (!m_framebufferManager->TransitionOffscreenColorToAttachment(commandBuffer, drawFboExternalIndex)) {
-                MGLOG_W("EnsureFrameRecordingStarted skipped: failed to transition offscreen FBO %u for attachment",
+                MGLOG_D("EnsureFrameRecordingStarted skipped: failed to transition offscreen FBO %u for attachment",
                         drawFboExternalIndex);
                 return;
             }
@@ -457,7 +457,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             if (!m_framebufferManager->GetOffscreenRenderTarget(drawFboExternalIndex, offscreenRenderPass,
                                                                 offscreenFramebuffer, offscreenExtent,
                                                                 offscreenDepthStencilFormat)) {
-                MGLOG_W("EnsureFrameRecordingStarted skipped: offscreen render target for FBO %u is unavailable",
+                MGLOG_D("EnsureFrameRecordingStarted skipped: offscreen render target for FBO %u is unavailable",
                         drawFboExternalIndex);
                 return;
             }
@@ -613,13 +613,13 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             const MG_State::GLState::BufferObject* sourceBuffer = findBufferByKey(bufferKey);
 
             if (!sourceBuffer) {
-                MGLOG_W("UploadAndBindVertexStreams skipped: no source buffer for binding %zu", binding);
+                MGLOG_D("UploadAndBindVertexStreams skipped: no source buffer for binding %zu", binding);
                 return false;
             }
 
             const auto sourceData = sourceBuffer->GetDataReadOnly();
             if (!sourceData || sourceData->empty()) {
-                MGLOG_W("UploadAndBindVertexStreams skipped: source buffer has no data for binding %zu", binding);
+                MGLOG_D("UploadAndBindVertexStreams skipped: source buffer has no data for binding %zu", binding);
                 return false;
             }
 
@@ -656,7 +656,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
 
     void VulkanRenderer::DrawArrays(const DrawArrayPayload& payload) {
         if (payload.mode != GL_TRIANGLES) {
-            MGLOG_W("DrawArrays skipped: primitive mode %u is not supported yet", payload.mode);
+            MGLOG_D("DrawArrays skipped: primitive mode %u is not supported yet", payload.mode);
             return;
         }
 
@@ -668,7 +668,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         EnsureFrameRecordingStarted();
         auto& frame = m_frameContext.GetCurrent();
         if (!frame.isCommandRecording || !m_isMainRenderPassActive) {
-            MGLOG_W("DrawArrays skipped: frame recording was not started");
+            MGLOG_D("DrawArrays skipped: frame recording was not started");
             return;
         }
 
@@ -676,7 +676,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         const auto activeExtent = m_activeRenderExtent;
 
         if (payload.program == nullptr) {
-            MGLOG_W("DrawArrays skipped: no current program is bound");
+            MGLOG_D("DrawArrays skipped: no current program is bound");
             return;
         }
 
@@ -692,7 +692,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         if (m_uniformDescriptorBinder) {
             pipelineLayoutToUse = m_uniformDescriptorBinder->GetOrCreatePipelineLayout(*payload.program);
             if (pipelineLayoutToUse == VK_NULL_HANDLE) {
-                MGLOG_W("DrawArrays skipped: failed to get pipeline layout for program");
+                MGLOG_D("DrawArrays skipped: failed to get pipeline layout for program");
                 return;
             }
         }
@@ -700,7 +700,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         VkPipeline pipelineToBind = GetOrCreatePipeline(*payload.program, pipelineLayoutToUse, vertexInputHash,
                                                         *vertexInputInfo);
         if (pipelineToBind == VK_NULL_HANDLE) {
-            MGLOG_W("DrawArrays skipped: failed to create/get pipeline");
+            MGLOG_D("DrawArrays skipped: failed to create/get pipeline");
             return;
         }
 
@@ -708,13 +708,13 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         if (m_uniformDescriptorBinder &&
             !m_uniformDescriptorBinder->BindProgramUniformBuffers(commandBuffer, pipelineLayoutToUse, *payload.program,
                                                                   m_frameContext.GetCurrentFrameIndex())) {
-            MGLOG_W("DrawArrays skipped: failed to bind uniform descriptors");
+            MGLOG_D("DrawArrays skipped: failed to bind uniform descriptors");
             return;
         }
 
         if (vertexInputState && !vertexInputState->bindings.empty()) {
             if (!payload.vertexArray) {
-                MGLOG_W("DrawArrays skipped: vertex input requires VAO");
+                MGLOG_D("DrawArrays skipped: vertex input requires VAO");
                 return;
             }
             if (!UploadAndBindVertexStreams(*vertexInputState, payload, commandBuffer)) {
@@ -741,14 +741,14 @@ namespace MobileGL::MG_Backend::DirectVulkan {
 
     void VulkanRenderer::DrawElements(const DrawElementPayload& payload) {
         if (payload.drawArray.mode != GL_TRIANGLES) {
-            MGLOG_W("DrawElements skipped: primitive mode %u is not supported yet", payload.drawArray.mode);
+            MGLOG_D("DrawElements skipped: primitive mode %u is not supported yet", payload.drawArray.mode);
             return;
         }
 
         EnsureFrameRecordingStarted();
         auto& frame = m_frameContext.GetCurrent();
         if (!frame.isCommandRecording || !m_isMainRenderPassActive) {
-            MGLOG_W("DrawElements skipped: frame recording was not started");
+            MGLOG_D("DrawElements skipped: frame recording was not started");
             return;
         }
 
@@ -761,12 +761,12 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             vkIndexType = VK_INDEX_TYPE_UINT32;
             break;
         default:
-            MGLOG_W("DrawElements skipped: index type %u is not supported yet", payload.indexType);
+            MGLOG_D("DrawElements skipped: index type %u is not supported yet", payload.indexType);
             return;
         }
 
         if (payload.drawArray.vertexArray == nullptr) {
-            MGLOG_W("DrawElements skipped: no VAO provided");
+            MGLOG_D("DrawElements skipped: no VAO provided");
             return;
         }
 
@@ -774,7 +774,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         auto* vao = const_cast<MG_State::GLState::VertexArrayObject*>(payload.drawArray.vertexArray);
         const auto indexBuffer = vao->GetIndexBufferBindingSlot().GetBoundObject();
         if (!indexBuffer) {
-            MGLOG_W("DrawElements skipped: VAO has no bound ELEMENT_ARRAY_BUFFER");
+            MGLOG_D("DrawElements skipped: VAO has no bound ELEMENT_ARRAY_BUFFER");
             return;
         }
 
@@ -791,7 +791,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         }
 
         if (payload.drawArray.program == nullptr) {
-            MGLOG_W("DrawElements skipped: no current program is bound");
+            MGLOG_D("DrawElements skipped: no current program is bound");
             return;
         }
 
@@ -807,7 +807,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         if (m_uniformDescriptorBinder) {
             pipelineLayoutToUse = m_uniformDescriptorBinder->GetOrCreatePipelineLayout(*payload.drawArray.program);
             if (pipelineLayoutToUse == VK_NULL_HANDLE) {
-                MGLOG_W("DrawElements skipped: failed to get pipeline layout for program");
+                MGLOG_D("DrawElements skipped: failed to get pipeline layout for program");
                 return;
             }
         }
@@ -815,7 +815,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         VkPipeline pipelineToBind = GetOrCreatePipeline(*payload.drawArray.program, pipelineLayoutToUse, vertexInputHash,
                                                         *vertexInputInfo);
         if (pipelineToBind == VK_NULL_HANDLE) {
-            MGLOG_W("DrawElements skipped: failed to create/get pipeline");
+            MGLOG_D("DrawElements skipped: failed to create/get pipeline");
             return;
         }
 
@@ -846,13 +846,13 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             !m_uniformDescriptorBinder->BindProgramUniformBuffers(commandBuffer, pipelineLayoutToUse,
                                                                   *payload.drawArray.program,
                                                                   m_frameContext.GetCurrentFrameIndex())) {
-            MGLOG_W("DrawElements skipped: failed to bind uniform descriptors");
+            MGLOG_D("DrawElements skipped: failed to bind uniform descriptors");
             return;
         }
 
         if (vertexInputState && !vertexInputState->bindings.empty()) {
             if (!payload.drawArray.vertexArray) {
-                MGLOG_W("DrawElements skipped: vertex input requires VAO");
+                MGLOG_D("DrawElements skipped: vertex input requires VAO");
                 return;
             }
             if (!UploadAndBindVertexStreams(*vertexInputState, payload.drawArray, commandBuffer)) {
@@ -883,17 +883,17 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                                          Uint readFboExternalIndex, Uint drawFboExternalIndex,
                                          Bool readIsDefaultFramebuffer, Bool drawIsDefaultFramebuffer) {
         if ((mask & GL_COLOR_BUFFER_BIT) == 0 || (mask & ~GL_COLOR_BUFFER_BIT) != 0) {
-            MGLOG_W("BlitFramebuffer skipped: only GL_COLOR_BUFFER_BIT is supported in Vulkan backend for now");
+            MGLOG_D("BlitFramebuffer skipped: only GL_COLOR_BUFFER_BIT is supported in Vulkan backend for now");
             return false;
         }
         if (readIsDefaultFramebuffer || !drawIsDefaultFramebuffer) {
-            MGLOG_W("BlitFramebuffer skipped: currently only read=offscreen FBO and draw=default FBO is supported");
+            MGLOG_D("BlitFramebuffer skipped: currently only read=offscreen FBO and draw=default FBO is supported");
             return false;
         }
 
         auto& frame = m_frameContext.GetCurrent();
         if (frame.hasCommandBufferRecorded) {
-            MGLOG_W("BlitFramebuffer skipped: current frame command buffer is already finalized");
+            MGLOG_D("BlitFramebuffer skipped: current frame command buffer is already finalized");
             return false;
         }
 
@@ -919,14 +919,14 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         }
 
         if (!m_framebufferManager || !MG_State::pGLContext) {
-            MGLOG_W("BlitFramebuffer skipped: framebuffer manager is unavailable");
+            MGLOG_D("BlitFramebuffer skipped: framebuffer manager is unavailable");
             return false;
         }
 
         (void)drawFboExternalIndex;
         const auto readFbo = MG_State::pGLContext->GetFramebufferObject(readFboExternalIndex);
         if (!readFbo) {
-            MGLOG_W("BlitFramebuffer skipped: read FBO %u not found", readFboExternalIndex);
+            MGLOG_D("BlitFramebuffer skipped: read FBO %u not found", readFboExternalIndex);
             return false;
         }
         if (!m_framebufferManager->EnsureOffscreenColorTarget(readFboExternalIndex, *readFbo)) {
@@ -939,7 +939,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         VkImage srcImage = VK_NULL_HANDLE;
         VkExtent2D srcExtent{};
         if (!m_framebufferManager->GetOffscreenColorImage(readFboExternalIndex, srcImage, srcExtent)) {
-            MGLOG_W("BlitFramebuffer skipped: offscreen image for FBO %u is unavailable", readFboExternalIndex);
+            MGLOG_D("BlitFramebuffer skipped: offscreen image for FBO %u is unavailable", readFboExternalIndex);
             return false;
         }
 
@@ -1010,7 +1010,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         EnsureFrameRecordingStarted();
         auto& frame = m_frameContext.GetCurrent();
         if (!frame.isCommandRecording || !m_isMainRenderPassActive) {
-            MGLOG_W("Render skipped: frame recording was not started");
+            MGLOG_D("Render skipped: frame recording was not started");
             return;
         }
 
@@ -1026,7 +1026,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                         "Present, acquired image index out of range");
         auto& frame = m_frameContext.GetCurrent();
         if (!m_pendingClears.empty() && frame.hasCommandBufferRecorded) {
-            MGLOG_W("Dropping pending clears for current frame because command buffer is already finalized");
+            MGLOG_D("Dropping pending clears for current frame because command buffer is already finalized");
             m_pendingClears.clear();
         } else if (!m_pendingClears.empty()) {
             auto activateTarget = [&](Bool targetIsDefault, Uint targetFboExternalIndex) -> Bool {
@@ -1162,7 +1162,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
 
                 const auto pendingTarget = pendingIt->second;
                 if (!activateTarget(pendingTarget.targetsDefaultFramebuffer, pendingTarget.drawFboExternalIndex)) {
-                    MGLOG_W("Present: dropping pending clear because target activation failed (FBO %u, default=%d)",
+                    MGLOG_D("Present: dropping pending clear because target activation failed (FBO %u, default=%d)",
                             pendingTarget.drawFboExternalIndex, pendingTarget.targetsDefaultFramebuffer);
                     m_pendingClears.erase(pendingIt);
                     continue;
