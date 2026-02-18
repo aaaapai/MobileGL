@@ -584,13 +584,13 @@ namespace MobileGL::MG_Impl::GLImpl {
 
             // Check alignment
             const SizeT typeSize = MG_Util::GetTexturePixelDataTypeSize(texturePixelDataType);
-            if (reinterpret_cast<uintptr_t>(pixels) % typeSize != 0) {
+            /*if (reinterpret_cast<uintptr_t>(pixels) % typeSize != 0) {
                 MG_State::pGLContext->RecordError(
                     ErrorCode::InvalidOperation,
                     MakeShared<GenericErrorInfo>("MG_Impl/GLImpl", "ReadPixels_State",
                                                  "Pixel data not aligned for pixel pack buffer"));
                 return;
-            }
+            }*/
         }
 
         // Check multisampling
