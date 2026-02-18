@@ -195,6 +195,7 @@ set(SOURCE_FILES
     MobileGL/MG_State/GLState/RenderbufferState/RenderbufferObject.cpp
     MobileGL/MG_State/GLState/RenderbufferState/RenderbufferState.cpp
 
+    MobileGL/MG_Util/Config/cJSON.c
     MobileGL/MG_Util/Config/config.cpp
     MobileGL/MG_Util/Config/settings.cpp
 )
