@@ -758,7 +758,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
         PrepareForDraw(syncBit);
 
         for (GLsizei i = 0; i < drawcount; ++i) {
-            const GLvoid* cmd = reinterpret_cast<const GLvoid*>(reinterpret_cast<const uint8_t*>(indirect) +
+            const GLvoid* cmd = reinterpret_cast<const GLvoid*>(reinterpret_cast<const std::uint8_t*>(indirect) +
                                                                 i * (stride ? stride : sizeof(GLsizei) * 4));
             g_GLESFuncs.glDrawElementsIndirect(mode, type, cmd);
         }
@@ -772,7 +772,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
         PrepareForDraw(syncBit);
 
         for (GLsizei i = 0; i < drawcount; ++i) {
-            const GLvoid* cmd = reinterpret_cast<const GLvoid*>(reinterpret_cast<const uint8_t*>(indirect) +
+            const GLvoid* cmd = reinterpret_cast<const GLvoid*>(reinterpret_cast<const std::uint8_t*>(indirect) +
                                                                 i * (stride ? stride : sizeof(GLsizei) * 4));
             g_GLESFuncs.glDrawArraysIndirect(mode, cmd);
         }
