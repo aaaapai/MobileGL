@@ -18,10 +18,10 @@ jobs:
     
     # 添加ccache步骤
     - name: CCache
-      uses: hendrikmuhs/ccache-action@v1.2
+      uses: hendrikmuhs/ccache-action@main
       with:
         key: ${{ runner.os }}-ndk-${{ env.BUILD_TYPE }}
-        max-size: 2G  # 设置缓存大小，根据需要调整
+        max-size: 1G  # 设置缓存大小，根据需要调整
     
     # 将ccache添加到PATH
     - name: Setup ccache in PATH
