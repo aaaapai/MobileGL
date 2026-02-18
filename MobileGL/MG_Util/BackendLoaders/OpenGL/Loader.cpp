@@ -59,6 +59,7 @@ namespace MobileGL::MG_Util::BackendLoader {
     
          if (eglGetProcAddress_mgptr != nullptr) {
              MGLOG_W("Using eglGetProcAddress");
+             typedef void* (*EGLGetProcAddressFunc)(const char*);
              EGLGetProcAddressFunc eglGetProcAddress = 
                  reinterpret_cast<EGLGetProcAddressFunc>(eglGetProcAddress_mgptr);
         
