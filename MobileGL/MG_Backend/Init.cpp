@@ -48,53 +48,14 @@ namespace MobileGL::MG_Backend {
     void Init() {
         MGLOG_D("Initializing MobileGL Backend...");
 
-        // 先创建后端对象
         switch (MG_Config::ActiveBackendType) {
-        case BackendType::DirectGLES: {
+        case BackendType::DirectGLES:
             pActiveBackendObject = MakeUnique<DirectGLES::BackendObject_DirectGLES>();
             break;
-        }
         case BackendType::Unknown:
         default:
             MGLOG_W("Unknown backend type, defaulting to unknown backend");
             pActiveBackendObject = nullptr;
-        }
-
-        if (!pActiveBackendObject) {
-            MGLOG_W("Failed to create backend object");
-            return;
-        }
-
-        // 检查环境变量并修改配置
-        const char* envLibGL = std::getenv("LIBGL_GL");
-        const char* envlibGL_compute = std::getenv("LIBGL_COMPUTE_SHADER");
-        
-        if ((envLibGL != nullptr) || (envlibGL_compute != nullptr)) {
-            // 获取非const引用以修改
-            auto& rendererInfo = pActiveBackendObject->GetRendererInfo();
-            std::string libglValue = "";
-            if (envLibGL != nullptr) {
-                libglValue = envLibGL;
-            }
-            auto& extensions = rendererInfo.RendererGLInfo.Extensions;
-
-            if (envlibGL_compute != nullptr) {
-                extensions.push_back(E_GL_ARB_compute_shader);
-            }
-    
-            // 如果设置为"43"，则使用OpenGL 4.3
-            if ((!libglValue.empty()) && (libglValue == "43")) {
-                MGLOG_I("LIBGL_GL=43 detected, using OpenGL 4.3 configuration");
-                
-                // 修改OpenGL版本
-                rendererInfo.RendererGLInfo.TargetGLVersion = {4, 3, 0};
-                
-                // 添加OpenGL 4.x扩展
-                extensions.push_back(V_OpenGL40);
-                extensions.push_back(V_OpenGL41);
-                extensions.push_back(V_OpenGL42);
-                extensions.push_back(V_OpenGL43);
-            }
         }
 
         Bool result = InitSpecificBackendLibs();
