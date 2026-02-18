@@ -27,6 +27,14 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             Bool depthTestEnable = false;
             Bool depthWriteEnable = false;
             VkCompareOp depthCompareOp = VK_COMPARE_OP_ALWAYS;
+            Bool blendEnable = false;
+            VkBlendFactor srcColorBlendFactor = VK_BLEND_FACTOR_ONE;
+            VkBlendFactor dstColorBlendFactor = VK_BLEND_FACTOR_ZERO;
+            VkBlendFactor srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+            VkBlendFactor dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO;
+            VkColorComponentFlags colorWriteMask =
+                VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
+                VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
             const Vector<VkPipelineShaderStageCreateInfo>* stages = nullptr;
             const VkPipelineVertexInputStateCreateInfo* vertexInputState = nullptr;
         };
