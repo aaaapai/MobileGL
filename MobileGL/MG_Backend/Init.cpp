@@ -51,7 +51,7 @@ namespace MobileGL::MG_Backend {
         switch (MG_Config::ActiveBackendType) {
         case BackendType::DirectGLES: {
 
-            RendererInfo directGLESInfo = DirectGLES::RendererInfo;
+            const auto& directGLESInfo = DirectGLES::RendererInfo;
 
             // 检查环境变量LIBGL_GL
             const char* envLibGL = std::getenv("LIBGL_GL");
