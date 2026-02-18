@@ -39,7 +39,9 @@
 #include <objc/runtime.h>
 #endif
 
+#define NO_GL_H
 #include <Includes.h>
+#undef NO_GL_H
 
 namespace MobileGL {
     void MG_Initialize();

@@ -62,7 +62,9 @@
 #endif
 #include <EGL/egl.h>
 #define GL_GLEXT_PROTOTYPES
+#ifndef NO_GL_H
 #include "GL/gl.h"
+#endif
 #include <GL/glcorearb.h>
 #undef GL_GLEXT_PROTOTYPES
 
