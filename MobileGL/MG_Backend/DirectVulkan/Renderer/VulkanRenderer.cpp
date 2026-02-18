@@ -139,6 +139,10 @@ namespace MobileGL::MG_Backend::DirectVulkan {
 
         PrepareDemoPipeline();
         CreateFrameContexts();
+        m_frameVertexUploadBuffers.resize(m_frameContext.GetFrameCount());
+        m_frameVertexUploadHeads.assign(m_frameContext.GetFrameCount(), 0);
+        m_frameIndexUploadBuffers.resize(m_frameContext.GetFrameCount());
+        m_frameIndexUploadHeads.assign(m_frameContext.GetFrameCount(), 0);
         m_deferredBufferReleases.clear();
         m_deferredBufferReleases.resize(m_frameContext.GetFrameCount());
 
@@ -163,13 +167,16 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             m_framebufferManager->Shutdown();
             m_framebufferManager.reset();
         }
-        for (auto& vertexBuffer : m_vertexBuffers) {
-            if (vertexBuffer) {
-                vertexBuffer->Destroy();
-            }
+        for (auto& buffer : m_frameVertexUploadBuffers) {
+            buffer.Destroy();
         }
-        m_vertexBuffers.clear();
-        m_indexBuffer.Destroy();
+        for (auto& buffer : m_frameIndexUploadBuffers) {
+            buffer.Destroy();
+        }
+        m_frameVertexUploadBuffers.clear();
+        m_frameVertexUploadHeads.clear();
+        m_frameIndexUploadBuffers.clear();
+        m_frameIndexUploadHeads.clear();
         m_deferredBufferReleases.clear();
 
         m_frameContext.Destroy(m_device, m_commandPool);
@@ -569,6 +576,40 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         m_deferredBufferReleases[frameIndex].clear();
     }
 
+    Bool VulkanRenderer::EnsureFrameUploadBufferCapacity(Uint32 frameIndex, Bool isIndexBuffer,
+                                                         VkDeviceSize requiredEndOffset, VkDeviceSize minCapacity,
+                                                         VkBufferUsageFlags usage) {
+        auto& buffers = isIndexBuffer ? m_frameIndexUploadBuffers : m_frameVertexUploadBuffers;
+        auto& heads = isIndexBuffer ? m_frameIndexUploadHeads : m_frameVertexUploadHeads;
+        if (frameIndex >= buffers.size() || frameIndex >= heads.size()) {
+            return false;
+        }
+
+        auto& uploadBuffer = buffers[frameIndex];
+        if (uploadBuffer.IsValid() && uploadBuffer.GetSize() >= requiredEndOffset) {
+            return true;
+        }
+
+        VkDeviceSize newCapacity = uploadBuffer.IsValid() ? uploadBuffer.GetSize() : 0;
+        if (newCapacity < minCapacity) {
+            newCapacity = minCapacity;
+        }
+        while (newCapacity < requiredEndOffset) {
+            newCapacity *= 2;
+        }
+
+        DeferDestroyBuffer(uploadBuffer);
+        if (!uploadBuffer.Create(m_allocator, newCapacity, usage, VMA_MEMORY_USAGE_AUTO,
+                                 VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT)) {
+            MGLOG_E("EnsureFrameUploadBufferCapacity failed: create upload buffer (index=%d, capacity=%zu)",
+                    isIndexBuffer, static_cast<SizeT>(newCapacity));
+            return false;
+        }
+
+        heads[frameIndex] = 0;
+        return true;
+    }
+
     Bool VulkanRenderer::UploadAndBindVertexStreams(
         const VertexInputStateFactory::BackendVertexInputState& vertexInputState,
         const DrawArrayPayload& payload,
@@ -583,12 +624,9 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             return false;
         }
 
-        if (m_vertexBuffers.size() < bindingCount) {
-            m_vertexBuffers.resize(bindingCount);
-        }
-
         Vector<VkBuffer> vkBuffers(bindingCount, VK_NULL_HANDLE);
         Vector<VkDeviceSize> vkOffsets(bindingCount, 0);
+        const Uint32 frameIndex = m_frameContext.GetCurrentFrameIndex();
 
         auto findBufferByKey = [&](SizeT bufferKey) -> const MG_State::GLState::BufferObject* {
             if (!payload.vertexArray) {
@@ -623,31 +661,23 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                 return false;
             }
 
-            if (!m_vertexBuffers[binding]) {
-                m_vertexBuffers[binding] = MakeUnique<VkBufferObject>();
-            }
-
-            auto& backendBuffer = *m_vertexBuffers[binding];
             const SizeT sourceSize = sourceBuffer->GetSize();
-            if (!backendBuffer.IsValid() || backendBuffer.GetSize() < sourceSize) {
-                DeferDestroyBuffer(backendBuffer);
-                const Bool created = backendBuffer.Create(
-                    m_allocator, static_cast<VkDeviceSize>(sourceSize),
-                    VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
-                    VMA_MEMORY_USAGE_AUTO,
-                    VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT);
-                if (!created) {
-                    MGLOG_E("UploadAndBindVertexStreams skipped: failed to create backend buffer for binding %zu", binding);
-                    return false;
-                }
+            VkDeviceSize& frameHead = m_frameVertexUploadHeads[frameIndex];
+            const VkDeviceSize writeOffset = (frameHead + 0x0F) & ~VkDeviceSize(0x0F);
+            const VkDeviceSize writeEnd = writeOffset + static_cast<VkDeviceSize>(sourceSize);
+            if (!EnsureFrameUploadBufferCapacity(frameIndex, false, writeEnd, 4 * 1024 * 1024,
+                                                 VK_BUFFER_USAGE_VERTEX_BUFFER_BIT)) {
+                return false;
             }
-
-            if (!backendBuffer.Upload(sourceData->data(), static_cast<VkDeviceSize>(sourceSize), 0)) {
+            auto& frameUploadBuffer = m_frameVertexUploadBuffers[frameIndex];
+            if (!frameUploadBuffer.Upload(sourceData->data(), static_cast<VkDeviceSize>(sourceSize), writeOffset)) {
                 MGLOG_E("UploadAndBindVertexStreams skipped: failed to upload binding %zu", binding);
                 return false;
             }
 
-            vkBuffers[binding] = backendBuffer.GetHandle();
+            frameHead = writeEnd;
+            vkBuffers[binding] = frameUploadBuffer.GetHandle();
+            vkOffsets[binding] = writeOffset;
         }
 
         vkCmdBindVertexBuffers(commandBuffer, 0, static_cast<Uint32>(bindingCount), vkBuffers.data(), vkOffsets.data());
@@ -819,24 +849,23 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             return;
         }
 
-        if (!m_indexBuffer.IsValid() || m_indexBuffer.GetSize() < indexDataSizeBytes) {
-            DeferDestroyBuffer(m_indexBuffer);
-            const Bool created = m_indexBuffer.Create(
-                m_allocator, static_cast<VkDeviceSize>(indexDataSizeBytes),
-                VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
-                VMA_MEMORY_USAGE_AUTO,
-                VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT);
-            if (!created) {
-                MGLOG_E("DrawElements skipped: failed to create index buffer");
-                return;
-            }
+        const Uint32 frameIndex = m_frameContext.GetCurrentFrameIndex();
+        VkDeviceSize& frameIndexHead = m_frameIndexUploadHeads[frameIndex];
+        const VkDeviceSize alignment = static_cast<VkDeviceSize>(indexSize);
+        const VkDeviceSize writeOffset = (frameIndexHead + alignment - 1) & ~(alignment - 1);
+        const VkDeviceSize writeEnd = writeOffset + static_cast<VkDeviceSize>(indexDataSizeBytes);
+        if (!EnsureFrameUploadBufferCapacity(frameIndex, true, writeEnd, 1 * 1024 * 1024,
+                                             VK_BUFFER_USAGE_INDEX_BUFFER_BIT)) {
+            MGLOG_E("DrawElements skipped: failed to prepare index upload buffer");
+            return;
         }
-
-        if (!m_indexBuffer.Upload(indexData->data() + payload.indexByteOffset, static_cast<VkDeviceSize>(indexDataSizeBytes),
-                                  0)) {
+        auto& frameIndexUploadBuffer = m_frameIndexUploadBuffers[frameIndex];
+        if (!frameIndexUploadBuffer.Upload(indexData->data() + payload.indexByteOffset,
+                                           static_cast<VkDeviceSize>(indexDataSizeBytes), writeOffset)) {
             MGLOG_E("DrawElements skipped: failed to upload index data");
             return;
         }
+        frameIndexHead = writeEnd;
 
         VkCommandBuffer& commandBuffer = frame.commandBuffer;
         const auto activeExtent = m_activeRenderExtent;
@@ -874,7 +903,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         scissor.extent = activeExtent;
         vkCmdSetScissor(commandBuffer, 0, 1, &scissor);
 
-        vkCmdBindIndexBuffer(commandBuffer, m_indexBuffer.GetHandle(), 0, vkIndexType);
+        vkCmdBindIndexBuffer(commandBuffer, frameIndexUploadBuffer.GetHandle(), writeOffset, vkIndexType);
         vkCmdDrawIndexed(commandBuffer, static_cast<Uint32>(payload.drawArray.count), 1, 0, 0, 0);
     }
 
@@ -1225,6 +1254,12 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         }
         VK_VERIFY(result, "Present, vkAcquireNextImageKHR");
         CollectDeferredBufferReleases(m_frameContext.GetCurrentFrameIndex());
+        if (m_frameContext.GetCurrentFrameIndex() < m_frameVertexUploadHeads.size()) {
+            m_frameVertexUploadHeads[m_frameContext.GetCurrentFrameIndex()] = 0;
+        }
+        if (m_frameContext.GetCurrentFrameIndex() < m_frameIndexUploadHeads.size()) {
+            m_frameIndexUploadHeads[m_frameContext.GetCurrentFrameIndex()] = 0;
+        }
     }
 
     void VulkanRenderer::CreateInstance() {
@@ -1929,6 +1964,10 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         }
         m_deferredBufferReleases.clear();
         m_deferredBufferReleases.resize(m_frameContext.GetFrameCount());
+        m_frameVertexUploadBuffers.resize(m_frameContext.GetFrameCount());
+        m_frameVertexUploadHeads.assign(m_frameContext.GetFrameCount(), 0);
+        m_frameIndexUploadBuffers.resize(m_frameContext.GetFrameCount());
+        m_frameIndexUploadHeads.assign(m_frameContext.GetFrameCount(), 0);
         m_isMainRenderPassActive = false;
         m_activeRenderPass = VK_NULL_HANDLE;
         m_activeRenderExtent = {0, 0};

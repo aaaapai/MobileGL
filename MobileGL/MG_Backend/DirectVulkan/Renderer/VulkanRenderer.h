@@ -125,8 +125,10 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         Vector<VkImageLayout> m_depthStencilImageLayouts;
 
         VkPipelineLayout m_pipelineLayout = VK_NULL_HANDLE;
-        Vector<UniquePtr<VkBufferObject>> m_vertexBuffers;
-        VkBufferObject m_indexBuffer;
+        Vector<VkBufferObject> m_frameVertexUploadBuffers;
+        Vector<VkDeviceSize> m_frameVertexUploadHeads;
+        Vector<VkBufferObject> m_frameIndexUploadBuffers;
+        Vector<VkDeviceSize> m_frameIndexUploadHeads;
         Vector<Vector<VkBufferObject>> m_deferredBufferReleases;
 
         Uint m_imageIndexAcquired = 0;
@@ -174,6 +176,8 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         void EndFrameRecordingIfNeeded();
         void DeferDestroyBuffer(VkBufferObject& buffer);
         void CollectDeferredBufferReleases(Uint32 frameIndex);
+        Bool EnsureFrameUploadBufferCapacity(Uint32 frameIndex, Bool isIndexBuffer, VkDeviceSize requiredEndOffset,
+                                             VkDeviceSize minCapacity, VkBufferUsageFlags usage);
         Bool UploadAndBindVertexStreams(
             const VertexInputStateFactory::BackendVertexInputState& vertexInputState,
             const DrawArrayPayload& payload,
