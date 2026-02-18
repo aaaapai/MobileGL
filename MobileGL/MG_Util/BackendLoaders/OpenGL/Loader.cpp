@@ -39,20 +39,39 @@ namespace MobileGL::MG_Util::BackendLoader {
     }
 
     inline void* ProcAddress(void* lib, const char* name) {
+         static void* eglGetProcAddress_mgptr = nullptr;
+    
+         if (eglGetProcAddress_mgptr == nullptr) {
+             void* eglLib = nullptr;
+             static const Vector<String> EGLLibNames = {"libEGL.so"};
+             const char* libgl_egl = std::getenv("LIBGL_EGL");
+        
+             if (libgl_egl) {
+                 eglLib = OpenLib(EGLLibNames, libgl_egl);
+             } else {
+                 eglLib = OpenLib(EGLLibNames);
+             }
+        
+             if (eglLib) {
+                 eglGetProcAddress_mgptr = dlsym(eglLib, "eglGetProcAddress");
+             }
+         }
+    
+         if (eglGetProcAddress_mgptr != nullptr) {
+             MGLOG_W("Using eglGetProcAddress");
+             EGLGetProcAddressFunc eglGetProcAddress = 
+                 reinterpret_cast<EGLGetProcAddressFunc>(eglGetProcAddress_mgptr);
+        
+             void* func = eglGetProcAddress(name);
+             if (func) return func;
+         }
 
-        bool has_eglGetProcAddress false;
-        if 
-        if (?) {
-            MGLOG_W("Using eglGetProcAddress");
-            void* func = (void*)eglGetProcAddress(name);
-            if (func) return func;
-        }
-
-#if !defined(__WIN32) && !defined(_WIN32) && !defined(__APPLE__)
-        return dlsym(lib, name);
-#else
+         // Fallback to dlsym on non-Windows/non-Apple platforms
+     #if !defined(__WIN32) && !defined(_WIN32) && !defined(__APPLE__)
+         return dlsym(lib, name);
+     #else
         return nullptr;
-#endif
+     #endif
     }
 
     Bool AcquireGLESFunctions(MG_External::GLESFunctionsTable& funcs,
