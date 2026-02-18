@@ -4,28 +4,43 @@ on:
   workflow_dispatch:
 
 env:
-  # Customize the CMake build type here (Release, Debug, RelWithDebInfo, etc.)
   BUILD_TYPE: Release
+  CCACHE_DIR: /tmp/ccache  # 设置ccache缓存目录
 
 jobs:
   build:
-    # The CMake configure and build commands are platform agnostic and should work equally
-    # well on Windows or Mac.  You can convert this to a matrix build if you need
-    # cross-platform coverage.
-    # See: https://docs.github.com/en/actions/configuring-and-managing-workflows/configuring-a-workflow#configuring-a-build-matrix
     runs-on: ubuntu-24.04
-
+    
     steps:
     - uses: actions/checkout@main
       with:
          submodules: true
-
+    
+    # 添加ccache步骤
+    - name: CCache
+      uses: hendrikmuhs/ccache-action@v1.2
+      with:
+        key: ${{ runner.os }}-ndk-${{ env.BUILD_TYPE }}
+        max-size: 2G  # 设置缓存大小，根据需要调整
+    
+    # 将ccache添加到PATH
+    - name: Setup ccache in PATH
+      run: |
+        echo "/usr/lib/ccache" >> $GITHUB_PATH
+        echo "CCACHE_DIR=/tmp/ccache" >> $GITHUB_ENV
+        echo "CCACHE_MAXSIZE=2G" >> $GITHUB_ENV
+    
     - name: Configure CMake and Build
       run: bash android_ci_build.bash
-
+      env:
+        CC: ccache clang
+        CXX: ccache clang++
+        CMAKE_C_COMPILER_LAUNCHER: ccache
+        CMAKE_CXX_COMPILER_LAUNCHER: ccache
+    
     - name: Upload build output
       uses: actions/upload-artifact@main
       with:
-        name: MobileGGGGGGGGGGGGGL
+        name: MobileGL
         path: |
               **/libMobileGL.so
