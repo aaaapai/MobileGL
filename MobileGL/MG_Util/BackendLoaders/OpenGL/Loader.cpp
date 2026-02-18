@@ -41,6 +41,7 @@ namespace MobileGL::MG_Util::BackendLoader {
     inline void* ProcAddress(void* lib, const char* name) {
 
         if (MG_External::EGL::eglGetProcAddress) {
+            LOG_W("Using eglGetProcAddress");
             void* func = (void*)MG_External::EGL::eglGetProcAddress(name);
             if (func) return func;
         }
