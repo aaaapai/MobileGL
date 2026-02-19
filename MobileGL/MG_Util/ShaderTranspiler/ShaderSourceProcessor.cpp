@@ -7,6 +7,7 @@
 // End of Source File Header
 
 #include "ShaderSourceProcessor.h"
+#include "ShaderSourceProcessor_inline.h"
 
 namespace MobileGL {
     namespace MG_Util {
