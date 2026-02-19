@@ -15,6 +15,8 @@
 #include <MG_Util/Converters/GLToStr/GLEnumConverter.h>
 #include <MG_Util/Converters/GLToGlslang/ProgramEnumConverter.h>
 
+#include "../Config/EnvChecker.h"
+
 namespace MobileGL {
     namespace MG_Util {
         namespace ShaderTranspiler {
