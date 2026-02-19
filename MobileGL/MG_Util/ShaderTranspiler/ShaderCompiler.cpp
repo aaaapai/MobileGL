@@ -248,13 +248,6 @@ namespace MobileGL {
             Result<Vector<Vector<unsigned>>> ShaderCompiler::GetSpirvBinaryFromProgram(
                 const ProgramBinaryAttrib& attrib) {
 
-                if (!attrib.program) {
-                    ResultInfo r;
-                    r.log = "Error: [GetSpirvBinary] Program is null";
-                    r.errc = -7;
-                    return std::unexpected(r);
-                }
-
                 glslang::SpvOptions spvOptions;
                 spvOptions.disableOptimizer = false;
                 spvOptions.generateDebugInfo = true;
