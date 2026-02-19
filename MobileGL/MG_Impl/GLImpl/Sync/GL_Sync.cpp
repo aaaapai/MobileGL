@@ -11,6 +11,7 @@
 #include "MG_State/GLState/Core.h"
 
 #include <MG_Util/BackendLoaders/OpenGL/Loader.h>
+#include <MG_Backend/DirectGLES/DirectGLES.h>
 
 #include <Defines.h>
 #include <Config.h>
@@ -39,7 +40,7 @@ namespace MobileGL {
 
         GLsync FenceSync(GLenum condition, GLbitfield flags) {
 #if MOBILEGL_BACKEND == MOBILEGL_BACKEND_TYPE_DIRECT_GLES
-            return g_GLESFuncs.glFenceSync(condition, flags);
+            return MG_Backend::DirectGLES::g_GLESFuncs.glFenceSync(condition, flags);
 #elif MOBILEGL_BACKEND == MOBILEGL_BACKEND_TYPE_DIRECT_VULKAN
             return FenceSync_State(condition, flags);
 #endif
@@ -47,7 +48,7 @@ namespace MobileGL {
 
         GLenum ClientWaitSync(GLsync sync, GLbitfield flags, GLuint64 timeout) {
 #if MOBILEGL_BACKEND == MOBILEGL_BACKEND_TYPE_DIRECT_GLES
-            return g_GLESFuncs.glClientWaitSync(sync, flags, timeout);
+            return MG_Backend::DirectGLES::g_GLESFuncs::g_GLESFuncs.glClientWaitSync(sync, flags, timeout);
 #elif MOBILEGL_BACKEND == MOBILEGL_BACKEND_TYPE_DIRECT_VULKAN
             return ClientWaitSync_State(sync, flags, timeout);
 #endif
@@ -56,7 +57,7 @@ namespace MobileGL {
 
         void DeleteSync(GLsync sync) {
 #if MOBILEGL_BACKEND == MOBILEGL_BACKEND_TYPE_DIRECT_GLES
-            g_GLESFuncs.glDeleteSync(sync);
+            MG_Backend::DirectGLES::g_GLESFuncs::g_GLESFuncs.glDeleteSync(sync);
 #elif MOBILEGL_BACKEND == MOBILEGL_BACKEND_TYPE_DIRECT_VULKAN
             DeleteSync_State(sync);
 #endif
