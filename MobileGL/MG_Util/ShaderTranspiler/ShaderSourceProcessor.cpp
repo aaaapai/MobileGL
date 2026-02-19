@@ -9,6 +9,8 @@
 #include "ShaderSourceProcessor.h"
 #include "ShaderSourceProcessor_inline.h"
 
+#include "../Config/EnvChecker.h"
+
 namespace MobileGL {
     namespace MG_Util {
         namespace ShaderTranspiler {
