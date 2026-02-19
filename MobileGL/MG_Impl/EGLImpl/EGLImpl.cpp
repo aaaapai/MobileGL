@@ -7,7 +7,7 @@
 // End of Source File Header
 
 #include "EGLImpl.h"
-#include "EGL/egl.h"
+#include "../GetProcAddress.h"
 #include <MG_Backend/BackendObjects.h>
 
 namespace MobileGL::MG_Impl::EGLImpl {
@@ -21,9 +21,6 @@ namespace MobileGL::MG_Impl::EGLImpl {
         }
         activeBackendObject->SetWindowHandle({MG_Backend::WindowBackend::Android, reinterpret_cast<void*>(window)});
         activeBackendObject->InitWindowSurface();
-        glClearColor(1, 1, 1, 1);
-        glClear(GL_COLOR_BUFFER_BIT);
-        SwapBuffers((EGLDisplay)1, (EGLSurface)1);
         return (EGLSurface)1;
     }
 
@@ -239,11 +236,7 @@ namespace MobileGL::MG_Impl::EGLImpl {
 
     __eglMustCastToProperFunctionPointerType GetProcAddress(const char* name) {
         MGLOG_D("eglGetProcAddress(%s)", name);
-#if !defined(WIN32) && !defined(__APPLE__)
-        void* proc = dlsym(RTLD_DEFAULT, (const char*)name);
-#else
-        void* proc = NULL;
-#endif
+        void* proc = MG_Impl::GetProcAddress(name);
         if (!proc) {
             MGLOG_W("Failed to get function: %s", (const char*)name);
             return nullptr;
