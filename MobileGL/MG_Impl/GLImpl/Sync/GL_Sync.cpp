@@ -48,7 +48,7 @@ namespace MobileGL {
 
         GLenum ClientWaitSync(GLsync sync, GLbitfield flags, GLuint64 timeout) {
 #if MOBILEGL_BACKEND == MOBILEGL_BACKEND_TYPE_DIRECT_GLES
-            return MG_Backend::DirectGLES::g_GLESFuncs::g_GLESFuncs.glClientWaitSync(sync, flags, timeout);
+            return MG_Backend::DirectGLES::g_GLESFuncs.glClientWaitSync(sync, flags, timeout);
 #elif MOBILEGL_BACKEND == MOBILEGL_BACKEND_TYPE_DIRECT_VULKAN
             return ClientWaitSync_State(sync, flags, timeout);
 #endif
@@ -57,7 +57,7 @@ namespace MobileGL {
 
         void DeleteSync(GLsync sync) {
 #if MOBILEGL_BACKEND == MOBILEGL_BACKEND_TYPE_DIRECT_GLES
-            MG_Backend::DirectGLES::g_GLESFuncs::g_GLESFuncs.glDeleteSync(sync);
+            MG_Backend::DirectGLES::g_GLESFuncs.glDeleteSync(sync);
 #elif MOBILEGL_BACKEND == MOBILEGL_BACKEND_TYPE_DIRECT_VULKAN
             DeleteSync_State(sync);
 #endif
