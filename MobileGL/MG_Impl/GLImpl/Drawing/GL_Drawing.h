@@ -42,8 +42,8 @@ namespace MobileGL {
         void ClearBufferSubData(GLenum target, GLenum internalformat, GLintptr offset, 
                         GLsizeiptr size, GLenum format, GLenum type, const void* data);
 
-        void ClearNamedBufferSubData(buffer, internalformat, offset,
-                            size, format, type, data);
+        void ClearNamedBufferSubData(GLuint buffer, GLenum internalformat, GLintptr offset,
+                             GLsizeiptr size, GLenum format, GLenum type, const void* data);
 
         void ClearBufferData(GLenum target, GLenum internalformat, GLenum format, GLenum type, const void* data);
 
