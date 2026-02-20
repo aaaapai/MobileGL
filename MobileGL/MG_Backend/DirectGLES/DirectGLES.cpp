@@ -1733,26 +1733,26 @@ void ClearBufferSubData(GLenum target, GLenum internalformat, GLintptr offset,
     // 参数检查
     if (size <= 0 || offset < 0) {
         MGLOG_E("ClearBufferSubData: invalid offset or size");
-        return;
+        //return;
     }
 
     BufferTarget mgTarget = GLEnumToBufferTarget(target);
     if (mgTarget == BufferTarget::Unknown) {
         MGLOG_E("ClearBufferSubData: unsupported target 0x%x", target);
-        return;
+        //return;
     }
 
     // 获取当前绑定的缓冲区对象
     auto bufferObj = MG_State::pGLContext->GetBufferBindingSlot(mgTarget).GetBoundObject();
     if (!bufferObj) {
         MGLOG_E("ClearBufferSubData: no buffer bound to target");
-        return;
+        //return;
     }
 
     // 检查范围
     if (offset + size > bufferObj->GetSize()) {
         MGLOG_E("ClearBufferSubData: range exceeds buffer size");
-        return;
+        //return;
     }
 
     // 同步必要的资源
@@ -1764,7 +1764,7 @@ void ClearBufferSubData(GLenum target, GLenum internalformat, GLintptr offset,
     auto it = BufferImpl::g_backendBufferObjects.find(bufferObj);
     if (it == BufferImpl::g_backendBufferObjects.end()) {
         MGLOG_E("ClearBufferSubData: backend buffer not found");
-        return;
+        //return;
     }
     GLuint bufferId = it->second->GetBackendBufferId();
 
@@ -1816,7 +1816,7 @@ void ClearNamedBufferSubData(GLuint buffer, GLenum internalformat, GLintptr offs
     }
 
     if (!targetBuffer) {
-        MGLOG_E("ClearNamedBufferSubData: buffer %u not found", buffer);
+        //MGLOG_E("ClearNamedBufferSubData: buffer %u not found", buffer);
         return;
     }
 
