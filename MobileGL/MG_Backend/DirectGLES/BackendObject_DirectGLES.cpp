@@ -147,6 +147,9 @@ namespace MobileGL::MG_Backend::DirectGLES {
             funcsTable.GL.GenerateMipmap = GenerateMipmap;
             funcsTable.GL.ReadPixels = ReadPixels;
             funcsTable.GL.GetTexImage = GetTexImage;
+            funcsTable.GL.ClearBufferData = ClearBufferData;
+            funcsTable.GL.ClearBufferSubData = ClearBufferSubData;
+            funcsTable.GL.ClearNamedBufferSubData = ClearNamedBufferSubData;
             funcsTableInitialized = true;
         }
         return funcsTable;
