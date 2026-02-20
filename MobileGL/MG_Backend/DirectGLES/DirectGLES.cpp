@@ -1673,151 +1673,139 @@ namespace MobileGL::MG_Backend::DirectGLES {
         }
     }
 
-    namespace {
-   GLenum GetBufferBindingEnum(GLenum target) {
-        switch(target) {
-            case GL_ARRAY_BUFFER: return GL_ARRAY_BUFFER_BINDING;
-            case GL_ELEMENT_ARRAY_BUFFER: return GL_ELEMENT_ARRAY_BUFFER_BINDING;
-            case GL_UNIFORM_BUFFER: return GL_UNIFORM_BUFFER_BINDING;
-            case GL_SHADER_STORAGE_BUFFER: return GL_SHADER_STORAGE_BUFFER_BINDING;
-            case GL_PIXEL_PACK_BUFFER: return GL_PIXEL_PACK_BUFFER_BINDING;
-            case GL_PIXEL_UNPACK_BUFFER: return GL_PIXEL_UNPACK_BUFFER_BINDING;
-            case GL_DRAW_INDIRECT_BUFFER: return GL_DRAW_INDIRECT_BUFFER_BINDING;
-            default: return 0;
-        }
-    }
-    
-    BufferTarget ConvertGLEnumToBufferTarget(GLenum target) {
-        switch(target) {
-            case GL_ARRAY_BUFFER: return BufferTarget::Array;
-            case GL_ELEMENT_ARRAY_BUFFER: return BufferTarget::ElementArray;
-            case GL_UNIFORM_BUFFER: return BufferTarget::Uniform;
-            case GL_SHADER_STORAGE_BUFFER: return BufferTarget::ShaderStorage;
-            case GL_PIXEL_PACK_BUFFER: return BufferTarget::PixelPack;
-            case GL_PIXEL_UNPACK_BUFFER: return BufferTarget::PixelUnpack;
-            case GL_DRAW_INDIRECT_BUFFER: return BufferTarget::DrawIndirect;
+    // ==================== 实现 glClearBufferSubData 相关函数 ====================
+
+namespace {
+    // 将 OpenGL 枚举转换为你的 BufferTarget 枚举
+    BufferTarget GLEnumToBufferTarget(GLenum target) {
+        switch (target) {
+            case GL_ARRAY_BUFFER:              return BufferTarget::Vertex;
+            case GL_ELEMENT_ARRAY_BUFFER:      return BufferTarget::Index;
+            case GL_UNIFORM_BUFFER:            return BufferTarget::Uniform;
+            case GL_COPY_READ_BUFFER:          return BufferTarget::CopyRead;
+            case GL_COPY_WRITE_BUFFER:         return BufferTarget::CopyWrite;
+            case GL_PIXEL_PACK_BUFFER:         return BufferTarget::PixelPack;
+            case GL_PIXEL_UNPACK_BUFFER:       return BufferTarget::PixelUnpack;
+            case GL_QUERY_BUFFER:               return BufferTarget::Query;
+            case GL_TEXTURE_BUFFER:             return BufferTarget::Texture;
+            case GL_TRANSFORM_FEEDBACK_BUFFER:  return BufferTarget::TransformFeedback;
+            case GL_ATOMIC_COUNTER_BUFFER:      return BufferTarget::AtomicCounter;
+            case GL_DISPATCH_INDIRECT_BUFFER:   return BufferTarget::DispatchIndirect;
+            case GL_DRAW_INDIRECT_BUFFER:       return BufferTarget::DrawIndirect;
+            case GL_SHADER_STORAGE_BUFFER:      return BufferTarget::ShaderStorage;
             default: return BufferTarget::Unknown;
         }
     }
 
-    void ClearBufferSubDataImpl(GLenum target, GLintptr offset, GLsizeiptr size, 
-                                GLenum internalFormat, GLenum format, GLenum type, 
-                                const void* data) {
-        
-        GLint previousBinding = 0;
-        g_GLESFuncs.glGetIntegerv(GetBufferBindingEnum(target), &previousBinding);
-        
-        auto bufferObject = MG_State::pGLContext->GetBufferBindingSlot(ConvertGLEnumToBufferTarget(target)).GetBoundObject();
-        if (!bufferObject) {
-            MGLOG_E("ClearBufferSubData: No buffer bound to target 0x%x", target);
-            return;
+    // 获取对应目标的绑定查询枚举（用于保存/恢复状态）
+    GLenum GetBindingEnum(GLenum target) {
+        switch (target) {
+            case GL_ARRAY_BUFFER:              return GL_ARRAY_BUFFER_BINDING;
+            case GL_ELEMENT_ARRAY_BUFFER:      return GL_ELEMENT_ARRAY_BUFFER_BINDING;
+            case GL_UNIFORM_BUFFER:            return GL_UNIFORM_BUFFER_BINDING;
+            case GL_COPY_READ_BUFFER:          return GL_COPY_READ_BUFFER_BINDING;
+            case GL_COPY_WRITE_BUFFER:         return GL_COPY_WRITE_BUFFER_BINDING;
+            case GL_PIXEL_PACK_BUFFER:         return GL_PIXEL_PACK_BUFFER_BINDING;
+            case GL_PIXEL_UNPACK_BUFFER:       return GL_PIXEL_UNPACK_BUFFER_BINDING;
+            case GL_QUERY_BUFFER:               return GL_QUERY_BUFFER_BINDING;
+            case GL_TEXTURE_BUFFER:             return GL_TEXTURE_BUFFER_BINDING;
+            case GL_TRANSFORM_FEEDBACK_BUFFER:  return GL_TRANSFORM_FEEDBACK_BUFFER_BINDING;
+            case GL_ATOMIC_COUNTER_BUFFER:      return GL_ATOMIC_COUNTER_BUFFER_BINDING;
+            case GL_DISPATCH_INDIRECT_BUFFER:   return GL_DISPATCH_INDIRECT_BUFFER_BINDING;
+            case GL_DRAW_INDIRECT_BUFFER:       return GL_DRAW_INDIRECT_BUFFER_BINDING;
+            case GL_SHADER_STORAGE_BUFFER:      return GL_SHADER_STORAGE_BUFFER_BINDING;
+            default: return 0;
         }
-        
-        BufferImpl::CreateAndSyncBufferObject(bufferObject);
-        
-        const auto& backendBufferIt = BufferImpl::g_backendBufferObjects.find(bufferObject);
-        if (backendBufferIt == BufferImpl::g_backendBufferObjects.end()) {
-            MGLOG_E("ClearBufferSubData: No backend buffer found");
-            return;
-        }
-        
-        GLuint bufferId = backendBufferIt->second->GetBackendBufferId();
-        
-        {
-            g_GLESFuncs.glBindBuffer(target, bufferId);
-            
-            void* mappedPtr = g_GLESFuncs.glMapBufferRange(target, offset, size, 
-                                                           GL_MAP_WRITE_BIT | GL_MAP_INVALIDATE_RANGE_BIT);
-            if (mappedPtr) {
-                if (data) {
-                    memcpy(mappedPtr, data, size);
-                } else {
-                    memset(mappedPtr, 0, size);
-                }
-                
-                g_GLESFuncs.glUnmapBuffer(target);
-            } else {
-                MGLOG_E("ClearBufferSubData: Failed to map buffer range");
-            }
-        }
-        
-        g_GLESFuncs.glBindBuffer(target, previousBinding);
-        
-        bufferObject->MarkDirty(offset, size);
     }
-    
 }
 
-void ClearBufferSubData(GLenum target, GLenum internalformat, GLintptr offset, 
+// 清除当前绑定到 target 的缓冲区的子数据范围
+void ClearBufferSubData(GLenum target, GLenum internalformat, GLintptr offset,
                         GLsizeiptr size, GLenum format, GLenum type, const void* data) {
 #if MOBILEGL_LOG_ACTIVE_LEVEL <= MOBILEGL_LOG_LEVEL_DEBUG && MOBILEGL_ENABLE_SCOPE_MARKER
     DebugImpl::OpenGLScopeMarker marker(__func__);
 #endif
     DebugImpl::ErrorLopper errorLopper;
-    
-    MGLOG_D("ClearBufferSubData: target=0x%x internalformat=%s offset=%lld size=%lld format=%s type=%s data=%p",
-            target, MG_Util::ConvertGLEnumToString(internalformat).c_str(), 
-            (long long)offset, (long long)size,
-            MG_Util::ConvertGLEnumToString(format).c_str(), 
-            MG_Util::ConvertGLEnumToString(type).c_str(), data);
-    
-    if (size <= 0) {
-        MGLOG_W("ClearBufferSubData: size must be positive");
+
+    MGLOG_D("ClearBufferSubData: target=0x%x offset=%lld size=%lld", target, (long long)offset, (long long)size);
+
+    // 参数检查
+    if (size <= 0 || offset < 0) {
+        MGLOG_E("ClearBufferSubData: invalid offset or size");
         return;
     }
-    
-    if (offset < 0) {
-        MGLOG_E("ClearBufferSubData: offset must be non-negative");
+
+    BufferTarget mgTarget = GLEnumToBufferTarget(target);
+    if (mgTarget == BufferTarget::Unknown) {
+        MGLOG_E("ClearBufferSubData: unsupported target 0x%x", target);
         return;
     }
-    
-    auto bufferTarget = ConvertGLEnumToBufferTarget(target);
-    if (bufferTarget == BufferTarget::Unknown) {
-        MGLOG_E("ClearBufferSubData: Unsupported target 0x%x", target);
+
+    // 获取当前绑定的缓冲区对象
+    auto bufferObj = MG_State::pGLContext->GetBufferBindingSlot(mgTarget).GetBoundObject();
+    if (!bufferObj) {
+        MGLOG_E("ClearBufferSubData: no buffer bound to target");
         return;
     }
-    
-    auto bufferObject = MG_State::pGLContext->GetBufferBindingSlot(bufferTarget).GetBoundObject();
-    if (!bufferObject) {
-        MGLOG_E("ClearBufferSubData: No buffer bound to target 0x%x", target);
+
+    // 检查范围
+    if (offset + size > bufferObj->GetSize()) {
+        MGLOG_E("ClearBufferSubData: range exceeds buffer size");
         return;
     }
-    
-    if (offset + size > bufferObject->GetSize()) {
-        MGLOG_E("ClearBufferSubData: Range [%lld, %lld) exceeds buffer size %llu",
-                (long long)offset, (long long)(offset + size), 
-                (unsigned long long)bufferObject->GetSize());
-        return;
-    }
-    
+
+    // 同步必要的资源
     TextureImpl::SyncNeccessaryTextures();
     FramebufferImpl::SyncCurrentFBO();
-    
-    if (data) {
-        ClearBufferSubDataImpl(target, offset, size, internalformat, format, type, data);
-    } else {
-        ClearBufferSubDataImpl(target, offset, size, internalformat, format, type, nullptr);
+    BufferImpl::CreateAndSyncBufferObject(bufferObj);  // 确保后端存在
+
+    // 获取后端缓冲区 ID
+    auto it = BufferImpl::g_backendBufferObjects.find(bufferObj);
+    if (it == BufferImpl::g_backendBufferObjects.end()) {
+        MGLOG_E("ClearBufferSubData: backend buffer not found");
+        return;
     }
-    
-    errorLopper.Loop([file = __FILE__, line = __LINE__](auto err) {
-        MGLOG_E("ES error (%s:%d): %s", file, line, MG_Util::ConvertGLEnumToString(err).c_str());
+    GLuint bufferId = it->second->GetBackendBufferId();
+
+    // 保存当前绑定
+    GLint prevBinding = 0;
+    GLenum bindingEnum = GetBindingEnum(target);
+    if (bindingEnum) g_GLESFuncs.glGetIntegerv(bindingEnum, &prevBinding);
+
+    // 绑定并映射
+    g_GLESFuncs.glBindBuffer(target, bufferId);
+    void* mapped = g_GLESFuncs.glMapBufferRange(target, offset, size,
+                                                 GL_MAP_WRITE_BIT | GL_MAP_INVALIDATE_RANGE_BIT);
+    if (mapped) {
+        if (data)
+            Memcpy(mapped, data, size);
+        else
+            Memset(mapped, 0, size);
+        g_GLESFuncs.glUnmapBuffer(target);
+    } else {
+        MGLOG_E("ClearBufferSubData: failed to map buffer range");
+    }
+
+    // 恢复绑定
+    g_GLESFuncs.glBindBuffer(target, prevBinding);
+
+    // 标记缓冲区为脏（如果需要后续同步）
+    bufferObj->MarkDirty(offset, size);
+
+    errorLopper.Loop([](GLenum err) {
+        MGLOG_D("ClearBufferSubData GL error: %s", MG_Util::ConvertGLEnumToString(err).c_str());
     });
-    
-    MGLOG_D("ClearBufferSubData: completed");
 }
 
+// 按名称清除缓冲区子数据（如果后端需要，通常前端不会直接调用此函数）
 void ClearNamedBufferSubData(GLuint buffer, GLenum internalformat, GLintptr offset,
                              GLsizeiptr size, GLenum format, GLenum type, const void* data) {
 #if MOBILEGL_LOG_ACTIVE_LEVEL <= MOBILEGL_LOG_LEVEL_DEBUG && MOBILEGL_ENABLE_SCOPE_MARKER
     DebugImpl::OpenGLScopeMarker marker(__func__);
 #endif
-    
-    MGLOG_D("ClearNamedBufferSubData: buffer=%u internalformat=%s offset=%lld size=%lld format=%s type=%s data=%p",
-            buffer, MG_Util::ConvertGLEnumToString(internalformat).c_str(),
-            (long long)offset, (long long)size,
-            MG_Util::ConvertGLEnumToString(format).c_str(),
-            MG_Util::ConvertGLEnumToString(type).c_str(), data);
-    
+    MGLOG_D("ClearNamedBufferSubData: buffer=%u offset=%lld size=%lld", buffer, (long long)offset, (long long)size);
+
+    // 查找对应的缓冲区对象（遍历所有后端缓冲区）
     SharedPtr<MG_State::GLState::BufferObject> targetBuffer;
     for (const auto& pair : BufferImpl::g_backendBufferObjects) {
         if (pair.second && pair.second->GetBackendBufferId() == buffer) {
@@ -1825,36 +1813,29 @@ void ClearNamedBufferSubData(GLuint buffer, GLenum internalformat, GLintptr offs
             break;
         }
     }
-    
+
     if (!targetBuffer) {
-        MGLOG_E("ClearNamedBufferSubData: Buffer %u not found", buffer);
+        MGLOG_E("ClearNamedBufferSubData: buffer %u not found", buffer);
         return;
     }
-    
-    GLint previousBinding = 0;
-    g_GLESFuncs.glGetIntegerv(GL_ARRAY_BUFFER_BINDING, &previousBinding);
-    
-    const auto& backendBufferIt = BufferImpl::g_backendBufferObjects.find(targetBuffer);
-    if (backendBufferIt != BufferImpl::g_backendBufferObjects.end()) {
-        backendBufferIt->second->Bind(GL_ARRAY_BUFFER);
-        
-        void* mappedPtr = g_GLESFuncs.glMapBufferRange(GL_ARRAY_BUFFER, offset, size,
-                                                       GL_MAP_WRITE_BIT | GL_MAP_INVALIDATE_RANGE_BIT);
-        if (mappedPtr) {
-            if (data) {
-                Memcpy(mappedPtr, data, size);
-            } else {
-                Memset(mappedPtr, 0, size);
-            }
-            g_GLESFuncs.glUnmapBuffer(GL_ARRAY_BUFFER);
-        }
+
+    // 临时绑定到 ARRAY_BUFFER 进行操作
+    GLint prevBinding = 0;
+    g_GLESFuncs.glGetIntegerv(GL_ARRAY_BUFFER_BINDING, &prevBinding);
+    g_GLESFuncs.glBindBuffer(GL_ARRAY_BUFFER, buffer);
+
+    void* mapped = g_GLESFuncs.glMapBufferRange(GL_ARRAY_BUFFER, offset, size,
+                                                 GL_MAP_WRITE_BIT | GL_MAP_INVALIDATE_RANGE_BIT);
+    if (mapped) {
+        if (data)
+            Memcpy(mapped, data, size);
+        else
+            Memset(mapped, 0, size);
+        g_GLESFuncs.glUnmapBuffer(GL_ARRAY_BUFFER);
     }
-    
-    g_GLESFuncs.glBindBuffer(GL_ARRAY_BUFFER, previousBinding);
-    
+
+    g_GLESFuncs.glBindBuffer(GL_ARRAY_BUFFER, prevBinding);
     targetBuffer->MarkDirty(offset, size);
-    
-    MGLOG_D("ClearNamedBufferSubData: completed");
 }
 
 void ClearBufferData(GLenum target, GLenum internalformat, GLenum format, GLenum type, const void* data) {
