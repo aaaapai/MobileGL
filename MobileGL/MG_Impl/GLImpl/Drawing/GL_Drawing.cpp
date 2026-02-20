@@ -155,6 +155,22 @@ namespace MobileGL::MG_Impl::GLImpl {
         MG_Backend::gBackendFunctionsTable.GL.DrawArraysIndirect(mode, indirect);
     }
 
+    void ClearBufferSubData_Backend(GLenum target, GLenum internalformat, GLintptr offset, 
+                        GLsizeiptr size, GLenum format, GLenum type, const void* data) {
+        MG_Backend::gBackendFunctionsTable.GL.ClearBufferSubData(target, internalformat, offset, 
+                        size, format, type, data);
+    }
+
+    void ClearNamedBufferSubData_Backend(GLuint buffer, GLenum internalformat, GLintptr offset,
+                             GLsizeiptr size, GLenum format, GLenum type, const void* data) {
+        MG_Backend::gBackendFunctionsTable.GL.ClearNamedBufferSubData(buffer, internalformat, offset,
+                            size, format, type, data);
+    }
+
+    void ClearBufferData_Backend(GLenum target, GLenum internalformat, GLenum format, GLenum type, const void* data) {
+        MG_Backend::gBackendFunctionsTable.GL.ClearBufferData(target, internalformat, format, type, data);
+    }
+
     /* @INSERTION_POINT:FUNCTION_IMPLEMENTATION@ */
     void MultiDrawElementsIndirect(GLenum mode, GLenum type, const void* indirect, GLsizei drawcount, GLsizei stride) {
         MultiDrawElementsIndirect_Backend(mode, type, indirect, drawcount, stride);
@@ -234,6 +250,22 @@ namespace MobileGL::MG_Impl::GLImpl {
 
     void DrawElements(GLenum mode, GLsizei count, GLenum type, const void* indices) {
         DrawElements_Backend(mode, count, type, indices);
+    }
+
+    void ClearBufferSubData(GLenum target, GLenum internalformat, GLintptr offset, 
+                        GLsizeiptr size, GLenum format, GLenum type, const void* data) {
+        ClearBufferSubData_Backend(target, internalformat, offset, 
+                        size, format, type, data);
+    }
+
+    void ClearNamedBufferSubData(GLuint buffer, GLenum internalformat, GLintptr offset,
+                             GLsizeiptr size, GLenum format, GLenum type, const void* data) {
+        ClearNamedBufferSubData_Backend(buffer, internalformat, offset,
+                            size, format, type, data);
+    }
+
+    void ClearBufferData(GLenum target, GLenum internalformat, GLenum format, GLenum type, const void* data) {
+        ClearBufferData_Backend(target, internalformat, format, type, data);
     }
 
 } // namespace MobileGL::MG_Impl::GLImpl
