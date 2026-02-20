@@ -1730,29 +1730,75 @@ void ClearBufferSubData(GLenum target, GLenum internalformat, GLintptr offset,
 
     MGLOG_D("ClearBufferSubData: target=0x%x offset=%lld size=%lld", target, (long long)offset, (long long)size);
 
-    // 参数检查
-    if (size <= 0 || offset < 0) {
-        MGLOG_E("ClearBufferSubData: invalid offset or size");
-        //return;
+    
+    // 1. 基本参数有效性
+    if (size == 0) {
+        MGLOG_D("ClearBufferSubData: size is 0, nothing to do");
+        return;  // 不是错误，直接返回
     }
-
+    
+    if (size < 0) {
+        MGLOG_E("ClearBufferSubData: size is negative: %lld", (long long)size);
+        return;
+    }
+    
+    if (offset < 0) {
+        MGLOG_E("ClearBufferSubData: offset is negative: %lld", (long long)offset);
+        return;
+    }
+    
+    // 2. target 有效性
     BufferTarget mgTarget = GLEnumToBufferTarget(target);
     if (mgTarget == BufferTarget::Unknown) {
         MGLOG_E("ClearBufferSubData: unsupported target 0x%x", target);
-        //return;
+        return;
     }
-
-    // 获取当前绑定的缓冲区对象
+    
+    // 3. 缓冲区对象存在性
     auto bufferObj = MG_State::pGLContext->GetBufferBindingSlot(mgTarget).GetBoundObject();
     if (!bufferObj) {
-        MGLOG_E("ClearBufferSubData: no buffer bound to target");
-        //return;
+        MGLOG_E("ClearBufferSubData: no buffer bound to target 0x%x", target);
+        return;
+    }
+    
+    // 4. 缓冲区状态
+    if (!bufferObj->IsInitialized()) {
+        MGLOG_E("ClearBufferSubData: buffer not initialized");
+        return;
+    }
+    
+    // 5. 缓冲区大小检查
+    GLsizeiptr bufferSize = bufferObj->GetSize();
+    if (bufferSize <= 0) {
+        MGLOG_E("ClearBufferSubData: buffer size is invalid: %lld", (long long)bufferSize);
+        return;
+    }
+    
+    // 6. offset 范围检查
+    if (offset >= bufferSize) {
+        MGLOG_E("ClearBufferSubData: offset (%lld) >= buffer size (%lld)", 
+                (long long)offset, (long long)bufferSize);
+        return;
+    }
+    
+    // 7. 整数溢出检查
+    if (offset > MAX_BUFFER_SIZE - size) {
+        MGLOG_E("ClearBufferSubData: offset+size would cause integer overflow");
+        return;
+    }
+    
+    // 8. 最终范围检查
+    if (offset + size > bufferSize) {
+        MGLOG_E("ClearBufferSubData: range [%lld, %lld) exceeds buffer size %lld", 
+                (long long)offset, (long long)(offset + size), (long long)bufferSize);
+        return;
     }
 
-    // 检查范围
-    if (offset + size > bufferObj->GetSize()) {
-        MGLOG_E("ClearBufferSubData: range exceeds buffer size");
-        //return;
+    // 确保起始位置在缓冲区范围内
+    if (offset >= bufferSize) {
+        MGLOG_E("ClearBufferSubData: offset (%lld) outside buffer (size %lld)", 
+                (long long)offset, (long long)bufferSize);
+        return;
     }
 
     // 同步必要的资源
