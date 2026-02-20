@@ -1791,7 +1791,7 @@ void ClearBufferSubData(GLenum target, GLenum internalformat, GLintptr offset,
     g_GLESFuncs.glBindBuffer(target, prevBinding);
 
     // 标记缓冲区为脏（如果需要后续同步）
-    bufferObj->MarkDirty(offset, size);
+    //bufferObj->MarkDirty(offset, size);
 
     errorLopper.Loop([](GLenum err) {
         MGLOG_D("ClearBufferSubData GL error: %s", MG_Util::ConvertGLEnumToString(err).c_str());
@@ -1836,11 +1836,11 @@ void ClearNamedBufferSubData(GLuint buffer, GLenum internalformat, GLintptr offs
     }
 
     g_GLESFuncs.glBindBuffer(GL_ARRAY_BUFFER, prevBinding);
-    targetBuffer->MarkDirty(offset, size);
+    //targetBuffer->MarkDirty(offset, size);
 }
 
 void ClearBufferData(GLenum target, GLenum internalformat, GLenum format, GLenum type, const void* data) {
-    auto bufferObject = MG_State::pGLContext->GetBufferBindingSlot(ConvertGLEnumToBufferTarget(target)).GetBoundObject();
+    auto bufferObject = MG_State::pGLContext->GetBufferBindingSlot(GLEnumToBufferTarget(target)).GetBoundObject();
     if (bufferObject) {
         ClearBufferSubData(target, internalformat, 0, bufferObject->GetSize(), format, type, data);
     }
