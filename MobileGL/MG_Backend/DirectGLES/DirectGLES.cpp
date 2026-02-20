@@ -21,6 +21,7 @@
 #include <MG_Util/Converters/MGToStr/TextureEnumConverter.h>
 #include <MG_Util/Converters/MGToGL/RenderStateEnumConverter.h>
 #include <MG_Util/Texture/PixelStoreProcessor.h>
+#include <MG_State/GLState/BufferState/BufferObject.h>
 
 namespace MobileGL::MG_Backend::DirectGLES {
     MG_External::EGLFunctionsTable g_EGLFuncs;
