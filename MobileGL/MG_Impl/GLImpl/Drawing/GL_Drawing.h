@@ -38,5 +38,14 @@ namespace MobileGL {
                                          GLsizei drawcount, const GLint* basevertex);
         void Clear(GLbitfield mask);
         void DrawElements(GLenum mode, GLsizei count, GLenum type, const void* indices);
+
+        void ClearBufferSubData(GLenum target, GLenum internalformat, GLintptr offset, 
+                        GLsizeiptr size, GLenum format, GLenum type, const void* data);
+
+        void ClearNamedBufferSubData(buffer, internalformat, offset,
+                            size, format, type, data);
+
+        void ClearBufferData(GLenum target, GLenum internalformat, GLenum format, GLenum type, const void* data);
+
     } // namespace MG_Impl::GLImpl
 } // namespace MobileGL
