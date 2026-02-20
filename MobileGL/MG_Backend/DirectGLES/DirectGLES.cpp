@@ -1674,6 +1674,32 @@ namespace MobileGL::MG_Backend::DirectGLES {
     }
 
     namespace {
+   GLenum GetBufferBindingEnum(GLenum target) {
+        switch(target) {
+            case GL_ARRAY_BUFFER: return GL_ARRAY_BUFFER_BINDING;
+            case GL_ELEMENT_ARRAY_BUFFER: return GL_ELEMENT_ARRAY_BUFFER_BINDING;
+            case GL_UNIFORM_BUFFER: return GL_UNIFORM_BUFFER_BINDING;
+            case GL_SHADER_STORAGE_BUFFER: return GL_SHADER_STORAGE_BUFFER_BINDING;
+            case GL_PIXEL_PACK_BUFFER: return GL_PIXEL_PACK_BUFFER_BINDING;
+            case GL_PIXEL_UNPACK_BUFFER: return GL_PIXEL_UNPACK_BUFFER_BINDING;
+            case GL_DRAW_INDIRECT_BUFFER: return GL_DRAW_INDIRECT_BUFFER_BINDING;
+            default: return 0;
+        }
+    }
+    
+    BufferTarget ConvertGLEnumToBufferTarget(GLenum target) {
+        switch(target) {
+            case GL_ARRAY_BUFFER: return BufferTarget::Array;
+            case GL_ELEMENT_ARRAY_BUFFER: return BufferTarget::ElementArray;
+            case GL_UNIFORM_BUFFER: return BufferTarget::Uniform;
+            case GL_SHADER_STORAGE_BUFFER: return BufferTarget::ShaderStorage;
+            case GL_PIXEL_PACK_BUFFER: return BufferTarget::PixelPack;
+            case GL_PIXEL_UNPACK_BUFFER: return BufferTarget::PixelUnpack;
+            case GL_DRAW_INDIRECT_BUFFER: return BufferTarget::DrawIndirect;
+            default: return BufferTarget::Unknown;
+        }
+    }
+
     void ClearBufferSubDataImpl(GLenum target, GLintptr offset, GLsizeiptr size, 
                                 GLenum internalFormat, GLenum format, GLenum type, 
                                 const void* data) {
@@ -1720,31 +1746,6 @@ namespace MobileGL::MG_Backend::DirectGLES {
         bufferObject->MarkDirty(offset, size);
     }
     
-    GLenum GetBufferBindingEnum(GLenum target) {
-        switch(target) {
-            case GL_ARRAY_BUFFER: return GL_ARRAY_BUFFER_BINDING;
-            case GL_ELEMENT_ARRAY_BUFFER: return GL_ELEMENT_ARRAY_BUFFER_BINDING;
-            case GL_UNIFORM_BUFFER: return GL_UNIFORM_BUFFER_BINDING;
-            case GL_SHADER_STORAGE_BUFFER: return GL_SHADER_STORAGE_BUFFER_BINDING;
-            case GL_PIXEL_PACK_BUFFER: return GL_PIXEL_PACK_BUFFER_BINDING;
-            case GL_PIXEL_UNPACK_BUFFER: return GL_PIXEL_UNPACK_BUFFER_BINDING;
-            case GL_DRAW_INDIRECT_BUFFER: return GL_DRAW_INDIRECT_BUFFER_BINDING;
-            default: return 0;
-        }
-    }
-    
-    BufferTarget ConvertGLEnumToBufferTarget(GLenum target) {
-        switch(target) {
-            case GL_ARRAY_BUFFER: return BufferTarget::Array;
-            case GL_ELEMENT_ARRAY_BUFFER: return BufferTarget::ElementArray;
-            case GL_UNIFORM_BUFFER: return BufferTarget::Uniform;
-            case GL_SHADER_STORAGE_BUFFER: return BufferTarget::ShaderStorage;
-            case GL_PIXEL_PACK_BUFFER: return BufferTarget::PixelPack;
-            case GL_PIXEL_UNPACK_BUFFER: return BufferTarget::PixelUnpack;
-            case GL_DRAW_INDIRECT_BUFFER: return BufferTarget::DrawIndirect;
-            default: return BufferTarget::Unknown;
-        }
-    }
 }
 
 void ClearBufferSubData(GLenum target, GLenum internalformat, GLintptr offset, 
