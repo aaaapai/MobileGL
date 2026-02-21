@@ -144,7 +144,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         payload.programHash = programHash;
         payload.vertexInputHash = vertexInputHash;
         payload.pipelineLayout = pipelineLayout;
-        payload.renderPass = (m_activeRenderPass != VK_NULL_HANDLE) ? m_activeRenderPass : m_renderPassLoad;
+        payload.renderPass = (m_activeRenderPass != VK_NULL_HANDLE) ? m_activeRenderPass : GetDefaultLoadRenderPass();
         payload.subpass = 0;
         payload.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
         if (MG_State::pGLContext != nullptr) {
@@ -202,6 +202,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         CreateAllocator();
 
         CreateCommandPool();
+        m_renderPassManager = MakeUnique<VkRenderPassManager>();
 
         RecreateSwapchain();
 
@@ -281,6 +282,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         }
 
         ShutdownSwapchain();
+        m_renderPassManager.reset();
 
         if (m_commandPool != VK_NULL_HANDLE) {
             vkDestroyCommandPool(m_device, m_commandPool, nullptr);
@@ -603,7 +605,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
 
         VkRenderPassBeginInfo renderPassInfo{};
         renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
-        renderPassInfo.renderPass = m_renderPassLoad;
+        renderPassInfo.renderPass = GetDefaultLoadRenderPass();
         renderPassInfo.framebuffer = m_framebuffers[m_imageIndexAcquired];
         renderPassInfo.renderArea.offset = {0, 0};
         renderPassInfo.renderArea.extent = m_swapchainObject.GetExtent();
@@ -1304,7 +1306,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
 
                 VkRenderPassBeginInfo renderPassInfo{};
                 renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
-                renderPassInfo.renderPass = m_renderPassLoad;
+                renderPassInfo.renderPass = GetDefaultLoadRenderPass();
                 renderPassInfo.framebuffer = m_framebuffers[m_imageIndexAcquired];
                 renderPassInfo.renderArea.offset = {0, 0};
                 renderPassInfo.renderArea.extent = m_swapchainObject.GetExtent();
@@ -1883,7 +1885,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
 
                     VkRenderPassBeginInfo renderPassInfo{};
                     renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
-                    renderPassInfo.renderPass = m_renderPassLoad;
+                    renderPassInfo.renderPass = GetDefaultLoadRenderPass();
                     renderPassInfo.framebuffer = m_framebuffers[m_imageIndexAcquired];
                     renderPassInfo.renderArea.offset = {0, 0};
                     renderPassInfo.renderArea.extent = m_swapchainObject.GetExtent();
@@ -2531,50 +2533,12 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         MGLOG_I("Command pool created");
     }
 
-    VkRenderPass VulkanRenderer::CreateDefaultRenderPass(VkAttachmentLoadOp loadOp) {
-        VkAttachmentDescription color{};
-        color.format = m_swapchainObject.GetSurfaceFormat().format;
-        color.samples = VK_SAMPLE_COUNT_1_BIT;
-        color.loadOp = loadOp;
-        color.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-        color.initialLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-        color.finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
-
-        VkAttachmentDescription depthStencil{};
-        depthStencil.format = m_depthStencilFormat;
-        depthStencil.samples = VK_SAMPLE_COUNT_1_BIT;
-        depthStencil.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
-        depthStencil.storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-        depthStencil.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
-        depthStencil.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-        depthStencil.initialLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
-        depthStencil.finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
-
-        VkAttachmentReference colorRef{0, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL};
-        VkAttachmentReference depthStencilRef{1, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL};
-        VkSubpassDescription sub{};
-        sub.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
-        sub.colorAttachmentCount = 1;
-        sub.pColorAttachments = &colorRef;
-        sub.pDepthStencilAttachment = &depthStencilRef;
-
-        VkAttachmentDescription attachments[] = {color, depthStencil};
-
-        VkRenderPassCreateInfo rpci{VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO};
-        rpci.attachmentCount = static_cast<Uint32>(std::size(attachments));
-        rpci.pAttachments = attachments;
-        rpci.subpassCount = 1;
-        rpci.pSubpasses = &sub;
-
-        VkRenderPass renderPass = VK_NULL_HANDLE;
-        VK_VERIFY(vkCreateRenderPass(m_device, &rpci, nullptr, &renderPass), "vkCreateRenderPass");
+    VkRenderPass VulkanRenderer::GetDefaultLoadRenderPass() const {
+        MOBILEGL_ASSERT(m_renderPassManager != nullptr, "GetDefaultLoadRenderPass: render pass manager is null");
+        const VkRenderPass renderPass = m_renderPassManager->GetLoadRenderPass();
+        MOBILEGL_ASSERT(renderPass != VK_NULL_HANDLE,
+                        "GetDefaultLoadRenderPass: default load render pass is unavailable");
         return renderPass;
-    }
-
-    void VulkanRenderer::CreateDefaultRenderPass() {
-        m_renderPassLoad = CreateDefaultRenderPass(VK_ATTACHMENT_LOAD_OP_LOAD);
-        m_renderPassClear = CreateDefaultRenderPass(VK_ATTACHMENT_LOAD_OP_CLEAR);
-        MGLOG_D("RenderPasses created (LOAD/CLEAR).");
     }
 
     void VulkanRenderer::CreateDefaultFramebuffers() {
@@ -2586,7 +2550,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         for (SizeT i = 0; i < imageViews.size(); ++i) {
             VkImageView attachments[] = {imageViews[i], m_depthStencilImageViews[i]};
             VkFramebufferCreateInfo fbci{VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO};
-            fbci.renderPass = m_renderPassLoad;
+            fbci.renderPass = GetDefaultLoadRenderPass();
             fbci.attachmentCount = static_cast<Uint32>(std::size(attachments));
             fbci.pAttachments = attachments;
             fbci.width = swapchainExtent.width;
@@ -2750,14 +2714,8 @@ namespace MobileGL::MG_Backend::DirectVulkan {
 
         DestroyDepthStencilResources();
 
-        if (m_renderPassClear != VK_NULL_HANDLE) {
-            vkDestroyRenderPass(m_device, m_renderPassClear, nullptr);
-            m_renderPassClear = VK_NULL_HANDLE;
-        }
-
-        if (m_renderPassLoad != VK_NULL_HANDLE) {
-            vkDestroyRenderPass(m_device, m_renderPassLoad, nullptr);
-            m_renderPassLoad = VK_NULL_HANDLE;
+        if (m_renderPassManager) {
+            m_renderPassManager->Shutdown();
         }
 
         m_swapchainObject.Shutdown(m_device);
@@ -2781,7 +2739,13 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                                                                static_cast<Uint32>(m_swapchainObject.GetImageCount())),
                   "RecreateSwapchain, InitializeSwapchainSemaphores");
         CreateDepthStencilResources();
-        CreateDefaultRenderPass();
+        MOBILEGL_ASSERT(m_renderPassManager != nullptr, "RecreateSwapchain: render pass manager is null");
+        VkRenderPassManager::InitInfo renderPassInitInfo{};
+        renderPassInitInfo.device = m_device;
+        renderPassInitInfo.colorFormat = m_swapchainObject.GetSurfaceFormat().format;
+        renderPassInitInfo.depthStencilFormat = m_depthStencilFormat;
+        MOBILEGL_ASSERT(m_renderPassManager->Initialize(renderPassInitInfo),
+                        "RecreateSwapchain: render pass manager initialization failed");
         CreateDefaultFramebuffers();
         if (m_pipelineFactory) {
             m_pipelineFactory->DestroyAll();

@@ -16,6 +16,7 @@
 #include "VertexInputStateFactory.h"
 #include "VkBufferObject.h"
 #include "VkFramebufferManager.h"
+#include "VkRenderPassManager.h"
 #include "VkTextureSamplerManager.h"
 #include "MG_Util/Math/VectorTypes.h"
 #include <Includes.h>
@@ -124,8 +125,6 @@ namespace MobileGL::MG_Backend::DirectVulkan {
 
         VkCommandPool m_commandPool = VK_NULL_HANDLE;
 
-        VkRenderPass m_renderPassLoad = VK_NULL_HANDLE;
-        VkRenderPass m_renderPassClear = VK_NULL_HANDLE;
         Vector<VkFramebuffer> m_framebuffers;
         VkFormat m_depthStencilFormat = VK_FORMAT_UNDEFINED;
         Vector<VkImage> m_depthStencilImages;
@@ -155,6 +154,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         UniquePtr<UniformDescriptorBinder> m_uniformDescriptorBinder;
         UniquePtr<VertexInputStateFactory> m_vertexInputStateFactory;
         UniquePtr<VkFramebufferManager> m_framebufferManager;
+        UniquePtr<VkRenderPassManager> m_renderPassManager;
         UniquePtr<VkTextureSamplerManager> m_textureSamplerManager;
 
         void CreateInstance();
@@ -171,8 +171,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         void CreateFrameContexts();
         void CreateDepthStencilResources();
         void DestroyDepthStencilResources();
-        void CreateDefaultRenderPass();
-        VkRenderPass CreateDefaultRenderPass(VkAttachmentLoadOp loadOp);
+        VkRenderPass GetDefaultLoadRenderPass() const;
         void CreateDefaultFramebuffers();
         void PrepareDemoPipeline();
         VkPipeline GetOrCreatePipeline(const MG_State::GLState::ProgramObject& program, VkPipelineLayout pipelineLayout,
