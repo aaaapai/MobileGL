@@ -9,14 +9,19 @@
 #include "Config.h"
 
 namespace MobileGL::MG_ConfigLoader {
-    static UnorderedMap<String, String> acceptedEnvVariablesMap;
+    static UniquePtr<UnorderedMap<String, String>> acceptedEnvVariablesMap;
 
     static Bool IsAcceptedPrefix(const String& key) {
         return (key.compare(0, 6, "LIBGL_") == 0 || key.compare(0, 9, "MOBILEGL_") == 0);
     }
 
     inline void InitializeAcceptedEnvVariables() {
-        acceptedEnvVariablesMap.clear();
+        if (!acceptedEnvVariablesMap) {
+            acceptedEnvVariablesMap = MakeUnique<UnorderedMap<String, String>>();
+        } else {
+            acceptedEnvVariablesMap->clear();
+        }
+
         char** envPtr = nullptr;
 
 #ifdef _WIN32
@@ -35,15 +40,16 @@ namespace MobileGL::MG_ConfigLoader {
                 String value = entry.substr(pos + 1);
 
                 if (IsAcceptedPrefix(key)) {
-                    acceptedEnvVariablesMap[key] = value;
+                    (*acceptedEnvVariablesMap)[key] = value;
+                    MGLOG_D("Config: Accepted env variable: %s=%s", key.c_str(), value.c_str());
                 }
             }
         }
     }
 
     inline void QueryEnvVariable(const String& key, String& outValue, const String& defaultValue) {
-        auto it = acceptedEnvVariablesMap.find(key);
-        if (it != acceptedEnvVariablesMap.end()) {
+        auto it = acceptedEnvVariablesMap->find(key);
+        if (it != acceptedEnvVariablesMap->end()) {
             outValue = it->second;
         } else {
             outValue = defaultValue;
@@ -71,5 +77,8 @@ namespace MobileGL::MG_ConfigLoader {
         InitializeAcceptedEnvVariables();
 
         InitBackendType();
+
+        // Destroy the map since we won't need it anymore
+        acceptedEnvVariablesMap.reset();
     }
 } // namespace MobileGL::MG_ConfigLoader
