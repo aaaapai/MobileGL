@@ -1761,12 +1761,6 @@ void ClearBufferSubData(GLenum target, GLenum internalformat, GLintptr offset,
         return;
     }
     
-    // 4. 缓冲区状态
-    if (!bufferObj->IsInitialized()) {
-        MGLOG_E("ClearBufferSubData: buffer not initialized");
-        return;
-    }
-    
     // 5. 缓冲区大小检查
     GLsizeiptr bufferSize = bufferObj->GetSize();
     if (bufferSize <= 0) {
@@ -1778,12 +1772,6 @@ void ClearBufferSubData(GLenum target, GLenum internalformat, GLintptr offset,
     if (offset >= bufferSize) {
         MGLOG_E("ClearBufferSubData: offset (%lld) >= buffer size (%lld)", 
                 (long long)offset, (long long)bufferSize);
-        return;
-    }
-    
-    // 7. 整数溢出检查
-    if (offset > MAX_BUFFER_SIZE - size) {
-        MGLOG_E("ClearBufferSubData: offset+size would cause integer overflow");
         return;
     }
     
