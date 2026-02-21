@@ -135,7 +135,8 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         }
 
         Bool InsertPositionFixup(spvtools::opt::IRContext* context, spvtools::opt::Instruction* insertBefore,
-                                 const PositionTargetInfo& target, Uint32 halfConstId, Bool doYFlip, Bool doZRemap) {
+                                 const PositionTargetInfo& target, Uint32 halfConstId, Bool doYFlip, Bool doZRemap,
+                                 Bool doSurfaceRotate90, Bool doSurfaceRotate180, Bool doSurfaceRotate270) {
             using namespace spvtools::opt;
             InstructionBuilder builder(context, insertBefore,
                                        IRContext::kAnalysisDefUse | IRContext::kAnalysisInstrToBlockMapping);
@@ -157,13 +158,34 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             auto* w = builder.AddCompositeExtract(target.floatTypeId, position->result_id(), {3});
             if (!x || !y || !z || !w) return false;
 
-            if (!doYFlip && !doZRemap) return false;
+            if (!doYFlip && !doZRemap && !doSurfaceRotate90 && !doSurfaceRotate180 && !doSurfaceRotate270) {
+                return false;
+            }
 
+            Uint32 xValueId = x->result_id();
             Uint32 yValueId = y->result_id();
             if (doYFlip) {
                 auto* negY = builder.AddUnaryOp(target.floatTypeId, spv::Op::OpFNegate, y->result_id());
                 if (!negY) return false;
                 yValueId = negY->result_id();
+            }
+
+            if (doSurfaceRotate90) {
+                auto* negY = builder.AddUnaryOp(target.floatTypeId, spv::Op::OpFNegate, yValueId);
+                if (!negY) return false;
+                xValueId = negY->result_id();
+                yValueId = x->result_id();
+            } else if (doSurfaceRotate180) {
+                auto* negX = builder.AddUnaryOp(target.floatTypeId, spv::Op::OpFNegate, xValueId);
+                auto* negY = builder.AddUnaryOp(target.floatTypeId, spv::Op::OpFNegate, yValueId);
+                if (!negX || !negY) return false;
+                xValueId = negX->result_id();
+                yValueId = negY->result_id();
+            } else if (doSurfaceRotate270) {
+                auto* negX = builder.AddUnaryOp(target.floatTypeId, spv::Op::OpFNegate, xValueId);
+                if (!negX) return false;
+                xValueId = yValueId;
+                yValueId = negX->result_id();
             }
 
             Uint32 zValueId = z->result_id();
@@ -177,7 +199,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             }
 
             auto* fixedPosition = builder.AddCompositeConstruct(target.vectorTypeId,
-                                                                {x->result_id(), yValueId, zValueId, w->result_id()});
+                                                                {xValueId, yValueId, zValueId, w->result_id()});
             if (!fixedPosition) return false;
 
             return builder.AddStore(positionPtrId, fixedPosition->result_id()) != nullptr;
@@ -205,6 +227,11 @@ namespace MobileGL::MG_Backend::DirectVulkan {
 
                 const Bool doYFlip = (m_transformFlags & ProgramFactory::CompileOptionBit::PositionYFlip);
                 const Bool doZRemap = (m_transformFlags & ProgramFactory::CompileOptionBit::PositionZRemap);
+                const Bool doSurfaceRotate90 = (m_transformFlags & ProgramFactory::CompileOptionBit::SurfaceRotate90);
+                const Bool doSurfaceRotate180 =
+                    (m_transformFlags & ProgramFactory::CompileOptionBit::SurfaceRotate180);
+                const Bool doSurfaceRotate270 =
+                    (m_transformFlags & ProgramFactory::CompileOptionBit::SurfaceRotate270);
 
                 Bool modified = false;
                 for (auto& entryPoint : get_module()->entry_points()) {
@@ -228,7 +255,8 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                                 (model != spv::ExecutionModel::Geometry && inst->opcode() == spv::Op::OpReturn);
                             if (!needsFixup) continue;
 
-                            modified |= InsertPositionFixup(context(), inst, target, halfConstId, doYFlip, doZRemap);
+                            modified |= InsertPositionFixup(context(), inst, target, halfConstId, doYFlip, doZRemap,
+                                                             doSurfaceRotate90, doSurfaceRotate180, doSurfaceRotate270);
                         }
                     }
                 }

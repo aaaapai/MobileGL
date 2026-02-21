@@ -62,12 +62,25 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         Shutdown();
     }
 
-    inline ProgramFactory::CompileOptionFlags GetShaderTransformFlags() {
+    inline ProgramFactory::CompileOptionFlags GetShaderTransformFlags(VkSurfaceTransformFlagBitsKHR preTransform) {
         ProgramFactory::CompileOptionFlags flags = ProgramFactory::CompileOptionBit::PositionZRemap;
         const auto& currentDrawFBO =
             MG_State::pGLContext->GetFramebufferBindingSlot(FramebufferTarget::Draw).GetBoundObject();
         if (currentDrawFBO == MG_Impl::GLImpl::FramebufferImpl::pDefaultFramebufferInfo->defaultFBO) {
             flags |= ProgramFactory::CompileOptionBit::PositionYFlip;
+            switch (preTransform) {
+            case VK_SURFACE_TRANSFORM_ROTATE_90_BIT_KHR:
+                flags |= ProgramFactory::CompileOptionBit::SurfaceRotate90;
+                break;
+            case VK_SURFACE_TRANSFORM_ROTATE_180_BIT_KHR:
+                flags |= ProgramFactory::CompileOptionBit::SurfaceRotate180;
+                break;
+            case VK_SURFACE_TRANSFORM_ROTATE_270_BIT_KHR:
+                flags |= ProgramFactory::CompileOptionBit::SurfaceRotate270;
+                break;
+            default:
+                break;
+            }
         }
         return flags;
     }
@@ -77,7 +90,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                                                    const VkPipelineVertexInputStateCreateInfo& vertexInputState) {
         MOBILEGL_ASSERT(m_pipelineFactory != nullptr, "PipelineFactory is not initialized");
         MOBILEGL_ASSERT(m_programFactory != nullptr, "ProgramFactory is not initialized");
-        ProgramFactory::CompileOptionFlags transformFlags = GetShaderTransformFlags();
+        ProgramFactory::CompileOptionFlags transformFlags = GetShaderTransformFlags(m_swapchainObject.GetPreTransform());
         auto& stages = m_programFactory->GetOrCreatePipelineShaderStages(program, transformFlags);
         if (stages.empty()) {
             MGLOG_D("GetOrCreatePipeline skipped: program has no shader stages");
