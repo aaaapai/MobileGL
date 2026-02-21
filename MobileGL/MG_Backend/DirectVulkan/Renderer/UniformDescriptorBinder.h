@@ -42,9 +42,18 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                                        const MG_State::GLState::ProgramObject& program, Uint32 frameIndex);
 
     private:
+        struct DescriptorPoolBucket {
+            VkDescriptorPool handle = VK_NULL_HANDLE;
+            Uint32 maxSets = 0;
+            Uint32 allocatedSets = 0;
+        };
+
         struct FrameResources {
             VkBufferObject uploadBuffer;
-            VkDescriptorPool descriptorPool = VK_NULL_HANDLE;
+            Vector<DescriptorPoolBucket> descriptorPools;
+            Uint32 activeDescriptorPoolIndex = 0;
+            Uint32 allocatedSetsThisFrame = 0;
+            Uint32 peakAllocatedSetsThisFrame = 0;
             VkDeviceSize writeCursor = 0;
         };
 
@@ -73,6 +82,8 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         Bool AllocateUploadRegion(FrameResources& frame, VkDeviceSize size, VkDeviceSize& outOffset);
         Bool GatherBindingPayloads(const MG_State::GLState::ProgramObject& program, Vector<const void*>& outData,
                                    Vector<VkDeviceSize>& outSizes) const;
+        Bool CreateDescriptorPool(Uint32 maxSets, VkDescriptorPool& outPool) const;
+        Bool GrowFrameDescriptorPool(FrameResources& frame, Uint32 frameIndex);
         void DestroyProgramLayouts();
 
         VkDevice m_device = VK_NULL_HANDLE;
@@ -85,6 +96,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         Uint32 m_frameCount = 0;
         Uint32 m_maxBindings = 0;
         Uint32 m_setsPerFrame = 0;
+        Uint32 m_peakDescriptorSetsObserved = 0;
         VkTextureSamplerManager* m_textureSamplerManager = nullptr;
         VkFramebufferManager* m_framebufferManager = nullptr;
     };
