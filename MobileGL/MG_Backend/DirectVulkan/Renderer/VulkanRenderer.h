@@ -25,6 +25,7 @@
 #include "../VkIncludes.h"
 
 namespace MobileGL::MG_State::GLState {
+    class FramebufferObject;
     class ProgramObject;
     class VertexArrayObject;
 } // namespace MobileGL::MG_State::GLState
@@ -125,7 +126,6 @@ namespace MobileGL::MG_Backend::DirectVulkan {
 
         VkCommandPool m_commandPool = VK_NULL_HANDLE;
 
-        Vector<VkFramebuffer> m_framebuffers;
         VkFormat m_depthStencilFormat = VK_FORMAT_UNDEFINED;
         Vector<VkImage> m_depthStencilImages;
         Vector<VkDeviceMemory> m_depthStencilImageMemories;
@@ -172,15 +172,17 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         void CreateDepthStencilResources();
         void DestroyDepthStencilResources();
         VkRenderPass GetDefaultLoadRenderPass() const;
-        void CreateDefaultFramebuffers();
+        Bool GetDefaultRenderTargetForCurrentImage(VkRenderPass& outRenderPass, VkFramebuffer& outFramebuffer,
+                                                   VkExtent2D& outExtent, VkFormat& outDepthStencilFormat) const;
+        Bool EnsureOffscreenRenderTarget(Uint glFboExternalIndex, const MG_State::GLState::FramebufferObject& glFbo,
+                                         VkRenderPass& outRenderPass, VkFramebuffer& outFramebuffer,
+                                         VkExtent2D& outExtent, VkFormat& outDepthStencilFormat);
         void PrepareDemoPipeline();
         VkPipeline GetOrCreatePipeline(const MG_State::GLState::ProgramObject& program, VkPipelineLayout pipelineLayout,
                                        Uint64 vertexInputHash,
                                        const VkPipelineVertexInputStateCreateInfo& vertexInputState);
         void TransitionSwapchainImageToColorAttachment(VkCommandBuffer commandBuffer, Uint32 imageIndex);
         void TransitionDepthStencilImageToAttachment(VkCommandBuffer commandBuffer, Uint32 imageIndex);
-        void RecordColorClear(VkCommandBuffer commandBuffer, const VkClearColorValue& clearColor);
-        void RecordDepthStencilClear(VkCommandBuffer commandBuffer, GLbitfield mask, Float depth, Uint32 stencil);
         void EndFrameRecordingIfNeeded();
         void DeferDestroyBuffer(VkBufferObject& buffer);
         void CollectDeferredBufferReleases(Uint32 frameIndex);

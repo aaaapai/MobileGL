@@ -240,16 +240,16 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         return false;
     }
 
-    Bool VkFramebufferManager::GetOffscreenRenderTarget(Uint glFboExternalIndex, VkRenderPass& outRenderPass,
-                                                        VkFramebuffer& outFramebuffer, VkExtent2D& outExtent,
-                                                        VkFormat& outDepthStencilFormat) const {
+    Bool VkFramebufferManager::GetOffscreenRenderSurface(Uint glFboExternalIndex, VkImageView& outColorView,
+                                                         VkFormat& outColorFormat, VkImageView& outDepthStencilView,
+                                                         VkFormat& outDepthStencilFormat, VkExtent2D& outExtent) const {
         auto it = m_offscreenColorTargets.find(glFboExternalIndex);
-        if (it == m_offscreenColorTargets.end() || it->second.framebuffer == VK_NULL_HANDLE ||
-            it->second.renderPassLoad == VK_NULL_HANDLE) {
+        if (it == m_offscreenColorTargets.end() || it->second.imageView == VK_NULL_HANDLE) {
             return false;
         }
-        outRenderPass = it->second.renderPassLoad;
-        outFramebuffer = it->second.framebuffer;
+        outColorView = it->second.imageView;
+        outColorFormat = it->second.format;
+        outDepthStencilView = it->second.depthStencilImageView;
         outExtent = it->second.extent;
         outDepthStencilFormat = it->second.depthStencilFormat;
         return true;
@@ -378,76 +378,6 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                       "vkCreateImageView(offscreen depth/stencil)");
         }
 
-        VkAttachmentDescription colorAttachmentDesc{};
-        colorAttachmentDesc.format = format;
-        colorAttachmentDesc.samples = VK_SAMPLE_COUNT_1_BIT;
-        colorAttachmentDesc.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
-        colorAttachmentDesc.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-        colorAttachmentDesc.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
-        colorAttachmentDesc.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-        colorAttachmentDesc.initialLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-        colorAttachmentDesc.finalLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-
-        VkAttachmentReference colorAttachmentRef{};
-        colorAttachmentRef.attachment = 0;
-        colorAttachmentRef.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-
-        VkSubpassDescription subpass{};
-        subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
-        subpass.colorAttachmentCount = 1;
-        subpass.pColorAttachments = &colorAttachmentRef;
-
-        VkAttachmentDescription depthAttachmentDesc{};
-        VkAttachmentReference depthAttachmentRef{};
-        Array<VkAttachmentDescription, 2> attachments{};
-        attachments[0] = colorAttachmentDesc;
-        Uint32 attachmentCount = 1;
-        if (hasDepthStencil) {
-            depthAttachmentDesc.format = depthStencilFormat;
-            depthAttachmentDesc.samples = VK_SAMPLE_COUNT_1_BIT;
-            depthAttachmentDesc.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
-            depthAttachmentDesc.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-            depthAttachmentDesc.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
-            depthAttachmentDesc.stencilStoreOp = VK_ATTACHMENT_STORE_OP_STORE;
-            depthAttachmentDesc.initialLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
-            depthAttachmentDesc.finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
-
-            depthAttachmentRef.attachment = 1;
-            depthAttachmentRef.layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
-            subpass.pDepthStencilAttachment = &depthAttachmentRef;
-
-            attachments[1] = depthAttachmentDesc;
-            attachmentCount = 2;
-        }
-
-        VkRenderPassCreateInfo renderPassInfo{};
-        renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
-        renderPassInfo.attachmentCount = attachmentCount;
-        renderPassInfo.pAttachments = attachments.data();
-        renderPassInfo.subpassCount = 1;
-        renderPassInfo.pSubpasses = &subpass;
-        VK_VERIFY(vkCreateRenderPass(m_device, &renderPassInfo, nullptr, &target.renderPassLoad),
-                  "vkCreateRenderPass(offscreen)");
-
-        Array<VkImageView, 2> framebufferAttachments{};
-        framebufferAttachments[0] = target.imageView;
-        Uint32 framebufferAttachmentCount = 1;
-        if (hasDepthStencil) {
-            framebufferAttachments[1] = target.depthStencilImageView;
-            framebufferAttachmentCount = 2;
-        }
-
-        VkFramebufferCreateInfo framebufferInfo{};
-        framebufferInfo.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
-        framebufferInfo.renderPass = target.renderPassLoad;
-        framebufferInfo.attachmentCount = framebufferAttachmentCount;
-        framebufferInfo.pAttachments = framebufferAttachments.data();
-        framebufferInfo.width = static_cast<Uint32>(size.x());
-        framebufferInfo.height = static_cast<Uint32>(size.y());
-        framebufferInfo.layers = 1;
-        VK_VERIFY(vkCreateFramebuffer(m_device, &framebufferInfo, nullptr, &target.framebuffer),
-                  "vkCreateFramebuffer(offscreen)");
-
         target.layout = VK_IMAGE_LAYOUT_UNDEFINED;
         target.extent = {static_cast<Uint32>(size.x()), static_cast<Uint32>(size.y())};
         target.format = format;
@@ -461,14 +391,6 @@ namespace MobileGL::MG_Backend::DirectVulkan {
     }
 
     void VkFramebufferManager::DestroyOffscreenColorTarget(OffscreenColorTarget& target) {
-        if (target.framebuffer != VK_NULL_HANDLE) {
-            vkDestroyFramebuffer(m_device, target.framebuffer, nullptr);
-            target.framebuffer = VK_NULL_HANDLE;
-        }
-        if (target.renderPassLoad != VK_NULL_HANDLE) {
-            vkDestroyRenderPass(m_device, target.renderPassLoad, nullptr);
-            target.renderPassLoad = VK_NULL_HANDLE;
-        }
         if (target.imageView != VK_NULL_HANDLE) {
             vkDestroyImageView(m_device, target.imageView, nullptr);
             target.imageView = VK_NULL_HANDLE;
