@@ -20,6 +20,9 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             None = 0,
             PositionYFlip = 1 << 0,
             PositionZRemap = 1 << 1,
+            SurfaceRotate90 = 1 << 2,
+            SurfaceRotate180 = 1 << 3,
+            SurfaceRotate270 = 1 << 4,
         };
         using CompileOptionFlags = Flags<CompileOptionBit>;
         using HashType = Uint64;

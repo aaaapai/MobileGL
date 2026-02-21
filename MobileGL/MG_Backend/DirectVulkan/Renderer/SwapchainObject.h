@@ -35,6 +35,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         VkSwapchainKHR GetHandle() const { return m_swapchain; }
         const VkSurfaceFormatKHR& GetSurfaceFormat() const { return m_surfaceFormat; }
         VkExtent2D GetExtent() const { return m_extent; }
+        VkSurfaceTransformFlagBitsKHR GetPreTransform() const { return m_preTransform; }
         const Vector<VkImage>& GetImages() const { return m_images; }
         const Vector<VkImageView>& GetImageViews() const { return m_imageViews; }
         VkImage GetImage(Uint32 index) const;
@@ -54,6 +55,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         VkSwapchainKHR m_swapchain = VK_NULL_HANDLE;
         VkSurfaceFormatKHR m_surfaceFormat{};
         VkExtent2D m_extent{};
+        VkSurfaceTransformFlagBitsKHR m_preTransform = VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR;
         Vector<VkImage> m_images;
         Vector<VkImageView> m_imageViews;
         Vector<VkImageLayout> m_imageLayouts;

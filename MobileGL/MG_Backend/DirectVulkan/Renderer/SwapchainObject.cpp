@@ -173,6 +173,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
 
         m_surfaceFormat = {createInfo.imageFormat, createInfo.imageColorSpace};
         m_extent = createInfo.imageExtent;
+        m_preTransform = createInfo.preTransform;
 
         VK_VERIFY(vkCreateSwapchainKHR(device, &createInfo, nullptr, &m_swapchain));
 
@@ -202,6 +203,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
 
         m_images.clear();
         m_imageLayouts.clear();
+        m_preTransform = VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR;
     }
 
     VkImage SwapchainObject::GetImage(Uint32 index) const {

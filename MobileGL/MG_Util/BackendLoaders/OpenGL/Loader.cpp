@@ -36,7 +36,7 @@ namespace MobileGL::MG_Util::BackendLoader {
 #if !defined(__WIN32) && !defined(_WIN32) && !defined(__APPLE__)
         return dlsym(lib, name);
 #else
-        return nullptrptr;
+        return nullptr;
 #endif
     }
 
