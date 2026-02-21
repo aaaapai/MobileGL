@@ -13,6 +13,7 @@
 #include "MG_State/GLState/Core.h"
 #include "MG_State/GLState/ProgramState/ProgramObject.h"
 #include "MG_Impl/GLImpl/Framebuffer/GL_Framebuffer.h"
+#include <vulkan/vulkan_core.h>
 
 namespace MobileGL::MG_Backend::DirectVulkan {
     VkBool32 VulkanRenderer::DebugCallback(VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity,
@@ -292,6 +293,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             vkDestroyDevice(m_device, nullptr);
             m_device = VK_NULL_HANDLE;
         }
+        m_cmdDrawIndexedIndirectCount = nullptr;
 
         if (m_surface != VK_NULL_HANDLE) {
             vkDestroySurfaceKHR(m_instance, m_surface, nullptr);
@@ -999,6 +1001,235 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         vkCmdDrawIndexed(commandBuffer, static_cast<Uint32>(payload.drawArray.count), 1, 0, 0, 0);
     }
 
+    void VulkanRenderer::MultiDrawElements(const Vector<DrawElementPayload>& payloads) {
+        if (payloads.empty()) {
+            return;
+        }
+
+        const DrawElementPayload& firstPayload = payloads.front();
+        if (firstPayload.drawArray.mode != GL_TRIANGLES) {
+            MGLOG_D("MultiDrawElements skipped: primitive mode %u is not supported yet", firstPayload.drawArray.mode);
+            return;
+        }
+
+        EnsureFrameRecordingStarted();
+        auto& frame = m_frameContext.GetCurrent();
+        if (!frame.isCommandRecording || !m_isMainRenderPassActive) {
+            MGLOG_D("MultiDrawElements skipped: frame recording was not started");
+            return;
+        }
+
+        VkIndexType vkIndexType = VK_INDEX_TYPE_MAX_ENUM;
+        SizeT indexSize = 0;
+        switch (firstPayload.indexType) {
+        case GL_UNSIGNED_SHORT:
+            vkIndexType = VK_INDEX_TYPE_UINT16;
+            indexSize = sizeof(Uint16);
+            break;
+        case GL_UNSIGNED_INT:
+            vkIndexType = VK_INDEX_TYPE_UINT32;
+            indexSize = sizeof(Uint32);
+            break;
+        default:
+            MGLOG_D("MultiDrawElements skipped: index type %u is not supported yet", firstPayload.indexType);
+            return;
+        }
+
+        if (firstPayload.drawArray.vertexArray == nullptr) {
+            MGLOG_D("MultiDrawElements skipped: no VAO provided");
+            return;
+        }
+        if (firstPayload.drawArray.program == nullptr) {
+            MGLOG_D("MultiDrawElements skipped: no current program is bound");
+            return;
+        }
+
+        // VertexArrayObject currently exposes index-buffer binding through non-const accessor.
+        auto* vao = const_cast<MG_State::GLState::VertexArrayObject*>(firstPayload.drawArray.vertexArray);
+        const auto indexBuffer = vao->GetIndexBufferBindingSlot().GetBoundObject();
+        if (!indexBuffer) {
+            MGLOG_D("MultiDrawElements skipped: VAO has no bound ELEMENT_ARRAY_BUFFER");
+            return;
+        }
+
+        const auto indexData = indexBuffer->GetDataReadOnly();
+        MOBILEGL_ASSERT(indexData != nullptr && !indexData->empty(), "MultiDrawElements requires non-empty EBO data");
+
+        struct PreparedDraw {
+            Uint32 indexCount = 0;
+            SizeT sourceOffset = 0;
+            SizeT sourceByteCount = 0;
+            Uint32 firstIndex = 0;
+        };
+        Vector<PreparedDraw> preparedDraws;
+        preparedDraws.reserve(payloads.size());
+
+        SizeT totalIndexBytes = 0;
+        Uint32 firstIndex = 0;
+        for (const auto& payload : payloads) {
+            if (payload.drawArray.count <= 0) {
+                continue;
+            }
+            if (payload.drawArray.mode != firstPayload.drawArray.mode || payload.indexType != firstPayload.indexType ||
+                payload.drawArray.vertexArray != firstPayload.drawArray.vertexArray ||
+                payload.drawArray.program != firstPayload.drawArray.program) {
+                MGLOG_D("MultiDrawElements skipped: mixed draw state in one multi-draw call is not supported");
+                return;
+            }
+
+            const SizeT drawByteCount = static_cast<SizeT>(payload.drawArray.count) * indexSize;
+            MOBILEGL_ASSERT(payload.indexByteOffset + drawByteCount <= indexBuffer->GetSize(),
+                            "MultiDrawElements index range out of bounds");
+
+            PreparedDraw draw{};
+            draw.indexCount = static_cast<Uint32>(payload.drawArray.count);
+            draw.sourceOffset = payload.indexByteOffset;
+            draw.sourceByteCount = drawByteCount;
+            draw.firstIndex = firstIndex;
+            preparedDraws.push_back(draw);
+
+            firstIndex += draw.indexCount;
+            totalIndexBytes += drawByteCount;
+        }
+
+        if (preparedDraws.empty()) {
+            return;
+        }
+
+        const VertexInputStateFactory::BackendVertexInputState* vertexInputState = nullptr;
+        if (firstPayload.drawArray.vertexArray && m_vertexInputStateFactory) {
+            vertexInputState =
+                &m_vertexInputStateFactory->GetOrCreateVertexInputState(*firstPayload.drawArray.vertexArray);
+        }
+
+        const Uint64 vertexInputHash = vertexInputState ? vertexInputState->hash : 0;
+        const VkPipelineVertexInputStateCreateInfo* vertexInputInfo =
+            vertexInputState ? &vertexInputState->state : nullptr;
+        if (!vertexInputInfo) {
+            VertexInputStateBuilder emptyVertexInputBuilder;
+            vertexInputInfo = &emptyVertexInputBuilder.Build();
+        }
+
+        VkPipelineLayout pipelineLayoutToUse = m_pipelineLayout;
+        if (m_uniformDescriptorBinder) {
+            pipelineLayoutToUse = m_uniformDescriptorBinder->GetOrCreatePipelineLayout(*firstPayload.drawArray.program);
+            if (pipelineLayoutToUse == VK_NULL_HANDLE) {
+                MGLOG_D("MultiDrawElements skipped: failed to get pipeline layout for program");
+                return;
+            }
+        }
+
+        VkPipeline pipelineToBind = GetOrCreatePipeline(*firstPayload.drawArray.program, pipelineLayoutToUse,
+                                                        vertexInputHash, *vertexInputInfo);
+        if (pipelineToBind == VK_NULL_HANDLE) {
+            MGLOG_D("MultiDrawElements skipped: failed to create/get pipeline");
+            return;
+        }
+
+        const Uint32 frameIndex = m_frameContext.GetCurrentFrameIndex();
+        VkDeviceSize& frameIndexHead = m_frameIndexUploadHeads[frameIndex];
+        const auto alignment = static_cast<VkDeviceSize>(indexSize);
+        const VkDeviceSize writeOffset = (frameIndexHead + alignment - 1) & ~(alignment - 1);
+        const VkDeviceSize writeEnd = writeOffset + static_cast<VkDeviceSize>(totalIndexBytes);
+        if (!EnsureFrameUploadBufferCapacity(frameIndex, true, writeEnd, 1 * 1024 * 1024,
+                                             VK_BUFFER_USAGE_INDEX_BUFFER_BIT)) {
+            MGLOG_E("MultiDrawElements skipped: failed to prepare index upload buffer");
+            return;
+        }
+        auto& frameIndexUploadBuffer = m_frameIndexUploadBuffers[frameIndex];
+
+        VkDeviceSize writeCursor = writeOffset;
+        for (const auto& draw : preparedDraws) {
+            if (!frameIndexUploadBuffer.Upload(indexData->data() + draw.sourceOffset,
+                                               static_cast<VkDeviceSize>(draw.sourceByteCount), writeCursor)) {
+                MGLOG_E("MultiDrawElements skipped: failed to upload index data");
+                return;
+            }
+            writeCursor += static_cast<VkDeviceSize>(draw.sourceByteCount);
+        }
+        frameIndexHead = writeEnd;
+
+        VkCommandBuffer& commandBuffer = frame.commandBuffer;
+        const auto activeExtent = m_activeRenderExtent;
+        vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineToBind);
+        if (m_uniformDescriptorBinder && !m_uniformDescriptorBinder->BindProgramUniformBuffers(
+                                             commandBuffer, pipelineLayoutToUse, *firstPayload.drawArray.program,
+                                             m_frameContext.GetCurrentFrameIndex())) {
+            MGLOG_D("MultiDrawElements skipped: failed to bind uniform descriptors");
+            return;
+        }
+
+        if (vertexInputState && !vertexInputState->bindings.empty()) {
+            if (!UploadAndBindVertexStreams(*vertexInputState, firstPayload.drawArray, commandBuffer)) {
+                return;
+            }
+        }
+
+        VkViewport viewport{};
+        viewport.x = 0.0f;
+        viewport.y = 0.0f;
+        viewport.width = static_cast<float>(activeExtent.width);
+        viewport.height = static_cast<float>(activeExtent.height);
+        viewport.minDepth = 0.0f;
+        viewport.maxDepth = 1.0f;
+        vkCmdSetViewport(commandBuffer, 0, 1, &viewport);
+
+        VkRect2D scissor{};
+        scissor.offset = {0, 0};
+        scissor.extent = activeExtent;
+        vkCmdSetScissor(commandBuffer, 0, 1, &scissor);
+
+        vkCmdBindIndexBuffer(commandBuffer, frameIndexUploadBuffer.GetHandle(), writeOffset, vkIndexType);
+
+        const Bool canUseIndirectCount =
+            m_drawIndirectCountExtensionEnabled && m_cmdDrawIndexedIndirectCount != nullptr;
+        if (canUseIndirectCount) {
+            Vector<VkDrawIndexedIndirectCommand> indirectCommands(preparedDraws.size());
+            for (SizeT i = 0; i < preparedDraws.size(); ++i) {
+                indirectCommands[i].indexCount = preparedDraws[i].indexCount;
+                indirectCommands[i].instanceCount = 1;
+                indirectCommands[i].firstIndex = preparedDraws[i].firstIndex;
+                indirectCommands[i].vertexOffset = 0;
+                indirectCommands[i].firstInstance = 0;
+            }
+
+            const auto commandBytes =
+                static_cast<VkDeviceSize>(indirectCommands.size() * sizeof(VkDrawIndexedIndirectCommand));
+            const VkDeviceSize countOffset = (commandBytes + 3) & ~VkDeviceSize(3);
+            const VkDeviceSize totalBytes = countOffset + sizeof(Uint32);
+
+            VkBufferObject indirectUploadBuffer;
+            if (!indirectUploadBuffer.Create(
+                    m_allocator, totalBytes, VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT, VMA_MEMORY_USAGE_AUTO_PREFER_HOST,
+                    VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT)) {
+                MGLOG_W("MultiDrawElements: failed to allocate indirect buffer, fallback to vkCmdDrawIndexed loop");
+            } else {
+                Vector<Uint8> indirectBlob(static_cast<SizeT>(totalBytes), 0);
+                memcpy(indirectBlob.data(), indirectCommands.data(), static_cast<SizeT>(commandBytes));
+                const auto indirectDrawCount = static_cast<Uint32>(indirectCommands.size());
+                memcpy(indirectBlob.data() + static_cast<SizeT>(countOffset), &indirectDrawCount,
+                       sizeof(indirectDrawCount));
+
+                if (!indirectUploadBuffer.Upload(indirectBlob.data(), totalBytes, 0)) {
+                    MGLOG_W("MultiDrawElements: failed to upload indirect commands, fallback to vkCmdDrawIndexed loop");
+                } else {
+                    m_cmdDrawIndexedIndirectCount(commandBuffer, indirectUploadBuffer.GetHandle(), 0,
+                                                  indirectUploadBuffer.GetHandle(), countOffset,
+                                                  static_cast<Uint32>(indirectCommands.size()),
+                                                  static_cast<Uint32>(sizeof(VkDrawIndexedIndirectCommand)));
+                    DeferDestroyBuffer(indirectUploadBuffer);
+                    return;
+                }
+                DeferDestroyBuffer(indirectUploadBuffer);
+            }
+        }
+
+        // Fallback
+        for (const auto& draw : preparedDraws) {
+            vkCmdDrawIndexed(commandBuffer, draw.indexCount, 1, draw.firstIndex, 0, 0);
+        }
+    }
+
     Bool VulkanRenderer::BlitFramebuffer(GLint srcX0, GLint srcY0, GLint srcX1, GLint srcY1, GLint dstX0, GLint dstY0,
                                          GLint dstX1, GLint dstY1, GLbitfield mask, GLenum filter,
                                          Uint readFboExternalIndex, Uint drawFboExternalIndex,
@@ -1584,30 +1815,19 @@ namespace MobileGL::MG_Backend::DirectVulkan {
     }
 
     Bool VulkanRenderer::IsNecessaryDeviceExtensionSupported(VkPhysicalDevice device) {
-        Uint32 extensionCount = 0;
-        vkEnumerateDeviceExtensionProperties(device, nullptr, &extensionCount, nullptr);
+        const Vector<VkExtensionProperties> availableExtensions = EnumerateDeviceExtensions(device);
 
-        std::vector<VkExtensionProperties> availableExtensions(extensionCount);
-        vkEnumerateDeviceExtensionProperties(device, nullptr, &extensionCount, availableExtensions.data());
-
-        MGLOG_I("Got %u Vulkan device extensions: ", extensionCount);
+        MGLOG_I("Got %u Vulkan device extensions: ", static_cast<Uint32>(availableExtensions.size()));
         for (auto& extension : availableExtensions) {
             MGLOG_I("    %s (r.%u)", extension.extensionName, extension.specVersion);
         }
 
         for (SizeT i = 0; i < std::size(s_deviceExtensionNames); ++i) {
-            Bool found = false;
-            for (const auto& extension : availableExtensions) {
-                if (strcmp(extension.extensionName, s_deviceExtensionNames[i]) == 0) {
-                    MGLOG_I("Required extension found: %s", s_deviceExtensionNames[i]);
-                    found = true;
-                    break;
-                }
-            }
-            if (!found) {
+            if (!IsExtensionSupported(availableExtensions, s_deviceExtensionNames[i])) {
                 MGLOG_I("Required extension not found: %s", s_deviceExtensionNames[i]);
                 return false;
             }
+            MGLOG_I("Required extension found: %s", s_deviceExtensionNames[i]);
         }
 
         return true;
@@ -1649,30 +1869,28 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         }
 
         Vector<const char*> enabledDeviceExtensions;
-        enabledDeviceExtensions.reserve(std::size(s_deviceExtensionNames) + 1);
+        enabledDeviceExtensions.reserve(std::size(s_deviceExtensionNames) + 2);
         for (const char* extensionName : s_deviceExtensionNames) {
             enabledDeviceExtensions.push_back(extensionName);
         }
 
-#ifdef VK_KHR_PORTABILITY_SUBSET_EXTENSION_NAME
-        Uint32 extensionCount = 0;
-        VK_VERIFY(vkEnumerateDeviceExtensionProperties(m_physicalDevice.handle, nullptr, &extensionCount, nullptr));
-        Vector<VkExtensionProperties> availableExtensions(extensionCount);
-        VK_VERIFY(vkEnumerateDeviceExtensionProperties(m_physicalDevice.handle, nullptr, &extensionCount,
-                                                       availableExtensions.data()));
-
-        for (const auto& extension : availableExtensions) {
-            if (strcmp(extension.extensionName, VK_KHR_PORTABILITY_SUBSET_EXTENSION_NAME) == 0) {
-                enabledDeviceExtensions.push_back(VK_KHR_PORTABILITY_SUBSET_EXTENSION_NAME);
-                MGLOG_I("Enabled optional device extension: %s", VK_KHR_PORTABILITY_SUBSET_EXTENSION_NAME);
-                break;
-            }
-        }
-#endif
+        const Vector<VkExtensionProperties> availableExtensions = EnumerateDeviceExtensions(m_physicalDevice.handle);
+        ResolveOptionalDeviceExtensions(availableExtensions, enabledDeviceExtensions);
+        MGLOG_I("VK_KHR_draw_indirect_count enabled: %s", m_drawIndirectCountExtensionEnabled ? "true" : "false");
 
         deviceCreateInfo.enabledExtensionCount = static_cast<Uint32>(enabledDeviceExtensions.size());
         deviceCreateInfo.ppEnabledExtensionNames = enabledDeviceExtensions.data();
         VK_VERIFY(vkCreateDevice(m_physicalDevice.handle, &deviceCreateInfo, nullptr, &m_device), "vkCreateDevice");
+
+        m_cmdDrawIndexedIndirectCount = reinterpret_cast<PFNDrawIndexedIndirectCountFunc>(
+            vkGetDeviceProcAddr(m_device, "vkCmdDrawIndexedIndirectCountKHR"));
+        if (m_cmdDrawIndexedIndirectCount == nullptr) {
+            m_cmdDrawIndexedIndirectCount = reinterpret_cast<PFNDrawIndexedIndirectCountFunc>(
+                vkGetDeviceProcAddr(m_device, "vkCmdDrawIndexedIndirectCount"));
+        }
+        if (m_drawIndirectCountExtensionEnabled && m_cmdDrawIndexedIndirectCount == nullptr) {
+            MGLOG_W("VK_KHR_draw_indirect_count enabled but vkCmdDrawIndexedIndirectCount entry point is missing");
+        }
         MGLOG_I("Logical device created.");
 
         // Queues
@@ -1989,6 +2207,59 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         return extensions;
     }
 
+    Vector<VkExtensionProperties> VulkanRenderer::EnumerateDeviceExtensions(VkPhysicalDevice device) {
+        Uint32 extensionCount = 0;
+        VK_VERIFY(vkEnumerateDeviceExtensionProperties(device, nullptr, &extensionCount, nullptr));
+        Vector<VkExtensionProperties> extensions(extensionCount);
+        VK_VERIFY(vkEnumerateDeviceExtensionProperties(device, nullptr, &extensionCount, extensions.data()));
+        return extensions;
+    }
+
+    Bool VulkanRenderer::IsExtensionSupported(const Vector<VkExtensionProperties>& availableExtensions,
+                                              const char* extensionName) {
+        for (const auto& extension : availableExtensions) {
+            if (strcmp(extension.extensionName, extensionName) == 0) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    Bool VulkanRenderer::IsExtensionAlreadyEnabled(const Vector<const char*>& enabledExtensions,
+                                                   const char* extensionName) {
+        for (const char* enabledExtensionName : enabledExtensions) {
+            if (strcmp(enabledExtensionName, extensionName) == 0) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    Bool VulkanRenderer::EnableOptionalDeviceExtension(const Vector<VkExtensionProperties>& availableExtensions,
+                                                       Vector<const char*>& inOutEnabledExtensions,
+                                                       const char* extensionName) {
+        if (!IsExtensionSupported(availableExtensions, extensionName)) {
+            MGLOG_I("Optional device extension not supported: %s", extensionName);
+            return false;
+        }
+
+        if (!IsExtensionAlreadyEnabled(inOutEnabledExtensions, extensionName)) {
+            inOutEnabledExtensions.push_back(extensionName);
+        }
+        MGLOG_I("Enabled optional device extension: %s", extensionName);
+        return true;
+    }
+
+    void VulkanRenderer::ResolveOptionalDeviceExtensions(const Vector<VkExtensionProperties>& availableExtensions,
+                                                         Vector<const char*>& inOutEnabledExtensions) {
+        m_drawIndirectCountExtensionEnabled = EnableOptionalDeviceExtension(availableExtensions, inOutEnabledExtensions,
+                                                                            VK_KHR_DRAW_INDIRECT_COUNT_EXTENSION_NAME);
+#ifdef VK_KHR_PORTABILITY_SUBSET_EXTENSION_NAME
+        EnableOptionalDeviceExtension(availableExtensions, inOutEnabledExtensions,
+                                      VK_KHR_PORTABILITY_SUBSET_EXTENSION_NAME);
+#endif
+    }
+
     Bool VulkanRenderer::CheckValidationLayerSupport() {
         Uint32 layerCount = 0;
         VK_VERIFY(vkEnumerateInstanceLayerProperties(&layerCount, nullptr));
@@ -2071,5 +2342,9 @@ namespace MobileGL::MG_Backend::DirectVulkan {
 
     const PhysicalDevice& VulkanRenderer::GetPhysicalDevice() const {
         return m_physicalDevice;
+    }
+
+    Bool VulkanRenderer::IsDrawIndirectCountExtensionEnabled() const {
+        return m_drawIndirectCountExtensionEnabled;
     }
 } // namespace MobileGL::MG_Backend::DirectVulkan

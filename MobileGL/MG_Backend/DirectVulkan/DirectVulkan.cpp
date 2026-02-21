@@ -18,8 +18,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
     void ClearBufferuiv(GLenum buffer, GLint drawbuffer, const GLuint* value) {}
     void ClearBufferiv(GLenum buffer, GLint drawbuffer, const GLint* value) {}
     void DrawElementsBaseVertex(GLenum mode, GLsizei count, GLenum type, const GLvoid* indices, GLint basevertex) {}
-    void MultiDrawElements(GLenum mode, const GLsizei* count, GLenum type, const GLvoid* const* indices,
-                           GLsizei drawcount) {}
+
     void MultiDrawElementsBaseVertex(GLenum mode, const GLsizei* count, GLenum type, const GLvoid* const* indices,
                                      GLsizei drawcount, const GLint* basevertex) {}
     void MultiDrawElementsIndirect(GLenum mode, GLenum type, const void* indirect, GLsizei drawcount, GLsizei stride) {}
@@ -46,6 +45,96 @@ namespace MobileGL::MG_Backend::DirectVulkan {
     void GenerateMipmap(GLenum target) {}
     void ReadPixels(GLint x, GLint y, GLsizei width, GLsizei height, GLenum format, GLenum type, void* pixels) {}
     void GetTexImage(GLenum target, GLint level, GLenum format, GLenum type, GLvoid* pixels) {}
+
+    void MultiDrawElements(GLenum mode, const GLsizei* count, GLenum type, const GLvoid* const* indices,
+                           GLsizei drawcount) {
+        MOBILEGL_ASSERT(pVulkanRenderer, "DirectVulkan::MultiDrawElements called with null VulkanRenderer");
+        MOBILEGL_ASSERT(MG_State::pGLContext, "DirectVulkan::MultiDrawElements called with null GL context");
+
+        if (drawcount < 0) {
+            MGLOG_W("MultiDrawElements skipped: drawcount (%d) must be non-negative", drawcount);
+            return;
+        }
+        if (drawcount == 0) {
+            return;
+        }
+        if (!count || !indices) {
+            MGLOG_W("MultiDrawElements skipped: count/indices pointer is null");
+            return;
+        }
+        if (mode != GL_TRIANGLES) {
+            MGLOG_W("MultiDrawElements skipped: primitive mode %u is not supported yet", mode);
+            return;
+        }
+
+        SizeT indexSize = 0;
+        switch (type) {
+        case GL_UNSIGNED_SHORT:
+            indexSize = sizeof(Uint16);
+            break;
+        case GL_UNSIGNED_INT:
+            indexSize = sizeof(Uint32);
+            break;
+        default:
+            MGLOG_W("MultiDrawElements skipped: index type %u is not supported yet", type);
+            return;
+        }
+
+        const auto vao = MG_State::pGLContext->GetBoundVertexArray();
+        if (!vao) {
+            MGLOG_W("MultiDrawElements skipped: no bound VAO");
+            return;
+        }
+
+        const auto indexBuffer = vao->GetIndexBufferBindingSlot().GetBoundObject();
+        if (!indexBuffer) {
+            MGLOG_W("MultiDrawElements skipped: no bound ELEMENT_ARRAY_BUFFER");
+            return;
+        }
+
+        const auto indexData = indexBuffer->GetDataReadOnly();
+        if (!indexData || indexData->empty()) {
+            MGLOG_W("MultiDrawElements skipped: ELEMENT_ARRAY_BUFFER has no data");
+            return;
+        }
+
+        const auto currentProgram = MG_State::pGLContext->GetCurrentProgram();
+        Vector<DrawElementPayload> payloads;
+        payloads.reserve(static_cast<SizeT>(drawcount));
+        for (GLsizei i = 0; i < drawcount; ++i) {
+            if (count[i] < 0) {
+                MGLOG_W("MultiDrawElements skipped: count[%d] (%d) must be non-negative", i, count[i]);
+                return;
+            }
+            if (count[i] == 0) {
+                continue;
+            }
+
+            const auto byteOffset = reinterpret_cast<SizeT>(indices[i]);
+            const SizeT requiredBytes = static_cast<SizeT>(count[i]) * indexSize;
+            if (byteOffset + requiredBytes > indexBuffer->GetSize()) {
+                MGLOG_W("MultiDrawElements skipped: draw[%d] index range out of bounds (offset=%zu, size=%zu, "
+                        "buffer=%zu)",
+                        i, byteOffset, requiredBytes, indexBuffer->GetSize());
+                return;
+            }
+
+            DrawElementPayload payload{};
+            payload.drawArray.mode = mode;
+            payload.drawArray.first = 0;
+            payload.drawArray.count = count[i];
+            payload.drawArray.program = currentProgram ? currentProgram.get() : nullptr;
+            payload.drawArray.vertexArray = vao.get();
+            payload.indexType = type;
+            payload.indexByteOffset = byteOffset;
+            payloads.push_back(payload);
+        }
+
+        if (payloads.empty()) {
+            return;
+        }
+        pVulkanRenderer->MultiDrawElements(payloads);
+    }
 
     void Clear(GLbitfield mask) {
         MOBILEGL_ASSERT(pVulkanRenderer, "DirectVulkan::Clear called with null VulkanRenderer");

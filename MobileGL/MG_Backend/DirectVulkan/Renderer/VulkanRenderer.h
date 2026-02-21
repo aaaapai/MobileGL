@@ -72,6 +72,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         void EnsureFrameRecordingStarted();
         void DrawArrays(const DrawArrayPayload& payload);
         void DrawElements(const DrawElementPayload& payload);
+        void MultiDrawElements(const Vector<DrawElementPayload>& payloads);
         Bool BlitFramebuffer(GLint srcX0, GLint srcY0, GLint srcX1, GLint srcY1, GLint dstX0, GLint dstY0, GLint dstX1,
                              GLint dstY1, GLbitfield mask, GLenum filter, Uint readFboExternalIndex,
                              Uint drawFboExternalIndex, Bool readIsDefaultFramebuffer, Bool drawIsDefaultFramebuffer);
@@ -79,6 +80,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         void Present();
 
         const PhysicalDevice& GetPhysicalDevice() const;
+        Bool IsDrawIndirectCountExtensionEnabled() const;
 
         void RecreateSwapchain();
 
@@ -112,6 +114,12 @@ namespace MobileGL::MG_Backend::DirectVulkan {
 
         VkQueue m_graphicsQueue = VK_NULL_HANDLE;
         VkQueue m_presentQueue = VK_NULL_HANDLE;
+        Bool m_drawIndirectCountExtensionEnabled = false;
+        using PFNDrawIndexedIndirectCountFunc = void(VKAPI_PTR*)(VkCommandBuffer commandBuffer, VkBuffer buffer,
+                                                                 VkDeviceSize offset, VkBuffer countBuffer,
+                                                                 VkDeviceSize countBufferOffset, Uint32 maxDrawCount,
+                                                                 Uint32 stride);
+        PFNDrawIndexedIndirectCountFunc m_cmdDrawIndexedIndirectCount = nullptr;
 
         VkCommandPool m_commandPool = VK_NULL_HANDLE;
 
@@ -189,6 +197,15 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         static Vector<VkQueueFamilyProperties> GetQueueFamilyFromPhysicalDevice(VkPhysicalDevice device);
         static Int GetQueueFamilyIndex(const Vector<VkQueueFamilyProperties>& queueFamilies, VkQueueFlagBits flag);
         static Vector<VkExtensionProperties> EnumerateInstanceExtensions();
+        static Vector<VkExtensionProperties> EnumerateDeviceExtensions(VkPhysicalDevice device);
+        static Bool IsExtensionSupported(const Vector<VkExtensionProperties>& availableExtensions,
+                                         const char* extensionName);
+        static Bool IsExtensionAlreadyEnabled(const Vector<const char*>& enabledExtensions, const char* extensionName);
+        static Bool EnableOptionalDeviceExtension(const Vector<VkExtensionProperties>& availableExtensions,
+                                                  Vector<const char*>& inOutEnabledExtensions,
+                                                  const char* extensionName);
+        void ResolveOptionalDeviceExtensions(const Vector<VkExtensionProperties>& availableExtensions,
+                                             Vector<const char*>& inOutEnabledExtensions);
         static Bool IsNecessaryDeviceExtensionSupported(VkPhysicalDevice device);
         static Bool GetMoreCapablePhysicalDevice(VkPhysicalDevice newVkDevice, VkSurfaceKHR surface,
                                                  const PhysicalDevice& compareWithDevice,
