@@ -12,6 +12,7 @@
 #include "MG_State/GLState/Core.h"
 #include "MG_State/GLState/ProgramState/ProgramObject.h"
 #include "MG_Util/ShaderTranspiler/Types.h"
+#include <limits>
 
 namespace MobileGL::MG_Backend::DirectVulkan {
     VkDeviceSize UniformDescriptorBinder::AlignUp(VkDeviceSize value, VkDeviceSize alignment) {
@@ -154,6 +155,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         m_frameCount = frameCount;
         m_maxBindings = maxBindings;
         m_setsPerFrame = setsPerFrame;
+        m_peakDescriptorSetsObserved = 0;
         m_textureSamplerManager = textureSamplerManager;
         m_framebufferManager = framebufferManager;
 
@@ -161,21 +163,20 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         for (Uint32 frameIndex = 0; frameIndex < m_frameCount; ++frameIndex) {
             auto& frame = m_frames[frameIndex];
             frame.writeCursor = 0;
-            frame.descriptorPool = VK_NULL_HANDLE;
+            frame.activeDescriptorPoolIndex = 0;
+            frame.allocatedSetsThisFrame = 0;
+            frame.peakAllocatedSetsThisFrame = 0;
+            frame.descriptorPools.clear();
 
-            VkDescriptorPoolSize poolSizes[2]{};
-            poolSizes[0].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
-            poolSizes[0].descriptorCount = m_setsPerFrame * m_maxBindings;
-            poolSizes[1].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-            poolSizes[1].descriptorCount = m_setsPerFrame * m_maxBindings;
-
-            VkDescriptorPoolCreateInfo poolInfo{};
-            poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
-            poolInfo.maxSets = m_setsPerFrame;
-            poolInfo.poolSizeCount = static_cast<Uint32>(std::size(poolSizes));
-            poolInfo.pPoolSizes = poolSizes;
-            VK_VERIFY(vkCreateDescriptorPool(m_device, &poolInfo, nullptr, &frame.descriptorPool),
-                      "UniformDescriptorBinder::Initialize, vkCreateDescriptorPool(frame)");
+            VkDescriptorPool initialPool = VK_NULL_HANDLE;
+            if (!CreateDescriptorPool(m_setsPerFrame, initialPool)) {
+                MGLOG_E("UniformDescriptorBinder::Initialize failed: cannot create frame descriptor pool %u",
+                        frameIndex);
+                Shutdown();
+                return false;
+            }
+            frame.descriptorPools.push_back({initialPool, m_setsPerFrame, 0});
+            MGLOG_D("UniformDescriptorBinder: frame %u descriptor pool created (maxSets=%u)", frameIndex, m_setsPerFrame);
 
             const Bool created = frame.uploadBuffer.Create(
                 m_allocator, m_perFrameUploadBytes, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VMA_MEMORY_USAGE_AUTO,
@@ -193,10 +194,18 @@ namespace MobileGL::MG_Backend::DirectVulkan {
     void UniformDescriptorBinder::Shutdown() {
         for (auto& frame : m_frames) {
             frame.uploadBuffer.Destroy();
-            if (m_device != VK_NULL_HANDLE && frame.descriptorPool != VK_NULL_HANDLE) {
-                vkDestroyDescriptorPool(m_device, frame.descriptorPool, nullptr);
+            if (m_device != VK_NULL_HANDLE) {
+                for (auto& bucket : frame.descriptorPools) {
+                    if (bucket.handle != VK_NULL_HANDLE) {
+                        vkDestroyDescriptorPool(m_device, bucket.handle, nullptr);
+                        bucket.handle = VK_NULL_HANDLE;
+                    }
+                }
             }
-            frame.descriptorPool = VK_NULL_HANDLE;
+            frame.descriptorPools.clear();
+            frame.activeDescriptorPoolIndex = 0;
+            frame.allocatedSetsThisFrame = 0;
+            frame.peakAllocatedSetsThisFrame = 0;
             frame.writeCursor = 0;
         }
         m_frames.clear();
@@ -209,6 +218,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         m_frameCount = 0;
         m_maxBindings = 0;
         m_setsPerFrame = 0;
+        m_peakDescriptorSetsObserved = 0;
         m_textureSamplerManager = nullptr;
         m_framebufferManager = nullptr;
     }
@@ -216,9 +226,24 @@ namespace MobileGL::MG_Backend::DirectVulkan {
     void UniformDescriptorBinder::BeginFrame(Uint32 frameIndex) {
         MOBILEGL_ASSERT(frameIndex < m_frames.size(), "UniformDescriptorBinder::BeginFrame invalid frame index");
         auto& frame = m_frames[frameIndex];
+        if (frame.peakAllocatedSetsThisFrame > m_peakDescriptorSetsObserved) {
+            m_peakDescriptorSetsObserved = frame.peakAllocatedSetsThisFrame;
+            MGLOG_D(
+                "UniformDescriptorBinder: new descriptor set peak observed=%u (base setsPerFrame=%u, frame=%u, pools=%zu)",
+                m_peakDescriptorSetsObserved, m_setsPerFrame, frameIndex, frame.descriptorPools.size());
+        }
         frame.writeCursor = 0;
-        VK_VERIFY(vkResetDescriptorPool(m_device, frame.descriptorPool, 0),
-                  "UniformDescriptorBinder::BeginFrame, vkResetDescriptorPool");
+        frame.activeDescriptorPoolIndex = 0;
+        frame.allocatedSetsThisFrame = 0;
+        frame.peakAllocatedSetsThisFrame = 0;
+        for (auto& bucket : frame.descriptorPools) {
+            bucket.allocatedSets = 0;
+            if (bucket.handle == VK_NULL_HANDLE) {
+                continue;
+            }
+            VK_VERIFY(vkResetDescriptorPool(m_device, bucket.handle, 0),
+                      "UniformDescriptorBinder::BeginFrame, vkResetDescriptorPool");
+        }
     }
 
     Bool UniformDescriptorBinder::ReflectBindingKinds(const MG_State::GLState::ProgramObject& program,
@@ -610,6 +635,64 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         return true;
     }
 
+    Bool UniformDescriptorBinder::CreateDescriptorPool(Uint32 maxSets, VkDescriptorPool& outPool) const {
+        outPool = VK_NULL_HANDLE;
+        if (m_device == VK_NULL_HANDLE || maxSets == 0 || m_maxBindings == 0) {
+            return false;
+        }
+
+        const Uint64 descriptorCount64 = static_cast<Uint64>(maxSets) * static_cast<Uint64>(m_maxBindings);
+        if (descriptorCount64 > static_cast<Uint64>(std::numeric_limits<Uint32>::max())) {
+            MGLOG_E("UniformDescriptorBinder::CreateDescriptorPool failed: descriptorCount overflow");
+            return false;
+        }
+
+        const Uint32 descriptorCount = static_cast<Uint32>(descriptorCount64);
+        VkDescriptorPoolSize poolSizes[2]{};
+        poolSizes[0].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
+        poolSizes[0].descriptorCount = descriptorCount;
+        poolSizes[1].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        poolSizes[1].descriptorCount = descriptorCount;
+
+        VkDescriptorPoolCreateInfo poolInfo{};
+        poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+        poolInfo.maxSets = maxSets;
+        poolInfo.poolSizeCount = static_cast<Uint32>(std::size(poolSizes));
+        poolInfo.pPoolSizes = poolSizes;
+
+        const VkResult result = vkCreateDescriptorPool(m_device, &poolInfo, nullptr, &outPool);
+        if (result != VK_SUCCESS) {
+            MGLOG_E("UniformDescriptorBinder::CreateDescriptorPool failed: vkCreateDescriptorPool returned %d", result);
+            return false;
+        }
+        return true;
+    }
+
+    Bool UniformDescriptorBinder::GrowFrameDescriptorPool(FrameResources& frame, Uint32 frameIndex) {
+        if (frame.descriptorPools.empty()) {
+            return false;
+        }
+
+        const auto& currentBucket = frame.descriptorPools[frame.activeDescriptorPoolIndex];
+        const Uint32 currentMaxSets = std::max<Uint32>(1, currentBucket.maxSets);
+        const Uint32 grownMaxSets = currentMaxSets <= (std::numeric_limits<Uint32>::max() / 2) ? (currentMaxSets * 2)
+                                                                                                 : currentMaxSets;
+
+        VkDescriptorPool grownPool = VK_NULL_HANDLE;
+        if (!CreateDescriptorPool(grownMaxSets, grownPool)) {
+            MGLOG_E("UniformDescriptorBinder::GrowFrameDescriptorPool failed: cannot create grown pool (%u -> %u sets)",
+                    currentMaxSets, grownMaxSets);
+            return false;
+        }
+
+        frame.descriptorPools.push_back({grownPool, grownMaxSets, 0});
+        frame.activeDescriptorPoolIndex = static_cast<Uint32>(frame.descriptorPools.size() - 1);
+        MGLOG_D(
+            "UniformDescriptorBinder: frame %u descriptor pool exhausted, grew pool (%u -> %u sets), poolCount=%zu",
+            frameIndex, currentMaxSets, grownMaxSets, frame.descriptorPools.size());
+        return true;
+    }
+
     Bool UniformDescriptorBinder::BindProgramUniformBuffers(VkCommandBuffer commandBuffer, VkPipelineLayout pipelineLayout,
                                                             const MG_State::GLState::ProgramObject& program,
                                                             Uint32 frameIndex) {
@@ -633,19 +716,46 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         }
 
         auto& frame = m_frames[frameIndex];
-        if (frame.descriptorPool == VK_NULL_HANDLE) {
-            MGLOG_E("UniformDescriptorBinder::BindProgramUniformBuffers failed: frame descriptor pool is invalid");
+        if (frame.descriptorPools.empty()) {
+            MGLOG_E("UniformDescriptorBinder::BindProgramUniformBuffers failed: frame descriptor pools are invalid");
             return false;
+        }
+        if (frame.activeDescriptorPoolIndex >= frame.descriptorPools.size()) {
+            frame.activeDescriptorPoolIndex = 0;
         }
 
         VkDescriptorSetAllocateInfo allocInfo{};
         allocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-        allocInfo.descriptorPool = frame.descriptorPool;
         allocInfo.descriptorSetCount = 1;
         allocInfo.pSetLayouts = &layout->descriptorSetLayout;
         VkDescriptorSet descriptorSet = VK_NULL_HANDLE;
-        VK_VERIFY(vkAllocateDescriptorSets(m_device, &allocInfo, &descriptorSet),
-                  "UniformDescriptorBinder::BindProgramUniformBuffers, vkAllocateDescriptorSets");
+
+        auto allocateFromActivePool = [&](VkResult& outResult) {
+            auto& bucket = frame.descriptorPools[frame.activeDescriptorPoolIndex];
+            allocInfo.descriptorPool = bucket.handle;
+            outResult = vkAllocateDescriptorSets(m_device, &allocInfo, &descriptorSet);
+            if (outResult == VK_SUCCESS) {
+                ++bucket.allocatedSets;
+                ++frame.allocatedSetsThisFrame;
+                frame.peakAllocatedSetsThisFrame = std::max(frame.peakAllocatedSetsThisFrame, frame.allocatedSetsThisFrame);
+            }
+        };
+
+        VkResult allocResult = VK_SUCCESS;
+        allocateFromActivePool(allocResult);
+        if (allocResult == VK_ERROR_OUT_OF_POOL_MEMORY || allocResult == VK_ERROR_FRAGMENTED_POOL) {
+            if (!GrowFrameDescriptorPool(frame, frameIndex)) {
+                MGLOG_E("UniformDescriptorBinder::BindProgramUniformBuffers failed: descriptor pool growth failed");
+                return false;
+            }
+            allocateFromActivePool(allocResult);
+        }
+        if (allocResult != VK_SUCCESS || descriptorSet == VK_NULL_HANDLE) {
+            MGLOG_E("UniformDescriptorBinder::BindProgramUniformBuffers failed: vkAllocateDescriptorSets returned %d",
+                    allocResult);
+            return false;
+        }
+
         Vector<const void*> bindingData;
         Vector<VkDeviceSize> bindingSizes;
         if (!GatherBindingPayloads(program, bindingData, bindingSizes)) {
@@ -762,3 +872,4 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         m_programLayouts.clear();
     }
 } // namespace MobileGL::MG_Backend::DirectVulkan
+
