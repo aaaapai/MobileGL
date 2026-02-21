@@ -61,18 +61,28 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         Shutdown();
     }
 
+    inline ProgramFactory::CompileOptionFlags GetShaderTransformFlags() {
+        ProgramFactory::CompileOptionFlags flags = ProgramFactory::CompileOptionBit::PositionZRemap;
+        const auto& currentDrawFBO =
+            MG_State::pGLContext->GetFramebufferBindingSlot(FramebufferTarget::Draw).GetBoundObject();
+        if (currentDrawFBO == MG_Impl::GLImpl::FramebufferImpl::pDefaultFramebufferInfo->defaultFBO) {
+            flags |= ProgramFactory::CompileOptionBit::PositionYFlip;
+        }
+        return flags;
+    }
+
     VkPipeline VulkanRenderer::GetOrCreatePipeline(const MG_State::GLState::ProgramObject& program,
                                                    VkPipelineLayout pipelineLayout, Uint64 vertexInputHash,
                                                    const VkPipelineVertexInputStateCreateInfo& vertexInputState) {
         MOBILEGL_ASSERT(m_pipelineFactory != nullptr, "PipelineFactory is not initialized");
         MOBILEGL_ASSERT(m_programFactory != nullptr, "ProgramFactory is not initialized");
-        auto& stages =
-            m_programFactory->GetOrCreatePipelineShaderStages(program, ProgramFactory::CompileOptionBit::None);
+        ProgramFactory::CompileOptionFlags transformFlags = GetShaderTransformFlags();
+        auto& stages = m_programFactory->GetOrCreatePipelineShaderStages(program, transformFlags);
         if (stages.empty()) {
             MGLOG_D("GetOrCreatePipeline skipped: program has no shader stages");
             return VK_NULL_HANDLE;
         }
-        const Uint64 programHash = m_programFactory->ComputeHash(program, ProgramFactory::CompileOptionBit::None);
+        const Uint64 programHash = m_programFactory->ComputeHash(program, transformFlags);
         auto toVkCompareOp = [](DepthTestFunc func) -> VkCompareOp {
             switch (func) {
             case DepthTestFunc::Never:
@@ -90,7 +100,6 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             case DepthTestFunc::GreaterEqual:
                 return VK_COMPARE_OP_GREATER_OR_EQUAL;
             case DepthTestFunc::Always:
-                return VK_COMPARE_OP_ALWAYS;
             default:
                 return VK_COMPARE_OP_ALWAYS;
             }

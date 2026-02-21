@@ -62,7 +62,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
 
         private:
             void DestroyModules() {
-                for (auto module: modules) {
+                for (auto module : modules) {
                     if (module != VK_NULL_HANDLE && device != VK_NULL_HANDLE) {
                         vkDestroyShaderModule(device, module, nullptr);
                     }
@@ -71,15 +71,17 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             }
         };
 
-        explicit ProgramFactory(VkDevice device, const VulkanRendererConfig& config):
-            m_device(device), m_config(config) {}
+        explicit ProgramFactory(VkDevice device, const VulkanRendererConfig& config)
+            : m_device(device), m_config(config) {}
         ~ProgramFactory();
         ProgramFactory(const ProgramFactory&) = delete;
 
         HashType ComputeHash(const MG_State::GLState::ProgramObject& program, CompileOptionFlags flags) const;
-        Vector<VkPipelineShaderStageCreateInfo>& GetOrCreatePipelineShaderStages(const MG_State::GLState::ProgramObject& program, CompileOptionFlags flags);
+        Vector<VkPipelineShaderStageCreateInfo>& GetOrCreatePipelineShaderStages(
+            const MG_State::GLState::ProgramObject& program, CompileOptionFlags flags);
 
         static VkShaderStageFlagBits ToVkStage(ShaderStage stage);
+
     private:
         VkDevice m_device = VK_NULL_HANDLE;
         UnorderedMap<HashType, BackendProgramObject> m_cache;
