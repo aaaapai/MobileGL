@@ -61,12 +61,13 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         Shutdown();
     }
 
-    VkPipeline VulkanRenderer::GetOrCreatePipeline(
-        const MG_State::GLState::ProgramObject& program, VkPipelineLayout pipelineLayout, Uint64 vertexInputHash,
-        const VkPipelineVertexInputStateCreateInfo& vertexInputState) {
+    VkPipeline VulkanRenderer::GetOrCreatePipeline(const MG_State::GLState::ProgramObject& program,
+                                                   VkPipelineLayout pipelineLayout, Uint64 vertexInputHash,
+                                                   const VkPipelineVertexInputStateCreateInfo& vertexInputState) {
         MOBILEGL_ASSERT(m_pipelineFactory != nullptr, "PipelineFactory is not initialized");
         MOBILEGL_ASSERT(m_programFactory != nullptr, "ProgramFactory is not initialized");
-        auto& stages = m_programFactory->GetOrCreatePipelineShaderStages(program, ProgramFactory::CompileOptionBit::None);
+        auto& stages =
+            m_programFactory->GetOrCreatePipelineShaderStages(program, ProgramFactory::CompileOptionBit::None);
         if (stages.empty()) {
             MGLOG_D("GetOrCreatePipeline skipped: program has no shader stages");
             return VK_NULL_HANDLE;
@@ -74,34 +75,58 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         const Uint64 programHash = m_programFactory->ComputeHash(program, ProgramFactory::CompileOptionBit::None);
         auto toVkCompareOp = [](DepthTestFunc func) -> VkCompareOp {
             switch (func) {
-            case DepthTestFunc::Never: return VK_COMPARE_OP_NEVER;
-            case DepthTestFunc::Less: return VK_COMPARE_OP_LESS;
-            case DepthTestFunc::Equal: return VK_COMPARE_OP_EQUAL;
-            case DepthTestFunc::LessEqual: return VK_COMPARE_OP_LESS_OR_EQUAL;
-            case DepthTestFunc::Greater: return VK_COMPARE_OP_GREATER;
-            case DepthTestFunc::NotEqual: return VK_COMPARE_OP_NOT_EQUAL;
-            case DepthTestFunc::GreaterEqual: return VK_COMPARE_OP_GREATER_OR_EQUAL;
-            case DepthTestFunc::Always: return VK_COMPARE_OP_ALWAYS;
-            default: return VK_COMPARE_OP_ALWAYS;
+            case DepthTestFunc::Never:
+                return VK_COMPARE_OP_NEVER;
+            case DepthTestFunc::Less:
+                return VK_COMPARE_OP_LESS;
+            case DepthTestFunc::Equal:
+                return VK_COMPARE_OP_EQUAL;
+            case DepthTestFunc::LessEqual:
+                return VK_COMPARE_OP_LESS_OR_EQUAL;
+            case DepthTestFunc::Greater:
+                return VK_COMPARE_OP_GREATER;
+            case DepthTestFunc::NotEqual:
+                return VK_COMPARE_OP_NOT_EQUAL;
+            case DepthTestFunc::GreaterEqual:
+                return VK_COMPARE_OP_GREATER_OR_EQUAL;
+            case DepthTestFunc::Always:
+                return VK_COMPARE_OP_ALWAYS;
+            default:
+                return VK_COMPARE_OP_ALWAYS;
             }
         };
         auto toVkBlendFactor = [](BlendFactor factor) -> VkBlendFactor {
             switch (factor) {
-            case BlendFactor::Zero: return VK_BLEND_FACTOR_ZERO;
-            case BlendFactor::One: return VK_BLEND_FACTOR_ONE;
-            case BlendFactor::SrcColor: return VK_BLEND_FACTOR_SRC_COLOR;
-            case BlendFactor::OneMinusSrcColor: return VK_BLEND_FACTOR_ONE_MINUS_SRC_COLOR;
-            case BlendFactor::DstColor: return VK_BLEND_FACTOR_DST_COLOR;
-            case BlendFactor::OneMinusDstColor: return VK_BLEND_FACTOR_ONE_MINUS_DST_COLOR;
-            case BlendFactor::SrcAlpha: return VK_BLEND_FACTOR_SRC_ALPHA;
-            case BlendFactor::OneMinusSrcAlpha: return VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
-            case BlendFactor::DstAlpha: return VK_BLEND_FACTOR_DST_ALPHA;
-            case BlendFactor::OneMinusDstAlpha: return VK_BLEND_FACTOR_ONE_MINUS_DST_ALPHA;
-            case BlendFactor::ConstantColor: return VK_BLEND_FACTOR_CONSTANT_COLOR;
-            case BlendFactor::OneMinusConstantColor: return VK_BLEND_FACTOR_ONE_MINUS_CONSTANT_COLOR;
-            case BlendFactor::ConstantAlpha: return VK_BLEND_FACTOR_CONSTANT_ALPHA;
-            case BlendFactor::OneMinusConstantAlpha: return VK_BLEND_FACTOR_ONE_MINUS_CONSTANT_ALPHA;
-            default: return VK_BLEND_FACTOR_ONE;
+            case BlendFactor::Zero:
+                return VK_BLEND_FACTOR_ZERO;
+            case BlendFactor::One:
+                return VK_BLEND_FACTOR_ONE;
+            case BlendFactor::SrcColor:
+                return VK_BLEND_FACTOR_SRC_COLOR;
+            case BlendFactor::OneMinusSrcColor:
+                return VK_BLEND_FACTOR_ONE_MINUS_SRC_COLOR;
+            case BlendFactor::DstColor:
+                return VK_BLEND_FACTOR_DST_COLOR;
+            case BlendFactor::OneMinusDstColor:
+                return VK_BLEND_FACTOR_ONE_MINUS_DST_COLOR;
+            case BlendFactor::SrcAlpha:
+                return VK_BLEND_FACTOR_SRC_ALPHA;
+            case BlendFactor::OneMinusSrcAlpha:
+                return VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+            case BlendFactor::DstAlpha:
+                return VK_BLEND_FACTOR_DST_ALPHA;
+            case BlendFactor::OneMinusDstAlpha:
+                return VK_BLEND_FACTOR_ONE_MINUS_DST_ALPHA;
+            case BlendFactor::ConstantColor:
+                return VK_BLEND_FACTOR_CONSTANT_COLOR;
+            case BlendFactor::OneMinusConstantColor:
+                return VK_BLEND_FACTOR_ONE_MINUS_CONSTANT_COLOR;
+            case BlendFactor::ConstantAlpha:
+                return VK_BLEND_FACTOR_CONSTANT_ALPHA;
+            case BlendFactor::OneMinusConstantAlpha:
+                return VK_BLEND_FACTOR_ONE_MINUS_CONSTANT_ALPHA;
+            default:
+                return VK_BLEND_FACTOR_ONE;
             }
         };
 
@@ -153,8 +178,8 @@ namespace MobileGL::MG_Backend::DirectVulkan {
     void VulkanRenderer::CreateFrameContexts() {
         VK_VERIFY(m_frameContext.Initialize(m_device, m_commandPool, m_config.MaxFramesInFlight),
                   "CreateFrameContexts");
-        VK_VERIFY(m_frameContext.InitializeSwapchainSemaphores(
-                      m_device, static_cast<Uint32>(m_swapchainObject.GetImageCount())),
+        VK_VERIFY(m_frameContext.InitializeSwapchainSemaphores(m_device,
+                                                               static_cast<Uint32>(m_swapchainObject.GetImageCount())),
                   "CreateFrameContexts, InitializeSwapchainSemaphores");
         MGLOG_I("CreateFrameContexts completed");
     }
@@ -186,8 +211,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         if (!m_uniformDescriptorBinder->Initialize(m_device, m_allocator,
                                                    m_physicalDevice.properties.limits.minUniformBufferOffsetAlignment,
                                                    m_config.MaxFramesInFlight, 16, 64, 4 * 1024 * 1024,
-                                                   m_textureSamplerManager.get(),
-                                                   m_framebufferManager.get())) {
+                                                   m_textureSamplerManager.get(), m_framebufferManager.get())) {
             MGLOG_E("UniformDescriptorBinder initialization failed. UBO sync on Vulkan backend is disabled.");
             m_uniformDescriptorBinder.reset();
         }
@@ -341,8 +365,8 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         barrier.subresourceRange.baseArrayLayer = 0;
         barrier.subresourceRange.layerCount = 1;
 
-        vkCmdPipelineBarrier(commandBuffer, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
-                             0, 0, nullptr, 0, nullptr, 1, &barrier);
+        vkCmdPipelineBarrier(commandBuffer, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+                             VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, 0, 0, nullptr, 0, nullptr, 1, &barrier);
         m_swapchainObject.SetImageLayout(imageIndex, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
     }
 
@@ -361,7 +385,8 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         vkCmdClearAttachments(commandBuffer, 1, &clearAttachment, 1, &clearRect);
     }
 
-    void VulkanRenderer::RecordDepthStencilClear(VkCommandBuffer commandBuffer, GLbitfield mask, Float depth, Uint32 stencil) {
+    void VulkanRenderer::RecordDepthStencilClear(VkCommandBuffer commandBuffer, GLbitfield mask, Float depth,
+                                                 Uint32 stencil) {
         if (m_activeDepthStencilFormat == VK_FORMAT_UNDEFINED) {
             return;
         }
@@ -404,7 +429,8 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         VkImageMemoryBarrier barrier{};
         barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
         barrier.srcAccessMask = 0;
-        barrier.dstAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+        barrier.dstAccessMask =
+            VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
         barrier.oldLayout = oldLayout;
         barrier.newLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
         barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
@@ -420,8 +446,8 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         barrier.subresourceRange.layerCount = 1;
 
         vkCmdPipelineBarrier(commandBuffer, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
-                             VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT,
-                             0, 0, nullptr, 0, nullptr, 1, &barrier);
+                             VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT, 0,
+                             0, nullptr, 0, nullptr, 1, &barrier);
         m_depthStencilImageLayouts[imageIndex] = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
     }
 
@@ -432,13 +458,15 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             return;
         }
 
-        const auto drawFbo = MG_State::pGLContext
-                                 ? MG_State::pGLContext->GetFramebufferBindingSlot(FramebufferTarget::Draw).GetBoundObject()
-                                 : nullptr;
+        const auto drawFbo =
+            MG_State::pGLContext
+                ? MG_State::pGLContext->GetFramebufferBindingSlot(FramebufferTarget::Draw).GetBoundObject()
+                : nullptr;
         const auto defaultFboInfo = MG_Impl::GLImpl::FramebufferImpl::pDefaultFramebufferInfo;
         const auto defaultFbo = defaultFboInfo ? defaultFboInfo->defaultFBO : nullptr;
         const Bool drawTargetsDefault = (drawFbo == defaultFbo) || (drawFbo == nullptr && defaultFbo != nullptr);
-        const Uint drawFboExternalIndex = drawFbo ? drawFbo->GetExternalIndex() : (defaultFbo ? defaultFbo->GetExternalIndex() : 0U);
+        const Uint drawFboExternalIndex =
+            drawFbo ? drawFbo->GetExternalIndex() : (defaultFbo ? defaultFbo->GetExternalIndex() : 0U);
         const Uint64 drawTargetKey = BuildPendingClearKey(drawFboExternalIndex, drawTargetsDefault);
 
         if (frame.isCommandRecording && m_isMainRenderPassActive) {
@@ -502,8 +530,9 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                 presentBarrier.subresourceRange.levelCount = 1;
                 presentBarrier.subresourceRange.baseArrayLayer = 0;
                 presentBarrier.subresourceRange.layerCount = 1;
-                vkCmdPipelineBarrier(commandBuffer, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
-                                     0, 0, nullptr, 0, nullptr, 1, &presentBarrier);
+                vkCmdPipelineBarrier(commandBuffer, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+                                     VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, 0, 0, nullptr, 0, nullptr, 1,
+                                     &presentBarrier);
                 m_swapchainObject.SetImageLayout(m_imageIndexAcquired, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
             }
 
@@ -667,8 +696,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
     }
 
     Bool VulkanRenderer::UploadAndBindVertexStreams(
-        const VertexInputStateFactory::BackendVertexInputState& vertexInputState,
-        const DrawArrayPayload& payload,
+        const VertexInputStateFactory::BackendVertexInputState& vertexInputState, const DrawArrayPayload& payload,
         VkCommandBuffer commandBuffer) {
         if (vertexInputState.bindings.empty()) {
             return true;
@@ -783,8 +811,8 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             }
         }
 
-        VkPipeline pipelineToBind = GetOrCreatePipeline(*payload.program, pipelineLayoutToUse, vertexInputHash,
-                                                        *vertexInputInfo);
+        VkPipeline pipelineToBind =
+            GetOrCreatePipeline(*payload.program, pipelineLayoutToUse, vertexInputHash, *vertexInputInfo);
         if (pipelineToBind == VK_NULL_HANDLE) {
             MGLOG_D("DrawArrays skipped: failed to create/get pipeline");
             return;
@@ -898,8 +926,8 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             }
         }
 
-        VkPipeline pipelineToBind = GetOrCreatePipeline(*payload.drawArray.program, pipelineLayoutToUse, vertexInputHash,
-                                                        *vertexInputInfo);
+        VkPipeline pipelineToBind =
+            GetOrCreatePipeline(*payload.drawArray.program, pipelineLayoutToUse, vertexInputHash, *vertexInputInfo);
         if (pipelineToBind == VK_NULL_HANDLE) {
             MGLOG_D("DrawElements skipped: failed to create/get pipeline");
             return;
@@ -927,10 +955,9 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         const auto activeExtent = m_activeRenderExtent;
 
         vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineToBind);
-        if (m_uniformDescriptorBinder &&
-            !m_uniformDescriptorBinder->BindProgramUniformBuffers(commandBuffer, pipelineLayoutToUse,
-                                                                  *payload.drawArray.program,
-                                                                  m_frameContext.GetCurrentFrameIndex())) {
+        if (m_uniformDescriptorBinder && !m_uniformDescriptorBinder->BindProgramUniformBuffers(
+                                             commandBuffer, pipelineLayoutToUse, *payload.drawArray.program,
+                                             m_frameContext.GetCurrentFrameIndex())) {
             MGLOG_D("DrawElements skipped: failed to bind uniform descriptors");
             return;
         }
@@ -1044,8 +1071,8 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             toTransferDstBarrier.subresourceRange.levelCount = 1;
             toTransferDstBarrier.subresourceRange.baseArrayLayer = 0;
             toTransferDstBarrier.subresourceRange.layerCount = 1;
-            vkCmdPipelineBarrier(commandBuffer, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
-                                 0, 0, nullptr, 0, nullptr, 1, &toTransferDstBarrier);
+            vkCmdPipelineBarrier(commandBuffer, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0,
+                                 nullptr, 0, nullptr, 1, &toTransferDstBarrier);
             m_swapchainObject.SetImageLayout(m_imageIndexAcquired, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
         }
 
@@ -1064,8 +1091,8 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         blitRegion.dstOffsets[1] = {dstX1, dstY1, 1};
 
         vkCmdBlitImage(commandBuffer, srcImage, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-                       m_swapchainObject.GetImage(m_imageIndexAcquired), VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                       1, &blitRegion, (filter == GL_LINEAR ? VK_FILTER_LINEAR : VK_FILTER_NEAREST));
+                       m_swapchainObject.GetImage(m_imageIndexAcquired), VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1,
+                       &blitRegion, (filter == GL_LINEAR ? VK_FILTER_LINEAR : VK_FILTER_NEAREST));
 
         VkImageMemoryBarrier toPresentBarrier{};
         toPresentBarrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
@@ -1081,8 +1108,8 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         toPresentBarrier.subresourceRange.levelCount = 1;
         toPresentBarrier.subresourceRange.baseArrayLayer = 0;
         toPresentBarrier.subresourceRange.layerCount = 1;
-        vkCmdPipelineBarrier(commandBuffer, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
-                             0, 0, nullptr, 0, nullptr, 1, &toPresentBarrier);
+        vkCmdPipelineBarrier(commandBuffer, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, 0, 0,
+                             nullptr, 0, nullptr, 1, &toPresentBarrier);
         m_swapchainObject.SetImageLayout(m_imageIndexAcquired, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
 
         (void)srcExtent;
@@ -1115,11 +1142,9 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             m_pendingClears.clear();
         } else if (!m_pendingClears.empty()) {
             auto activateTarget = [&](Bool targetIsDefault, Uint targetFboExternalIndex) -> Bool {
-                const Bool alreadyMatched =
-                    frame.isCommandRecording &&
-                    m_isMainRenderPassActive &&
-                    (targetIsDefault == m_activeRenderTargetIsDefault) &&
-                    (targetIsDefault || targetFboExternalIndex == m_activeDrawFboExternalIndex);
+                const Bool alreadyMatched = frame.isCommandRecording && m_isMainRenderPassActive &&
+                                            (targetIsDefault == m_activeRenderTargetIsDefault) &&
+                                            (targetIsDefault || targetFboExternalIndex == m_activeDrawFboExternalIndex);
                 if (alreadyMatched) {
                     return true;
                 }
@@ -1179,7 +1204,8 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                 if (!m_framebufferManager->EnsureOffscreenColorTarget(targetFboExternalIndex, *pendingFbo)) {
                     return false;
                 }
-                if (!m_framebufferManager->TransitionOffscreenColorToAttachment(commandBuffer, targetFboExternalIndex)) {
+                if (!m_framebufferManager->TransitionOffscreenColorToAttachment(commandBuffer,
+                                                                                targetFboExternalIndex)) {
                     return false;
                 }
 
@@ -1211,8 +1237,8 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                     presentBarrier.subresourceRange.baseArrayLayer = 0;
                     presentBarrier.subresourceRange.layerCount = 1;
                     vkCmdPipelineBarrier(commandBuffer, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
-                                         VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
-                                         0, 0, nullptr, 0, nullptr, 1, &presentBarrier);
+                                         VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, 0, 0, nullptr, 0, nullptr, 1,
+                                         &presentBarrier);
                     m_swapchainObject.SetImageLayout(m_imageIndexAcquired, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
                 }
 
@@ -1706,11 +1732,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
     }
 
     VkFormat VulkanRenderer::FindSupportedDepthStencilFormat(VkPhysicalDevice physicalDevice) {
-        const VkFormat candidates[] = {
-            VK_FORMAT_D24_UNORM_S8_UINT,
-            VK_FORMAT_D32_SFLOAT_S8_UINT,
-            VK_FORMAT_D32_SFLOAT
-        };
+        const VkFormat candidates[] = {VK_FORMAT_D24_UNORM_S8_UINT, VK_FORMAT_D32_SFLOAT_S8_UINT, VK_FORMAT_D32_SFLOAT};
         for (VkFormat format : candidates) {
             VkFormatProperties props{};
             vkGetPhysicalDeviceFormatProperties(physicalDevice, format, &props);
@@ -1759,9 +1781,12 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             VkMemoryAllocateInfo allocInfo{};
             allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
             allocInfo.allocationSize = memRequirements.size;
-            allocInfo.memoryTypeIndex = FindMemoryType(memRequirements.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
-            VK_VERIFY(vkAllocateMemory(m_device, &allocInfo, nullptr, &m_depthStencilImageMemories[i]), "vkAllocateMemory(depth)");
-            VK_VERIFY(vkBindImageMemory(m_device, m_depthStencilImages[i], m_depthStencilImageMemories[i], 0), "vkBindImageMemory(depth)");
+            allocInfo.memoryTypeIndex =
+                FindMemoryType(memRequirements.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+            VK_VERIFY(vkAllocateMemory(m_device, &allocInfo, nullptr, &m_depthStencilImageMemories[i]),
+                      "vkAllocateMemory(depth)");
+            VK_VERIFY(vkBindImageMemory(m_device, m_depthStencilImages[i], m_depthStencilImageMemories[i], 0),
+                      "vkBindImageMemory(depth)");
 
             VkImageViewCreateInfo viewInfo{};
             viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
@@ -1776,7 +1801,8 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             viewInfo.subresourceRange.levelCount = 1;
             viewInfo.subresourceRange.baseArrayLayer = 0;
             viewInfo.subresourceRange.layerCount = 1;
-            VK_VERIFY(vkCreateImageView(m_device, &viewInfo, nullptr, &m_depthStencilImageViews[i]), "vkCreateImageView(depth)");
+            VK_VERIFY(vkCreateImageView(m_device, &viewInfo, nullptr, &m_depthStencilImageViews[i]),
+                      "vkCreateImageView(depth)");
         }
     }
 
@@ -1994,7 +2020,8 @@ namespace MobileGL::MG_Backend::DirectVulkan {
 
     void VulkanRenderer::RecreateSwapchain() {
         // Handle cases like minimize on Windows, where swapchain could return a 0x0 extent
-        const auto swapchainCapabilities = SwapchainObject::GetSwapchainCapabilities(m_physicalDevice.handle, m_surface);
+        const auto swapchainCapabilities =
+            SwapchainObject::GetSwapchainCapabilities(m_physicalDevice.handle, m_surface);
         if (swapchainCapabilities.capabilities.currentExtent.width == 0 ||
             swapchainCapabilities.capabilities.currentExtent.height == 0) {
             return;
@@ -2005,8 +2032,8 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         ShutdownSwapchain();
 
         CreateSwapchain();
-        VK_VERIFY(m_frameContext.InitializeSwapchainSemaphores(
-                      m_device, static_cast<Uint32>(m_swapchainObject.GetImageCount())),
+        VK_VERIFY(m_frameContext.InitializeSwapchainSemaphores(m_device,
+                                                               static_cast<Uint32>(m_swapchainObject.GetImageCount())),
                   "RecreateSwapchain, InitializeSwapchainSemaphores");
         CreateDepthStencilResources();
         CreateDefaultRenderPass();
@@ -2033,4 +2060,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         m_pendingClears.clear();
     }
 
+    const PhysicalDevice& VulkanRenderer::GetPhysicalDevice() const {
+        return m_physicalDevice;
+    }
 } // namespace MobileGL::MG_Backend::DirectVulkan

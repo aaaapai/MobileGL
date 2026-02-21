@@ -13,6 +13,40 @@
 namespace MobileGL::MG_Backend::DirectVulkan {
     UniquePtr<VulkanRenderer> pVulkanRenderer = nullptr;
 
+    void ClearBufferfi(GLenum buffer, GLint drawbuffer, GLfloat depth, GLint stencil) {}
+    void ClearBufferfv(GLenum buffer, GLint drawbuffer, const GLfloat* value) {}
+    void ClearBufferuiv(GLenum buffer, GLint drawbuffer, const GLuint* value) {}
+    void ClearBufferiv(GLenum buffer, GLint drawbuffer, const GLint* value) {}
+    void DrawElementsBaseVertex(GLenum mode, GLsizei count, GLenum type, const GLvoid* indices, GLint basevertex) {}
+    void MultiDrawElements(GLenum mode, const GLsizei* count, GLenum type, const GLvoid* const* indices,
+                           GLsizei drawcount) {}
+    void MultiDrawElementsBaseVertex(GLenum mode, const GLsizei* count, GLenum type, const GLvoid* const* indices,
+                                     GLsizei drawcount, const GLint* basevertex) {}
+    void MultiDrawElementsIndirect(GLenum mode, GLenum type, const void* indirect, GLsizei drawcount, GLsizei stride) {}
+    void MultiDrawArraysIndirect(GLenum mode, const void* indirect, GLsizei drawcount, GLsizei stride) {}
+    void DrawRangeElementsBaseVertex(GLenum mode, GLuint start, GLuint end, GLsizei count, GLenum type,
+                                     const void* indices, GLint basevertex) {}
+    void DrawRangeElements(GLenum mode, GLuint start, GLuint end, GLsizei count, GLenum type, const void* indices) {}
+    void DrawElementsInstancedBaseVertexBaseInstance(GLenum mode, GLsizei count, GLenum type, const void* indices,
+                                                     GLsizei instancecount, GLint basevertex, GLuint baseinstance) {}
+    void DrawElementsInstancedBaseVertex(GLenum mode, GLsizei count, GLenum type, const void* indices,
+                                         GLsizei instancecount, GLint basevertex) {}
+    void DrawElementsInstancedBaseInstance(GLenum mode, GLsizei count, GLenum type, const void* indices,
+                                           GLsizei instancecount, GLuint baseinstance) {}
+    void DrawElementsInstanced(GLenum mode, GLsizei count, GLenum type, const void* indices, GLsizei instancecount) {}
+    void DrawElementsIndirect(GLenum mode, GLenum type, const void* indirect) {}
+    void DrawArraysInstancedBaseInstance(GLenum mode, GLint first, GLsizei count, GLsizei instancecount,
+                                         GLuint baseinstance) {}
+    void DrawArraysInstanced(GLenum mode, GLint first, GLsizei count, GLsizei instancecount) {}
+    void DrawArraysIndirect(GLenum mode, const void* indirect) {}
+    void CopyTexImage2D(GLenum target, GLint level, GLenum internalformat, GLint x, GLint y, GLsizei width,
+                        GLsizei height, GLint border) {}
+    void CopyTexSubImage2D(GLenum target, GLint level, GLint xoffset, GLint yoffset, GLint x, GLint y, GLsizei width,
+                           GLsizei height) {}
+    void GenerateMipmap(GLenum target) {}
+    void ReadPixels(GLint x, GLint y, GLsizei width, GLsizei height, GLenum format, GLenum type, void* pixels) {}
+    void GetTexImage(GLenum target, GLint level, GLenum format, GLenum type, GLvoid* pixels) {}
+
     void Clear(GLbitfield mask) {
         MOBILEGL_ASSERT(pVulkanRenderer, "DirectVulkan::Clear called with null VulkanRenderer");
         MOBILEGL_ASSERT(MG_State::pGLContext, "DirectVulkan::Clear called with null GL context");
@@ -85,11 +119,11 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             return;
         }
 
-        const SizeT byteOffset = reinterpret_cast<SizeT>(indices);
+        const auto byteOffset = reinterpret_cast<SizeT>(indices);
         const SizeT requiredBytes = static_cast<SizeT>(count) * indexSize;
         if (byteOffset + requiredBytes > indexBuffer->GetSize()) {
-            MGLOG_W("DrawElements skipped: index range out of bounds (offset=%zu, size=%zu, buffer=%zu)",
-                    byteOffset, requiredBytes, indexBuffer->GetSize());
+            MGLOG_W("DrawElements skipped: index range out of bounds (offset=%zu, size=%zu, buffer=%zu)", byteOffset,
+                    requiredBytes, indexBuffer->GetSize());
             return;
         }
 
@@ -170,5 +204,9 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         pVulkanRenderer->BlitFramebuffer(srcX0, srcY0, srcX1, srcY1, dstX0, dstY0, dstX1, dstY1, mask, filter,
                                          readFboExternalIndex, drawFboExternalIndex, readIsDefault, drawIsDefault);
     }
-} // namespace MobileGL::MG_Backend::DirectVulkan
 
+    void Present() {
+        MOBILEGL_ASSERT(pVulkanRenderer, "DirectVulkan::Present called with null VulkanRenderer");
+        pVulkanRenderer->Present();
+    }
+} // namespace MobileGL::MG_Backend::DirectVulkan

@@ -26,7 +26,7 @@
 namespace MobileGL::MG_State::GLState {
     class ProgramObject;
     class VertexArrayObject;
-}
+} // namespace MobileGL::MG_State::GLState
 
 namespace MobileGL::MG_Backend::DirectVulkan {
     struct DrawArrayPayload {
@@ -41,6 +41,21 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         DrawArrayPayload drawArray;
         GLenum indexType = GL_UNSIGNED_SHORT;
         SizeT indexByteOffset = 0;
+    };
+
+    struct QueueFamilyIndices {
+        Int32 graphicsFamily = -1;
+        Int32 presentFamily = -1;
+    };
+
+    struct PhysicalDevice {
+        QueueFamilyIndices queueFamilies;
+        VkPhysicalDeviceProperties properties;
+        VkPhysicalDevice handle = VK_NULL_HANDLE;
+
+        Bool IsComplete() const {
+            return handle != VK_NULL_HANDLE && queueFamilies.graphicsFamily != -1 && queueFamilies.presentFamily != -1;
+        }
     };
 
     class VulkanRenderer {
@@ -63,6 +78,8 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         void Render();
         void Present();
 
+        const PhysicalDevice& GetPhysicalDevice() const;
+
         void RecreateSwapchain();
 
     private:
@@ -73,23 +90,6 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             Uint32 stencil = 0;
             Uint drawFboExternalIndex = 0;
             Bool targetsDefaultFramebuffer = true;
-        };
-
-        struct QueueFamilyIndices {
-            Int32 graphicsFamily = -1;
-            Int32 presentFamily = -1;
-        };
-
-        struct PhysicalDevice {
-            QueueFamilyIndices queueFamilies;
-            VkPhysicalDeviceProperties properties;
-            VkPhysicalDevice handle = VK_NULL_HANDLE;
-
-            Bool IsComplete() const {
-                return handle != VK_NULL_HANDLE &&
-                    queueFamilies.graphicsFamily != -1 &&
-                    queueFamilies.presentFamily != -1;
-            }
         };
 
         NativeWindowType m_window = 0;
@@ -178,41 +178,33 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         void CollectDeferredBufferReleases(Uint32 frameIndex);
         Bool EnsureFrameUploadBufferCapacity(Uint32 frameIndex, Bool isIndexBuffer, VkDeviceSize requiredEndOffset,
                                              VkDeviceSize minCapacity, VkBufferUsageFlags usage);
-        Bool UploadAndBindVertexStreams(
-            const VertexInputStateFactory::BackendVertexInputState& vertexInputState,
-            const DrawArrayPayload& payload,
-            VkCommandBuffer commandBuffer);
+        Bool UploadAndBindVertexStreams(const VertexInputStateFactory::BackendVertexInputState& vertexInputState,
+                                        const DrawArrayPayload& payload, VkCommandBuffer commandBuffer);
 
         void ShutdownSwapchain();
 
-        static Int GetPresentQueueFamilyIndex(
-            const PhysicalDevice& physicalDevice, VkSurfaceKHR surface,
-            const Vector<VkQueueFamilyProperties>& queueFamilies, Int preferredFamilyIndex = -1);
+        static Int GetPresentQueueFamilyIndex(const PhysicalDevice& physicalDevice, VkSurfaceKHR surface,
+                                              const Vector<VkQueueFamilyProperties>& queueFamilies,
+                                              Int preferredFamilyIndex = -1);
         static Vector<VkQueueFamilyProperties> GetQueueFamilyFromPhysicalDevice(VkPhysicalDevice device);
         static Int GetQueueFamilyIndex(const Vector<VkQueueFamilyProperties>& queueFamilies, VkQueueFlagBits flag);
         static Vector<VkExtensionProperties> EnumerateInstanceExtensions();
         static Bool IsNecessaryDeviceExtensionSupported(VkPhysicalDevice device);
-        static Bool GetMoreCapablePhysicalDevice(VkPhysicalDevice newVkDevice, VkSurfaceKHR surface, const PhysicalDevice& compareWithDevice, PhysicalDevice& outBetterDevice);
+        static Bool GetMoreCapablePhysicalDevice(VkPhysicalDevice newVkDevice, VkSurfaceKHR surface,
+                                                 const PhysicalDevice& compareWithDevice,
+                                                 PhysicalDevice& outBetterDevice);
         Uint32 FindMemoryType(Uint32 typeFilter, VkMemoryPropertyFlags properties) const;
         static Uint64 BuildPendingClearKey(Uint drawFboExternalIndex, Bool targetsDefaultFramebuffer);
         static Bool HasStencilComponent(VkFormat format);
         static VkFormat FindSupportedDepthStencilFormat(VkPhysicalDevice physicalDevice);
-        static constexpr VkDynamicState s_dynamicStates[] = {
-            VK_DYNAMIC_STATE_VIEWPORT,
-            VK_DYNAMIC_STATE_SCISSOR
-        };
-        static constexpr const char* s_validationLayerNames[] = {
-            "VK_LAYER_KHRONOS_validation"
-        };
-        static constexpr const char* s_deviceExtensionNames[] = {
-            VK_KHR_SWAPCHAIN_EXTENSION_NAME
-        };
+        static constexpr VkDynamicState s_dynamicStates[] = {VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR};
+        static constexpr const char* s_validationLayerNames[] = {"VK_LAYER_KHRONOS_validation"};
+        static constexpr const char* s_deviceExtensionNames[] = {VK_KHR_SWAPCHAIN_EXTENSION_NAME};
         static Bool CheckValidationLayerSupport();
 
-        static VKAPI_ATTR VkBool32 VKAPI_CALL DebugCallback(
-            VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity,
-            VkDebugUtilsMessageTypeFlagsEXT messageType,
-            const VkDebugUtilsMessengerCallbackDataEXT* pCallbackData,
-            void* pUserData);
+        static VKAPI_ATTR VkBool32 VKAPI_CALL DebugCallback(VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity,
+                                                            VkDebugUtilsMessageTypeFlagsEXT messageType,
+                                                            const VkDebugUtilsMessengerCallbackDataEXT* pCallbackData,
+                                                            void* pUserData);
     };
 } // namespace MobileGL::MG_Backend::DirectVulkan
