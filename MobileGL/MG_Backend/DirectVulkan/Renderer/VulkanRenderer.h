@@ -41,6 +41,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         DrawArrayPayload drawArray;
         GLenum indexType = GL_UNSIGNED_SHORT;
         SizeT indexByteOffset = 0;
+        GLint baseVertex = 0;
     };
 
     struct QueueFamilyIndices {

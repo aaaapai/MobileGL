@@ -29,11 +29,19 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         Bool EnsureOffscreenColorTarget(Uint glFboExternalIndex, const MG_State::GLState::FramebufferObject& glFbo);
         Bool TransitionOffscreenColorToAttachment(VkCommandBuffer commandBuffer, Uint glFboExternalIndex);
         Bool TransitionOffscreenColorToTransferSrc(VkCommandBuffer commandBuffer, Uint glFboExternalIndex);
+        Bool TransitionOffscreenColorToTransferDst(VkCommandBuffer commandBuffer, Uint glFboExternalIndex);
+        Bool TransitionOffscreenColorToGeneral(VkCommandBuffer commandBuffer, Uint glFboExternalIndex);
+        Bool TransitionOffscreenDepthStencilToTransferSrc(VkCommandBuffer commandBuffer, Uint glFboExternalIndex);
+        Bool TransitionOffscreenDepthStencilToTransferDst(VkCommandBuffer commandBuffer, Uint glFboExternalIndex);
+        Bool TransitionOffscreenDepthStencilToGeneral(VkCommandBuffer commandBuffer, Uint glFboExternalIndex);
         Bool TransitionOffscreenColorTextureToShaderRead(VkCommandBuffer commandBuffer, Uint textureExternalIndex);
         Bool GetOffscreenColorImage(Uint glFboExternalIndex, VkImage& outImage, VkExtent2D& outExtent) const;
+        Bool GetOffscreenDepthStencilImage(Uint glFboExternalIndex, VkImage& outImage, VkExtent2D& outExtent,
+                                           VkFormat& outFormat) const;
         Bool GetOffscreenColorViewByTexture(Uint textureExternalIndex, VkImageView& outImageView) const;
-        Bool GetOffscreenRenderTarget(Uint glFboExternalIndex, VkRenderPass& outRenderPass, VkFramebuffer& outFramebuffer,
-                                      VkExtent2D& outExtent, VkFormat& outDepthStencilFormat) const;
+        Bool GetOffscreenRenderTarget(Uint glFboExternalIndex, VkRenderPass& outRenderPass,
+                                      VkFramebuffer& outFramebuffer, VkExtent2D& outExtent,
+                                      VkFormat& outDepthStencilFormat) const;
 
     private:
         struct OffscreenColorTarget {
@@ -59,19 +67,15 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                                           const MG_State::GLState::FramebufferAttachmentObject& colorAttachment,
                                           Uint16 glObjectVersion);
         void DestroyOffscreenColorTarget(OffscreenColorTarget& target);
-        Bool TransitionImageLayout(VkCommandBuffer commandBuffer,
-                                   VkImage image,
-                                   VkImageLayout& trackedLayout,
-                                   VkImageLayout newLayout,
-                                   VkPipelineStageFlags srcStageMask,
-                                   VkPipelineStageFlags dstStageMask,
-                                   VkAccessFlags srcAccessMask,
-                                   VkAccessFlags dstAccessMask,
-                                   VkImageAspectFlags aspectMask);
+        Bool TransitionImageLayout(VkCommandBuffer commandBuffer, VkImage image, VkImageLayout& trackedLayout,
+                                   VkImageLayout newLayout, VkPipelineStageFlags srcStageMask,
+                                   VkPipelineStageFlags dstStageMask, VkAccessFlags srcAccessMask,
+                                   VkAccessFlags dstAccessMask, VkImageAspectFlags aspectMask);
         Uint32 FindMemoryType(Uint32 typeFilter, VkMemoryPropertyFlags properties) const;
         static VkFormat ResolveColorFormat(const MG_State::GLState::FramebufferAttachmentObject& colorAttachment);
-        static VkFormat ResolveDepthStencilFormat(const MG_State::GLState::FramebufferAttachmentObject& depthAttachment,
-                                                  const MG_State::GLState::FramebufferAttachmentObject& stencilAttachment);
+        static VkFormat ResolveDepthStencilFormat(
+            const MG_State::GLState::FramebufferAttachmentObject& depthAttachment,
+            const MG_State::GLState::FramebufferAttachmentObject& stencilAttachment);
         VkFormat FindSupportedDepthStencilFormat(const Vector<VkFormat>& candidates) const;
 
         VkDevice m_device = VK_NULL_HANDLE;

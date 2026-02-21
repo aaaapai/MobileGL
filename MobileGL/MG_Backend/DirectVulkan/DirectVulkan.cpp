@@ -17,10 +17,165 @@ namespace MobileGL::MG_Backend::DirectVulkan {
     void ClearBufferfv(GLenum buffer, GLint drawbuffer, const GLfloat* value) {}
     void ClearBufferuiv(GLenum buffer, GLint drawbuffer, const GLuint* value) {}
     void ClearBufferiv(GLenum buffer, GLint drawbuffer, const GLint* value) {}
-    void DrawElementsBaseVertex(GLenum mode, GLsizei count, GLenum type, const GLvoid* indices, GLint basevertex) {}
+    void DrawElementsBaseVertex(GLenum mode, GLsizei count, GLenum type, const GLvoid* indices, GLint basevertex) {
+        MOBILEGL_ASSERT(pVulkanRenderer, "DirectVulkan::DrawElementsBaseVertex called with null VulkanRenderer");
+        MOBILEGL_ASSERT(MG_State::pGLContext, "DirectVulkan::DrawElementsBaseVertex called with null GL context");
+
+        if (count < 0) {
+            MGLOG_W("DrawElementsBaseVertex skipped: count (%d) must be non-negative", count);
+            return;
+        }
+        if (count == 0) {
+            return;
+        }
+        if (mode != GL_TRIANGLES) {
+            MGLOG_W("DrawElementsBaseVertex skipped: primitive mode %u is not supported yet", mode);
+            return;
+        }
+
+        SizeT indexSize = 0;
+        switch (type) {
+        case GL_UNSIGNED_SHORT:
+            indexSize = sizeof(Uint16);
+            break;
+        case GL_UNSIGNED_INT:
+            indexSize = sizeof(Uint32);
+            break;
+        default:
+            MGLOG_W("DrawElementsBaseVertex skipped: index type %u is not supported yet", type);
+            return;
+        }
+
+        const auto vao = MG_State::pGLContext->GetBoundVertexArray();
+        if (!vao) {
+            MGLOG_W("DrawElementsBaseVertex skipped: no bound VAO");
+            return;
+        }
+
+        const auto indexBuffer = vao->GetIndexBufferBindingSlot().GetBoundObject();
+        if (!indexBuffer) {
+            MGLOG_W("DrawElementsBaseVertex skipped: no bound ELEMENT_ARRAY_BUFFER");
+            return;
+        }
+
+        const auto indexData = indexBuffer->GetDataReadOnly();
+        if (!indexData || indexData->empty()) {
+            MGLOG_W("DrawElementsBaseVertex skipped: ELEMENT_ARRAY_BUFFER has no data");
+            return;
+        }
+
+        const SizeT byteOffset = reinterpret_cast<SizeT>(indices);
+        const SizeT requiredBytes = static_cast<SizeT>(count) * indexSize;
+        if (byteOffset + requiredBytes > indexBuffer->GetSize()) {
+            MGLOG_W("DrawElementsBaseVertex skipped: index range out of bounds (offset=%zu, size=%zu, buffer=%zu)",
+                    byteOffset, requiredBytes, indexBuffer->GetSize());
+            return;
+        }
+
+        DrawElementPayload payload{};
+        payload.drawArray.mode = mode;
+        payload.drawArray.first = 0;
+        payload.drawArray.count = count;
+        const auto currentProgram = MG_State::pGLContext->GetCurrentProgram();
+        payload.drawArray.program = currentProgram ? currentProgram.get() : nullptr;
+        payload.drawArray.vertexArray = vao.get();
+        payload.indexType = type;
+        payload.indexByteOffset = byteOffset;
+        payload.baseVertex = basevertex;
+
+        pVulkanRenderer->DrawElements(payload);
+    }
 
     void MultiDrawElementsBaseVertex(GLenum mode, const GLsizei* count, GLenum type, const GLvoid* const* indices,
-                                     GLsizei drawcount, const GLint* basevertex) {}
+                                     GLsizei drawcount, const GLint* basevertex) {
+        MOBILEGL_ASSERT(pVulkanRenderer, "DirectVulkan::MultiDrawElementsBaseVertex called with null VulkanRenderer");
+        MOBILEGL_ASSERT(MG_State::pGLContext, "DirectVulkan::MultiDrawElementsBaseVertex called with null GL context");
+
+        if (drawcount < 0) {
+            MGLOG_W("MultiDrawElementsBaseVertex skipped: drawcount (%d) must be non-negative", drawcount);
+            return;
+        }
+        if (drawcount == 0) {
+            return;
+        }
+        if (!count || !indices || !basevertex) {
+            MGLOG_W("MultiDrawElementsBaseVertex skipped: count/indices/basevertex pointer is null");
+            return;
+        }
+        if (mode != GL_TRIANGLES) {
+            MGLOG_W("MultiDrawElementsBaseVertex skipped: primitive mode %u is not supported yet", mode);
+            return;
+        }
+
+        SizeT indexSize = 0;
+        switch (type) {
+        case GL_UNSIGNED_SHORT:
+            indexSize = sizeof(Uint16);
+            break;
+        case GL_UNSIGNED_INT:
+            indexSize = sizeof(Uint32);
+            break;
+        default:
+            MGLOG_W("MultiDrawElementsBaseVertex skipped: index type %u is not supported yet", type);
+            return;
+        }
+
+        const auto vao = MG_State::pGLContext->GetBoundVertexArray();
+        if (!vao) {
+            MGLOG_W("MultiDrawElementsBaseVertex skipped: no bound VAO");
+            return;
+        }
+
+        const auto indexBuffer = vao->GetIndexBufferBindingSlot().GetBoundObject();
+        if (!indexBuffer) {
+            MGLOG_W("MultiDrawElementsBaseVertex skipped: no bound ELEMENT_ARRAY_BUFFER");
+            return;
+        }
+
+        const auto indexData = indexBuffer->GetDataReadOnly();
+        if (!indexData || indexData->empty()) {
+            MGLOG_W("MultiDrawElementsBaseVertex skipped: ELEMENT_ARRAY_BUFFER has no data");
+            return;
+        }
+
+        const auto currentProgram = MG_State::pGLContext->GetCurrentProgram();
+        Vector<DrawElementPayload> payloads;
+        payloads.reserve(static_cast<SizeT>(drawcount));
+        for (GLsizei i = 0; i < drawcount; ++i) {
+            if (count[i] < 0) {
+                MGLOG_W("MultiDrawElementsBaseVertex skipped: count[%d] (%d) must be non-negative", i, count[i]);
+                return;
+            }
+            if (count[i] == 0) {
+                continue;
+            }
+
+            const SizeT byteOffset = reinterpret_cast<SizeT>(indices[i]);
+            const SizeT requiredBytes = static_cast<SizeT>(count[i]) * indexSize;
+            if (byteOffset + requiredBytes > indexBuffer->GetSize()) {
+                MGLOG_W("MultiDrawElementsBaseVertex skipped: draw[%d] index range out of bounds (offset=%zu, "
+                        "size=%zu, buffer=%zu)",
+                        i, byteOffset, requiredBytes, indexBuffer->GetSize());
+                return;
+            }
+
+            DrawElementPayload payload{};
+            payload.drawArray.mode = mode;
+            payload.drawArray.first = 0;
+            payload.drawArray.count = count[i];
+            payload.drawArray.program = currentProgram ? currentProgram.get() : nullptr;
+            payload.drawArray.vertexArray = vao.get();
+            payload.indexType = type;
+            payload.indexByteOffset = byteOffset;
+            payload.baseVertex = basevertex[i];
+            payloads.push_back(payload);
+        }
+
+        if (payloads.empty()) {
+            return;
+        }
+        pVulkanRenderer->MultiDrawElements(payloads);
+    }
     void MultiDrawElementsIndirect(GLenum mode, GLenum type, const void* indirect, GLsizei drawcount, GLsizei stride) {}
     void MultiDrawArraysIndirect(GLenum mode, const void* indirect, GLsizei drawcount, GLsizei stride) {}
     void DrawRangeElementsBaseVertex(GLenum mode, GLuint start, GLuint end, GLsizei count, GLenum type,
@@ -270,20 +425,24 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         MOBILEGL_ASSERT(pVulkanRenderer, "DirectVulkan::BlitFramebuffer called with null VulkanRenderer");
         MOBILEGL_ASSERT(MG_State::pGLContext, "DirectVulkan::BlitFramebuffer called with null GL context");
 
-        const auto readFbo = MG_State::pGLContext->GetFramebufferBindingSlot(FramebufferTarget::Read).GetBoundObject();
-        const auto drawFbo = MG_State::pGLContext->GetFramebufferBindingSlot(FramebufferTarget::Draw).GetBoundObject();
+        const auto& readFboSlot = MG_State::pGLContext->GetFramebufferBindingSlot(FramebufferTarget::Read);
+        const auto& drawFboSlot = MG_State::pGLContext->GetFramebufferBindingSlot(FramebufferTarget::Draw);
+        const auto readFbo = readFboSlot.GetBoundObject();
+        const auto drawFbo = drawFboSlot.GetBoundObject();
         const auto defaultFboInfo = MG_Impl::GLImpl::FramebufferImpl::pDefaultFramebufferInfo;
         const auto defaultFbo = defaultFboInfo ? defaultFboInfo->defaultFBO : nullptr;
 
         const Bool readIsDefault = (readFbo == defaultFbo) || (readFbo == nullptr && defaultFbo != nullptr);
         const Bool drawIsDefault = (drawFbo == defaultFbo) || (drawFbo == nullptr && defaultFbo != nullptr);
+
         Uint readFboExternalIndex = 0;
-        Uint drawFboExternalIndex = 0;
         if (readFbo) {
             readFboExternalIndex = readFbo->GetExternalIndex();
         } else if (defaultFbo) {
             readFboExternalIndex = defaultFbo->GetExternalIndex();
         }
+
+        Uint drawFboExternalIndex = 0;
         if (drawFbo) {
             drawFboExternalIndex = drawFbo->GetExternalIndex();
         } else if (defaultFbo) {

@@ -998,7 +998,8 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         vkCmdSetScissor(commandBuffer, 0, 1, &scissor);
 
         vkCmdBindIndexBuffer(commandBuffer, frameIndexUploadBuffer.GetHandle(), writeOffset, vkIndexType);
-        vkCmdDrawIndexed(commandBuffer, static_cast<Uint32>(payload.drawArray.count), 1, 0, 0, 0);
+        vkCmdDrawIndexed(commandBuffer, static_cast<Uint32>(payload.drawArray.count), 1, 0,
+                         static_cast<Int32>(payload.baseVertex), 0);
     }
 
     void VulkanRenderer::MultiDrawElements(const Vector<DrawElementPayload>& payloads) {
@@ -1060,6 +1061,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             SizeT sourceOffset = 0;
             SizeT sourceByteCount = 0;
             Uint32 firstIndex = 0;
+            Int32 vertexOffset = 0;
         };
         Vector<PreparedDraw> preparedDraws;
         preparedDraws.reserve(payloads.size());
@@ -1086,6 +1088,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             draw.sourceOffset = payload.indexByteOffset;
             draw.sourceByteCount = drawByteCount;
             draw.firstIndex = firstIndex;
+            draw.vertexOffset = static_cast<Int32>(payload.baseVertex);
             preparedDraws.push_back(draw);
 
             firstIndex += draw.indexCount;
@@ -1189,7 +1192,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                 indirectCommands[i].indexCount = preparedDraws[i].indexCount;
                 indirectCommands[i].instanceCount = 1;
                 indirectCommands[i].firstIndex = preparedDraws[i].firstIndex;
-                indirectCommands[i].vertexOffset = 0;
+                indirectCommands[i].vertexOffset = preparedDraws[i].vertexOffset;
                 indirectCommands[i].firstInstance = 0;
             }
 
@@ -1226,26 +1229,33 @@ namespace MobileGL::MG_Backend::DirectVulkan {
 
         // Fallback
         for (const auto& draw : preparedDraws) {
-            vkCmdDrawIndexed(commandBuffer, draw.indexCount, 1, draw.firstIndex, 0, 0);
+            vkCmdDrawIndexed(commandBuffer, draw.indexCount, 1, draw.firstIndex, draw.vertexOffset, 0);
         }
     }
 
     Bool VulkanRenderer::BlitFramebuffer(GLint srcX0, GLint srcY0, GLint srcX1, GLint srcY1, GLint dstX0, GLint dstY0,
                                          GLint dstX1, GLint dstY1, GLbitfield mask, GLenum filter,
                                          Uint readFboExternalIndex, Uint drawFboExternalIndex,
+
                                          Bool readIsDefaultFramebuffer, Bool drawIsDefaultFramebuffer) {
-        if ((mask & GL_COLOR_BUFFER_BIT) == 0 || (mask & ~GL_COLOR_BUFFER_BIT) != 0) {
-            MGLOG_D("BlitFramebuffer skipped: only GL_COLOR_BUFFER_BIT is supported in Vulkan backend for now");
+        if ((mask & (GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT)) == 0) {
+            MGLOG_D("BlitFramebuffer skipped: empty mask");
             return false;
         }
-        if (readIsDefaultFramebuffer || !drawIsDefaultFramebuffer) {
-            MGLOG_D("BlitFramebuffer skipped: currently only read=offscreen FBO and draw=default FBO is supported");
+
+        VkFilter vkFilter = VK_FILTER_NEAREST;
+        if (filter == GL_NEAREST) {
+            vkFilter = VK_FILTER_NEAREST;
+        } else if (filter == GL_LINEAR) {
+            vkFilter = VK_FILTER_LINEAR;
+        } else {
+            MGLOG_W("BlitFramebuffer skipped: filter %u is not supported", filter);
             return false;
         }
 
         auto& frame = m_frameContext.GetCurrent();
         if (frame.hasCommandBufferRecorded) {
-            MGLOG_D("BlitFramebuffer skipped: current frame command buffer is already finalized");
+            MGLOG_D("BlitFramebuffer skipped: current frame command buffer already finalized");
             return false;
         }
 
@@ -1270,89 +1280,544 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             m_activeDrawFboExternalIndex = 0;
         }
 
-        if (!m_framebufferManager || !MG_State::pGLContext) {
-            MGLOG_D("BlitFramebuffer skipped: framebuffer manager is unavailable");
+        if (!m_framebufferManager && (!readIsDefaultFramebuffer || !drawIsDefaultFramebuffer)) {
+            MGLOG_W("BlitFramebuffer skipped: offscreen framebuffer manager not available");
             return false;
         }
 
-        (void)drawFboExternalIndex;
-        const auto readFbo = MG_State::pGLContext->GetFramebufferObject(readFboExternalIndex);
-        if (!readFbo) {
-            MGLOG_D("BlitFramebuffer skipped: read FBO %u not found", readFboExternalIndex);
-            return false;
+        auto consumePendingClearForTarget = [&](Bool targetIsDefault, Uint targetFboExternalIndex) {
+            const Uint64 pendingKey = BuildPendingClearKey(targetFboExternalIndex, targetIsDefault);
+            auto pendingIt = m_pendingClears.find(pendingKey);
+            if (pendingIt == m_pendingClears.end()) {
+                return;
+            }
+
+            const PendingClearState pending = pendingIt->second;
+            m_pendingClears.erase(pendingIt);
+
+            const auto prevExtent = m_activeRenderExtent;
+            const auto prevDepthStencilFormat = m_activeDepthStencilFormat;
+
+            if (targetIsDefault) {
+                TransitionSwapchainImageToColorAttachment(commandBuffer, m_imageIndexAcquired);
+                TransitionDepthStencilImageToAttachment(commandBuffer, m_imageIndexAcquired);
+
+                VkRenderPassBeginInfo renderPassInfo{};
+                renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+                renderPassInfo.renderPass = m_renderPassLoad;
+                renderPassInfo.framebuffer = m_framebuffers[m_imageIndexAcquired];
+                renderPassInfo.renderArea.offset = {0, 0};
+                renderPassInfo.renderArea.extent = m_swapchainObject.GetExtent();
+                renderPassInfo.clearValueCount = 0;
+                renderPassInfo.pClearValues = nullptr;
+                vkCmdBeginRenderPass(commandBuffer, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
+
+                m_activeRenderExtent = renderPassInfo.renderArea.extent;
+                m_activeDepthStencilFormat = m_depthStencilFormat;
+
+                if ((pending.mask & GL_COLOR_BUFFER_BIT) != 0) {
+                    RecordColorClear(commandBuffer, pending.color);
+                }
+                if ((pending.mask & (GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT)) != 0) {
+                    RecordDepthStencilClear(commandBuffer, pending.mask, pending.depth, pending.stencil);
+                }
+
+                vkCmdEndRenderPass(commandBuffer);
+            } else if (m_framebufferManager && MG_State::pGLContext) {
+                const auto targetFbo = MG_State::pGLContext->GetFramebufferObject(targetFboExternalIndex);
+                if (targetFbo && m_framebufferManager->EnsureOffscreenColorTarget(targetFboExternalIndex, *targetFbo) &&
+                    m_framebufferManager->TransitionOffscreenColorToAttachment(commandBuffer, targetFboExternalIndex)) {
+                    VkRenderPass offscreenRenderPass = VK_NULL_HANDLE;
+                    VkFramebuffer offscreenFramebuffer = VK_NULL_HANDLE;
+                    VkExtent2D offscreenExtent{};
+                    VkFormat offscreenDepthStencilFormat = VK_FORMAT_UNDEFINED;
+                    if (m_framebufferManager->GetOffscreenRenderTarget(targetFboExternalIndex, offscreenRenderPass,
+                                                                       offscreenFramebuffer, offscreenExtent,
+                                                                       offscreenDepthStencilFormat)) {
+                        VkRenderPassBeginInfo offscreenPassInfo{};
+                        offscreenPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+                        offscreenPassInfo.renderPass = offscreenRenderPass;
+                        offscreenPassInfo.framebuffer = offscreenFramebuffer;
+                        offscreenPassInfo.renderArea.offset = {0, 0};
+                        offscreenPassInfo.renderArea.extent = offscreenExtent;
+                        offscreenPassInfo.clearValueCount = 0;
+                        offscreenPassInfo.pClearValues = nullptr;
+                        vkCmdBeginRenderPass(commandBuffer, &offscreenPassInfo, VK_SUBPASS_CONTENTS_INLINE);
+
+                        m_activeRenderExtent = offscreenPassInfo.renderArea.extent;
+                        m_activeDepthStencilFormat = offscreenDepthStencilFormat;
+
+                        if ((pending.mask & GL_COLOR_BUFFER_BIT) != 0) {
+                            RecordColorClear(commandBuffer, pending.color);
+                        }
+                        if ((pending.mask & (GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT)) != 0) {
+                            RecordDepthStencilClear(commandBuffer, pending.mask, pending.depth, pending.stencil);
+                        }
+
+                        vkCmdEndRenderPass(commandBuffer);
+                    }
+                }
+            }
+
+            m_activeRenderExtent = prevExtent;
+            m_activeDepthStencilFormat = prevDepthStencilFormat;
+        };
+
+        consumePendingClearForTarget(drawIsDefaultFramebuffer, drawFboExternalIndex);
+
+        auto selectSrcStageAccess = [](VkImageLayout layout, VkPipelineStageFlags& outStage, VkAccessFlags& outAccess) {
+            switch (layout) {
+            case VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL:
+                outStage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+                outAccess = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+                break;
+            case VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL:
+                outStage = VK_PIPELINE_STAGE_TRANSFER_BIT;
+                outAccess = VK_ACCESS_TRANSFER_WRITE_BIT;
+                break;
+            case VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL:
+                outStage = VK_PIPELINE_STAGE_TRANSFER_BIT;
+                outAccess = VK_ACCESS_TRANSFER_READ_BIT;
+                break;
+            case VK_IMAGE_LAYOUT_GENERAL:
+                outStage = VK_PIPELINE_STAGE_TRANSFER_BIT;
+                outAccess = VK_ACCESS_TRANSFER_READ_BIT | VK_ACCESS_TRANSFER_WRITE_BIT;
+                break;
+            case VK_IMAGE_LAYOUT_PRESENT_SRC_KHR:
+            default:
+                outStage = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
+                outAccess = 0;
+                break;
+            }
+        };
+
+        auto transitionSwapchainLayout = [&](VkImageLayout newLayout, VkPipelineStageFlags dstStage,
+                                             VkAccessFlags dstAccess) {
+            const auto oldLayout = m_swapchainObject.GetImageLayout(m_imageIndexAcquired);
+            if (oldLayout == newLayout) {
+                return;
+            }
+            VkPipelineStageFlags srcStage = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
+            VkAccessFlags srcAccess = 0;
+            selectSrcStageAccess(oldLayout, srcStage, srcAccess);
+
+            VkImageMemoryBarrier barrier{};
+            barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+            barrier.srcAccessMask = srcAccess;
+            barrier.dstAccessMask = dstAccess;
+            barrier.oldLayout = oldLayout;
+            barrier.newLayout = newLayout;
+            barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+            barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+            barrier.image = m_swapchainObject.GetImage(m_imageIndexAcquired);
+            barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+            barrier.subresourceRange.baseMipLevel = 0;
+            barrier.subresourceRange.levelCount = 1;
+            barrier.subresourceRange.baseArrayLayer = 0;
+            barrier.subresourceRange.layerCount = 1;
+
+            vkCmdPipelineBarrier(commandBuffer, srcStage, dstStage, 0, 0, nullptr, 0, nullptr, 1, &barrier);
+            m_swapchainObject.SetImageLayout(m_imageIndexAcquired, newLayout);
+        };
+
+        auto clampCoord = [](GLint value, GLint minValue, GLint maxValue) -> GLint {
+            if (value < minValue) {
+                return minValue;
+            }
+            if (value > maxValue) {
+                return maxValue;
+            }
+            return value;
+        };
+
+        const Bool wantColor = (mask & GL_COLOR_BUFFER_BIT) != 0;
+        if (wantColor) {
+            VkImage srcImage = VK_NULL_HANDLE;
+            VkImage dstImage = VK_NULL_HANDLE;
+            VkExtent2D srcExtent{};
+            VkExtent2D dstExtent{};
+
+            if (readIsDefaultFramebuffer) {
+                srcImage = m_swapchainObject.GetImage(m_imageIndexAcquired);
+                srcExtent = m_swapchainObject.GetExtent();
+            } else {
+                if (!MG_State::pGLContext) {
+                    MGLOG_W("BlitFramebuffer skipped: GL context unavailable for read FBO");
+                    return false;
+                }
+                const auto readFbo = MG_State::pGLContext->GetFramebufferObject(readFboExternalIndex);
+                if (!readFbo) {
+                    MGLOG_W("BlitFramebuffer skipped: read FBO %u not found", readFboExternalIndex);
+                    return false;
+                }
+                if (!m_framebufferManager->EnsureOffscreenColorTarget(readFboExternalIndex, *readFbo)) {
+                    MGLOG_W("BlitFramebuffer skipped: failed to materialize read FBO %u", readFboExternalIndex);
+                    return false;
+                }
+                if (!m_framebufferManager->GetOffscreenColorImage(readFboExternalIndex, srcImage, srcExtent)) {
+                    MGLOG_W("BlitFramebuffer skipped: read FBO %u has no color target", readFboExternalIndex);
+                    return false;
+                }
+            }
+
+            if (drawIsDefaultFramebuffer) {
+                dstImage = m_swapchainObject.GetImage(m_imageIndexAcquired);
+                dstExtent = m_swapchainObject.GetExtent();
+            } else {
+                if (!MG_State::pGLContext) {
+                    MGLOG_W("BlitFramebuffer skipped: GL context unavailable for draw FBO");
+                    return false;
+                }
+                const auto drawFbo = MG_State::pGLContext->GetFramebufferObject(drawFboExternalIndex);
+                if (!drawFbo) {
+                    MGLOG_W("BlitFramebuffer skipped: draw FBO %u not found", drawFboExternalIndex);
+                    return false;
+                }
+                if (!m_framebufferManager->EnsureOffscreenColorTarget(drawFboExternalIndex, *drawFbo)) {
+                    MGLOG_W("BlitFramebuffer skipped: failed to materialize draw FBO %u", drawFboExternalIndex);
+                    return false;
+                }
+                if (!m_framebufferManager->GetOffscreenColorImage(drawFboExternalIndex, dstImage, dstExtent)) {
+                    MGLOG_W("BlitFramebuffer skipped: draw FBO %u has no color target", drawFboExternalIndex);
+                    return false;
+                }
+            }
+
+            if (srcImage == VK_NULL_HANDLE || dstImage == VK_NULL_HANDLE) {
+                MGLOG_W("BlitFramebuffer skipped: missing source/destination image");
+                return false;
+            }
+
+            const Bool sameImage = (srcImage == dstImage);
+
+            if (readIsDefaultFramebuffer) {
+                if (sameImage) {
+                    transitionSwapchainLayout(VK_IMAGE_LAYOUT_GENERAL, VK_PIPELINE_STAGE_TRANSFER_BIT,
+                                              VK_ACCESS_TRANSFER_READ_BIT | VK_ACCESS_TRANSFER_WRITE_BIT);
+                } else {
+                    transitionSwapchainLayout(VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_PIPELINE_STAGE_TRANSFER_BIT,
+                                              VK_ACCESS_TRANSFER_READ_BIT);
+                }
+            } else if (!m_framebufferManager->TransitionOffscreenColorToTransferSrc(commandBuffer,
+                                                                                    readFboExternalIndex)) {
+                MGLOG_W("BlitFramebuffer skipped: failed to transition read FBO %u to transfer src",
+                        readFboExternalIndex);
+                return false;
+            }
+
+            if (drawIsDefaultFramebuffer) {
+                if (sameImage) {
+                    transitionSwapchainLayout(VK_IMAGE_LAYOUT_GENERAL, VK_PIPELINE_STAGE_TRANSFER_BIT,
+                                              VK_ACCESS_TRANSFER_READ_BIT | VK_ACCESS_TRANSFER_WRITE_BIT);
+                } else {
+                    transitionSwapchainLayout(VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_PIPELINE_STAGE_TRANSFER_BIT,
+                                              VK_ACCESS_TRANSFER_WRITE_BIT);
+                }
+            } else if (sameImage) {
+                if (!m_framebufferManager->TransitionOffscreenColorToGeneral(commandBuffer, drawFboExternalIndex)) {
+                    MGLOG_W("BlitFramebuffer skipped: failed to transition draw FBO %u to general",
+                            drawFboExternalIndex);
+                    return false;
+                }
+            } else if (!m_framebufferManager->TransitionOffscreenColorToTransferDst(commandBuffer,
+                                                                                    drawFboExternalIndex)) {
+                MGLOG_W("BlitFramebuffer skipped: failed to transition draw FBO %u to transfer dst",
+                        drawFboExternalIndex);
+                return false;
+            }
+
+            GLint srcX0Clamped = clampCoord(srcX0, 0, static_cast<GLint>(srcExtent.width));
+            GLint srcX1Clamped = clampCoord(srcX1, 0, static_cast<GLint>(srcExtent.width));
+            GLint srcY0Clamped = clampCoord(srcY0, 0, static_cast<GLint>(srcExtent.height));
+            GLint srcY1Clamped = clampCoord(srcY1, 0, static_cast<GLint>(srcExtent.height));
+            if (readIsDefaultFramebuffer) {
+                const GLint height = static_cast<GLint>(srcExtent.height);
+                srcY0Clamped = height - srcY0Clamped;
+                srcY1Clamped = height - srcY1Clamped;
+                srcY0Clamped = clampCoord(srcY0Clamped, 0, height);
+                srcY1Clamped = clampCoord(srcY1Clamped, 0, height);
+            }
+
+            GLint dstX0Clamped = clampCoord(dstX0, 0, static_cast<GLint>(dstExtent.width));
+            GLint dstX1Clamped = clampCoord(dstX1, 0, static_cast<GLint>(dstExtent.width));
+            GLint dstY0Clamped = clampCoord(dstY0, 0, static_cast<GLint>(dstExtent.height));
+            GLint dstY1Clamped = clampCoord(dstY1, 0, static_cast<GLint>(dstExtent.height));
+            if (drawIsDefaultFramebuffer) {
+                const GLint height = static_cast<GLint>(dstExtent.height);
+                dstY0Clamped = height - dstY0Clamped;
+                dstY1Clamped = height - dstY1Clamped;
+                dstY0Clamped = clampCoord(dstY0Clamped, 0, height);
+                dstY1Clamped = clampCoord(dstY1Clamped, 0, height);
+            }
+
+            if (srcX0Clamped == srcX1Clamped || srcY0Clamped == srcY1Clamped || dstX0Clamped == dstX1Clamped ||
+                dstY0Clamped == dstY1Clamped) {
+                MGLOG_D("BlitFramebuffer skipped: empty blit region");
+                return true;
+            }
+
+            VkImageBlit blit{};
+            blit.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+            blit.srcSubresource.mipLevel = 0;
+            blit.srcSubresource.baseArrayLayer = 0;
+            blit.srcSubresource.layerCount = 1;
+            blit.srcOffsets[0] = {srcX0Clamped, srcY0Clamped, 0};
+            blit.srcOffsets[1] = {srcX1Clamped, srcY1Clamped, 1};
+            blit.dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+            blit.dstSubresource.mipLevel = 0;
+            blit.dstSubresource.baseArrayLayer = 0;
+            blit.dstSubresource.layerCount = 1;
+            blit.dstOffsets[0] = {dstX0Clamped, dstY0Clamped, 0};
+            blit.dstOffsets[1] = {dstX1Clamped, dstY1Clamped, 1};
+
+            const VkImageLayout srcLayout = sameImage ? VK_IMAGE_LAYOUT_GENERAL : VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+            const VkImageLayout dstLayout = sameImage ? VK_IMAGE_LAYOUT_GENERAL : VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+            vkCmdBlitImage(commandBuffer, srcImage, srcLayout, dstImage, dstLayout, 1, &blit, vkFilter);
         }
-        if (!m_framebufferManager->EnsureOffscreenColorTarget(readFboExternalIndex, *readFbo)) {
-            return false;
+
+        auto hasStencilComponent = [](VkFormat format) -> Bool {
+            return format == VK_FORMAT_D24_UNORM_S8_UINT || format == VK_FORMAT_D32_SFLOAT_S8_UINT;
+        };
+
+        const Bool wantDepth = (mask & GL_DEPTH_BUFFER_BIT) != 0;
+        const Bool wantStencil = (mask & GL_STENCIL_BUFFER_BIT) != 0;
+
+        if (wantDepth || wantStencil) {
+            if (filter != GL_NEAREST) {
+                MGLOG_W("BlitFramebuffer: depth/stencil blit requires GL_NEAREST, overriding filter");
+                vkFilter = VK_FILTER_NEAREST;
+            }
+
+            VkImage srcDepthImage = VK_NULL_HANDLE;
+            VkImage dstDepthImage = VK_NULL_HANDLE;
+            VkExtent2D srcDepthExtent{};
+            VkExtent2D dstDepthExtent{};
+            VkFormat srcDepthFormat = VK_FORMAT_UNDEFINED;
+            VkFormat dstDepthFormat = VK_FORMAT_UNDEFINED;
+
+            if (readIsDefaultFramebuffer) {
+                if (m_depthStencilImages.empty() || m_depthStencilFormat == VK_FORMAT_UNDEFINED) {
+                    MGLOG_W("BlitFramebuffer: default framebuffer has no depth/stencil image");
+                } else {
+                    srcDepthImage = m_depthStencilImages[m_imageIndexAcquired];
+                    srcDepthExtent = m_swapchainObject.GetExtent();
+                    srcDepthFormat = m_depthStencilFormat;
+                }
+            } else if (m_framebufferManager) {
+                if (!MG_State::pGLContext) {
+                    MGLOG_W("BlitFramebuffer: GL context unavailable for read depth/stencil FBO");
+                } else {
+                    const auto readFbo = MG_State::pGLContext->GetFramebufferObject(readFboExternalIndex);
+                    if (!readFbo) {
+                        MGLOG_W("BlitFramebuffer: read FBO %u not found", readFboExternalIndex);
+                    } else if (!m_framebufferManager->EnsureOffscreenColorTarget(readFboExternalIndex, *readFbo)) {
+                        MGLOG_W("BlitFramebuffer: failed to materialize read FBO %u for depth/stencil",
+                                readFboExternalIndex);
+                    } else if (!m_framebufferManager->GetOffscreenDepthStencilImage(readFboExternalIndex, srcDepthImage,
+                                                                                    srcDepthExtent, srcDepthFormat)) {
+                        MGLOG_W("BlitFramebuffer: read FBO %u has no depth/stencil image", readFboExternalIndex);
+                    }
+                }
+            }
+
+            if (drawIsDefaultFramebuffer) {
+                if (m_depthStencilImages.empty() || m_depthStencilFormat == VK_FORMAT_UNDEFINED) {
+                    MGLOG_W("BlitFramebuffer: default framebuffer has no depth/stencil image");
+                } else {
+                    dstDepthImage = m_depthStencilImages[m_imageIndexAcquired];
+                    dstDepthExtent = m_swapchainObject.GetExtent();
+                    dstDepthFormat = m_depthStencilFormat;
+                }
+            } else if (m_framebufferManager) {
+                if (!MG_State::pGLContext) {
+                    MGLOG_W("BlitFramebuffer: GL context unavailable for draw depth/stencil FBO");
+                } else {
+                    const auto drawFbo = MG_State::pGLContext->GetFramebufferObject(drawFboExternalIndex);
+                    if (!drawFbo) {
+                        MGLOG_W("BlitFramebuffer: draw FBO %u not found", drawFboExternalIndex);
+                    } else if (!m_framebufferManager->EnsureOffscreenColorTarget(drawFboExternalIndex, *drawFbo)) {
+                        MGLOG_W("BlitFramebuffer: failed to materialize draw FBO %u for depth/stencil",
+                                drawFboExternalIndex);
+                    } else if (!m_framebufferManager->GetOffscreenDepthStencilImage(drawFboExternalIndex, dstDepthImage,
+                                                                                    dstDepthExtent, dstDepthFormat)) {
+                        MGLOG_W("BlitFramebuffer: draw FBO %u has no depth/stencil image", drawFboExternalIndex);
+                    }
+                }
+            }
+
+            if (srcDepthImage != VK_NULL_HANDLE && dstDepthImage != VK_NULL_HANDLE) {
+                if (srcDepthFormat != dstDepthFormat) {
+                    MGLOG_W("BlitFramebuffer: depth/stencil format mismatch (src=%d, dst=%d), skipping", srcDepthFormat,
+                            dstDepthFormat);
+                } else {
+                    VkImageAspectFlags srcAspectMask = 0;
+                    VkImageAspectFlags dstAspectMask = 0;
+                    if (wantDepth) {
+                        srcAspectMask |= VK_IMAGE_ASPECT_DEPTH_BIT;
+                        dstAspectMask |= VK_IMAGE_ASPECT_DEPTH_BIT;
+                    }
+                    if (wantStencil && hasStencilComponent(srcDepthFormat)) {
+                        srcAspectMask |= VK_IMAGE_ASPECT_STENCIL_BIT;
+                        dstAspectMask |= VK_IMAGE_ASPECT_STENCIL_BIT;
+                    } else if (wantStencil) {
+                        MGLOG_W("BlitFramebuffer: stencil bit requested but format has no stencil component");
+                    }
+
+                    const VkImageAspectFlags aspectMask = srcAspectMask & dstAspectMask;
+                    if (aspectMask != 0) {
+                        const Bool sameDepthImage = (srcDepthImage == dstDepthImage);
+                        const VkImageAspectFlags fullAspectMask =
+                            VK_IMAGE_ASPECT_DEPTH_BIT |
+                            (hasStencilComponent(srcDepthFormat) ? VK_IMAGE_ASPECT_STENCIL_BIT : 0);
+
+                        auto transitionDefaultDepthStencil = [&](VkImageLayout newLayout, VkPipelineStageFlags dstStage,
+                                                                 VkAccessFlags dstAccess) {
+                            if (m_depthStencilImages.empty()) {
+                                return;
+                            }
+                            const auto oldLayout = m_depthStencilImageLayouts[m_imageIndexAcquired];
+                            if (oldLayout == newLayout) {
+                                return;
+                            }
+                            VkPipelineStageFlags srcStage = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
+                            VkAccessFlags srcAccess = 0;
+                            switch (oldLayout) {
+                            case VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL:
+                                srcStage = VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT |
+                                           VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;
+                                srcAccess = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+                                break;
+                            case VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL:
+                                srcStage = VK_PIPELINE_STAGE_TRANSFER_BIT;
+                                srcAccess = VK_ACCESS_TRANSFER_READ_BIT;
+                                break;
+                            case VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL:
+                                srcStage = VK_PIPELINE_STAGE_TRANSFER_BIT;
+                                srcAccess = VK_ACCESS_TRANSFER_WRITE_BIT;
+                                break;
+                            case VK_IMAGE_LAYOUT_GENERAL:
+                                srcStage = VK_PIPELINE_STAGE_TRANSFER_BIT;
+                                srcAccess = VK_ACCESS_TRANSFER_READ_BIT | VK_ACCESS_TRANSFER_WRITE_BIT;
+                                break;
+                            default:
+                                srcStage = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
+                                srcAccess = 0;
+                                break;
+                            }
+
+                            VkImageMemoryBarrier barrier{};
+                            barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+                            barrier.srcAccessMask = srcAccess;
+                            barrier.dstAccessMask = dstAccess;
+                            barrier.oldLayout = oldLayout;
+                            barrier.newLayout = newLayout;
+                            barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+                            barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+                            barrier.image = m_depthStencilImages[m_imageIndexAcquired];
+                            barrier.subresourceRange.aspectMask = fullAspectMask;
+                            barrier.subresourceRange.baseMipLevel = 0;
+                            barrier.subresourceRange.levelCount = 1;
+                            barrier.subresourceRange.baseArrayLayer = 0;
+                            barrier.subresourceRange.layerCount = 1;
+
+                            vkCmdPipelineBarrier(commandBuffer, srcStage, dstStage, 0, 0, nullptr, 0, nullptr, 1,
+                                                 &barrier);
+                            m_depthStencilImageLayouts[m_imageIndexAcquired] = newLayout;
+                        };
+
+                        if (readIsDefaultFramebuffer) {
+                            if (sameDepthImage) {
+                                transitionDefaultDepthStencil(VK_IMAGE_LAYOUT_GENERAL, VK_PIPELINE_STAGE_TRANSFER_BIT,
+                                                              VK_ACCESS_TRANSFER_READ_BIT |
+                                                                  VK_ACCESS_TRANSFER_WRITE_BIT);
+                            } else {
+                                transitionDefaultDepthStencil(VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                                                              VK_PIPELINE_STAGE_TRANSFER_BIT,
+                                                              VK_ACCESS_TRANSFER_READ_BIT);
+                            }
+                        } else if (!m_framebufferManager->TransitionOffscreenDepthStencilToTransferSrc(
+                                       commandBuffer, readFboExternalIndex)) {
+                            MGLOG_W("BlitFramebuffer: failed to transition read depth/stencil FBO %u to transfer src",
+                                    readFboExternalIndex);
+                        }
+
+                        if (drawIsDefaultFramebuffer) {
+                            if (sameDepthImage) {
+                                transitionDefaultDepthStencil(VK_IMAGE_LAYOUT_GENERAL, VK_PIPELINE_STAGE_TRANSFER_BIT,
+                                                              VK_ACCESS_TRANSFER_READ_BIT |
+                                                                  VK_ACCESS_TRANSFER_WRITE_BIT);
+                            } else {
+                                transitionDefaultDepthStencil(VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                                                              VK_PIPELINE_STAGE_TRANSFER_BIT,
+                                                              VK_ACCESS_TRANSFER_WRITE_BIT);
+                            }
+                        } else if (sameDepthImage) {
+                            if (!m_framebufferManager->TransitionOffscreenDepthStencilToGeneral(commandBuffer,
+                                                                                                drawFboExternalIndex)) {
+                                MGLOG_W("BlitFramebuffer: failed to transition draw depth/stencil FBO %u to general",
+                                        drawFboExternalIndex);
+                            }
+                        } else if (!m_framebufferManager->TransitionOffscreenDepthStencilToTransferDst(
+                                       commandBuffer, drawFboExternalIndex)) {
+                            MGLOG_W("BlitFramebuffer: failed to transition draw depth/stencil FBO %u to transfer dst",
+                                    drawFboExternalIndex);
+                        }
+
+                        GLint srcDX0 = clampCoord(srcX0, 0, static_cast<GLint>(srcDepthExtent.width));
+                        GLint srcDX1 = clampCoord(srcX1, 0, static_cast<GLint>(srcDepthExtent.width));
+                        GLint srcDY0 = clampCoord(srcY0, 0, static_cast<GLint>(srcDepthExtent.height));
+                        GLint srcDY1 = clampCoord(srcY1, 0, static_cast<GLint>(srcDepthExtent.height));
+                        if (readIsDefaultFramebuffer) {
+                            const GLint height = static_cast<GLint>(srcDepthExtent.height);
+                            srcDY0 = height - srcDY0;
+                            srcDY1 = height - srcDY1;
+                            srcDY0 = clampCoord(srcDY0, 0, height);
+                            srcDY1 = clampCoord(srcDY1, 0, height);
+                        }
+
+                        GLint dstDX0 = clampCoord(dstX0, 0, static_cast<GLint>(dstDepthExtent.width));
+                        GLint dstDX1 = clampCoord(dstX1, 0, static_cast<GLint>(dstDepthExtent.width));
+                        GLint dstDY0 = clampCoord(dstY0, 0, static_cast<GLint>(dstDepthExtent.height));
+                        GLint dstDY1 = clampCoord(dstY1, 0, static_cast<GLint>(dstDepthExtent.height));
+                        if (drawIsDefaultFramebuffer) {
+                            const GLint height = static_cast<GLint>(dstDepthExtent.height);
+                            dstDY0 = height - dstDY0;
+                            dstDY1 = height - dstDY1;
+                            dstDY0 = clampCoord(dstDY0, 0, height);
+                            dstDY1 = clampCoord(dstDY1, 0, height);
+                        }
+
+                        if (srcDX0 != srcDX1 && srcDY0 != srcDY1 && dstDX0 != dstDX1 && dstDY0 != dstDY1) {
+                            VkImageBlit depthBlit{};
+                            depthBlit.srcSubresource.aspectMask = aspectMask;
+                            depthBlit.srcSubresource.mipLevel = 0;
+                            depthBlit.srcSubresource.baseArrayLayer = 0;
+                            depthBlit.srcSubresource.layerCount = 1;
+                            depthBlit.srcOffsets[0] = {srcDX0, srcDY0, 0};
+                            depthBlit.srcOffsets[1] = {srcDX1, srcDY1, 1};
+                            depthBlit.dstSubresource.aspectMask = aspectMask;
+                            depthBlit.dstSubresource.mipLevel = 0;
+                            depthBlit.dstSubresource.baseArrayLayer = 0;
+                            depthBlit.dstSubresource.layerCount = 1;
+                            depthBlit.dstOffsets[0] = {dstDX0, dstDY0, 0};
+                            depthBlit.dstOffsets[1] = {dstDX1, dstDY1, 1};
+
+                            const VkImageLayout depthSrcLayout =
+                                sameDepthImage ? VK_IMAGE_LAYOUT_GENERAL : VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+                            const VkImageLayout depthDstLayout =
+                                sameDepthImage ? VK_IMAGE_LAYOUT_GENERAL : VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+                            vkCmdBlitImage(commandBuffer, srcDepthImage, depthSrcLayout, dstDepthImage, depthDstLayout,
+                                           1, &depthBlit, vkFilter);
+                        }
+                    }
+                }
+            }
         }
-        if (!m_framebufferManager->TransitionOffscreenColorToTransferSrc(commandBuffer, readFboExternalIndex)) {
-            return false;
+
+        if (readIsDefaultFramebuffer || drawIsDefaultFramebuffer) {
+            transitionSwapchainLayout(VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, 0);
         }
 
-        VkImage srcImage = VK_NULL_HANDLE;
-        VkExtent2D srcExtent{};
-        if (!m_framebufferManager->GetOffscreenColorImage(readFboExternalIndex, srcImage, srcExtent)) {
-            MGLOG_D("BlitFramebuffer skipped: offscreen image for FBO %u is unavailable", readFboExternalIndex);
-            return false;
-        }
-
-        const auto swapchainOldLayout = m_swapchainObject.GetImageLayout(m_imageIndexAcquired);
-        if (swapchainOldLayout != VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL) {
-            VkImageMemoryBarrier toTransferDstBarrier{};
-            toTransferDstBarrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
-            toTransferDstBarrier.srcAccessMask = 0;
-            toTransferDstBarrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-            toTransferDstBarrier.oldLayout = swapchainOldLayout;
-            toTransferDstBarrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-            toTransferDstBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-            toTransferDstBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-            toTransferDstBarrier.image = m_swapchainObject.GetImage(m_imageIndexAcquired);
-            toTransferDstBarrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-            toTransferDstBarrier.subresourceRange.baseMipLevel = 0;
-            toTransferDstBarrier.subresourceRange.levelCount = 1;
-            toTransferDstBarrier.subresourceRange.baseArrayLayer = 0;
-            toTransferDstBarrier.subresourceRange.layerCount = 1;
-            vkCmdPipelineBarrier(commandBuffer, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0,
-                                 nullptr, 0, nullptr, 1, &toTransferDstBarrier);
-            m_swapchainObject.SetImageLayout(m_imageIndexAcquired, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
-        }
-
-        VkImageBlit blitRegion{};
-        blitRegion.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-        blitRegion.srcSubresource.mipLevel = 0;
-        blitRegion.srcSubresource.baseArrayLayer = 0;
-        blitRegion.srcSubresource.layerCount = 1;
-        blitRegion.srcOffsets[0] = {srcX0, srcY0, 0};
-        blitRegion.srcOffsets[1] = {srcX1, srcY1, 1};
-        blitRegion.dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-        blitRegion.dstSubresource.mipLevel = 0;
-        blitRegion.dstSubresource.baseArrayLayer = 0;
-        blitRegion.dstSubresource.layerCount = 1;
-        blitRegion.dstOffsets[0] = {dstX0, dstY0, 0};
-        blitRegion.dstOffsets[1] = {dstX1, dstY1, 1};
-
-        vkCmdBlitImage(commandBuffer, srcImage, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-                       m_swapchainObject.GetImage(m_imageIndexAcquired), VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1,
-                       &blitRegion, (filter == GL_LINEAR ? VK_FILTER_LINEAR : VK_FILTER_NEAREST));
-
-        VkImageMemoryBarrier toPresentBarrier{};
-        toPresentBarrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
-        toPresentBarrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-        toPresentBarrier.dstAccessMask = 0;
-        toPresentBarrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-        toPresentBarrier.newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
-        toPresentBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        toPresentBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        toPresentBarrier.image = m_swapchainObject.GetImage(m_imageIndexAcquired);
-        toPresentBarrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-        toPresentBarrier.subresourceRange.baseMipLevel = 0;
-        toPresentBarrier.subresourceRange.levelCount = 1;
-        toPresentBarrier.subresourceRange.baseArrayLayer = 0;
-        toPresentBarrier.subresourceRange.layerCount = 1;
-        vkCmdPipelineBarrier(commandBuffer, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, 0, 0,
-                             nullptr, 0, nullptr, 1, &toPresentBarrier);
-        m_swapchainObject.SetImageLayout(m_imageIndexAcquired, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
-
-        (void)srcExtent;
         return true;
     }
 
