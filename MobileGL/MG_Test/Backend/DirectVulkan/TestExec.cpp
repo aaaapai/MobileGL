@@ -27,9 +27,9 @@
 #endif
 #include <EGL/egl.h>
 #ifdef _WIN32
-    #define GLFW_EXPOSE_NATIVE_WIN32
+#define GLFW_EXPOSE_NATIVE_WIN32
 #elif defined(__APPLE__)
-    #define GLFW_EXPOSE_NATIVE_COCOA
+#define GLFW_EXPOSE_NATIVE_COCOA
 #endif
 
 #include <GLFW/glfw3native.h>
@@ -44,8 +44,8 @@
 #undef NO_GL_H
 
 namespace MobileGL {
-    void MG_Initialize();
-}
+    void Initialize();
+} // namespace MobileGL
 
 static bool CheckShaderCompile(GLuint shader, const char* label) {
     GLint status = GL_FALSE;
@@ -94,12 +94,7 @@ static bool CheckProgramLink(GLuint program) {
 int main() {
     glfwInit();
 
-    static EGLint const attribute_list[] = {
-        EGL_RED_SIZE, 8,
-        EGL_GREEN_SIZE, 8,
-        EGL_BLUE_SIZE, 8,
-        EGL_NONE
-    };
+    static EGLint const attribute_list[] = {EGL_RED_SIZE, 8, EGL_GREEN_SIZE, 8, EGL_BLUE_SIZE, 8, EGL_NONE};
 
     EGLDisplay display = eglGetDisplay(EGL_DEFAULT_DISPLAY);
     eglInitialize(display, nullptr, nullptr);
@@ -134,7 +129,7 @@ int main() {
     EGLSurface surface = eglCreateWindowSurface(display, config, nativewindow, nullptr);
     eglMakeCurrent(display, surface, surface, context);
 
-    MobileGL::MG_Initialize();
+    MobileGL::Initialize();
 
     GLuint offscreenTex = 0;
     GLuint offscreenFbo = 0;
@@ -166,12 +161,8 @@ int main() {
     GLuint shapeVbo = 0;
     glGenBuffers(1, &shapeVbo);
     glBindBuffer(GL_ARRAY_BUFFER, shapeVbo);
-    glBufferData(
-        GL_ARRAY_BUFFER,
-        static_cast<GLsizeiptr>((kMaxSegments + 1) * 5 * sizeof(GLfloat)),
-        nullptr,
-        GL_DYNAMIC_DRAW
-    );
+    glBufferData(GL_ARRAY_BUFFER, static_cast<GLsizeiptr>((kMaxSegments + 1) * 5 * sizeof(GLfloat)), nullptr,
+                 GL_DYNAMIC_DRAW);
     glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, static_cast<GLsizei>(5 * sizeof(GLfloat)), nullptr);
     glEnableVertexAttribArray(0);
     glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, static_cast<GLsizei>(5 * sizeof(GLfloat)),
@@ -181,12 +172,8 @@ int main() {
     GLuint shapeIbo = 0;
     glGenBuffers(1, &shapeIbo);
     glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, shapeIbo);
-    glBufferData(
-        GL_ELEMENT_ARRAY_BUFFER,
-        static_cast<GLsizeiptr>(kMaxSegments * 3 * sizeof(GLushort)),
-        nullptr,
-        GL_DYNAMIC_DRAW
-    );
+    glBufferData(GL_ELEMENT_ARRAY_BUFFER, static_cast<GLsizeiptr>(kMaxSegments * 3 * sizeof(GLushort)), nullptr,
+                 GL_DYNAMIC_DRAW);
 
     static constexpr const char* kVertexShaderSource = R"(#version 330 core
 layout(location = 0) in vec2 aPos;
@@ -231,7 +218,7 @@ void main() {
     std::vector<GLfloat> dynamicVertices(static_cast<size_t>((kMaxSegments + 1) * 5));
     std::vector<GLushort> dynamicIndices(static_cast<size_t>(kMaxSegments * 3));
     int i = 0;
-    while(!glfwWindowShouldClose(window)) {
+    while (!glfwWindowShouldClose(window)) {
         glfwPollEvents();
 
         GLint framebufferWidth = kWindowWidth;
@@ -247,7 +234,8 @@ void main() {
 
             glBindFramebuffer(GL_READ_FRAMEBUFFER, offscreenFbo);
             glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
-            glBlitFramebuffer(0, 0, 256, 256, 0, 0, framebufferWidth, framebufferHeight, GL_COLOR_BUFFER_BIT, GL_NEAREST);
+            glBlitFramebuffer(0, 0, 256, 256, 0, 0, framebufferWidth, framebufferHeight, GL_COLOR_BUFFER_BIT,
+                              GL_NEAREST);
             glBindFramebuffer(GL_FRAMEBUFFER, 0);
         } else {
             const int segmentCount = std::min(kMaxSegments, 3 + (i / 100));
@@ -287,9 +275,11 @@ void main() {
             glUseProgram(program);
             glBindVertexArray(vao);
             glBindBuffer(GL_ARRAY_BUFFER, shapeVbo);
-            glBufferSubData(GL_ARRAY_BUFFER, 0, static_cast<GLsizeiptr>(vertexFloatCount * sizeof(GLfloat)), dynamicVertices.data());
+            glBufferSubData(GL_ARRAY_BUFFER, 0, static_cast<GLsizeiptr>(vertexFloatCount * sizeof(GLfloat)),
+                            dynamicVertices.data());
             glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, shapeIbo);
-            glBufferSubData(GL_ELEMENT_ARRAY_BUFFER, 0, static_cast<GLsizeiptr>(indexCount * sizeof(GLushort)), dynamicIndices.data());
+            glBufferSubData(GL_ELEMENT_ARRAY_BUFFER, 0, static_cast<GLsizeiptr>(indexCount * sizeof(GLushort)),
+                            dynamicIndices.data());
             glDrawElements(GL_TRIANGLES, static_cast<GLsizei>(indexCount), GL_UNSIGNED_SHORT, nullptr);
         }
 
