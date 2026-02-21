@@ -10,7 +10,7 @@
 
 namespace MobileGL {
     namespace MG_Config {
-        BackendType ActiveBackendType = BackendType::DirectVulkan;
+        BackendType ActiveBackendType;
     } // namespace MG_Config
 
     namespace MG_Backend {

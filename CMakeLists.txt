@@ -128,6 +128,7 @@ endif ()
 set(SOURCE_FILES
     MobileGL/Init.cpp
     MobileGL/GlobalObjects.cpp
+    MobileGL/ConfigLoader.cpp
 
     MobileGL/MG_Util/Debug/Log.cpp
 

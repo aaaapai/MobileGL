@@ -36,7 +36,7 @@
 // ====================== MobileGL configurations ======================= //
 #define MOBILEGL_LOG_ACTIVE_LEVEL MOBILEGL_LOG_LEVEL_INFO
 
-#define MOBILEGL_LOG_ENABLE_CONSOLE 1
+#define MOBILEGL_LOG_ENABLE_CONSOLE 0
 #define MOBILEGL_LOG_ENABLE_FILE 1
 #define MOBILEGL_LOG_ENABLE_ANDROID 1
 #define MOBILEGL_ENABLE_SCOPE_MARKER 0

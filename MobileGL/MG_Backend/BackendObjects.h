@@ -15,6 +15,4 @@
 namespace MobileGL::MG_Backend {
     extern UniquePtr<BackendObject> pActiveBackendObject;
     extern GlobalBackendFunctionsTable gBackendFunctionsTable;
-
-    void Init();
 } // namespace MobileGL::MG_Backend
