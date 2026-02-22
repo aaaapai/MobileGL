@@ -32,11 +32,6 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             return false;
         }
 
-        if (!UploadFallbackTexture()) {
-            MGLOG_E("VkTextureSamplerManager::Initialize failed: fallback texture creation failed");
-            Shutdown();
-            return false;
-        }
         return true;
     }
 
@@ -54,37 +49,10 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         }
         m_samplers.clear();
 
-        if (m_device != VK_NULL_HANDLE && m_fallbackSampler != VK_NULL_HANDLE) {
-            vkDestroySampler(m_device, m_fallbackSampler, nullptr);
-        }
-        if (m_device != VK_NULL_HANDLE && m_fallbackImageView != VK_NULL_HANDLE) {
-            vkDestroyImageView(m_device, m_fallbackImageView, nullptr);
-        }
-        if (m_device != VK_NULL_HANDLE && m_fallbackImage != VK_NULL_HANDLE) {
-            vkDestroyImage(m_device, m_fallbackImage, nullptr);
-        }
-        if (m_device != VK_NULL_HANDLE && m_fallbackImageMemory != VK_NULL_HANDLE) {
-            vkFreeMemory(m_device, m_fallbackImageMemory, nullptr);
-        }
-        m_fallbackSampler = VK_NULL_HANDLE;
-        m_fallbackImageView = VK_NULL_HANDLE;
-        m_fallbackImage = VK_NULL_HANDLE;
-        m_fallbackImageMemory = VK_NULL_HANDLE;
-
         m_device = VK_NULL_HANDLE;
         m_physicalDevice = VK_NULL_HANDLE;
         m_commandPool = VK_NULL_HANDLE;
         m_graphicsQueue = VK_NULL_HANDLE;
-    }
-
-    Bool VkTextureSamplerManager::GetFallbackDescriptor(VkDescriptorImageInfo& outImageInfo) const {
-        if (m_fallbackSampler == VK_NULL_HANDLE || m_fallbackImageView == VK_NULL_HANDLE) {
-            return false;
-        }
-        outImageInfo.sampler = m_fallbackSampler;
-        outImageInfo.imageView = m_fallbackImageView;
-        outImageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-        return true;
     }
 
     Bool VkTextureSamplerManager::SyncTextureAndGetDescriptor(const MG_State::GLState::ITextureObject& texture,
@@ -101,7 +69,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         }
 
         if (!EnsureTextureSynced(it->second, texture)) {
-            return GetFallbackDescriptor(outImageInfo);
+            return false;
         }
 
         const MG_State::GLState::SamplerObject* samplerToUse = samplerOverride;
@@ -112,16 +80,12 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             }
         }
 
-        VkSampler sampler = m_fallbackSampler;
+        VkSampler sampler = VK_NULL_HANDLE;
         if (samplerToUse) {
             sampler = GetOrCreateSampler(*samplerToUse);
         }
-        if (sampler == VK_NULL_HANDLE) {
-            sampler = m_fallbackSampler;
-        }
-
         if (it->second.view == VK_NULL_HANDLE || sampler == VK_NULL_HANDLE) {
-            return GetFallbackDescriptor(outImageInfo);
+            return false;
         }
 
         outImageInfo.sampler = sampler;
@@ -506,137 +470,4 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         }
     }
 
-    Bool VkTextureSamplerManager::UploadFallbackTexture() {
-        const Uint32 rgba = 0xFFFFFFFFu;
-
-        VkImageCreateInfo imageInfo{};
-        imageInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
-        imageInfo.imageType = VK_IMAGE_TYPE_2D;
-        imageInfo.extent = {1, 1, 1};
-        imageInfo.mipLevels = 1;
-        imageInfo.arrayLayers = 1;
-        imageInfo.format = VK_FORMAT_R8G8B8A8_UNORM;
-        imageInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
-        imageInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-        imageInfo.usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
-        imageInfo.samples = VK_SAMPLE_COUNT_1_BIT;
-        imageInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-        VK_VERIFY(vkCreateImage(m_device, &imageInfo, nullptr, &m_fallbackImage), "vkCreateImage(fallback)");
-
-        VkMemoryRequirements imageMemReq{};
-        vkGetImageMemoryRequirements(m_device, m_fallbackImage, &imageMemReq);
-
-        VkMemoryAllocateInfo imageAllocInfo{};
-        imageAllocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
-        imageAllocInfo.allocationSize = imageMemReq.size;
-        imageAllocInfo.memoryTypeIndex = FindMemoryType(imageMemReq.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
-        VK_VERIFY(vkAllocateMemory(m_device, &imageAllocInfo, nullptr, &m_fallbackImageMemory),
-                  "vkAllocateMemory(fallback)");
-        VK_VERIFY(vkBindImageMemory(m_device, m_fallbackImage, m_fallbackImageMemory, 0), "vkBindImageMemory(fallback)");
-
-        VkBuffer stagingBuffer = VK_NULL_HANDLE;
-        VkDeviceMemory stagingMemory = VK_NULL_HANDLE;
-
-        VkBufferCreateInfo bufferInfo{};
-        bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
-        bufferInfo.size = sizeof(rgba);
-        bufferInfo.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
-        bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-        VK_VERIFY(vkCreateBuffer(m_device, &bufferInfo, nullptr, &stagingBuffer), "vkCreateBuffer(fallback)");
-
-        VkMemoryRequirements stagingMemReq{};
-        vkGetBufferMemoryRequirements(m_device, stagingBuffer, &stagingMemReq);
-
-        VkMemoryAllocateInfo stagingAllocInfo{};
-        stagingAllocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
-        stagingAllocInfo.allocationSize = stagingMemReq.size;
-        stagingAllocInfo.memoryTypeIndex =
-            FindMemoryType(stagingMemReq.memoryTypeBits,
-                           VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
-        VK_VERIFY(vkAllocateMemory(m_device, &stagingAllocInfo, nullptr, &stagingMemory), "vkAllocateMemory(fallback)");
-        VK_VERIFY(vkBindBufferMemory(m_device, stagingBuffer, stagingMemory, 0), "vkBindBufferMemory(fallback)");
-
-        void* mapped = nullptr;
-        VK_VERIFY(vkMapMemory(m_device, stagingMemory, 0, sizeof(rgba), 0, &mapped), "vkMapMemory(fallback)");
-        std::memcpy(mapped, &rgba, sizeof(rgba));
-        vkUnmapMemory(m_device, stagingMemory);
-
-        const Bool uploadOk = ExecuteImmediate([&](VkCommandBuffer commandBuffer) {
-            VkImageMemoryBarrier toTransferDst{};
-            toTransferDst.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
-            toTransferDst.srcAccessMask = 0;
-            toTransferDst.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-            toTransferDst.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-            toTransferDst.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-            toTransferDst.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-            toTransferDst.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-            toTransferDst.image = m_fallbackImage;
-            toTransferDst.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-            toTransferDst.subresourceRange.baseMipLevel = 0;
-            toTransferDst.subresourceRange.levelCount = 1;
-            toTransferDst.subresourceRange.baseArrayLayer = 0;
-            toTransferDst.subresourceRange.layerCount = 1;
-            vkCmdPipelineBarrier(commandBuffer, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0,
-                                 nullptr, 0, nullptr, 1, &toTransferDst);
-
-            VkBufferImageCopy copy{};
-            copy.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-            copy.imageSubresource.mipLevel = 0;
-            copy.imageSubresource.baseArrayLayer = 0;
-            copy.imageSubresource.layerCount = 1;
-            copy.imageExtent = {1, 1, 1};
-            vkCmdCopyBufferToImage(commandBuffer, stagingBuffer, m_fallbackImage, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1,
-                                   &copy);
-
-            VkImageMemoryBarrier toSampled{};
-            toSampled.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
-            toSampled.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-            toSampled.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
-            toSampled.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-            toSampled.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-            toSampled.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-            toSampled.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-            toSampled.image = m_fallbackImage;
-            toSampled.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-            toSampled.subresourceRange.baseMipLevel = 0;
-            toSampled.subresourceRange.levelCount = 1;
-            toSampled.subresourceRange.baseArrayLayer = 0;
-            toSampled.subresourceRange.layerCount = 1;
-            vkCmdPipelineBarrier(commandBuffer, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0,
-                                 0, nullptr, 0, nullptr, 1, &toSampled);
-        });
-
-        vkDestroyBuffer(m_device, stagingBuffer, nullptr);
-        vkFreeMemory(m_device, stagingMemory, nullptr);
-        if (!uploadOk) {
-            return false;
-        }
-
-        VkImageViewCreateInfo viewInfo{};
-        viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
-        viewInfo.image = m_fallbackImage;
-        viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
-        viewInfo.format = VK_FORMAT_R8G8B8A8_UNORM;
-        viewInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-        viewInfo.subresourceRange.baseMipLevel = 0;
-        viewInfo.subresourceRange.levelCount = 1;
-        viewInfo.subresourceRange.baseArrayLayer = 0;
-        viewInfo.subresourceRange.layerCount = 1;
-        VK_VERIFY(vkCreateImageView(m_device, &viewInfo, nullptr, &m_fallbackImageView), "vkCreateImageView(fallback)");
-
-        VkSamplerCreateInfo samplerInfo{};
-        samplerInfo.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
-        samplerInfo.magFilter = VK_FILTER_NEAREST;
-        samplerInfo.minFilter = VK_FILTER_NEAREST;
-        samplerInfo.mipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST;
-        samplerInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-        samplerInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-        samplerInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-        samplerInfo.compareEnable = VK_FALSE;
-        samplerInfo.minLod = 0.0f;
-        samplerInfo.maxLod = 0.0f;
-        samplerInfo.maxAnisotropy = 1.0f;
-        VK_VERIFY(vkCreateSampler(m_device, &samplerInfo, nullptr, &m_fallbackSampler), "vkCreateSampler(fallback)");
-        return true;
-    }
 } // namespace MobileGL::MG_Backend::DirectVulkan

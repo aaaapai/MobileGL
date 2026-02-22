@@ -31,7 +31,6 @@ public:
     Bool Initialize(const InitInfo& initInfo);
     void Shutdown();
 
-    Bool GetFallbackDescriptor(VkDescriptorImageInfo& outImageInfo) const;
     Bool SyncTextureAndGetDescriptor(const MG_State::GLState::ITextureObject& texture,
                                      const MG_State::GLState::SamplerObject* samplerOverride,
                                      VkDescriptorImageInfo& outImageInfo);
@@ -70,7 +69,6 @@ private:
     static VkSamplerMipmapMode ToVkMipmapMode(SamplerMipmapMode mode);
     static VkSamplerAddressMode ToVkAddressMode(SamplerWrapMode mode);
     static VkCompareOp ToVkCompareOp(SamplerCompareFunc func);
-    Bool UploadFallbackTexture();
 
     VkDevice m_device = VK_NULL_HANDLE;
     VkPhysicalDevice m_physicalDevice = VK_NULL_HANDLE;
@@ -79,10 +77,5 @@ private:
 
     UnorderedMap<Uint, TextureResource> m_textureResources;
     UnorderedMap<Uint64, SamplerCacheEntry> m_samplers;
-
-    VkImage m_fallbackImage = VK_NULL_HANDLE;
-    VkDeviceMemory m_fallbackImageMemory = VK_NULL_HANDLE;
-    VkImageView m_fallbackImageView = VK_NULL_HANDLE;
-    VkSampler m_fallbackSampler = VK_NULL_HANDLE;
 };
 } // namespace MobileGL::MG_Backend::DirectVulkan

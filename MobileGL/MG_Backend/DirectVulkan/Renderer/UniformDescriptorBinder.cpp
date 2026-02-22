@@ -771,10 +771,8 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         }
 
         static const Uint8 kFallbackData[16] = {};
-        VkDescriptorImageInfo fallbackImageInfo{};
         MOBILEGL_ASSERT(m_textureSamplerManager != nullptr,
                         "BindProgramUniformBuffers: texture sampler manager is null");
-        const Bool hasFallbackImage = m_textureSamplerManager->GetFallbackDescriptor(fallbackImageInfo);
 
         Vector<VkWriteDescriptorSet> writes;
         writes.reserve(m_maxBindings);
@@ -841,14 +839,13 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                 VkDescriptorImageInfo imageInfo{};
                 Bool hasImage = ResolveSamplerDescriptor(commandBuffer, program, *layout, binding, imageInfo);
                 if (!hasImage) {
-                    if (!hasFallbackImage) {
-                        MGLOG_E("UniformDescriptorBinder::BindProgramUniformBuffers failed: fallback sampler/texture is unavailable");
-                        return false;
-                    }
-                    imageInfo = fallbackImageInfo;
+                    MGLOG_E("UniformDescriptorBinder::BindProgramUniformBuffers failed: sampler binding %u has no valid texture descriptor",
+                            binding);
+                    return false;
                 }
                 if (imageInfo.sampler == VK_NULL_HANDLE || imageInfo.imageView == VK_NULL_HANDLE) {
-                    MGLOG_E("UniformDescriptorBinder::BindProgramUniformBuffers failed: fallback sampler/texture is unavailable");
+                    MGLOG_E("UniformDescriptorBinder::BindProgramUniformBuffers failed: sampler binding %u has null sampler or imageView",
+                            binding);
                     return false;
                 }
                 imageInfos.push_back(imageInfo);
@@ -881,4 +878,3 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         m_programLayouts.clear();
     }
 } // namespace MobileGL::MG_Backend::DirectVulkan
-
