@@ -585,10 +585,6 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         outData.assign(m_maxBindings, nullptr);
         outSizes.assign(m_maxBindings, 0);
 
-        if (MG_State::pGLContext == nullptr) {
-            return false;
-        }
-
         const Uint32 activeUniformBlockCount = static_cast<Uint32>(program.GetActiveUniformBlocksCount());
         const Uint32 uniformBindingPointCount =
             static_cast<Uint32>(MG_State::pGLContext->GetBufferBindingPointCount(BufferTarget::Uniform));
