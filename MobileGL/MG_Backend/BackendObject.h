@@ -64,6 +64,15 @@ namespace MobileGL {
             void (*ReadPixels)(GLint x, GLint y, GLsizei width, GLsizei height, GLenum format, GLenum type,
                                void* pixels);
             void (*GetTexImage)(GLenum target, GLint level, GLenum format, GLenum type, GLvoid* pixels);
+
+            void (*ClearNamedBufferSubData)(GLuint buffer, GLenum internalformat, GLintptr offset,
+                             GLsizeiptr size, GLenum format, GLenum type, const void* data);
+
+            void (*ClearBufferData)(GLenum target, GLenum internalformat, GLenum format, GLenum type, const void* data);
+
+            void (*ClearBufferSubData)(GLenum target, GLenum internalformat, GLintptr offset, 
+                        GLsizeiptr size, GLenum format, GLenum type, const void* data);
+
         };
         struct GlobalBackendFunctionsTable {
             GLFunctionsTable GL;
