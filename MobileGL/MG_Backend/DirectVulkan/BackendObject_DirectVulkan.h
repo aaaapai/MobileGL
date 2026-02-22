@@ -17,8 +17,12 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         ~BackendObject_DirectVulkan() override;
 
         void Initialize() override;
-        void InitWindowSurface() override;
-        void InitCapabilities() override;
+        Bool InitWindowSurface() override;
+        Bool InitCapabilities() override;
+        Bool InitializeEGLDisplay(EGLDisplay dpy, EGLint* major, EGLint* minor) override;
+        Bool CreateEGLWindowSurface(const WindowHandle& handle) override;
+        Bool MakeEGLCurrent(EGLDisplay dpy, EGLSurface draw, EGLSurface read, EGLContext ctx) override;
+        Bool SwapEGLBuffers(EGLDisplay dpy, EGLSurface draw) override;
 
         const RendererInfo& GetRendererInfo() const override;
         String GetBackendAPIVersionString() const override;

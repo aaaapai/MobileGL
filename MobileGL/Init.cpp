@@ -10,6 +10,7 @@
 #include "Config.h"
 #include <MG_Backend/BackendObjects.h>
 #include <MG_State/GLState/Core.h>
+#include <MG_State/EGLState/Core.h>
 #include <MG_Impl/GLImpl/Texture/ProxyTexture.h>
 #include <MG_Impl/GLImpl/Framebuffer/GL_Framebuffer.h>
 
@@ -34,6 +35,7 @@ namespace MobileGL {
         MGLOG_I("MobileGL closing...");
         glslang::FinalizeProcess();
         delete MG_State::pGLContext;
+        delete MG_State::pEGLContext;
         delete MG_Impl::GLImpl::TextureImpl::pProxyTextureManager;
         delete MG_Impl::GLImpl::FramebufferImpl::pDefaultFramebufferInfo;
         MG_Util::Debug::Close();
