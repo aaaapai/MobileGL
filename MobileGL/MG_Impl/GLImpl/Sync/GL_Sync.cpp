@@ -16,6 +16,8 @@
 #include <Defines.h>
 #include <Config.h>
 
+#include <MG_Util/Config/EnvChecker.h>
+
 namespace MobileGL {
     namespace MG_Impl::GLImpl {
         GLsync FenceSync_Backend(GLenum condition, GLbitfield flags) {
@@ -39,15 +41,24 @@ namespace MobileGL {
         void DeleteSync_State(GLsync sync) {}
 
         GLsync FenceSync(GLenum condition, GLbitfield flags) {
+        if(CheckEnv("MOBILEGL_BACKEND_TYPE", "DirectGLES", false))
+            return MG_Backend::DirectGLES::g_GLESFuncs.glFenceSync(condition, flags);
+        else
             return FenceSync_State(condition, flags);
         }
 
         GLenum ClientWaitSync(GLsync sync, GLbitfield flags, GLuint64 timeout) {
+        if(CheckEnv("MOBILEGL_BACKEND_TYPE", "DirectGLES", false))
+            return MG_Backend::DirectGLES::g_GLESFuncs.glClientWaitSync(sync, flags, timeout);
+        else
             return ClientWaitSync_State(sync, flags, timeout);
 
         }
 
         void DeleteSync(GLsync sync) {
+        if (CheckEnv("MOBILEGL_BACKEND_TYPE", "DirectGLES", false))
+            MG_Backend::DirectGLES::g_GLESFuncs.glDeleteSync(sync);
+        else
             DeleteSync_State(sync);
         }
 
