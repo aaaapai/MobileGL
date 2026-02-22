@@ -9,6 +9,32 @@
 #include "Loader.h"
 
 namespace MobileGL::MG_Util::BackendLoader {
+    namespace {
+        struct VulkanDynamicFunctions {
+            PFN_vkGetPhysicalDeviceProperties vkGetPhysicalDeviceProperties = nullptr;
+            PFN_vkGetPhysicalDeviceProperties2 vkGetPhysicalDeviceProperties2 = nullptr;
+        };
+
+        VulkanDynamicFunctions LoadVulkanDynamicFunctions(VkInstance instance) {
+            VulkanDynamicFunctions loaded{};
+            if (instance == VK_NULL_HANDLE) {
+                MGLOG_E("Cannot load Vulkan instance-level function pointers: VkInstance is null");
+                return loaded;
+            }
+
+            loaded.vkGetPhysicalDeviceProperties = reinterpret_cast<PFN_vkGetPhysicalDeviceProperties>(
+                vkGetInstanceProcAddr(instance, "vkGetPhysicalDeviceProperties"));
+            loaded.vkGetPhysicalDeviceProperties2 = reinterpret_cast<PFN_vkGetPhysicalDeviceProperties2>(
+                vkGetInstanceProcAddr(instance, "vkGetPhysicalDeviceProperties2"));
+
+            if (!loaded.vkGetPhysicalDeviceProperties) {
+                MGLOG_E("Failed to resolve vkGetPhysicalDeviceProperties via vkGetInstanceProcAddr");
+            }
+
+            return loaded;
+        }
+    } // namespace
+
     inline Version DecodeApiVersion(uint32_t version) {
         return {(Int)VK_VERSION_MAJOR(version), (Int)VK_VERSION_MINOR(version), (Int)VK_VERSION_PATCH(version)};
     }
@@ -20,14 +46,21 @@ namespace MobileGL::MG_Util::BackendLoader {
         return oss.str();
     }
 
-    Bool QueryVulkanCapabilities(MobileGL::MG_External::VulkanCapabilities& caps, VkPhysicalDevice physicalDevice) {
+    Bool QueryVulkanCapabilities(MobileGL::MG_External::VulkanCapabilities& caps, VkInstance instance,
+                                 VkPhysicalDevice physicalDevice) {
         if (!physicalDevice) {
             MGLOG_E("Invalid physical device handle");
             return false;
         }
 
+        const auto vk = LoadVulkanDynamicFunctions(instance);
+        if (!vk.vkGetPhysicalDeviceProperties) {
+            MGLOG_E("Vulkan dynamic loading failed for vkGetPhysicalDeviceProperties");
+            return false;
+        }
+
         VkPhysicalDeviceProperties props{};
-        vkGetPhysicalDeviceProperties(physicalDevice, &props);
+        vk.vkGetPhysicalDeviceProperties(physicalDevice, &props);
 
         if (props.apiVersion < VK_API_VERSION_1_1) {
             MGLOG_E("Vulkan API version %u.%u.%u is not supported, requires at least 1.1",
@@ -38,7 +71,12 @@ namespace MobileGL::MG_Util::BackendLoader {
 
         VkPhysicalDeviceProperties2 props2{};
         props2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2;
-        vkGetPhysicalDeviceProperties2(physicalDevice, &props2);
+        if (vk.vkGetPhysicalDeviceProperties2) {
+            vk.vkGetPhysicalDeviceProperties2(physicalDevice, &props2);
+        } else {
+            MGLOG_W("vkGetPhysicalDeviceProperties2 not available, falling back to vkGetPhysicalDeviceProperties");
+            props2.properties = props;
+        }
 
         const VkPhysicalDeviceProperties& p = props2.properties;
         caps.VulkanAPIVersion = DecodeApiVersion(p.apiVersion);
