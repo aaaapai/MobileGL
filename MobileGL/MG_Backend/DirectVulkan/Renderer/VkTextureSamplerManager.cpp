@@ -25,12 +25,8 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         m_commandPool = initInfo.commandPool;
         m_graphicsQueue = initInfo.graphicsQueue;
 
-        if (m_device == VK_NULL_HANDLE || m_physicalDevice == VK_NULL_HANDLE || m_commandPool == VK_NULL_HANDLE ||
-            m_graphicsQueue == VK_NULL_HANDLE) {
-            MGLOG_E("VkTextureSamplerManager::Initialize failed: invalid Vulkan handles");
-            Shutdown();
-            return false;
-        }
+        MOBILEGL_ASSERT(m_device != VK_NULL_HANDLE && m_physicalDevice != VK_NULL_HANDLE && m_commandPool != VK_NULL_HANDLE &&
+            m_graphicsQueue != VK_NULL_HANDLE, "VkTextureSamplerManager::Initialize failed: invalid Vulkan handles");
 
         return true;
     }
