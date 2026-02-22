@@ -17,9 +17,11 @@
 #include <map>
 #include <array>
 #include <ctime>
+#include <mutex>
 #include <queue>
 #include <regex>
 #include <atomic>
+#include <bitset>
 #include <cctype>
 #include <chrono>
 #include <cstdio>
@@ -29,6 +31,7 @@
 #include <string>
 #include <thread>
 #include <vector>
+#include <cassert>
 #include <cstdarg>
 #include <cstring>
 #include <numeric>
@@ -40,14 +43,15 @@
 #include <functional>
 #include <string_view>
 #include <unordered_map>
-#include <mutex>
-#include <bitset>
 #if __cplusplus >= 202302L && MOBILEGL_LOG_ENABLE_STACKTRACE
 #include <stacktrace>
 #endif
 
 // Include FastSTL
 #include <FastSTL/UnorderedMap.h>
+
+// Include xxHash
+#include <xxhash.h>
 
 // Include spirv_cross
 #include <spirv_cross/spirv_cross_c.h>
@@ -58,7 +62,9 @@
 #endif
 #include <EGL/egl.h>
 #define GL_GLEXT_PROTOTYPES
+#ifndef NO_GL_H
 #include "GL/gl.h"
+#endif
 #include <GL/glcorearb.h>
 #undef GL_GLEXT_PROTOTYPES
 
@@ -93,10 +99,19 @@
 #include <unistd.h>
 #include <pthread.h>
 #include <android/log.h>
-#include <vulkan/vulkan.h>
 #include <android/native_window.h>
-#include <vulkan/vulkan_android.h>
 #endif
+
+#ifdef __ANDROID__
+#define VK_USE_PLATFORM_ANDROID_KHR
+#elif _WIN32
+#define VK_USE_PLATFORM_WIN32_KHR
+#elif defined(__APPLE__)
+#define VK_USE_PLATFORM_METAL_EXT
+#else
+#warning "VK_USE_PLATFORM_*_KHR not defined for this platform!"
+#endif
+#include <vulkan/vulkan.h>
 
 #ifdef TRACY_ENABLE
 #include <tracy/Tracy.hpp>

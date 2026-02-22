@@ -43,7 +43,7 @@ void main(){
     // Use TestMat2 and TestMat3 to prevent optimization
     vec2 dummy2 = TestMat2[0];
     vec3 dummy3 = TestMat3[0];
-    
+
     oneTexel = (1.0 * (fIn1 * fIn2 * fIn3 * fIn4 * fIn5 * fIn6)) / InSize;
 
     texCoord = Position.xy / OutSize;
@@ -221,7 +221,7 @@ static void BM_CompileAndLink(benchmark::State& state) {
 BENCHMARK(BM_CompileAndLink)->Unit(benchmark::kMillisecond);
 
 int main(int argc, char** argv) {
-    MG_Initialize();
+    Initialize();
     benchmark ::MaybeReenterWithoutASLR(argc, argv);
     char arg0_default[] = "benchmark";
     char* args_default = reinterpret_cast<char*>(arg0_default);

@@ -6,7 +6,8 @@
 // SPDX-License-Identifier: LGPL-3.0-only
 // End of Source File Header
 
-#include "Init.h"
+#include <Includes.h>
+
 #include "GLImpl/Texture/ProxyTexture.h"
 #include "GLImpl/Framebuffer/GL_Framebuffer.h"
 

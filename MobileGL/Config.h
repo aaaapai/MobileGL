@@ -16,6 +16,7 @@ namespace MobileGL::MG_Config {
     inline const String CoreVendor = "MobileGL-Dev (BZLZHH, Swung0x48, Tungsten)";
     inline const Version CoreVersion = {26, 2, 0, "-dev", VersionType::Development};
     inline const VersionStringFormatAttrib DefaultVersionStringFormatAttrib = {2, 2, 0, true, true};
+    inline const Uint64 CacheVersion = 0;
 
     extern BackendType ActiveBackendType;
 } // namespace MobileGL::MG_Config

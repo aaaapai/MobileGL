@@ -110,6 +110,11 @@ namespace MobileGL {
                     AddDefaultFragmentShaderIfMissing();
                 }
 
+                std::sort(m_shaders.begin(), m_shaders.end(),
+                    [](SharedPtr<ShaderObject>& a, SharedPtr<ShaderObject>& b) {
+                            return a->GetShaderStage() < b->GetShaderStage();
+                });
+
                 for (SizeT i = 0; i < m_shaders.size(); i++) {
                     shaderTypes[i] = MG_Util::ConvertShaderStageToGLEnum(m_shaders[i]->GetShaderStage());
                     MGLOG_D("ProgramObject %u: Preparing shader[%zu] stage %s at %p", m_externalIndex, i,
@@ -171,6 +176,10 @@ namespace MobileGL {
             Vector<SharedPtr<ShaderObject>>& ProgramObject::GetAttachedShaders() {
                 MGLOG_D("ProgramObject %u: GetAttachedShaders called, returning %zu shaders", m_externalIndex,
                         m_shaders.size());
+                return m_shaders;
+            }
+
+            const Vector<SharedPtr<ShaderObject>>& ProgramObject::GetAttachedShaders() const {
                 return m_shaders;
             }
 

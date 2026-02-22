@@ -18,7 +18,7 @@ using namespace MobileGL::MG_Impl::GLImpl;
 
 class ProgramTest : public ::testing::Test {
 protected:
-    void SetUp() override { MobileGL::MG_Initialize(); }
+    void SetUp() override { MobileGL::Initialize(); }
 
     void TearDown() override {}
 };
@@ -54,7 +54,7 @@ void main(){
     // Use TestMat2 and TestMat3 to prevent optimization
     vec2 dummy2 = TestMat2[0];
     vec3 dummy3 = TestMat3[0];
-    
+
     oneTexel = (1.0 * (fIn1 * fIn2 * fIn3 * fIn4 * fIn5 * fIn6 * fIn0)) / InSize;
 
     texCoord = Position.xy / OutSize;
@@ -983,7 +983,7 @@ TEST_F(ProgramTest, CompileAndLinkWithExplicitFragmentOut) {
 
     auto programObject = MG_State::pGLContext->GetCurrentProgram();
     auto& spirvs = programObject->GetGeneratedSpirv();
-    auto& fragSpirv = spirvs[0]; // 0 - fragment, 1 - vertex
+    auto& fragSpirv = spirvs[programObject->GetShaderIndexByStage(ShaderStage::Fragment)];
     char* pSrcfragOut = nullptr;
     const char* needle = "layout(location = 7) out vec4 fragColor;";
     // for (auto spirv: spirvs) {

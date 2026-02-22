@@ -59,7 +59,6 @@ namespace MobileGL {
     namespace MG_Util {
         namespace Debug {
             void Log(const char* levelTag, android_LogPriority androidLogLevel, const char* fmt, ...);
-            void InitFile();
             void WriteToFile(const char* msg);
             std::string GetCurrentTime();
             constexpr char* GetOSName();

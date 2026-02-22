@@ -19,7 +19,7 @@ using namespace MobileGL;
 
 class BufferTest : public ::testing::Test {
 protected:
-    void SetUp() override { MobileGL::MG_Initialize(); }
+    void SetUp() override { MobileGL::Initialize(); }
 
     void TearDown() override {}
 };

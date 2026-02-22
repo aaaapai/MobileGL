@@ -10,9 +10,9 @@
 #include <Includes.h>
 
 namespace MobileGL {
-
     enum class BackendType {
         DirectGLES,
+        DirectVulkan,
         BackendTypeCount,
         Unknown = -1
     };
@@ -100,6 +100,7 @@ namespace MobileGL {
             virtual ~BackendObject() = default;
 
             virtual void Initialize() = 0;
+            virtual void InitCapabilities() = 0;
             virtual void InitWindowSurface() = 0;
 
             void SetWindowHandle(const WindowHandle& handle);

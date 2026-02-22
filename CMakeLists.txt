@@ -72,6 +72,11 @@ set(SPIRV_CROSS_STATIC         ON  CACHE BOOL "Prefer static libs" FORCE)
 # add_subdirectory(3rdparty/DiligentCore)
 add_subdirectory(3rdparty/glslang)
 add_subdirectory(3rdparty/SPIRV-Cross)
+add_subdirectory(3rdparty/VulkanMemoryAllocator)
+
+set(XXHASH_BUILD_XXHSUM OFF)
+option(BUILD_SHARED_LIBS OFF)
+add_subdirectory(3rdparty/xxHash/build/cmake xxhash_build EXCLUDE_FROM_ALL)
 
 set(TRACY_ENABLE ${MOBILEGL_ENABLE_TRACY} CACHE BOOL "Enable Tracy, this is an internal variable" FORCE)
 
@@ -88,6 +93,7 @@ endif ()
 set(SOURCE_FILES
     MobileGL/Init.cpp
     MobileGL/GlobalObjects.cpp
+    MobileGL/ConfigLoader.cpp
 
     MobileGL/MG_Util/Debug/Log.cpp
 
@@ -129,6 +135,7 @@ set(SOURCE_FILES
     MobileGL/MG_Util/ShaderTranspiler/SpirvPasses/EliminateFloatEqualsZeroPass.cpp
 
     MobileGL/MG_Util/BackendLoaders/OpenGL/Loader.cpp
+    MobileGL/MG_Util/BackendLoaders/Vulkan/Loader.cpp
 
     MobileGL/MG_Util/Texture/PixelStoreProcessor.cpp
     MobileGL/MG_Util/Texture/TextureFormatProcessor.cpp
@@ -169,6 +176,22 @@ set(SOURCE_FILES
     MobileGL/MG_Backend/DirectGLES/Utils.cpp
     MobileGL/MG_Backend/DirectGLES/Managers.cpp
 
+    MobileGL/MG_Backend/DirectVulkan/DirectVulkan.cpp
+    MobileGL/MG_Backend/DirectVulkan/BackendObject_DirectVulkan.cpp
+    MobileGL/MG_Backend/DirectVulkan/VmaImpl.cpp
+    MobileGL/MG_Backend/DirectVulkan/Renderer/VulkanRenderer.cpp
+    MobileGL/MG_Backend/DirectVulkan/Renderer/SwapchainObject.cpp
+    MobileGL/MG_Backend/DirectVulkan/Renderer/FrameContext.cpp
+    MobileGL/MG_Backend/DirectVulkan/Renderer/PipelineFactory.cpp
+    MobileGL/MG_Backend/DirectVulkan/Renderer/ProgramFactory.cpp
+    MobileGL/MG_Backend/DirectVulkan/Renderer/UniformDescriptorBinder.cpp
+    MobileGL/MG_Backend/DirectVulkan/Renderer/VertexInputStateBuilder.cpp
+    MobileGL/MG_Backend/DirectVulkan/Renderer/VertexInputStateFactory.cpp
+    MobileGL/MG_Backend/DirectVulkan/Renderer/VkBufferObject.cpp
+    MobileGL/MG_Backend/DirectVulkan/Renderer/VkFramebufferManager.cpp
+    MobileGL/MG_Backend/DirectVulkan/Renderer/VkRenderPassManager.cpp
+    MobileGL/MG_Backend/DirectVulkan/Renderer/VkTextureSamplerManager.cpp
+
     MobileGL/MG_State/GLState/Core.cpp
     MobileGL/MG_State/GLState/ErrorState/Error.cpp
     MobileGL/MG_State/GLState/BufferState/BufferState.cpp
@@ -205,7 +228,17 @@ set(MOBILEGL_LINK_LIBRARIES
         spirv-cross-c
         SPIRV-Tools-opt
         SPIRV-Tools
+        xxHash::xxhash
+        GPUOpen::VulkanMemoryAllocator
 )
+
+set(MOBILEGL_COMPILE_DEF
+        -DVMA_STATIC_VULKAN_FUNCTIONS=0
+        -DVMA_DYNAMIC_VULKAN_FUNCTIONS=1
+        -DVMA_VULKAN_VERSION=1001000
+)
+
+message(STATUS "MOBILEGL_COMPILE_DEF=${MOBILEGL_COMPILE_DEF}")
 
 set(MOBILEGL_INCLUDE_DIR
         ${CMAKE_SOURCE_DIR}/include
@@ -239,8 +272,13 @@ target_include_directories(${CMAKE_PROJECT_NAME} PUBLIC
 )
 
 target_link_libraries(${CMAKE_PROJECT_NAME}
-    PRIVATE
+    PUBLIC
     ${MOBILEGL_LINK_LIBRARIES}
+)
+
+target_compile_definitions(${CMAKE_PROJECT_NAME}
+        PUBLIC
+        ${MOBILEGL_COMPILE_DEF}
 )
 
 if(NOT ANDROID)
@@ -267,8 +305,13 @@ if(NOT ANDROID)
     )
 
     target_link_libraries(${CMAKE_PROJECT_NAME}_s
-        PRIVATE
+        PUBLIC
         ${MOBILEGL_LINK_LIBRARIES}
+    )
+
+    target_compile_definitions(${CMAKE_PROJECT_NAME}_s
+            PUBLIC
+            ${MOBILEGL_COMPILE_DEF}
     )
 endif()
 
@@ -283,16 +326,27 @@ if (ANDROID)
     target_link_libraries(${CMAKE_PROJECT_NAME} PUBLIC
         android
         log
+        vulkan
     )
     target_link_options(${CMAKE_PROJECT_NAME} PRIVATE 
     "LINKER:--version-script=${CMAKE_SOURCE_DIR}/MobileGL/mgl-version.script"
     )
 endif()
 
-if (MOBILEGL_BUILD_TEST)
-    add_subdirectory(MobileGL/MG_Test)
-endif()
+if (NOT ANDROID)
+    find_package(Vulkan)
+    if (Vulkan_FOUND)
+        target_link_libraries(${CMAKE_PROJECT_NAME} PUBLIC Vulkan::Vulkan Vulkan::Headers)
+        target_link_libraries(${CMAKE_PROJECT_NAME}_s PUBLIC Vulkan::Vulkan Vulkan::Headers)
+        target_include_directories(${CMAKE_PROJECT_NAME} PUBLIC ${Vulkan_INCLUDE_DIR})
+        target_include_directories(${CMAKE_PROJECT_NAME}_s PUBLIC ${Vulkan_INCLUDE_DIR})
+    endif ()
 
-if (MOBILEGL_BUILD_BENCHMARK)
-    add_subdirectory(MobileGL/MG_Benchmark)
+    if (MOBILEGL_BUILD_TEST)
+        add_subdirectory(MobileGL/MG_Test)
+    endif()
+
+    if (MOBILEGL_BUILD_BENCHMARK)
+        add_subdirectory(MobileGL/MG_Benchmark)
+    endif()
 endif()

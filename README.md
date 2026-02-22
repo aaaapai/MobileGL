@@ -103,6 +103,16 @@ If you want to try the project right now, you’ll need to build it yourself:
 * `MG_Test` and `MG_Benchmark` can only be built with Clang, not GCC. To enforce Clang, add `-DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++` to your command.
 * On Android, tests and benchmarks are always disabled.
 
+## Environment Variables
+
+MobileGL supports runtime configuration via environment variables.
+
+### Supported Keys
+
+| Variable                | Description                                      | Allowed Values                       | Default        |
+|-------------------------|--------------------------------------------------|--------------------------------------|----------------|
+| `MOBILEGL_BACKEND_TYPE` | Select active backend implementation at startup. | `DirectGLES`, `DirectVulkan`         | `DirectGLES`   |
+
 ## Notice
 
 * MobileGL is **not** production-ready currently.

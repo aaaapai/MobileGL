@@ -1,4 +1,4 @@
-// MobileGL - MobileGL/MG_Impl/Init.h
+// MobileGL - MobileGL/MG_Backend/DirectVulkan/VmaImpl.cpp
 // Copyright (c) 2025-2026 MobileGL-Dev
 // Licensed under the GNU Lesser General Public License v3.0:
 //   https://www.gnu.org/licenses/gpl-3.0.txt
@@ -6,10 +6,5 @@
 // SPDX-License-Identifier: LGPL-3.0-only
 // End of Source File Header
 
-#include <Includes.h>
-
-namespace MobileGL {
-    namespace MG_Impl {
-        void Init();
-    } // namespace MG_Impl
-} // namespace MobileGL
+#define VMA_IMPLEMENTATION
+#include <vk_mem_alloc.h>

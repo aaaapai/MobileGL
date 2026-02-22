@@ -222,6 +222,17 @@ namespace MobileGL {
                 return m_parameters.ClearDepth;
             }
 
+            void RenderState::SetClearStencil(Int stencil) {
+                if (m_parameters.ClearStencil == stencil) return;
+
+                m_parameters.ClearStencil = stencil;
+                ++m_version;
+            }
+
+            Int RenderState::GetClearStencil() const {
+                return m_parameters.ClearStencil;
+            }
+
             // -------------------- Pixel Store --------------------
             void RenderState::SetPixelStoreParam(PixelStoreParam param, Int value) {
 #define SET_PIXEL_STORE_PARAM(paramNameHead, paramNameTail, val)                                                       \

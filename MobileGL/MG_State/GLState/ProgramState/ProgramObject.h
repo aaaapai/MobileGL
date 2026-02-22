@@ -30,11 +30,12 @@ namespace MobileGL {
                 Int GetFragmentDataLocation(const char* name);
 
                 Vector<SharedPtr<ShaderObject>>& GetAttachedShaders();
+                const Vector<SharedPtr<ShaderObject>>& GetAttachedShaders() const;
                 const String& GetInfoLog() const { return m_infoLog; }
                 Int GetUniformMaxLength() const { return m_uniformNameMaxLength; }
                 Uint GetUniformCount() { return m_activeUniformCount; }
                 Uint GetMaxUniformLocation() const { return m_maxUniformLocation; }
-                Int GetUniformLocation(const String& name) {
+                Int GetUniformLocation(const String& name) const {
                     const auto it = m_uniformLocations.find(name);
                     if (it == m_uniformLocations.end()) return -1;
                     return (Int)it->second;
@@ -68,6 +69,7 @@ namespace MobileGL {
                 GLenum GetAttribType(Uint index) const { return m_attribTypes[index]; }
                 const String& GetAttribName(Uint index) const { return m_attribs[index]; }
                 void* MapUBO() { return m_uboScratch.data(); }
+                const void* GetUBOData() const { return m_uboScratch.data(); }
                 Uint GetUBOSize() const { return static_cast<Uint>(m_uboScratch.size()); }
 
                 void SetUniformSamplerOrImageUnitIndex(Uint location, Int unit) {
@@ -111,6 +113,13 @@ namespace MobileGL {
                 Uint GetUniformBlockBinding(Uint index) const { return m_uniformBlockBinding[index]; }
 
                 Vector<Vector<unsigned>>& GetGeneratedSpirv() { return m_generatedSpirv; }
+                const Vector<Vector<unsigned>>& GetGeneratedSpirv() const { return m_generatedSpirv; }
+
+                Int GetShaderIndexByStage(ShaderStage stage) const {
+                    auto it = std::find_if(m_shaders.begin(), m_shaders.end(),
+                        [stage](const SharedPtr<ShaderObject>& shader) { return shader->GetShaderStage() == stage; });
+                    return it == m_shaders.end() ? -1 : std::distance(m_shaders.begin(), it);
+                }
 
                 Uint GetExternalIndex() const { return m_externalIndex; }
 

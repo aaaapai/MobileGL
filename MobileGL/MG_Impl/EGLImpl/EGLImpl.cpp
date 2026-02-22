@@ -59,6 +59,12 @@ namespace MobileGL::MG_Impl::EGLImpl {
     }
 
     EGLBoolean MakeCurrent(EGLDisplay dpy, EGLSurface draw, EGLSurface read, EGLContext ctx) {
+        const auto& activeBackendObject = MG_Backend::pActiveBackendObject;
+        if (!activeBackendObject) {
+            MGLOG_E("activeBackendObject not initialized!");
+            return EGL_FALSE;
+        }
+        activeBackendObject->InitCapabilities();
         return EGL_TRUE;
     }
 

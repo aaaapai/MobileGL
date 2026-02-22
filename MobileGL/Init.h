@@ -10,6 +10,22 @@
 #include "Includes.h"
 
 namespace MobileGL {
-    void MG_Initialize();
-    void MG_Destroy();
+    void Initialize();
+    void Destroy();
+
+    namespace MG_Util::Debug {
+        void InitFile();
+    } // namespace MG_Util::Debug
+
+    namespace MG_ConfigLoader {
+        void Init();
+    } // namespace MG_ConfigLoader
+
+    namespace MG_Backend {
+        void Init();
+    } // namespace MG_Backend
+
+    namespace MG_Impl {
+        void Init();
+    } // namespace MG_Impl
 } // namespace MobileGL

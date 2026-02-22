@@ -10,10 +10,9 @@
 #include <Includes.h>
 #include "BackendObject.h"
 #include "DirectGLES/BackendObject_DirectGLES.h"
+#include "DirectVulkan/BackendObject_DirectVulkan.h"
 
 namespace MobileGL::MG_Backend {
     extern UniquePtr<BackendObject> pActiveBackendObject;
     extern GlobalBackendFunctionsTable gBackendFunctionsTable;
-
-    void Init();
 } // namespace MobileGL::MG_Backend

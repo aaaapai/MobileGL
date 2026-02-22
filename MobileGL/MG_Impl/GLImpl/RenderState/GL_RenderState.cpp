@@ -261,7 +261,7 @@ namespace MobileGL {
         }
 
         void ClearStencil_State(GLint s) {
-            // TODO: implement
+            MG_State::pGLContext->SetClearStencil(static_cast<Int>(s));
         }
 
         void ClearDepth_State(GLclampd depth) {

@@ -14,3 +14,8 @@ MobileGLCodeManager
 .vscode
 .clangd
 MobileGL/MG_Test/build
+/build_*
+/cmake-build*
+.idea
+MobileGL/MG*/build*
+MobileGL/MG*/cmake-build*
