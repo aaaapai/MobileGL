@@ -222,23 +222,20 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         m_pipelineFactory = MakeUnique<PipelineFactory>(m_device, m_config);
         m_programFactory = MakeUnique<ProgramFactory>(m_device, m_config);
         m_textureSamplerManager = MakeUnique<VkTextureSamplerManager>();
-        if (!m_textureSamplerManager->Initialize({m_device, m_physicalDevice.handle, m_commandPool, m_graphicsQueue})) {
-            MGLOG_E("VkTextureSamplerManager initialization failed. Sampler/texture descriptors will fallback.");
-            m_textureSamplerManager.reset();
-        }
+        auto succeeded = false;
+        succeeded = m_textureSamplerManager->Initialize({m_device, m_physicalDevice.handle, m_commandPool, m_graphicsQueue});
+        MOBILEGL_ASSERT(succeeded, "VkTextureSamplerManager initialization failed.");
+
         m_framebufferManager = MakeUnique<VkFramebufferManager>();
-        if (!m_framebufferManager->Initialize({m_device, m_physicalDevice.handle})) {
-            MGLOG_E("VkFramebufferManager initialization failed. Offscreen FBO clear path is disabled.");
-            m_framebufferManager.reset();
-        }
+        succeeded = m_framebufferManager->Initialize({m_device, m_physicalDevice.handle});
+        MOBILEGL_ASSERT(succeeded, "VkFramebufferManager initialization failed.");
+
         m_uniformDescriptorBinder = MakeUnique<UniformDescriptorBinder>();
-        if (!m_uniformDescriptorBinder->Initialize(m_device, m_allocator,
+        succeeded = m_uniformDescriptorBinder->Initialize(m_device, m_allocator,
                                                    m_physicalDevice.properties.limits.minUniformBufferOffsetAlignment,
                                                    m_config.MaxFramesInFlight, 16, 64, 4 * 1024 * 1024,
-                                                   m_textureSamplerManager.get(), m_framebufferManager.get())) {
-            MGLOG_E("UniformDescriptorBinder initialization failed. UBO sync on Vulkan backend is disabled.");
-            m_uniformDescriptorBinder.reset();
-        }
+                                                   m_textureSamplerManager.get(), m_framebufferManager.get());
+        MOBILEGL_ASSERT(succeeded, "UniformDescriptorBinder initialization failed.");
         m_vertexInputStateFactory = MakeUnique<VertexInputStateFactory>(m_config);
 
         PrepareDemoPipeline();
@@ -482,7 +479,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         VkCommandBuffer& commandBuffer = *commandBufferPtr;
 
         if (!drawTargetsDefault) {
-            if (!m_framebufferManager || !m_renderPassManager || !drawFbo) {
+            if (!drawFbo) {
                 MGLOG_D("EnsureFrameRecordingStarted skipped: offscreen draw target is unavailable");
                 return;
             }
@@ -1242,14 +1239,8 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             m_activeDrawFboExternalIndex = 0;
         }
 
-        if (!m_framebufferManager && (!readIsDefaultFramebuffer || !drawIsDefaultFramebuffer)) {
-            MGLOG_W("BlitFramebuffer skipped: offscreen framebuffer manager not available");
-            return false;
-        }
-        if (!m_renderPassManager) {
-            MGLOG_W("BlitFramebuffer skipped: render pass manager not available");
-            return false;
-        }
+        MOBILEGL_ASSERT(m_framebufferManager != nullptr, "BlitFramebuffer: framebuffer manager not available");
+        MOBILEGL_ASSERT(m_renderPassManager != nullptr, "BlitFramebuffer: renderpass manager is null");
 
         auto consumePendingClearForTarget = [&](Bool targetIsDefault, Uint targetFboExternalIndex) {
             const Uint64 pendingKey = BuildPendingClearKey(targetFboExternalIndex, targetIsDefault);
@@ -1275,7 +1266,6 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                 if (!GetDefaultRenderTargetForCurrentImage(renderPass, framebuffer, extent, depthStencilFormat)) {
                     return;
                 }
-                MOBILEGL_ASSERT(m_renderPassManager != nullptr, "BlitFramebuffer: manager is null");
                 m_renderPassManager->BeginRenderPass(commandBuffer, renderPass, framebuffer, extent);
 
                 m_activeRenderExtent = extent;
@@ -1589,20 +1579,16 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                     dstDepthExtent = m_swapchainObject.GetExtent();
                     dstDepthFormat = m_depthStencilFormat;
                 }
-            } else if (m_framebufferManager) {
-                if (!MG_State::pGLContext) {
-                    MGLOG_W("BlitFramebuffer: GL context unavailable for draw depth/stencil FBO");
-                } else {
-                    const auto drawFbo = MG_State::pGLContext->GetFramebufferObject(drawFboExternalIndex);
-                    if (!drawFbo) {
-                        MGLOG_W("BlitFramebuffer: draw FBO %u not found", drawFboExternalIndex);
-                    } else if (!m_framebufferManager->EnsureOffscreenColorTarget(drawFboExternalIndex, *drawFbo)) {
-                        MGLOG_W("BlitFramebuffer: failed to materialize draw FBO %u for depth/stencil",
-                                drawFboExternalIndex);
-                    } else if (!m_framebufferManager->GetOffscreenDepthStencilImage(drawFboExternalIndex, dstDepthImage,
-                                                                                    dstDepthExtent, dstDepthFormat)) {
-                        MGLOG_W("BlitFramebuffer: draw FBO %u has no depth/stencil image", drawFboExternalIndex);
-                    }
+            } else {
+                const auto drawFbo = MG_State::pGLContext->GetFramebufferObject(drawFboExternalIndex);
+                if (!drawFbo) {
+                    MGLOG_W("BlitFramebuffer: draw FBO %u not found", drawFboExternalIndex);
+                } else if (!m_framebufferManager->EnsureOffscreenColorTarget(drawFboExternalIndex, *drawFbo)) {
+                    MGLOG_W("BlitFramebuffer: failed to materialize draw FBO %u for depth/stencil",
+                            drawFboExternalIndex);
+                } else if (!m_framebufferManager->GetOffscreenDepthStencilImage(drawFboExternalIndex, dstDepthImage,
+                                                                                dstDepthExtent, dstDepthFormat)) {
+                    MGLOG_W("BlitFramebuffer: draw FBO %u has no depth/stencil image", drawFboExternalIndex);
                 }
             }
 
