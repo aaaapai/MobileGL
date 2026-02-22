@@ -155,7 +155,7 @@ namespace MobileGL {
                     // MobileGL runtime currently creates Vulkan 1.1 instance/device on Android path,
                     // so generated SPIR-V must not exceed SPIR-V 1.3.
                     tshader->setEnvClient(glslang::EShClientVulkan, glslang::EShTargetVulkan_1_1);
-                    tshader->setEnvTarget(glslang::EShTargetSpv, glslang::EShTargetSpv_1_3);
+                    tshader->setEnvTarget(glslang::EShTargetSpv, glslang::EShTargetSpv_1_1);
                     tshader->setEnvInputVulkanRulesRelaxed(); // using EXT_vulkan_glsl_relaxed for gl_VertexID and
                                                               // gl_InstanceID?
                 }
@@ -174,7 +174,6 @@ namespace MobileGL {
         "#extension GL_ARB_texture_cube_map_array : enable\n"
         "#extension GL_ARB_shader_storage_buffer_object : enable\n"
         "#extension GL_ARB_shader_image_load_store : enable\n"
-        "#extension GL_ARB_arrays_of_arrays : enable\n"
         "#extension GL_ARB_enhanced_layouts : enable\n"
         "#extension GL_ARB_fragment_coord_conventions : enable\n";
     
