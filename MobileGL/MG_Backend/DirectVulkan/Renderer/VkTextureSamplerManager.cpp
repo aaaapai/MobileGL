@@ -11,12 +11,6 @@
 #include "MG_State/GLState/Core.h"
 
 namespace MobileGL::MG_Backend::DirectVulkan {
-    namespace {
-        constexpr Uint64 BuildSamplerKey(Uint externalIndex, Uint16 version) {
-            return (static_cast<Uint64>(externalIndex) << 16) | static_cast<Uint64>(version);
-        }
-    } // namespace
-
     Bool VkTextureSamplerManager::Initialize(const InitInfo& initInfo) {
         Shutdown();
 
@@ -24,9 +18,11 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         m_physicalDevice = initInfo.physicalDevice;
         m_commandPool = initInfo.commandPool;
         m_graphicsQueue = initInfo.graphicsQueue;
+        m_config = initInfo.config;
 
         MOBILEGL_ASSERT(m_device != VK_NULL_HANDLE && m_physicalDevice != VK_NULL_HANDLE && m_commandPool != VK_NULL_HANDLE &&
-            m_graphicsQueue != VK_NULL_HANDLE, "VkTextureSamplerManager::Initialize failed: invalid Vulkan handles");
+                            m_graphicsQueue != VK_NULL_HANDLE && m_config != nullptr,
+                        "VkTextureSamplerManager::Initialize failed: invalid initialization info");
 
         return true;
     }
@@ -49,6 +45,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         m_physicalDevice = VK_NULL_HANDLE;
         m_commandPool = VK_NULL_HANDLE;
         m_graphicsQueue = VK_NULL_HANDLE;
+        m_config = nullptr;
     }
 
     Bool VkTextureSamplerManager::SyncTextureAndGetDescriptor(const MG_State::GLState::ITextureObject& texture,
@@ -375,8 +372,37 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         return 0;
     }
 
+    Uint64 VkTextureSamplerManager::BuildSamplerKey(const MG_State::GLState::SamplerObject& sampler) const {
+        MOBILEGL_ASSERT(m_config != nullptr, "VkTextureSamplerManager::BuildSamplerKey: m_config is null");
+        XXHASH_VERIFY(XXH64_reset(m_hashState, m_config->CacheVersion));
+
+        const auto minFilter = sampler.GetMinFilter();
+        XXHASH_VERIFY(XXH64_update(m_hashState, &minFilter, sizeof(minFilter)));
+        const auto magFilter = sampler.GetMagFilter();
+        XXHASH_VERIFY(XXH64_update(m_hashState, &magFilter, sizeof(magFilter)));
+        const auto mipmapMode = sampler.GetMipmapMode();
+        XXHASH_VERIFY(XXH64_update(m_hashState, &mipmapMode, sizeof(mipmapMode)));
+        const auto wrapS = sampler.GetWrapS();
+        XXHASH_VERIFY(XXH64_update(m_hashState, &wrapS, sizeof(wrapS)));
+        const auto wrapT = sampler.GetWrapT();
+        XXHASH_VERIFY(XXH64_update(m_hashState, &wrapT, sizeof(wrapT)));
+        const auto wrapR = sampler.GetWrapR();
+        XXHASH_VERIFY(XXH64_update(m_hashState, &wrapR, sizeof(wrapR)));
+        const auto minLod = sampler.GetMinLod();
+        XXHASH_VERIFY(XXH64_update(m_hashState, &minLod, sizeof(minLod)));
+        const auto maxLod = sampler.GetMaxLod();
+        XXHASH_VERIFY(XXH64_update(m_hashState, &maxLod, sizeof(maxLod)));
+        const auto lodBias = sampler.GetLodBias();
+        XXHASH_VERIFY(XXH64_update(m_hashState, &lodBias, sizeof(lodBias)));
+        const auto compareMode = sampler.GetCompareMode();
+        XXHASH_VERIFY(XXH64_update(m_hashState, &compareMode, sizeof(compareMode)));
+        const auto compareFunc = sampler.GetSamplerCompareFunc();
+        XXHASH_VERIFY(XXH64_update(m_hashState, &compareFunc, sizeof(compareFunc)));
+        return XXH64_digest(m_hashState);
+    }
+
     VkSampler VkTextureSamplerManager::GetOrCreateSampler(const MG_State::GLState::SamplerObject& sampler) {
-        const Uint64 key = BuildSamplerKey(sampler.GetExternalIndex(), sampler.GetVersion());
+        const Uint64 key = BuildSamplerKey(sampler);
         auto it = m_samplers.find(key);
         if (it != m_samplers.end()) {
             return it->second.handle;

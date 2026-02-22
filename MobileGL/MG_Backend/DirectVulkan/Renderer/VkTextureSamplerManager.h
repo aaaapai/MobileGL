@@ -9,6 +9,7 @@
 #pragma once
 
 #include "../VkIncludes.h"
+#include "../VulkanRendererConfig.h"
 #include <Includes.h>
 #include <MG_State/GLState/SamplerState/SamplerObject.h>
 #include <MG_State/GLState/TextureState/TextureObject.h>
@@ -26,6 +27,7 @@ public:
         VkPhysicalDevice physicalDevice = VK_NULL_HANDLE;
         VkCommandPool commandPool = VK_NULL_HANDLE;
         VkQueue graphicsQueue = VK_NULL_HANDLE;
+        const VulkanRendererConfig* config = nullptr;
     };
 
     Bool Initialize(const InitInfo& initInfo);
@@ -63,6 +65,7 @@ private:
                               IntVec3& outTexelSize, SizeT& outByteSize);
     static VkFormat ResolveTextureFormat(TextureInternalFormat format);
     Uint32 FindMemoryType(Uint32 typeFilter, VkMemoryPropertyFlags properties) const;
+    Uint64 BuildSamplerKey(const MG_State::GLState::SamplerObject& sampler) const;
 
     VkSampler GetOrCreateSampler(const MG_State::GLState::SamplerObject& sampler);
     static VkFilter ToVkFilter(SamplerFilterMode mode);
@@ -74,8 +77,10 @@ private:
     VkPhysicalDevice m_physicalDevice = VK_NULL_HANDLE;
     VkCommandPool m_commandPool = VK_NULL_HANDLE;
     VkQueue m_graphicsQueue = VK_NULL_HANDLE;
+    const VulkanRendererConfig* m_config = nullptr;
 
     UnorderedMap<Uint, TextureResource> m_textureResources;
     UnorderedMap<Uint64, SamplerCacheEntry> m_samplers;
+    static inline XXH64_state_t* m_hashState = XXH64_createState();
 };
 } // namespace MobileGL::MG_Backend::DirectVulkan
