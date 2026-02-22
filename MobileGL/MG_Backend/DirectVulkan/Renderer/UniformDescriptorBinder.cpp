@@ -480,8 +480,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             return false;
         }
 
-        if (m_framebufferManager &&
-            m_framebufferManager->Transition(commandBuffer,
+        if (m_framebufferManager->Transition(commandBuffer,
                                              VkFramebufferManager::TransitionResource::OffscreenColorTexture,
                                              VkFramebufferManager::TransitionUsage::ShaderRead,
                                              texture->GetExternalIndex())) {

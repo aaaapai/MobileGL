@@ -90,9 +90,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
     Bool VkTextureSamplerManager::SyncTextureAndGetDescriptor(const MG_State::GLState::ITextureObject& texture,
                                                               const MG_State::GLState::SamplerObject* samplerOverride,
                                                               VkDescriptorImageInfo& outImageInfo) {
-        if (m_device == VK_NULL_HANDLE) {
-            return GetFallbackDescriptor(outImageInfo);
-        }
+        MOBILEGL_ASSERT(m_device != VK_NULL_HANDLE, "SyncTextureAndGetDescriptor: m_device == VK_NULL_HANDLE");
 
         auto it = m_textureResources.find(texture.GetExternalIndex());
         if (it == m_textureResources.end()) {

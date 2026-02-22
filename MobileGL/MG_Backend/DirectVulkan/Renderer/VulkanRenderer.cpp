@@ -160,30 +160,29 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         payload.renderPass = (m_activeRenderPass != VK_NULL_HANDLE) ? m_activeRenderPass : GetDefaultLoadRenderPass();
         payload.subpass = 0;
         payload.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
-        if (MG_State::pGLContext != nullptr) {
-            const Bool depthTestEnabled = MG_State::pGLContext->IsCapabilityEnabled(CapabilityInput::DepthTest);
-            payload.depthTestEnable = depthTestEnabled;
-            payload.depthWriteEnable = depthTestEnabled && MG_State::pGLContext->GetDepthMask();
-            payload.depthCompareOp = toVkCompareOp(MG_State::pGLContext->GetDepthFunc());
+        const Bool depthTestEnabled = MG_State::pGLContext->IsCapabilityEnabled(CapabilityInput::DepthTest);
+        payload.depthTestEnable = depthTestEnabled;
+        payload.depthWriteEnable = depthTestEnabled && MG_State::pGLContext->GetDepthMask();
+        payload.depthCompareOp = toVkCompareOp(MG_State::pGLContext->GetDepthFunc());
 
-            payload.blendEnable = MG_State::pGLContext->IsCapabilityEnabled(CapabilityInput::Blend);
-            BlendFactor srcRGB = BlendFactor::One;
-            BlendFactor dstRGB = BlendFactor::Zero;
-            BlendFactor srcAlpha = BlendFactor::One;
-            BlendFactor dstAlpha = BlendFactor::Zero;
-            MG_State::pGLContext->GetBlendFunc(srcRGB, dstRGB, srcAlpha, dstAlpha);
-            payload.srcColorBlendFactor = toVkBlendFactor(srcRGB);
-            payload.dstColorBlendFactor = toVkBlendFactor(dstRGB);
-            payload.srcAlphaBlendFactor = toVkBlendFactor(srcAlpha);
-            payload.dstAlphaBlendFactor = toVkBlendFactor(dstAlpha);
+        payload.blendEnable = MG_State::pGLContext->IsCapabilityEnabled(CapabilityInput::Blend);
+        BlendFactor srcRGB = BlendFactor::One;
+        BlendFactor dstRGB = BlendFactor::Zero;
+        BlendFactor srcAlpha = BlendFactor::One;
+        BlendFactor dstAlpha = BlendFactor::Zero;
+        MG_State::pGLContext->GetBlendFunc(srcRGB, dstRGB, srcAlpha, dstAlpha);
+        payload.srcColorBlendFactor = toVkBlendFactor(srcRGB);
+        payload.dstColorBlendFactor = toVkBlendFactor(dstRGB);
+        payload.srcAlphaBlendFactor = toVkBlendFactor(srcAlpha);
+        payload.dstAlphaBlendFactor = toVkBlendFactor(dstAlpha);
 
-            payload.colorWriteMask = 0;
-            const BoolVec4 colorMask = MG_State::pGLContext->GetColorMask();
-            if (colorMask.x()) payload.colorWriteMask |= VK_COLOR_COMPONENT_R_BIT;
-            if (colorMask.y()) payload.colorWriteMask |= VK_COLOR_COMPONENT_G_BIT;
-            if (colorMask.z()) payload.colorWriteMask |= VK_COLOR_COMPONENT_B_BIT;
-            if (colorMask.w()) payload.colorWriteMask |= VK_COLOR_COMPONENT_A_BIT;
-        }
+        payload.colorWriteMask = 0;
+        const BoolVec4 colorMask = MG_State::pGLContext->GetColorMask();
+        if (colorMask.x()) payload.colorWriteMask |= VK_COLOR_COMPONENT_R_BIT;
+        if (colorMask.y()) payload.colorWriteMask |= VK_COLOR_COMPONENT_G_BIT;
+        if (colorMask.z()) payload.colorWriteMask |= VK_COLOR_COMPONENT_B_BIT;
+        if (colorMask.w()) payload.colorWriteMask |= VK_COLOR_COMPONENT_A_BIT;
+
         payload.stages = &stages;
         payload.vertexInputState = &vertexInputState;
         return m_pipelineFactory->GetOrCreatePipeline(payload);
