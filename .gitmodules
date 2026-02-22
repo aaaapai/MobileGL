@@ -6,7 +6,7 @@
 	url = https://github.com/aaaapai/glslang.git
 [submodule "3rdparty/SPIRV-Cross"]
 	path = 3rdparty/SPIRV-Cross
-	url = https://github.com/KhronosGroup/SPIRV-Cross.git
+	url = https://github.com/aaaapai/SPIRV-Cross.git
 [submodule "include/FastSTL"]
 	path = include/FastSTL
 	url = https://github.com/aaaapai/FastSTL.git
