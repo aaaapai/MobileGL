@@ -147,6 +147,10 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         MOBILEGL_ASSERT(frameCount > 0, "UniformDescriptorBinder::Initialize requires frameCount > 0");
         MOBILEGL_ASSERT(maxBindings > 0, "UniformDescriptorBinder::Initialize requires maxBindings > 0");
         MOBILEGL_ASSERT(setsPerFrame > 0, "UniformDescriptorBinder::Initialize requires setsPerFrame > 0");
+        MOBILEGL_ASSERT(textureSamplerManager != nullptr,
+                        "UniformDescriptorBinder::Initialize requires valid texture sampler manager");
+        MOBILEGL_ASSERT(framebufferManager != nullptr,
+                        "UniformDescriptorBinder::Initialize requires valid framebuffer manager");
 
         m_device = device;
         m_allocator = allocator;
@@ -443,7 +447,8 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                                                            const MG_State::GLState::ProgramObject& program,
                                                            const ProgramLayout& layout, Uint32 binding,
                                                            VkDescriptorImageInfo& outImageInfo) const {
-        if (!m_textureSamplerManager || !MG_State::pGLContext || binding >= layout.samplerUniformLocationByBinding.size()) {
+        MOBILEGL_ASSERT(m_textureSamplerManager != nullptr, "ResolveSamplerDescriptor: texture sampler manager is null");
+        if (!MG_State::pGLContext || binding >= layout.samplerUniformLocationByBinding.size()) {
             return false;
         }
 
@@ -765,7 +770,9 @@ namespace MobileGL::MG_Backend::DirectVulkan {
 
         static const Uint8 kFallbackData[16] = {};
         VkDescriptorImageInfo fallbackImageInfo{};
-        const Bool hasFallbackImage = m_textureSamplerManager && m_textureSamplerManager->GetFallbackDescriptor(fallbackImageInfo);
+        MOBILEGL_ASSERT(m_textureSamplerManager != nullptr,
+                        "BindProgramUniformBuffers: texture sampler manager is null");
+        const Bool hasFallbackImage = m_textureSamplerManager->GetFallbackDescriptor(fallbackImageInfo);
 
         Vector<VkWriteDescriptorSet> writes;
         writes.reserve(m_maxBindings);

@@ -17,6 +17,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         auto nativeWindow = reinterpret_cast<NativeWindowType>(m_windowHandle.Handle);
 
         pVulkanRenderer = MakeUnique<MG_Backend::DirectVulkan::VulkanRenderer>(nativeWindow);
+        MOBILEGL_ASSERT(pVulkanRenderer != nullptr, "InitWindowSurface: VulkanRenderer creation failed");
         pVulkanRenderer->Initialize();
     }
 
