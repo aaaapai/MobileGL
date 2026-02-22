@@ -15,6 +15,20 @@
 namespace MobileGL::MG_Backend::DirectVulkan {
     class VkFramebufferManager {
     public:
+        enum class TransitionResource {
+            OffscreenColor,
+            OffscreenDepthStencil,
+            OffscreenColorTexture
+        };
+
+        enum class TransitionUsage {
+            Attachment,
+            TransferSrc,
+            TransferDst,
+            General,
+            ShaderRead
+        };
+
         struct InitInfo {
             VkDevice device = VK_NULL_HANDLE;
             VkPhysicalDevice physicalDevice = VK_NULL_HANDLE;
@@ -27,14 +41,8 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         void Shutdown();
 
         Bool EnsureOffscreenColorTarget(Uint glFboExternalIndex, const MG_State::GLState::FramebufferObject& glFbo);
-        Bool TransitionOffscreenColorToAttachment(VkCommandBuffer commandBuffer, Uint glFboExternalIndex);
-        Bool TransitionOffscreenColorToTransferSrc(VkCommandBuffer commandBuffer, Uint glFboExternalIndex);
-        Bool TransitionOffscreenColorToTransferDst(VkCommandBuffer commandBuffer, Uint glFboExternalIndex);
-        Bool TransitionOffscreenColorToGeneral(VkCommandBuffer commandBuffer, Uint glFboExternalIndex);
-        Bool TransitionOffscreenDepthStencilToTransferSrc(VkCommandBuffer commandBuffer, Uint glFboExternalIndex);
-        Bool TransitionOffscreenDepthStencilToTransferDst(VkCommandBuffer commandBuffer, Uint glFboExternalIndex);
-        Bool TransitionOffscreenDepthStencilToGeneral(VkCommandBuffer commandBuffer, Uint glFboExternalIndex);
-        Bool TransitionOffscreenColorTextureToShaderRead(VkCommandBuffer commandBuffer, Uint textureExternalIndex);
+        Bool Transition(VkCommandBuffer commandBuffer, TransitionResource resource, TransitionUsage usage,
+                        Uint externalIndex);
         Bool GetOffscreenColorImage(Uint glFboExternalIndex, VkImage& outImage, VkExtent2D& outExtent) const;
         Bool GetOffscreenDepthStencilImage(Uint glFboExternalIndex, VkImage& outImage, VkExtent2D& outExtent,
                                            VkFormat& outFormat) const;
@@ -65,7 +73,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                                           const MG_State::GLState::FramebufferAttachmentObject& colorAttachment,
                                           Uint16 glObjectVersion);
         void DestroyOffscreenColorTarget(OffscreenColorTarget& target);
-        Bool TransitionImageLayout(VkCommandBuffer commandBuffer, VkImage image, VkImageLayout& trackedLayout,
+        static Bool TransitionImageLayout(VkCommandBuffer commandBuffer, VkImage image, VkImageLayout& trackedLayout,
                                    VkImageLayout newLayout, VkPipelineStageFlags srcStageMask,
                                    VkPipelineStageFlags dstStageMask, VkAccessFlags srcAccessMask,
                                    VkAccessFlags dstAccessMask, VkImageAspectFlags aspectMask);

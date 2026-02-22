@@ -44,164 +44,128 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         return RecreateOffscreenColorTarget(target, glFbo, colorAttachment, objectVersion);
     }
 
-    Bool VkFramebufferManager::TransitionOffscreenColorToAttachment(VkCommandBuffer commandBuffer,
-                                                                    Uint glFboExternalIndex) {
-        auto it = m_offscreenColorTargets.find(glFboExternalIndex);
-        if (it == m_offscreenColorTargets.end()) {
-            MGLOG_W("VkFramebufferManager::TransitionOffscreenColorToAttachment skipped: FBO %u not found",
-                    glFboExternalIndex);
-            return false;
-        }
-        auto& target = it->second;
-        if (!TransitionImageLayout(commandBuffer, target.image, target.layout, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-                                   VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, 0,
-                                   VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
-                                   VK_IMAGE_ASPECT_COLOR_BIT)) {
-            return false;
-        }
-
-        if (target.depthStencilImage == VK_NULL_HANDLE) {
-            return true;
-        }
-
-        VkImageAspectFlags aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
-        if (target.depthStencilFormat == VK_FORMAT_D24_UNORM_S8_UINT ||
-            target.depthStencilFormat == VK_FORMAT_D32_SFLOAT_S8_UINT) {
-            aspectMask |= VK_IMAGE_ASPECT_STENCIL_BIT;
-        }
-
-        return TransitionImageLayout(
-            commandBuffer, target.depthStencilImage, target.depthStencilLayout,
-            VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
-            VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT, 0,
-            VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT, aspectMask);
-    }
-
-    Bool VkFramebufferManager::TransitionOffscreenColorToTransferSrc(VkCommandBuffer commandBuffer,
-                                                                     Uint glFboExternalIndex) {
-        auto it = m_offscreenColorTargets.find(glFboExternalIndex);
-        if (it == m_offscreenColorTargets.end()) {
-            MGLOG_W("VkFramebufferManager::TransitionOffscreenColorToTransferSrc skipped: FBO %u not found",
-                    glFboExternalIndex);
-            return false;
-        }
-        auto& target = it->second;
-        return TransitionImageLayout(commandBuffer, target.image, target.layout, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-                                     VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0,
-                                     VK_ACCESS_TRANSFER_READ_BIT, VK_IMAGE_ASPECT_COLOR_BIT);
-    }
-
-    Bool VkFramebufferManager::TransitionOffscreenColorToTransferDst(VkCommandBuffer commandBuffer,
-                                                                     Uint glFboExternalIndex) {
-        auto it = m_offscreenColorTargets.find(glFboExternalIndex);
-        if (it == m_offscreenColorTargets.end()) {
-            MGLOG_W("VkFramebufferManager::TransitionOffscreenColorToTransferDst skipped: FBO %u not found",
-                    glFboExternalIndex);
-            return false;
-        }
-        auto& target = it->second;
-        return TransitionImageLayout(commandBuffer, target.image, target.layout, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                                     VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0,
-                                     VK_ACCESS_TRANSFER_WRITE_BIT, VK_IMAGE_ASPECT_COLOR_BIT);
-    }
-
-    Bool VkFramebufferManager::TransitionOffscreenColorToGeneral(VkCommandBuffer commandBuffer,
-                                                                 Uint glFboExternalIndex) {
-        auto it = m_offscreenColorTargets.find(glFboExternalIndex);
-        if (it == m_offscreenColorTargets.end()) {
-            MGLOG_W("VkFramebufferManager::TransitionOffscreenColorToGeneral skipped: FBO %u not found",
-                    glFboExternalIndex);
-            return false;
-        }
-        auto& target = it->second;
-        return TransitionImageLayout(commandBuffer, target.image, target.layout, VK_IMAGE_LAYOUT_GENERAL,
-                                     VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0,
-                                     VK_ACCESS_TRANSFER_READ_BIT | VK_ACCESS_TRANSFER_WRITE_BIT,
-                                     VK_IMAGE_ASPECT_COLOR_BIT);
-    }
-
-    Bool VkFramebufferManager::TransitionOffscreenDepthStencilToTransferSrc(VkCommandBuffer commandBuffer,
-                                                                            Uint glFboExternalIndex) {
-        auto it = m_offscreenColorTargets.find(glFboExternalIndex);
-        if (it == m_offscreenColorTargets.end()) {
-            MGLOG_W("VkFramebufferManager::TransitionOffscreenDepthStencilToTransferSrc skipped: FBO %u not found",
-                    glFboExternalIndex);
-            return false;
-        }
-        auto& target = it->second;
-        if (target.depthStencilImage == VK_NULL_HANDLE) {
-            return false;
-        }
-        VkImageAspectFlags aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
-        if (target.depthStencilFormat == VK_FORMAT_D24_UNORM_S8_UINT ||
-            target.depthStencilFormat == VK_FORMAT_D32_SFLOAT_S8_UINT) {
-            aspectMask |= VK_IMAGE_ASPECT_STENCIL_BIT;
-        }
-        return TransitionImageLayout(commandBuffer, target.depthStencilImage, target.depthStencilLayout,
-                                     VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
-                                     VK_PIPELINE_STAGE_TRANSFER_BIT, 0, VK_ACCESS_TRANSFER_READ_BIT, aspectMask);
-    }
-
-    Bool VkFramebufferManager::TransitionOffscreenDepthStencilToTransferDst(VkCommandBuffer commandBuffer,
-                                                                            Uint glFboExternalIndex) {
-        auto it = m_offscreenColorTargets.find(glFboExternalIndex);
-        if (it == m_offscreenColorTargets.end()) {
-            MGLOG_W("VkFramebufferManager::TransitionOffscreenDepthStencilToTransferDst skipped: FBO %u not found",
-                    glFboExternalIndex);
-            return false;
-        }
-        auto& target = it->second;
-        if (target.depthStencilImage == VK_NULL_HANDLE) {
-            return false;
-        }
-        VkImageAspectFlags aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
-        if (target.depthStencilFormat == VK_FORMAT_D24_UNORM_S8_UINT ||
-            target.depthStencilFormat == VK_FORMAT_D32_SFLOAT_S8_UINT) {
-            aspectMask |= VK_IMAGE_ASPECT_STENCIL_BIT;
-        }
-        return TransitionImageLayout(commandBuffer, target.depthStencilImage, target.depthStencilLayout,
-                                     VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
-                                     VK_PIPELINE_STAGE_TRANSFER_BIT, 0, VK_ACCESS_TRANSFER_WRITE_BIT, aspectMask);
-    }
-
-    Bool VkFramebufferManager::TransitionOffscreenDepthStencilToGeneral(VkCommandBuffer commandBuffer,
-                                                                        Uint glFboExternalIndex) {
-        auto it = m_offscreenColorTargets.find(glFboExternalIndex);
-        if (it == m_offscreenColorTargets.end()) {
-            MGLOG_W("VkFramebufferManager::TransitionOffscreenDepthStencilToGeneral skipped: FBO %u not found",
-                    glFboExternalIndex);
-            return false;
-        }
-        auto& target = it->second;
-        if (target.depthStencilImage == VK_NULL_HANDLE) {
-            return false;
-        }
-        VkImageAspectFlags aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
-        if (target.depthStencilFormat == VK_FORMAT_D24_UNORM_S8_UINT ||
-            target.depthStencilFormat == VK_FORMAT_D32_SFLOAT_S8_UINT) {
-            aspectMask |= VK_IMAGE_ASPECT_STENCIL_BIT;
-        }
-        return TransitionImageLayout(commandBuffer, target.depthStencilImage, target.depthStencilLayout,
-                                     VK_IMAGE_LAYOUT_GENERAL, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
-                                     VK_PIPELINE_STAGE_TRANSFER_BIT, 0,
-                                     VK_ACCESS_TRANSFER_READ_BIT | VK_ACCESS_TRANSFER_WRITE_BIT, aspectMask);
-    }
-
-    Bool VkFramebufferManager::TransitionOffscreenColorTextureToShaderRead(VkCommandBuffer commandBuffer,
-                                                                           Uint textureExternalIndex) {
-        for (auto& [_, target] : m_offscreenColorTargets) {
-            if (target.colorTextureExternalIndex != textureExternalIndex || target.image == VK_NULL_HANDLE) {
-                continue;
+    Bool VkFramebufferManager::Transition(VkCommandBuffer commandBuffer, TransitionResource resource,
+                                          TransitionUsage usage, Uint externalIndex) {
+        auto resolveDepthStencilAspectMask = [](VkFormat format) {
+            VkImageAspectFlags aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
+            if (format == VK_FORMAT_D24_UNORM_S8_UINT || format == VK_FORMAT_D32_SFLOAT_S8_UINT) {
+                aspectMask |= VK_IMAGE_ASPECT_STENCIL_BIT;
             }
-            const Bool fromUndefined = (target.layout == VK_IMAGE_LAYOUT_UNDEFINED);
-            return TransitionImageLayout(
-                commandBuffer, target.image, target.layout, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-                fromUndefined ? VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT
-                              : (VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_TRANSFER_BIT),
-                VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
-                fromUndefined ? 0 : (VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_TRANSFER_WRITE_BIT),
-                VK_ACCESS_SHADER_READ_BIT, VK_IMAGE_ASPECT_COLOR_BIT);
+            return aspectMask;
+        };
+
+        if (resource == TransitionResource::OffscreenColorTexture) {
+            if (usage != TransitionUsage::ShaderRead) {
+                MGLOG_W("VkFramebufferManager::Transition skipped: unsupported usage %d for texture %u",
+                        static_cast<Int>(usage), externalIndex);
+                return false;
+            }
+
+            for (auto& [_, target] : m_offscreenColorTargets) {
+                if (target.colorTextureExternalIndex != externalIndex || target.image == VK_NULL_HANDLE) {
+                    continue;
+                }
+                const Bool fromUndefined = (target.layout == VK_IMAGE_LAYOUT_UNDEFINED);
+                return TransitionImageLayout(
+                    commandBuffer, target.image, target.layout, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                    fromUndefined
+                        ? VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT
+                        : (VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_TRANSFER_BIT),
+                    VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+                    fromUndefined ? 0 : (VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_TRANSFER_WRITE_BIT),
+                    VK_ACCESS_SHADER_READ_BIT, VK_IMAGE_ASPECT_COLOR_BIT);
+            }
+            return false;
         }
+
+        auto it = m_offscreenColorTargets.find(externalIndex);
+        if (it == m_offscreenColorTargets.end()) {
+            MGLOG_W("VkFramebufferManager::Transition skipped: FBO %u not found", externalIndex);
+            return false;
+        }
+        auto& target = it->second;
+
+        if (resource == TransitionResource::OffscreenColor) {
+            switch (usage) {
+            case TransitionUsage::Attachment: {
+                if (!TransitionImageLayout(
+                        commandBuffer, target.image, target.layout, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+                        VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, 0,
+                        VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
+                        VK_IMAGE_ASPECT_COLOR_BIT)) {
+                    return false;
+                }
+                if (target.depthStencilImage == VK_NULL_HANDLE) {
+                    return true;
+                }
+                const VkImageAspectFlags aspectMask = resolveDepthStencilAspectMask(target.depthStencilFormat);
+                return TransitionImageLayout(
+                    commandBuffer, target.depthStencilImage, target.depthStencilLayout,
+                    VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+                    VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT, 0,
+                    VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
+                    aspectMask);
+            }
+            case TransitionUsage::TransferSrc:
+                return TransitionImageLayout(commandBuffer, target.image, target.layout,
+                                             VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                                             VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0,
+                                             VK_ACCESS_TRANSFER_READ_BIT, VK_IMAGE_ASPECT_COLOR_BIT);
+            case TransitionUsage::TransferDst:
+                return TransitionImageLayout(commandBuffer, target.image, target.layout,
+                                             VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                                             VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0,
+                                             VK_ACCESS_TRANSFER_WRITE_BIT, VK_IMAGE_ASPECT_COLOR_BIT);
+            case TransitionUsage::General:
+                return TransitionImageLayout(commandBuffer, target.image, target.layout, VK_IMAGE_LAYOUT_GENERAL,
+                                             VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0,
+                                             VK_ACCESS_TRANSFER_READ_BIT | VK_ACCESS_TRANSFER_WRITE_BIT,
+                                             VK_IMAGE_ASPECT_COLOR_BIT);
+            case TransitionUsage::ShaderRead:
+                return TransitionImageLayout(commandBuffer, target.image, target.layout,
+                                             VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                                             VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+                                             0, VK_ACCESS_SHADER_READ_BIT, VK_IMAGE_ASPECT_COLOR_BIT);
+            default:
+                return false;
+            }
+        }
+
+        if (resource == TransitionResource::OffscreenDepthStencil) {
+            if (target.depthStencilImage == VK_NULL_HANDLE) {
+                return false;
+            }
+            const VkImageAspectFlags aspectMask = resolveDepthStencilAspectMask(target.depthStencilFormat);
+            switch (usage) {
+            case TransitionUsage::TransferSrc:
+                return TransitionImageLayout(commandBuffer, target.depthStencilImage, target.depthStencilLayout,
+                                             VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                                             VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0,
+                                             VK_ACCESS_TRANSFER_READ_BIT, aspectMask);
+            case TransitionUsage::TransferDst:
+                return TransitionImageLayout(commandBuffer, target.depthStencilImage, target.depthStencilLayout,
+                                             VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                                             VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0,
+                                             VK_ACCESS_TRANSFER_WRITE_BIT, aspectMask);
+            case TransitionUsage::General:
+                return TransitionImageLayout(commandBuffer, target.depthStencilImage, target.depthStencilLayout,
+                                             VK_IMAGE_LAYOUT_GENERAL, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+                                             VK_PIPELINE_STAGE_TRANSFER_BIT, 0,
+                                             VK_ACCESS_TRANSFER_READ_BIT | VK_ACCESS_TRANSFER_WRITE_BIT, aspectMask);
+            case TransitionUsage::Attachment:
+                return TransitionImageLayout(
+                    commandBuffer, target.depthStencilImage, target.depthStencilLayout,
+                    VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+                    VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT, 0,
+                    VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
+                    aspectMask);
+            case TransitionUsage::ShaderRead:
+                return false;
+            default:
+                return false;
+            }
+        }
+
         return false;
     }
 

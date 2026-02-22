@@ -526,7 +526,9 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                 return;
             }
 
-            if (!m_framebufferManager->TransitionOffscreenColorToAttachment(commandBuffer, drawFboExternalIndex)) {
+            if (!m_framebufferManager->Transition(commandBuffer, VkFramebufferManager::TransitionResource::OffscreenColor,
+                                                  VkFramebufferManager::TransitionUsage::Attachment,
+                                                  drawFboExternalIndex)) {
                 MGLOG_D("EnsureFrameRecordingStarted skipped: failed to transition offscreen FBO %u for attachment",
                         drawFboExternalIndex);
                 return;
@@ -1293,7 +1295,10 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                 if (targetFbo &&
                     EnsureOffscreenRenderTarget(targetFboExternalIndex, *targetFbo, offscreenRenderPass,
                                                 offscreenFramebuffer, offscreenExtent, offscreenDepthStencilFormat) &&
-                    m_framebufferManager->TransitionOffscreenColorToAttachment(commandBuffer, targetFboExternalIndex)) {
+                    m_framebufferManager->Transition(commandBuffer,
+                                                    VkFramebufferManager::TransitionResource::OffscreenColor,
+                                                    VkFramebufferManager::TransitionUsage::Attachment,
+                                                    targetFboExternalIndex)) {
                     m_renderPassManager->BeginRenderPass(commandBuffer, offscreenRenderPass, offscreenFramebuffer,
                                                          offscreenExtent);
 
@@ -1452,8 +1457,10 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                     transitionSwapchainLayout(VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_PIPELINE_STAGE_TRANSFER_BIT,
                                               VK_ACCESS_TRANSFER_READ_BIT);
                 }
-            } else if (!m_framebufferManager->TransitionOffscreenColorToTransferSrc(commandBuffer,
-                                                                                    readFboExternalIndex)) {
+            } else if (!m_framebufferManager->Transition(commandBuffer,
+                                                         VkFramebufferManager::TransitionResource::OffscreenColor,
+                                                         VkFramebufferManager::TransitionUsage::TransferSrc,
+                                                         readFboExternalIndex)) {
                 MGLOG_W("BlitFramebuffer skipped: failed to transition read FBO %u to transfer src",
                         readFboExternalIndex);
                 return false;
@@ -1468,13 +1475,18 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                                               VK_ACCESS_TRANSFER_WRITE_BIT);
                 }
             } else if (sameImage) {
-                if (!m_framebufferManager->TransitionOffscreenColorToGeneral(commandBuffer, drawFboExternalIndex)) {
+                if (!m_framebufferManager->Transition(commandBuffer,
+                                                      VkFramebufferManager::TransitionResource::OffscreenColor,
+                                                      VkFramebufferManager::TransitionUsage::General,
+                                                      drawFboExternalIndex)) {
                     MGLOG_W("BlitFramebuffer skipped: failed to transition draw FBO %u to general",
                             drawFboExternalIndex);
                     return false;
                 }
-            } else if (!m_framebufferManager->TransitionOffscreenColorToTransferDst(commandBuffer,
-                                                                                    drawFboExternalIndex)) {
+            } else if (!m_framebufferManager->Transition(commandBuffer,
+                                                         VkFramebufferManager::TransitionResource::OffscreenColor,
+                                                         VkFramebufferManager::TransitionUsage::TransferDst,
+                                                         drawFboExternalIndex)) {
                 MGLOG_W("BlitFramebuffer skipped: failed to transition draw FBO %u to transfer dst",
                         drawFboExternalIndex);
                 return false;
@@ -1685,8 +1697,9 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                                                               VK_PIPELINE_STAGE_TRANSFER_BIT,
                                                               VK_ACCESS_TRANSFER_READ_BIT);
                             }
-                        } else if (!m_framebufferManager->TransitionOffscreenDepthStencilToTransferSrc(
-                                       commandBuffer, readFboExternalIndex)) {
+                        } else if (!m_framebufferManager->Transition(
+                                       commandBuffer, VkFramebufferManager::TransitionResource::OffscreenDepthStencil,
+                                       VkFramebufferManager::TransitionUsage::TransferSrc, readFboExternalIndex)) {
                             MGLOG_W("BlitFramebuffer: failed to transition read depth/stencil FBO %u to transfer src",
                                     readFboExternalIndex);
                         }
@@ -1702,13 +1715,15 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                                                               VK_ACCESS_TRANSFER_WRITE_BIT);
                             }
                         } else if (sameDepthImage) {
-                            if (!m_framebufferManager->TransitionOffscreenDepthStencilToGeneral(commandBuffer,
-                                                                                                drawFboExternalIndex)) {
+                            if (!m_framebufferManager->Transition(
+                                    commandBuffer, VkFramebufferManager::TransitionResource::OffscreenDepthStencil,
+                                    VkFramebufferManager::TransitionUsage::General, drawFboExternalIndex)) {
                                 MGLOG_W("BlitFramebuffer: failed to transition draw depth/stencil FBO %u to general",
                                         drawFboExternalIndex);
                             }
-                        } else if (!m_framebufferManager->TransitionOffscreenDepthStencilToTransferDst(
-                                       commandBuffer, drawFboExternalIndex)) {
+                        } else if (!m_framebufferManager->Transition(
+                                       commandBuffer, VkFramebufferManager::TransitionResource::OffscreenDepthStencil,
+                                       VkFramebufferManager::TransitionUsage::TransferDst, drawFboExternalIndex)) {
                             MGLOG_W("BlitFramebuffer: failed to transition draw depth/stencil FBO %u to transfer dst",
                                     drawFboExternalIndex);
                         }
@@ -1865,8 +1880,10 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                                                  offscreenFramebuffer, offscreenExtent, offscreenDepthStencilFormat)) {
                     return false;
                 }
-                if (!m_framebufferManager->TransitionOffscreenColorToAttachment(commandBuffer,
-                                                                                targetFboExternalIndex)) {
+                if (!m_framebufferManager->Transition(commandBuffer,
+                                                      VkFramebufferManager::TransitionResource::OffscreenColor,
+                                                      VkFramebufferManager::TransitionUsage::Attachment,
+                                                      targetFboExternalIndex)) {
                     return false;
                 }
 

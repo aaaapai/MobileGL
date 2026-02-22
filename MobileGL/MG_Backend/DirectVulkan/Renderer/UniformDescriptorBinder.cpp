@@ -481,7 +481,10 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         }
 
         if (m_framebufferManager &&
-            m_framebufferManager->TransitionOffscreenColorTextureToShaderRead(commandBuffer, texture->GetExternalIndex())) {
+            m_framebufferManager->Transition(commandBuffer,
+                                             VkFramebufferManager::TransitionResource::OffscreenColorTexture,
+                                             VkFramebufferManager::TransitionUsage::ShaderRead,
+                                             texture->GetExternalIndex())) {
             VkImageView offscreenView = VK_NULL_HANDLE;
             if (m_framebufferManager->GetOffscreenColorViewByTexture(texture->GetExternalIndex(), offscreenView) &&
                 offscreenView != VK_NULL_HANDLE) {
