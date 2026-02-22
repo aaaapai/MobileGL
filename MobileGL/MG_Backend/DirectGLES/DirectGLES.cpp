@@ -1616,7 +1616,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
         g_EGLFuncs.eglBindAPI(EGL_OPENGL_ES_API);
 
         const EGLint configAttribs[] = {EGL_SURFACE_TYPE,
-                                        EGL_WINDOW_BIT,
+                                        EGL_WINDOW_BIT|EGL_PBUFFER_BIT,
                                         EGL_RENDERABLE_TYPE,
                                         EGL_OPENGL_ES3_BIT,
                                         EGL_RED_SIZE,
@@ -1631,6 +1631,8 @@ namespace MobileGL::MG_Backend::DirectGLES {
                                         24,
                                         EGL_STENCIL_SIZE,
                                         8,
+                                        EGL_BUFFER_SIZE,
+                                        32,
                                         EGL_NONE};
 
         EGLint numConfigs = 0;
