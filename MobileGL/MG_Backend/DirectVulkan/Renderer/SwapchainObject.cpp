@@ -127,6 +127,11 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         createInfo.imageFormat = pickedSurfaceFormat.format;
         createInfo.imageColorSpace = pickedSurfaceFormat.colorSpace;
         createInfo.imageExtent = swapchainCaps.currentExtent;
+        if (swapchainCaps.currentTransform == VK_SURFACE_TRANSFORM_ROTATE_90_BIT_KHR ||
+            swapchainCaps.currentTransform == VK_SURFACE_TRANSFORM_ROTATE_270_BIT_KHR) {
+            std::swap(createInfo.imageExtent.width, createInfo.imageExtent.height);
+        }
+
         createInfo.imageArrayLayers = 1;
         const VkImageUsageFlags requiredImageUsage =
             VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
