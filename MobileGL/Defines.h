@@ -34,10 +34,10 @@
 #define MOBILEGL_EGL_API MOBILEGL_API
 
 // ====================== MobileGL configurations ======================= //
-#define MOBILEGL_LOG_ACTIVE_LEVEL MOBILEGL_LOG_LEVEL_INFO
+#define MOBILEGL_LOG_ACTIVE_LEVEL MOBILEGL_LOG_LEVEL_WARN
 
-#define MOBILEGL_LOG_ENABLE_CONSOLE 0
-#define MOBILEGL_LOG_ENABLE_FILE 1
+#define MOBILEGL_LOG_ENABLE_CONSOLE 1
+#define MOBILEGL_LOG_ENABLE_FILE 0
 #define MOBILEGL_LOG_ENABLE_ANDROID 1
 #define MOBILEGL_ENABLE_SCOPE_MARKER 0
 
@@ -48,7 +48,7 @@
 #endif
 
 #ifdef __ANDROID__
-#define MOBILEGL_LOG_FILE_PATH "/sdcard/MG/latest.log"
+#define MOBILEGL_LOG_FILE_PATH "/sdcard/MGL/latest.log"
 #else
 #define MOBILEGL_LOG_FILE_PATH ""
 #endif

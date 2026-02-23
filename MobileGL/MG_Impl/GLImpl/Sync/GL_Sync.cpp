@@ -10,10 +10,19 @@
 
 #include "MG_State/GLState/Core.h"
 
-namespace MobileGL::MG_Impl::GLImpl {
-    GLsync FenceSync_Backend(GLenum condition, GLbitfield flags) {
-        return 0;
-    }
+#include <MG_Util/BackendLoaders/OpenGL/Loader.h>
+#include <MG_Backend/DirectGLES/DirectGLES.h>
+
+#include <Defines.h>
+#include <Config.h>
+
+#include <MG_Util/Config/EnvChecker.h>
+
+namespace MobileGL {
+    namespace MG_Impl::GLImpl {
+        GLsync FenceSync_Backend(GLenum condition, GLbitfield flags) {
+            return 0;
+        }
 
     GLenum ClientWaitSync_Backend(GLsync sync, GLbitfield flags, GLuint64 timeout) {
         return 0;
@@ -31,13 +40,27 @@ namespace MobileGL::MG_Impl::GLImpl {
 
     void DeleteSync_State(GLsync sync) {}
 
-    GLsync FenceSync(GLenum condition, GLbitfield flags) {
-        return 0;
-    }
+        GLsync FenceSync(GLenum condition, GLbitfield flags) {
+        if(MG_Util::CheckEnv("MOBILEGL_BACKEND_TYPE", "DirectGLES", false))
+            return MG_Backend::DirectGLES::g_GLESFuncs.glFenceSync(condition, flags);
+        else
+            return FenceSync_State(condition, flags);
+        }
 
-    GLenum ClientWaitSync(GLsync sync, GLbitfield flags, GLuint64 timeout) {
-        return 0;
-    }
+        GLenum ClientWaitSync(GLsync sync, GLbitfield flags, GLuint64 timeout) {
+        if(MG_Util::CheckEnv("MOBILEGL_BACKEND_TYPE", "DirectGLES", false))
+            return MG_Backend::DirectGLES::g_GLESFuncs.glClientWaitSync(sync, flags, timeout);
+        else
+            return ClientWaitSync_State(sync, flags, timeout);
 
-    void DeleteSync(GLsync sync) {}
-} // namespace MobileGL::MG_Impl::GLImpl
+        }
+
+        void DeleteSync(GLsync sync) {
+        if (MG_Util::CheckEnv("MOBILEGL_BACKEND_TYPE", "DirectGLES", false))
+            MG_Backend::DirectGLES::g_GLESFuncs.glDeleteSync(sync);
+        else
+            DeleteSync_State(sync);
+        }
+
+    } // namespace MG_Impl::GLImpl
+} // namespace MobileGL

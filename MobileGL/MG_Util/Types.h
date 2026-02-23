@@ -20,16 +20,16 @@
 namespace MobileGL {
     using String = std::string;
     using StringStream = std::stringstream;
-    using Int8 = int8_t;
-    using Uint8 = uint8_t;
-    using Int16 = int16_t;
-    using Uint16 = uint16_t;
-    using Int32 = int32_t;
-    using Uint32 = uint32_t;
+    using Int8 = std::int8_t;
+    using Uint8 = std::uint8_t;
+    using Int16 = std::int16_t;
+    using Uint16 = std::uint16_t;
+    using Int32 = std::int32_t;
+    using Uint32 = std::uint32_t;
     using Int = Int32;
     using Uint = Uint32;
-    using Int64 = int64_t;
-    using Uint64 = uint64_t;
+    using Int64 = std::int64_t;
+    using Uint64 = std::uint64_t;
     using Bool = bool;
     using Float = float;
     using Double = double;
@@ -53,9 +53,40 @@ namespace MobileGL {
     using SizeT = std::size_t;
     template <typename T, SizeT N>
     using Array = std::array<T, N>;
-    template <typename Key, typename T, class Hash = std::hash<Key>, class KeyEqual = std::equal_to<Key>,
-              class Allocator = std::allocator<std::pair<const Key, T>>>
-    using UnorderedMap = FastSTL::unordered_map<Key, T, Hash, KeyEqual, Allocator>;
+#if UseFastSTL
+#include <FastSTL/UnorderedMap.h>
+template <
+        typename Key,
+        typename T,
+        class Hash = std::hash<Key>,
+        class KeyEqual = std::equal_to<Key>,
+        class Allocator = std::allocator<std::pair<const Key, T>>
+>
+using UnorderedMap = std::unordered_map<Key, T, Hash, KeyEqual, Allocator>;
+
+#elif UseAnkerl
+#include <ankerl/unordered_dense.h>
+
+template <
+    typename Key,
+    typename T,
+    class Hash = ankerl::unordered_dense::hash<Key>,
+    class KeyEqual = std::equal_to<Key>,
+    class Allocator = std::allocator<std::pair<Key, T>>
+>
+using UnorderedMap = ankerl::unordered_dense::map<Key, T, Hash, KeyEqual, Allocator>;
+
+#elif UseStandard
+#include <unordered_map>
+template <
+        typename Key,
+        typename T
+>
+using UnorderedMap = std::unordered_map<Key, T>;
+#else
+#error The type of UnorderedMap to be used is not defined!
+#endif
+
     template <typename T>
     inline constexpr std::remove_reference_t<T>&& Move(T&& t) noexcept {
         return static_cast<std::remove_reference_t<T>&&>(t);

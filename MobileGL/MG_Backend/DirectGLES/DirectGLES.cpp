@@ -22,6 +22,7 @@
 #include <MG_Util/Converters/MGToStr/TextureEnumConverter.h>
 #include <MG_Util/Converters/MGToGL/RenderStateEnumConverter.h>
 #include <MG_Util/Texture/PixelStoreProcessor.h>
+#include <MG_State/GLState/BufferState/BufferObject.h>
 
 namespace MobileGL::MG_Backend::DirectGLES {
     MG_External::EGLFunctionsTable g_EGLFuncs;
@@ -36,7 +37,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
     };
 
     inline DrawSyncBit operator|(DrawSyncBit a, DrawSyncBit b) {
-        return static_cast<DrawSyncBit>(static_cast<uint32_t>(a) | static_cast<uint32_t>(b));
+        return static_cast<DrawSyncBit>(static_cast<std::uint32_t>(a) | static_cast<std::uint32_t>(b));
     }
 
     inline DrawSyncBit& operator|=(DrawSyncBit& a, DrawSyncBit b) {
@@ -727,17 +728,120 @@ namespace MobileGL::MG_Backend::DirectGLES {
         }
     }
 
-    void MultiDrawElementsBaseVertex(GLenum mode, const GLsizei* count, GLenum type, const GLvoid* const* indices,
-                                     GLsizei drawcount, const GLint* basevertex) {
+
+    namespace {
+        struct DrawElementsIndirectCommand {
+            GLuint count;
+            GLuint instanceCount;
+            GLuint firstIndex;
+            GLuint baseVertex;
+            GLuint baseInstance;
+        };
+        
+        thread_local struct {
+            GLuint bufferId = 0;
+            GLsizei capacity = 0;
+            GLuint previousBinding = 0;
+            bool bufferInitialized = false;
+        } s_indirectBuffer;
+        
+        void InitializeIndirectBuffer() {
+            if (!s_indirectBuffer.bufferInitialized) {
+                g_GLESFuncs.glGenBuffers(1, &s_indirectBuffer.bufferId);
+                s_indirectBuffer.bufferInitialized = true;
+                s_indirectBuffer.capacity = 0;
+            }
+        }
+        
+        void EnsureIndirectBufferCapacity(GLsizei requiredSize) {
+            InitializeIndirectBuffer();
+            
+            if (s_indirectBuffer.capacity < requiredSize) {
+                GLsizei newCapacity = s_indirectBuffer.capacity;
+                if (newCapacity == 0) {
+                    newCapacity = 16;
+                }
+                while (newCapacity < requiredSize) {
+                    newCapacity *= 2;
+                }
+                
+                g_GLESFuncs.glBindBuffer(GL_DRAW_INDIRECT_BUFFER, s_indirectBuffer.bufferId);
+                g_GLESFuncs.glBufferData(GL_DRAW_INDIRECT_BUFFER,
+                    newCapacity * sizeof(DrawElementsIndirectCommand),
+                    nullptr, GL_DYNAMIC_DRAW);
+                
+                s_indirectBuffer.capacity = newCapacity;
+                MGLOG_D("Indirect buffer resized to capacity: %d commands", newCapacity);
+            }
+        }
+        
+        void SaveAndBindIndirectBuffer() {
+            g_GLESFuncs.glGetIntegerv(GL_DRAW_INDIRECT_BUFFER_BINDING, 
+                reinterpret_cast<GLint*>(&s_indirectBuffer.previousBinding));
+            g_GLESFuncs.glBindBuffer(GL_DRAW_INDIRECT_BUFFER, s_indirectBuffer.bufferId);
+        }
+        
+        void RestoreIndirectBuffer() {
+            g_GLESFuncs.glBindBuffer(GL_DRAW_INDIRECT_BUFFER, s_indirectBuffer.previousBinding);
+        }
+    }
+
+    void MultiDrawElementsBaseVertex(GLenum mode, const GLsizei* count, GLenum type, 
+                                     const GLvoid* const* indices, GLsizei drawcount, 
+                                     const GLint* basevertex) {
 #if MOBILEGL_LOG_ACTIVE_LEVEL <= MOBILEGL_LOG_LEVEL_DEBUG && MOBILEGL_ENABLE_SCOPE_MARKER
         DebugImpl::OpenGLScopeMarker marker(__func__);
 #endif
-        DrawSyncBit syncBit = DrawSyncBit::IndexBuffer;
+        
+        DrawSyncBit syncBit = DrawSyncBit::IndexBuffer | DrawSyncBit::IndirectBuffer;
         PrepareForDraw(syncBit);
-
-        for (GLsizei i = 0; i < drawcount; ++i) {
-            g_GLESFuncs.glDrawElementsBaseVertex(mode, count[i], type, indices[i], basevertex[i]);
+        
+        GLsizei elementSize = 4;
+        switch (type) {
+            case GL_UNSIGNED_BYTE:
+                elementSize = 1;
+                break;
+            case GL_UNSIGNED_SHORT:
+                elementSize = 2;
+                break;
+            case GL_UNSIGNED_INT:
+                elementSize = 4;
+                break;
+            default:
+                MGLOG_E("Unsupported index type: 0x%x", type);
+                return;
         }
+        
+        Vector<DrawElementsIndirectCommand> commands(drawcount);
+        
+        for (GLsizei i = 0; i < drawcount; ++i) {
+            commands[i].count = static_cast<GLuint>(count[i]);
+            commands[i].instanceCount = 1;
+            commands[i].baseVertex = basevertex ? static_cast<GLuint>(basevertex[i]) : 0;
+            commands[i].baseInstance = 0;
+            
+            if (indices && indices[i]) {
+                uintptr_t offset = reinterpret_cast<uintptr_t>(indices[i]);
+                commands[i].firstIndex = static_cast<GLuint>(offset / elementSize);
+            } else {
+                commands[i].firstIndex = 0;
+            }
+        }
+        
+        EnsureIndirectBufferCapacity(drawcount);
+        SaveAndBindIndirectBuffer();
+        
+        g_GLESFuncs.glBufferSubData(GL_DRAW_INDIRECT_BUFFER,
+            0, 
+            drawcount * sizeof(DrawElementsIndirectCommand),
+            commands.data());
+        
+        for (GLsizei i = 0; i < drawcount; ++i) {
+            const void* offset = reinterpret_cast<const void*>(i * sizeof(DrawElementsIndirectCommand));
+            g_GLESFuncs.glDrawElementsIndirect(mode, type, offset);
+        }
+        
+        RestoreIndirectBuffer();
     }
 
     void MultiDrawElementsIndirect(GLenum mode, GLenum type, const void* indirect, GLsizei drawcount, GLsizei stride) {
@@ -748,7 +852,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
         PrepareForDraw(syncBit);
 
         for (GLsizei i = 0; i < drawcount; ++i) {
-            const GLvoid* cmd = reinterpret_cast<const GLvoid*>(reinterpret_cast<const uint8_t*>(indirect) +
+            const GLvoid* cmd = reinterpret_cast<const GLvoid*>(reinterpret_cast<const std::uint8_t*>(indirect) +
                                                                 i * (stride ? stride : sizeof(GLsizei) * 4));
             g_GLESFuncs.glDrawElementsIndirect(mode, type, cmd);
         }
@@ -762,7 +866,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
         PrepareForDraw(syncBit);
 
         for (GLsizei i = 0; i < drawcount; ++i) {
-            const GLvoid* cmd = reinterpret_cast<const GLvoid*>(reinterpret_cast<const uint8_t*>(indirect) +
+            const GLvoid* cmd = reinterpret_cast<const GLvoid*>(reinterpret_cast<const std::uint8_t*>(indirect) +
                                                                 i * (stride ? stride : sizeof(GLsizei) * 4));
             g_GLESFuncs.glDrawArraysIndirect(mode, cmd);
         }
@@ -1500,7 +1604,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
         g_EGLFuncs.eglBindAPI(EGL_OPENGL_ES_API);
 
         const EGLint configAttribs[] = {EGL_SURFACE_TYPE,
-                                        EGL_WINDOW_BIT,
+                                        EGL_WINDOW_BIT|EGL_PBUFFER_BIT,
                                         EGL_RENDERABLE_TYPE,
                                         EGL_OPENGL_ES3_BIT,
                                         EGL_RED_SIZE,
@@ -1515,6 +1619,8 @@ namespace MobileGL::MG_Backend::DirectGLES {
                                         24,
                                         EGL_STENCIL_SIZE,
                                         8,
+                                        EGL_BUFFER_SIZE,
+                                        32,
                                         EGL_NONE};
 
         EGLint numConfigs = 0;
@@ -1557,5 +1663,211 @@ namespace MobileGL::MG_Backend::DirectGLES {
             g_Display = EGL_NO_DISPLAY;
         }
     }
+
+    // ==================== 实现 glClearBufferSubData 相关函数 ====================
+
+namespace {
+    // 将 OpenGL 枚举转换为你的 BufferTarget 枚举
+    BufferTarget GLEnumToBufferTarget(GLenum target) {
+        switch (target) {
+            case GL_ARRAY_BUFFER:              return BufferTarget::Vertex;
+            case GL_ELEMENT_ARRAY_BUFFER:      return BufferTarget::Index;
+            case GL_UNIFORM_BUFFER:            return BufferTarget::Uniform;
+            case GL_COPY_READ_BUFFER:          return BufferTarget::CopyRead;
+            case GL_COPY_WRITE_BUFFER:         return BufferTarget::CopyWrite;
+            case GL_PIXEL_PACK_BUFFER:         return BufferTarget::PixelPack;
+            case GL_PIXEL_UNPACK_BUFFER:       return BufferTarget::PixelUnpack;
+            case GL_QUERY_BUFFER:               return BufferTarget::Query;
+            case GL_TEXTURE_BUFFER:             return BufferTarget::Texture;
+            case GL_TRANSFORM_FEEDBACK_BUFFER:  return BufferTarget::TransformFeedback;
+            case GL_ATOMIC_COUNTER_BUFFER:      return BufferTarget::AtomicCounter;
+            case GL_DISPATCH_INDIRECT_BUFFER:   return BufferTarget::DispatchIndirect;
+            case GL_DRAW_INDIRECT_BUFFER:       return BufferTarget::DrawIndirect;
+            case GL_SHADER_STORAGE_BUFFER:      return BufferTarget::ShaderStorage;
+            default: return BufferTarget::Unknown;
+        }
+    }
+
+    // 获取对应目标的绑定查询枚举（用于保存/恢复状态）
+    GLenum GetBindingEnum(GLenum target) {
+        switch (target) {
+            case GL_ARRAY_BUFFER:              return GL_ARRAY_BUFFER_BINDING;
+            case GL_ELEMENT_ARRAY_BUFFER:      return GL_ELEMENT_ARRAY_BUFFER_BINDING;
+            case GL_UNIFORM_BUFFER:            return GL_UNIFORM_BUFFER_BINDING;
+            case GL_COPY_READ_BUFFER:          return GL_COPY_READ_BUFFER_BINDING;
+            case GL_COPY_WRITE_BUFFER:         return GL_COPY_WRITE_BUFFER_BINDING;
+            case GL_PIXEL_PACK_BUFFER:         return GL_PIXEL_PACK_BUFFER_BINDING;
+            case GL_PIXEL_UNPACK_BUFFER:       return GL_PIXEL_UNPACK_BUFFER_BINDING;
+            case GL_QUERY_BUFFER:               return GL_QUERY_BUFFER_BINDING;
+            case GL_TEXTURE_BUFFER:             return GL_TEXTURE_BUFFER_BINDING;
+            case GL_TRANSFORM_FEEDBACK_BUFFER:  return GL_TRANSFORM_FEEDBACK_BUFFER_BINDING;
+            case GL_ATOMIC_COUNTER_BUFFER:      return GL_ATOMIC_COUNTER_BUFFER_BINDING;
+            case GL_DISPATCH_INDIRECT_BUFFER:   return GL_DISPATCH_INDIRECT_BUFFER_BINDING;
+            case GL_DRAW_INDIRECT_BUFFER:       return GL_DRAW_INDIRECT_BUFFER_BINDING;
+            case GL_SHADER_STORAGE_BUFFER:      return GL_SHADER_STORAGE_BUFFER_BINDING;
+            default: return 0;
+        }
+    }
+}
+
+// 清除当前绑定到 target 的缓冲区的子数据范围
+void ClearBufferSubData(GLenum target, GLenum internalformat, GLintptr offset,
+                        GLsizeiptr size, GLenum format, GLenum type, const void* data) {
+#if MOBILEGL_LOG_ACTIVE_LEVEL <= MOBILEGL_LOG_LEVEL_DEBUG && MOBILEGL_ENABLE_SCOPE_MARKER
+    DebugImpl::OpenGLScopeMarker marker(__func__);
+#endif
+    DebugImpl::ErrorLopper errorLopper;
+
+    MGLOG_D("ClearBufferSubData: target=0x%x offset=%lld size=%lld", target, (long long)offset, (long long)size);
+
+    
+    // 1. 基本参数有效性
+    if (size == 0) {
+        MGLOG_D("ClearBufferSubData: size is 0, nothing to do");
+        return;  // 不是错误，直接返回
+    }
+    
+    if (size < 0) {
+        MGLOG_E("ClearBufferSubData: size is negative: %lld", (long long)size);
+        return;
+    }
+    
+    if (offset < 0) {
+        MGLOG_E("ClearBufferSubData: offset is negative: %lld", (long long)offset);
+        return;
+    }
+    
+    // 2. target 有效性
+    BufferTarget mgTarget = GLEnumToBufferTarget(target);
+    if (mgTarget == BufferTarget::Unknown) {
+        MGLOG_E("ClearBufferSubData: unsupported target 0x%x", target);
+        return;
+    }
+    
+    // 3. 缓冲区对象存在性
+    auto bufferObj = MG_State::pGLContext->GetBufferBindingSlot(mgTarget).GetBoundObject();
+    if (!bufferObj) {
+        MGLOG_E("ClearBufferSubData: no buffer bound to target 0x%x", target);
+        return;
+    }
+    
+    // 5. 缓冲区大小检查
+    GLsizeiptr bufferSize = bufferObj->GetSize();
+    if (bufferSize <= 0) {
+        MGLOG_E("ClearBufferSubData: buffer size is invalid: %lld", (long long)bufferSize);
+        return;
+    }
+    
+    // 6. offset 范围检查
+    if (offset >= bufferSize) {
+        MGLOG_E("ClearBufferSubData: offset (%lld) >= buffer size (%lld)", 
+                (long long)offset, (long long)bufferSize);
+        return;
+    }
+    
+    // 8. 最终范围检查
+    if (offset + size > bufferSize) {
+        MGLOG_E("ClearBufferSubData: range [%lld, %lld) exceeds buffer size %lld", 
+                (long long)offset, (long long)(offset + size), (long long)bufferSize);
+        return;
+    }
+
+    // 确保起始位置在缓冲区范围内
+    if (offset >= bufferSize) {
+        MGLOG_E("ClearBufferSubData: offset (%lld) outside buffer (size %lld)", 
+                (long long)offset, (long long)bufferSize);
+        return;
+    }
+
+    // 同步必要的资源
+    TextureImpl::SyncNeccessaryTextures();
+    FramebufferImpl::SyncCurrentFBO();
+    BufferImpl::CreateAndSyncBufferObject(bufferObj);  // 确保后端存在
+
+    // 获取后端缓冲区 ID
+    auto it = BufferImpl::g_backendBufferObjects.find(bufferObj);
+    if (it == BufferImpl::g_backendBufferObjects.end()) {
+        MGLOG_E("ClearBufferSubData: backend buffer not found");
+        //return;
+    }
+    GLuint bufferId = it->second->GetBackendBufferId();
+
+    // 保存当前绑定
+    GLint prevBinding = 0;
+    GLenum bindingEnum = GetBindingEnum(target);
+    if (bindingEnum) g_GLESFuncs.glGetIntegerv(bindingEnum, &prevBinding);
+
+    // 绑定并映射
+    g_GLESFuncs.glBindBuffer(target, bufferId);
+    void* mapped = g_GLESFuncs.glMapBufferRange(target, offset, size,
+                                                 GL_MAP_WRITE_BIT | GL_MAP_INVALIDATE_RANGE_BIT);
+    if (mapped) {
+        if (data)
+            Memcpy(mapped, data, size);
+        else
+            Memset(mapped, 0, size);
+        g_GLESFuncs.glUnmapBuffer(target);
+    } else {
+        MGLOG_E("ClearBufferSubData: failed to map buffer range");
+    }
+
+    // 恢复绑定
+    g_GLESFuncs.glBindBuffer(target, prevBinding);
+
+    // 标记缓冲区为脏（如果需要后续同步）
+    //bufferObj->MarkDirty(offset, size);
+
+    errorLopper.Loop([](GLenum err) {
+        MGLOG_D("ClearBufferSubData GL error: %s", MG_Util::ConvertGLEnumToString(err).c_str());
+    });
+}
+
+// 按名称清除缓冲区子数据（如果后端需要，通常前端不会直接调用此函数）
+void ClearNamedBufferSubData(GLuint buffer, GLenum internalformat, GLintptr offset,
+                             GLsizeiptr size, GLenum format, GLenum type, const void* data) {
+#if MOBILEGL_LOG_ACTIVE_LEVEL <= MOBILEGL_LOG_LEVEL_DEBUG && MOBILEGL_ENABLE_SCOPE_MARKER
+    DebugImpl::OpenGLScopeMarker marker(__func__);
+#endif
+    MGLOG_D("ClearNamedBufferSubData: buffer=%u offset=%lld size=%lld", buffer, (long long)offset, (long long)size);
+
+    // 查找对应的缓冲区对象（遍历所有后端缓冲区）
+    SharedPtr<MG_State::GLState::BufferObject> targetBuffer;
+    for (const auto& pair : BufferImpl::g_backendBufferObjects) {
+        if (pair.second && pair.second->GetBackendBufferId() == buffer) {
+            targetBuffer = pair.first;
+            break;
+        }
+    }
+
+    if (!targetBuffer) {
+        //MGLOG_E("ClearNamedBufferSubData: buffer %u not found", buffer);
+        return;
+    }
+
+    // 临时绑定到 ARRAY_BUFFER 进行操作
+    GLint prevBinding = 0;
+    g_GLESFuncs.glGetIntegerv(GL_ARRAY_BUFFER_BINDING, &prevBinding);
+    g_GLESFuncs.glBindBuffer(GL_ARRAY_BUFFER, buffer);
+
+    void* mapped = g_GLESFuncs.glMapBufferRange(GL_ARRAY_BUFFER, offset, size,
+                                                 GL_MAP_WRITE_BIT | GL_MAP_INVALIDATE_RANGE_BIT);
+    if (mapped) {
+        if (data)
+            Memcpy(mapped, data, size);
+        else
+            Memset(mapped, 0, size);
+        g_GLESFuncs.glUnmapBuffer(GL_ARRAY_BUFFER);
+    }
+
+    g_GLESFuncs.glBindBuffer(GL_ARRAY_BUFFER, prevBinding);
+    //targetBuffer->MarkDirty(offset, size);
+}
+
+void ClearBufferData(GLenum target, GLenum internalformat, GLenum format, GLenum type, const void* data) {
+    auto bufferObject = MG_State::pGLContext->GetBufferBindingSlot(GLEnumToBufferTarget(target)).GetBoundObject();
+    if (bufferObject) {
+        ClearBufferSubData(target, internalformat, 0, bufferObject->GetSize(), format, type, data);
+    }
+}
 
 } // namespace MobileGL::MG_Backend::DirectGLES
