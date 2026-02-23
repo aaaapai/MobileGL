@@ -62,10 +62,6 @@ namespace MobileGL::MG_Backend::DirectGLES {
     void SetGLESFuncsTable(const MG_External::GLESFunctionsTable& glesFuncs);
     void SetGLESCapabilities(const MG_External::GLESCapabilities& capabilities);
     void DestroyEGLContext();
-    void ClearBufferSubData(GLenum target, GLenum internalformat, GLintptr offset, GLsizeiptr size, GLenum format, GLenum type, const void* data);
-    void ClearNamedBufferSubData(GLuint buffer, GLenum internalformat, GLintptr offset, GLsizeiptr size, GLenum format, GLenum type, const void* data);
-    void ClearBufferData(GLenum target, GLenum internalformat, GLenum format, GLenum type, const void* data);
-
 
     extern MG_External::EGLFunctionsTable g_EGLFuncs;
     extern MG_External::GLESFunctionsTable g_GLESFuncs;
