@@ -8,7 +8,7 @@
 
 #pragma once
 #include "TextureObject.h"
-#include "MG_State/GLState/BufferState/BufferObject.h"
+#include <MG_State/GLState/BufferState/BufferObject.h>
 
 namespace MobileGL {
     namespace MG_State {

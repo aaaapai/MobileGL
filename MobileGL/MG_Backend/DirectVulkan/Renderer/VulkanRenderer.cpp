@@ -90,7 +90,8 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                                                    const VkPipelineVertexInputStateCreateInfo& vertexInputState) {
         MOBILEGL_ASSERT(m_pipelineFactory != nullptr, "PipelineFactory is not initialized");
         MOBILEGL_ASSERT(m_programFactory != nullptr, "ProgramFactory is not initialized");
-        ProgramFactory::CompileOptionFlags transformFlags = GetShaderTransformFlags(m_swapchainObject.GetPreTransform());
+        ProgramFactory::CompileOptionFlags transformFlags =
+            GetShaderTransformFlags(m_swapchainObject.GetPreTransform());
         auto& stages = m_programFactory->GetOrCreatePipelineShaderStages(program, transformFlags);
         if (stages.empty()) {
             MGLOG_D("GetOrCreatePipeline skipped: program has no shader stages");
@@ -178,7 +179,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             payload.dstAlphaBlendFactor = toVkBlendFactor(dstAlpha);
 
             payload.colorWriteMask = 0;
-            const BoolVec4 colorMask = MG_State::pGLContext->GetColorMask();
+            auto colorMask = MG_State::pGLContext->GetColorMask();
             if (colorMask.x()) payload.colorWriteMask |= VK_COLOR_COMPONENT_R_BIT;
             if (colorMask.y()) payload.colorWriteMask |= VK_COLOR_COMPONENT_G_BIT;
             if (colorMask.z()) payload.colorWriteMask |= VK_COLOR_COMPONENT_B_BIT;
@@ -442,7 +443,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             MG_State::pGLContext
                 ? MG_State::pGLContext->GetFramebufferBindingSlot(FramebufferTarget::Draw).GetBoundObject()
                 : nullptr;
-        const auto defaultFboInfo = MG_Impl::GLImpl::FramebufferImpl::pDefaultFramebufferInfo;
+        const auto& defaultFboInfo = MG_Impl::GLImpl::FramebufferImpl::pDefaultFramebufferInfo;
         const auto defaultFbo = defaultFboInfo ? defaultFboInfo->defaultFBO : nullptr;
         const Bool drawTargetsDefault = (drawFbo == defaultFbo) || (drawFbo == nullptr && defaultFbo != nullptr);
         const Uint drawFboExternalIndex =
@@ -2143,7 +2144,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
     }
 
     Bool VulkanRenderer::GetMoreCapablePhysicalDevice(VkPhysicalDevice newVkDevice, VkSurfaceKHR surface,
-                                                      const PhysicalDevice& otherDevice,
+                                                      const PhysicalDevice& compareWithDevice,
                                                       PhysicalDevice& outBetterDevice) {
         const auto deviceTypeToStr = [](VkPhysicalDeviceType type) {
             switch (type) {
@@ -2175,7 +2176,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         // Check device extensions (including swapchain extension)
         Bool deviceExtSupported = IsNecessaryDeviceExtensionSupported(newVkDevice);
         if (!deviceExtSupported) {
-            outBetterDevice = otherDevice;
+            outBetterDevice = compareWithDevice;
             MGLOG_I("    Ignored physical device. (Reason: Some of the required device extension not supported on this "
                     "device)");
             return false;
@@ -2184,7 +2185,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         // Check swapchain capabilities
         auto swapchainCapabilities = SwapchainObject::GetSwapchainCapabilities(newVkDevice, surface);
         if (!swapchainCapabilities.IsComplete()) {
-            outBetterDevice = otherDevice;
+            outBetterDevice = compareWithDevice;
             MGLOG_I("    Ignored physical device. (Reason: Swapchain capabilities not met)");
             return false;
         }
@@ -2193,7 +2194,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         Vector<VkQueueFamilyProperties> queueFamilies = GetQueueFamilyFromPhysicalDevice(newVkDevice);
         newDevice.queueFamilies.graphicsFamily = GetQueueFamilyIndex(queueFamilies, VK_QUEUE_GRAPHICS_BIT);
         if (newDevice.queueFamilies.graphicsFamily == -1) {
-            outBetterDevice = otherDevice;
+            outBetterDevice = compareWithDevice;
             MGLOG_I("    Ignored physical device. (Reason: No graphics queue family)");
             return false;
         }
@@ -2201,14 +2202,14 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         newDevice.queueFamilies.presentFamily =
             GetPresentQueueFamilyIndex(newDevice, surface, queueFamilies, newDevice.queueFamilies.graphicsFamily);
         if (newDevice.queueFamilies.presentFamily == -1) {
-            outBetterDevice = otherDevice;
+            outBetterDevice = compareWithDevice;
             MGLOG_I("    Ignored physical device. (Reason: No present queue family)");
             return false;
         }
 
         // Pick discrete GPU
         if (newDevice.properties.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU &&
-            otherDevice.properties.deviceType != VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU) {
+            compareWithDevice.properties.deviceType != VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU) {
             outBetterDevice = newDevice;
             MGLOG_I("    Picked physical device. (Reason: Discrete GPU)");
             return true;
@@ -2216,7 +2217,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
 
         // Pick integrated GPU if no discrete GPU
         if (newDevice.properties.deviceType == VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU &&
-            otherDevice.properties.deviceType != VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU) {
+            compareWithDevice.properties.deviceType != VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU) {
             outBetterDevice = newDevice;
             MGLOG_I("    Picked physical device. (Reason: Integrated GPU and no discrete one found yet)");
             return true;
@@ -2224,7 +2225,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
 
         // Ignore other GPU when discrete GPU found
         if (newDevice.properties.deviceType != VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU &&
-            otherDevice.properties.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU) {
+            compareWithDevice.properties.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU) {
             outBetterDevice = newDevice;
             MGLOG_I("    Ignored physical device. (Reason: Already picked discrete GPU)");
             return false;
@@ -2487,7 +2488,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
 
     VkRenderPass VulkanRenderer::GetDefaultLoadRenderPass() const {
         MOBILEGL_ASSERT(m_renderPassManager != nullptr, "GetDefaultLoadRenderPass: render pass manager is null");
-        const VkRenderPass renderPass = m_renderPassManager->GetLoadRenderPass();
+        VkRenderPass renderPass = m_renderPassManager->GetLoadRenderPass();
         MOBILEGL_ASSERT(renderPass != VK_NULL_HANDLE,
                         "GetDefaultLoadRenderPass: default load render pass is unavailable");
         return renderPass;
@@ -2579,7 +2580,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                                             VkQueueFlagBits flag) {
         for (Uint32 i = 0; i < queueFamilies.size(); i++) {
             if (queueFamilies[i].queueFlags & flag) {
-                return i;
+                return (Int)i;
             }
         }
         return -1;
@@ -2598,7 +2599,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         for (Uint32 i = 0; i < queueFamilies.size(); i++) {
             VkBool32 supportsPresent = false;
             vkGetPhysicalDeviceSurfaceSupportKHR(physicalDevice.handle, i, surface, &supportsPresent);
-            if (supportsPresent) return i;
+            if (supportsPresent) return (Int)i;
         }
         return -1;
     }
@@ -2631,12 +2632,8 @@ namespace MobileGL::MG_Backend::DirectVulkan {
 
     Bool VulkanRenderer::IsExtensionAlreadyEnabled(const Vector<const char*>& enabledExtensions,
                                                    const char* extensionName) {
-        for (const char* enabledExtensionName : enabledExtensions) {
-            if (strcmp(enabledExtensionName, extensionName) == 0) {
-                return true;
-            }
-        }
-        return false;
+        return std::any_of(enabledExtensions.begin(), enabledExtensions.end(),
+                           [&extensionName](const String& name) { return name == extensionName; });
     }
 
     Bool VulkanRenderer::EnableOptionalDeviceExtension(const Vector<VkExtensionProperties>& availableExtensions,

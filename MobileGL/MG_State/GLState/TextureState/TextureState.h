@@ -13,30 +13,26 @@
 #include "MG_Util/Types.h"
 #include "TextureUnit.h"
 
-namespace MobileGL {
-    namespace MG_State {
-        namespace GLState {
-            class TextureState {
-            public:
-                static constexpr int MAX_TEXTURE_IMAGE_UNITS = 32;
+namespace MobileGL::MG_State::GLState {
+    class TextureState {
+    public:
+        static constexpr int MAX_TEXTURE_IMAGE_UNITS = 32;
 
-                TextureState();
-                Vector<Uint> GenerateNames(Uint number);
-                SharedPtr<ITextureObject> CreateTextureObject(Uint index, TextureTarget target);
-                SharedPtr<ITextureObject> GetTextureObject(Uint index);
-                TextureUnit& GetUnitObject(Int unit);
-                Int GetActiveTextureUnit() const;
-                void SetActiveTextureUnit(Int unit);
-                void MarkTextureObjectForDeletion(Uint index);
-                Bool ValidateName(Uint index) const;
-                Bool ValidateTextureObject(Uint index) const;
+        TextureState();
+        void GenerateNames(Uint number, Vector<Uint>& textures);
+        const SharedPtr<ITextureObject>& CreateTextureObject(Uint index, TextureTarget target);
+        const SharedPtr<ITextureObject>& GetTextureObject(Uint index);
+        TextureUnit& GetUnitObject(Int unit);
+        Int GetActiveTextureUnit() const;
+        void SetActiveTextureUnit(Int unit);
+        void MarkTextureObjectForDeletion(Uint index);
+        Bool ValidateName(Uint index) const;
+        Bool ValidateTextureObject(Uint index) const;
 
-            private:
-                Int m_activeTextureUnit = 0;
-                Array<TextureUnit, MAX_TEXTURE_IMAGE_UNITS> m_textureUnits;
-                IndexGenerator<Uint> m_indexGenerator;
-                UnorderedMap<GLuint, SharedPtr<ITextureObject>> m_textureObjects;
-            };
-        } // namespace GLState
-    } // namespace MG_State
-} // namespace MobileGL
+    private:
+        Int m_activeTextureUnit = 0;
+        Array<TextureUnit, MAX_TEXTURE_IMAGE_UNITS> m_textureUnits;
+        IndexGenerator<Uint> m_indexGenerator;
+        UnorderedMap<GLuint, SharedPtr<ITextureObject>> m_textureObjects;
+    };
+} // namespace MobileGL::MG_State::GLState

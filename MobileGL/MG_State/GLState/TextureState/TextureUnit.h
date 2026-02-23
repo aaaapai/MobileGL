@@ -11,21 +11,17 @@
 #include <MG_State/GLState/SamplerState/SamplerObject.h>
 #include "TextureObject.h"
 
-namespace MobileGL {
-    namespace MG_State {
-        namespace GLState {
-            class TextureUnit {
-            public:
-                TextureUnit();
-                BindingSlot<ITextureObject>& GetBindingSlot(TextureTarget target);
-                SharedPtr<SamplerObject> GetSamplerObject() const;
-                Array<BindingSlot<ITextureObject>, (int)TextureTarget::TextureTargetCount>& GetAllBindingSlots();
-                void SetSamplerObject(SharedPtr<SamplerObject> sampler);
+namespace MobileGL::MG_State::GLState {
+    class TextureUnit {
+    public:
+        TextureUnit();
+        BindingSlot<ITextureObject>& GetBindingSlot(TextureTarget target);
+        const SharedPtr<SamplerObject>& GetSamplerObject() const;
+        Array<BindingSlot<ITextureObject>, (int)TextureTarget::TextureTargetCount>& GetAllBindingSlots();
+        void SetSamplerObject(const SharedPtr<SamplerObject>& sampler);
 
-            private:
-                Array<BindingSlot<ITextureObject>, (int)TextureTarget::TextureTargetCount> m_slots;
-                SharedPtr<SamplerObject> m_sampler;
-            };
-        } // namespace GLState
-    } // namespace MG_State
-} // namespace MobileGL
+    private:
+        Array<BindingSlot<ITextureObject>, (int)TextureTarget::TextureTargetCount> m_slots;
+        SharedPtr<SamplerObject> m_sampler;
+    };
+} // namespace MobileGL::MG_State::GLState
