@@ -8,12 +8,14 @@
 
 #include "Core.h"
 #include "MG_State/GLState/RenderbufferState/RenderbufferObject.h"
+#include "MG_State/EGLState/Core.h"
 
 namespace MobileGL {
     namespace MG_State {
         void Init() {
             MGLOG_D("Initializing MobileGL State...");
             pGLContext = new MG_State::GLState::GLContext();
+            pEGLContext = new MG_State::EGLState::EGLContext();
         }
 
         namespace GLState {

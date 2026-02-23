@@ -17,8 +17,12 @@ namespace MobileGL::MG_Backend::DirectGLES {
         ~BackendObject_DirectGLES() override;
 
         void Initialize() override;
-        void InitCapabilities() override;
-        void InitWindowSurface() override;
+        Bool InitCapabilities() override;
+        Bool InitWindowSurface() override;
+        Bool InitializeEGLDisplay(EGLDisplay dpy, EGLint* major, EGLint* minor) override;
+        Bool CreateEGLWindowSurface(const WindowHandle& handle) override;
+        Bool MakeEGLCurrent(EGLDisplay dpy, EGLSurface draw, EGLSurface read, EGLContext ctx) override;
+        Bool SwapEGLBuffers(EGLDisplay dpy, EGLSurface draw) override;
 
         const RendererInfo& GetRendererInfo() const override;
         String GetBackendAPIVersionString() const override;

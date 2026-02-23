@@ -48,7 +48,7 @@ namespace MobileGL::MG_Impl::EGLImpl {
     EGLBoolean WaitGL();
     EGLBoolean WaitNative(EGLint engine);
     EGLSync CreateSync(EGLDisplay dpy, EGLenum type, const EGLAttrib* attrib_list);
-    EGLBoolean DestroySync(void* dpy, void* sync);
+    EGLBoolean DestroySync(EGLDisplay dpy, EGLSync sync);
     EGLint ClientWaitSync(EGLDisplay dpy, EGLSync sync, EGLint flags, EGLTime timeout);
     EGLBoolean GetSyncAttrib(EGLDisplay dpy, EGLSync sync, EGLint attribute, EGLAttrib* value);
     EGLImage CreateImage(EGLDisplay dpy, EGLContext ctx, EGLenum target, EGLClientBuffer buffer,
@@ -59,6 +59,6 @@ namespace MobileGL::MG_Impl::EGLImpl {
                                            const EGLAttrib* attrib_list);
     EGLSurface CreatePlatformPixmapSurface(EGLDisplay dpy, EGLConfig config, void* native_pixmap,
                                            const EGLAttrib* attrib_list);
-    EGLBoolean WaitSync(void* dpy, void* sync, int flags);
+    EGLBoolean WaitSync(EGLDisplay dpy, EGLSync sync, EGLint flags);
     __eglMustCastToProperFunctionPointerType GetProcAddress(const char* name);
 } // namespace MobileGL::MG_Impl::EGLImpl
