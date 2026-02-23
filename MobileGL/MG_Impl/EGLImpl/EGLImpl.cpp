@@ -20,7 +20,7 @@ namespace MobileGL::MG_Impl::EGLImpl {
             if (!MG_State::pEGLContext) {
                 MGLOG_E("pEGLContext is null. MG_State may not be initialized.");
             }
-            return MG_State::pEGLContext;
+            return MG_State::pEGLContext.get();
         }
 
         MG_Backend::BackendObject* GetBackendObject(EGLStateContext* state) {

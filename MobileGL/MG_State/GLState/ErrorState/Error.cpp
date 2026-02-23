@@ -10,57 +10,53 @@
 #include <MG_Util/Converters/GLToStr/GLEnumConverter.h>
 #include <MG_Util/Converters/MGToGL/ErrorCodeConverter.h>
 
-namespace MobileGL {
-    namespace MG_State {
-        namespace GLState {
-            void ErrorState::RecordError(ErrorCode code, SharedPtr<ErrorInfo> info) {
-                if (code == ErrorCode::NoError) {
-                    MGLOG_E("Recording Non-OpenGL error:\n%s", info->ToString().c_str());
-                    m_nonGLErrors.push_back(Error{code, info});
-                } else {
-                    MGLOG_E("Recording OpenGL error (%s):\n%s",
-                            MG_Util::ConvertGLEnumToString(MG_Util::ConvertErrorCodeToGLEnum(code)).c_str(),
-                            info->ToString().c_str());
-                    m_errors.push_back(Error{code, info});
-                }
-            }
+namespace MobileGL::MG_State::GLState {
+    void ErrorState::RecordError(ErrorCode code, UniquePtr<ErrorInfo> info) {
+        if (code == ErrorCode::NoError) {
+            MGLOG_E("Recording Non-OpenGL error:\n%s", info->toString().c_str());
+            m_nonGLErrors.push_back(MakeUnique<Error>(code, Move(info)));
+        } else {
+            MGLOG_E("Recording OpenGL error (%s):\n%s",
+                    MG_Util::ConvertGLEnumToString(MG_Util::ConvertErrorCodeToGLEnum(code)).c_str(),
+                    info->toString().c_str());
+            m_errors.push_back(MakeUnique<Error>(code, Move(info)));
+        }
+    }
 
-            Bool ErrorState::HasNonGLError() const {
-                return !m_nonGLErrors.empty();
-            }
+    Bool ErrorState::HasNonGLError() const {
+        return !m_nonGLErrors.empty();
+    }
 
-            Optional<const Error> ErrorState::PeekNonGLError() const {
-                if (m_nonGLErrors.empty()) return Optional<const Error>{};
-                return Optional<const Error>{m_nonGLErrors.front()};
-            }
+    Optional<const Error*> ErrorState::PeekNonGLError() const {
+        if (m_nonGLErrors.empty()) return Nullopt;
+        return Optional<const Error*>{m_nonGLErrors.front().get()};
+    }
 
-            Optional<Error> ErrorState::PopNonGLError() {
-                if (m_nonGLErrors.empty()) return Optional<const Error>{};
-                auto error = Move(m_nonGLErrors.front());
-                m_nonGLErrors.erase(m_nonGLErrors.begin());
-                return Optional<const Error>{error};
-            }
+    Optional<UniquePtr<Error>> ErrorState::PopNonGLError() {
+        if (m_nonGLErrors.empty()) return Nullopt;
+        auto error = Move(m_nonGLErrors.front());
+        m_nonGLErrors.erase(m_nonGLErrors.begin());
+        return Move(error);
+    }
 
-            Bool ErrorState::HasGLError() const {
-                return !m_errors.empty();
-            }
+    Bool ErrorState::HasGLError() const {
+        return !m_errors.empty();
+    }
 
-            Optional<const Error> ErrorState::PeekGLError() const {
-                if (m_errors.empty()) return Optional<const Error>{};
-                return Optional<const Error>{m_errors.front()};
-            }
+    Optional<const Error*> ErrorState::PeekGLError() const {
+        if (m_errors.empty()) return Optional<const Error*>{};
+        return Optional<const Error*>{m_errors.front().get()};
+    }
 
-            Optional<Error> ErrorState::PopGLError() {
-                if (m_errors.empty()) return Optional<const Error>{};
-                auto error = Move(m_errors.front());
-                m_errors.erase(m_errors.begin());
-                return Optional<const Error>{error};
-            }
+    Optional<UniquePtr<Error>> ErrorState::PopGLError() {
+        if (m_errors.empty()) return Nullopt;
+        auto error = Move(m_errors.front());
+        m_errors.erase(m_errors.begin());
+        return Move(error);
+    }
 
-            void ErrorState::Clear() {
-                m_errors.clear();
-                m_nonGLErrors.clear();
-            }
-        } // namespace GLState
-    } // namespace MG_State
-} // namespace MobileGL
+    void ErrorState::Clear() {
+        m_errors.clear();
+        m_nonGLErrors.clear();
+    }
+} // namespace MobileGL::MG_State::GLState

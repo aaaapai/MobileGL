@@ -7,8 +7,6 @@
 // End of Source File Header
 
 #include "GL_Getter.h"
-#include "GL/gl.h"
-#include "MG_Util/Debug/Log.h"
 #include <Config.h>
 #include <MGGitHash.h>
 #include <MG_State/GLState/Core.h>
@@ -127,7 +125,7 @@ namespace MobileGL::MG_Impl::GLImpl {
         if (!params) {
             MG_State::pGLContext->RecordError(
                 ErrorCode::InvalidValue,
-                MakeShared<GenericErrorInfo>("MG_Impl/GLImpl", "GetIntegerv", "params pointer cannot be null"));
+                MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", "GetIntegerv", "params pointer cannot be null"));
             return;
         }
 
@@ -146,9 +144,9 @@ namespace MobileGL::MG_Impl::GLImpl {
             *params = 0; // TODO
             break;
         case GL_ARRAY_BUFFER_BINDING: {
-            auto obj = MG_State::pGLContext->GetBufferBindingSlot(BufferTarget::Vertex).GetBoundObject();
+            auto& obj = MG_State::pGLContext->GetBufferBindingSlot(BufferTarget::Vertex).GetBoundObject();
             if (obj)
-                *params = obj->GetExternalIndex();
+                *params = (GLint)obj->GetExternalIndex();
             else
                 *params = 0;
             break;
@@ -256,14 +254,14 @@ namespace MobileGL::MG_Impl::GLImpl {
             break;
         case GL_CURRENT_PROGRAM: {
             const auto& currentProgram = MG_State::pGLContext->GetCurrentProgram();
-            *params = currentProgram ? currentProgram->GetExternalIndex() : 0;
+            *params = currentProgram ? (GLint)currentProgram->GetExternalIndex() : 0;
             break;
         }
         case GL_DEPTH_CLEAR_VALUE:
-            *params = MG_State::pGLContext->GetClearDepth();
+            *params = (GLint)MG_State::pGLContext->GetClearDepth();
             break;
         case GL_DEPTH_FUNC:
-            *params = MG_Util::ConvertDepthTestFuncToGLEnum(MG_State::pGLContext->GetDepthFunc());
+            *params = (GLint)MG_Util::ConvertDepthTestFuncToGLEnum(MG_State::pGLContext->GetDepthFunc());
             break;
         case GL_DEPTH_RANGE:
             *params = 0; // TODO
@@ -288,12 +286,12 @@ namespace MobileGL::MG_Impl::GLImpl {
             break;
         case GL_DRAW_FRAMEBUFFER_BINDING: {
             const auto& FBO = MG_State::pGLContext->GetFramebufferBindingSlot(FramebufferTarget::Draw).GetBoundObject();
-            *params = FBO ? FBO->GetExternalIndex() : 0;
+            *params = FBO ? (GLint)FBO->GetExternalIndex() : 0;
             break;
         }
         case GL_READ_FRAMEBUFFER_BINDING: {
             const auto& FBO = MG_State::pGLContext->GetFramebufferBindingSlot(FramebufferTarget::Read).GetBoundObject();
-            *params = FBO ? FBO->GetExternalIndex() : 0;
+            *params = FBO ? (GLint)FBO->GetExternalIndex() : 0;
             break;
         }
         case GL_ELEMENT_ARRAY_BUFFER_BINDING: {
@@ -302,7 +300,7 @@ namespace MobileGL::MG_Impl::GLImpl {
                 break;
             }
             const auto& bufferObject = MG_State::pGLContext->GetBufferBindingSlot(BufferTarget::Index).GetBoundObject();
-            *params = bufferObject ? bufferObject->GetExternalIndex() : 0;
+            *params = bufferObject ? (GLint)bufferObject->GetExternalIndex() : 0;
             break;
         }
         case GL_FRAGMENT_SHADER_DERIVATIVE_HINT:
@@ -908,7 +906,7 @@ namespace MobileGL::MG_Impl::GLImpl {
         default:
             MGLOG_E("glGetIntegerv: Invalid enum %s (0x%X)", MG_Util::ConvertGLEnumToString(pname).c_str(), pname);
             MG_State::pGLContext->RecordError(ErrorCode::InvalidEnum,
-                                              MakeShared<GenericErrorInfo>("MG_Impl/GLImpl", "GetIntegerv",
+                                              MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", "GetIntegerv",
                                                                            std::format("Invalid enum: 0x{:X}", pname)));
 
             break;
@@ -916,7 +914,10 @@ namespace MobileGL::MG_Impl::GLImpl {
     }
 
     GLenum GetError() {
-        ErrorCode errorCode = MG_State::pGLContext->PopGLError().value_or(Error{ErrorCode::NoError, nullptr}).code;
-        return MG_Util::ConvertErrorCodeToGLEnum(errorCode);
+        auto error = MG_State::pGLContext->PopGLError();
+        if (!error || !error->get()) {
+            return GL_NO_ERROR;
+        }
+        return MG_Util::ConvertErrorCodeToGLEnum(error->get()->code);
     }
 } // namespace MobileGL::MG_Impl::GLImpl

@@ -19,10 +19,6 @@
 #include <MG_Util/Converters/MGToGL/FramebufferEnumConverter.h>
 
 namespace MobileGL::MG_Backend::DirectGLES {
-    namespace BufferImpl {} // namespace BufferImpl
-
-    namespace VertexArrayImpl {} // namespace VertexArrayImpl
-
     namespace TextureImpl {
         void GenerateTextureFormatInfo(TextureInternalFormat internalFormat, GLenum* outInternalFormat,
                                        GLenum* outFormat, GLenum* outType) {
@@ -36,9 +32,6 @@ namespace MobileGL::MG_Backend::DirectGLES {
                                  outInternalFormat, outFormat, outType);
         }
     } // namespace TextureImpl
-
-    namespace FramebufferImpl {} // namespace FramebufferImpl
-
     namespace PrgramImpl {
         String ProcessOutColorLocations(const String& glslCode) {
 #ifdef TRACY_ENABLE
@@ -166,7 +159,6 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 return GL_UNIFORM_BUFFER_BINDING;
 
             case GL_FRAMEBUFFER:
-                return GL_FRAMEBUFFER_BINDING;
             case GL_DRAW_FRAMEBUFFER:
                 return GL_DRAW_FRAMEBUFFER_BINDING;
             case GL_READ_FRAMEBUFFER:
@@ -176,7 +168,6 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 return GL_RENDERBUFFER_BINDING;
 
             case GL_VERTEX_ARRAY:
-                return GL_VERTEX_ARRAY_BINDING;
             case GL_VERTEX_ARRAY_BINDING:
                 return GL_VERTEX_ARRAY_BINDING;
 

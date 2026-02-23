@@ -8,6 +8,7 @@
 
 #include "DirectGLES.h"
 #include "EGL/egl.h"
+#include "MG_Util/Types.h"
 #include "Utils.h"
 #include "Managers.h"
 #include <MG_Util/Converters/GLToMG/TextureEnumConverter.h>
@@ -46,7 +47,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
 
     namespace DebugImpl {
 #if MOBILEGL_LOG_ACTIVE_LEVEL <= MOBILEGL_LOG_LEVEL_DEBUG
-        void ErrorLopper::Loop(std::function<void(GLenum)> func) {
+        void ErrorLopper::Loop(const std::function<void(GLenum)>& func) {
             GLenum err = g_GLESFuncs.glGetError();
             while (err != GL_NO_ERROR) {
                 func(err);
@@ -69,14 +70,14 @@ namespace MobileGL::MG_Backend::DirectGLES {
             Clear();
         }
 #else
-        void ErrorLopper::Loop(std::function<void(GLenum)> func) {}
+        void ErrorLopper::Loop(const std::function<void(GLenum)>& func) {}
         void ErrorLopper::Clear() {}
-        ErrorLopper::ErrorLopper() {}
-        ErrorLopper::~ErrorLopper() {}
+        ErrorLopper::ErrorLopper() = default;
+        ErrorLopper::~ErrorLopper() = default;
 #endif
 
 #if MOBILEGL_LOG_ACTIVE_LEVEL <= MOBILEGL_LOG_LEVEL_DEBUG
-        OpenGLScopeMarker::OpenGLScopeMarker(String scopeName) {
+        OpenGLScopeMarker::OpenGLScopeMarker(const String& scopeName) {
             g_GLESFuncs.glPushDebugGroup(GL_DEBUG_SOURCE_APPLICATION, 0, -1, scopeName.c_str());
         }
 
@@ -84,7 +85,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
             g_GLESFuncs.glPopDebugGroup();
         }
 #else
-        OpenGLScopeMarker::OpenGLScopeMarker(String scopeName) {}
+        OpenGLScopeMarker::OpenGLScopeMarker(const String& scopeName) {}
 
         OpenGLScopeMarker::~OpenGLScopeMarker() {}
 #endif
@@ -93,18 +94,16 @@ namespace MobileGL::MG_Backend::DirectGLES {
     // TODO: deletion for deleted objects
 
     namespace BufferImpl {
-        void CreateAndSyncBufferObject(SharedPtr<MG_State::GLState::BufferObject>& bufferObject) {
+        void CreateAndSyncBufferObject(const SharedPtr<MG_State::GLState::BufferObject>& bufferObject) {
             if (!(bufferObject->GetChangeBits() & BufferChangeBits::DirtyBit)) return;
 
-            const auto& backendBufferIt = g_backendBufferObjects.find(bufferObject);
-            SharedPtr<BackendBufferObject> backendBufferObject;
-            if (backendBufferIt == g_backendBufferObjects.end()) {
-                backendBufferObject = MakeShared<BackendBufferObject>();
-                g_backendBufferObjects[bufferObject] = backendBufferObject;
-            } else {
-                backendBufferObject = backendBufferIt->second;
+            const auto& backendBufferIt = g_backendBufferObjects.find(bufferObject.get());
+            Bool exist = (backendBufferIt != g_backendBufferObjects.end());
+            auto& backendObj = exist ? backendBufferIt->second : g_backendBufferObjects[bufferObject.get()];
+            if (!exist) {
+                backendObj = MakeShared<BackendBufferObject>();
             }
-            backendBufferObject->SyncToBackend(bufferObject);
+            backendObj->SyncToBackend(bufferObject);
         }
 
         void SyncNeccessaryBuffers(Bool includeIBO = false, Bool includeIndirectBuffer = false) {
@@ -115,9 +114,6 @@ namespace MobileGL::MG_Backend::DirectGLES {
             //   1.VBO 2.IBO (if needed) 3.UBO 4.IndirectBuffer (if needed) 5.SSBO (TODO)
             // PBO is not needed since it should be handled in frontend
 
-            // static Vector<SharedPtr<MG_State::GLState::BufferObject>> buffersToSync;
-            // buffersToSync.clear();
-
             const auto& currentVAOObject = MG_State::pGLContext->GetBoundVertexArray();
             if (!currentVAOObject) {
                 MGLOG_E("No VAO is currently bound, cannot sync necessary buffers.");
@@ -127,7 +123,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
             // VBO
             for (const auto& attrib : currentVAOObject->GetAllAttributes()) {
                 if (!attrib.Enabled) continue;
-                auto bufferObject = attrib.Buffer;
+                auto& bufferObject = attrib.Buffer;
                 if (bufferObject) {
                     CreateAndSyncBufferObject(bufferObject);
                 }
@@ -135,7 +131,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
 
             // IBO
             if (includeIBO) {
-                auto possibleIBO = currentVAOObject->GetIndexBufferBindingSlot().GetBoundObject();
+                auto& possibleIBO = currentVAOObject->GetIndexBufferBindingSlot().GetBoundObject();
                 if (possibleIBO) {
                     CreateAndSyncBufferObject(possibleIBO);
                 }
@@ -143,7 +139,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
 
             // Indirect Buffer Object
             if (includeIndirectBuffer) {
-                auto possibleIndirectBuffer =
+                auto& possibleIndirectBuffer =
                     MG_State::pGLContext->GetBufferBindingSlot(BufferTarget::DrawIndirect).GetBoundObject();
                 if (possibleIndirectBuffer) {
                     CreateAndSyncBufferObject(possibleIndirectBuffer);
@@ -154,7 +150,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
             auto uboBindingPointCnt = MG_State::pGLContext->GetBufferBindingPointCount(BufferTarget::Uniform);
             for (SizeT i = 0; i < uboBindingPointCnt; ++i) {
                 auto& point = MG_State::pGLContext->GetBufferBindingPoint(BufferTarget::Uniform, i);
-                auto obj = point.GetBoundObject();
+                auto& obj = point.GetBoundObject();
                 if (obj) {
                     CreateAndSyncBufferObject(obj);
                 }
@@ -167,42 +163,39 @@ namespace MobileGL::MG_Backend::DirectGLES {
 #ifdef TRACY_ENABLE
             ZoneScopedC(TRACY_ZONECOLOR_BACKEND);
 #endif
-            auto currentVAOObject = MG_State::pGLContext->GetBoundVertexArray();
+            auto& currentVAOObject = MG_State::pGLContext->GetBoundVertexArray();
             if (!currentVAOObject) {
                 MGLOG_E("No VAO is currently bound, cannot sync current VAO.");
                 return;
             }
 
-            const auto& backendVAOIt = g_backendVertexArrayObjects.find(currentVAOObject);
-            SharedPtr<VertexArrayImpl::BackendVertexArrayObject> backendVAOObject;
-            if (backendVAOIt == g_backendVertexArrayObjects.end()) {
-                backendVAOObject = MakeShared<VertexArrayImpl::BackendVertexArrayObject>();
-                g_backendVertexArrayObjects[currentVAOObject] = backendVAOObject;
-            } else {
-                backendVAOObject = backendVAOIt->second;
+            const auto& backendVAOIt = g_backendVertexArrayObjects.find(currentVAOObject.get());
+            Bool exist = (backendVAOIt != g_backendVertexArrayObjects.end());
+            auto& backendObj = exist ? backendVAOIt->second : g_backendVertexArrayObjects[currentVAOObject.get()];
+            if (!exist) {
+                backendObj = MakeShared<VertexArrayImpl::BackendVertexArrayObject>();
             }
-            backendVAOObject->SyncToBackend(currentVAOObject);
+            backendObj->SyncToBackend(currentVAOObject);
         }
     } // namespace VertexArrayImpl
 
     namespace TextureImpl {
-        SharedPtr<BackendTextureObject> SyncTextureObjectToBackend(
-            SharedPtr<MG_State::GLState::ITextureObject>& textureObject) {
+        SharedPtr<BackendTextureObject>& SyncTextureObjectToBackend(
+            const SharedPtr<MG_State::GLState::ITextureObject>& textureObject) {
 #ifdef TRACY_ENABLE
             ZoneScopedC(TRACY_ZONECOLOR_BACKEND);
 #endif
-            const auto& backendTextureIt = g_backendTextureObjects.find(textureObject);
-            SharedPtr<BackendTextureObject> backendTextureObject;
-            if (backendTextureIt == g_backendTextureObjects.end()) {
-                backendTextureObject = MakeShared<BackendTextureObject>();
-                g_backendTextureObjects[textureObject] = backendTextureObject;
-            } else {
-                backendTextureObject = backendTextureIt->second;
+            const auto& backendTextureIt = g_backendTextureObjects.find(textureObject.get());
+            Bool exist = (backendTextureIt != g_backendTextureObjects.end());
+            auto& backendObj = exist ? backendTextureIt->second : g_backendTextureObjects[textureObject.get()];
+            if (!exist) {
+                backendObj = MakeShared<BackendTextureObject>();
             }
-            backendTextureObject->SyncTextureParamsToBackend(textureObject);
-            backendTextureObject->SyncBuiltinSamplerToBackend(textureObject);
-            backendTextureObject->SyncMipmapsToBackend(textureObject);
-            return backendTextureObject;
+            backendObj->SyncTextureParamsToBackend(textureObject);
+            backendObj->SyncBuiltinSamplerToBackend(textureObject);
+            backendObj->SyncMipmapsToBackend(textureObject);
+
+            return backendObj;
         }
 
         void SyncNeccessaryTextures() {
@@ -217,7 +210,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
             for (int index = 0; index < MG_State::GLState::TextureState::MAX_TEXTURE_IMAGE_UNITS; ++index) {
                 auto& unit = MG_State::pGLContext->GetTextureUnitObject(index);
                 for (const auto& bindingSlot : unit.GetAllBindingSlots()) {
-                    auto textureObject = bindingSlot.GetBoundObject();
+                    auto& textureObject = bindingSlot.GetBoundObject();
                     if (textureObject) {
                         SyncTextureObjectToBackend(textureObject);
                     }
@@ -229,7 +222,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
             if (currentFBO) {
                 for (const auto& attachment : currentFBO->GetAllAttachmentObjects()) {
                     if (!attachment.IsTexture()) continue;
-                    auto textureObject = attachment.GetTexture();
+                    auto& textureObject = attachment.GetTexture();
                     if (textureObject) {
                         SyncTextureObjectToBackend(textureObject);
                     }
@@ -247,12 +240,12 @@ namespace MobileGL::MG_Backend::DirectGLES {
 
             MG_State::GLState::FramebufferObject* lastUpdatedFBO = nullptr;
 
-            for (auto target : fboTargets) {
-                auto slot = MG_State::pGLContext->GetFramebufferBindingSlot(target);
+            for (auto& target : fboTargets) {
+                auto& slot = MG_State::pGLContext->GetFramebufferBindingSlot(target);
                 auto version = slot.GetVersion();
                 if (version == g_fboBindVersions[SizeT(target)]) continue;
 
-                auto currentFBO = slot.GetBoundObject();
+                auto& currentFBO = slot.GetBoundObject();
 
                 if (!currentFBO) {
                     MGLOG_E("No FBO is currently bound, cannot sync current FBO.");
@@ -264,20 +257,18 @@ namespace MobileGL::MG_Backend::DirectGLES {
                     continue;
                 }
 
-                const auto& backendFBOIt = g_backendFramebufferObjects.find(currentFBO);
-                SharedPtr<BackendFramebufferObject> backendFBOObject;
-                if (backendFBOIt == g_backendFramebufferObjects.end()) {
-                    backendFBOObject = MakeShared<BackendFramebufferObject>();
-                    g_backendFramebufferObjects[currentFBO] = backendFBOObject;
-                } else {
-                    backendFBOObject = backendFBOIt->second;
-                }
-
                 if (currentFBO.get() == lastUpdatedFBO) {
                     MGLOG_D("Draw FBO and read FBO are the same, skipping sync.");
-                } else {
-                    backendFBOObject->SyncToBackend(currentFBO, target);
+                    continue;
                 }
+
+                const auto& backendFBOIt = g_backendFramebufferObjects.find(currentFBO.get());
+                Bool exist = (backendFBOIt != g_backendFramebufferObjects.end());
+                auto& backendObj = exist ? backendFBOIt->second : g_backendFramebufferObjects[currentFBO.get()];
+                if (!exist) {
+                    backendObj = MakeShared<BackendFramebufferObject>();
+                }
+                backendObj->SyncToBackend(currentFBO, target);
 
                 lastUpdatedFBO = currentFBO.get();
             }
@@ -467,21 +458,20 @@ namespace MobileGL::MG_Backend::DirectGLES {
 #ifdef TRACY_ENABLE
             ZoneScopedC(TRACY_ZONECOLOR_BACKEND);
 #endif
-            auto currentProgram = MG_State::pGLContext->GetCurrentProgram();
+            auto& currentProgram = MG_State::pGLContext->GetCurrentProgram();
             if (!currentProgram || !currentProgram->GetLinkStatus()) {
                 g_GLESFuncs.glUseProgram(0);
                 return;
             }
-            const auto& backendProgramIt = g_backendProgramObjects.find(currentProgram);
-            SharedPtr<BackendProgramObjectImpl> backendProgram;
-            if (backendProgramIt == g_backendProgramObjects.end()) {
-                backendProgram = MakeShared<BackendProgramObjectImpl>();
-                g_backendProgramObjects[currentProgram] = backendProgram;
-                backendProgram->SyncToBackend(currentProgram);
+            const auto& backendProgramIt = g_backendProgramObjects.find(currentProgram.get());
+            Bool exist = (backendProgramIt != g_backendProgramObjects.end());
+            auto& backendObj = exist ? backendProgramIt->second : g_backendProgramObjects[currentProgram.get()];
+            if (!exist) {
+                backendObj = MakeShared<BackendProgramObjectImpl>();
+                backendObj->SyncToBackend(currentProgram);
             } else {
-                backendProgram = backendProgramIt->second;
-                if (!backendProgram->GetBackendProgramId()) {
-                    backendProgram->SyncToBackend(currentProgram);
+                if (!backendObj->GetBackendProgramId()) {
+                    backendObj->SyncToBackend(currentProgram);
                 }
             }
         }
@@ -496,7 +486,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
 
         const auto& currentFBO = slot.GetBoundObject();
         if (currentFBO && currentFBO != MG_Impl::GLImpl::FramebufferImpl::pDefaultFramebufferInfo->defaultFBO) {
-            const auto& backendFBOIt = FramebufferImpl::g_backendFramebufferObjects.find(currentFBO);
+            const auto& backendFBOIt = FramebufferImpl::g_backendFramebufferObjects.find(currentFBO.get());
             if (backendFBOIt != FramebufferImpl::g_backendFramebufferObjects.end()) {
                 backendFBOIt->second->Bind(target);
             } else {
@@ -529,7 +519,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
 #endif
             const auto& currentVAO = MG_State::pGLContext->GetBoundVertexArray();
             if (currentVAO) {
-                const auto& backendVAOIt = VertexArrayImpl::g_backendVertexArrayObjects.find(currentVAO);
+                const auto& backendVAOIt = VertexArrayImpl::g_backendVertexArrayObjects.find(currentVAO.get());
                 if (backendVAOIt != VertexArrayImpl::g_backendVertexArrayObjects.end()) {
                     backendVAOIt->second->Bind();
                 }
@@ -557,7 +547,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
                                 MG_Util::ConvertTextureTargetToString(target).c_str());
                         continue;
                     }
-                    const auto& backendTextureIt = TextureImpl::g_backendTextureObjects.find(textureObject);
+                    const auto& backendTextureIt = TextureImpl::g_backendTextureObjects.find(textureObject.get());
                     if (backendTextureIt == TextureImpl::g_backendTextureObjects.end()) continue;
 
                     GLenum targetGL = MG_Util::ConvertTextureTargetToGLEnum(target);
@@ -567,7 +557,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 // Bind sampler object if necessary
                 const auto& samplerObject = textureUnit.GetSamplerObject();
                 if (samplerObject) {
-                    const auto& backendSamplerIt = SamplerImpl::g_backendSamplerObjects.find(samplerObject);
+                    const auto& backendSamplerIt = SamplerImpl::g_backendSamplerObjects.find(samplerObject.get());
                     if (backendSamplerIt != SamplerImpl::g_backendSamplerObjects.end()) {
                         backendSamplerIt->second->Bind(unit);
                     }
@@ -582,7 +572,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
 #ifdef TRACY_ENABLE
             ZoneScopedNC("BindCurrentProgram", TRACY_ZONECOLOR_BACKEND);
 #endif
-            const auto& backendProgramIt = PrgramImpl::g_backendProgramObjects.find(currentProgram);
+            const auto& backendProgramIt = PrgramImpl::g_backendProgramObjects.find(currentProgram.get());
             if (backendProgramIt != PrgramImpl::g_backendProgramObjects.end()) {
                 backendProgramIt->second->Use();
                 auto backendProgramId = backendProgramIt->second->GetBackendProgramId();
@@ -624,11 +614,11 @@ namespace MobileGL::MG_Backend::DirectGLES {
 
                         // Connect buffer to backend binding point
                         auto& point = MG_State::pGLContext->GetBufferBindingPoint(BufferTarget::Uniform, binding);
-                        auto bufferObj = point.GetBoundObject();
+                        auto& bufferObj = point.GetBoundObject();
                         auto range = point.GetRange();
 
                         if (bufferObj) {
-                            const auto& backendBufferIt = BufferImpl::g_backendBufferObjects.find(bufferObj);
+                            const auto& backendBufferIt = BufferImpl::g_backendBufferObjects.find(bufferObj.get());
                             if (backendBufferIt != BufferImpl::g_backendBufferObjects.end()) {
                                 const auto& backendBufferObject = backendBufferIt->second;
                                 backendBufferObject->Bind(GL_UNIFORM_BUFFER);
@@ -636,9 +626,9 @@ namespace MobileGL::MG_Backend::DirectGLES {
                                     g_GLESFuncs.glBindBufferBase(GL_UNIFORM_BUFFER, lastUBOBinding,
                                                                  backendBufferObject->GetBackendBufferId());
                                 } else {
-                                    g_GLESFuncs.glBindBufferRange(GL_UNIFORM_BUFFER, lastUBOBinding,
-                                                                  backendBufferObject->GetBackendBufferId(),
-                                                                  range.start, range.end - range.start);
+                                    g_GLESFuncs.glBindBufferRange(
+                                        GL_UNIFORM_BUFFER, lastUBOBinding, backendBufferObject->GetBackendBufferId(),
+                                        (GLintptr)range.start, (GLintptr)(range.end - range.start));
                                 }
                             } else {
                                 MGLOG_E("No backend buffer found for UBO binding, cannot bind UBO.");
@@ -661,18 +651,18 @@ namespace MobileGL::MG_Backend::DirectGLES {
                             backendProgramIt->second->GetBackendProgramId(), name.c_str());
                         g_GLESFuncs.glUniform1i(locAtBackend, unit);
 
-                        auto samplerObject = MG_State::pGLContext->GetTextureUnitObject(unit).GetSamplerObject();
+                        auto& samplerObject = MG_State::pGLContext->GetTextureUnitObject(unit).GetSamplerObject();
 
                         if (samplerObject) {
-                            const auto& backendSamplerIt = SamplerImpl::g_backendSamplerObjects.find(samplerObject);
-                            SharedPtr<SamplerImpl::BackendSamplerObject> backendSamplerObject;
-                            if (backendSamplerIt == SamplerImpl::g_backendSamplerObjects.end()) {
-                                backendSamplerObject = MakeShared<SamplerImpl::BackendSamplerObject>();
-                                SamplerImpl::g_backendSamplerObjects[samplerObject] = backendSamplerObject;
-                            } else {
-                                backendSamplerObject = backendSamplerIt->second;
+                            const auto& backendSamplerIt =
+                                SamplerImpl::g_backendSamplerObjects.find(samplerObject.get());
+                            Bool exist = (backendSamplerIt != SamplerImpl::g_backendSamplerObjects.end());
+                            auto& backendObj = exist ? backendSamplerIt->second
+                                                     : SamplerImpl::g_backendSamplerObjects[samplerObject.get()];
+                            if (!exist) {
+                                backendObj = MakeShared<SamplerImpl::BackendSamplerObject>();
                             }
-                            backendSamplerObject->SyncToBackend(samplerObject);
+                            backendObj->SyncToBackend(samplerObject);
                         } else {
                             SamplerImpl::UnbindSampler(unit);
                         }
@@ -949,30 +939,29 @@ namespace MobileGL::MG_Backend::DirectGLES {
 #if MOBILEGL_LOG_ACTIVE_LEVEL <= MOBILEGL_LOG_LEVEL_DEBUG && MOBILEGL_ENABLE_SCOPE_MARKER
         DebugImpl::OpenGLScopeMarker marker(__func__);
 #endif
-        DebugImpl::ErrorLopper errorLopper;
 
         TextureImpl::SyncNeccessaryTextures();
-        errorLopper.Loop([file = __FILE__, line = __LINE__](auto err) {
+        DebugImpl::ErrorLopper::Loop([file = __FILE__, line = __LINE__](auto err) {
             MGLOG_D("ES error (%s:%d): %s", file, line, MG_Util::ConvertGLEnumToString(err).c_str());
         });
         FramebufferImpl::SyncCurrentFBO();
-        errorLopper.Loop([file = __FILE__, line = __LINE__](auto err) {
+        DebugImpl::ErrorLopper::Loop([file = __FILE__, line = __LINE__](auto err) {
             MGLOG_D("ES error (%s:%d): %s", file, line, MG_Util::ConvertGLEnumToString(err).c_str());
         });
         RenderStateImpl::SyncRenderState();
-        errorLopper.Loop([file = __FILE__, line = __LINE__](auto err) {
+        DebugImpl::ErrorLopper::Loop([file = __FILE__, line = __LINE__](auto err) {
             MGLOG_D("ES error (%s:%d): %s", file, line, MG_Util::ConvertGLEnumToString(err).c_str());
         });
 
         BindCurrentFBO(FramebufferTarget::Draw);
         BindCurrentFBO(FramebufferTarget::Read);
-        errorLopper.Loop([file = __FILE__, line = __LINE__](auto err) {
+        DebugImpl::ErrorLopper::Loop([file = __FILE__, line = __LINE__](auto err) {
             MGLOG_D("ES error (%s:%d): %s", file, line, MG_Util::ConvertGLEnumToString(err).c_str());
         });
         MGLOG_D("ES %s(%d, %d, %d, %d, %d, %d, %d, %d, 0x%x, %s)", __func__, srcX0, srcY0, srcX1, srcY1, dstX0, dstY0,
                 dstX1, dstY1, mask, MG_Util::ConvertGLEnumToString(filter).c_str());
         g_GLESFuncs.glBlitFramebuffer(srcX0, srcY0, srcX1, srcY1, dstX0, dstY0, dstX1, dstY1, mask, filter);
-        errorLopper.Loop([file = __FILE__, line = __LINE__](auto err) {
+        DebugImpl::ErrorLopper::Loop([file = __FILE__, line = __LINE__](auto err) {
             MGLOG_D("ES error (%s:%d): %s", file, line, MG_Util::ConvertGLEnumToString(err).c_str());
         });
     }
@@ -999,15 +988,14 @@ namespace MobileGL::MG_Backend::DirectGLES {
                         MG_Util::ConvertTextureTargetToString(textureTarget).c_str());
             }
 
-            const auto& backendTextureIt = TextureImpl::g_backendTextureObjects.find(textureObject);
-            SharedPtr<TextureImpl::BackendTextureObject> backendTextureObject;
-            if (backendTextureIt == TextureImpl::g_backendTextureObjects.end()) {
-                backendTextureObject = MakeShared<TextureImpl::BackendTextureObject>();
-                TextureImpl::g_backendTextureObjects[textureObject] = backendTextureObject;
-            } else {
-                backendTextureObject = backendTextureIt->second;
+            const auto& backendTextureIt = TextureImpl::g_backendTextureObjects.find(textureObject.get());
+            Bool exist = (backendTextureIt != TextureImpl::g_backendTextureObjects.end());
+            auto& backendObj =
+                exist ? backendTextureIt->second : TextureImpl::g_backendTextureObjects[textureObject.get()];
+            if (!exist) {
+                backendObj = MakeShared<TextureImpl::BackendTextureObject>();
             }
-            backendTextureObject->Bind(target, unit);
+            backendObj->Bind(target, unit);
         }
         return true;
     }
@@ -1057,15 +1045,15 @@ namespace MobileGL::MG_Backend::DirectGLES {
         DebugImpl::ErrorLopper errorLopper;
         MGLOG_D("%s: Backend", __func__);
         TextureImpl::SyncNeccessaryTextures();
-        errorLopper.Loop([file = __FILE__, line = __LINE__](auto err) {
+        DebugImpl::ErrorLopper::Loop([file = __FILE__, line = __LINE__](auto err) {
             MGLOG_D("ES error (%s:%d): %s", file, line, MG_Util::ConvertGLEnumToString(err).c_str());
         });
         FramebufferImpl::SyncCurrentFBO();
-        errorLopper.Loop([file = __FILE__, line = __LINE__](auto err) {
+        DebugImpl::ErrorLopper::Loop([file = __FILE__, line = __LINE__](auto err) {
             MGLOG_D("ES error (%s:%d): %s", file, line, MG_Util::ConvertGLEnumToString(err).c_str());
         });
         RenderStateImpl::SyncRenderState();
-        errorLopper.Loop([file = __FILE__, line = __LINE__](auto err) {
+        DebugImpl::ErrorLopper::Loop([file = __FILE__, line = __LINE__](auto err) {
             MGLOG_D("ES error (%s:%d): %s", file, line, MG_Util::ConvertGLEnumToString(err).c_str());
         });
         if (!UpdateTextureBindingAtTarget(target)) return;
@@ -1073,10 +1061,10 @@ namespace MobileGL::MG_Backend::DirectGLES {
         // Bind necessary FBO and texture
         BindCurrentFBO(FramebufferTarget::Read);
         Uint activeTextureUnit = MG_State::pGLContext->GetActiveTextureUnit();
-        const auto& textureObject = MG_State::pGLContext->GetTextureUnitObject(activeTextureUnit)
+        const auto& textureObject = MG_State::pGLContext->GetTextureUnitObject((Int)activeTextureUnit)
                                         .GetBindingSlot(MG_Util::ConvertGLEnumToTextureTarget(target))
                                         .GetBoundObject();
-        const auto& backendTextureIt = TextureImpl::g_backendTextureObjects.find(textureObject);
+        const auto& backendTextureIt = TextureImpl::g_backendTextureObjects.find(textureObject.get());
         if (backendTextureIt == TextureImpl::g_backendTextureObjects.end()) {
             MGLOG_E("CopyTexSubImage2D: No backend texture found for texture %u.",
                     textureObject ? textureObject->GetExternalIndex() : 0);
@@ -1102,19 +1090,19 @@ namespace MobileGL::MG_Backend::DirectGLES {
 
         if (!isDepthFormat) {
             g_GLESFuncs.glCopyTexImage2D(target, level, internalformat, x, y, width, height, border);
-            errorLopper.Loop([file = __FILE__, line = __LINE__](auto err) {
+            DebugImpl::ErrorLopper::Loop([file = __FILE__, line = __LINE__](auto err) {
                 MGLOG_D("ES error (%s:%d): %s", file, line, MG_Util::ConvertGLEnumToString(err).c_str());
             });
         } else {
             MGLOG_D("%s: Backend depth", __func__);
             g_GLESFuncs.glTexImage2D(target, level, (GLint)internalformat, width, height, border, format, type,
                                      nullptr);
-            errorLopper.Loop([file = __FILE__, line = __LINE__](auto err) {
+            DebugImpl::ErrorLopper::Loop([file = __FILE__, line = __LINE__](auto err) {
                 MGLOG_D("ES error (%s:%d): %s", file, line, MG_Util::ConvertGLEnumToString(err).c_str());
             });
 
-            GLint currentTex = backendTextureIt->second->GetBackendTextureId();
-            errorLopper.Loop([file = __FILE__, line = __LINE__](auto err) {
+            auto currentTex = (GLint)backendTextureIt->second->GetBackendTextureId();
+            DebugImpl::ErrorLopper::Loop([file = __FILE__, line = __LINE__](auto err) {
                 MGLOG_D("ES error (%s:%d): %s", file, line, MG_Util::ConvertGLEnumToString(err).c_str());
             });
 
@@ -1130,7 +1118,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
             g_GLESFuncs.glBlitFramebuffer(x, y, x + width, y + height, 0, 0, width, height,
                                           GL_DEPTH_BUFFER_BIT | (isStencilFormat ? GL_STENCIL_BUFFER_BIT : 0),
                                           GL_NEAREST);
-            errorLopper.Loop([file = __FILE__, line = __LINE__](auto err) {
+            DebugImpl::ErrorLopper::Loop([file = __FILE__, line = __LINE__](auto err) {
                 MGLOG_D("ES error (%s:%d): %s", file, line, MG_Util::ConvertGLEnumToString(err).c_str());
             });
         }
@@ -1145,15 +1133,15 @@ namespace MobileGL::MG_Backend::DirectGLES {
 
         MGLOG_D("%s: Backend", __func__);
         TextureImpl::SyncNeccessaryTextures();
-        errorLopper.Loop([file = __FILE__, line = __LINE__](auto err) {
+        DebugImpl::ErrorLopper::Loop([file = __FILE__, line = __LINE__](auto err) {
             MGLOG_D("ES error (%s:%d): %s", file, line, MG_Util::ConvertGLEnumToString(err).c_str());
         });
         FramebufferImpl::SyncCurrentFBO();
-        errorLopper.Loop([file = __FILE__, line = __LINE__](auto err) {
+        DebugImpl::ErrorLopper::Loop([file = __FILE__, line = __LINE__](auto err) {
             MGLOG_D("ES error (%s:%d): %s", file, line, MG_Util::ConvertGLEnumToString(err).c_str());
         });
         RenderStateImpl::SyncRenderState();
-        errorLopper.Loop([file = __FILE__, line = __LINE__](auto err) {
+        DebugImpl::ErrorLopper::Loop([file = __FILE__, line = __LINE__](auto err) {
             MGLOG_D("ES error (%s:%d): %s", file, line, MG_Util::ConvertGLEnumToString(err).c_str());
         });
 
@@ -1161,11 +1149,11 @@ namespace MobileGL::MG_Backend::DirectGLES {
 
         // Bind necessary FBO and texture
         BindCurrentFBO(FramebufferTarget::Read);
-        Uint activeTextureUnit = MG_State::pGLContext->GetActiveTextureUnit();
+        auto activeTextureUnit = MG_State::pGLContext->GetActiveTextureUnit();
         const auto& textureObject = MG_State::pGLContext->GetTextureUnitObject(activeTextureUnit)
                                         .GetBindingSlot(MG_Util::ConvertGLEnumToTextureTarget(target))
                                         .GetBoundObject();
-        const auto& backendTextureIt = TextureImpl::g_backendTextureObjects.find(textureObject);
+        const auto& backendTextureIt = TextureImpl::g_backendTextureObjects.find(textureObject.get());
         if (backendTextureIt == TextureImpl::g_backendTextureObjects.end()) {
             MGLOG_E("CopyTexSubImage2D: No backend texture found for texture %u.",
                     textureObject ? textureObject->GetExternalIndex() : 0);
@@ -1173,12 +1161,12 @@ namespace MobileGL::MG_Backend::DirectGLES {
         }
         backendTextureIt->second->Bind(target, activeTextureUnit);
 
-        errorLopper.Loop([file = __FILE__, line = __LINE__](auto err) {
+        DebugImpl::ErrorLopper::Loop([file = __FILE__, line = __LINE__](auto err) {
             MGLOG_D("ES error (%s:%d): %s", file, line, MG_Util::ConvertGLEnumToString(err).c_str());
         });
         GLenum internalFormat;
         g_GLESFuncs.glGetTexLevelParameteriv(target, level, GL_TEXTURE_INTERNAL_FORMAT, (GLint*)&internalFormat);
-        errorLopper.Loop([file = __FILE__, line = __LINE__](auto err) {
+        DebugImpl::ErrorLopper::Loop([file = __FILE__, line = __LINE__](auto err) {
             MGLOG_D("ES error (%s:%d): %s", file, line, MG_Util::ConvertGLEnumToString(err).c_str());
         });
         auto mgInternalFormat = MG_Util::ConvertGLEnumToTextureInternalFormat(internalFormat);
@@ -1188,19 +1176,19 @@ namespace MobileGL::MG_Backend::DirectGLES {
 
         if (!isDepthFormat) {
             g_GLESFuncs.glCopyTexSubImage2D(target, level, xoffset, yoffset, x, y, width, height);
-            errorLopper.Loop([file = __FILE__, line = __LINE__](auto err) {
+            DebugImpl::ErrorLopper::Loop([file = __FILE__, line = __LINE__](auto err) {
                 MGLOG_D("ES error (%s:%d): %s", file, line, MG_Util::ConvertGLEnumToString(err).c_str());
             });
         } else {
             MGLOG_D("%s: Backend depth", __func__);
-            GLint currentTex = backendTextureIt->second->GetBackendTextureId();
-            errorLopper.Loop([file = __FILE__, line = __LINE__](auto err) {
+            auto currentTex = backendTextureIt->second->GetBackendTextureId();
+            DebugImpl::ErrorLopper::Loop([file = __FILE__, line = __LINE__](auto err) {
                 MGLOG_D("ES error (%s:%d): %s", file, line, MG_Util::ConvertGLEnumToString(err).c_str());
             });
             GLenum attachment = isStencilFormat ? GL_DEPTH_STENCIL_ATTACHMENT : GL_DEPTH_ATTACHMENT;
             TempFBOBinder tempFBOBinder(false);
             g_GLESFuncs.glFramebufferTexture2D(GL_DRAW_FRAMEBUFFER, attachment, target, currentTex, level);
-            errorLopper.Loop([file = __FILE__, line = __LINE__](auto err) {
+            DebugImpl::ErrorLopper::Loop([file = __FILE__, line = __LINE__](auto err) {
                 MGLOG_D("ES error (%s:%d): %s", file, line, MG_Util::ConvertGLEnumToString(err).c_str());
             });
             if (g_GLESFuncs.glCheckFramebufferStatus(GL_DRAW_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
@@ -1211,7 +1199,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
             g_GLESFuncs.glBlitFramebuffer(
                 x, y, x + width, y + height, xoffset, yoffset, xoffset + width, yoffset + height,
                 GL_DEPTH_BUFFER_BIT | (isStencilFormat ? GL_STENCIL_BUFFER_BIT : 0), GL_NEAREST);
-            errorLopper.Loop([file = __FILE__, line = __LINE__](auto err) {
+            DebugImpl::ErrorLopper::Loop([file = __FILE__, line = __LINE__](auto err) {
                 MGLOG_D("ES error (%s:%d): %s", file, line, MG_Util::ConvertGLEnumToString(err).c_str());
             });
         }
@@ -1224,8 +1212,8 @@ namespace MobileGL::MG_Backend::DirectGLES {
         auto unitIndex = MG_State::pGLContext->GetActiveTextureUnit();
         auto& unit = MG_State::pGLContext->GetTextureUnitObject(unitIndex);
         auto& slot = unit.GetBindingSlot(MG_Util::ConvertGLEnumToTextureTarget(target));
-        auto texture = slot.GetBoundObject();
-        auto backendTexture = TextureImpl::SyncTextureObjectToBackend(texture);
+        auto& texture = slot.GetBoundObject();
+        auto& backendTexture = TextureImpl::SyncTextureObjectToBackend(texture);
 
         backendTexture->Bind(target, unitIndex);
         g_GLESFuncs.glGenerateMipmap(target);
@@ -1288,7 +1276,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
 
         PixelStoreParameters m_prevParams;
 
-        PixelStoreParameters QueryCurrentGLPixelStoreParams(Bool isUnpack) {
+        static PixelStoreParameters QueryCurrentGLPixelStoreParams(Bool isUnpack) {
             PixelStoreParameters p;
             if (!isUnpack) {
                 g_GLESFuncs.glGetIntegerv(GL_PACK_ALIGNMENT, (GLint*)&p.Alignment);
@@ -1318,7 +1306,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
             return p;
         }
 
-        void Sync(Bool isUnpack, const PixelStoreParameters& params) {
+        static void Sync(Bool isUnpack, const PixelStoreParameters& params) {
             if (!isUnpack) {
                 g_GLESFuncs.glPixelStorei(GL_PACK_ALIGNMENT, params.Alignment);
                 g_GLESFuncs.glPixelStorei(GL_PACK_ROW_LENGTH, params.RowLength);
@@ -1375,7 +1363,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
         }
 
         // Handle PBO
-        auto pixelPackBufferObject =
+        auto& pixelPackBufferObject =
             MG_State::pGLContext->GetBufferBindingSlot(BufferTarget::PixelPack).GetBoundObject();
         Bool usePBO;
         GLuint prevPixelPackBuffer = 0;
@@ -1383,7 +1371,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
             BufferImpl::CreateAndSyncBufferObject(pixelPackBufferObject);
             MGLOG_D("ReadPixels: Using PBO %u", pixelPackBufferObject->GetExternalIndex());
             usePBO = true;
-            const auto& backendBufferIt = BufferImpl::g_backendBufferObjects.find(pixelPackBufferObject);
+            const auto& backendBufferIt = BufferImpl::g_backendBufferObjects.find(pixelPackBufferObject.get());
 
             if (backendBufferIt == BufferImpl::g_backendBufferObjects.end()) {
                 MGLOG_E("ReadPixels: No backend buffer found for PBO %u.",
@@ -1403,8 +1391,8 @@ namespace MobileGL::MG_Backend::DirectGLES {
         if (usePBO) {
             // pull back to client memory if PBO is used
             MGLOG_D("ReadPixels: PBO used, mapping buffer to client memory");
-            GLvoid* pboMappedPtr = g_GLESFuncs.glMapBufferRange(GL_PIXEL_PACK_BUFFER, 0,
-                                                                pixelPackBufferObject->GetSize(), GL_MAP_READ_BIT);
+            GLvoid* pboMappedPtr = g_GLESFuncs.glMapBufferRange(
+                GL_PIXEL_PACK_BUFFER, 0, (GLsizeiptr)pixelPackBufferObject->GetSize(), GL_MAP_READ_BIT);
             if (pboMappedPtr) {
                 MGLOG_D("ReadPixels: Copying data from PBO to client memory");
                 SizeT size = pixelPackBufferObject->GetSize();
@@ -1449,7 +1437,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
         MGLOG_D("GetTexImage: SyncCurrentFBO()");
         FramebufferImpl::SyncCurrentFBO();
 
-        Uint activeTextureUnit = MG_State::pGLContext->GetActiveTextureUnit();
+        auto activeTextureUnit = MG_State::pGLContext->GetActiveTextureUnit();
         MGLOG_D("GetTexImage: active texture unit = %u", activeTextureUnit);
 
         const auto& textureObject = MG_State::pGLContext->GetTextureUnitObject(activeTextureUnit)
@@ -1459,7 +1447,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
         MGLOG_D("GetTexImage: bound texture object = %p (name=%u)", textureObject.get(),
                 textureObject ? textureObject->GetExternalIndex() : 0);
 
-        const auto& backendTextureIt = TextureImpl::g_backendTextureObjects.find(textureObject);
+        const auto& backendTextureIt = TextureImpl::g_backendTextureObjects.find(textureObject.get());
 
         if (backendTextureIt == TextureImpl::g_backendTextureObjects.end()) {
             MGLOG_E("GetTexImage: No backend texture found for texture %u.",
@@ -1487,14 +1475,14 @@ namespace MobileGL::MG_Backend::DirectGLES {
             return;
         }
 
-        errorLopper.Loop([file = __FILE__, line = __LINE__](auto err) {
+        DebugImpl::ErrorLopper::Loop([file = __FILE__, line = __LINE__](auto err) {
             MGLOG_D("ES error (%s:%d): %s", file, line, MG_Util::ConvertGLEnumToString(err).c_str());
         });
 
         MGLOG_D("GetTexImage: Applying TempPixelStoreParameterSync (PACK)");
         TempPixelStoreParameterSync tempPackParamsSync(false);
 
-        errorLopper.Loop([file = __FILE__, line = __LINE__](auto err) {
+        DebugImpl::ErrorLopper::Loop([file = __FILE__, line = __LINE__](auto err) {
             MGLOG_D("ES error (%s:%d): %s", file, line, MG_Util::ConvertGLEnumToString(err).c_str());
         });
 
@@ -1506,9 +1494,9 @@ namespace MobileGL::MG_Backend::DirectGLES {
             return;
         }
 
-        auto* textureMipmapObject = static_cast<MG_State::GLState::TextureObjectMipmap*>(textureObject.get());
+        auto* textureMipmapObject = dynamic_cast<MG_State::GLState::TextureObjectMipmap*>(textureObject.get());
 
-        auto levelRange = textureMipmapObject->GetLevelRange();
+        auto& levelRange = textureMipmapObject->GetLevelRange();
         MGLOG_D("GetTexImage: mipmap level range = [%d, %d)", levelRange.x(), levelRange.y());
 
         if (level < levelRange.x() || level >= levelRange.y()) {
@@ -1525,7 +1513,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
         MGLOG_D("GetTexImage: mip level %d size = %dx%d", level, size.x(), size.y());
 
         // Handle PBO
-        auto pixelPackBufferObject =
+        auto& pixelPackBufferObject =
             MG_State::pGLContext->GetBufferBindingSlot(BufferTarget::PixelPack).GetBoundObject();
         Bool usePBO;
         GLuint prevPixelPackBuffer = 0;
@@ -1533,7 +1521,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
             BufferImpl::CreateAndSyncBufferObject(pixelPackBufferObject);
             MGLOG_D("GetTexImage: Using PBO %u", pixelPackBufferObject->GetExternalIndex());
             usePBO = true;
-            const auto& backendBufferIt = BufferImpl::g_backendBufferObjects.find(pixelPackBufferObject);
+            const auto& backendBufferIt = BufferImpl::g_backendBufferObjects.find(pixelPackBufferObject.get());
             if (backendBufferIt == BufferImpl::g_backendBufferObjects.end()) {
                 MGLOG_E("GetTexImage: No backend buffer found for PBO %u.",
                         pixelPackBufferObject ? pixelPackBufferObject->GetExternalIndex() : 0);
@@ -1547,7 +1535,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
             MGLOG_D("GetTexImage: Not using PBO");
         }
 
-        errorLopper.Loop([file = __FILE__, line = __LINE__](auto err) {
+        DebugImpl::ErrorLopper::Loop([file = __FILE__, line = __LINE__](auto err) {
             MGLOG_D("ES error (%s:%d): %s", file, line, MG_Util::ConvertGLEnumToString(err).c_str());
         });
         MGLOG_D("GetTexImage: glReadPixels(0, 0, %d, %d, %s, %s, %p)", size.x(), size.y(),
@@ -1555,14 +1543,14 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 pixels);
         g_GLESFuncs.glReadPixels(0, 0, size.x(), size.y(), esFormat, esType, pixels);
 
-        errorLopper.Loop([file = __FILE__, line = __LINE__](auto err) {
+        DebugImpl::ErrorLopper::Loop([file = __FILE__, line = __LINE__](auto err) {
             MGLOG_D("ES error (%s:%d): %s", file, line, MG_Util::ConvertGLEnumToString(err).c_str());
         });
         if (usePBO) {
             // pull back to client memory if PBO is used
             MGLOG_D("ReadPixels: PBO used, mapping buffer to client memory");
-            GLvoid* pboMappedPtr = g_GLESFuncs.glMapBufferRange(GL_PIXEL_PACK_BUFFER, 0,
-                                                                pixelPackBufferObject->GetSize(), GL_MAP_READ_BIT);
+            GLvoid* pboMappedPtr = g_GLESFuncs.glMapBufferRange(
+                GL_PIXEL_PACK_BUFFER, 0, (GLsizeiptr)pixelPackBufferObject->GetSize(), GL_MAP_READ_BIT);
             if (pboMappedPtr) {
                 MGLOG_D("ReadPixels: Copying data from PBO to client memory");
                 SizeT size = pixelPackBufferObject->GetSize();
@@ -1583,7 +1571,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
             }
         }
 
-        errorLopper.Loop([file = __FILE__, line = __LINE__](auto err) {
+        DebugImpl::ErrorLopper::Loop([file = __FILE__, line = __LINE__](auto err) {
             MGLOG_D("ES error (%s:%d): %s", file, line, MG_Util::ConvertGLEnumToString(err).c_str());
         });
         MGLOG_D("GetTexImage: finished");

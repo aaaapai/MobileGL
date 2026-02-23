@@ -9,43 +9,31 @@
 #pragma once
 #include <Includes.h>
 
-namespace MobileGL {
-    namespace MG_Impl::GLImpl {
-        /* @INSERTION_POINT:FUNCTION_DECLARATION@ */
-        void MultiDrawElementsIndirect(GLenum mode, GLenum type, const void* indirect, GLsizei drawcount,
-                                       GLsizei stride);
-        void MultiDrawArraysIndirect(GLenum mode, const void* indirect, GLsizei drawcount, GLsizei stride);
-        void DrawRangeElementsBaseVertex(GLenum mode, GLuint start, GLuint end, GLsizei count, GLenum type,
-                                         const void* indices, GLint basevertex);
-        void DrawRangeElements(GLenum mode, GLuint start, GLuint end, GLsizei count, GLenum type, const void* indices);
-        void DrawElementsInstancedBaseVertexBaseInstance(GLenum mode, GLsizei count, GLenum type, const void* indices,
-                                                         GLsizei instancecount, GLint basevertex, GLuint baseinstance);
-        void DrawElementsInstancedBaseVertex(GLenum mode, GLsizei count, GLenum type, const void* indices,
-                                             GLsizei instancecount, GLint basevertex);
-        void DrawElementsInstancedBaseInstance(GLenum mode, GLsizei count, GLenum type, const void* indices,
-                                               GLsizei instancecount, GLuint baseinstance);
-        void DrawElementsInstanced(GLenum mode, GLsizei count, GLenum type, const void* indices, GLsizei instancecount);
-        void DrawElementsIndirect(GLenum mode, GLenum type, const void* indirect);
-        void DrawArraysInstancedBaseInstance(GLenum mode, GLint first, GLsizei count, GLsizei instancecount,
-                                             GLuint baseinstance);
-        void DrawArraysInstanced(GLenum mode, GLint first, GLsizei count, GLsizei instancecount);
-        void DrawArraysIndirect(GLenum mode, const void* indirect);
-        void DrawElementsBaseVertex(GLenum mode, GLsizei count, GLenum type, const void* indices, GLint basevertex);
-        void DrawArrays(GLenum mode, GLint first, GLsizei count);
-        void MultiDrawElements(GLenum mode, const GLsizei* count, GLenum type, const void* const* indices,
-                               GLsizei drawcount);
-        void MultiDrawElementsBaseVertex(GLenum mode, const GLsizei* count, GLenum type, const void* const* indices,
-                                         GLsizei drawcount, const GLint* basevertex);
-        void Clear(GLbitfield mask);
-        void DrawElements(GLenum mode, GLsizei count, GLenum type, const void* indices);
-
-        void ClearBufferSubData(GLenum target, GLenum internalformat, GLintptr offset, 
-                        GLsizeiptr size, GLenum format, GLenum type, const void* data);
-
-        void ClearNamedBufferSubData(GLuint buffer, GLenum internalformat, GLintptr offset,
-                             GLsizeiptr size, GLenum format, GLenum type, const void* data);
-
-        void ClearBufferData(GLenum target, GLenum internalformat, GLenum format, GLenum type, const void* data);
-
-    } // namespace MG_Impl::GLImpl
-} // namespace MobileGL
+namespace MobileGL::MG_Impl::GLImpl {
+    /* @INSERTION_POINT:FUNCTION_DECLARATION@ */
+    void MultiDrawElementsIndirect(GLenum mode, GLenum type, const void* indirect, GLsizei drawcount, GLsizei stride);
+    void MultiDrawArraysIndirect(GLenum mode, const void* indirect, GLsizei drawcount, GLsizei stride);
+    void DrawRangeElementsBaseVertex(GLenum mode, GLuint start, GLuint end, GLsizei count, GLenum type,
+                                     const void* indices, GLint basevertex);
+    void DrawRangeElements(GLenum mode, GLuint start, GLuint end, GLsizei count, GLenum type, const void* indices);
+    void DrawElementsInstancedBaseVertexBaseInstance(GLenum mode, GLsizei count, GLenum type, const void* indices,
+                                                     GLsizei instancecount, GLint basevertex, GLuint baseinstance);
+    void DrawElementsInstancedBaseVertex(GLenum mode, GLsizei count, GLenum type, const void* indices,
+                                         GLsizei instancecount, GLint basevertex);
+    void DrawElementsInstancedBaseInstance(GLenum mode, GLsizei count, GLenum type, const void* indices,
+                                           GLsizei instancecount, GLuint baseinstance);
+    void DrawElementsInstanced(GLenum mode, GLsizei count, GLenum type, const void* indices, GLsizei instancecount);
+    void DrawElementsIndirect(GLenum mode, GLenum type, const void* indirect);
+    void DrawArraysInstancedBaseInstance(GLenum mode, GLint first, GLsizei count, GLsizei instancecount,
+                                         GLuint baseinstance);
+    void DrawArraysInstanced(GLenum mode, GLint first, GLsizei count, GLsizei instancecount);
+    void DrawArraysIndirect(GLenum mode, const void* indirect);
+    void DrawElementsBaseVertex(GLenum mode, GLsizei count, GLenum type, const void* indices, GLint basevertex);
+    void DrawArrays(GLenum mode, GLint first, GLsizei count);
+    void MultiDrawElements(GLenum mode, const GLsizei* count, GLenum type, const void* const* indices,
+                           GLsizei drawcount);
+    void MultiDrawElementsBaseVertex(GLenum mode, const GLsizei* count, GLenum type, const void* const* indices,
+                                     GLsizei drawcount, const GLint* basevertex);
+    void Clear(GLbitfield mask);
+    void DrawElements(GLenum mode, GLsizei count, GLenum type, const void* indices);
+} // namespace MobileGL::MG_Impl::GLImpl

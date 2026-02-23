@@ -18,9 +18,9 @@ namespace MobileGL {
             public:
                 SamplerState();
 
-                Vector<Uint> GenerateNames(Uint number);
-                SharedPtr<SamplerObject> GetSamplerObject(Uint index);
-                SharedPtr<SamplerObject> CreateSamplerObject(Uint index);
+                void GenerateNames(Uint number, Vector<Uint>& samplers);
+                const SharedPtr<SamplerObject>& GetSamplerObject(Uint index);
+                const SharedPtr<SamplerObject>& CreateSamplerObject(Uint index);
                 void MarkSamplerObjectForDeletion(Uint index);
                 Bool ValidateName(Uint index) const;
                 Bool ValidateSamplerObject(Uint index) const;

@@ -14,15 +14,15 @@ namespace MobileGL::MG_Backend::DirectGLES {
     namespace DebugImpl {
         class ErrorLopper {
         public:
-            void Loop(std::function<void(GLenum)>);
-            void Clear();
+            static void Loop(const std::function<void(GLenum)>&);
+            static void Clear();
             ErrorLopper();
             ~ErrorLopper();
         };
 
         class OpenGLScopeMarker {
         public:
-            explicit OpenGLScopeMarker(String scopeName);
+            explicit OpenGLScopeMarker(const String& scopeName);
             ~OpenGLScopeMarker();
         };
     } // namespace DebugImpl

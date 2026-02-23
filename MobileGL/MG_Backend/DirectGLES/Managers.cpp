@@ -7,10 +7,6 @@
 // End of Source File Header
 
 #include "Managers.h"
-#include "MG_State/GLState/TextureState/TextureEnum.h"
-#include "MG_State/GLState/TextureState/TextureObject.h"
-#include "MG_State/GLState/TextureState/TextureState.h"
-#include "MG_Util/Converters/GLToMG/TextureEnumConverter.h"
 #include "Utils.h"
 #include "DirectGLES.h"
 
@@ -18,6 +14,7 @@
 #include <MG_Util/Converters/GLToStr/GLEnumConverter.h>
 #include <MG_Util/Converters/MGToGL/DataTypeConverter.h>
 #include <MG_Util/Converters/MGToGL/BufferEnumConverter.h>
+#include <MG_Util/Converters/GLToMG/TextureEnumConverter.h>
 #include <MG_Util/Converters/MGToGL/ProgramEnumConverter.h>
 #include <MG_Util/Converters/MGToGL/TextureEnumConverter.h>
 #include <MG_Util/Converters/MGToStr/TextureEnumConverter.h>
@@ -44,7 +41,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
             }
         }
 
-        void BackendBufferObject::SyncToBackend(SharedPtr<MG_State::GLState::BufferObject>& stateBufferObject) {
+        void BackendBufferObject::SyncToBackend(const SharedPtr<MG_State::GLState::BufferObject>& stateBufferObject) {
 #ifdef TRACY_ENABLE
             ZoneScopedC(TRACY_ZONECOLOR_BACKEND);
 #endif
@@ -105,7 +102,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
         }
 
         void BackendBufferObject::SyncToBackend_glBufferData(
-            SharedPtr<MG_State::GLState::BufferObject>& stateBufferObject) {
+            const SharedPtr<MG_State::GLState::BufferObject>& stateBufferObject) {
 #ifdef TRACY_ENABLE
             ZoneScopedC(TRACY_ZONECOLOR_BACKEND);
 #endif
@@ -117,11 +114,11 @@ namespace MobileGL::MG_Backend::DirectGLES {
             GLenum usage = MG_Util::ConvertBufferUsageToGLEnum(stateBufferObject->GetUsage());
 
             Bind();
-            g_GLESFuncs.glBufferData(TempBufferTarget, size, data, usage);
+            g_GLESFuncs.glBufferData(TempBufferTarget, (GLsizeiptr)size, data, usage);
         }
 
         void BackendBufferObject::SyncToBackend_glBufferSubData(
-            SharedPtr<MG_State::GLState::BufferObject>& stateBufferObject) {
+            const SharedPtr<MG_State::GLState::BufferObject>& stateBufferObject) {
 #ifdef TRACY_ENABLE
             ZoneScopedC(TRACY_ZONECOLOR_BACKEND);
 #endif
@@ -130,7 +127,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
 
             const void* data = stateBufferObject->GetDataReadOnly()->data();
             // dirty range: [range.start, range.end)
-            auto ranges = stateBufferObject->GetDirtyRanges();
+            auto& ranges = stateBufferObject->GetDirtyRanges();
             if (ranges.empty()) {
                 MGLOG_D("No dirty range to sync for buffer with ID: %u", m_backendBufferId);
                 return;
@@ -138,20 +135,21 @@ namespace MobileGL::MG_Backend::DirectGLES {
 
             for (const auto& range : ranges) {
                 Bind();
-                g_GLESFuncs.glBufferSubData(TempBufferTarget, range.start, range.end - range.start,
+                g_GLESFuncs.glBufferSubData(TempBufferTarget, (GLintptr)range.start,
+                                            (GLintptr)(range.end - range.start),
                                             reinterpret_cast<const char*>(data) + range.start);
             }
         }
 
         void BackendBufferObject::SyncToBackend_glMapBufferRange(
-            SharedPtr<MG_State::GLState::BufferObject>& stateBufferObject, Bool invalidate, Bool unsynchronized) {
+            const SharedPtr<MG_State::GLState::BufferObject>& stateBufferObject, Bool invalidate, Bool unsynchronized) {
 #ifdef TRACY_ENABLE
             ZoneScopedC(TRACY_ZONECOLOR_BACKEND);
 #endif
 
             MGLOG_D("Syncing buffer map (glMapBuffer) for object with ID : %u", m_backendBufferId);
             MGLOG_D("Mapping buffer with ID: %u", m_backendBufferId);
-            auto ranges = stateBufferObject->GetDirtyRanges();
+            auto& ranges = stateBufferObject->GetDirtyRanges();
             if (ranges.empty()) {
                 MGLOG_D("No dirty range to sync for buffer with ID: %u", m_backendBufferId);
                 return;
@@ -159,18 +157,18 @@ namespace MobileGL::MG_Backend::DirectGLES {
             SizeT minStart = ranges.GetOverallMinStart();
             SizeT maxEnd = ranges.GetOverallMaxEnd();
             Bind();
-            void* mappedData = g_GLESFuncs.glMapBufferRange(TempBufferTarget, minStart, maxEnd - minStart,
-                                                            (invalidate ? GL_MAP_INVALIDATE_RANGE_BIT : 0) |
-                                                                (unsynchronized ? GL_MAP_UNSYNCHRONIZED_BIT : 0) |
-                                                                GL_MAP_WRITE_BIT | GL_MAP_FLUSH_EXPLICIT_BIT);
+            void* mappedData = g_GLESFuncs.glMapBufferRange(
+                TempBufferTarget, (GLintptr)minStart, (GLintptr)(maxEnd - minStart),
+                (invalidate ? GL_MAP_INVALIDATE_RANGE_BIT : 0) | (unsynchronized ? GL_MAP_UNSYNCHRONIZED_BIT : 0) |
+                    GL_MAP_WRITE_BIT | GL_MAP_FLUSH_EXPLICIT_BIT);
             const void* data = stateBufferObject->GetDataReadOnly()->data();
             if (mappedData) {
                 MGLOG_D("Mapped buffer data successfully for object with ID: %u", m_backendBufferId);
                 Memcpy(mappedData, reinterpret_cast<const char*>(data) + minStart, maxEnd - minStart);
                 // Explicitly flush the dirty ranges
                 for (const auto& range : ranges) {
-                    g_GLESFuncs.glFlushMappedBufferRange(TempBufferTarget, range.start - minStart,
-                                                         range.end - range.start);
+                    g_GLESFuncs.glFlushMappedBufferRange(TempBufferTarget, (GLintptr)(range.start - minStart),
+                                                         (GLintptr)(range.end - range.start));
                 }
                 g_GLESFuncs.glUnmapBuffer(TempBufferTarget);
             } else {
@@ -191,7 +189,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
             g_GLESFuncs.glBindBuffer(target, m_backendBufferId);
         }
 
-        UnorderedMap<SharedPtr<MG_State::GLState::BufferObject>, SharedPtr<BackendBufferObject>> g_backendBufferObjects;
+        UnorderedMap<MG_State::GLState::BufferObject*, SharedPtr<BackendBufferObject>> g_backendBufferObjects;
         BackendBufferObject* g_boundVertexBufferObject = nullptr;
     } // namespace BufferImpl
 
@@ -209,22 +207,21 @@ namespace MobileGL::MG_Backend::DirectGLES {
             }
         }
 
-        void BackendVertexArrayObject::Bind() {
+        void BackendVertexArrayObject::Bind() const {
 #ifdef TRACY_ENABLE
             ZoneScopedC(TRACY_ZONECOLOR_BACKEND);
 #endif
             g_GLESFuncs.glBindVertexArray(m_backendVAOId);
         }
 
-        void BackendVertexArrayObject::BindAttributeBuffer(Uint index,
-                                                           const MG_State::GLState::VertexAttribute& attrib) {
+        inline void BindAttributeBuffer(const MG_State::GLState::VertexAttribute& attrib) {
             const auto& bufferObject = attrib.Buffer;
             if (!bufferObject) {
                 MGLOG_W("Attribute has no bound buffer, skipping.");
                 return;
             }
 
-            const auto& backendBufferIt = BufferImpl::g_backendBufferObjects.find(bufferObject);
+            const auto& backendBufferIt = BufferImpl::g_backendBufferObjects.find(bufferObject.get());
             if (backendBufferIt == BufferImpl::g_backendBufferObjects.end()) {
                 MGLOG_E("No backend buffer found for attribute's buffer, cannot bind attribute.");
                 return;
@@ -234,7 +231,8 @@ namespace MobileGL::MG_Backend::DirectGLES {
             backendBufferObject->Bind(GL_ARRAY_BUFFER);
         }
 
-        void BackendVertexArrayObject::SyncToBackend(SharedPtr<MG_State::GLState::VertexArrayObject>& stateVAOObject) {
+        void BackendVertexArrayObject::SyncToBackend(
+            const SharedPtr<MG_State::GLState::VertexArrayObject>& stateVAOObject) {
 #ifdef TRACY_ENABLE
             ZoneScopedC(TRACY_ZONECOLOR_BACKEND);
 #endif
@@ -268,7 +266,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
                                        m_syncedAttributeVersions[attribIndex].BufferVersion;
                 if (!needsSyncFormat && !needsSyncBuffer) continue;
 
-                BindAttributeBuffer(attribIndex, attrib);
+                BindAttributeBuffer(attrib);
 
                 if (!attrib.IsInteger) {
                     g_GLESFuncs.glVertexAttribPointer(
@@ -289,7 +287,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
             if (currentIndexBufferVersion != m_syncedIndexBufferVersion) {
                 const auto& indexBufferBinding = stateVAOObject->GetIndexBufferBindingSlot().GetBoundObject();
                 if (indexBufferBinding) {
-                    const auto& backendBufferIt = BufferImpl::g_backendBufferObjects.find(indexBufferBinding);
+                    const auto& backendBufferIt = BufferImpl::g_backendBufferObjects.find(indexBufferBinding.get());
                     if (backendBufferIt != BufferImpl::g_backendBufferObjects.end()) {
                         const auto& backendBufferObject = backendBufferIt->second;
                         backendBufferObject->Bind(GL_ELEMENT_ARRAY_BUFFER);
@@ -303,7 +301,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
             m_syncedAttributeVersions = allAttributeVersions;
         }
 
-        UnorderedMap<SharedPtr<MG_State::GLState::VertexArrayObject>, SharedPtr<BackendVertexArrayObject>>
+        UnorderedMap<MG_State::GLState::VertexArrayObject*, SharedPtr<BackendVertexArrayObject>>
             g_backendVertexArrayObjects;
     } // namespace VertexArrayImpl
 
@@ -336,7 +334,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
             g_boundTexturesCache[unit][targetN] = this;
         }
 
-        Uint BackendTextureObject::GetBackendTextureId() {
+        Uint BackendTextureObject::GetBackendTextureId() const {
 #ifdef TRACY_ENABLE
             ZoneScopedC(TRACY_ZONECOLOR_BACKEND);
 #endif
@@ -344,7 +342,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
         }
 
         void BackendTextureObject::SyncMipmapsToBackend(
-            SharedPtr<MG_State::GLState::ITextureObject>& stateTextureObject) {
+            const SharedPtr<MG_State::GLState::ITextureObject>& stateTextureObject) {
             if (!stateTextureObject) {
                 MGLOG_E("State texture object is null, cannot sync to backend.");
                 return;
@@ -353,7 +351,6 @@ namespace MobileGL::MG_Backend::DirectGLES {
 #ifdef TRACY_ENABLE
             ZoneScopedC(TRACY_ZONECOLOR_BACKEND);
 #endif
-            DebugImpl::ErrorLopper errorLopper;
 
             MGLOG_D("Syncing texture mipmaps with backend ID %u to backend for state ID %u", m_backendTextureId,
                     stateTextureObject->GetExternalIndex());
@@ -381,7 +378,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
             }
 
             Bind(target);
-            errorLopper.Loop([file = __FILE__, line = __LINE__, func = __func__](GLenum err) {
+            DebugImpl::ErrorLopper::Loop([file = __FILE__, line = __LINE__, func = __func__](GLenum err) {
                 MGLOG_D("%s(%s:%d) ES error: %s", func, file, line, MG_Util::ConvertGLEnumToString(err).c_str());
             });
             const auto baseSize = stateTextureObject->GetBaseSize();
@@ -394,7 +391,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
             switch (stateTextureObject->GetStorageType()) {
             case TextureStorageType::Mipmap: {
                 auto* textureMipmapObject =
-                    static_cast<MG_State::GLState::TextureObjectMipmap*>(stateTextureObject.get());
+                    dynamic_cast<MG_State::GLState::TextureObjectMipmap*>(stateTextureObject.get());
                 const auto mipmapCount = textureMipmapObject->GetMipmapLevelCount();
                 currentTextureInfo.mipmapLevels = mipmapCount;
 
@@ -414,7 +411,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
                                                            &glFormat, &glType);
 
                     const auto& uploadTargets = textureMipmapObject->GetUploadTargets();
-                    for (auto uploadTarget : uploadTargets) {
+                    for (auto& uploadTarget : uploadTargets) {
                         for (SizeT level = 0; level < mipmapCount; ++level) {
                             auto levelTexelSize = textureMipmapObject->GetMipmapTexelSize(uploadTarget, level);
                             auto levelByteSize = textureMipmapObject->GetMipmapByteSize(uploadTarget, level);
@@ -429,22 +426,22 @@ namespace MobileGL::MG_Backend::DirectGLES {
                                 levelTexelSize.x(), levelTexelSize.y(), levelTexelSize.z(), levelByteSize, pData,
                                 levelDirty ? "true" : "false");
 
-                            errorLopper.Clear();
+                            DebugImpl::ErrorLopper::Clear();
                             g_GLESFuncs.glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
                             auto textureTarget = stateTextureObject->GetTarget();
                             // TODO: handle more texture types
                             switch (textureTarget) {
                             case TextureTarget::Texture2D:
                             case TextureTarget::TextureCubeMap: {
-                                g_GLESFuncs.glTexImage2D(glUploadTarget, static_cast<GLint>(level), glInternalFormat,
-                                                         static_cast<GLsizei>(levelTexelSize.x()),
-                                                         static_cast<GLsizei>(levelTexelSize.y()), 0, glFormat, glType,
-                                                         pData);
+                                g_GLESFuncs.glTexImage2D(
+                                    glUploadTarget, static_cast<GLint>(level), (GLint)glInternalFormat,
+                                    static_cast<GLsizei>(levelTexelSize.x()), static_cast<GLsizei>(levelTexelSize.y()),
+                                    0, glFormat, glType, pData);
                                 break;
                             }
                             case TextureTarget::Texture3D: {
                                 g_GLESFuncs.glTexImage3D(
-                                    glUploadTarget, static_cast<GLint>(level), glInternalFormat,
+                                    glUploadTarget, static_cast<GLint>(level), (GLint)glInternalFormat,
                                     static_cast<GLsizei>(levelTexelSize.x()), static_cast<GLsizei>(levelTexelSize.y()),
                                     static_cast<GLsizei>(levelTexelSize.z()), 0, glFormat, glType, pData);
                                 break;
@@ -454,8 +451,9 @@ namespace MobileGL::MG_Backend::DirectGLES {
                                         MG_Util::ConvertTextureTargetToString(textureTarget).c_str());
                             }
                             }
-                            errorLopper.Loop([file = __FILE__, line = __LINE__, func = __func__, glUploadTarget,
-                                              glInternalFormat, glFormat, glType, pData](GLenum err) {
+                            DebugImpl::ErrorLopper::Loop([file = __FILE__, line = __LINE__, func = __func__,
+                                                          glUploadTarget, glInternalFormat, glFormat, glType,
+                                                          pData](GLenum err) {
                                 MGLOG_D("%s(%s:%d) ES error: %s. glTexImage*: target=%s, internalformat=%s, format=%s, "
                                         "type=%s, pixels=%p",
                                         func, file, line, MG_Util::ConvertGLEnumToString(err).c_str(),
@@ -478,7 +476,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
                     TextureImpl::GenerateTextureFormatInfo(textureMipmapObject->GetFormat(), &glInternalFormat,
                                                            &glFormat, &glType);
                     const auto& uploadTargets = textureMipmapObject->GetUploadTargets();
-                    for (auto uploadTarget : uploadTargets) {
+                    for (auto& uploadTarget : uploadTargets) {
                         for (SizeT level = 0; level < mipmapCount; ++level) {
                             if (!textureMipmapObject->IsStorageDirty(uploadTarget, level)) {
                                 continue;
@@ -499,10 +497,11 @@ namespace MobileGL::MG_Backend::DirectGLES {
 
                             auto glUploadTarget = MG_Util::ConvertTextureUploadTargetToGLEnum(uploadTarget);
                             g_GLESFuncs.glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
-                            errorLopper.Loop([file = __FILE__, line = __LINE__, func = __func__](GLenum err) {
-                                MGLOG_D("%s(%s:%d) ES error: %s", func, file, line,
-                                        MG_Util::ConvertGLEnumToString(err).c_str());
-                            });
+                            DebugImpl::ErrorLopper::Loop(
+                                [file = __FILE__, line = __LINE__, func = __func__](GLenum err) {
+                                    MGLOG_D("%s(%s:%d) ES error: %s", func, file, line,
+                                            MG_Util::ConvertGLEnumToString(err).c_str());
+                                });
                             auto texelSize = textureMipmapObject->GetMipmapTexelSize(uploadTarget, level);
                             g_GLESFuncs.glTexSubImage2D(glUploadTarget, static_cast<GLint>(level), 0, 0,
                                                         static_cast<GLsizei>(texelSize.x()),
@@ -516,9 +515,9 @@ namespace MobileGL::MG_Backend::DirectGLES {
             }
             case TextureStorageType::Buffer: {
                 auto* textureBufferObject =
-                    static_cast<MG_State::GLState::TextureObjectBuffer*>(stateTextureObject.get());
+                    dynamic_cast<MG_State::GLState::TextureObjectBuffer*>(stateTextureObject.get());
                 auto& slot = textureBufferObject->GetBufferBindingSlot();
-                auto buffer = slot.GetBoundObject();
+                auto& buffer = slot.GetBoundObject();
                 auto bufferIndex = buffer->GetExternalIndex();
                 currentTextureInfo.bufferExternalIndex = bufferIndex;
 
@@ -530,10 +529,10 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 // Need to sync texture buffer if not synced yet
                 auto& backendBuffers = BufferImpl::g_backendBufferObjects;
                 SharedPtr<BufferImpl::BackendBufferObject> backendBufferObject;
-                const auto& backendBufferIt = backendBuffers.find(buffer);
+                const auto& backendBufferIt = backendBuffers.find(buffer.get());
                 if (backendBufferIt == backendBuffers.end()) {
                     backendBufferObject = MakeShared<BufferImpl::BackendBufferObject>();
-                    backendBuffers[buffer] = backendBufferObject;
+                    backendBuffers[buffer.get()] = backendBufferObject;
                 } else {
                     backendBufferObject = backendBufferIt->second;
                 }
@@ -553,7 +552,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 THROW_UNIMPL_EXCEPTION;
             }
 
-            errorLopper.Loop([file = __FILE__, line = __LINE__, func = __func__](GLenum err) {
+            DebugImpl::ErrorLopper::Loop([file = __FILE__, line = __LINE__, func = __func__](GLenum err) {
                 MGLOG_D("%s(%s:%d) ES error: %s", func, file, line, MG_Util::ConvertGLEnumToString(err).c_str());
             });
 
@@ -561,11 +560,11 @@ namespace MobileGL::MG_Backend::DirectGLES {
         }
 
         void BackendTextureObject::SyncBuiltinSamplerToBackend(
-            SharedPtr<MG_State::GLState::ITextureObject>& stateTextureObject) {
+            const SharedPtr<MG_State::GLState::ITextureObject>& stateTextureObject) {
 #ifdef TRACY_ENABLE
             ZoneScopedC(TRACY_ZONECOLOR_BACKEND);
 #endif
-            DebugImpl::ErrorLopper errorLopper;
+
             if (!stateTextureObject) {
                 MGLOG_E("State texture object is null, cannot sync to backend.");
                 return;
@@ -594,7 +593,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
             }
 
             Bind(target);
-            errorLopper.Loop([file = __FILE__, line = __LINE__, func = __func__](GLenum err) {
+            DebugImpl::ErrorLopper::Loop([file = __FILE__, line = __LINE__, func = __func__](GLenum err) {
                 MGLOG_D("%s(%s:%d) ES error: %s", func, file, line, MG_Util::ConvertGLEnumToString(err).c_str());
             });
 
@@ -607,28 +606,29 @@ namespace MobileGL::MG_Backend::DirectGLES {
         g_GLESFuncs.glTexParameteri(target, glName,                                                                    \
                                     MG_Util::ConvertSampler##type##ToGLEnum(samplerParams.internalName));              \
         m_cacheSamplerParameters.internalName = samplerParams.internalName;                                            \
-        errorLopper.Loop([file = __FILE__, line = __LINE__, func = __func__,                                           \
-                          t = MG_Util::ConvertSampler##type##ToGLEnum(samplerParams.internalName)](GLenum err) {       \
-            MGLOG_D("%s(%s:%d) ES error %s, GL_TEXTURE_MIN_FILTER = %s", func, file, line,                             \
-                    MG_Util::ConvertGLEnumToString(err).c_str(), MG_Util::ConvertGLEnumToString(t).c_str());           \
-        });                                                                                                            \
+        DebugImpl::ErrorLopper::Loop(                                                                                  \
+            [file = __FILE__, line = __LINE__, func = __func__,                                                        \
+             t = MG_Util::ConvertSampler##type##ToGLEnum(samplerParams.internalName)](GLenum err) {                    \
+                MGLOG_D("%s(%s:%d) ES error %s, GL_TEXTURE_MIN_FILTER = %s", func, file, line,                         \
+                        MG_Util::ConvertGLEnumToString(err).c_str(), MG_Util::ConvertGLEnumToString(t).c_str());       \
+            });                                                                                                        \
     }
 
             if (m_cacheSamplerParameters.minFilter != samplerParams.minFilter ||
                 m_cacheSamplerParameters.mipmapMode != samplerParams.mipmapMode) {
-                g_GLESFuncs.glTexParameteri(
-                    target, GL_TEXTURE_MIN_FILTER,
-                    MG_Util::ConvertSamplerFilterModeToGLEnum(samplerParams.minFilter, samplerParams.mipmapMode));
+                g_GLESFuncs.glTexParameteri(target, GL_TEXTURE_MIN_FILTER,
+                                            (GLint)MG_Util::ConvertSamplerFilterModeToGLEnum(samplerParams.minFilter,
+                                                                                             samplerParams.mipmapMode));
                 m_cacheSamplerParameters.minFilter = samplerParams.minFilter;
                 m_cacheSamplerParameters.mipmapMode = samplerParams.mipmapMode;
             }
             if (m_cacheSamplerParameters.magFilter != samplerParams.magFilter) {
                 g_GLESFuncs.glTexParameteri(
                     target, GL_TEXTURE_MAG_FILTER,
-                    MG_Util::ConvertSamplerFilterModeToGLEnum(samplerParams.magFilter, SamplerMipmapMode::None));
+                    (GLint)MG_Util::ConvertSamplerFilterModeToGLEnum(samplerParams.magFilter, SamplerMipmapMode::None));
                 m_cacheSamplerParameters.magFilter = samplerParams.magFilter;
             }
-            errorLopper.Loop([file = __FILE__, line = __LINE__, func = __func__](GLenum err) {
+            DebugImpl::ErrorLopper::Loop([file = __FILE__, line = __LINE__, func = __func__](GLenum err) {
                 MGLOG_D("%s(%s:%d) ES error %s", func, file, line, MG_Util::ConvertGLEnumToString(err).c_str());
             });
 
@@ -645,18 +645,18 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 g_GLESFuncs.glTexParameterf(target, GL_TEXTURE_MAX_LOD, samplerParams.maxLod);
                 m_cacheSamplerParameters.maxLod = samplerParams.maxLod;
             }
-            errorLopper.Loop([file = __FILE__, line = __LINE__, func = __func__](GLenum err) {
+            DebugImpl::ErrorLopper::Loop([file = __FILE__, line = __LINE__, func = __func__](GLenum err) {
                 MGLOG_D("%s(%s:%d) ES error %s", func, file, line, MG_Util::ConvertGLEnumToString(err).c_str());
             });
 #undef SYNC_TEX_SAMPLER_PARAM_IF_CHANGED
         }
 
         void BackendTextureObject::SyncTextureParamsToBackend(
-            SharedPtr<MG_State::GLState::ITextureObject>& stateTextureObject) {
+            const SharedPtr<MG_State::GLState::ITextureObject>& stateTextureObject) {
 #ifdef TRACY_ENABLE
             ZoneScopedC(TRACY_ZONECOLOR_BACKEND);
 #endif
-            DebugImpl::ErrorLopper errorLopper;
+
             if (!stateTextureObject) {
                 MGLOG_E("State texture object is null, cannot sync to backend.");
                 return;
@@ -683,7 +683,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
             }
 
             Bind(target);
-            errorLopper.Loop([file = __FILE__, line = __LINE__, func = __func__](GLenum err) {
+            DebugImpl::ErrorLopper::Loop([file = __FILE__, line = __LINE__, func = __func__](GLenum err) {
                 MGLOG_D("%s(%s:%d) ES error: %s", func, file, line, MG_Util::ConvertGLEnumToString(err).c_str());
             });
 
@@ -696,14 +696,14 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 g_GLESFuncs.glTexParameteri(target, GL_TEXTURE_BASE_LEVEL, static_cast<GLint>(levelRange.x()));
                 m_cacheLodRange.x() = levelRange.x();
             }
-            errorLopper.Loop([file = __FILE__, line = __LINE__, func = __func__](GLenum err) {
+            DebugImpl::ErrorLopper::Loop([file = __FILE__, line = __LINE__, func = __func__](GLenum err) {
                 MGLOG_D("%s(%s:%d) ES error %s", func, file, line, MG_Util::ConvertGLEnumToString(err).c_str());
             });
             if (m_cacheLodRange.y() != levelRange.y()) {
                 g_GLESFuncs.glTexParameteri(target, GL_TEXTURE_MAX_LEVEL, static_cast<GLint>(levelRange.y()));
                 m_cacheLodRange.y() = levelRange.y();
             }
-            errorLopper.Loop([file = __FILE__, line = __LINE__, func = __func__](GLenum err) {
+            DebugImpl::ErrorLopper::Loop([file = __FILE__, line = __LINE__, func = __func__](GLenum err) {
                 MGLOG_D("%s(%s:%d) ES error %s", func, file, line, MG_Util::ConvertGLEnumToString(err).c_str());
             });
 
@@ -720,7 +720,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 SYNC_TEX_SWIZZLE_PARAM_IF_CHANGED(a(), GL_TEXTURE_SWIZZLE_A);
 #undef SYNC_TEX_SWIZZLE_PARAM_IF_CHANGED
                 m_cacheSwizzleParams = swizzleParams;
-                errorLopper.Loop([file = __FILE__, line = __LINE__, func = __func__](GLenum err) {
+                DebugImpl::ErrorLopper::Loop([file = __FILE__, line = __LINE__, func = __func__](GLenum err) {
                     MGLOG_D("%s(%s:%d) ES error %s", func, file, line, MG_Util::ConvertGLEnumToString(err).c_str());
                 });
             }
@@ -730,7 +730,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 GLfloat borderColorArray[4] = {borderColor.x(), borderColor.y(), borderColor.z(), borderColor.w()};
                 g_GLESFuncs.glTexParameterfv(target, GL_TEXTURE_BORDER_COLOR, borderColorArray);
                 m_cacheBorderColor = borderColor;
-                errorLopper.Loop([file = __FILE__, line = __LINE__, func = __func__](GLenum err) {
+                DebugImpl::ErrorLopper::Loop([file = __FILE__, line = __LINE__, func = __func__](GLenum err) {
                     MGLOG_D("%s(%s:%d) ES error %s", func, file, line, MG_Util::ConvertGLEnumToString(err).c_str());
                 });
             }
@@ -760,8 +760,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
         Array<Array<BackendTextureObject*, (SizeT)TextureTarget::TextureTargetCount>,
               MG_State::GLState::TextureState::MAX_TEXTURE_IMAGE_UNITS>
             g_boundTexturesCache;
-        UnorderedMap<SharedPtr<MG_State::GLState::ITextureObject>, SharedPtr<BackendTextureObject>>
-            g_backendTextureObjects;
+        UnorderedMap<MG_State::GLState::ITextureObject*, SharedPtr<BackendTextureObject>> g_backendTextureObjects;
     } // namespace TextureImpl
 
     namespace FramebufferImpl {
@@ -778,7 +777,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
             }
         }
 
-        void BackendFramebufferObject::Bind(FramebufferTarget target) {
+        void BackendFramebufferObject::Bind(FramebufferTarget target) const {
 #ifdef TRACY_ENABLE
             ZoneScopedC(TRACY_ZONECOLOR_BACKEND);
 #endif
@@ -788,12 +787,12 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 g_GLESFuncs.glBindFramebuffer(GL_DRAW_FRAMEBUFFER, m_backendFBOId);
         }
 
-        Bool BackendFramebufferObject::SyncAttachmentObject(
-            GLenum glFBOTarget, const MG_State::GLState::FramebufferAttachmentObject& attachmentObject,
-            GLenum glBackendAttachment) {
+        static Bool SyncAttachmentObject(GLenum glFBOTarget,
+                                         const MG_State::GLState::FramebufferAttachmentObject& attachmentObject,
+                                         GLenum glBackendAttachment) {
             if (attachmentObject.IsTexture()) {
                 const auto& textureObject = attachmentObject.GetTexture();
-                const auto& backendTextureIt = TextureImpl::g_backendTextureObjects.find(textureObject);
+                const auto& backendTextureIt = TextureImpl::g_backendTextureObjects.find(textureObject.get());
                 if (backendTextureIt == TextureImpl::g_backendTextureObjects.end()) {
                     MGLOG_E("%s: No backend texture found for FBO attachment, cannot bind texture.", __func__);
                     return false;
@@ -807,11 +806,12 @@ namespace MobileGL::MG_Backend::DirectGLES {
             } else if (attachmentObject.IsRenderbuffer()) {
                 const auto& renderbufferObject = attachmentObject.GetRenderbuffer();
                 const auto& backendRenderbufferIt =
-                    RenderbufferImpl::g_backendRenderbufferObjects.find(renderbufferObject);
+                    RenderbufferImpl::g_backendRenderbufferObjects.find(renderbufferObject.get());
                 SharedPtr<RenderbufferImpl::BackendRenderbufferObject> backendRenderbufferObject;
                 if (backendRenderbufferIt == RenderbufferImpl::g_backendRenderbufferObjects.end()) {
                     backendRenderbufferObject = MakeShared<RenderbufferImpl::BackendRenderbufferObject>();
-                    RenderbufferImpl::g_backendRenderbufferObjects[renderbufferObject] = backendRenderbufferObject;
+                    RenderbufferImpl::g_backendRenderbufferObjects[renderbufferObject.get()] =
+                        backendRenderbufferObject;
                 } else {
                     backendRenderbufferObject = backendRenderbufferIt->second;
                 }
@@ -824,8 +824,8 @@ namespace MobileGL::MG_Backend::DirectGLES {
             return true;
         }
 
-        void BackendFramebufferObject::SyncToBackend(SharedPtr<MG_State::GLState::FramebufferObject>& stateFBOObject,
-                                                     FramebufferTarget asTarget) {
+        void BackendFramebufferObject::SyncToBackend(
+            const SharedPtr<MG_State::GLState::FramebufferObject>& stateFBOObject, FramebufferTarget asTarget) {
 #ifdef TRACY_ENABLE
             ZoneScopedC(TRACY_ZONECOLOR_BACKEND);
 #endif
@@ -853,7 +853,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 std::fill(m_backendDrawBuffers, m_backendDrawBuffers + FramebufferObject::MAX_DRAW_BUFFERS, GL_NONE);
                 int nEffectiveBuffers = 0;
                 for (GLint i = 0; i < FramebufferObject::MAX_DRAW_BUFFERS; ++i) {
-                    auto frontendBuf = stateDrawBuffers[i];
+                    auto& frontendBuf = stateDrawBuffers[i];
                     if (frontendBuf == FramebufferAttachmentType::None) {
                         m_backendDrawBuffers[i] = GL_NONE;
                         continue;
@@ -892,7 +892,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
             const auto& attachmentVersions = stateFBOObject->GetAllFramebufferAttachmentVersions();
             for (SizeT i = 0; i < attachments.size(); ++i) {
                 const auto& attachmentObject = attachments[i];
-                FramebufferAttachmentType frontendType = static_cast<FramebufferAttachmentType>(i);
+                auto frontendType = static_cast<FramebufferAttachmentType>(i);
                 GLenum glBackendAttachment = GL_NONE;
                 if (frontendType >= FramebufferAttachmentType::Color0 &&
                     frontendType <= FramebufferAttachmentType::Color31)
@@ -928,7 +928,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
                     // Verify that the backend object's name and parameters match the frontend attachment state
                     if (attachmentObject.IsTexture()) {
                         const auto& textureObject = attachmentObject.GetTexture();
-                        auto backendTextureIt = TextureImpl::g_backendTextureObjects.find(textureObject);
+                        auto backendTextureIt = TextureImpl::g_backendTextureObjects.find(textureObject.get());
                         MOBILEGL_ASSERT(backendTextureIt != TextureImpl::g_backendTextureObjects.end(),
                                         "No backend texture found while framebuffer reports texture attachment.");
                         GLuint backendTexId = backendTextureIt->second->GetBackendTextureId();
@@ -944,7 +944,8 @@ namespace MobileGL::MG_Backend::DirectGLES {
                                         "Attachment texture level mismatch between GLES and state object.");
                     } else if (attachmentObject.IsRenderbuffer()) {
                         const auto& renderbufferObject = attachmentObject.GetRenderbuffer();
-                        auto backendRboIt = RenderbufferImpl::g_backendRenderbufferObjects.find(renderbufferObject);
+                        auto backendRboIt =
+                            RenderbufferImpl::g_backendRenderbufferObjects.find(renderbufferObject.get());
                         MOBILEGL_ASSERT(
                             backendRboIt != RenderbufferImpl::g_backendRenderbufferObjects.end(),
                             "No backend renderbuffer found while framebuffer reports renderbuffer attachment.");
@@ -975,14 +976,13 @@ namespace MobileGL::MG_Backend::DirectGLES {
             return glBackendReadBuffer;
         }
 
-        UnorderedMap<SharedPtr<MG_State::GLState::FramebufferObject>, SharedPtr<BackendFramebufferObject>>
+        UnorderedMap<MG_State::GLState::FramebufferObject*, SharedPtr<BackendFramebufferObject>>
             g_backendFramebufferObjects;
         Array<Uint16, SizeT(FramebufferTarget::FramebufferTargetCount)> g_fboBindVersions = {0};
     } // namespace FramebufferImpl
 
     namespace PrgramImpl {
-        UnorderedMap<SharedPtr<MG_State::GLState::ProgramObject>, SharedPtr<BackendProgramObjectImpl>>
-            g_backendProgramObjects;
+        UnorderedMap<MG_State::GLState::ProgramObject*, SharedPtr<BackendProgramObjectImpl>> g_backendProgramObjects;
 
         BackendProgramObjectImpl::BackendProgramObjectImpl() {
 #ifdef TRACY_ENABLE
@@ -1008,7 +1008,8 @@ namespace MobileGL::MG_Backend::DirectGLES {
             }
         }
 
-        void BackendProgramObjectImpl::SyncToBackend(SharedPtr<MG_State::GLState::ProgramObject>& stateProgramObject) {
+        void BackendProgramObjectImpl::SyncToBackend(
+            const SharedPtr<MG_State::GLState::ProgramObject>& stateProgramObject) {
 #ifdef TRACY_ENABLE
             ZoneScopedC(TRACY_ZONECOLOR_BACKEND);
 #endif
@@ -1162,7 +1163,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
             MGLOG_D("Program sync completed. backend ID %u", m_backendProgramId);
         }
 
-        void BackendProgramObjectImpl::Use() {
+        void BackendProgramObjectImpl::Use() const {
 #ifdef TRACY_ENABLE
             ZoneScopedC(TRACY_ZONECOLOR_BACKEND);
 #endif
@@ -1185,7 +1186,8 @@ namespace MobileGL::MG_Backend::DirectGLES {
             }
         }
 
-        void BackendSamplerObject::SyncToBackend(SharedPtr<MG_State::GLState::SamplerObject>& stateSamplerObject) {
+        void BackendSamplerObject::SyncToBackend(
+            const SharedPtr<MG_State::GLState::SamplerObject>& stateSamplerObject) {
 #ifdef TRACY_ENABLE
             ZoneScopedC(TRACY_ZONECOLOR_BACKEND);
 #endif
@@ -1211,22 +1213,22 @@ namespace MobileGL::MG_Backend::DirectGLES {
 #define SYNC_SAMPLER_PARAM_IF_CHANGED(internalName, glName, type)                                                      \
     if (m_cacheSamplerParameters.internalName != samplerParams.internalName) {                                         \
         g_GLESFuncs.glSamplerParameteri(m_backendSamplerId, glName,                                                    \
-                                        MG_Util::ConvertSampler##type##ToGLEnum(samplerParams.internalName));          \
+                                        (GLint)MG_Util::ConvertSampler##type##ToGLEnum(samplerParams.internalName));   \
         m_cacheSamplerParameters.internalName = samplerParams.internalName;                                            \
     }
 
             if (m_cacheSamplerParameters.minFilter != samplerParams.minFilter ||
                 m_cacheSamplerParameters.mipmapMode != samplerParams.mipmapMode) {
-                g_GLESFuncs.glSamplerParameteri(
-                    m_backendSamplerId, GL_TEXTURE_MIN_FILTER,
-                    MG_Util::ConvertSamplerFilterModeToGLEnum(samplerParams.minFilter, samplerParams.mipmapMode));
+                g_GLESFuncs.glSamplerParameteri(m_backendSamplerId, GL_TEXTURE_MIN_FILTER,
+                                                (GLint)MG_Util::ConvertSamplerFilterModeToGLEnum(
+                                                    samplerParams.minFilter, samplerParams.mipmapMode));
                 m_cacheSamplerParameters.minFilter = samplerParams.minFilter;
                 m_cacheSamplerParameters.mipmapMode = samplerParams.mipmapMode;
             }
             if (m_cacheSamplerParameters.magFilter != samplerParams.magFilter) {
                 g_GLESFuncs.glSamplerParameteri(
                     m_backendSamplerId, GL_TEXTURE_MAG_FILTER,
-                    MG_Util::ConvertSamplerFilterModeToGLEnum(samplerParams.magFilter, SamplerMipmapMode::None));
+                    (GLint)MG_Util::ConvertSamplerFilterModeToGLEnum(samplerParams.magFilter, SamplerMipmapMode::None));
                 m_cacheSamplerParameters.magFilter = samplerParams.magFilter;
             }
 
@@ -1257,7 +1259,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
             g_boundSamplersCache[unit] = this;
         }
 
-        Uint BackendSamplerObject::GetBackendSamplerId() {
+        Uint BackendSamplerObject::GetBackendSamplerId() const {
 #ifdef TRACY_ENABLE
             ZoneScopedC(TRACY_ZONECOLOR_BACKEND);
 #endif
@@ -1272,8 +1274,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
         }
 
         Array<BackendSamplerObject*, MG_State::GLState::TextureState::MAX_TEXTURE_IMAGE_UNITS> g_boundSamplersCache;
-        UnorderedMap<SharedPtr<MG_State::GLState::SamplerObject>, SharedPtr<BackendSamplerObject>>
-            g_backendSamplerObjects;
+        UnorderedMap<MG_State::GLState::SamplerObject*, SharedPtr<BackendSamplerObject>> g_backendSamplerObjects;
     } // namespace SamplerImpl
 
     namespace RenderbufferImpl {
@@ -1288,7 +1289,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
             }
         }
 
-        void BackendRenderbufferObject::Bind() {
+        void BackendRenderbufferObject::Bind() const {
 #ifdef TRACY_ENABLE
             ZoneScopedC(TRACY_ZONECOLOR_BACKEND);
 #endif
@@ -1335,9 +1336,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
             MGLOG_D("RBO %u sync completed. backend ID %u", stateRBOObject->GetExternalIndex(), m_backendRBOId);
         }
 
-        UnorderedMap<SharedPtr<MG_State::GLState::RenderbufferObject>, SharedPtr<BackendRenderbufferObject>>
+        UnorderedMap<MG_State::GLState::RenderbufferObject*, SharedPtr<BackendRenderbufferObject>>
             g_backendRenderbufferObjects;
     } // namespace RenderbufferImpl
-
-    namespace Utils {} // namespace Utils
 } // namespace MobileGL::MG_Backend::DirectGLES

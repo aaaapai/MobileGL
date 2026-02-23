@@ -24,21 +24,21 @@ namespace MobileGL {
             return 0;
         }
 
-        GLenum ClientWaitSync_Backend(GLsync sync, GLbitfield flags, GLuint64 timeout) {
-            return 0;
-        }
+    GLenum ClientWaitSync_Backend(GLsync sync, GLbitfield flags, GLuint64 timeout) {
+        return 0;
+    }
 
-        void DeleteSync_Backend(GLsync sync) {}
+    void DeleteSync_Backend(GLsync sync) {}
 
-        GLsync FenceSync_State(GLenum condition, GLbitfield flags) {
-            return 0;
-        }
+    GLsync FenceSync_State(GLenum condition, GLbitfield flags) {
+        return 0;
+    }
 
-        GLenum ClientWaitSync_State(GLsync sync, GLbitfield flags, GLuint64 timeout) {
-            return 0;
-        }
+    GLenum ClientWaitSync_State(GLsync sync, GLbitfield flags, GLuint64 timeout) {
+        return 0;
+    }
 
-        void DeleteSync_State(GLsync sync) {}
+    void DeleteSync_State(GLsync sync) {}
 
         GLsync FenceSync(GLenum condition, GLbitfield flags) {
         if(MG_Util::CheckEnv("MOBILEGL_BACKEND_TYPE", "DirectGLES", false))

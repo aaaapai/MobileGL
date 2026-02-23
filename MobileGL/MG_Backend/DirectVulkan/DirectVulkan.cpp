@@ -297,7 +297,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
 
         const auto& drawFboSlot = MG_State::pGLContext->GetFramebufferBindingSlot(FramebufferTarget::Draw);
         const auto drawFbo = drawFboSlot.GetBoundObject();
-        const auto defaultFboInfo = MG_Impl::GLImpl::FramebufferImpl::pDefaultFramebufferInfo;
+        const auto& defaultFboInfo = MG_Impl::GLImpl::FramebufferImpl::pDefaultFramebufferInfo;
         const auto defaultFbo = defaultFboInfo ? defaultFboInfo->defaultFBO : nullptr;
         const Bool isDefaultFboTarget = (drawFbo == defaultFbo) || (drawFbo == nullptr && defaultFbo != nullptr);
         Uint drawFboExternalIndex = 0;
@@ -429,7 +429,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         const auto& drawFboSlot = MG_State::pGLContext->GetFramebufferBindingSlot(FramebufferTarget::Draw);
         const auto readFbo = readFboSlot.GetBoundObject();
         const auto drawFbo = drawFboSlot.GetBoundObject();
-        const auto defaultFboInfo = MG_Impl::GLImpl::FramebufferImpl::pDefaultFramebufferInfo;
+        const auto& defaultFboInfo = MG_Impl::GLImpl::FramebufferImpl::pDefaultFramebufferInfo;
         const auto defaultFbo = defaultFboInfo ? defaultFboInfo->defaultFBO : nullptr;
 
         const Bool readIsDefault = (readFbo == defaultFbo) || (readFbo == nullptr && defaultFbo != nullptr);

@@ -12,27 +12,25 @@
 #include <Includes.h>
 #include <MG_State/GLState/TextureState/TextureObject.h>
 
-namespace MobileGL::MG_Impl::GLImpl {
-    namespace TextureImpl {
-        Bool ValidateTextureTarget(TextureTarget target);
-        Bool ValidateTextureUploadTarget(TextureUploadTarget textureUploadTarget);
-        Bool ValidateTextureName(Uint texture, Bool allowZero = false);
-        Bool ValidateTextureInputFormat(TextureInputFormat format);
-        Bool ValidateTexturePixelDataType(TexturePixelDataType texturePixelDataType);
-        Bool ValidateTextureLevelNumber(Int level);
-        Bool ValidateTextureSizeWithTextureUploadTarget(TextureUploadTarget target, GLsizei width, GLsizei height);
-        Bool ValidateTextureSizeRange(SizeT width, SizeT height, SizeT depth);
-        Bool ValidateTextureInternalFormat(TextureInternalFormat format);
-        Bool ValidateTextureBorderNumber(Int border);
-        Bool ValidateTextureInternalFormatCompatibleWithInput(TextureInputFormat format,
-                                                              TextureInternalFormat internalFormat,
-                                                              TexturePixelDataType type);
-        Bool ValidateTextureLevelWithUploadTarget(TextureUploadTarget target, Int level);
-        Bool ValidateTextureObject(SharedPtr<MG_State::GLState::ITextureObject> textureObject);
-        Bool ValidateTextureTargetUniformity(SharedPtr<MG_State::GLState::ITextureObject> textureObject,
-                                             TextureTarget target);
-        Bool ValidateTextureSubImageOffsets(SharedPtr<MG_State::GLState::ITextureObject> textureObject, Int xoffset,
-                                            Int width, Int yoffset = 0, Int height = 0, Int zoffset = 0, Int depth = 0);
-        Bool ValidateBaseInternalFormatMatch(TextureInternalFormat format1, TextureInternalFormat format2);
-    } // namespace TextureImpl
-} // namespace MobileGL::MG_Impl::GLImpl
+namespace MobileGL::MG_Impl::GLImpl::TextureImpl {
+    Bool ValidateTextureTarget(TextureTarget target);
+    Bool ValidateTextureUploadTarget(TextureUploadTarget textureUploadTarget);
+    Bool ValidateTextureName(Uint texture, Bool allowZero = false);
+    Bool ValidateTextureInputFormat(TextureInputFormat format);
+    Bool ValidateTexturePixelDataType(TexturePixelDataType texturePixelDataType);
+    Bool ValidateTextureLevelNumber(Int level);
+    Bool ValidateTextureSizeWithTextureUploadTarget(TextureUploadTarget target, GLsizei width, GLsizei height);
+    Bool ValidateTextureSizeRange(SizeT width, SizeT height, SizeT depth);
+    Bool ValidateTextureInternalFormat(TextureInternalFormat format);
+    Bool ValidateTextureBorderNumber(Int border);
+    Bool ValidateTextureInternalFormatCompatibleWithInput(TextureInputFormat format,
+                                                          TextureInternalFormat internalFormat,
+                                                          TexturePixelDataType type);
+    Bool ValidateTextureLevelWithUploadTarget(TextureUploadTarget target, Int level);
+    Bool ValidateTextureObject(SharedPtr<MG_State::GLState::ITextureObject> textureObject);
+    Bool ValidateTextureTargetUniformity(SharedPtr<MG_State::GLState::ITextureObject> textureObject,
+                                         TextureTarget target);
+    Bool ValidateTextureSubImageOffsets(SharedPtr<MG_State::GLState::ITextureObject> textureObject, Int xoffset,
+                                        Int width, Int yoffset = 0, Int height = 0, Int zoffset = 0, Int depth = 0);
+    Bool ValidateBaseInternalFormatMatch(TextureInternalFormat format1, TextureInternalFormat format2);
+} // namespace MobileGL::MG_Impl::GLImpl::TextureImpl

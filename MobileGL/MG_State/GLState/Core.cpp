@@ -10,436 +10,436 @@
 #include "MG_State/GLState/RenderbufferState/RenderbufferObject.h"
 #include "MG_State/EGLState/Core.h"
 
-namespace MobileGL {
-    namespace MG_State {
-        void Init() {
-            MGLOG_D("Initializing MobileGL State...");
-            pGLContext = new MG_State::GLState::GLContext();
-            pEGLContext = new MG_State::EGLState::EGLContext();
+namespace MobileGL::MG_State {
+    void Init() {
+        MGLOG_D("Initializing MobileGL State...");
+        pGLContext = MakeUnique<GLState::GLContext>();
+        pEGLContext = MakeUnique<EGLState::EGLContext>();
+    }
+
+    namespace GLState {
+        // Error
+        void GLContext::RecordError(ErrorCode code, UniquePtr<ErrorInfo> info) {
+            m_errorState.RecordError(code, Move(info));
         }
 
-        namespace GLState {
-            // Error
-            void GLContext::RecordError(ErrorCode code, SharedPtr<ErrorInfo> info) {
-                m_errorState.RecordError(code, info);
+        Bool GLContext::HasGLError() const {
+            return m_errorState.HasGLError();
+        }
+
+        Optional<const Error*> GLContext::PeekGLError() const {
+            return m_errorState.PeekGLError();
+        }
+
+        Optional<UniquePtr<Error>> GLContext::PopGLError() {
+            return Move(m_errorState.PopGLError());
+        }
+
+        Bool GLContext::HasNonGLError() const {
+            return m_errorState.HasNonGLError();
+        }
+
+        Optional<const Error*> GLContext::PeekNonGLError() const {
+            return m_errorState.PeekNonGLError();
+        }
+
+        Optional<UniquePtr<Error>> GLContext::PopNonGLError() {
+            return Move(m_errorState.PopNonGLError());
+        }
+
+        void GLContext::ClearErrors() {
+            m_errorState.Clear();
+        }
+
+        // Buffer
+        void GLContext::GenBufferNames(Uint number, Vector<Uint>& buffers) {
+            m_bufferState.GenerateNames(number, buffers);
+        }
+
+        const SharedPtr<BufferObject>& GLContext::GetBufferObject(Uint index) {
+            return m_bufferState.GetBufferObject(index);
+        }
+
+        BindingSlot<BufferObject>& GLContext::GetBufferBindingSlot(BufferTarget target) {
+            if (target == BufferTarget::Index) {
+                const auto& vao = m_vertexArrayState.GetBoundVertexArray();
+                MOBILEGL_ASSERT(vao != nullptr, "No VAO is currently bound when accessing index buffer binding slot.");
+                return vao->GetIndexBufferBindingSlot();
             }
 
-            Bool GLContext::HasGLError() const {
-                return m_errorState.HasGLError();
-            }
+            return m_bufferState.GetBindingSlot(target);
+        }
 
-            Optional<const Error> GLContext::PeekGLError() const {
-                return m_errorState.PeekGLError();
-            }
+        BindingSlotRange1D<BufferObject>& GLContext::GetBufferBindingPoint(BufferTarget target, Uint index) {
+            return m_bufferState.GetBindingPoint(target, index);
+        }
 
-            Optional<Error> GLContext::PopGLError() {
-                return m_errorState.PopGLError();
-            }
+        const SharedPtr<BufferObject>& GLContext::CreateBufferObject(Uint index) {
+            return m_bufferState.CreateBufferObject(index);
+        }
 
-            Bool GLContext::HasNonGLError() const {
-                return m_errorState.HasNonGLError();
-            }
+        void GLContext::MarkBufferObjectForDeletion(Uint index) {
+            if (ValidateBufferObject(index)) {
+                auto bufferObject = m_bufferState.GetBufferObject(index);
+                auto& vaos = m_vertexArrayState.GetAllVertexArrays();
+                for (auto& vao : vaos) {
+                    if (vao == nullptr) continue;
 
-            Optional<const Error> GLContext::PeekNonGLError() const {
-                return m_errorState.PeekNonGLError();
-            }
-
-            Optional<Error> GLContext::PopNonGLError() {
-                return m_errorState.PopNonGLError();
-            }
-
-            void GLContext::ClearErrors() {
-                m_errorState.Clear();
-            }
-
-            // Buffer
-            Vector<Uint> GLContext::GenBufferNames(Uint number) {
-                return m_bufferState.GenerateNames(number);
-            }
-
-            SharedPtr<BufferObject> GLContext::GetBufferObject(Uint index) {
-                return m_bufferState.GetBufferObject(index);
-            }
-
-            BindingSlot<BufferObject>& GLContext::GetBufferBindingSlot(BufferTarget target) {
-                if (target == BufferTarget::Index) {
-                    const auto& vao = m_vertexArrayState.GetBoundVertexArray();
-                    MOBILEGL_ASSERT(vao != nullptr,
-                                    "No VAO is currently bound when accessing index buffer binding slot.");
-                    return vao->GetIndexBufferBindingSlot();
-                }
-
-                return m_bufferState.GetBindingSlot(target);
-            }
-
-            BindingSlotRange1D<BufferObject>& GLContext::GetBufferBindingPoint(BufferTarget target, Uint index) {
-                return m_bufferState.GetBindingPoint(target, index);
-            }
-
-            SharedPtr<BufferObject> GLContext::CreateBufferObject(Uint index) {
-                return m_bufferState.CreateBufferObject(index);
-            }
-
-            void GLContext::MarkBufferObjectForDeletion(Uint index) {
-                if (ValidateBufferObject(index)) {
-                    auto bufferObject = m_bufferState.GetBufferObject(index);
-                    auto& vaos = m_vertexArrayState.GetAllVertexArrays();
-                    for (SizeT i = 0; i < vaos.size(); ++i) {
-                        auto vao = vaos[i];
-                        if (vao == nullptr) continue;
-
-                        if (vao->GetIndexBufferBindingSlot().GetBoundObject() == bufferObject) {
-                            vao->GetIndexBufferBindingSlot().Bind(nullptr);
-                        }
-                        for (SizeT j = 0; j < VertexArrayObject::MAX_VERTEX_ATTRIBS; ++j) {
-                            if (vao->GetAttribute(j).Buffer == bufferObject) {
-                                vao->BindAttributeBuffer(j, nullptr);
-                            }
+                    if (vao->GetIndexBufferBindingSlot().GetBoundObject() == bufferObject) {
+                        vao->GetIndexBufferBindingSlot().Bind(nullptr);
+                    }
+                    for (SizeT j = 0; j < VertexArrayObject::MAX_VERTEX_ATTRIBS; ++j) {
+                        if (vao->GetAttribute(j).Buffer == bufferObject) {
+                            vao->BindAttributeBuffer(j, nullptr);
                         }
                     }
                 }
-
-                m_bufferState.MarkBufferObjectForDeletion(index);
-            }
-
-            Bool GLContext::ValidateBufferName(Uint index) const {
-                return m_bufferState.ValidateName(index);
-            }
-
-            Bool GLContext::ValidateBufferObject(Uint index) const {
-                return m_bufferState.ValidateBufferObject(index);
-            }
-
-            // VertexArray
-            Vector<Uint> GLContext::GenVertexArrayNames(Uint number) {
-                return m_vertexArrayState.GenerateNames(number);
-            }
-
-            SharedPtr<VertexArrayObject> GLContext::GetVertexArrayObject(Uint index) {
-                return m_vertexArrayState.GetVertexArrayObject(index);
-            }
-
-            void GLContext::BindVertexArray(Uint index) {
-                m_vertexArrayState.Bind(index);
-            }
-
-            SharedPtr<VertexArrayObject> GLContext::CreateVertexArrayObject(Uint index) {
-                return m_vertexArrayState.CreateVertexArrayObject(index);
-            }
-
-            void GLContext::MarkVertexArrayForDeletion(Uint index) {
-                m_vertexArrayState.MarkVertexArrayForDeletion(index);
-            }
-
-            Bool GLContext::ValidateVertexArrayName(Uint index) const {
-                return m_vertexArrayState.ValidateName(index);
-            }
-
-            Bool GLContext::ValidateVertexArrayObject(Uint index) const {
-                return m_vertexArrayState.ValidateVertexArrayObject(index);
-            }
-
-            SharedPtr<VertexArrayObject> GLContext::GetBoundVertexArray() {
-                return m_vertexArrayState.GetBoundVertexArray();
-            }
-
-            // Texture
-            Vector<Uint> GLContext::GenTextureNames(Uint number) {
-                return m_textureState.GenerateNames(number);
-            }
-
-            SharedPtr<ITextureObject> GLContext::GetTextureObject(Uint index) {
-                return m_textureState.GetTextureObject(index);
-            }
-
-            SharedPtr<ITextureObject> GLContext::CreateTextureObject(Uint index, TextureTarget target) {
-                return m_textureState.CreateTextureObject(index, target);
-            }
-
-            void GLContext::MarkTextureObjectForDeletion(Uint index) {
-                m_textureState.MarkTextureObjectForDeletion(index);
-            }
-
-            TextureUnit& GLContext::GetTextureUnitObject(Int unit) {
-                return m_textureState.GetUnitObject(unit);
-            }
-
-            Bool GLContext::ValidateTextureName(Uint index) const {
-                return m_textureState.ValidateName(index);
-            }
-
-            Bool GLContext::ValidateTextureObject(Uint index) const {
-                return m_textureState.ValidateTextureObject(index);
-            }
-
-            Int GLContext::GetActiveTextureUnit() const {
-                return m_textureState.GetActiveTextureUnit();
-            }
-
-            void GLContext::SetActiveTextureUnit(Int unit) {
-                m_textureState.SetActiveTextureUnit(unit);
-            }
-
-            // Program
-            Uint GLContext::CreateProgram() {
-                return m_programState.CreateProgram();
-            }
-
-            Uint GLContext::CreateShader(const ShaderStage stage) {
-                return m_programState.CreateShader(stage);
-            }
-
-            void GLContext::MarkProgramForDeletion(const Uint index) {
-                return m_programState.MarkProgramObjectForDeletion(index);
-            }
-
-            void GLContext::MarkShaderForDeletion(const Uint index) {
-                return m_programState.MarkShaderObjectForDeletion(index);
-            }
-
-            Bool GLContext::ValidateProgramName(const Uint index) const {
-                return m_programState.ValidateProgramObject(index);
-            }
-
-            Bool GLContext::ValidateShaderName(const Uint index) const {
-                return m_programState.ValidateShaderObject(index);
-            }
-
-            SharedPtr<ProgramObject> GLContext::GetProgramObject(const Uint index) {
-                return m_programState.GetProgramObject(index);
-            }
-
-            SharedPtr<ShaderObject> GLContext::GetShaderObject(const Uint index) {
-                return m_programState.GetShaderObject(index);
-            }
-
-            void GLContext::UseProgram(Uint program) {
-                return m_programState.UseProgram(program);
-            }
-
-            SharedPtr<ProgramObject> GLContext::GetCurrentProgram() {
-                return m_programState.GetCurrentProgram();
-            }
-
-            // RenderState
-            Uint GLContext::GetRenderStateParametersVersion() const {
-                return m_renderState.GetVersion();
-            }
-
-            const RenderStateParameters& GLContext::GetRenderStateParameters() const {
-                return m_renderState.GetAllParameters();
             }
 
-            void GLContext::SetViewport(IntVec4 viewport) {
-                m_renderState.SetViewport(viewport);
-            }
-
-            const IntVec4& GLContext::GetViewport() const {
-                return m_renderState.GetViewport();
-            }
-
-            void GLContext::SetCapability(CapabilityInput cap, Bool enabled) {
-                m_renderState.SetCapability(cap, enabled);
-            }
-
-            Bool GLContext::IsCapabilityEnabled(CapabilityInput cap) const {
-                return m_renderState.IsCapabilityEnabled(cap);
-            }
-
-            void GLContext::SetCapabilityIndexed(CapabilityInput cap, Uint index, Bool enabled) {
-                m_renderState.SetCapabilityIndexed(cap, index, enabled);
-            }
-
-            Bool GLContext::IsCapabilityEnabledIndexed(CapabilityInput cap, Uint index) const {
-                return m_renderState.IsCapabilityEnabledIndexed(cap, index);
-            }
-
-            void GLContext::SetBlendFunc(BlendFactor srcRGB, BlendFactor dstRGB, BlendFactor srcAlpha,
-                                         BlendFactor dstAlpha) {
-                m_renderState.SetBlendFunc(srcRGB, dstRGB, srcAlpha, dstAlpha);
-            }
-
-            void GLContext::GetBlendFunc(BlendFactor& srcRGB, BlendFactor& dstRGB, BlendFactor& srcAlpha,
-                                         BlendFactor& dstAlpha) const {
-                m_renderState.GetBlendFunc(srcRGB, dstRGB, srcAlpha, dstAlpha);
-            }
-
-            void GLContext::SetBlendFuncIndexed(Uint index, BlendFactor srcRGB, BlendFactor dstRGB,
-                                                BlendFactor srcAlpha, BlendFactor dstAlpha) {
-                m_renderState.SetBlendFuncIndexed(index, srcRGB, dstRGB, srcAlpha, dstAlpha);
-            }
-
-            void GLContext::GetBlendFuncIndexed(Uint index, BlendFactor& srcRGB, BlendFactor& dstRGB,
-                                                BlendFactor& srcAlpha, BlendFactor& dstAlpha) const {
-                m_renderState.GetBlendFuncIndexed(index, srcRGB, dstRGB, srcAlpha, dstAlpha);
-            }
-
-            void GLContext::SetDepthFunc(DepthTestFunc func) {
-                m_renderState.SetDepthFunc(func);
-            }
-
-            DepthTestFunc GLContext::GetDepthFunc() const {
-                return m_renderState.GetDepthFunc();
-            }
-
-            void GLContext::SetDepthMask(Bool flag) {
-                m_renderState.SetDepthMask(flag);
-            }
-
-            Bool GLContext::GetDepthMask() const {
-                return m_renderState.GetDepthMask();
-            }
-
-            void GLContext::SetColorMask(BoolVec4 mask) {
-                m_renderState.SetColorMask(mask);
-            }
-
-            const BoolVec4 GLContext::GetColorMask() const {
-                return m_renderState.GetColorMask();
-            }
+            m_bufferState.MarkBufferObjectForDeletion(index);
+        }
 
-            void GLContext::SetClearColor(FloatVec4 color) {
-                m_renderState.SetClearColor(color);
-            }
-
-            const FloatVec4& GLContext::GetClearColor() const {
-                return m_renderState.GetClearColor();
-            }
-
-            void GLContext::SetClearDepth(Float depth) {
-                m_renderState.SetClearDepth(depth);
-            }
-
-            Float GLContext::GetClearDepth() const {
-                return m_renderState.GetClearDepth();
-            }
-
-            void GLContext::SetClearStencil(Int stencil) {
-                m_renderState.SetClearStencil(stencil);
-            }
-
-            Int GLContext::GetClearStencil() const {
-                return m_renderState.GetClearStencil();
-            }
-
-            void GLContext::SetPixelStoreParam(PixelStoreParam param, Int value) {
-                m_renderState.SetPixelStoreParam(param, value);
-            }
-
-            Int GLContext::GetPixelStoreParam(PixelStoreParam param) const {
-                return m_renderState.GetPixelStoreParam(param);
-            }
-
-            PixelStoreParameters GLContext::GetPixelStoreParameters(Bool isUnpack) const {
-                return m_renderState.GetPixelStoreParameters(isUnpack);
-            }
-
-            void GLContext::SetCullFaceMode(CullFaceMode mode) {
-                m_renderState.SetCullFaceMode(mode);
-            }
+        Bool GLContext::ValidateBufferName(Uint index) const {
+            return m_bufferState.ValidateName(index);
+        }
 
-            CullFaceMode GLContext::GetCullFaceMode() const {
-                return m_renderState.GetCullFaceMode();
-            }
+        Bool GLContext::ValidateBufferObject(Uint index) const {
+            return m_bufferState.ValidateBufferObject(index);
+        }
 
-            void GLContext::SetScissorBox(IntVec4 box) {
-                m_renderState.SetScissorBox(box);
-            }
+        // VertexArray
+        void GLContext::GenVertexArrayNames(Uint number, Vector<Uint>& vertexArrays) {
+            m_vertexArrayState.GenerateNames(number, vertexArrays);
+        }
 
-            const IntVec4& GLContext::GetScissorBox() const {
-                return m_renderState.GetScissorBox();
-            }
+        const SharedPtr<VertexArrayObject>& GLContext::GetVertexArrayObject(Uint index) {
+            return m_vertexArrayState.GetVertexArrayObject(index);
+        }
 
-            // Framebuffer
-            Vector<Uint> GLContext::GenFramebufferNames(Uint number) {
-                return m_framebufferState.GenerateNames(number);
-            }
+        void GLContext::BindVertexArray(Uint index) {
+            m_vertexArrayState.Bind(index);
+        }
 
-            SharedPtr<FramebufferObject> GLContext::GetFramebufferObject(Uint index) {
-                return m_framebufferState.GetFramebufferObject(index);
-            }
+        const SharedPtr<VertexArrayObject>& GLContext::CreateVertexArrayObject(Uint index) {
+            return m_vertexArrayState.CreateVertexArrayObject(index);
+        }
 
-            BindingSlot<FramebufferObject>& GLContext::GetFramebufferBindingSlot(FramebufferTarget target) {
-                return m_framebufferState.GetBindingSlot(target);
-            }
+        void GLContext::MarkVertexArrayForDeletion(Uint index) {
+            m_vertexArrayState.MarkVertexArrayForDeletion(index);
+        }
 
-            SharedPtr<FramebufferObject> GLContext::CreateFramebufferObject(Uint index) {
-                return m_framebufferState.CreateFramebufferObject(index);
-            }
+        Bool GLContext::ValidateVertexArrayName(Uint index) const {
+            return m_vertexArrayState.ValidateName(index);
+        }
 
-            void GLContext::MarkFramebufferObjectForDeletion(Uint index) {
-                m_framebufferState.MarkFramebufferObjectForDeletion(index);
-            }
+        Bool GLContext::ValidateVertexArrayObject(Uint index) const {
+            return m_vertexArrayState.ValidateVertexArrayObject(index);
+        }
 
-            Bool GLContext::ValidateFramebufferName(Uint index) const {
-                return m_framebufferState.ValidateName(index);
-            }
+        const SharedPtr<VertexArrayObject>& GLContext::GetBoundVertexArray() {
+            return m_vertexArrayState.GetBoundVertexArray();
+        }
 
-            Bool GLContext::ValidateFramebufferObject(Uint index) const {
-                return m_framebufferState.ValidateFramebufferObject(index);
-            }
+        // Texture
+        void GLContext::GenTextureNames(Uint number, Vector<Uint>& textures) {
+            m_textureState.GenerateNames(number, textures);
+        }
 
-            // Sampler
-            Vector<Uint> GLContext::GenSamplerNames(Uint number) {
-                return m_samplerState.GenerateNames(number);
-            }
+        const SharedPtr<ITextureObject>& GLContext::GetTextureObject(Uint index) {
+            return m_textureState.GetTextureObject(index);
+        }
 
-            SharedPtr<SamplerObject> GLContext::GetSamplerObject(Uint index) {
-                return m_samplerState.GetSamplerObject(index);
-            }
+        const SharedPtr<ITextureObject>& GLContext::CreateTextureObject(Uint index, TextureTarget target) {
+            return m_textureState.CreateTextureObject(index, target);
+        }
 
-            SharedPtr<SamplerObject> GLContext::CreateSamplerObject(Uint index) {
-                return m_samplerState.CreateSamplerObject(index);
-            }
+        void GLContext::MarkTextureObjectForDeletion(Uint index) {
+            m_textureState.MarkTextureObjectForDeletion(index);
+        }
 
-            void GLContext::MarkSamplerObjectForDeletion(Uint index) {
-                // Unbind the sampler from all texture units
-                if (ValidateSamplerObject(index)) {
-                    auto sampler = m_samplerState.GetSamplerObject(index);
-                    for (Int unit = 0; unit < TextureState::MAX_TEXTURE_IMAGE_UNITS; ++unit) {
-                        auto& textureUnit = m_textureState.GetUnitObject(unit);
-                        if (textureUnit.GetSamplerObject() == sampler) {
-                            textureUnit.SetSamplerObject(nullptr);
-                        }
+        TextureUnit& GLContext::GetTextureUnitObject(Int unit) {
+            return m_textureState.GetUnitObject(unit);
+        }
+
+        Bool GLContext::ValidateTextureName(Uint index) const {
+            return m_textureState.ValidateName(index);
+        }
+
+        Bool GLContext::ValidateTextureObject(Uint index) const {
+            return m_textureState.ValidateTextureObject(index);
+        }
+
+        Int GLContext::GetActiveTextureUnit() const {
+            return m_textureState.GetActiveTextureUnit();
+        }
+
+        void GLContext::SetActiveTextureUnit(Int unit) {
+            m_textureState.SetActiveTextureUnit(unit);
+        }
+
+        // Program
+        Uint GLContext::CreateProgram() {
+            return m_programState.CreateProgram();
+        }
+
+        Uint GLContext::CreateShader(const ShaderStage stage) {
+            return m_programState.CreateShader(stage);
+        }
+
+        void GLContext::MarkProgramForDeletion(const Uint index) {
+            return m_programState.MarkProgramObjectForDeletion(index);
+        }
+
+        void GLContext::MarkShaderForDeletion(const Uint index) {
+            return m_programState.MarkShaderObjectForDeletion(index);
+        }
+
+        Bool GLContext::ValidateProgramName(const Uint index) const {
+            return m_programState.ValidateProgramObject(index);
+        }
+
+        Bool GLContext::ValidateShaderName(const Uint index) const {
+            return m_programState.ValidateShaderObject(index);
+        }
+
+        const SharedPtr<ProgramObject>& GLContext::GetProgramObject(const Uint index) {
+            return m_programState.GetProgramObject(index);
+        }
+
+        const SharedPtr<ShaderObject>& GLContext::GetShaderObject(const Uint index) {
+            return m_programState.GetShaderObject(index);
+        }
+
+        void GLContext::UseProgram(Uint program) {
+            return m_programState.UseProgram(program);
+        }
+
+        const SharedPtr<ProgramObject>& GLContext::GetCurrentProgram() {
+            return m_programState.GetCurrentProgram();
+        }
+
+        // RenderState
+        Uint GLContext::GetRenderStateParametersVersion() const {
+            return m_renderState.GetVersion();
+        }
+
+        const RenderStateParameters& GLContext::GetRenderStateParameters() const {
+            return m_renderState.GetAllParameters();
+        }
+
+        void GLContext::SetViewport(IntVec4 viewport) {
+            m_renderState.SetViewport(viewport);
+        }
+
+        const IntVec4& GLContext::GetViewport() const {
+            return m_renderState.GetViewport();
+        }
+
+        void GLContext::SetCapability(CapabilityInput cap, Bool enabled) {
+            m_renderState.SetCapability(cap, enabled);
+        }
+
+        Bool GLContext::IsCapabilityEnabled(CapabilityInput cap) const {
+            return m_renderState.IsCapabilityEnabled(cap);
+        }
+
+        void GLContext::SetCapabilityIndexed(CapabilityInput cap, Uint index, Bool enabled) {
+            m_renderState.SetCapabilityIndexed(cap, index, enabled);
+        }
+
+        Bool GLContext::IsCapabilityEnabledIndexed(CapabilityInput cap, Uint index) const {
+            return m_renderState.IsCapabilityEnabledIndexed(cap, index);
+        }
+
+        void GLContext::SetBlendFunc(BlendFactor srcRGB, BlendFactor dstRGB, BlendFactor srcAlpha,
+                                     BlendFactor dstAlpha) {
+            m_renderState.SetBlendFunc(srcRGB, dstRGB, srcAlpha, dstAlpha);
+        }
+
+        void GLContext::GetBlendFunc(BlendFactor& srcRGB, BlendFactor& dstRGB, BlendFactor& srcAlpha,
+                                     BlendFactor& dstAlpha) const {
+            m_renderState.GetBlendFunc(srcRGB, dstRGB, srcAlpha, dstAlpha);
+        }
+
+        void GLContext::SetBlendFuncIndexed(Uint index, BlendFactor srcRGB, BlendFactor dstRGB, BlendFactor srcAlpha,
+                                            BlendFactor dstAlpha) {
+            m_renderState.SetBlendFuncIndexed(index, srcRGB, dstRGB, srcAlpha, dstAlpha);
+        }
+
+        void GLContext::GetBlendFuncIndexed(Uint index, BlendFactor& srcRGB, BlendFactor& dstRGB, BlendFactor& srcAlpha,
+                                            BlendFactor& dstAlpha) const {
+            m_renderState.GetBlendFuncIndexed(index, srcRGB, dstRGB, srcAlpha, dstAlpha);
+        }
+
+        void GLContext::SetDepthFunc(DepthTestFunc func) {
+            m_renderState.SetDepthFunc(func);
+        }
+
+        DepthTestFunc GLContext::GetDepthFunc() const {
+            return m_renderState.GetDepthFunc();
+        }
+
+        void GLContext::SetDepthMask(Bool flag) {
+            m_renderState.SetDepthMask(flag);
+        }
+
+        Bool GLContext::GetDepthMask() const {
+            return m_renderState.GetDepthMask();
+        }
+
+        void GLContext::SetColorMask(BoolVec4 mask) {
+            m_renderState.SetColorMask(mask);
+        }
+
+        BoolVec4 GLContext::GetColorMask() const {
+            return m_renderState.GetColorMask();
+        }
+
+        void GLContext::SetClearColor(FloatVec4 color) {
+            m_renderState.SetClearColor(color);
+        }
+
+        const FloatVec4& GLContext::GetClearColor() const {
+            return m_renderState.GetClearColor();
+        }
+
+        void GLContext::SetClearDepth(Float depth) {
+            m_renderState.SetClearDepth(depth);
+        }
+
+        Float GLContext::GetClearDepth() const {
+            return m_renderState.GetClearDepth();
+        }
+
+        void GLContext::SetClearStencil(Int stencil) {
+            m_renderState.SetClearStencil(stencil);
+        }
+
+        Int GLContext::GetClearStencil() const {
+            return m_renderState.GetClearStencil();
+        }
+
+        void GLContext::SetPixelStoreParam(PixelStoreParam param, Int value) {
+            m_renderState.SetPixelStoreParam(param, value);
+        }
+
+        Int GLContext::GetPixelStoreParam(PixelStoreParam param) const {
+            return m_renderState.GetPixelStoreParam(param);
+        }
+
+        PixelStoreParameters GLContext::GetPixelStoreParameters(Bool isUnpack) const {
+            return m_renderState.GetPixelStoreParameters(isUnpack);
+        }
+
+        void GLContext::SetCullFaceMode(CullFaceMode mode) {
+            m_renderState.SetCullFaceMode(mode);
+        }
+
+        CullFaceMode GLContext::GetCullFaceMode() const {
+            return m_renderState.GetCullFaceMode();
+        }
+
+        void GLContext::SetScissorBox(IntVec4 box) {
+            m_renderState.SetScissorBox(box);
+        }
+
+        const IntVec4& GLContext::GetScissorBox() const {
+            return m_renderState.GetScissorBox();
+        }
+
+        // Framebuffer
+        void GLContext::GenFramebufferNames(Uint number, Vector<Uint>& framebuffers) {
+            m_framebufferState.GenerateNames(number, framebuffers);
+        }
+
+        const SharedPtr<FramebufferObject>& GLContext::GetFramebufferObject(Uint index) {
+            return m_framebufferState.GetFramebufferObject(index);
+        }
+
+        BindingSlot<FramebufferObject>& GLContext::GetFramebufferBindingSlot(FramebufferTarget target) {
+            return m_framebufferState.GetBindingSlot(target);
+        }
+
+        const SharedPtr<FramebufferObject>& GLContext::CreateFramebufferObject(Uint index) {
+            return m_framebufferState.CreateFramebufferObject(index);
+        }
+
+        void GLContext::MarkFramebufferObjectForDeletion(Uint index) {
+            m_framebufferState.MarkFramebufferObjectForDeletion(index);
+        }
+
+        Bool GLContext::ValidateFramebufferName(Uint index) const {
+            return m_framebufferState.ValidateName(index);
+        }
+
+        Bool GLContext::ValidateFramebufferObject(Uint index) const {
+            return m_framebufferState.ValidateFramebufferObject(index);
+        }
+
+        // Sampler
+        void GLContext::GenSamplerNames(Uint number, Vector<Uint>& samplers) {
+            m_samplerState.GenerateNames(number, samplers);
+        }
+
+        const SharedPtr<SamplerObject>& GLContext::GetSamplerObject(Uint index) {
+            return m_samplerState.GetSamplerObject(index);
+        }
+
+        const SharedPtr<SamplerObject>& GLContext::CreateSamplerObject(Uint index) {
+            return m_samplerState.CreateSamplerObject(index);
+        }
+
+        void GLContext::MarkSamplerObjectForDeletion(Uint index) {
+            // Unbind the sampler from all texture units
+            if (ValidateSamplerObject(index)) {
+                auto sampler = m_samplerState.GetSamplerObject(index);
+                for (Int unit = 0; unit < TextureState::MAX_TEXTURE_IMAGE_UNITS; ++unit) {
+                    auto& textureUnit = m_textureState.GetUnitObject(unit);
+                    if (textureUnit.GetSamplerObject() == sampler) {
+                        textureUnit.SetSamplerObject(nullptr);
                     }
                 }
-                m_samplerState.MarkSamplerObjectForDeletion(index);
             }
+            m_samplerState.MarkSamplerObjectForDeletion(index);
+        }
 
-            Bool GLContext::ValidateSamplerName(Uint index) const {
-                return m_samplerState.ValidateName(index);
-            }
+        Bool GLContext::ValidateSamplerName(Uint index) const {
+            return m_samplerState.ValidateName(index);
+        }
 
-            Bool GLContext::ValidateSamplerObject(Uint index) const {
-                return m_samplerState.ValidateSamplerObject(index);
-            }
+        Bool GLContext::ValidateSamplerObject(Uint index) const {
+            return m_samplerState.ValidateSamplerObject(index);
+        }
 
-            // Renderbuffer
-            Vector<Uint> GLContext::GenRenderbufferNames(Uint number) {
-                return m_renderbufferState.GenerateNames(number);
-            }
+        // Renderbuffer
+        void GLContext::GenRenderbufferNames(Uint number, Vector<Uint>& renderbuffers) {
+            m_renderbufferState.GenerateNames(number, renderbuffers);
+        }
 
-            SharedPtr<RenderbufferObject> GLContext::GetRenderbufferObject(Uint index) {
-                return m_renderbufferState.GetRenderbufferObject(index);
-            }
+        const SharedPtr<RenderbufferObject>& GLContext::GetRenderbufferObject(Uint index) {
+            return m_renderbufferState.GetRenderbufferObject(index);
+        }
 
-            BindingSlot<RenderbufferObject>& GLContext::GetRenderbufferBindingSlot(RenderbufferTarget target) {
-                return m_renderbufferState.GetBindingSlot(target);
-            }
+        BindingSlot<RenderbufferObject>& GLContext::GetRenderbufferBindingSlot(RenderbufferTarget target) {
+            return m_renderbufferState.GetBindingSlot(target);
+        }
 
-            SharedPtr<RenderbufferObject> GLContext::CreateRenderbufferObject(Uint index) {
-                return m_renderbufferState.CreateRenderbufferObject(index);
-            }
+        const SharedPtr<RenderbufferObject>& GLContext::CreateRenderbufferObject(Uint index) {
+            return m_renderbufferState.CreateRenderbufferObject(index);
+        }
 
-            void GLContext::MarkRenderbufferObjectForDeletion(Uint index) {
-                m_renderbufferState.MarkRenderbufferObjectForDeletion(index);
-            }
+        void GLContext::MarkRenderbufferObjectForDeletion(Uint index) {
+            m_renderbufferState.MarkRenderbufferObjectForDeletion(index);
+        }
 
-            Bool GLContext::ValidateRenderbufferName(Uint index) const {
-                return m_renderbufferState.ValidateName(index);
-            }
-        } // namespace GLState
+        Bool GLContext::ValidateRenderbufferName(Uint index) const {
+            return m_renderbufferState.ValidateName(index);
+        }
 
-        GLState::GLContext* pGLContext;
-    } // namespace MG_State
-} // namespace MobileGL
+        Bool GLContext::ValidateRenderbufferObject(Uint index) const {
+            return m_renderbufferState.ValidateRenderbufferObject(index);
+        }
+    } // namespace GLState
+
+    UniquePtr<GLState::GLContext> pGLContext;
+} // namespace MobileGL::MG_State

@@ -11,27 +11,23 @@
 #include <MG_Util/Miscellany/IndexGenerator.h>
 #include "RenderbufferObject.h"
 
-namespace MobileGL {
-    namespace MG_State {
-        namespace GLState {
-            class RenderbufferState {
-            public:
-                RenderbufferState();
+namespace MobileGL::MG_State::GLState {
+    class RenderbufferState {
+    public:
+        RenderbufferState();
 
-                SharedPtr<RenderbufferObject> GetRenderbufferObject(Uint index);
-                Vector<Uint> GenerateNames(Uint number);
-                SharedPtr<RenderbufferObject> CreateRenderbufferObject(Uint index);
-                BindingSlot<RenderbufferObject>& GetBindingSlot(RenderbufferTarget target);
-                void MarkRenderbufferObjectForDeletion(Uint index);
-                Bool ValidateName(Uint index) const;
-                Bool ValidateRenderbufferObject(Uint index) const;
+        const SharedPtr<RenderbufferObject>& GetRenderbufferObject(Uint index);
+        void GenerateNames(Uint number, Vector<Uint>& renderbuffers);
+        const SharedPtr<RenderbufferObject>& CreateRenderbufferObject(Uint index);
+        BindingSlot<RenderbufferObject>& GetBindingSlot(RenderbufferTarget target);
+        void MarkRenderbufferObjectForDeletion(Uint index);
+        Bool ValidateName(Uint index) const;
+        Bool ValidateRenderbufferObject(Uint index) const;
 
-            private:
-                UnorderedMap<Uint, SharedPtr<RenderbufferObject>> m_renderbufferObjects;
-                IndexGenerator<Uint> m_indexGenerator;
-                Array<BindingSlot<RenderbufferObject>, static_cast<SizeT>(RenderbufferTarget::RenderbufferTargetCount)>
-                    m_bindingSlots;
-            };
-        } // namespace GLState
-    } // namespace MG_State
-} // namespace MobileGL
+    private:
+        UnorderedMap<Uint, SharedPtr<RenderbufferObject>> m_renderbufferObjects;
+        IndexGenerator<Uint> m_indexGenerator;
+        Array<BindingSlot<RenderbufferObject>, static_cast<SizeT>(RenderbufferTarget::RenderbufferTargetCount)>
+            m_bindingSlots;
+    };
+} // namespace MobileGL::MG_State::GLState
