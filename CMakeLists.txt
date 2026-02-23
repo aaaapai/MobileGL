@@ -108,6 +108,8 @@ set(SPIRV_CROSS_STATIC         ON  CACHE BOOL "Prefer static libs" FORCE)
 add_subdirectory(3rdparty/glslang)
 add_subdirectory(3rdparty/SPIRV-Cross)
 add_subdirectory(3rdparty/VulkanMemoryAllocator)
+add_subdirectory(3rdparty/Vulkan-Headers)
+add_subdirectory(3rdparty/Vulkan-Utility-Libraries)
 
 set(XXHASH_BUILD_XXHSUM OFF)
 option(BUILD_SHARED_LIBS OFF)
@@ -261,6 +263,7 @@ set(MOBILEGL_LINK_LIBRARIES
         SPIRV-Tools
         xxHash::xxhash
         GPUOpen::VulkanMemoryAllocator
+        Vulkan::UtilityHeaders
 )
 
 set(MOBILEGL_COMPILE_DEF
