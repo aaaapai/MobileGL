@@ -99,7 +99,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
 
             const auto& backendBufferIt = g_backendBufferObjects.find(bufferObject.get());
             Bool exist = (backendBufferIt != g_backendBufferObjects.end());
-            auto& backendObj = exist ? backendBufferIt->second : g_backendBufferObjects[bufferObject.get()];
+            auto& backendObj = exist ? backendBufferIt->second : g_backendBufferObjects.GetOrCreate(bufferObject);
             if (!exist) {
                 backendObj = MakeShared<BackendBufferObject>();
             }
@@ -110,6 +110,8 @@ namespace MobileGL::MG_Backend::DirectGLES {
 #ifdef TRACY_ENABLE
             ZoneScopedC(TRACY_ZONECOLOR_BACKEND);
 #endif
+            g_backendBufferObjects.CollectGarbageIfNeeded();
+
             // All buffers we need are:
             //   1.VBO 2.IBO (if needed) 3.UBO 4.IndirectBuffer (if needed) 5.SSBO (TODO)
             // PBO is not needed since it should be handled in frontend
@@ -163,6 +165,8 @@ namespace MobileGL::MG_Backend::DirectGLES {
 #ifdef TRACY_ENABLE
             ZoneScopedC(TRACY_ZONECOLOR_BACKEND);
 #endif
+            g_backendVertexArrayObjects.CollectGarbageIfNeeded();
+
             auto& currentVAOObject = MG_State::pGLContext->GetBoundVertexArray();
             if (!currentVAOObject) {
                 MGLOG_E("No VAO is currently bound, cannot sync current VAO.");
@@ -171,7 +175,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
 
             const auto& backendVAOIt = g_backendVertexArrayObjects.find(currentVAOObject.get());
             Bool exist = (backendVAOIt != g_backendVertexArrayObjects.end());
-            auto& backendObj = exist ? backendVAOIt->second : g_backendVertexArrayObjects[currentVAOObject.get()];
+            auto& backendObj = exist ? backendVAOIt->second : g_backendVertexArrayObjects.GetOrCreate(currentVAOObject);
             if (!exist) {
                 backendObj = MakeShared<VertexArrayImpl::BackendVertexArrayObject>();
             }
@@ -187,7 +191,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
 #endif
             const auto& backendTextureIt = g_backendTextureObjects.find(textureObject.get());
             Bool exist = (backendTextureIt != g_backendTextureObjects.end());
-            auto& backendObj = exist ? backendTextureIt->second : g_backendTextureObjects[textureObject.get()];
+            auto& backendObj = exist ? backendTextureIt->second : g_backendTextureObjects.GetOrCreate(textureObject);
             if (!exist) {
                 backendObj = MakeShared<BackendTextureObject>();
             }
@@ -202,6 +206,8 @@ namespace MobileGL::MG_Backend::DirectGLES {
 #ifdef TRACY_ENABLE
             ZoneScopedC(TRACY_ZONECOLOR_BACKEND);
 #endif
+            g_backendTextureObjects.CollectGarbageIfNeeded();
+
             // All textures we need are:
             //   1. textures bound to texture units (TODO: only sync ones that are used in current program)
             //   2. textures used in current FBO
@@ -236,6 +242,10 @@ namespace MobileGL::MG_Backend::DirectGLES {
 #ifdef TRACY_ENABLE
             ZoneScopedC(TRACY_ZONECOLOR_BACKEND);
 #endif
+            g_backendFramebufferObjects.CollectGarbageIfNeeded();
+            TextureImpl::g_backendTextureObjects.CollectGarbageIfNeeded();
+            RenderbufferImpl::g_backendRenderbufferObjects.CollectGarbageIfNeeded();
+
             const FramebufferTarget fboTargets[] = {FramebufferTarget::Draw, FramebufferTarget::Read};
 
             MG_State::GLState::FramebufferObject* lastUpdatedFBO = nullptr;
@@ -264,7 +274,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
 
                 const auto& backendFBOIt = g_backendFramebufferObjects.find(currentFBO.get());
                 Bool exist = (backendFBOIt != g_backendFramebufferObjects.end());
-                auto& backendObj = exist ? backendFBOIt->second : g_backendFramebufferObjects[currentFBO.get()];
+                auto& backendObj = exist ? backendFBOIt->second : g_backendFramebufferObjects.GetOrCreate(currentFBO);
                 if (!exist) {
                     backendObj = MakeShared<BackendFramebufferObject>();
                 }
@@ -458,6 +468,9 @@ namespace MobileGL::MG_Backend::DirectGLES {
 #ifdef TRACY_ENABLE
             ZoneScopedC(TRACY_ZONECOLOR_BACKEND);
 #endif
+            g_backendProgramObjects.CollectGarbageIfNeeded();
+            SamplerImpl::g_backendSamplerObjects.CollectGarbageIfNeeded();
+
             auto& currentProgram = MG_State::pGLContext->GetCurrentProgram();
             if (!currentProgram || !currentProgram->GetLinkStatus()) {
                 g_GLESFuncs.glUseProgram(0);
@@ -465,7 +478,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
             }
             const auto& backendProgramIt = g_backendProgramObjects.find(currentProgram.get());
             Bool exist = (backendProgramIt != g_backendProgramObjects.end());
-            auto& backendObj = exist ? backendProgramIt->second : g_backendProgramObjects[currentProgram.get()];
+            auto& backendObj = exist ? backendProgramIt->second : g_backendProgramObjects.GetOrCreate(currentProgram);
             if (!exist) {
                 backendObj = MakeShared<BackendProgramObjectImpl>();
                 backendObj->SyncToBackend(currentProgram);
@@ -658,7 +671,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
                                 SamplerImpl::g_backendSamplerObjects.find(samplerObject.get());
                             Bool exist = (backendSamplerIt != SamplerImpl::g_backendSamplerObjects.end());
                             auto& backendObj = exist ? backendSamplerIt->second
-                                                     : SamplerImpl::g_backendSamplerObjects[samplerObject.get()];
+                                                     : SamplerImpl::g_backendSamplerObjects.GetOrCreate(samplerObject);
                             if (!exist) {
                                 backendObj = MakeShared<SamplerImpl::BackendSamplerObject>();
                             }
@@ -991,7 +1004,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
             const auto& backendTextureIt = TextureImpl::g_backendTextureObjects.find(textureObject.get());
             Bool exist = (backendTextureIt != TextureImpl::g_backendTextureObjects.end());
             auto& backendObj =
-                exist ? backendTextureIt->second : TextureImpl::g_backendTextureObjects[textureObject.get()];
+                exist ? backendTextureIt->second : TextureImpl::g_backendTextureObjects.GetOrCreate(textureObject);
             if (!exist) {
                 backendObj = MakeShared<TextureImpl::BackendTextureObject>();
             }
@@ -1494,7 +1507,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
             return;
         }
 
-        auto* textureMipmapObject = dynamic_cast<MG_State::GLState::TextureObjectMipmap*>(textureObject.get());
+        auto* textureMipmapObject = static_cast<MG_State::GLState::TextureObjectMipmap*>(textureObject.get());
 
         auto& levelRange = textureMipmapObject->GetLevelRange();
         MGLOG_D("GetTexImage: mipmap level range = [%d, %d)", levelRange.x(), levelRange.y());
