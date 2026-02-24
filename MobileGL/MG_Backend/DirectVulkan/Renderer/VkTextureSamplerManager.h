@@ -13,6 +13,7 @@
 #include <Includes.h>
 #include <MG_State/GLState/SamplerState/SamplerObject.h>
 #include <MG_State/GLState/TextureState/TextureObject.h>
+#include <vk_mem_alloc.h>
 
 namespace MobileGL::MG_State::GLState {
 class ITextureObject;
@@ -25,6 +26,7 @@ public:
     struct InitInfo {
         VkDevice device = VK_NULL_HANDLE;
         VkPhysicalDevice physicalDevice = VK_NULL_HANDLE;
+        VmaAllocator allocator = nullptr;
         VkCommandPool commandPool = VK_NULL_HANDLE;
         VkQueue graphicsQueue = VK_NULL_HANDLE;
         const VulkanRendererConfig* config = nullptr;
@@ -40,7 +42,7 @@ public:
 private:
     struct TextureResource {
         VkImage image = VK_NULL_HANDLE;
-        VkDeviceMemory memory = VK_NULL_HANDLE;
+        VmaAllocation allocation = nullptr;
         VkImageView view = VK_NULL_HANDLE;
         VkImageLayout layout = VK_IMAGE_LAYOUT_UNDEFINED;
         VkExtent2D extent = {0, 0};
@@ -64,7 +66,6 @@ private:
     static Bool ResolveLevel0(const MG_State::GLState::ITextureObject& texture, TextureUploadTarget& outTarget,
                               IntVec3& outTexelSize, SizeT& outByteSize);
     static VkFormat ResolveTextureFormat(TextureInternalFormat format);
-    Uint32 FindMemoryType(Uint32 typeFilter, VkMemoryPropertyFlags properties) const;
     Uint64 BuildSamplerKey(const MG_State::GLState::SamplerObject& sampler) const;
 
     VkSampler GetOrCreateSampler(const MG_State::GLState::SamplerObject& sampler);
@@ -75,6 +76,7 @@ private:
 
     VkDevice m_device = VK_NULL_HANDLE;
     VkPhysicalDevice m_physicalDevice = VK_NULL_HANDLE;
+    VmaAllocator m_allocator = nullptr;
     VkCommandPool m_commandPool = VK_NULL_HANDLE;
     VkQueue m_graphicsQueue = VK_NULL_HANDLE;
     const VulkanRendererConfig* m_config = nullptr;

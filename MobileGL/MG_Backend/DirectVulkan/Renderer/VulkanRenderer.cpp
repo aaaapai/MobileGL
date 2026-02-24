@@ -218,7 +218,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         MOBILEGL_ASSERT(m_textureSamplerManager != nullptr, "VkTextureSamplerManager creation failed.");
         auto succeeded = false;
         succeeded =
-            m_textureSamplerManager->Initialize({m_device, m_physicalDevice.handle, m_commandPool, m_graphicsQueue,
+            m_textureSamplerManager->Initialize({m_device, m_physicalDevice.handle, m_allocator, m_commandPool, m_graphicsQueue,
                                                  &m_config});
         MOBILEGL_ASSERT(succeeded, "VkTextureSamplerManager initialization failed.");
 

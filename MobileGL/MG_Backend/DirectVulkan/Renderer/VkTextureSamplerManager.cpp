@@ -16,12 +16,13 @@ namespace MobileGL::MG_Backend::DirectVulkan {
 
         m_device = initInfo.device;
         m_physicalDevice = initInfo.physicalDevice;
+        m_allocator = initInfo.allocator;
         m_commandPool = initInfo.commandPool;
         m_graphicsQueue = initInfo.graphicsQueue;
         m_config = initInfo.config;
 
-        MOBILEGL_ASSERT(m_device != VK_NULL_HANDLE && m_physicalDevice != VK_NULL_HANDLE && m_commandPool != VK_NULL_HANDLE &&
-                            m_graphicsQueue != VK_NULL_HANDLE && m_config != nullptr,
+        MOBILEGL_ASSERT(m_device != VK_NULL_HANDLE && m_physicalDevice != VK_NULL_HANDLE && m_allocator != nullptr &&
+                            m_commandPool != VK_NULL_HANDLE && m_graphicsQueue != VK_NULL_HANDLE && m_config != nullptr,
                         "VkTextureSamplerManager::Initialize failed: invalid initialization info");
 
         return true;
@@ -43,6 +44,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
 
         m_device = VK_NULL_HANDLE;
         m_physicalDevice = VK_NULL_HANDLE;
+        m_allocator = nullptr;
         m_commandPool = VK_NULL_HANDLE;
         m_graphicsQueue = VK_NULL_HANDLE;
         m_config = nullptr;
@@ -156,17 +158,11 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         imageInfo.usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
         imageInfo.samples = VK_SAMPLE_COUNT_1_BIT;
         imageInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-        VK_VERIFY(vkCreateImage(m_device, &imageInfo, nullptr, &resource.image), "vkCreateImage(texture)");
-
-        VkMemoryRequirements requirements{};
-        vkGetImageMemoryRequirements(m_device, resource.image, &requirements);
-
-        VkMemoryAllocateInfo allocInfo{};
-        allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
-        allocInfo.allocationSize = requirements.size;
-        allocInfo.memoryTypeIndex = FindMemoryType(requirements.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
-        VK_VERIFY(vkAllocateMemory(m_device, &allocInfo, nullptr, &resource.memory), "vkAllocateMemory(texture)");
-        VK_VERIFY(vkBindImageMemory(m_device, resource.image, resource.memory, 0), "vkBindImageMemory(texture)");
+        VmaAllocationCreateInfo allocationInfo{};
+        allocationInfo.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
+        allocationInfo.requiredFlags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
+        VK_VERIFY(vmaCreateImage(m_allocator, &imageInfo, &allocationInfo, &resource.image, &resource.allocation, nullptr),
+                  "vmaCreateImage(texture)");
 
         VkImageViewCreateInfo viewInfo{};
         viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
@@ -197,31 +193,24 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         }
 
         VkBuffer stagingBuffer = VK_NULL_HANDLE;
-        VkDeviceMemory stagingMemory = VK_NULL_HANDLE;
+        VmaAllocation stagingAllocation = nullptr;
 
         VkBufferCreateInfo bufferInfo{};
         bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
         bufferInfo.size = byteSize;
         bufferInfo.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
         bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-        VK_VERIFY(vkCreateBuffer(m_device, &bufferInfo, nullptr, &stagingBuffer), "vkCreateBuffer(staging texture)");
-
-        VkMemoryRequirements requirements{};
-        vkGetBufferMemoryRequirements(m_device, stagingBuffer, &requirements);
-
-        VkMemoryAllocateInfo allocInfo{};
-        allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
-        allocInfo.allocationSize = requirements.size;
-        allocInfo.memoryTypeIndex =
-            FindMemoryType(requirements.memoryTypeBits,
-                           VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
-        VK_VERIFY(vkAllocateMemory(m_device, &allocInfo, nullptr, &stagingMemory), "vkAllocateMemory(staging texture)");
-        VK_VERIFY(vkBindBufferMemory(m_device, stagingBuffer, stagingMemory, 0), "vkBindBufferMemory(staging texture)");
+        VmaAllocationCreateInfo stagingAllocationInfo{};
+        stagingAllocationInfo.usage = VMA_MEMORY_USAGE_AUTO_PREFER_HOST;
+        stagingAllocationInfo.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT;
+        stagingAllocationInfo.requiredFlags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
+        VK_VERIFY(vmaCreateBuffer(m_allocator, &bufferInfo, &stagingAllocationInfo, &stagingBuffer, &stagingAllocation, nullptr),
+                  "vmaCreateBuffer(staging texture)");
 
         void* mapped = nullptr;
-        VK_VERIFY(vkMapMemory(m_device, stagingMemory, 0, byteSize, 0, &mapped), "vkMapMemory(staging texture)");
+        VK_VERIFY(vmaMapMemory(m_allocator, stagingAllocation, &mapped), "vmaMapMemory(staging texture)");
         std::memcpy(mapped, source, byteSize);
-        vkUnmapMemory(m_device, stagingMemory);
+        vmaUnmapMemory(m_allocator, stagingAllocation);
 
         const Bool ok = ExecuteImmediate([&](VkCommandBuffer commandBuffer) {
             VkImageMemoryBarrier toTransferDst{};
@@ -272,8 +261,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                                  0, nullptr, 0, nullptr, 1, &toSampled);
         });
 
-        vkDestroyBuffer(m_device, stagingBuffer, nullptr);
-        vkFreeMemory(m_device, stagingMemory, nullptr);
+        vmaDestroyBuffer(m_allocator, stagingBuffer, stagingAllocation);
 
         if (!ok) {
             return false;
@@ -316,15 +304,12 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         if (m_device != VK_NULL_HANDLE && resource.view != VK_NULL_HANDLE) {
             vkDestroyImageView(m_device, resource.view, nullptr);
         }
-        if (m_device != VK_NULL_HANDLE && resource.image != VK_NULL_HANDLE) {
-            vkDestroyImage(m_device, resource.image, nullptr);
-        }
-        if (m_device != VK_NULL_HANDLE && resource.memory != VK_NULL_HANDLE) {
-            vkFreeMemory(m_device, resource.memory, nullptr);
+        if (m_allocator != nullptr && resource.image != VK_NULL_HANDLE && resource.allocation != nullptr) {
+            vmaDestroyImage(m_allocator, resource.image, resource.allocation);
         }
         resource.view = VK_NULL_HANDLE;
         resource.image = VK_NULL_HANDLE;
-        resource.memory = VK_NULL_HANDLE;
+        resource.allocation = nullptr;
         resource.layout = VK_IMAGE_LAYOUT_UNDEFINED;
         resource.extent = {0, 0};
         resource.format = VK_FORMAT_UNDEFINED;
@@ -357,19 +342,6 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         default:
             return VK_FORMAT_UNDEFINED;
         }
-    }
-
-    Uint32 VkTextureSamplerManager::FindMemoryType(Uint32 typeFilter, VkMemoryPropertyFlags properties) const {
-        VkPhysicalDeviceMemoryProperties memProperties{};
-        vkGetPhysicalDeviceMemoryProperties(m_physicalDevice, &memProperties);
-        for (Uint32 i = 0; i < memProperties.memoryTypeCount; ++i) {
-            if ((typeFilter & (1u << i)) != 0 &&
-                (memProperties.memoryTypes[i].propertyFlags & properties) == properties) {
-                return i;
-            }
-        }
-        MOBILEGL_ASSERT(false, "VkTextureSamplerManager::FindMemoryType failed");
-        return 0;
     }
 
     Uint64 VkTextureSamplerManager::BuildSamplerKey(const MG_State::GLState::SamplerObject& sampler) const {
