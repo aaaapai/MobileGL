@@ -79,14 +79,26 @@ namespace MobileGL::MG_Backend::DirectGLES {
         }
 
         void CollectGarbage() {
-            for (auto trackedStateIt = m_stateRefs.begin(); trackedStateIt != m_stateRefs.end();) {
-                if (trackedStateIt->second.expired()) {
-                    m_backendObjects.erase(trackedStateIt->first);
-                    trackedStateIt = m_stateRefs.erase(trackedStateIt);
-                } else {
-                    ++trackedStateIt;
+            if (m_isCollecting) {
+                return;
+            }
+
+            m_isCollecting = true;
+
+            Vector<StateObject*> staleKeys;
+            staleKeys.reserve(m_stateRefs.size());
+            for (const auto& [stateKey, stateWeakRef] : m_stateRefs) {
+                if (stateWeakRef.expired()) {
+                    staleKeys.push_back(stateKey);
                 }
             }
+
+            for (auto* stateKey : staleKeys) {
+                m_stateRefs.erase(stateKey);
+                m_backendObjects.erase(stateKey);
+            }
+
+            m_isCollecting = false;
         }
 
     private:
@@ -94,6 +106,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
         StateRefMap m_stateRefs;
         BackendMap m_backendObjects;
         Uint32 m_gcTick = 0;
+        Bool m_isCollecting = false;
     };
 
     namespace BufferImpl {
