@@ -253,6 +253,6 @@ namespace MobileGL {
             };
         } // namespace EGLState
 
-        extern EGLState::EGLContext* pEGLContext;
+        extern UniquePtr<EGLState::EGLContext> pEGLContext;
     } // namespace MG_State
 } // namespace MobileGL

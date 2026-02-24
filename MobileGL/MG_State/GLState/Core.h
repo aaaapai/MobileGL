@@ -30,42 +30,42 @@ namespace MobileGL {
                 GLContext() = default;
 
                 // Error
-                void RecordError(ErrorCode code, SharedPtr<ErrorInfo> info = nullptr);
+                void RecordError(ErrorCode code, UniquePtr<ErrorInfo> info);
                 Bool HasGLError() const;
-                Optional<const Error> PeekGLError() const;
-                Optional<Error> PopGLError();
+                Optional<const Error*> PeekNonGLError() const;
+                Optional<UniquePtr<Error>> PopNonGLError();
                 Bool HasNonGLError() const;
-                Optional<const Error> PeekNonGLError() const;
-                Optional<Error> PopNonGLError();
+                Optional<const Error*> PeekGLError() const;
+                Optional<UniquePtr<Error>> PopGLError();
                 void ClearErrors();
 
                 // Buffer
-                Vector<Uint> GenBufferNames(Uint number);
-                SharedPtr<BufferObject> GetBufferObject(Uint index);
+                void GenBufferNames(Uint number, Vector<Uint>& buffers);
+                const SharedPtr<BufferObject>& GetBufferObject(Uint index);
                 BindingSlot<BufferObject>& GetBufferBindingSlot(BufferTarget target);
                 BindingSlotRange1D<BufferObject>& GetBufferBindingPoint(BufferTarget target, Uint index);
                 constexpr SizeT GetBufferBindingPointCount(BufferTarget target) const {
                     return m_bufferState.GetBindingPointCount(target);
                 }
-                SharedPtr<BufferObject> CreateBufferObject(Uint index);
+                const SharedPtr<BufferObject>& CreateBufferObject(Uint index);
                 void MarkBufferObjectForDeletion(Uint index);
                 Bool ValidateBufferName(Uint index) const;
                 Bool ValidateBufferObject(Uint index) const;
 
                 // VertexArray
-                Vector<Uint> GenVertexArrayNames(Uint number);
-                SharedPtr<VertexArrayObject> GetVertexArrayObject(Uint index);
+                void GenVertexArrayNames(Uint number, Vector<Uint>& vertexArrays);
+                const SharedPtr<VertexArrayObject>& GetVertexArrayObject(Uint index);
                 void BindVertexArray(Uint index);
-                SharedPtr<VertexArrayObject> CreateVertexArrayObject(Uint index);
+                const SharedPtr<VertexArrayObject>& CreateVertexArrayObject(Uint index);
                 void MarkVertexArrayForDeletion(Uint index);
                 Bool ValidateVertexArrayName(Uint index) const;
                 Bool ValidateVertexArrayObject(Uint index) const;
-                SharedPtr<VertexArrayObject> GetBoundVertexArray();
+                const SharedPtr<VertexArrayObject>& GetBoundVertexArray();
 
                 // Texture
-                Vector<Uint> GenTextureNames(Uint number);
-                SharedPtr<ITextureObject> GetTextureObject(Uint index);
-                SharedPtr<ITextureObject> CreateTextureObject(Uint index, TextureTarget target);
+                void GenTextureNames(Uint number, Vector<Uint>& textures);
+                const SharedPtr<ITextureObject>& GetTextureObject(Uint index);
+                const SharedPtr<ITextureObject>& CreateTextureObject(Uint index, TextureTarget target);
                 void MarkTextureObjectForDeletion(Uint index);
                 TextureUnit& GetTextureUnitObject(Int unit);
                 Bool ValidateTextureName(Uint index) const;
@@ -80,10 +80,10 @@ namespace MobileGL {
                 void MarkShaderForDeletion(Uint index);
                 Bool ValidateProgramName(Uint index) const;
                 Bool ValidateShaderName(Uint index) const;
-                SharedPtr<ProgramObject> GetProgramObject(Uint index);
-                SharedPtr<ShaderObject> GetShaderObject(Uint index);
+                const SharedPtr<ProgramObject>& GetProgramObject(Uint index);
+                const SharedPtr<ShaderObject>& GetShaderObject(Uint index);
                 void UseProgram(Uint program);
-                SharedPtr<ProgramObject> GetCurrentProgram();
+                const SharedPtr<ProgramObject>& GetCurrentProgram();
 
                 // RenderState
                 Uint GetRenderStateParametersVersion() const;
@@ -106,7 +106,7 @@ namespace MobileGL {
                 void SetDepthMask(Bool flag);
                 Bool GetDepthMask() const;
                 void SetColorMask(BoolVec4 mask);
-                const BoolVec4 GetColorMask() const;
+                BoolVec4 GetColorMask() const;
                 void SetClearColor(FloatVec4 color);
                 const FloatVec4& GetClearColor() const;
                 void SetClearDepth(Float depth);
@@ -122,27 +122,27 @@ namespace MobileGL {
                 const IntVec4& GetScissorBox() const; // x, y, width, height
 
                 // Framebuffer
-                Vector<Uint> GenFramebufferNames(Uint number);
-                SharedPtr<FramebufferObject> GetFramebufferObject(Uint index);
+                void GenFramebufferNames(Uint number, Vector<Uint>& framebuffers);
+                const SharedPtr<FramebufferObject>& GetFramebufferObject(Uint index);
                 BindingSlot<FramebufferObject>& GetFramebufferBindingSlot(FramebufferTarget target);
-                SharedPtr<FramebufferObject> CreateFramebufferObject(Uint index);
+                const SharedPtr<FramebufferObject>& CreateFramebufferObject(Uint index);
                 void MarkFramebufferObjectForDeletion(Uint index);
                 Bool ValidateFramebufferName(Uint index) const;
                 Bool ValidateFramebufferObject(Uint index) const;
 
                 // Sampler
-                Vector<Uint> GenSamplerNames(Uint number);
-                SharedPtr<SamplerObject> GetSamplerObject(Uint index);
-                SharedPtr<SamplerObject> CreateSamplerObject(Uint index);
+                void GenSamplerNames(Uint number, Vector<Uint>& samplers);
+                const SharedPtr<SamplerObject>& GetSamplerObject(Uint index);
+                const SharedPtr<SamplerObject>& CreateSamplerObject(Uint index);
                 void MarkSamplerObjectForDeletion(Uint index);
                 Bool ValidateSamplerName(Uint index) const;
                 Bool ValidateSamplerObject(Uint index) const;
 
                 // Renderbuffer
-                Vector<Uint> GenRenderbufferNames(Uint number);
-                SharedPtr<RenderbufferObject> GetRenderbufferObject(Uint index);
+                void GenRenderbufferNames(Uint number, Vector<Uint>& renderbuffers);
+                const SharedPtr<RenderbufferObject>& GetRenderbufferObject(Uint index);
                 BindingSlot<RenderbufferObject>& GetRenderbufferBindingSlot(RenderbufferTarget target);
-                SharedPtr<RenderbufferObject> CreateRenderbufferObject(Uint index);
+                const SharedPtr<RenderbufferObject>& CreateRenderbufferObject(Uint index);
                 void MarkRenderbufferObjectForDeletion(Uint index);
                 Bool ValidateRenderbufferName(Uint index) const;
                 Bool ValidateRenderbufferObject(Uint index) const;
@@ -161,6 +161,6 @@ namespace MobileGL {
             };
         } // namespace GLState
 
-        extern GLState::GLContext* pGLContext;
+        extern UniquePtr<GLState::GLContext> pGLContext;
     } // namespace MG_State
 } // namespace MobileGL

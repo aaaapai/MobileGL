@@ -38,8 +38,8 @@ namespace MobileGL {
             void RenderState::SetCapability(CapabilityInput cap, Bool enabled) {
 #define SET_CAPABILITY(capability, flag)                                                                               \
     case CapabilityInput::capability:                                                                                  \
-        if (m_parameters.capability##Enabled == flag) break;                                                           \
-        m_parameters.capability##Enabled = flag;                                                                       \
+        if (m_parameters.capability##Enabled == (flag)) break;                                                         \
+        m_parameters.capability##Enabled = (flag);                                                                     \
         ++m_version;                                                                                                   \
         break;
 
@@ -195,7 +195,7 @@ namespace MobileGL {
                 ++m_version;
             }
 
-            const BoolVec4 RenderState::GetColorMask() const {
+            BoolVec4 RenderState::GetColorMask() const {
                 return m_parameters.ColorMask;
             }
 
@@ -237,8 +237,8 @@ namespace MobileGL {
             void RenderState::SetPixelStoreParam(PixelStoreParam param, Int value) {
 #define SET_PIXEL_STORE_PARAM(paramNameHead, paramNameTail, val)                                                       \
     case PixelStoreParam::paramNameHead##paramNameTail:                                                                \
-        if (m_pixelStore##paramNameHead##Parameters.paramNameTail == val) break;                                       \
-        m_pixelStore##paramNameHead##Parameters.paramNameTail = val;                                                   \
+        if (m_pixelStore##paramNameHead##Parameters.paramNameTail == (val)) break;                                     \
+        m_pixelStore##paramNameHead##Parameters.paramNameTail = (val);                                                 \
         break;
 
                 switch (param) {

@@ -148,15 +148,15 @@ namespace MobileGL {
     public:
         using TargetEnum = typename ObjectType::TargetEnum;
 
-        BindingSlot() : m_target((TargetEnum)0), m_boundObject(nullptr) {}
-        explicit BindingSlot(TargetEnum target) : m_target(target), m_boundObject(nullptr) {}
+        BindingSlot() : m_target((TargetEnum)0) {}
+        explicit BindingSlot(TargetEnum target) : m_target(target) {}
         void Bind(SharedPtr<ObjectType> object) {
             if (m_boundObject == object) return;
 
-            m_boundObject = object;
+            m_boundObject = Move(object);
             ++m_version;
         }
-        SharedPtr<ObjectType> GetBoundObject() const { return m_boundObject; }
+        SharedPtr<ObjectType> const& GetBoundObject() const noexcept { return m_boundObject; }
         TargetEnum GetTarget() const { return m_target; }
         Uint16 GetVersion() const { return m_version; }
 

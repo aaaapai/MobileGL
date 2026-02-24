@@ -388,8 +388,6 @@ namespace MobileGL {
                     *value = cfg->SurfaceType;
                     return true;
                 case EGL_RENDERABLE_TYPE:
-                    *value = cfg->RenderableType;
-                    return true;
                 case EGL_CONFORMANT:
                     *value = cfg->RenderableType;
                     return true;
@@ -878,8 +876,8 @@ namespace MobileGL {
             Bool EGLContext::MakeCurrent(EGLDisplayHandle display, EGLSurfaceHandle draw, EGLSurfaceHandle read,
                                          EGLContextHandle context) {
                 const std::lock_guard<std::recursive_mutex> lock(m_mutex);
-                const Bool releaseCurrentRequest = display == EGL_NO_DISPLAY && draw == EGL_NO_SURFACE &&
-                                                   read == EGL_NO_SURFACE && context == nullptr;
+                const Bool releaseCurrentRequest =
+                    display == EGL_NO_DISPLAY && draw == EGL_NO_SURFACE && read == EGL_NO_SURFACE && context == nullptr;
                 const auto threadKey = CurrentThreadKey();
                 if (releaseCurrentRequest) {
                     ReleaseThreadUnlocked(threadKey);
@@ -1130,6 +1128,6 @@ namespace MobileGL {
             }
         } // namespace EGLState
 
-        EGLState::EGLContext* pEGLContext;
+        UniquePtr<EGLState::EGLContext> pEGLContext;
     } // namespace MG_State
 } // namespace MobileGL

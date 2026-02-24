@@ -201,7 +201,7 @@ namespace MobileGL {
 
                 // Color Mask
                 void SetColorMask(BoolVec4 mask);
-                const BoolVec4 GetColorMask() const;
+                BoolVec4 GetColorMask() const;
 
                 // Clear State
                 void SetClearColor(FloatVec4 color);

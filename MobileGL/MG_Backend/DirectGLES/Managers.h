@@ -15,19 +15,100 @@
 #include <MG_State/GLState/Core.h>
 
 namespace MobileGL::MG_Backend::DirectGLES {
+    template <typename StateObject, typename BackendObject>
+    class StateBackendObjectRegistry {
+    public:
+        using StatePtr = SharedPtr<StateObject>;
+        using StateWeakPtr = std::weak_ptr<StateObject>;
+        using BackendPtr = SharedPtr<BackendObject>;
+        using BackendMap = UnorderedMap<StateObject*, BackendPtr>;
+        using StateRefMap = UnorderedMap<StateObject*, StateWeakPtr>;
+        using iterator = typename BackendMap::iterator;
+        using const_iterator = typename BackendMap::const_iterator;
+
+        BackendPtr& GetOrCreate(const StatePtr& stateObj) {
+            MOBILEGL_ASSERT(stateObj != nullptr, "State object must not be null");
+
+            auto* key = stateObj.get();
+            auto trackedStateIt = m_stateRefs.find(key);
+            if (trackedStateIt != m_stateRefs.end() && trackedStateIt->second.expired()) {
+                EraseByKey(key);
+            }
+            m_stateRefs[key] = stateObj;
+            return m_backendObjects[key];
+        }
+
+        iterator find(StateObject* stateObj) {
+            if (!IsAlive(stateObj)) {
+                EraseByKey(stateObj);
+                return m_backendObjects.end();
+            }
+            return m_backendObjects.find(stateObj);
+        }
+
+        const_iterator find(StateObject* stateObj) const {
+            return const_cast<StateBackendObjectRegistry*>(this)->find(stateObj);
+        }
+
+        iterator end() { return m_backendObjects.end(); }
+        const_iterator end() const { return m_backendObjects.end(); }
+
+        void CollectGarbageIfNeeded() {
+            ++m_gcTick;
+            if (m_gcTick < kGCInterval) {
+                return;
+            }
+            CollectGarbage();
+            m_gcTick = 0;
+        }
+
+        void CollectGarbageNow() { CollectGarbage(); }
+
+    private:
+        bool IsAlive(StateObject* stateObj) const {
+            const auto trackedStateIt = m_stateRefs.find(stateObj);
+            if (trackedStateIt == m_stateRefs.end()) {
+                return false;
+            }
+            return !trackedStateIt->second.expired();
+        }
+
+        void EraseByKey(StateObject* stateObj) {
+            m_stateRefs.erase(stateObj);
+            m_backendObjects.erase(stateObj);
+        }
+
+        void CollectGarbage() {
+            for (auto trackedStateIt = m_stateRefs.begin(); trackedStateIt != m_stateRefs.end();) {
+                if (trackedStateIt->second.expired()) {
+                    m_backendObjects.erase(trackedStateIt->first);
+                    trackedStateIt = m_stateRefs.erase(trackedStateIt);
+                } else {
+                    ++trackedStateIt;
+                }
+            }
+        }
+
+    private:
+        static constexpr Uint32 kGCInterval = 1024;
+        StateRefMap m_stateRefs;
+        BackendMap m_backendObjects;
+        Uint32 m_gcTick = 0;
+    };
+
     namespace BufferImpl {
         const GLenum TempBufferTarget = GL_ARRAY_BUFFER;
         class BackendBufferObject {
         public:
             BackendBufferObject();
-            void SyncToBackend(SharedPtr<MG_State::GLState::BufferObject>& stateBufferObject);
-            Uint GetBackendBufferId() { return m_backendBufferId; }
+            void SyncToBackend(const SharedPtr<MG_State::GLState::BufferObject>& stateBufferObject);
+            Uint GetBackendBufferId() const { return m_backendBufferId; }
             void Bind(GLenum target = TempBufferTarget);
 
         private:
-            void SyncToBackend_glBufferData(SharedPtr<MG_State::GLState::BufferObject>& stateBufferObject);
-            void SyncToBackend_glBufferSubData(SharedPtr<MG_State::GLState::BufferObject>& stateBufferObject);
-            void SyncToBackend_glMapBufferRange(SharedPtr<MG_State::GLState::BufferObject>& stateBufferObject,
+            void SyncToBackend_glBufferData(const SharedPtr<MG_State::GLState::BufferObject>& stateBufferObject);
+            void SyncToBackend_glBufferSubData(const SharedPtr<MG_State::GLState::BufferObject>& stateBufferObject);
+            void SyncToBackend_glMapBufferRange(const SharedPtr<MG_State::GLState::BufferObject>& stateBufferObject,
                                                 Bool invalidate = true, Bool unsynchronized = true);
 
             Uint m_backendBufferId = 0;
@@ -36,21 +117,18 @@ namespace MobileGL::MG_Backend::DirectGLES {
         };
 
         extern BackendBufferObject* g_boundVertexBufferObject;
-        extern UnorderedMap<SharedPtr<MG_State::GLState::BufferObject>, SharedPtr<BackendBufferObject>>
-            g_backendBufferObjects;
+        extern StateBackendObjectRegistry<MG_State::GLState::BufferObject, BackendBufferObject> g_backendBufferObjects;
     } // namespace BufferImpl
 
     namespace VertexArrayImpl {
         class BackendVertexArrayObject {
         public:
             BackendVertexArrayObject();
-            void SyncToBackend(SharedPtr<MG_State::GLState::VertexArrayObject>& stateVAOObject);
-            Uint GetBackendVertexArrayId() { return m_backendVAOId; }
-            void Bind();
+            void SyncToBackend(const SharedPtr<MG_State::GLState::VertexArrayObject>& stateVAOObject);
+            Uint GetBackendVertexArrayId() const { return m_backendVAOId; }
+            void Bind() const;
 
         private:
-            void BindAttributeBuffer(Uint index, const MG_State::GLState::VertexAttribute& attrib);
-
             Uint m_backendVAOId = 0;
             Bool m_isInitialized = false;
             Uint16 m_syncedIndexBufferVersion = 0;
@@ -58,7 +136,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 m_syncedAttributeVersions;
         };
 
-        extern UnorderedMap<SharedPtr<MG_State::GLState::VertexArrayObject>, SharedPtr<BackendVertexArrayObject>>
+        extern StateBackendObjectRegistry<MG_State::GLState::VertexArrayObject, BackendVertexArrayObject>
             g_backendVertexArrayObjects;
     } // namespace VertexArrayImpl
 
@@ -92,11 +170,11 @@ namespace MobileGL::MG_Backend::DirectGLES {
         class BackendTextureObject {
         public:
             BackendTextureObject();
-            void SyncMipmapsToBackend(SharedPtr<MG_State::GLState::ITextureObject>& stateTextureObject);
-            void SyncBuiltinSamplerToBackend(SharedPtr<MG_State::GLState::ITextureObject>& stateTextureObject);
-            void SyncTextureParamsToBackend(SharedPtr<MG_State::GLState::ITextureObject>& stateTextureObject);
+            void SyncMipmapsToBackend(const SharedPtr<MG_State::GLState::ITextureObject>& stateTextureObject);
+            void SyncBuiltinSamplerToBackend(const SharedPtr<MG_State::GLState::ITextureObject>& stateTextureObject);
+            void SyncTextureParamsToBackend(const SharedPtr<MG_State::GLState::ITextureObject>& stateTextureObject);
             void Bind(GLenum target, Uint unit = TempTextureUnit);
-            Uint GetBackendTextureId();
+            Uint GetBackendTextureId() const;
 
         private:
             Uint m_backendTextureId = 0;
@@ -113,7 +191,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
 
         void ActivateTextureUnit(Uint unit);
         void UnbindTexture(Uint unit, GLenum target);
-        extern UnorderedMap<SharedPtr<MG_State::GLState::ITextureObject>, SharedPtr<BackendTextureObject>>
+        extern StateBackendObjectRegistry<MG_State::GLState::ITextureObject, BackendTextureObject>
             g_backendTextureObjects;
         extern Array<Array<BackendTextureObject*, (SizeT)TextureTarget::TextureTargetCount>,
                      MG_State::GLState::TextureState::MAX_TEXTURE_IMAGE_UNITS>
@@ -125,13 +203,10 @@ namespace MobileGL::MG_Backend::DirectGLES {
         class BackendFramebufferObject {
         public:
             BackendFramebufferObject();
-            void SyncToBackend(SharedPtr<MG_State::GLState::FramebufferObject>& stateFBOObject,
+            void SyncToBackend(const SharedPtr<MG_State::GLState::FramebufferObject>& stateFBOObject,
                                FramebufferTarget asTarget);
-            Uint GetBackendFramebufferId() { return m_backendFBOId; }
-            void Bind(FramebufferTarget target);
-            bool SyncAttachmentObject(GLenum glFBOTarget,
-                                      const MG_State::GLState::FramebufferAttachmentObject& attachmentObject,
-                                      GLenum glBackendAttachment);
+            Uint GetBackendFramebufferId() const { return m_backendFBOId; }
+            void Bind(FramebufferTarget target) const;
             //            FramebufferAttachmentType GetCompactedAttachmentTypeAtDrawBufferIndex(Int index);
             GLenum GetBackendAttachmentType(FramebufferAttachmentType frontendAtt) const;
 
@@ -159,7 +234,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
             FramebufferObject::FramebufferAttachmentVersionArray m_syncedFrontendAttachmentVersions = {0};
         };
 
-        extern UnorderedMap<SharedPtr<MG_State::GLState::FramebufferObject>, SharedPtr<BackendFramebufferObject>>
+        extern StateBackendObjectRegistry<MG_State::GLState::FramebufferObject, BackendFramebufferObject>
             g_backendFramebufferObjects;
         extern Array<Uint16, SizeT(FramebufferTarget::FramebufferTargetCount)> g_fboBindVersions;
     } // namespace FramebufferImpl
@@ -169,8 +244,8 @@ namespace MobileGL::MG_Backend::DirectGLES {
         public:
             BackendProgramObjectImpl();
             ~BackendProgramObjectImpl();
-            void SyncToBackend(SharedPtr<MG_State::GLState::ProgramObject>& stateProgramObject);
-            void Use();
+            void SyncToBackend(const SharedPtr<MG_State::GLState::ProgramObject>& stateProgramObject);
+            void Use() const;
             Uint GetBackendProgramId() const { return m_backendProgramId; }
             Uint GetBackendGlobalUBOId() const { return m_backendGlobalUBOId; }
 
@@ -180,7 +255,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
             Bool m_isInitialized = false;
         };
 
-        extern UnorderedMap<SharedPtr<MG_State::GLState::ProgramObject>, SharedPtr<BackendProgramObjectImpl>>
+        extern StateBackendObjectRegistry<MG_State::GLState::ProgramObject, BackendProgramObjectImpl>
             g_backendProgramObjects;
     } // namespace PrgramImpl
 
@@ -188,9 +263,9 @@ namespace MobileGL::MG_Backend::DirectGLES {
         class BackendSamplerObject {
         public:
             BackendSamplerObject();
-            void SyncToBackend(SharedPtr<MG_State::GLState::SamplerObject>& stateSamplerObject);
+            void SyncToBackend(const SharedPtr<MG_State::GLState::SamplerObject>& stateSamplerObject);
             void Bind(Uint unit);
-            Uint GetBackendSamplerId();
+            Uint GetBackendSamplerId() const;
 
         private:
             Uint m_backendSamplerId = 0;
@@ -203,7 +278,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
 
         extern Array<BackendSamplerObject*, MG_State::GLState::TextureState::MAX_TEXTURE_IMAGE_UNITS>
             g_boundSamplersCache;
-        extern UnorderedMap<SharedPtr<MG_State::GLState::SamplerObject>, SharedPtr<BackendSamplerObject>>
+        extern StateBackendObjectRegistry<MG_State::GLState::SamplerObject, BackendSamplerObject>
             g_backendSamplerObjects;
     } // namespace SamplerImpl
 
@@ -212,8 +287,8 @@ namespace MobileGL::MG_Backend::DirectGLES {
         public:
             BackendRenderbufferObject();
             void SyncToBackend(const SharedPtr<MG_State::GLState::RenderbufferObject>& stateRBOObject);
-            Uint GetBackendRenderbufferId() { return m_backendRBOId; }
-            void Bind();
+            Uint GetBackendRenderbufferId() const { return m_backendRBOId; }
+            void Bind() const;
 
         private:
             Uint m_backendRBOId = 0;
@@ -223,7 +298,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
             Int m_cacheHeight = 0;
         };
 
-        extern UnorderedMap<SharedPtr<MG_State::GLState::RenderbufferObject>, SharedPtr<BackendRenderbufferObject>>
+        extern StateBackendObjectRegistry<MG_State::GLState::RenderbufferObject, BackendRenderbufferObject>
             g_backendRenderbufferObjects;
     } // namespace RenderbufferImpl
 } // namespace MobileGL::MG_Backend::DirectGLES

@@ -145,7 +145,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             return false;
         }
 
-        const auto* mipTexture = dynamic_cast<const MG_State::GLState::TextureObjectMipmap*>(&texture);
+        const auto* mipTexture = static_cast<const MG_State::GLState::TextureObjectMipmap*>(&texture);
         if (!mipTexture) {
             return false;
         }
@@ -198,7 +198,8 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         imageInfo.format = format;
         imageInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
         imageInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-        imageInfo.usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
+        imageInfo.usage =
+            VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
         imageInfo.samples = VK_SAMPLE_COUNT_1_BIT;
         imageInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
         VK_VERIFY(vkCreateImage(m_device, &imageInfo, nullptr, &resource.image), "vkCreateImage(texture)");
@@ -257,9 +258,8 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         VkMemoryAllocateInfo allocInfo{};
         allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
         allocInfo.allocationSize = requirements.size;
-        allocInfo.memoryTypeIndex =
-            FindMemoryType(requirements.memoryTypeBits,
-                           VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+        allocInfo.memoryTypeIndex = FindMemoryType(
+            requirements.memoryTypeBits, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
         VK_VERIFY(vkAllocateMemory(m_device, &allocInfo, nullptr, &stagingMemory), "vkAllocateMemory(staging texture)");
         VK_VERIFY(vkBindBufferMemory(m_device, stagingBuffer, stagingMemory, 0), "vkBindBufferMemory(staging texture)");
 
@@ -296,8 +296,8 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             copy.imageSubresource.layerCount = 1;
             copy.imageOffset = {0, 0, 0};
             copy.imageExtent = {resource.extent.width, resource.extent.height, 1};
-            vkCmdCopyBufferToImage(commandBuffer, stagingBuffer, resource.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1,
-                                   &copy);
+            vkCmdCopyBufferToImage(commandBuffer, stagingBuffer, resource.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                                   1, &copy);
 
             VkImageMemoryBarrier toSampled{};
             toSampled.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
@@ -313,8 +313,8 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             toSampled.subresourceRange.levelCount = 1;
             toSampled.subresourceRange.baseArrayLayer = 0;
             toSampled.subresourceRange.layerCount = 1;
-            vkCmdPipelineBarrier(commandBuffer, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0,
-                                 0, nullptr, 0, nullptr, 1, &toSampled);
+            vkCmdPipelineBarrier(commandBuffer, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+                                 0, 0, nullptr, 0, nullptr, 1, &toSampled);
         });
 
         vkDestroyBuffer(m_device, stagingBuffer, nullptr);
@@ -378,7 +378,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
     Bool VkTextureSamplerManager::ResolveLevel0(const MG_State::GLState::ITextureObject& texture,
                                                 TextureUploadTarget& outTarget, IntVec3& outTexelSize,
                                                 SizeT& outByteSize) {
-        const auto* mipTexture = dynamic_cast<const MG_State::GLState::TextureObjectMipmap*>(&texture);
+        const auto* mipTexture = static_cast<const MG_State::GLState::TextureObjectMipmap*>(&texture);
         if (!mipTexture) {
             return false;
         }
@@ -435,7 +435,8 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         samplerInfo.mipLodBias = sampler.GetLodBias();
         samplerInfo.anisotropyEnable = VK_FALSE;
         samplerInfo.maxAnisotropy = 1.0f;
-        samplerInfo.compareEnable = sampler.GetCompareMode() == SamplerCompareMode::CompareToTexture ? VK_TRUE : VK_FALSE;
+        samplerInfo.compareEnable =
+            sampler.GetCompareMode() == SamplerCompareMode::CompareToTexture ? VK_TRUE : VK_FALSE;
         samplerInfo.compareOp = ToVkCompareOp(sampler.GetSamplerCompareFunc());
         samplerInfo.minLod = sampler.GetMinLod();
         samplerInfo.maxLod = sampler.GetMaxLod();
@@ -531,10 +532,12 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         VkMemoryAllocateInfo imageAllocInfo{};
         imageAllocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
         imageAllocInfo.allocationSize = imageMemReq.size;
-        imageAllocInfo.memoryTypeIndex = FindMemoryType(imageMemReq.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+        imageAllocInfo.memoryTypeIndex =
+            FindMemoryType(imageMemReq.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
         VK_VERIFY(vkAllocateMemory(m_device, &imageAllocInfo, nullptr, &m_fallbackImageMemory),
                   "vkAllocateMemory(fallback)");
-        VK_VERIFY(vkBindImageMemory(m_device, m_fallbackImage, m_fallbackImageMemory, 0), "vkBindImageMemory(fallback)");
+        VK_VERIFY(vkBindImageMemory(m_device, m_fallbackImage, m_fallbackImageMemory, 0),
+                  "vkBindImageMemory(fallback)");
 
         VkBuffer stagingBuffer = VK_NULL_HANDLE;
         VkDeviceMemory stagingMemory = VK_NULL_HANDLE;
@@ -552,9 +555,8 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         VkMemoryAllocateInfo stagingAllocInfo{};
         stagingAllocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
         stagingAllocInfo.allocationSize = stagingMemReq.size;
-        stagingAllocInfo.memoryTypeIndex =
-            FindMemoryType(stagingMemReq.memoryTypeBits,
-                           VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+        stagingAllocInfo.memoryTypeIndex = FindMemoryType(
+            stagingMemReq.memoryTypeBits, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
         VK_VERIFY(vkAllocateMemory(m_device, &stagingAllocInfo, nullptr, &stagingMemory), "vkAllocateMemory(fallback)");
         VK_VERIFY(vkBindBufferMemory(m_device, stagingBuffer, stagingMemory, 0), "vkBindBufferMemory(fallback)");
 
@@ -587,8 +589,8 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             copy.imageSubresource.baseArrayLayer = 0;
             copy.imageSubresource.layerCount = 1;
             copy.imageExtent = {1, 1, 1};
-            vkCmdCopyBufferToImage(commandBuffer, stagingBuffer, m_fallbackImage, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1,
-                                   &copy);
+            vkCmdCopyBufferToImage(commandBuffer, stagingBuffer, m_fallbackImage, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                                   1, &copy);
 
             VkImageMemoryBarrier toSampled{};
             toSampled.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
@@ -604,8 +606,8 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             toSampled.subresourceRange.levelCount = 1;
             toSampled.subresourceRange.baseArrayLayer = 0;
             toSampled.subresourceRange.layerCount = 1;
-            vkCmdPipelineBarrier(commandBuffer, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0,
-                                 0, nullptr, 0, nullptr, 1, &toSampled);
+            vkCmdPipelineBarrier(commandBuffer, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+                                 0, 0, nullptr, 0, nullptr, 1, &toSampled);
         });
 
         vkDestroyBuffer(m_device, stagingBuffer, nullptr);

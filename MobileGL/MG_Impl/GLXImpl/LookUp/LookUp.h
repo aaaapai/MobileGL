@@ -10,9 +10,7 @@
 #include <Includes.h>
 #include "MG_Impl/GetProcAddress.h"
 
-namespace MG_Impl {
-    namespace GLXImpl {
-        void* GetProcAddress(const char* name);
-        void* GetProcAddressARB(const char* name);
-    } // namespace GLXImpl
-} // namespace MG_Impl
+namespace MG_Impl::GLXImpl {
+    void* GetProcAddress(const char* name);
+    void* GetProcAddressARB(const char* name);
+} // namespace MG_Impl::GLXImpl

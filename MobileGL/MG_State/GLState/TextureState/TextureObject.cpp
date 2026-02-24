@@ -31,7 +31,7 @@ namespace MobileGL {
                 return {0, 0, 0};
             }
 
-            SharedPtr<SamplerObject> TextureObjectBase::GetSamplerObject() const {
+            const SharedPtr<SamplerObject>& TextureObjectBase::GetSamplerObject() const {
                 return m_sampler;
             }
 
