@@ -9,7 +9,8 @@
 #pragma once
 
 #include "VkBufferObject.h"
-#include "VkTextureSamplerManager.h"
+#include "VkSamplerManager.h"
+#include "VkTextureManager.h"
 #include "../VkIncludes.h"
 #include <Includes.h>
 #include <vk_mem_alloc.h>
@@ -32,7 +33,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         Bool Initialize(VkDevice device, VmaAllocator allocator, VkDeviceSize minUniformBufferOffsetAlignment,
                         Uint32 frameCount, Uint32 maxBindings = 16, Uint32 setsPerFrame = 64,
                         VkDeviceSize perFrameUploadBytes = 4 * 1024 * 1024,
-                        VkTextureSamplerManager* textureSamplerManager = nullptr,
+                        VkTextureManager* textureManager = nullptr, VkSamplerManager* samplerManager = nullptr,
                         VkRenderTargetManager* framebufferManager = nullptr);
         void Shutdown();
 
@@ -97,7 +98,8 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         Uint32 m_maxBindings = 0;
         Uint32 m_setsPerFrame = 0;
         Uint32 m_peakDescriptorSetsObserved = 0;
-        VkTextureSamplerManager* m_textureSamplerManager = nullptr;
+        VkTextureManager* m_textureManager = nullptr;
+        VkSamplerManager* m_samplerManager = nullptr;
         VkRenderTargetManager* m_framebufferManager = nullptr;
     };
 } // namespace MobileGL::MG_Backend::DirectVulkan

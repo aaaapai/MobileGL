@@ -227,7 +227,8 @@ set(SOURCE_FILES
     MobileGL/MG_Backend/DirectVulkan/Renderer/VkBufferObject.cpp
         MobileGL/MG_Backend/DirectVulkan/Renderer/VkRenderTargetManager.cpp
     MobileGL/MG_Backend/DirectVulkan/Renderer/VkRenderPassManager.cpp
-    MobileGL/MG_Backend/DirectVulkan/Renderer/VkTextureSamplerManager.cpp
+    MobileGL/MG_Backend/DirectVulkan/Renderer/VkTextureManager.cpp
+    MobileGL/MG_Backend/DirectVulkan/Renderer/VkSamplerManager.cpp
 
     MobileGL/MG_State/GLState/Core.cpp
     MobileGL/MG_State/GLState/ErrorState/Error.cpp

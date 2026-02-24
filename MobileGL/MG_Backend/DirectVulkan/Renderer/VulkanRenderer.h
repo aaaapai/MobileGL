@@ -17,7 +17,8 @@
 #include "VkBufferObject.h"
 #include "VkRenderTargetManager.h"
 #include "VkRenderPassManager.h"
-#include "VkTextureSamplerManager.h"
+#include "VkSamplerManager.h"
+#include "VkTextureManager.h"
 #include "MG_Util/Math/VectorTypes.h"
 #include <Includes.h>
 #include <vk_mem_alloc.h>
@@ -154,7 +155,8 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         UniquePtr<VertexInputStateFactory> m_vertexInputStateFactory;
         UniquePtr<VkRenderTargetManager> m_framebufferManager;
         UniquePtr<VkRenderPassManager> m_renderPassManager;
-        UniquePtr<VkTextureSamplerManager> m_textureSamplerManager;
+        UniquePtr<VkTextureManager> m_textureManager;
+        UniquePtr<VkSamplerManager> m_samplerManager;
 
         void CreateInstance();
         VkResult SetupDebugMessenger();

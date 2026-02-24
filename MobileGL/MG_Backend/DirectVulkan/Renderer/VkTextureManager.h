@@ -1,4 +1,4 @@
-// MobileGL - MobileGL/MG_Backend/DirectVulkan/Renderer/VkTextureSamplerManager.h
+// MobileGL - MobileGL/MG_Backend/DirectVulkan/Renderer/VkTextureManager.h
 // Copyright (c) 2025-2026 MobileGL-Dev
 // Licensed under the GNU Lesser General Public License v3.0:
 //   https://www.gnu.org/licenses/gpl-3.0.txt
@@ -9,19 +9,16 @@
 #pragma once
 
 #include "../VkIncludes.h"
-#include "../VulkanRendererConfig.h"
 #include <Includes.h>
-#include <MG_State/GLState/SamplerState/SamplerObject.h>
 #include <MG_State/GLState/TextureState/TextureObject.h>
 #include <vk_mem_alloc.h>
 
 namespace MobileGL::MG_State::GLState {
 class ITextureObject;
-class SamplerObject;
 }
 
 namespace MobileGL::MG_Backend::DirectVulkan {
-class VkTextureSamplerManager {
+class VkTextureManager {
 public:
     struct InitInfo {
         VkDevice device = VK_NULL_HANDLE;
@@ -29,15 +26,12 @@ public:
         VmaAllocator allocator = nullptr;
         VkCommandPool commandPool = VK_NULL_HANDLE;
         VkQueue graphicsQueue = VK_NULL_HANDLE;
-        const VulkanRendererConfig* config = nullptr;
     };
 
     Bool Initialize(const InitInfo& initInfo);
     void Shutdown();
 
-    Bool SyncTextureAndGetDescriptor(const MG_State::GLState::ITextureObject& texture,
-                                     const MG_State::GLState::SamplerObject* samplerOverride,
-                                     VkDescriptorImageInfo& outImageInfo);
+    Bool SyncTextureAndGetDescriptor(const MG_State::GLState::ITextureObject& texture, VkDescriptorImageInfo& outImageInfo);
 
 private:
     struct TextureResource {
@@ -50,12 +44,6 @@ private:
         Uint textureExternalIndex = 0;
     };
 
-    struct SamplerCacheEntry {
-        VkSampler handle = VK_NULL_HANDLE;
-        Uint externalIndex = 0;
-        Uint16 version = 0;
-    };
-
     Bool EnsureTextureSynced(TextureResource& resource, const MG_State::GLState::ITextureObject& texture);
     Bool EnsureTextureResource(TextureResource& resource, const MG_State::GLState::ITextureObject& texture,
                                TextureUploadTarget level0Target, const IntVec3& texelSize, SizeT byteSize);
@@ -66,23 +54,13 @@ private:
     static Bool ResolveLevel0(const MG_State::GLState::ITextureObject& texture, TextureUploadTarget& outTarget,
                               IntVec3& outTexelSize, SizeT& outByteSize);
     static VkFormat ResolveTextureFormat(TextureInternalFormat format);
-    Uint64 BuildSamplerKey(const MG_State::GLState::SamplerObject& sampler) const;
-
-    VkSampler GetOrCreateSampler(const MG_State::GLState::SamplerObject& sampler);
-    static VkFilter ToVkFilter(SamplerFilterMode mode);
-    static VkSamplerMipmapMode ToVkMipmapMode(SamplerMipmapMode mode);
-    static VkSamplerAddressMode ToVkAddressMode(SamplerWrapMode mode);
-    static VkCompareOp ToVkCompareOp(SamplerCompareFunc func);
 
     VkDevice m_device = VK_NULL_HANDLE;
     VkPhysicalDevice m_physicalDevice = VK_NULL_HANDLE;
     VmaAllocator m_allocator = nullptr;
     VkCommandPool m_commandPool = VK_NULL_HANDLE;
     VkQueue m_graphicsQueue = VK_NULL_HANDLE;
-    const VulkanRendererConfig* m_config = nullptr;
 
     UnorderedMap<Uint, TextureResource> m_textureResources;
-    UnorderedMap<Uint64, SamplerCacheEntry> m_samplers;
-    static inline XXH64_state_t* m_hashState = XXH64_createState();
 };
 } // namespace MobileGL::MG_Backend::DirectVulkan

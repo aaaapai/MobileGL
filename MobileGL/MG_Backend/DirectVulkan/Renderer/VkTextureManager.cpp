@@ -1,4 +1,4 @@
-// MobileGL - MobileGL/MG_Backend/DirectVulkan/Renderer/VkTextureSamplerManager.cpp
+// MobileGL - MobileGL/MG_Backend/DirectVulkan/Renderer/VkTextureManager.cpp
 // Copyright (c) 2025-2026 MobileGL-Dev
 // Licensed under the GNU Lesser General Public License v3.0:
 //   https://www.gnu.org/licenses/gpl-3.0.txt
@@ -6,12 +6,12 @@
 // SPDX-License-Identifier: LGPL-3.0-only
 // End of Source File Header
 
-#include "VkTextureSamplerManager.h"
+#include "VkTextureManager.h"
 
 #include "MG_State/GLState/Core.h"
 
 namespace MobileGL::MG_Backend::DirectVulkan {
-    Bool VkTextureSamplerManager::Initialize(const InitInfo& initInfo) {
+    Bool VkTextureManager::Initialize(const InitInfo& initInfo) {
         Shutdown();
 
         m_device = initInfo.device;
@@ -19,40 +19,29 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         m_allocator = initInfo.allocator;
         m_commandPool = initInfo.commandPool;
         m_graphicsQueue = initInfo.graphicsQueue;
-        m_config = initInfo.config;
 
         MOBILEGL_ASSERT(m_device != VK_NULL_HANDLE && m_physicalDevice != VK_NULL_HANDLE && m_allocator != nullptr &&
-                            m_commandPool != VK_NULL_HANDLE && m_graphicsQueue != VK_NULL_HANDLE && m_config != nullptr,
-                        "VkTextureSamplerManager::Initialize failed: invalid initialization info");
+                            m_commandPool != VK_NULL_HANDLE && m_graphicsQueue != VK_NULL_HANDLE,
+                        "VkTextureManager::Initialize failed: invalid initialization info");
 
         return true;
     }
 
-    void VkTextureSamplerManager::Shutdown() {
+    void VkTextureManager::Shutdown() {
         for (auto& [_, resource] : m_textureResources) {
             DestroyTextureResource(resource);
         }
         m_textureResources.clear();
-
-        for (auto& [_, sampler] : m_samplers) {
-            if (m_device != VK_NULL_HANDLE && sampler.handle != VK_NULL_HANDLE) {
-                vkDestroySampler(m_device, sampler.handle, nullptr);
-            }
-            sampler.handle = VK_NULL_HANDLE;
-        }
-        m_samplers.clear();
 
         m_device = VK_NULL_HANDLE;
         m_physicalDevice = VK_NULL_HANDLE;
         m_allocator = nullptr;
         m_commandPool = VK_NULL_HANDLE;
         m_graphicsQueue = VK_NULL_HANDLE;
-        m_config = nullptr;
     }
 
-    Bool VkTextureSamplerManager::SyncTextureAndGetDescriptor(const MG_State::GLState::ITextureObject& texture,
-                                                              const MG_State::GLState::SamplerObject* samplerOverride,
-                                                              VkDescriptorImageInfo& outImageInfo) {
+    Bool VkTextureManager::SyncTextureAndGetDescriptor(const MG_State::GLState::ITextureObject& texture,
+                                                       VkDescriptorImageInfo& outImageInfo) {
         MOBILEGL_ASSERT(m_device != VK_NULL_HANDLE, "SyncTextureAndGetDescriptor: m_device == VK_NULL_HANDLE");
 
         auto it = m_textureResources.find(texture.GetExternalIndex());
@@ -67,30 +56,17 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             return false;
         }
 
-        const MG_State::GLState::SamplerObject* samplerToUse = samplerOverride;
-        if (!samplerToUse) {
-            auto textureSampler = texture.GetSamplerObject();
-            if (textureSampler) {
-                samplerToUse = textureSampler.get();
-            }
-        }
-
-        VkSampler sampler = VK_NULL_HANDLE;
-        if (samplerToUse) {
-            sampler = GetOrCreateSampler(*samplerToUse);
-        }
-        if (it->second.view == VK_NULL_HANDLE || sampler == VK_NULL_HANDLE) {
+        if (it->second.view == VK_NULL_HANDLE) {
             return false;
         }
 
-        outImageInfo.sampler = sampler;
+        outImageInfo.sampler = VK_NULL_HANDLE;
         outImageInfo.imageView = it->second.view;
         outImageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
         return true;
     }
 
-    Bool VkTextureSamplerManager::EnsureTextureSynced(TextureResource& resource,
-                                                      const MG_State::GLState::ITextureObject& texture) {
+    Bool VkTextureManager::EnsureTextureSynced(TextureResource& resource, const MG_State::GLState::ITextureObject& texture) {
         TextureUploadTarget level0Target = TextureUploadTarget::Unknown;
         IntVec3 texelSize{0, 0, 0};
         SizeT byteSize = 0;
@@ -120,10 +96,9 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         return true;
     }
 
-    Bool VkTextureSamplerManager::EnsureTextureResource(TextureResource& resource,
-                                                        const MG_State::GLState::ITextureObject& texture,
-                                                        TextureUploadTarget level0Target, const IntVec3& texelSize,
-                                                        SizeT byteSize) {
+    Bool VkTextureManager::EnsureTextureResource(TextureResource& resource, const MG_State::GLState::ITextureObject& texture,
+                                                 TextureUploadTarget level0Target, const IntVec3& texelSize,
+                                                 SizeT byteSize) {
         const VkFormat format = ResolveTextureFormat(texture.GetFormat());
         if (format == VK_FORMAT_UNDEFINED) {
             return false;
@@ -183,9 +158,8 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         return true;
     }
 
-    Bool VkTextureSamplerManager::UploadLevel0(TextureResource& resource,
-                                               const MG_State::GLState::TextureObjectMipmap& mipmapTexture,
-                                               TextureUploadTarget level0Target, SizeT byteSize) {
+    Bool VkTextureManager::UploadLevel0(TextureResource& resource, const MG_State::GLState::TextureObjectMipmap& mipmapTexture,
+                                        TextureUploadTarget level0Target, SizeT byteSize) {
         auto& mutableTexture = const_cast<MG_State::GLState::TextureObjectMipmap&>(mipmapTexture);
         const void* source = mutableTexture.MapMipmapData(level0Target, 0);
         if (source == nullptr || byteSize == 0) {
@@ -270,7 +244,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         return true;
     }
 
-    Bool VkTextureSamplerManager::ExecuteImmediate(const std::function<void(VkCommandBuffer)>& recorder) const {
+    Bool VkTextureManager::ExecuteImmediate(const std::function<void(VkCommandBuffer)>& recorder) const {
         VkCommandBufferAllocateInfo allocInfo{};
         allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
         allocInfo.commandPool = m_commandPool;
@@ -300,7 +274,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         return true;
     }
 
-    void VkTextureSamplerManager::DestroyTextureResource(TextureResource& resource) const {
+    void VkTextureManager::DestroyTextureResource(TextureResource& resource) const {
         if (m_device != VK_NULL_HANDLE && resource.view != VK_NULL_HANDLE) {
             vkDestroyImageView(m_device, resource.view, nullptr);
         }
@@ -315,9 +289,8 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         resource.format = VK_FORMAT_UNDEFINED;
     }
 
-    Bool VkTextureSamplerManager::ResolveLevel0(const MG_State::GLState::ITextureObject& texture,
-                                                TextureUploadTarget& outTarget, IntVec3& outTexelSize,
-                                                SizeT& outByteSize) {
+    Bool VkTextureManager::ResolveLevel0(const MG_State::GLState::ITextureObject& texture, TextureUploadTarget& outTarget,
+                                         IntVec3& outTexelSize, SizeT& outByteSize) {
         const auto* mipTexture = dynamic_cast<const MG_State::GLState::TextureObjectMipmap*>(&texture);
         if (!mipTexture) {
             return false;
@@ -332,7 +305,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         return outTexelSize.x() > 0 && outTexelSize.y() > 0 && outByteSize > 0;
     }
 
-    VkFormat VkTextureSamplerManager::ResolveTextureFormat(TextureInternalFormat format) {
+    VkFormat VkTextureManager::ResolveTextureFormat(TextureInternalFormat format) {
         switch (format) {
         case TextureInternalFormat::RGBA:
         case TextureInternalFormat::RGBA8:
@@ -343,125 +316,4 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             return VK_FORMAT_UNDEFINED;
         }
     }
-
-    Uint64 VkTextureSamplerManager::BuildSamplerKey(const MG_State::GLState::SamplerObject& sampler) const {
-        MOBILEGL_ASSERT(m_config != nullptr, "VkTextureSamplerManager::BuildSamplerKey: m_config is null");
-        XXHASH_VERIFY(XXH64_reset(m_hashState, m_config->CacheVersion));
-
-        const auto minFilter = sampler.GetMinFilter();
-        XXHASH_VERIFY(XXH64_update(m_hashState, &minFilter, sizeof(minFilter)));
-        const auto magFilter = sampler.GetMagFilter();
-        XXHASH_VERIFY(XXH64_update(m_hashState, &magFilter, sizeof(magFilter)));
-        const auto mipmapMode = sampler.GetMipmapMode();
-        XXHASH_VERIFY(XXH64_update(m_hashState, &mipmapMode, sizeof(mipmapMode)));
-        const auto wrapS = sampler.GetWrapS();
-        XXHASH_VERIFY(XXH64_update(m_hashState, &wrapS, sizeof(wrapS)));
-        const auto wrapT = sampler.GetWrapT();
-        XXHASH_VERIFY(XXH64_update(m_hashState, &wrapT, sizeof(wrapT)));
-        const auto wrapR = sampler.GetWrapR();
-        XXHASH_VERIFY(XXH64_update(m_hashState, &wrapR, sizeof(wrapR)));
-        const auto minLod = sampler.GetMinLod();
-        XXHASH_VERIFY(XXH64_update(m_hashState, &minLod, sizeof(minLod)));
-        const auto maxLod = sampler.GetMaxLod();
-        XXHASH_VERIFY(XXH64_update(m_hashState, &maxLod, sizeof(maxLod)));
-        const auto lodBias = sampler.GetLodBias();
-        XXHASH_VERIFY(XXH64_update(m_hashState, &lodBias, sizeof(lodBias)));
-        const auto compareMode = sampler.GetCompareMode();
-        XXHASH_VERIFY(XXH64_update(m_hashState, &compareMode, sizeof(compareMode)));
-        const auto compareFunc = sampler.GetSamplerCompareFunc();
-        XXHASH_VERIFY(XXH64_update(m_hashState, &compareFunc, sizeof(compareFunc)));
-        return XXH64_digest(m_hashState);
-    }
-
-    VkSampler VkTextureSamplerManager::GetOrCreateSampler(const MG_State::GLState::SamplerObject& sampler) {
-        const Uint64 key = BuildSamplerKey(sampler);
-        auto it = m_samplers.find(key);
-        if (it != m_samplers.end()) {
-            return it->second.handle;
-        }
-
-        VkSamplerCreateInfo samplerInfo{};
-        samplerInfo.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
-        samplerInfo.magFilter = ToVkFilter(sampler.GetMagFilter());
-        samplerInfo.minFilter = ToVkFilter(sampler.GetMinFilter());
-        samplerInfo.mipmapMode = ToVkMipmapMode(sampler.GetMipmapMode());
-        samplerInfo.addressModeU = ToVkAddressMode(sampler.GetWrapS());
-        samplerInfo.addressModeV = ToVkAddressMode(sampler.GetWrapT());
-        samplerInfo.addressModeW = ToVkAddressMode(sampler.GetWrapR());
-        samplerInfo.mipLodBias = sampler.GetLodBias();
-        samplerInfo.anisotropyEnable = VK_FALSE;
-        samplerInfo.maxAnisotropy = 1.0f;
-        samplerInfo.compareEnable = sampler.GetCompareMode() == SamplerCompareMode::CompareToTexture ? VK_TRUE : VK_FALSE;
-        samplerInfo.compareOp = ToVkCompareOp(sampler.GetSamplerCompareFunc());
-        samplerInfo.minLod = sampler.GetMinLod();
-        samplerInfo.maxLod = sampler.GetMaxLod();
-        samplerInfo.borderColor = VK_BORDER_COLOR_FLOAT_TRANSPARENT_BLACK;
-        samplerInfo.unnormalizedCoordinates = VK_FALSE;
-
-        VkSampler vkSampler = VK_NULL_HANDLE;
-        VK_VERIFY(vkCreateSampler(m_device, &samplerInfo, nullptr, &vkSampler), "vkCreateSampler(texture)");
-
-        SamplerCacheEntry entry{};
-        entry.handle = vkSampler;
-        entry.externalIndex = sampler.GetExternalIndex();
-        entry.version = sampler.GetVersion();
-        m_samplers[key] = entry;
-        return vkSampler;
-    }
-
-    VkFilter VkTextureSamplerManager::ToVkFilter(SamplerFilterMode mode) {
-        return mode == SamplerFilterMode::Nearest ? VK_FILTER_NEAREST : VK_FILTER_LINEAR;
-    }
-
-    VkSamplerMipmapMode VkTextureSamplerManager::ToVkMipmapMode(SamplerMipmapMode mode) {
-        switch (mode) {
-        case SamplerMipmapMode::Nearest:
-            return VK_SAMPLER_MIPMAP_MODE_NEAREST;
-        case SamplerMipmapMode::Linear:
-            return VK_SAMPLER_MIPMAP_MODE_LINEAR;
-        case SamplerMipmapMode::None:
-        default:
-            return VK_SAMPLER_MIPMAP_MODE_NEAREST;
-        }
-    }
-
-    VkSamplerAddressMode VkTextureSamplerManager::ToVkAddressMode(SamplerWrapMode mode) {
-        switch (mode) {
-        case SamplerWrapMode::ClampToEdge:
-            return VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-        case SamplerWrapMode::MirroredRepeat:
-            return VK_SAMPLER_ADDRESS_MODE_MIRRORED_REPEAT;
-        case SamplerWrapMode::Repeat:
-            return VK_SAMPLER_ADDRESS_MODE_REPEAT;
-        case SamplerWrapMode::ClampToBorder:
-            return VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER;
-        case SamplerWrapMode::MirrorClampToEdge:
-            return VK_SAMPLER_ADDRESS_MODE_MIRROR_CLAMP_TO_EDGE;
-        default:
-            return VK_SAMPLER_ADDRESS_MODE_REPEAT;
-        }
-    }
-
-    VkCompareOp VkTextureSamplerManager::ToVkCompareOp(SamplerCompareFunc func) {
-        switch (func) {
-        case SamplerCompareFunc::Never:
-            return VK_COMPARE_OP_NEVER;
-        case SamplerCompareFunc::Less:
-            return VK_COMPARE_OP_LESS;
-        case SamplerCompareFunc::Equal:
-            return VK_COMPARE_OP_EQUAL;
-        case SamplerCompareFunc::LessEqual:
-            return VK_COMPARE_OP_LESS_OR_EQUAL;
-        case SamplerCompareFunc::Greater:
-            return VK_COMPARE_OP_GREATER;
-        case SamplerCompareFunc::NotEqual:
-            return VK_COMPARE_OP_NOT_EQUAL;
-        case SamplerCompareFunc::GreaterEqual:
-            return VK_COMPARE_OP_GREATER_OR_EQUAL;
-        case SamplerCompareFunc::Always:
-        default:
-            return VK_COMPARE_OP_ALWAYS;
-        }
-    }
-
 } // namespace MobileGL::MG_Backend::DirectVulkan

@@ -214,13 +214,17 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         MOBILEGL_ASSERT(m_pipelineFactory != nullptr, "PipelineFactory creation failed.");
         m_programFactory = MakeUnique<ProgramFactory>(m_device, m_config);
         MOBILEGL_ASSERT(m_programFactory != nullptr, "ProgramFactory creation failed.");
-        m_textureSamplerManager = MakeUnique<VkTextureSamplerManager>();
-        MOBILEGL_ASSERT(m_textureSamplerManager != nullptr, "VkTextureSamplerManager creation failed.");
+        m_textureManager = MakeUnique<VkTextureManager>();
+        MOBILEGL_ASSERT(m_textureManager != nullptr, "VkTextureManager creation failed.");
         auto succeeded = false;
-        succeeded =
-            m_textureSamplerManager->Initialize({m_device, m_physicalDevice.handle, m_allocator, m_commandPool, m_graphicsQueue,
-                                                 &m_config});
-        MOBILEGL_ASSERT(succeeded, "VkTextureSamplerManager initialization failed.");
+        succeeded = m_textureManager->Initialize(
+            {m_device, m_physicalDevice.handle, m_allocator, m_commandPool, m_graphicsQueue});
+        MOBILEGL_ASSERT(succeeded, "VkTextureManager initialization failed.");
+
+        m_samplerManager = MakeUnique<VkSamplerManager>();
+        MOBILEGL_ASSERT(m_samplerManager != nullptr, "VkSamplerManager creation failed.");
+        succeeded = m_samplerManager->Initialize({m_device, &m_config});
+        MOBILEGL_ASSERT(succeeded, "VkSamplerManager initialization failed.");
 
         m_framebufferManager = MakeUnique<VkRenderTargetManager>();
         MOBILEGL_ASSERT(m_framebufferManager != nullptr, "VkFramebufferManager creation failed.");
@@ -232,7 +236,8 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         succeeded = m_uniformDescriptorBinder->Initialize(m_device, m_allocator,
                                                    m_physicalDevice.properties.limits.minUniformBufferOffsetAlignment,
                                                    m_config.MaxFramesInFlight, 16, 64, 4 * 1024 * 1024,
-                                                   m_textureSamplerManager.get(), m_framebufferManager.get());
+                                                   m_textureManager.get(), m_samplerManager.get(),
+                                                   m_framebufferManager.get());
         MOBILEGL_ASSERT(succeeded, "UniformDescriptorBinder initialization failed.");
         m_vertexInputStateFactory = MakeUnique<VertexInputStateFactory>(m_config);
         MOBILEGL_ASSERT(m_vertexInputStateFactory != nullptr, "VertexInputStateFactory creation failed.");
@@ -257,9 +262,13 @@ namespace MobileGL::MG_Backend::DirectVulkan {
 
         m_pipelineFactory.reset();
         m_programFactory.reset();
-        if (m_textureSamplerManager) {
-            m_textureSamplerManager->Shutdown();
-            m_textureSamplerManager.reset();
+        if (m_samplerManager) {
+            m_samplerManager->Shutdown();
+            m_samplerManager.reset();
+        }
+        if (m_textureManager) {
+            m_textureManager->Shutdown();
+            m_textureManager.reset();
         }
         m_vertexInputStateFactory.reset();
         for (auto& buffer : m_frameVertexUploadBuffers) {

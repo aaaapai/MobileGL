@@ -138,7 +138,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
     Bool UniformDescriptorBinder::Initialize(VkDevice device, VmaAllocator allocator,
                                              VkDeviceSize minUniformBufferOffsetAlignment, Uint32 frameCount,
                                              Uint32 maxBindings, Uint32 setsPerFrame, VkDeviceSize perFrameUploadBytes,
-                                             VkTextureSamplerManager* textureSamplerManager,
+                                             VkTextureManager* textureManager, VkSamplerManager* samplerManager,
                                              VkRenderTargetManager* framebufferManager) {
         Shutdown();
 
@@ -147,8 +147,10 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         MOBILEGL_ASSERT(frameCount > 0, "UniformDescriptorBinder::Initialize requires frameCount > 0");
         MOBILEGL_ASSERT(maxBindings > 0, "UniformDescriptorBinder::Initialize requires maxBindings > 0");
         MOBILEGL_ASSERT(setsPerFrame > 0, "UniformDescriptorBinder::Initialize requires setsPerFrame > 0");
-        MOBILEGL_ASSERT(textureSamplerManager != nullptr,
-                        "UniformDescriptorBinder::Initialize requires valid texture sampler manager");
+        MOBILEGL_ASSERT(textureManager != nullptr,
+                        "UniformDescriptorBinder::Initialize requires valid texture manager");
+        MOBILEGL_ASSERT(samplerManager != nullptr,
+                        "UniformDescriptorBinder::Initialize requires valid sampler manager");
         MOBILEGL_ASSERT(framebufferManager != nullptr,
                         "UniformDescriptorBinder::Initialize requires valid framebuffer manager");
 
@@ -160,7 +162,8 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         m_maxBindings = maxBindings;
         m_setsPerFrame = setsPerFrame;
         m_peakDescriptorSetsObserved = 0;
-        m_textureSamplerManager = textureSamplerManager;
+        m_textureManager = textureManager;
+        m_samplerManager = samplerManager;
         m_framebufferManager = framebufferManager;
 
         m_frames.resize(m_frameCount);
@@ -223,7 +226,8 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         m_maxBindings = 0;
         m_setsPerFrame = 0;
         m_peakDescriptorSetsObserved = 0;
-        m_textureSamplerManager = nullptr;
+        m_textureManager = nullptr;
+        m_samplerManager = nullptr;
         m_framebufferManager = nullptr;
     }
 
@@ -447,7 +451,8 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                                                            const MG_State::GLState::ProgramObject& program,
                                                            const ProgramLayout& layout, Uint32 binding,
                                                            VkDescriptorImageInfo& outImageInfo) const {
-        MOBILEGL_ASSERT(m_textureSamplerManager != nullptr, "ResolveSamplerDescriptor: texture sampler manager is null");
+        MOBILEGL_ASSERT(m_textureManager != nullptr, "ResolveSamplerDescriptor: texture manager is null");
+        MOBILEGL_ASSERT(m_samplerManager != nullptr, "ResolveSamplerDescriptor: sampler manager is null");
         if (!MG_State::pGLContext || binding >= layout.samplerUniformLocationByBinding.size()) {
             return false;
         }
@@ -480,6 +485,17 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             return false;
         }
 
+        const MG_State::GLState::SamplerObject* samplerToUse = samplerOverride ? samplerOverride.get() : nullptr;
+        if (!samplerToUse) {
+            auto textureSampler = texture->GetSamplerObject();
+            if (textureSampler) {
+                samplerToUse = textureSampler.get();
+            }
+        }
+        if (!samplerToUse) {
+            return false;
+        }
+
         if (m_framebufferManager->Transition(commandBuffer,
                                              VkRenderTargetManager::TransitionResource::OffscreenColorTexture,
                                              VkRenderTargetManager::TransitionUsage::ShaderRead,
@@ -488,7 +504,11 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             if (m_framebufferManager->GetOffscreenColorViewByTexture(texture->GetExternalIndex(), offscreenView) &&
                 offscreenView != VK_NULL_HANDLE) {
                 VkDescriptorImageInfo sampledInfo{};
-                if (!m_textureSamplerManager->SyncTextureAndGetDescriptor(*texture, samplerOverride.get(), sampledInfo)) {
+                if (!m_textureManager->SyncTextureAndGetDescriptor(*texture, sampledInfo)) {
+                    return false;
+                }
+                sampledInfo.sampler = m_samplerManager->GetOrCreateSampler(*samplerToUse);
+                if (sampledInfo.sampler == VK_NULL_HANDLE) {
                     return false;
                 }
                 sampledInfo.imageView = offscreenView;
@@ -498,7 +518,11 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             }
         }
 
-        return m_textureSamplerManager->SyncTextureAndGetDescriptor(*texture, samplerOverride.get(), outImageInfo);
+        if (!m_textureManager->SyncTextureAndGetDescriptor(*texture, outImageInfo)) {
+            return false;
+        }
+        outImageInfo.sampler = m_samplerManager->GetOrCreateSampler(*samplerToUse);
+        return outImageInfo.sampler != VK_NULL_HANDLE;
     }
 
     UniformDescriptorBinder::ProgramLayout* UniformDescriptorBinder::GetOrCreateProgramLayout(
@@ -767,8 +791,8 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         }
 
         static const Uint8 kFallbackData[16] = {};
-        MOBILEGL_ASSERT(m_textureSamplerManager != nullptr,
-                        "BindProgramUniformBuffers: texture sampler manager is null");
+        MOBILEGL_ASSERT(m_textureManager != nullptr, "BindProgramUniformBuffers: texture manager is null");
+        MOBILEGL_ASSERT(m_samplerManager != nullptr, "BindProgramUniformBuffers: sampler manager is null");
 
         Vector<VkWriteDescriptorSet> writes;
         writes.reserve(m_maxBindings);
