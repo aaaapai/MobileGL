@@ -429,10 +429,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             return;
         }
 
-        const auto drawFbo =
-            MG_State::pGLContext
-                ? MG_State::pGLContext->GetFramebufferBindingSlot(FramebufferTarget::Draw).GetBoundObject()
-                : nullptr;
+        const auto drawFbo = MG_State::pGLContext->GetFramebufferBindingSlot(FramebufferTarget::Draw).GetBoundObject();
         const auto defaultFboInfo = MG_Impl::GLImpl::FramebufferImpl::pDefaultFramebufferInfo;
         const auto defaultFbo = defaultFboInfo ? defaultFboInfo->defaultFBO : nullptr;
         const Bool drawTargetsDefault = (drawFbo == defaultFbo) || (drawFbo == nullptr && defaultFbo != nullptr);
@@ -1273,7 +1270,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                 }
 
                 m_renderPassManager->EndRenderPass(commandBuffer);
-            } else if (MG_State::pGLContext) {
+            } else {
                 const auto targetFbo = MG_State::pGLContext->GetFramebufferObject(targetFboExternalIndex);
                 VkRenderPass offscreenRenderPass = VK_NULL_HANDLE;
                 VkFramebuffer offscreenFramebuffer = VK_NULL_HANDLE;
@@ -1387,10 +1384,6 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                 srcImage = m_swapchainObject.GetImage(m_imageIndexAcquired);
                 srcExtent = m_swapchainObject.GetExtent();
             } else {
-                if (!MG_State::pGLContext) {
-                    MGLOG_W("BlitFramebuffer skipped: GL context unavailable for read FBO");
-                    return false;
-                }
                 const auto readFbo = MG_State::pGLContext->GetFramebufferObject(readFboExternalIndex);
                 if (!readFbo) {
                     MGLOG_W("BlitFramebuffer skipped: read FBO %u not found", readFboExternalIndex);
@@ -1410,10 +1403,6 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                 dstImage = m_swapchainObject.GetImage(m_imageIndexAcquired);
                 dstExtent = m_swapchainObject.GetExtent();
             } else {
-                if (!MG_State::pGLContext) {
-                    MGLOG_W("BlitFramebuffer skipped: GL context unavailable for draw FBO");
-                    return false;
-                }
                 const auto drawFbo = MG_State::pGLContext->GetFramebufferObject(drawFboExternalIndex);
                 if (!drawFbo) {
                     MGLOG_W("BlitFramebuffer skipped: draw FBO %u not found", drawFboExternalIndex);
@@ -1557,19 +1546,15 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                     srcDepthFormat = m_depthStencilFormat;
                 }
             } else {
-                if (!MG_State::pGLContext) {
-                    MGLOG_W("BlitFramebuffer: GL context unavailable for read depth/stencil FBO");
-                } else {
-                    const auto readFbo = MG_State::pGLContext->GetFramebufferObject(readFboExternalIndex);
-                    if (!readFbo) {
-                        MGLOG_W("BlitFramebuffer: read FBO %u not found", readFboExternalIndex);
-                    } else if (!m_framebufferManager->EnsureOffscreenColorTarget(readFboExternalIndex, *readFbo)) {
-                        MGLOG_W("BlitFramebuffer: failed to materialize read FBO %u for depth/stencil",
-                                readFboExternalIndex);
-                    } else if (!m_framebufferManager->GetOffscreenDepthStencilImage(readFboExternalIndex, srcDepthImage,
-                                                                                    srcDepthExtent, srcDepthFormat)) {
-                        MGLOG_W("BlitFramebuffer: read FBO %u has no depth/stencil image", readFboExternalIndex);
-                    }
+                const auto readFbo = MG_State::pGLContext->GetFramebufferObject(readFboExternalIndex);
+                if (!readFbo) {
+                    MGLOG_W("BlitFramebuffer: read FBO %u not found", readFboExternalIndex);
+                } else if (!m_framebufferManager->EnsureOffscreenColorTarget(readFboExternalIndex, *readFbo)) {
+                    MGLOG_W("BlitFramebuffer: failed to materialize read FBO %u for depth/stencil",
+                            readFboExternalIndex);
+                } else if (!m_framebufferManager->GetOffscreenDepthStencilImage(readFboExternalIndex, srcDepthImage,
+                                                                                srcDepthExtent, srcDepthFormat)) {
+                    MGLOG_W("BlitFramebuffer: read FBO %u has no depth/stencil image", readFboExternalIndex);
                 }
             }
 
@@ -1852,9 +1837,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                 }
 
                 MOBILEGL_ASSERT(m_framebufferManager != nullptr, "Present: framebuffer manager is null");
-                if (!MG_State::pGLContext) {
-                    return false;
-                }
+
                 const auto pendingFbo = MG_State::pGLContext->GetFramebufferObject(targetFboExternalIndex);
                 if (!pendingFbo) {
                     return false;
