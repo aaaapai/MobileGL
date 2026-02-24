@@ -188,15 +188,6 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         return m_pipelineFactory->GetOrCreatePipeline(payload);
     }
 
-    void VulkanRenderer::PrepareDemoPipeline() {
-        MGLOG_D("PrepareDemoPipeline called");
-
-        VkPipelineLayoutCreateInfo plci{VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
-        VK_VERIFY(vkCreatePipelineLayout(m_device, &plci, nullptr, &m_pipelineLayout), "vkCreatePipelineLayout");
-
-        MGLOG_I("PrepareDemoPipeline completed");
-    }
-
     void VulkanRenderer::CreateFrameContexts() {
         VK_VERIFY(m_frameContext.Initialize(m_device, m_commandPool, m_config.MaxFramesInFlight),
                   "CreateFrameContexts");
@@ -246,7 +237,6 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         m_vertexInputStateFactory = MakeUnique<VertexInputStateFactory>(m_config);
         MOBILEGL_ASSERT(m_vertexInputStateFactory != nullptr, "VertexInputStateFactory creation failed.");
 
-        PrepareDemoPipeline();
         CreateFrameContexts();
         m_frameVertexUploadBuffers.resize(m_frameContext.GetFrameCount());
         m_frameVertexUploadHeads.assign(m_frameContext.GetFrameCount(), 0);
@@ -286,10 +276,6 @@ namespace MobileGL::MG_Backend::DirectVulkan {
 
         m_frameContext.Destroy(m_device, m_commandPool);
 
-        if (m_pipelineLayout != VK_NULL_HANDLE) {
-            vkDestroyPipelineLayout(m_device, m_pipelineLayout, nullptr);
-            m_pipelineLayout = VK_NULL_HANDLE;
-        }
         if (m_uniformDescriptorBinder) {
             m_uniformDescriptorBinder->Shutdown();
             m_uniformDescriptorBinder.reset();

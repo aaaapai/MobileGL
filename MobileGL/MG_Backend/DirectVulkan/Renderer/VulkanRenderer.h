@@ -132,7 +132,6 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         Vector<VkImageView> m_depthStencilImageViews;
         Vector<VkImageLayout> m_depthStencilImageLayouts;
 
-        VkPipelineLayout m_pipelineLayout = VK_NULL_HANDLE;
         Vector<VkBufferObject> m_frameVertexUploadBuffers;
         Vector<VkDeviceSize> m_frameVertexUploadHeads;
         Vector<VkBufferObject> m_frameIndexUploadBuffers;
@@ -177,7 +176,6 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         Bool EnsureOffscreenRenderTarget(Uint glFboExternalIndex, const MG_State::GLState::FramebufferObject& glFbo,
                                          VkRenderPass& outRenderPass, VkFramebuffer& outFramebuffer,
                                          VkExtent2D& outExtent, VkFormat& outDepthStencilFormat);
-        void PrepareDemoPipeline();
         VkPipeline GetOrCreatePipeline(const MG_State::GLState::ProgramObject& program, VkPipelineLayout pipelineLayout,
                                        Uint64 vertexInputHash,
                                        const VkPipelineVertexInputStateCreateInfo& vertexInputState);
