@@ -103,9 +103,9 @@ namespace MobileGL::MG_Impl::GLImpl {
         // Assert this for extra safety.
         // This should automatically compiled out in release,
         // so that we don't take the perf hit of dyn-cast.
-        MOBILEGL_ASSERT(nullptr != dynamic_cast<MG_State::GLState::TextureObjectMipmap*>(textureObject.get()),
+        MOBILEGL_ASSERT(nullptr != static_cast<MG_State::GLState::TextureObjectMipmap*>(textureObject.get()),
                         "Texture object here should always be an object with mipmap");
-        auto textureMipmapObject = dynamic_cast<MG_State::GLState::TextureObjectMipmap*>(textureObject.get());
+        auto textureMipmapObject = static_cast<MG_State::GLState::TextureObjectMipmap*>(textureObject.get());
         auto texelSize = textureMipmapObject->GetMipmapTexelSize(textureUploadTarget, level);
 
         SizeT inputSize = 0;
@@ -569,9 +569,9 @@ namespace MobileGL::MG_Impl::GLImpl {
                              reinterpret_cast<SizeT>(pixels);
         }
 
-        MOBILEGL_ASSERT(nullptr != dynamic_cast<MG_State::GLState::TextureObjectMipmap*>(textureObject.get()),
+        MOBILEGL_ASSERT(nullptr != static_cast<MG_State::GLState::TextureObjectMipmap*>(textureObject.get()),
                         "Texture object here should always be an object with mipmap");
-        auto textureMipmapObject = dynamic_cast<MG_State::GLState::TextureObjectMipmap*>(textureObject.get());
+        auto textureMipmapObject = static_cast<MG_State::GLState::TextureObjectMipmap*>(textureObject.get());
 
         // Allocate in TextureObject
         textureMipmapObject->AllocateStorage(textureUploadTarget, level, {{width, height, depth}, internalBytes});
@@ -686,9 +686,9 @@ namespace MobileGL::MG_Impl::GLImpl {
                              reinterpret_cast<SizeT>(pixels);
         }
 
-        MOBILEGL_ASSERT(nullptr != dynamic_cast<MG_State::GLState::TextureObjectMipmap*>(textureObject.get()),
+        MOBILEGL_ASSERT(nullptr != static_cast<MG_State::GLState::TextureObjectMipmap*>(textureObject.get()),
                         "Texture object here should always be an object with mipmap");
-        auto textureMipmapObject = dynamic_cast<MG_State::GLState::TextureObjectMipmap*>(textureObject.get());
+        auto textureMipmapObject = static_cast<MG_State::GLState::TextureObjectMipmap*>(textureObject.get());
 
         // Allocate in TextureObject
         MGLOG_D("%s: Allocating %d bytes at mip %d", __func__, internalBytes, level);
@@ -764,7 +764,7 @@ namespace MobileGL::MG_Impl::GLImpl {
 
         // ======================= Processing ================================
         // Now we can rest assured, and down-cast texture object to texture buffer
-        auto* texBufferObject = dynamic_cast<MG_State::GLState::TextureObjectBuffer*>(textureObject.get());
+        auto* texBufferObject = static_cast<MG_State::GLState::TextureObjectBuffer*>(textureObject.get());
         auto& bufferSlot = texBufferObject->GetBufferBindingSlot();
         bufferSlot.Bind(bufferObject);
 
@@ -978,7 +978,7 @@ namespace MobileGL::MG_Impl::GLImpl {
                 switch (textureObject->GetStorageType()) {
                 case TextureStorageType::Mipmap: {
                     const auto textureMipmapObject =
-                        dynamic_cast<MG_State::GLState::TextureObjectMipmap*>(textureObject.get());
+                        static_cast<MG_State::GLState::TextureObjectMipmap*>(textureObject.get());
                     *params = textureMipmapObject->GetMipmapTexelSize(textureUploadTarget, level).x();
                     break;
                 }
@@ -992,7 +992,7 @@ namespace MobileGL::MG_Impl::GLImpl {
                 switch (textureObject->GetStorageType()) {
                 case TextureStorageType::Mipmap: {
                     const auto textureMipmapObject =
-                        dynamic_cast<MG_State::GLState::TextureObjectMipmap*>(textureObject.get());
+                        static_cast<MG_State::GLState::TextureObjectMipmap*>(textureObject.get());
                     *params = textureMipmapObject->GetMipmapTexelSize(textureUploadTarget, level).y();
                     break;
                 }
@@ -1006,7 +1006,7 @@ namespace MobileGL::MG_Impl::GLImpl {
                 switch (textureObject->GetStorageType()) {
                 case TextureStorageType::Mipmap: {
                     const auto textureMipmapObject =
-                        dynamic_cast<MG_State::GLState::TextureObjectMipmap*>(textureObject.get());
+                        static_cast<MG_State::GLState::TextureObjectMipmap*>(textureObject.get());
                     *params = textureMipmapObject->GetMipmapTexelSize(textureUploadTarget, level).z();
                     break;
                 }
@@ -1067,7 +1067,7 @@ namespace MobileGL::MG_Impl::GLImpl {
                 switch (textureObject->GetStorageType()) {
                 case TextureStorageType::Mipmap: {
                     const auto textureMipmapObject =
-                        dynamic_cast<MG_State::GLState::TextureObjectMipmap*>(textureObject.get());
+                        static_cast<MG_State::GLState::TextureObjectMipmap*>(textureObject.get());
                     *params = (GLfloat)textureMipmapObject->GetMipmapTexelSize(textureUploadTarget, level).x();
                     break;
                 }
@@ -1081,7 +1081,7 @@ namespace MobileGL::MG_Impl::GLImpl {
                 switch (textureObject->GetStorageType()) {
                 case TextureStorageType::Mipmap: {
                     const auto textureMipmapObject =
-                        dynamic_cast<MG_State::GLState::TextureObjectMipmap*>(textureObject.get());
+                        static_cast<MG_State::GLState::TextureObjectMipmap*>(textureObject.get());
                     *params = (GLfloat)textureMipmapObject->GetMipmapTexelSize(textureUploadTarget, level).y();
                     break;
                 }
@@ -1095,7 +1095,7 @@ namespace MobileGL::MG_Impl::GLImpl {
                 switch (textureObject->GetStorageType()) {
                 case TextureStorageType::Mipmap: {
                     const auto textureMipmapObject =
-                        dynamic_cast<MG_State::GLState::TextureObjectMipmap*>(textureObject.get());
+                        static_cast<MG_State::GLState::TextureObjectMipmap*>(textureObject.get());
                     *params = (GLfloat)textureMipmapObject->GetMipmapTexelSize(textureUploadTarget, level).z();
                     break;
                 }
@@ -1441,7 +1441,7 @@ namespace MobileGL::MG_Impl::GLImpl {
 
         // Check for multisampling
         if (textureObject->GetStorageType() == TextureStorageType::Mipmap) {
-            auto mipmapObject = dynamic_cast<MG_State::GLState::TextureObjectMipmap*>(textureObject.get());
+            auto mipmapObject = static_cast<MG_State::GLState::TextureObjectMipmap*>(textureObject.get());
             if (mipmapObject->GetMipmapLevelCount() > 1) {
                 MG_State::pGLContext->RecordError(
                     ErrorCode::InvalidOperation,

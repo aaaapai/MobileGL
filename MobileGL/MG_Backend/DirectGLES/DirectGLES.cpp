@@ -1403,7 +1403,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
             return;
         }
 
-        auto* textureMipmapObject = dynamic_cast<MG_State::GLState::TextureObjectMipmap*>(textureObject.get());
+        auto* textureMipmapObject = static_cast<MG_State::GLState::TextureObjectMipmap*>(textureObject.get());
 
         auto& levelRange = textureMipmapObject->GetLevelRange();
         MGLOG_D("GetTexImage: mipmap level range = [%d, %d)", levelRange.x(), levelRange.y());

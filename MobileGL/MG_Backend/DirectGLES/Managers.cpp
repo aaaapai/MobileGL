@@ -391,7 +391,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
             switch (stateTextureObject->GetStorageType()) {
             case TextureStorageType::Mipmap: {
                 auto* textureMipmapObject =
-                    dynamic_cast<MG_State::GLState::TextureObjectMipmap*>(stateTextureObject.get());
+                    static_cast<MG_State::GLState::TextureObjectMipmap*>(stateTextureObject.get());
                 const auto mipmapCount = textureMipmapObject->GetMipmapLevelCount();
                 currentTextureInfo.mipmapLevels = mipmapCount;
 
@@ -515,7 +515,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
             }
             case TextureStorageType::Buffer: {
                 auto* textureBufferObject =
-                    dynamic_cast<MG_State::GLState::TextureObjectBuffer*>(stateTextureObject.get());
+                    static_cast<MG_State::GLState::TextureObjectBuffer*>(stateTextureObject.get());
                 auto& slot = textureBufferObject->GetBufferBindingSlot();
                 auto& buffer = slot.GetBoundObject();
                 auto bufferIndex = buffer->GetExternalIndex();
