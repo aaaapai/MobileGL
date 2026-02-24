@@ -15,7 +15,8 @@ namespace MobileGL::MG_Backend::DirectVulkan {
     Bool VkRenderTargetManager::Initialize(const InitInfo& initInfo) {
         m_device = initInfo.device;
         m_physicalDevice = initInfo.physicalDevice;
-        return m_device != VK_NULL_HANDLE && m_physicalDevice != VK_NULL_HANDLE;
+        m_allocator = initInfo.allocator;
+        return m_device != VK_NULL_HANDLE && m_physicalDevice != VK_NULL_HANDLE && m_allocator != nullptr;
     }
 
     void VkRenderTargetManager::Shutdown() {
@@ -25,6 +26,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         m_offscreenColorTargets.clear();
         m_device = VK_NULL_HANDLE;
         m_physicalDevice = VK_NULL_HANDLE;
+        m_allocator = nullptr;
     }
 
     Bool VkRenderTargetManager::EnsureOffscreenColorTarget(Uint glFboExternalIndex,
@@ -251,18 +253,11 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                           VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
         imageInfo.samples = VK_SAMPLE_COUNT_1_BIT;
         imageInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-        VK_VERIFY(vkCreateImage(m_device, &imageInfo, nullptr, &target.image), "vkCreateImage(offscreen color)");
-
-        VkMemoryRequirements memoryRequirements{};
-        vkGetImageMemoryRequirements(m_device, target.image, &memoryRequirements);
-
-        VkMemoryAllocateInfo allocInfo{};
-        allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
-        allocInfo.allocationSize = memoryRequirements.size;
-        allocInfo.memoryTypeIndex =
-            FindMemoryType(memoryRequirements.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
-        VK_VERIFY(vkAllocateMemory(m_device, &allocInfo, nullptr, &target.memory), "vkAllocateMemory(offscreen color)");
-        VK_VERIFY(vkBindImageMemory(m_device, target.image, target.memory, 0), "vkBindImageMemory(offscreen color)");
+        VmaAllocationCreateInfo colorAllocationInfo{};
+        colorAllocationInfo.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
+        colorAllocationInfo.requiredFlags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
+        VK_VERIFY(vmaCreateImage(m_allocator, &imageInfo, &colorAllocationInfo, &target.image, &target.allocation, nullptr),
+                  "vmaCreateImage(offscreen color)");
 
         VkImageViewCreateInfo viewInfo{};
         viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
@@ -308,20 +303,12 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             depthImageInfo.usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
             depthImageInfo.samples = VK_SAMPLE_COUNT_1_BIT;
             depthImageInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-            VK_VERIFY(vkCreateImage(m_device, &depthImageInfo, nullptr, &target.depthStencilImage),
-                      "vkCreateImage(offscreen depth/stencil)");
-
-            VkMemoryRequirements depthMemoryRequirements{};
-            vkGetImageMemoryRequirements(m_device, target.depthStencilImage, &depthMemoryRequirements);
-            VkMemoryAllocateInfo depthAllocInfo{};
-            depthAllocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
-            depthAllocInfo.allocationSize = depthMemoryRequirements.size;
-            depthAllocInfo.memoryTypeIndex =
-                FindMemoryType(depthMemoryRequirements.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
-            VK_VERIFY(vkAllocateMemory(m_device, &depthAllocInfo, nullptr, &target.depthStencilMemory),
-                      "vkAllocateMemory(offscreen depth/stencil)");
-            VK_VERIFY(vkBindImageMemory(m_device, target.depthStencilImage, target.depthStencilMemory, 0),
-                      "vkBindImageMemory(offscreen depth/stencil)");
+            VmaAllocationCreateInfo depthAllocationInfo{};
+            depthAllocationInfo.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
+            depthAllocationInfo.requiredFlags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
+            VK_VERIFY(vmaCreateImage(m_allocator, &depthImageInfo, &depthAllocationInfo, &target.depthStencilImage,
+                                     &target.depthStencilAllocation, nullptr),
+                      "vmaCreateImage(offscreen depth/stencil)");
 
             VkImageAspectFlags depthAspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
             if (depthStencilFormat == VK_FORMAT_D24_UNORM_S8_UINT ||
@@ -364,21 +351,15 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             target.depthStencilImageView = VK_NULL_HANDLE;
         }
         if (target.image != VK_NULL_HANDLE) {
-            vkDestroyImage(m_device, target.image, nullptr);
+            vmaDestroyImage(m_allocator, target.image, target.allocation);
             target.image = VK_NULL_HANDLE;
         }
         if (target.depthStencilImage != VK_NULL_HANDLE) {
-            vkDestroyImage(m_device, target.depthStencilImage, nullptr);
+            vmaDestroyImage(m_allocator, target.depthStencilImage, target.depthStencilAllocation);
             target.depthStencilImage = VK_NULL_HANDLE;
         }
-        if (target.memory != VK_NULL_HANDLE) {
-            vkFreeMemory(m_device, target.memory, nullptr);
-            target.memory = VK_NULL_HANDLE;
-        }
-        if (target.depthStencilMemory != VK_NULL_HANDLE) {
-            vkFreeMemory(m_device, target.depthStencilMemory, nullptr);
-            target.depthStencilMemory = VK_NULL_HANDLE;
-        }
+        target.allocation = nullptr;
+        target.depthStencilAllocation = nullptr;
         target.layout = VK_IMAGE_LAYOUT_UNDEFINED;
         target.depthStencilLayout = VK_IMAGE_LAYOUT_UNDEFINED;
         target.extent = {0, 0};
@@ -418,19 +399,6 @@ namespace MobileGL::MG_Backend::DirectVulkan {
 
         trackedLayout = newLayout;
         return true;
-    }
-
-    Uint32 VkRenderTargetManager::FindMemoryType(Uint32 typeFilter, VkMemoryPropertyFlags properties) const {
-        VkPhysicalDeviceMemoryProperties memoryProperties{};
-        vkGetPhysicalDeviceMemoryProperties(m_physicalDevice, &memoryProperties);
-        for (Uint32 i = 0; i < memoryProperties.memoryTypeCount; ++i) {
-            if ((typeFilter & (1U << i)) &&
-                (memoryProperties.memoryTypes[i].propertyFlags & properties) == properties) {
-                return i;
-            }
-        }
-        MOBILEGL_ASSERT(false, "VkFramebufferManager::FindMemoryType failed");
-        return 0;
     }
 
     VkFormat VkRenderTargetManager::ResolveColorFormat(

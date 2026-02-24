@@ -11,6 +11,7 @@
 #include "../VkIncludes.h"
 #include <Includes.h>
 #include <MG_State/GLState/FramebufferState/FramebufferObject.h>
+#include <vk_mem_alloc.h>
 
 namespace MobileGL::MG_Backend::DirectVulkan {
     class VkRenderTargetManager {
@@ -32,6 +33,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         struct InitInfo {
             VkDevice device = VK_NULL_HANDLE;
             VkPhysicalDevice physicalDevice = VK_NULL_HANDLE;
+            VmaAllocator allocator = nullptr;
         };
 
         VkRenderTargetManager() = default;
@@ -54,13 +56,13 @@ namespace MobileGL::MG_Backend::DirectVulkan {
     private:
         struct OffscreenColorTarget {
             VkImage image = VK_NULL_HANDLE;
-            VkDeviceMemory memory = VK_NULL_HANDLE;
+            VmaAllocation allocation = nullptr;
             VkImageView imageView = VK_NULL_HANDLE;
             VkImageLayout layout = VK_IMAGE_LAYOUT_UNDEFINED;
             VkExtent2D extent = {0, 0};
             VkFormat format = VK_FORMAT_UNDEFINED;
             VkImage depthStencilImage = VK_NULL_HANDLE;
-            VkDeviceMemory depthStencilMemory = VK_NULL_HANDLE;
+            VmaAllocation depthStencilAllocation = nullptr;
             VkImageView depthStencilImageView = VK_NULL_HANDLE;
             VkImageLayout depthStencilLayout = VK_IMAGE_LAYOUT_UNDEFINED;
             VkFormat depthStencilFormat = VK_FORMAT_UNDEFINED;
@@ -77,7 +79,6 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                                    VkImageLayout newLayout, VkPipelineStageFlags srcStageMask,
                                    VkPipelineStageFlags dstStageMask, VkAccessFlags srcAccessMask,
                                    VkAccessFlags dstAccessMask, VkImageAspectFlags aspectMask);
-        Uint32 FindMemoryType(Uint32 typeFilter, VkMemoryPropertyFlags properties) const;
         static VkFormat ResolveColorFormat(const MG_State::GLState::FramebufferAttachmentObject& colorAttachment);
         static VkFormat ResolveDepthStencilFormat(
             const MG_State::GLState::FramebufferAttachmentObject& depthAttachment,
@@ -86,6 +87,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
 
         VkDevice m_device = VK_NULL_HANDLE;
         VkPhysicalDevice m_physicalDevice = VK_NULL_HANDLE;
+        VmaAllocator m_allocator = nullptr;
         UnorderedMap<Uint, OffscreenColorTarget> m_offscreenColorTargets;
     };
 } // namespace MobileGL::MG_Backend::DirectVulkan

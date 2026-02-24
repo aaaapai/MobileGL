@@ -224,7 +224,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
 
         m_framebufferManager = MakeUnique<VkRenderTargetManager>();
         MOBILEGL_ASSERT(m_framebufferManager != nullptr, "VkFramebufferManager creation failed.");
-        succeeded = m_framebufferManager->Initialize({m_device, m_physicalDevice.handle});
+        succeeded = m_framebufferManager->Initialize({m_device, m_physicalDevice.handle, m_allocator});
         MOBILEGL_ASSERT(succeeded, "VkFramebufferManager initialization failed.");
 
         m_uniformDescriptorBinder = MakeUnique<UniformDescriptorBinder>();
