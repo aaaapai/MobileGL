@@ -6,19 +6,19 @@
 // SPDX-License-Identifier: LGPL-3.0-only
 // End of Source File Header
 
-#include "VkFramebufferManager.h"
+#include "VkRenderTargetManager.h"
 
 #include <MG_State/GLState/RenderbufferState/RenderbufferObject.h>
 #include <MG_State/GLState/TextureState/TextureEnum.h>
 
 namespace MobileGL::MG_Backend::DirectVulkan {
-    Bool VkFramebufferManager::Initialize(const InitInfo& initInfo) {
+    Bool VkRenderTargetManager::Initialize(const InitInfo& initInfo) {
         m_device = initInfo.device;
         m_physicalDevice = initInfo.physicalDevice;
         return m_device != VK_NULL_HANDLE && m_physicalDevice != VK_NULL_HANDLE;
     }
 
-    void VkFramebufferManager::Shutdown() {
+    void VkRenderTargetManager::Shutdown() {
         for (auto& [_, target] : m_offscreenColorTargets) {
             DestroyOffscreenColorTarget(target);
         }
@@ -27,7 +27,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         m_physicalDevice = VK_NULL_HANDLE;
     }
 
-    Bool VkFramebufferManager::EnsureOffscreenColorTarget(Uint glFboExternalIndex,
+    Bool VkRenderTargetManager::EnsureOffscreenColorTarget(Uint glFboExternalIndex,
                                                           const MG_State::GLState::FramebufferObject& glFbo) {
         const auto& colorAttachment = glFbo.GetAttachment(FramebufferAttachmentType::Color0);
         if (!colorAttachment.IsValid() || colorAttachment.IsEmpty()) {
@@ -44,7 +44,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         return RecreateOffscreenColorTarget(target, glFbo, colorAttachment, objectVersion);
     }
 
-    Bool VkFramebufferManager::Transition(VkCommandBuffer commandBuffer, TransitionResource resource,
+    Bool VkRenderTargetManager::Transition(VkCommandBuffer commandBuffer, TransitionResource resource,
                                           TransitionUsage usage, Uint externalIndex) {
         auto resolveDepthStencilAspectMask = [](VkFormat format) {
             VkImageAspectFlags aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
@@ -169,7 +169,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         return false;
     }
 
-    Bool VkFramebufferManager::GetOffscreenColorImage(Uint glFboExternalIndex, VkImage& outImage,
+    Bool VkRenderTargetManager::GetOffscreenColorImage(Uint glFboExternalIndex, VkImage& outImage,
                                                       VkExtent2D& outExtent) const {
         auto it = m_offscreenColorTargets.find(glFboExternalIndex);
         if (it == m_offscreenColorTargets.end() || it->second.image == VK_NULL_HANDLE) {
@@ -180,7 +180,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         return true;
     }
 
-    Bool VkFramebufferManager::GetOffscreenDepthStencilImage(Uint glFboExternalIndex, VkImage& outImage,
+    Bool VkRenderTargetManager::GetOffscreenDepthStencilImage(Uint glFboExternalIndex, VkImage& outImage,
                                                              VkExtent2D& outExtent, VkFormat& outFormat) const {
         auto it = m_offscreenColorTargets.find(glFboExternalIndex);
         if (it == m_offscreenColorTargets.end() || it->second.depthStencilImage == VK_NULL_HANDLE) {
@@ -192,7 +192,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         return true;
     }
 
-    Bool VkFramebufferManager::GetOffscreenColorViewByTexture(Uint textureExternalIndex,
+    Bool VkRenderTargetManager::GetOffscreenColorViewByTexture(Uint textureExternalIndex,
                                                               VkImageView& outImageView) const {
         for (const auto& [_, target] : m_offscreenColorTargets) {
             if (target.colorTextureExternalIndex != textureExternalIndex || target.imageView == VK_NULL_HANDLE) {
@@ -204,7 +204,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         return false;
     }
 
-    Bool VkFramebufferManager::GetOffscreenRenderSurface(Uint glFboExternalIndex, VkImageView& outColorView,
+    Bool VkRenderTargetManager::GetOffscreenRenderSurface(Uint glFboExternalIndex, VkImageView& outColorView,
                                                          VkFormat& outColorFormat, VkImageView& outDepthStencilView,
                                                          VkFormat& outDepthStencilFormat, VkExtent2D& outExtent) const {
         auto it = m_offscreenColorTargets.find(glFboExternalIndex);
@@ -219,7 +219,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         return true;
     }
 
-    Bool VkFramebufferManager::RecreateOffscreenColorTarget(
+    Bool VkRenderTargetManager::RecreateOffscreenColorTarget(
         OffscreenColorTarget& target, const MG_State::GLState::FramebufferObject& glFbo,
         const MG_State::GLState::FramebufferAttachmentObject& colorAttachment, Uint16 glObjectVersion) {
         DestroyOffscreenColorTarget(target);
@@ -354,7 +354,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         return true;
     }
 
-    void VkFramebufferManager::DestroyOffscreenColorTarget(OffscreenColorTarget& target) {
+    void VkRenderTargetManager::DestroyOffscreenColorTarget(OffscreenColorTarget& target) {
         if (target.imageView != VK_NULL_HANDLE) {
             vkDestroyImageView(m_device, target.imageView, nullptr);
             target.imageView = VK_NULL_HANDLE;
@@ -388,7 +388,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         target.colorTextureExternalIndex = 0;
     }
 
-    Bool VkFramebufferManager::TransitionImageLayout(VkCommandBuffer commandBuffer, VkImage image,
+    Bool VkRenderTargetManager::TransitionImageLayout(VkCommandBuffer commandBuffer, VkImage image,
                                                      VkImageLayout& trackedLayout, VkImageLayout newLayout,
                                                      VkPipelineStageFlags srcStageMask,
                                                      VkPipelineStageFlags dstStageMask, VkAccessFlags srcAccessMask,
@@ -420,7 +420,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         return true;
     }
 
-    Uint32 VkFramebufferManager::FindMemoryType(Uint32 typeFilter, VkMemoryPropertyFlags properties) const {
+    Uint32 VkRenderTargetManager::FindMemoryType(Uint32 typeFilter, VkMemoryPropertyFlags properties) const {
         VkPhysicalDeviceMemoryProperties memoryProperties{};
         vkGetPhysicalDeviceMemoryProperties(m_physicalDevice, &memoryProperties);
         for (Uint32 i = 0; i < memoryProperties.memoryTypeCount; ++i) {
@@ -433,7 +433,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         return 0;
     }
 
-    VkFormat VkFramebufferManager::ResolveColorFormat(
+    VkFormat VkRenderTargetManager::ResolveColorFormat(
         const MG_State::GLState::FramebufferAttachmentObject& colorAttachment) {
         TextureInternalFormat internalFormat = TextureInternalFormat::Unknown;
         if (colorAttachment.IsTexture()) {
@@ -454,7 +454,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         }
     }
 
-    VkFormat VkFramebufferManager::ResolveDepthStencilFormat(
+    VkFormat VkRenderTargetManager::ResolveDepthStencilFormat(
         const MG_State::GLState::FramebufferAttachmentObject& depthAttachment,
         const MG_State::GLState::FramebufferAttachmentObject& stencilAttachment) {
         const auto resolveAttachmentFormat = [](const MG_State::GLState::FramebufferAttachmentObject& attachment) {
@@ -498,7 +498,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         }
     }
 
-    VkFormat VkFramebufferManager::FindSupportedDepthStencilFormat(const Vector<VkFormat>& candidates) const {
+    VkFormat VkRenderTargetManager::FindSupportedDepthStencilFormat(const Vector<VkFormat>& candidates) const {
         for (auto format : candidates) {
             VkFormatProperties properties{};
             vkGetPhysicalDeviceFormatProperties(m_physicalDevice, format, &properties);

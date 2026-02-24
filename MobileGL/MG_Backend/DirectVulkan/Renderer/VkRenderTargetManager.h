@@ -13,7 +13,7 @@
 #include <MG_State/GLState/FramebufferState/FramebufferObject.h>
 
 namespace MobileGL::MG_Backend::DirectVulkan {
-    class VkFramebufferManager {
+    class VkRenderTargetManager {
     public:
         enum class TransitionResource {
             OffscreenColor,
@@ -34,8 +34,8 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             VkPhysicalDevice physicalDevice = VK_NULL_HANDLE;
         };
 
-        VkFramebufferManager() = default;
-        ~VkFramebufferManager() = default;
+        VkRenderTargetManager() = default;
+        ~VkRenderTargetManager() = default;
 
         Bool Initialize(const InitInfo& initInfo);
         void Shutdown();

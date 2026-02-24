@@ -15,7 +15,7 @@
 #include "UniformDescriptorBinder.h"
 #include "VertexInputStateFactory.h"
 #include "VkBufferObject.h"
-#include "VkFramebufferManager.h"
+#include "VkRenderTargetManager.h"
 #include "VkRenderPassManager.h"
 #include "VkTextureSamplerManager.h"
 #include "MG_Util/Math/VectorTypes.h"
@@ -152,7 +152,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         UniquePtr<ProgramFactory> m_programFactory;
         UniquePtr<UniformDescriptorBinder> m_uniformDescriptorBinder;
         UniquePtr<VertexInputStateFactory> m_vertexInputStateFactory;
-        UniquePtr<VkFramebufferManager> m_framebufferManager;
+        UniquePtr<VkRenderTargetManager> m_framebufferManager;
         UniquePtr<VkRenderPassManager> m_renderPassManager;
         UniquePtr<VkTextureSamplerManager> m_textureSamplerManager;
 

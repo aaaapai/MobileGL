@@ -8,7 +8,7 @@
 
 #include "UniformDescriptorBinder.h"
 
-#include "VkFramebufferManager.h"
+#include "VkRenderTargetManager.h"
 #include "MG_State/GLState/Core.h"
 #include "MG_State/GLState/ProgramState/ProgramObject.h"
 #include "MG_Util/ShaderTranspiler/Types.h"
@@ -139,7 +139,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                                              VkDeviceSize minUniformBufferOffsetAlignment, Uint32 frameCount,
                                              Uint32 maxBindings, Uint32 setsPerFrame, VkDeviceSize perFrameUploadBytes,
                                              VkTextureSamplerManager* textureSamplerManager,
-                                             VkFramebufferManager* framebufferManager) {
+                                             VkRenderTargetManager* framebufferManager) {
         Shutdown();
 
         MOBILEGL_ASSERT(device != VK_NULL_HANDLE, "UniformDescriptorBinder::Initialize requires valid VkDevice");
@@ -481,8 +481,8 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         }
 
         if (m_framebufferManager->Transition(commandBuffer,
-                                             VkFramebufferManager::TransitionResource::OffscreenColorTexture,
-                                             VkFramebufferManager::TransitionUsage::ShaderRead,
+                                             VkRenderTargetManager::TransitionResource::OffscreenColorTexture,
+                                             VkRenderTargetManager::TransitionUsage::ShaderRead,
                                              texture->GetExternalIndex())) {
             VkImageView offscreenView = VK_NULL_HANDLE;
             if (m_framebufferManager->GetOffscreenColorViewByTexture(texture->GetExternalIndex(), offscreenView) &&
