@@ -52,9 +52,6 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         void RecordDepthStencilClear(VkCommandBuffer commandBuffer, VkExtent2D extent, GLbitfield mask, Float depth,
                                      Uint32 stencil, VkFormat depthStencilFormat) const;
 
-        VkRenderPass GetLoadRenderPass() const;
-        VkRenderPass GetClearRenderPass() const;
-
     private:
         struct OffscreenRenderTarget {
             Uint16 targetVersion = 0;
@@ -78,7 +75,6 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         VkFormat m_colorFormat = VK_FORMAT_UNDEFINED;
         VkFormat m_depthStencilFormat = VK_FORMAT_UNDEFINED;
         VkRenderPass m_renderPassLoad = VK_NULL_HANDLE;
-        VkRenderPass m_renderPassClear = VK_NULL_HANDLE;
         Vector<VkFramebuffer> m_defaultFramebuffers;
         VkExtent2D m_defaultExtent = {0, 0};
         UnorderedMap<Uint, OffscreenRenderTarget> m_offscreenRenderTargets;

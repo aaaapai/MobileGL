@@ -21,9 +21,8 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         m_colorFormat = initInfo.colorFormat;
         m_depthStencilFormat = initInfo.depthStencilFormat;
         m_renderPassLoad = CreateDefaultRenderPass(VK_ATTACHMENT_LOAD_OP_LOAD);
-        m_renderPassClear = CreateDefaultRenderPass(VK_ATTACHMENT_LOAD_OP_CLEAR);
         MGLOG_D("VkRenderPassManager: RenderPasses created (LOAD/CLEAR).");
-        return m_renderPassLoad != VK_NULL_HANDLE && m_renderPassClear != VK_NULL_HANDLE;
+        return m_renderPassLoad != VK_NULL_HANDLE;
     }
 
     void VkRenderPassManager::Shutdown() {
@@ -34,15 +33,11 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         m_offscreenRenderTargets.clear();
 
         if (m_device != VK_NULL_HANDLE) {
-            if (m_renderPassClear != VK_NULL_HANDLE) {
-                vkDestroyRenderPass(m_device, m_renderPassClear, nullptr);
-            }
             if (m_renderPassLoad != VK_NULL_HANDLE) {
                 vkDestroyRenderPass(m_device, m_renderPassLoad, nullptr);
             }
         }
 
-        m_renderPassClear = VK_NULL_HANDLE;
         m_renderPassLoad = VK_NULL_HANDLE;
         m_colorFormat = VK_FORMAT_UNDEFINED;
         m_depthStencilFormat = VK_FORMAT_UNDEFINED;
@@ -240,14 +235,6 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         clearRect.layerCount = 1;
 
         vkCmdClearAttachments(commandBuffer, 1, &clearAttachment, 1, &clearRect);
-    }
-
-    VkRenderPass VkRenderPassManager::GetLoadRenderPass() const {
-        return m_renderPassLoad;
-    }
-
-    VkRenderPass VkRenderPassManager::GetClearRenderPass() const {
-        return m_renderPassClear;
     }
 
     VkRenderPass VkRenderPassManager::CreateDefaultRenderPass(VkAttachmentLoadOp colorLoadOp) const {

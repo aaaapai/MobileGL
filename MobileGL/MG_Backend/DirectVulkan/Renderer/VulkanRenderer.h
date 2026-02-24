@@ -170,7 +170,6 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         void CreateFrameContexts();
         void CreateDepthStencilResources();
         void DestroyDepthStencilResources();
-        VkRenderPass GetDefaultLoadRenderPass() const;
         Bool GetDefaultRenderTargetForCurrentImage(VkRenderPass& outRenderPass, VkFramebuffer& outFramebuffer,
                                                    VkExtent2D& outExtent, VkFormat& outDepthStencilFormat) const;
         Bool EnsureOffscreenRenderTarget(Uint glFboExternalIndex, const MG_State::GLState::FramebufferObject& glFbo,

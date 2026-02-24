@@ -157,7 +157,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         payload.programHash = programHash;
         payload.vertexInputHash = vertexInputHash;
         payload.pipelineLayout = pipelineLayout;
-        payload.renderPass = (m_activeRenderPass != VK_NULL_HANDLE) ? m_activeRenderPass : GetDefaultLoadRenderPass();
+        payload.renderPass = m_activeRenderPass;
         payload.subpass = 0;
         payload.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
         const Bool depthTestEnabled = MG_State::pGLContext->IsCapabilityEnabled(CapabilityInput::DepthTest);
@@ -2457,14 +2457,6 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         createInfo.queueFamilyIndex = m_physicalDevice.queueFamilies.graphicsFamily;
         VK_VERIFY(vkCreateCommandPool(m_device, &createInfo, nullptr, &m_commandPool));
         MGLOG_I("Command pool created");
-    }
-
-    VkRenderPass VulkanRenderer::GetDefaultLoadRenderPass() const {
-        MOBILEGL_ASSERT(m_renderPassManager != nullptr, "GetDefaultLoadRenderPass: render pass manager is null");
-        const VkRenderPass renderPass = m_renderPassManager->GetLoadRenderPass();
-        MOBILEGL_ASSERT(renderPass != VK_NULL_HANDLE,
-                        "GetDefaultLoadRenderPass: default load render pass is unavailable");
-        return renderPass;
     }
 
     Bool VulkanRenderer::GetDefaultRenderTargetForCurrentImage(VkRenderPass& outRenderPass,
