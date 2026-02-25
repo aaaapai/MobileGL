@@ -68,10 +68,11 @@ namespace MobileGL::MG_Backend::DirectVulkan {
 
     Bool VkTextureManager::SyncTexture(MG_State::GLState::ITextureObject &texture,
                                        TextureResource &outResource) {
-        TextureUploadTarget level0Target = TextureUploadTarget::Unknown;
+        TextureUploadTarget uploadTarget = TextureUploadTarget::Unknown;
         IntVec3 texelSize{0, 0, 0};
         SizeT byteSize = 0;
-        if (!CheckLevel0Completeness(texture, level0Target, texelSize, byteSize)) {
+        Uint32 mipLevelCount = 0;
+        if (!CheckMipmapCompleteness(texture, uploadTarget, texelSize, byteSize, mipLevelCount)) {
             return false;
         }
 
@@ -80,18 +81,13 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             return false;
         }
 
-        const Uint32 mipLevelCount = GetUploadMipLevelCount(*mipTexture, level0Target);
-        if (mipLevelCount == 0) {
-            return false;
-        }
-
-        if (!SyncTextureResource(texture, level0Target, texelSize, byteSize, mipLevelCount, outResource)) {
+        if (!SyncTextureResource(texture, uploadTarget, texelSize, byteSize, mipLevelCount, outResource)) {
             return false;
         }
 
         Bool hasDirtyMipLevel = false;
         for (Uint32 level = 0; level < mipLevelCount; ++level) {
-            if (mipTexture->IsStorageDirty(level0Target, level)) {
+            if (mipTexture->IsStorageDirty(uploadTarget, level)) {
                 hasDirtyMipLevel = true;
                 break;
             }
@@ -100,14 +96,14 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             return true;
         }
 
-        if (!UploadDirtyMipLevels(*mipTexture, level0Target, outResource)) {
+        if (!UploadDirtyMipLevels(*mipTexture, uploadTarget, outResource)) {
             return false;
         }
         return true;
     }
 
     Bool VkTextureManager::SyncTextureResource(const MG_State::GLState::ITextureObject &texture,
-                                               TextureUploadTarget level0Target,
+                                               TextureUploadTarget uploadTarget,
                                                const IntVec3 &texelSize, SizeT byteSize, Uint32 mipLevels,
                                                TextureResource &resource) {
         const VkFormat format = GetVkFormat(texture.GetFormat());
@@ -120,7 +116,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         if (mipLevels == 0) {
             return false;
         }
-        if (level0Target != TextureUploadTarget::Texture2D) {
+        if (uploadTarget != TextureUploadTarget::Texture2D) {
             return false;
         }
 
@@ -175,7 +171,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
     }
 
     Bool VkTextureManager::UploadDirtyMipLevels(MG_State::GLState::TextureObjectMipmap &mipmapTexture,
-                                        TextureUploadTarget level0Target,
+                                        TextureUploadTarget uploadTarget,
                                         TextureResource &outResource) {
         struct UploadItem {
             Uint32 level = 0;
@@ -190,18 +186,18 @@ namespace MobileGL::MG_Backend::DirectVulkan {
 
         VkDeviceSize stagingSize = 0;
         for (Uint32 level = 0; level < outResource.mipLevels; ++level) {
-            if (!mipmapTexture.IsStorageDirty(level0Target, level)) {
+            if (!mipmapTexture.IsStorageDirty(uploadTarget, level)) {
                 continue;
             }
 
-            const auto texelSize = mipmapTexture.GetMipmapTexelSize(level0Target, level);
-            const auto byteSize = mipmapTexture.GetMipmapByteSize(level0Target, level);
+            const auto texelSize = mipmapTexture.GetMipmapTexelSize(uploadTarget, level);
+            const auto byteSize = mipmapTexture.GetMipmapByteSize(uploadTarget, level);
             if (texelSize.x() <= 0 || texelSize.y() <= 0 || byteSize == 0) {
-                mipmapTexture.MarkStorageDirty(level0Target, level, false);
+                mipmapTexture.MarkStorageDirty(uploadTarget, level, false);
                 continue;
             }
 
-            const void* source = mipmapTexture.MapMipmapData(level0Target, level);
+            const void* source = mipmapTexture.MapMipmapData(uploadTarget, level);
             if (source == nullptr) {
                 return false;
             }
@@ -298,7 +294,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             return false;
         }
         for (const auto& item : uploadItems) {
-            mipmapTexture.MarkStorageDirty(level0Target, item.level, false);
+            mipmapTexture.MarkStorageDirty(uploadTarget, item.level, false);
         }
         outResource.layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
         return true;
@@ -350,8 +346,11 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         resource.format = VK_FORMAT_UNDEFINED;
     }
 
-    Bool VkTextureManager::CheckLevel0Completeness(const MG_State::GLState::ITextureObject& texture, TextureUploadTarget& outTarget,
-                                         IntVec3& outTexelSize, SizeT& outByteSize) {
+    Bool VkTextureManager::CheckMipmapCompleteness(const MG_State::GLState::ITextureObject& texture,
+                                                   TextureUploadTarget& outTarget,
+                                                   IntVec3& outTexelSize,
+                                                   SizeT& outByteSize,
+                                                   Uint32& outMipLevelCount) {
         const auto* mipTexture = dynamic_cast<const MG_State::GLState::TextureObjectMipmap*>(&texture);
         if (!mipTexture) {
             return false;
@@ -360,10 +359,26 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         if (targets.empty()) {
             return false;
         }
-        outTarget = targets.front();
-        outTexelSize = mipTexture->GetMipmapTexelSize(outTarget, 0);
-        outByteSize = mipTexture->GetMipmapByteSize(outTarget, 0);
-        return outTexelSize.x() > 0 && outTexelSize.y() > 0 && outByteSize > 0;
+
+        for (const auto target : targets) {
+            const Uint32 mipLevelCount = GetUploadMipLevelCount(*mipTexture, target);
+            if (mipLevelCount == 0) {
+                continue;
+            }
+
+            const auto level0TexelSize = mipTexture->GetMipmapTexelSize(target, 0);
+            const auto level0ByteSize = mipTexture->GetMipmapByteSize(target, 0);
+            if (level0TexelSize.x() <= 0 || level0TexelSize.y() <= 0 || level0ByteSize == 0) {
+                continue;
+            }
+
+            outTarget = target;
+            outTexelSize = level0TexelSize;
+            outByteSize = level0ByteSize;
+            outMipLevelCount = mipLevelCount;
+            return true;
+        }
+        return false;
     }
 
     Uint32 VkTextureManager::GetUploadMipLevelCount(const MG_State::GLState::TextureObjectMipmap& texture,

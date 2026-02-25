@@ -48,16 +48,19 @@ private:
     Bool SyncTexture(MG_State::GLState::ITextureObject &texture,
                      TextureResource &outResource);
     Bool SyncTextureResource(const MG_State::GLState::ITextureObject &texture,
-                             TextureUploadTarget level0Target,
+                             TextureUploadTarget uploadTarget,
                              const IntVec3 &texelSize, SizeT byteSize, Uint32 mipLevels,
                              TextureResource &resource);
     Bool UploadDirtyMipLevels(MG_State::GLState::TextureObjectMipmap &mipmapTexture,
-                      TextureUploadTarget level0Target,
+                      TextureUploadTarget uploadTarget,
                       TextureResource &outResource);
     Bool ExecuteCmdBufImmediate(const std::function<void(VkCommandBuffer)>& recorder) const;
     void DestroyTextureResource(TextureResource& resource) const;
-    static Bool CheckLevel0Completeness(const MG_State::GLState::ITextureObject& texture, TextureUploadTarget& outTarget,
-                              IntVec3& outTexelSize, SizeT& outByteSize);
+    static Bool CheckMipmapCompleteness(const MG_State::GLState::ITextureObject& texture,
+                                        TextureUploadTarget& outTarget,
+                                        IntVec3& outTexelSize,
+                                        SizeT& outByteSize,
+                                        Uint32& outMipLevelCount);
     static Uint32 GetUploadMipLevelCount(const MG_State::GLState::TextureObjectMipmap& texture, TextureUploadTarget target);
     static VkFormat GetVkFormat(TextureInternalFormat format);
 
