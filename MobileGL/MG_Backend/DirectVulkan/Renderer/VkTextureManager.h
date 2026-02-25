@@ -31,7 +31,7 @@ public:
     Bool Initialize(const InitInfo& initInfo);
     void Shutdown();
 
-    Bool SyncTextureAndGetDescriptor(const MG_State::GLState::ITextureObject& texture, VkDescriptorImageInfo& outImageInfo);
+    Bool SyncTextureAndGetDescriptor(MG_State::GLState::ITextureObject& texture, VkDescriptorImageInfo& outImageInfo);
 
 private:
     struct TextureResource {
@@ -44,16 +44,20 @@ private:
         Uint textureExternalIndex = 0;
     };
 
-    Bool EnsureTextureSynced(TextureResource& resource, const MG_State::GLState::ITextureObject& texture);
-    Bool EnsureTextureResource(TextureResource& resource, const MG_State::GLState::ITextureObject& texture,
-                               TextureUploadTarget level0Target, const IntVec3& texelSize, SizeT byteSize);
-    Bool UploadLevel0(TextureResource& resource, const MG_State::GLState::TextureObjectMipmap& mipmapTexture,
-                      TextureUploadTarget level0Target, SizeT byteSize);
-    Bool ExecuteImmediate(const std::function<void(VkCommandBuffer)>& recorder) const;
+    Bool SyncTexture(MG_State::GLState::ITextureObject &texture,
+                     TextureResource &outResource);
+    Bool SyncTextureResource(const MG_State::GLState::ITextureObject &texture,
+                             TextureUploadTarget level0Target,
+                             const IntVec3 &texelSize, SizeT byteSize,
+                             TextureResource &resource);
+    Bool UploadLevel0(MG_State::GLState::TextureObjectMipmap &mipmapTexture,
+                      TextureUploadTarget level0Target, SizeT byteSize,
+                      TextureResource &outResource);
+    Bool ExecuteCmdBufImmediate(const std::function<void(VkCommandBuffer)>& recorder) const;
     void DestroyTextureResource(TextureResource& resource) const;
-    static Bool ResolveLevel0(const MG_State::GLState::ITextureObject& texture, TextureUploadTarget& outTarget,
+    static Bool CheckLevel0Completeness(const MG_State::GLState::ITextureObject& texture, TextureUploadTarget& outTarget,
                               IntVec3& outTexelSize, SizeT& outByteSize);
-    static VkFormat ResolveTextureFormat(TextureInternalFormat format);
+    static VkFormat GetVkFormat(TextureInternalFormat format);
 
     VkDevice m_device = VK_NULL_HANDLE;
     VkPhysicalDevice m_physicalDevice = VK_NULL_HANDLE;

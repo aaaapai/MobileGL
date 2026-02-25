@@ -40,7 +40,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         m_graphicsQueue = VK_NULL_HANDLE;
     }
 
-    Bool VkTextureManager::SyncTextureAndGetDescriptor(const MG_State::GLState::ITextureObject& texture,
+    Bool VkTextureManager::SyncTextureAndGetDescriptor(MG_State::GLState::ITextureObject& texture,
                                                        VkDescriptorImageInfo& outImageInfo) {
         MOBILEGL_ASSERT(m_device != VK_NULL_HANDLE, "SyncTextureAndGetDescriptor: m_device == VK_NULL_HANDLE");
 
@@ -52,7 +52,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             it = insertIt;
         }
 
-        if (!EnsureTextureSynced(it->second, texture)) {
+        if (!SyncTexture(texture, it->second)) {
             return false;
         }
 
@@ -66,19 +66,20 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         return true;
     }
 
-    Bool VkTextureManager::EnsureTextureSynced(TextureResource& resource, const MG_State::GLState::ITextureObject& texture) {
+    Bool VkTextureManager::SyncTexture(MG_State::GLState::ITextureObject &texture,
+                                       TextureResource &outResource) {
         TextureUploadTarget level0Target = TextureUploadTarget::Unknown;
         IntVec3 texelSize{0, 0, 0};
         SizeT byteSize = 0;
-        if (!ResolveLevel0(texture, level0Target, texelSize, byteSize)) {
+        if (!CheckLevel0Completeness(texture, level0Target, texelSize, byteSize)) {
             return false;
         }
 
-        if (!EnsureTextureResource(resource, texture, level0Target, texelSize, byteSize)) {
+        if (!SyncTextureResource(texture, level0Target, texelSize, byteSize, outResource)) {
             return false;
         }
 
-        const auto* mipTexture = dynamic_cast<const MG_State::GLState::TextureObjectMipmap*>(&texture);
+        auto* mipTexture = dynamic_cast<MG_State::GLState::TextureObjectMipmap*>(&texture);
         if (!mipTexture) {
             return false;
         }
@@ -87,19 +88,20 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             return true;
         }
 
-        if (!UploadLevel0(resource, *mipTexture, level0Target, byteSize)) {
+        if (!UploadLevel0(*mipTexture, level0Target, byteSize, outResource)) {
             return false;
         }
 
-        auto& mutableTexture = const_cast<MG_State::GLState::TextureObjectMipmap&>(*mipTexture);
+        auto& mutableTexture = *mipTexture;
         mutableTexture.MarkStorageDirty(level0Target, 0, false);
         return true;
     }
 
-    Bool VkTextureManager::EnsureTextureResource(TextureResource& resource, const MG_State::GLState::ITextureObject& texture,
-                                                 TextureUploadTarget level0Target, const IntVec3& texelSize,
-                                                 SizeT byteSize) {
-        const VkFormat format = ResolveTextureFormat(texture.GetFormat());
+    Bool VkTextureManager::SyncTextureResource(const MG_State::GLState::ITextureObject &texture,
+                                               TextureUploadTarget level0Target,
+                                               const IntVec3 &texelSize, SizeT byteSize,
+                                               TextureResource &resource) {
+        const VkFormat format = GetVkFormat(texture.GetFormat());
         if (format == VK_FORMAT_UNDEFINED) {
             return false;
         }
@@ -158,10 +160,10 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         return true;
     }
 
-    Bool VkTextureManager::UploadLevel0(TextureResource& resource, const MG_State::GLState::TextureObjectMipmap& mipmapTexture,
-                                        TextureUploadTarget level0Target, SizeT byteSize) {
-        auto& mutableTexture = const_cast<MG_State::GLState::TextureObjectMipmap&>(mipmapTexture);
-        const void* source = mutableTexture.MapMipmapData(level0Target, 0);
+    Bool VkTextureManager::UploadLevel0(MG_State::GLState::TextureObjectMipmap &mipmapTexture,
+                                        TextureUploadTarget level0Target, SizeT byteSize,
+                                        TextureResource &outResource) {
+        const void* source = mipmapTexture.MapMipmapData(level0Target, 0);
         if (source == nullptr || byteSize == 0) {
             return false;
         }
@@ -186,16 +188,17 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         std::memcpy(mapped, source, byteSize);
         vmaUnmapMemory(m_allocator, stagingAllocation);
 
-        const Bool ok = ExecuteImmediate([&](VkCommandBuffer commandBuffer) {
+        // Could be uploaded asynchronously?
+        const Bool ok = ExecuteCmdBufImmediate([&](VkCommandBuffer commandBuffer) {
             VkImageMemoryBarrier toTransferDst{};
             toTransferDst.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
             toTransferDst.srcAccessMask = 0;
             toTransferDst.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-            toTransferDst.oldLayout = resource.layout;
+            toTransferDst.oldLayout = outResource.layout;
             toTransferDst.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
             toTransferDst.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
             toTransferDst.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-            toTransferDst.image = resource.image;
+            toTransferDst.image = outResource.image;
             toTransferDst.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
             toTransferDst.subresourceRange.baseMipLevel = 0;
             toTransferDst.subresourceRange.levelCount = 1;
@@ -213,8 +216,8 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             copy.imageSubresource.baseArrayLayer = 0;
             copy.imageSubresource.layerCount = 1;
             copy.imageOffset = {0, 0, 0};
-            copy.imageExtent = {resource.extent.width, resource.extent.height, 1};
-            vkCmdCopyBufferToImage(commandBuffer, stagingBuffer, resource.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1,
+            copy.imageExtent = {outResource.extent.width, outResource.extent.height, 1};
+            vkCmdCopyBufferToImage(commandBuffer, stagingBuffer, outResource.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1,
                                    &copy);
 
             VkImageMemoryBarrier toSampled{};
@@ -225,7 +228,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             toSampled.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
             toSampled.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
             toSampled.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-            toSampled.image = resource.image;
+            toSampled.image = outResource.image;
             toSampled.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
             toSampled.subresourceRange.baseMipLevel = 0;
             toSampled.subresourceRange.levelCount = 1;
@@ -240,11 +243,11 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         if (!ok) {
             return false;
         }
-        resource.layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        outResource.layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
         return true;
     }
 
-    Bool VkTextureManager::ExecuteImmediate(const std::function<void(VkCommandBuffer)>& recorder) const {
+    Bool VkTextureManager::ExecuteCmdBufImmediate(const std::function<void(VkCommandBuffer)>& recorder) const {
         VkCommandBufferAllocateInfo allocInfo{};
         allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
         allocInfo.commandPool = m_commandPool;
@@ -289,7 +292,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         resource.format = VK_FORMAT_UNDEFINED;
     }
 
-    Bool VkTextureManager::ResolveLevel0(const MG_State::GLState::ITextureObject& texture, TextureUploadTarget& outTarget,
+    Bool VkTextureManager::CheckLevel0Completeness(const MG_State::GLState::ITextureObject& texture, TextureUploadTarget& outTarget,
                                          IntVec3& outTexelSize, SizeT& outByteSize) {
         const auto* mipTexture = dynamic_cast<const MG_State::GLState::TextureObjectMipmap*>(&texture);
         if (!mipTexture) {
@@ -305,7 +308,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         return outTexelSize.x() > 0 && outTexelSize.y() > 0 && outByteSize > 0;
     }
 
-    VkFormat VkTextureManager::ResolveTextureFormat(TextureInternalFormat format) {
+    VkFormat VkTextureManager::GetVkFormat(TextureInternalFormat format) {
         switch (format) {
         case TextureInternalFormat::RGBA:
         case TextureInternalFormat::RGBA8:
