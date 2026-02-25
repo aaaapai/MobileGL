@@ -229,7 +229,7 @@ namespace MobileGL {
                 ++m_version;
             }
 
-            Int RenderState::GetClearStencil() const {
+            Uint32 RenderState::GetClearStencil() const {
                 return m_parameters.ClearStencil;
             }
 

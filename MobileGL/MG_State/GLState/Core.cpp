@@ -316,7 +316,7 @@ namespace MobileGL {
                 m_renderState.SetClearStencil(stencil);
             }
 
-            Int GLContext::GetClearStencil() const {
+            Uint32 GLContext::GetClearStencil() const {
                 return m_renderState.GetClearStencil();
             }
 

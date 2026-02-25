@@ -18,7 +18,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
     }
 
     void VkClearManager::QueueClear(GLbitfield mask, const ClearFramebufferPayload& clearPayload,
-                                    MG_State::GLState::FramebufferObject& drawFbo) {
+                                    const MG_State::GLState::FramebufferObject& drawFbo) {
         if (mask & GL_COLOR_BUFFER_BIT) {
             auto& drawbufs = drawFbo.GetDrawBuffers();
             // This should automatically work on default & offscreen FBO
@@ -53,7 +53,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
 
     void VkClearManager::QueueClear(const ClearAttachmentPayload& clearPayload,
                                     const SharedPtr<MG_State::GLState::ITextureObject>& texture) {
-        WeakPtr weakTexturePtr = texture;
+        WeakPtr<MG_State::GLState::ITextureObject> weakTexturePtr = texture;
         if (weakTexturePtr.expired())
             return;
         auto* pTexture = weakTexturePtr.lock().get();

@@ -36,7 +36,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         Bool Initialize();
         void Shutdown();
 
-        void QueueClear(GLbitfield mask, const ClearFramebufferPayload& clearPayload, MG_State::GLState::FramebufferObject& drawFbo);
+        void QueueClear(GLbitfield mask, const ClearFramebufferPayload& clearPayload, const MG_State::GLState::FramebufferObject& drawFbo);
         void QueueClear(
             const ClearAttachmentPayload& clearPayload,
             const SharedPtr<MG_State::GLState::ITextureObject>& texture);
