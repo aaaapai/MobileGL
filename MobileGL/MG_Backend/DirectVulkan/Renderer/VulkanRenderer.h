@@ -70,17 +70,13 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         void Initialize();
         void Shutdown();
 
-        void RequestClear(GLbitfield mask, const FloatVec4& color, Float depth, Uint32 stencil,
-                          Uint drawFboExternalIndex, Bool isDefaultFramebufferTarget);
+        void QueueClearRequest(GLbitfield mask, const FloatVec4& color, Float depth, Uint32 stencil,
+                               Uint drawFboExternalIndex, Bool isDefaultFramebufferTarget);
         Bool ConsumePendingColorClear(VkClearColorValue& outClearColor);
         void EnsureFrameRecordingStarted();
         void DrawArrays(const DrawArrayPayload& payload);
         void DrawElements(const DrawElementPayload& payload);
         void MultiDrawElements(const Vector<DrawElementPayload>& payloads);
-        Bool BlitFramebuffer(GLint srcX0, GLint srcY0, GLint srcX1, GLint srcY1, GLint dstX0, GLint dstY0, GLint dstX1,
-                             GLint dstY1, GLbitfield mask, GLenum filter, Uint readFboExternalIndex,
-                             Uint drawFboExternalIndex, Bool readIsDefaultFramebuffer, Bool drawIsDefaultFramebuffer);
-        void Render();
         void Present();
 
         const PhysicalDevice& GetPhysicalDevice() const;

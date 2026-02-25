@@ -310,8 +310,9 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         const auto& clearColor = MG_State::pGLContext->GetClearColor();
         const auto clearDepth = MG_State::pGLContext->GetClearDepth();
         const auto clearStencil = static_cast<Uint32>(MG_State::pGLContext->GetClearStencil());
-        pVulkanRenderer->RequestClear(mask, clearColor, clearDepth, clearStencil, drawFboExternalIndex,
-                                      isDefaultFboTarget);
+        pVulkanRenderer->QueueClearRequest(mask, clearColor, clearDepth, clearStencil,
+                                           drawFboExternalIndex,
+                                           isDefaultFboTarget);
     }
 
     void DrawElements(GLenum mode, GLsizei count, GLenum type, const void* indices) {
@@ -422,35 +423,6 @@ namespace MobileGL::MG_Backend::DirectVulkan {
 
     void BlitFramebuffer(GLint srcX0, GLint srcY0, GLint srcX1, GLint srcY1, GLint dstX0, GLint dstY0, GLint dstX1,
                          GLint dstY1, GLbitfield mask, GLenum filter) {
-        MOBILEGL_ASSERT(pVulkanRenderer, "DirectVulkan::BlitFramebuffer called with null VulkanRenderer");
-        MOBILEGL_ASSERT(MG_State::pGLContext, "DirectVulkan::BlitFramebuffer called with null GL context");
-
-        const auto& readFboSlot = MG_State::pGLContext->GetFramebufferBindingSlot(FramebufferTarget::Read);
-        const auto& drawFboSlot = MG_State::pGLContext->GetFramebufferBindingSlot(FramebufferTarget::Draw);
-        const auto readFbo = readFboSlot.GetBoundObject();
-        const auto drawFbo = drawFboSlot.GetBoundObject();
-        const auto defaultFboInfo = MG_Impl::GLImpl::FramebufferImpl::pDefaultFramebufferInfo;
-        const auto defaultFbo = defaultFboInfo ? defaultFboInfo->defaultFBO : nullptr;
-
-        const Bool readIsDefault = (readFbo == defaultFbo) || (readFbo == nullptr && defaultFbo != nullptr);
-        const Bool drawIsDefault = (drawFbo == defaultFbo) || (drawFbo == nullptr && defaultFbo != nullptr);
-
-        Uint readFboExternalIndex = 0;
-        if (readFbo) {
-            readFboExternalIndex = readFbo->GetExternalIndex();
-        } else if (defaultFbo) {
-            readFboExternalIndex = defaultFbo->GetExternalIndex();
-        }
-
-        Uint drawFboExternalIndex = 0;
-        if (drawFbo) {
-            drawFboExternalIndex = drawFbo->GetExternalIndex();
-        } else if (defaultFbo) {
-            drawFboExternalIndex = defaultFbo->GetExternalIndex();
-        }
-
-        pVulkanRenderer->BlitFramebuffer(srcX0, srcY0, srcX1, srcY1, dstX0, dstY0, dstX1, dstY1, mask, filter,
-                                         readFboExternalIndex, drawFboExternalIndex, readIsDefault, drawIsDefault);
     }
 
     void Present() {
