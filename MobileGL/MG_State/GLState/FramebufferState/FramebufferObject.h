@@ -62,6 +62,7 @@ namespace MobileGL {
         Color29,
         Color30,
         Color31,
+        ColorMax = Color31,
 
         FramebufferAttachmentTypeCount,
         Unknown = -1
