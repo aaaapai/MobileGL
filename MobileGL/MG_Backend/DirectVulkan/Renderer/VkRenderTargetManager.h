@@ -16,20 +16,6 @@
 namespace MobileGL::MG_Backend::DirectVulkan {
     class VkRenderTargetManager {
     public:
-        enum class TransitionResource {
-            OffscreenColor,
-            OffscreenDepthStencil,
-            OffscreenColorTexture
-        };
-
-        enum class TransitionUsage {
-            Attachment,
-            TransferSrc,
-            TransferDst,
-            General,
-            ShaderRead
-        };
-
         struct InitInfo {
             VkDevice device = VK_NULL_HANDLE;
             VkPhysicalDevice physicalDevice = VK_NULL_HANDLE;
@@ -43,8 +29,12 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         void Shutdown();
 
         Bool EnsureOffscreenColorTarget(Uint glFboExternalIndex, const MG_State::GLState::FramebufferObject& glFbo);
-        Bool Transition(VkCommandBuffer commandBuffer, TransitionResource resource, TransitionUsage usage,
-                        Uint externalIndex);
+        Bool GetOffscreenRenderSurfaceState(Uint glFboExternalIndex, VkImage& outColorImage,
+                                            VkImageLayout*& outColorLayout, VkImage& outDepthStencilImage,
+                                            VkImageLayout*& outDepthStencilLayout,
+                                            VkFormat& outDepthStencilFormat);
+        Bool GetOffscreenColorTargetStateByTexture(Uint textureExternalIndex, VkImageView& outImageView,
+                                                   VkImage& outImage, VkImageLayout*& outLayout);
         Bool GetOffscreenColorViewByTexture(Uint textureExternalIndex, VkImageView& outImageView) const;
         Bool GetOffscreenRenderSurface(Uint glFboExternalIndex, VkImageView& outColorView, VkFormat& outColorFormat,
                                        VkImageView& outDepthStencilView, VkFormat& outDepthStencilFormat,

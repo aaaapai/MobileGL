@@ -481,13 +481,21 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             return false;
         }
 
-        if (m_framebufferManager->Transition(commandBuffer,
-                                             VkRenderTargetManager::TransitionResource::OffscreenColorTexture,
-                                             VkRenderTargetManager::TransitionUsage::ShaderRead,
-                                             texture->GetExternalIndex())) {
-            VkImageView offscreenView = VK_NULL_HANDLE;
-            if (m_framebufferManager->GetOffscreenColorViewByTexture(texture->GetExternalIndex(), offscreenView) &&
-                offscreenView != VK_NULL_HANDLE) {
+        VkImageView offscreenView = VK_NULL_HANDLE;
+        VkImage offscreenImage = VK_NULL_HANDLE;
+        VkImageLayout* offscreenLayout = nullptr;
+        if (m_framebufferManager->GetOffscreenColorTargetStateByTexture(texture->GetExternalIndex(), offscreenView,
+                                                                         offscreenImage, offscreenLayout) &&
+            offscreenView != VK_NULL_HANDLE && offscreenLayout != nullptr) {
+            const Bool fromUndefined = (*offscreenLayout == VK_IMAGE_LAYOUT_UNDEFINED);
+            if (VkTextureManager::TransitionImageLayout(
+                    commandBuffer, offscreenImage, *offscreenLayout, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                    fromUndefined
+                        ? VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT
+                        : (VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_TRANSFER_BIT),
+                    VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+                    fromUndefined ? 0 : (VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_TRANSFER_WRITE_BIT),
+                    VK_ACCESS_SHADER_READ_BIT, VK_IMAGE_ASPECT_COLOR_BIT)) {
                 VkDescriptorImageInfo sampledInfo{};
                 if (!m_textureManager->SyncTextureAndGetDescriptor(*texture, sampledInfo)) {
                     return false;

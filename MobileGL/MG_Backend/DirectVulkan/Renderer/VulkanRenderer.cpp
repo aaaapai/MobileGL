@@ -480,12 +480,44 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                 return;
             }
 
-            if (!m_framebufferManager->Transition(commandBuffer, VkRenderTargetManager::TransitionResource::OffscreenColor,
-                                                  VkRenderTargetManager::TransitionUsage::Attachment,
-                                                  drawFboExternalIndex)) {
+            VkImage offscreenColorImage = VK_NULL_HANDLE;
+            VkImageLayout* offscreenColorLayout = nullptr;
+            VkImage offscreenDepthStencilImage = VK_NULL_HANDLE;
+            VkImageLayout* offscreenDepthStencilLayout = nullptr;
+            VkFormat offscreenDepthStencilStateFormat = VK_FORMAT_UNDEFINED;
+            if (!m_framebufferManager->GetOffscreenRenderSurfaceState(
+                    drawFboExternalIndex, offscreenColorImage, offscreenColorLayout, offscreenDepthStencilImage,
+                    offscreenDepthStencilLayout, offscreenDepthStencilStateFormat) ||
+                offscreenColorLayout == nullptr) {
                 MGLOG_D("EnsureFrameRecordingStarted skipped: failed to transition offscreen FBO %u for attachment",
                         drawFboExternalIndex);
                 return;
+            }
+            if (!VkTextureManager::TransitionImageLayout(
+                    commandBuffer, offscreenColorImage, *offscreenColorLayout, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+                    VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, 0,
+                    VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
+                    VK_IMAGE_ASPECT_COLOR_BIT)) {
+                MGLOG_D("EnsureFrameRecordingStarted skipped: failed to transition offscreen color for FBO %u",
+                        drawFboExternalIndex);
+                return;
+            }
+            if (offscreenDepthStencilImage != VK_NULL_HANDLE && offscreenDepthStencilLayout != nullptr) {
+                VkImageAspectFlags depthStencilAspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
+                if (offscreenDepthStencilStateFormat == VK_FORMAT_D24_UNORM_S8_UINT ||
+                    offscreenDepthStencilStateFormat == VK_FORMAT_D32_SFLOAT_S8_UINT) {
+                    depthStencilAspectMask |= VK_IMAGE_ASPECT_STENCIL_BIT;
+                }
+                if (!VkTextureManager::TransitionImageLayout(
+                        commandBuffer, offscreenDepthStencilImage, *offscreenDepthStencilLayout,
+                        VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+                        VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT, 0,
+                        VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
+                        depthStencilAspectMask)) {
+                    MGLOG_D("EnsureFrameRecordingStarted skipped: failed to transition offscreen depth/stencil for FBO %u",
+                            drawFboExternalIndex);
+                    return;
+                }
             }
             m_renderPassManager->BeginRenderPass(commandBuffer, offscreenRenderPass, offscreenFramebuffer,
                                                  offscreenExtent);
@@ -1226,11 +1258,39 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                                                  offscreenFramebuffer, offscreenExtent, offscreenDepthStencilFormat)) {
                     return false;
                 }
-                if (!m_framebufferManager->Transition(commandBuffer,
-                                                      VkRenderTargetManager::TransitionResource::OffscreenColor,
-                                                      VkRenderTargetManager::TransitionUsage::Attachment,
-                                                      targetFboExternalIndex)) {
+                VkImage offscreenColorImage = VK_NULL_HANDLE;
+                VkImageLayout* offscreenColorLayout = nullptr;
+                VkImage offscreenDepthStencilImage = VK_NULL_HANDLE;
+                VkImageLayout* offscreenDepthStencilLayout = nullptr;
+                VkFormat offscreenDepthStencilStateFormat = VK_FORMAT_UNDEFINED;
+                if (!m_framebufferManager->GetOffscreenRenderSurfaceState(
+                        targetFboExternalIndex, offscreenColorImage, offscreenColorLayout, offscreenDepthStencilImage,
+                        offscreenDepthStencilLayout, offscreenDepthStencilStateFormat) ||
+                    offscreenColorLayout == nullptr) {
                     return false;
+                }
+                if (!VkTextureManager::TransitionImageLayout(
+                        commandBuffer, offscreenColorImage, *offscreenColorLayout,
+                        VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+                        VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, 0,
+                        VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
+                        VK_IMAGE_ASPECT_COLOR_BIT)) {
+                    return false;
+                }
+                if (offscreenDepthStencilImage != VK_NULL_HANDLE && offscreenDepthStencilLayout != nullptr) {
+                    VkImageAspectFlags depthStencilAspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
+                    if (offscreenDepthStencilStateFormat == VK_FORMAT_D24_UNORM_S8_UINT ||
+                        offscreenDepthStencilStateFormat == VK_FORMAT_D32_SFLOAT_S8_UINT) {
+                        depthStencilAspectMask |= VK_IMAGE_ASPECT_STENCIL_BIT;
+                    }
+                    if (!VkTextureManager::TransitionImageLayout(
+                            commandBuffer, offscreenDepthStencilImage, *offscreenDepthStencilLayout,
+                            VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+                            VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT, 0,
+                            VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
+                            depthStencilAspectMask)) {
+                        return false;
+                    }
                 }
 
                 const auto swapchainOldLayout = m_swapchainObject.GetImageLayout(m_imageIndexAcquired);
