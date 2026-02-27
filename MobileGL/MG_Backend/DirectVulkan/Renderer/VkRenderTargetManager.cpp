@@ -173,29 +173,6 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         return false;
     }
 
-    Bool VkRenderTargetManager::GetOffscreenColorImage(Uint glFboExternalIndex, VkImage& outImage,
-                                                      VkExtent2D& outExtent) const {
-        auto it = m_offscreenColorTargets.find(glFboExternalIndex);
-        if (it == m_offscreenColorTargets.end() || it->second.image == VK_NULL_HANDLE) {
-            return false;
-        }
-        outImage = it->second.image;
-        outExtent = it->second.extent;
-        return true;
-    }
-
-    Bool VkRenderTargetManager::GetOffscreenDepthStencilImage(Uint glFboExternalIndex, VkImage& outImage,
-                                                             VkExtent2D& outExtent, VkFormat& outFormat) const {
-        auto it = m_offscreenColorTargets.find(glFboExternalIndex);
-        if (it == m_offscreenColorTargets.end() || it->second.depthStencilImage == VK_NULL_HANDLE) {
-            return false;
-        }
-        outImage = it->second.depthStencilImage;
-        outExtent = it->second.extent;
-        outFormat = it->second.depthStencilFormat;
-        return true;
-    }
-
     Bool VkRenderTargetManager::GetOffscreenColorViewByTexture(Uint textureExternalIndex,
                                                               VkImageView& outImageView) const {
         for (const auto& [_, target] : m_offscreenColorTargets) {

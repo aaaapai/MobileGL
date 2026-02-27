@@ -45,9 +45,6 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         Bool EnsureOffscreenColorTarget(Uint glFboExternalIndex, const MG_State::GLState::FramebufferObject& glFbo);
         Bool Transition(VkCommandBuffer commandBuffer, TransitionResource resource, TransitionUsage usage,
                         Uint externalIndex);
-        Bool GetOffscreenColorImage(Uint glFboExternalIndex, VkImage& outImage, VkExtent2D& outExtent) const;
-        Bool GetOffscreenDepthStencilImage(Uint glFboExternalIndex, VkImage& outImage, VkExtent2D& outExtent,
-                                           VkFormat& outFormat) const;
         Bool GetOffscreenColorViewByTexture(Uint textureExternalIndex, VkImageView& outImageView) const;
         Bool GetOffscreenRenderSurface(Uint glFboExternalIndex, VkImageView& outColorView, VkFormat& outColorFormat,
                                        VkImageView& outDepthStencilView, VkFormat& outDepthStencilFormat,
