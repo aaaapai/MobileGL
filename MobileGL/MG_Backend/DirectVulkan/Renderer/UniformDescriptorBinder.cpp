@@ -473,25 +473,10 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         const TextureTarget preferredTarget = layout.samplerTextureTargetByBinding[binding];
         auto texture = textureUnit.GetBindingSlot(preferredTarget).GetBoundObject();
         if (!texture) {
-            auto& slots = textureUnit.GetAllBindingSlots();
-            for (auto& slot : slots) {
-                texture = slot.GetBoundObject();
-                if (texture) {
-                    break;
-                }
-            }
-        }
-        if (!texture) {
             return false;
         }
 
-        const MG_State::GLState::SamplerObject* samplerToUse = samplerOverride ? samplerOverride.get() : nullptr;
-        if (!samplerToUse) {
-            auto textureSampler = texture->GetSamplerObject();
-            if (textureSampler) {
-                samplerToUse = textureSampler.get();
-            }
-        }
+        const MG_State::GLState::SamplerObject* samplerToUse = samplerOverride ? samplerOverride.get() : texture->GetSamplerObject().get();
         if (!samplerToUse) {
             return false;
         }

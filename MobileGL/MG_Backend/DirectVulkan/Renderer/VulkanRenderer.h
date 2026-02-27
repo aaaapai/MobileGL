@@ -180,6 +180,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
 
         void ShutdownSwapchain();
 
+        // Static functions
         static Int GetPresentQueueFamilyIndex(const PhysicalDevice& physicalDevice, VkSurfaceKHR surface,
                                               const Vector<VkQueueFamilyProperties>& queueFamilies,
                                               Int preferredFamilyIndex = -1);
