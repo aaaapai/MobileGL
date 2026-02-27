@@ -371,28 +371,13 @@ namespace MobileGL::MG_Backend::DirectVulkan {
     }
 
     void VulkanRenderer::TransitionSwapchainImageToColorAttachment(VkCommandBuffer commandBuffer, Uint32 imageIndex) {
-        const auto oldLayout = m_swapchainObject.GetImageLayout(imageIndex);
-        if (oldLayout == VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL) {
-            return;
-        }
-
-        VkImageMemoryBarrier barrier{};
-        barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
-        barrier.srcAccessMask = 0;
-        barrier.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
-        barrier.oldLayout = oldLayout;
-        barrier.newLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-        barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        barrier.image = m_swapchainObject.GetImage(imageIndex);
-        barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-        barrier.subresourceRange.baseMipLevel = 0;
-        barrier.subresourceRange.levelCount = 1;
-        barrier.subresourceRange.baseArrayLayer = 0;
-        barrier.subresourceRange.layerCount = 1;
-
-        vkCmdPipelineBarrier(commandBuffer, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
-                             VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, 0, 0, nullptr, 0, nullptr, 1, &barrier);
+        auto layout = m_swapchainObject.GetImageLayout(imageIndex);
+        Bool ok = VkTextureManager::TransitionImageLayout(commandBuffer, m_swapchainObject.GetImage(imageIndex),
+                                                layout, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+                                                VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+                                                0, VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
+                                                VK_IMAGE_ASPECT_COLOR_BIT);
+        MOBILEGL_ASSERT(ok, "TransitionSwapchainImageToColorAttachment failed");
         m_swapchainObject.SetImageLayout(imageIndex, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
     }
 
@@ -401,34 +386,12 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             return;
         }
 
-        const auto oldLayout = m_depthStencilImageLayouts[imageIndex];
-        if (oldLayout == VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL) {
-            return;
-        }
-
-        VkImageMemoryBarrier barrier{};
-        barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
-        barrier.srcAccessMask = 0;
-        barrier.dstAccessMask =
-            VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
-        barrier.oldLayout = oldLayout;
-        barrier.newLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
-        barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        barrier.image = m_depthStencilImages[imageIndex];
-        barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
-        if (HasStencilComponent(m_depthStencilFormat)) {
-            barrier.subresourceRange.aspectMask |= VK_IMAGE_ASPECT_STENCIL_BIT;
-        }
-        barrier.subresourceRange.baseMipLevel = 0;
-        barrier.subresourceRange.levelCount = 1;
-        barrier.subresourceRange.baseArrayLayer = 0;
-        barrier.subresourceRange.layerCount = 1;
-
-        vkCmdPipelineBarrier(commandBuffer, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
-                             VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT, 0,
-                             0, nullptr, 0, nullptr, 1, &barrier);
-        m_depthStencilImageLayouts[imageIndex] = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+        Bool ok = VkTextureManager::TransitionImageLayout(commandBuffer, m_depthStencilImages[imageIndex],
+                                                          m_depthStencilImageLayouts[imageIndex], VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+                                                          VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT,
+                                                          0, VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
+                                                          VK_IMAGE_ASPECT_DEPTH_BIT);
+        MOBILEGL_ASSERT(ok, "TransitionDepthStencilImageToAttachment failed");
     }
 
     void VulkanRenderer::EnsureFrameRecordingStarted() {
@@ -485,26 +448,15 @@ namespace MobileGL::MG_Backend::DirectVulkan {
 
             // This frame touched only offscreen resources. Present still requires
             // the acquired swapchain image to be in PRESENT layout.
-            const auto swapchainOldLayout = m_swapchainObject.GetImageLayout(m_imageIndexAcquired);
+            auto swapchainOldLayout = m_swapchainObject.GetImageLayout(m_imageIndexAcquired);
             if (swapchainOldLayout != VK_IMAGE_LAYOUT_PRESENT_SRC_KHR &&
                 swapchainOldLayout != VK_IMAGE_LAYOUT_SHARED_PRESENT_KHR) {
-                VkImageMemoryBarrier presentBarrier{};
-                presentBarrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
-                presentBarrier.srcAccessMask = 0;
-                presentBarrier.dstAccessMask = 0;
-                presentBarrier.oldLayout = swapchainOldLayout;
-                presentBarrier.newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
-                presentBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-                presentBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-                presentBarrier.image = m_swapchainObject.GetImage(m_imageIndexAcquired);
-                presentBarrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-                presentBarrier.subresourceRange.baseMipLevel = 0;
-                presentBarrier.subresourceRange.levelCount = 1;
-                presentBarrier.subresourceRange.baseArrayLayer = 0;
-                presentBarrier.subresourceRange.layerCount = 1;
-                vkCmdPipelineBarrier(commandBuffer, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
-                                     VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, 0, 0, nullptr, 0, nullptr, 1,
-                                     &presentBarrier);
+                Bool ok = VkTextureManager::TransitionImageLayout(commandBuffer, m_swapchainObject.GetImage(m_imageIndexAcquired),
+                                                        swapchainOldLayout, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
+                                                        VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
+                                                        0, 0,
+                                                        VK_IMAGE_ASPECT_COLOR_BIT);
+                MOBILEGL_ASSERT(ok, "Transition swapchain image to VK_IMAGE_LAYOUT_PRESENT_SRC_KHR failed");
                 m_swapchainObject.SetImageLayout(m_imageIndexAcquired, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
             }
 
