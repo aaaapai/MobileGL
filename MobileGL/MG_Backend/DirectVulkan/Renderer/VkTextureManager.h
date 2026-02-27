@@ -33,6 +33,11 @@ public:
 
     Bool SyncTextureAndGetDescriptor(MG_State::GLState::ITextureObject& texture, VkDescriptorImageInfo& outImageInfo);
 
+
+    static Bool TransitionImageLayout(VkCommandBuffer commandBuffer, VkImage image, VkImageLayout& trackedLayout,
+                               VkImageLayout newLayout, VkPipelineStageFlags srcStageMask,
+                               VkPipelineStageFlags dstStageMask, VkAccessFlags srcAccessMask,
+                               VkAccessFlags dstAccessMask, VkImageAspectFlags aspectMask);
 private:
     struct TextureResource {
         VkImage image = VK_NULL_HANDLE;

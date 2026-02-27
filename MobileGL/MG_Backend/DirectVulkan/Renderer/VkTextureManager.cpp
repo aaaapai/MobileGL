@@ -65,6 +65,36 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         outImageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
         return true;
     }
+    Bool VkTextureManager::TransitionImageLayout(VkCommandBuffer commandBuffer, VkImage image,
+                                                 VkImageLayout& trackedLayout, VkImageLayout newLayout,
+                                                 VkPipelineStageFlags srcStageMask, VkPipelineStageFlags dstStageMask,
+                                                 VkAccessFlags srcAccessMask, VkAccessFlags dstAccessMask,
+                                                 VkImageAspectFlags aspectMask) {
+        MOBILEGL_ASSERT(image != VK_NULL_HANDLE, "TransitionImageLayout: m_image == VK_NULL_HANDLE");
+
+        if (trackedLayout == newLayout) {
+            return true;
+        }
+
+        VkImageMemoryBarrier barrier{};
+        barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+        barrier.srcAccessMask = srcAccessMask;
+        barrier.dstAccessMask = dstAccessMask;
+        barrier.oldLayout = trackedLayout;
+        barrier.newLayout = newLayout;
+        barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        barrier.image = image;
+        barrier.subresourceRange.aspectMask = aspectMask;
+        barrier.subresourceRange.baseMipLevel = 0;
+        barrier.subresourceRange.levelCount = 1;
+        barrier.subresourceRange.baseArrayLayer = 0;
+        barrier.subresourceRange.layerCount = 1;
+        vkCmdPipelineBarrier(commandBuffer, srcStageMask, dstStageMask, 0, 0, nullptr, 0, nullptr, 1, &barrier);
+
+        trackedLayout = newLayout;
+        return true;
+    }
 
     Bool VkTextureManager::SyncTexture(MG_State::GLState::ITextureObject &texture,
                                        TextureResource &outResource) {
@@ -234,26 +264,15 @@ namespace MobileGL::MG_Backend::DirectVulkan {
 
         // TODO: Could be uploaded asynchronously?
         const Bool ok = ExecuteCmdBufImmediate([&](VkCommandBuffer commandBuffer) {
-            VkImageMemoryBarrier toTransferDst{};
-            toTransferDst.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
-            toTransferDst.srcAccessMask =
-                outResource.layout == VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL ? VK_ACCESS_SHADER_READ_BIT : 0;
-            toTransferDst.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-            toTransferDst.oldLayout = outResource.layout;
-            toTransferDst.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-            toTransferDst.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-            toTransferDst.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-            toTransferDst.image = outResource.image;
-            toTransferDst.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-            toTransferDst.subresourceRange.baseMipLevel = 0;
-            toTransferDst.subresourceRange.levelCount = outResource.mipLevels;
-            toTransferDst.subresourceRange.baseArrayLayer = 0;
-            toTransferDst.subresourceRange.layerCount = 1;
-            const VkPipelineStageFlags srcStage =
-                outResource.layout == VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL ? VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT
-                                                                                : VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
-            vkCmdPipelineBarrier(commandBuffer, srcStage, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 0, nullptr, 1,
-                                 &toTransferDst);
+            Bool ok = TransitionImageLayout(commandBuffer, outResource.image,
+                                  outResource.layout,
+                                  VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                                  VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL ? VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT : VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+                                  VK_PIPELINE_STAGE_TRANSFER_BIT,
+                                  outResource.layout == VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL ? VK_ACCESS_SHADER_READ_BIT : 0,
+                                  VK_ACCESS_TRANSFER_WRITE_BIT,
+                                  VK_IMAGE_ASPECT_COLOR_BIT);
+            MOBILEGL_ASSERT(ok, "TransitionImageLayout to VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL failed");
 
             for (const auto& item : uploadItems) {
                 VkBufferImageCopy copy{};
@@ -270,22 +289,16 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                                        1, &copy);
             }
 
-            VkImageMemoryBarrier toSampled{};
-            toSampled.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
-            toSampled.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-            toSampled.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
-            toSampled.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-            toSampled.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-            toSampled.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-            toSampled.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-            toSampled.image = outResource.image;
-            toSampled.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-            toSampled.subresourceRange.baseMipLevel = 0;
-            toSampled.subresourceRange.levelCount = outResource.mipLevels;
-            toSampled.subresourceRange.baseArrayLayer = 0;
-            toSampled.subresourceRange.layerCount = 1;
-            vkCmdPipelineBarrier(commandBuffer, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0,
-                                 0, nullptr, 0, nullptr, 1, &toSampled);
+            ok = TransitionImageLayout(commandBuffer, outResource.image,
+                                            outResource.layout,
+                                            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                                            VK_PIPELINE_STAGE_TRANSFER_BIT,
+                                            VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+                                            VK_ACCESS_TRANSFER_WRITE_BIT,
+                                            VK_ACCESS_TRANSFER_READ_BIT,
+                                            VK_IMAGE_ASPECT_COLOR_BIT);
+            MOBILEGL_ASSERT(ok, "TransitionImageLayout to VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL failed");
+            return ok;
         });
 
         vmaDestroyBuffer(m_allocator, stagingBuffer, stagingAllocation);

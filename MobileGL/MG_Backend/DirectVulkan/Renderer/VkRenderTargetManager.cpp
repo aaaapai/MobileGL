@@ -8,6 +8,8 @@
 
 #include "VkRenderTargetManager.h"
 
+#include "VkTextureManager.h"
+
 #include <MG_State/GLState/RenderbufferState/RenderbufferObject.h>
 #include <MG_State/GLState/TextureState/TextureEnum.h>
 
@@ -68,7 +70,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                     continue;
                 }
                 const Bool fromUndefined = (target.layout == VK_IMAGE_LAYOUT_UNDEFINED);
-                return TransitionImageLayout(
+                return VkTextureManager::TransitionImageLayout(
                     commandBuffer, target.image, target.layout, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
                     fromUndefined
                         ? VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT
@@ -90,7 +92,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         if (resource == TransitionResource::OffscreenColor) {
             switch (usage) {
             case TransitionUsage::Attachment: {
-                if (!TransitionImageLayout(
+                if (!VkTextureManager::TransitionImageLayout(
                         commandBuffer, target.image, target.layout, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
                         VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, 0,
                         VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
@@ -101,7 +103,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                     return true;
                 }
                 const VkImageAspectFlags aspectMask = resolveDepthStencilAspectMask(target.depthStencilFormat);
-                return TransitionImageLayout(
+                return VkTextureManager::TransitionImageLayout(
                     commandBuffer, target.depthStencilImage, target.depthStencilLayout,
                     VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
                     VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT, 0,
@@ -109,22 +111,22 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                     aspectMask);
             }
             case TransitionUsage::TransferSrc:
-                return TransitionImageLayout(commandBuffer, target.image, target.layout,
+                return VkTextureManager::TransitionImageLayout(commandBuffer, target.image, target.layout,
                                              VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
                                              VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0,
                                              VK_ACCESS_TRANSFER_READ_BIT, VK_IMAGE_ASPECT_COLOR_BIT);
             case TransitionUsage::TransferDst:
-                return TransitionImageLayout(commandBuffer, target.image, target.layout,
+                return VkTextureManager::TransitionImageLayout(commandBuffer, target.image, target.layout,
                                              VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
                                              VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0,
                                              VK_ACCESS_TRANSFER_WRITE_BIT, VK_IMAGE_ASPECT_COLOR_BIT);
             case TransitionUsage::General:
-                return TransitionImageLayout(commandBuffer, target.image, target.layout, VK_IMAGE_LAYOUT_GENERAL,
+                return VkTextureManager::TransitionImageLayout(commandBuffer, target.image, target.layout, VK_IMAGE_LAYOUT_GENERAL,
                                              VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0,
                                              VK_ACCESS_TRANSFER_READ_BIT | VK_ACCESS_TRANSFER_WRITE_BIT,
                                              VK_IMAGE_ASPECT_COLOR_BIT);
             case TransitionUsage::ShaderRead:
-                return TransitionImageLayout(commandBuffer, target.image, target.layout,
+                return VkTextureManager::TransitionImageLayout(commandBuffer, target.image, target.layout,
                                              VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
                                              VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
                                              0, VK_ACCESS_SHADER_READ_BIT, VK_IMAGE_ASPECT_COLOR_BIT);
@@ -140,22 +142,22 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             const VkImageAspectFlags aspectMask = resolveDepthStencilAspectMask(target.depthStencilFormat);
             switch (usage) {
             case TransitionUsage::TransferSrc:
-                return TransitionImageLayout(commandBuffer, target.depthStencilImage, target.depthStencilLayout,
+                return VkTextureManager::TransitionImageLayout(commandBuffer, target.depthStencilImage, target.depthStencilLayout,
                                              VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
                                              VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0,
                                              VK_ACCESS_TRANSFER_READ_BIT, aspectMask);
             case TransitionUsage::TransferDst:
-                return TransitionImageLayout(commandBuffer, target.depthStencilImage, target.depthStencilLayout,
+                return VkTextureManager::TransitionImageLayout(commandBuffer, target.depthStencilImage, target.depthStencilLayout,
                                              VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
                                              VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0,
                                              VK_ACCESS_TRANSFER_WRITE_BIT, aspectMask);
             case TransitionUsage::General:
-                return TransitionImageLayout(commandBuffer, target.depthStencilImage, target.depthStencilLayout,
+                return VkTextureManager::TransitionImageLayout(commandBuffer, target.depthStencilImage, target.depthStencilLayout,
                                              VK_IMAGE_LAYOUT_GENERAL, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
                                              VK_PIPELINE_STAGE_TRANSFER_BIT, 0,
                                              VK_ACCESS_TRANSFER_READ_BIT | VK_ACCESS_TRANSFER_WRITE_BIT, aspectMask);
             case TransitionUsage::Attachment:
-                return TransitionImageLayout(
+                return VkTextureManager::TransitionImageLayout(
                     commandBuffer, target.depthStencilImage, target.depthStencilLayout,
                     VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
                     VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT, 0,
@@ -367,38 +369,6 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         target.depthStencilFormat = VK_FORMAT_UNDEFINED;
         target.glObjectVersion = 0;
         target.colorTextureExternalIndex = 0;
-    }
-
-    Bool VkRenderTargetManager::TransitionImageLayout(VkCommandBuffer commandBuffer, VkImage image,
-                                                     VkImageLayout& trackedLayout, VkImageLayout newLayout,
-                                                     VkPipelineStageFlags srcStageMask,
-                                                     VkPipelineStageFlags dstStageMask, VkAccessFlags srcAccessMask,
-                                                     VkAccessFlags dstAccessMask, VkImageAspectFlags aspectMask) {
-        if (image == VK_NULL_HANDLE) {
-            return false;
-        }
-        if (trackedLayout == newLayout) {
-            return true;
-        }
-
-        VkImageMemoryBarrier barrier{};
-        barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
-        barrier.srcAccessMask = srcAccessMask;
-        barrier.dstAccessMask = dstAccessMask;
-        barrier.oldLayout = trackedLayout;
-        barrier.newLayout = newLayout;
-        barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        barrier.image = image;
-        barrier.subresourceRange.aspectMask = aspectMask;
-        barrier.subresourceRange.baseMipLevel = 0;
-        barrier.subresourceRange.levelCount = 1;
-        barrier.subresourceRange.baseArrayLayer = 0;
-        barrier.subresourceRange.layerCount = 1;
-        vkCmdPipelineBarrier(commandBuffer, srcStageMask, dstStageMask, 0, 0, nullptr, 0, nullptr, 1, &barrier);
-
-        trackedLayout = newLayout;
-        return true;
     }
 
     VkFormat VkRenderTargetManager::ResolveColorFormat(
