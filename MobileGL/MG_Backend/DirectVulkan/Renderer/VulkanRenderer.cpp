@@ -2046,11 +2046,11 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         renderPassInitInfo.device = m_device;
         renderPassInitInfo.colorFormat = m_swapchainObject.GetSurfaceFormat().format;
         renderPassInitInfo.depthStencilFormat = m_depthStencilFormat;
-        MOBILEGL_ASSERT(m_renderPassManager->Initialize(renderPassInitInfo),
-                        "RecreateSwapchain: render pass manager initialization failed");
-        MOBILEGL_ASSERT(m_renderPassManager->RecreateDefaultFramebuffers(
-                            m_swapchainObject.GetImageViews(), m_depthStencilImageViews, m_swapchainObject.GetExtent()),
-                        "RecreateSwapchain: default framebuffers initialization failed");
+        Bool ok = m_renderPassManager->Initialize(renderPassInitInfo);
+        MOBILEGL_ASSERT(ok, "RecreateSwapchain: render pass manager initialization failed");
+        ok = m_renderPassManager->RecreateDefaultFramebuffers(
+                m_swapchainObject.GetImageViews(), m_depthStencilImageViews, m_swapchainObject.GetExtent());
+        MOBILEGL_ASSERT(ok, "RecreateSwapchain: default framebuffers initialization failed");
         if (m_pipelineFactory) {
             m_pipelineFactory->DestroyAll();
         }
