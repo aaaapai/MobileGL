@@ -123,12 +123,6 @@ namespace MobileGL::MG_Backend::DirectVulkan {
 
         VkCommandPool m_commandPool = VK_NULL_HANDLE;
 
-        VkFormat m_depthStencilFormat = VK_FORMAT_UNDEFINED;
-        Vector<VkImage> m_depthStencilImages;
-        Vector<VkDeviceMemory> m_depthStencilImageMemories;
-        Vector<VkImageView> m_depthStencilImageViews;
-        Vector<VkImageLayout> m_depthStencilImageLayouts;
-
         Vector<VkBufferObject> m_frameVertexUploadBuffers;
         Vector<VkDeviceSize> m_frameVertexUploadHeads;
         Vector<VkBufferObject> m_frameIndexUploadBuffers;
@@ -166,8 +160,6 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         void CreateSwapchain();
         void CreateCommandPool();
         void CreateFrameContexts();
-        void CreateDepthStencilResources();
-        void DestroyDepthStencilResources();
         Bool GetDefaultRenderTargetForCurrentImage(VkRenderPass& outRenderPass, VkFramebuffer& outFramebuffer,
                                                    VkExtent2D& outExtent, VkFormat& outDepthStencilFormat) const;
         Bool EnsureOffscreenRenderTarget(Uint glFboExternalIndex, const MG_State::GLState::FramebufferObject& glFbo,
@@ -207,10 +199,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         static Bool GetMoreCapablePhysicalDevice(VkPhysicalDevice newVkDevice, VkSurfaceKHR surface,
                                                  const PhysicalDevice& compareWithDevice,
                                                  PhysicalDevice& outBetterDevice);
-        Uint32 FindMemoryType(Uint32 typeFilter, VkMemoryPropertyFlags properties) const;
         static Uint64 BuildPendingClearKey(Uint drawFboExternalIndex, Bool targetsDefaultFramebuffer);
-        static Bool HasStencilComponent(VkFormat format);
-        static VkFormat FindSupportedDepthStencilFormat(VkPhysicalDevice physicalDevice);
         static constexpr VkDynamicState s_dynamicStates[] = {VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR};
         static constexpr const char* s_validationLayerNames[] = {"VK_LAYER_KHRONOS_validation"};
         static constexpr const char* s_deviceExtensionNames[] = {VK_KHR_SWAPCHAIN_EXTENSION_NAME};

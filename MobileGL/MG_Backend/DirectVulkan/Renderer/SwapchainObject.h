@@ -38,6 +38,12 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         VkSurfaceTransformFlagBitsKHR GetPreTransform() const { return m_preTransform; }
         const Vector<VkImage>& GetImages() const { return m_images; }
         const Vector<VkImageView>& GetImageViews() const { return m_imageViews; }
+        VkFormat GetDepthStencilFormat() const { return m_depthStencilFormat; }
+        const Vector<VkImageView>& GetDepthStencilImageViews() const { return m_depthStencilImageViews; }
+        VkImage GetDepthStencilImage(Uint32 index) const;
+        VkImageView GetDepthStencilImageView(Uint32 index) const;
+        VkImageLayout GetDepthStencilImageLayout(Uint32 index) const;
+        void SetDepthStencilImageLayout(Uint32 index, VkImageLayout layout);
         VkImage GetImage(Uint32 index) const;
         VkImageLayout GetImageLayout(Uint32 index) const;
         void SetImageLayout(Uint32 index, VkImageLayout layout);
@@ -45,6 +51,8 @@ namespace MobileGL::MG_Backend::DirectVulkan {
 
     private:
         void CreateImageViews(VkDevice device);
+        void CreateDepthStencilResources(VkDevice device, VkPhysicalDevice physicalDevice);
+        void DestroyDepthStencilResources(VkDevice device);
         static constexpr VkPresentModeKHR s_desiredPresentModes[] {
             VK_PRESENT_MODE_MAILBOX_KHR,
             VK_PRESENT_MODE_IMMEDIATE_KHR,
@@ -59,5 +67,11 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         Vector<VkImage> m_images;
         Vector<VkImageView> m_imageViews;
         Vector<VkImageLayout> m_imageLayouts;
+
+        VkFormat m_depthStencilFormat = VK_FORMAT_UNDEFINED;
+        Vector<VkImage> m_depthStencilImages;
+        Vector<VkDeviceMemory> m_depthStencilImageMemories;
+        Vector<VkImageView> m_depthStencilImageViews;
+        Vector<VkImageLayout> m_depthStencilImageLayouts;
     };
 } // namespace MobileGL::MG_Backend::DirectVulkan
