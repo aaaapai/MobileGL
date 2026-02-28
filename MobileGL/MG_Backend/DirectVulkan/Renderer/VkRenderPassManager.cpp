@@ -150,22 +150,22 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             attachmentRef.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
         }
 
-
-
         // Depth attachment description
-        VkAttachmentDescription depthAttachmentDescription;
         auto& depthAtt = fbo.GetAttachment(FramebufferAttachmentType::Depth);
-        depthAttachmentDescription.format =
-            MG_Util::ConvertTextureInternalFormatToVkEnum(depthAtt.GetTexture()->GetFormat());
-        depthAttachmentDescription.samples = VK_SAMPLE_COUNT_1_BIT;
-        depthAttachmentDescription.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-        depthAttachmentDescription.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-        depthAttachmentDescription.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
-        depthAttachmentDescription.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-        depthAttachmentDescription.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-        depthAttachmentDescription.finalLayout = isDefaultFbo ?
-            VK_IMAGE_LAYOUT_PRESENT_SRC_KHR :
-            VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+        VkAttachmentDescription depthAttachmentDescription;
+        if (depthAtt.IsComplete()) {
+            depthAttachmentDescription.format =
+                MG_Util::ConvertTextureInternalFormatToVkEnum(depthAtt.GetTexture()->GetFormat());
+            depthAttachmentDescription.samples = VK_SAMPLE_COUNT_1_BIT;
+            depthAttachmentDescription.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+            depthAttachmentDescription.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+            depthAttachmentDescription.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+            depthAttachmentDescription.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+            depthAttachmentDescription.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+            depthAttachmentDescription.finalLayout = isDefaultFbo ?
+                VK_IMAGE_LAYOUT_PRESENT_SRC_KHR :
+                VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+        }
 
         // Depth attachment ref
         VkAttachmentReference depthAttachmentRef;
@@ -174,18 +174,28 @@ namespace MobileGL::MG_Backend::DirectVulkan {
 
         // Subpass
         VkSubpassDescription subpassDesc;
+        subpassDesc.flags = 0;
         subpassDesc.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
+        subpassDesc.inputAttachmentCount = 0;
+        subpassDesc.pInputAttachments = nullptr;
         subpassDesc.colorAttachmentCount = colorAttachmentRefs.size();
         subpassDesc.pColorAttachments = colorAttachmentRefs.data();
-        subpassDesc.pDepthStencilAttachment = &depthAttachmentRef;
+        subpassDesc.pResolveAttachments = nullptr;
+        subpassDesc.pDepthStencilAttachment = depthAtt.IsComplete() ? &depthAttachmentRef : VK_NULL_HANDLE;
+        subpassDesc.preserveAttachmentCount = 0;
+        subpassDesc.pPreserveAttachments = nullptr;
 
         // Render Pass
         VkRenderPassCreateInfo renderPassCreateInfo;
         renderPassCreateInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
+        renderPassCreateInfo.pNext = VK_NULL_HANDLE;
+        renderPassCreateInfo.flags = 0;
         renderPassCreateInfo.attachmentCount = colorAttachmentDescriptions.size();
         renderPassCreateInfo.pAttachments = colorAttachmentDescriptions.data();
         renderPassCreateInfo.subpassCount = 1;
         renderPassCreateInfo.pSubpasses = &subpassDesc;
+        renderPassCreateInfo.dependencyCount = 0;
+        renderPassCreateInfo.pDependencies = nullptr;
 
         VkRenderPass renderPass = VK_NULL_HANDLE;
         VK_VERIFY(vkCreateRenderPass(m_device, &renderPassCreateInfo, nullptr, &renderPass));
@@ -198,11 +208,14 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         // Framebuffer
         VkFramebufferCreateInfo framebufferCreateInfo;
         framebufferCreateInfo.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
+        framebufferCreateInfo.pNext = nullptr;
+        framebufferCreateInfo.flags = 0;
         framebufferCreateInfo.renderPass = renderPass;
         framebufferCreateInfo.attachmentCount = attachmentViews.size();
         framebufferCreateInfo.pAttachments = attachmentViews.data();
         framebufferCreateInfo.width = width;
         framebufferCreateInfo.height = height;
+        framebufferCreateInfo.layers = 1;
         VkFramebuffer framebuffer = VK_NULL_HANDLE;
         VK_VERIFY(vkCreateFramebuffer(m_device, &framebufferCreateInfo, nullptr, &framebuffer));
         IntVec2 extent = {width, height};
@@ -217,6 +230,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         m_activeRenderPass = &renderPassEntry;
         VkRenderPassBeginInfo renderPassBeginInfo;
         renderPassBeginInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+        renderPassBeginInfo.pNext = nullptr;
         renderPassBeginInfo.renderPass = m_activeRenderPass->renderPass;
         renderPassBeginInfo.framebuffer = m_activeRenderPass->framebuffer;
         renderPassBeginInfo.renderArea.offset = { 0, 0 };
@@ -227,6 +241,10 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         VkClearValue clearValue;
         clearValue.color = { 0.0f, 0.0f, 0.0f, 1.0f };
         clearValue.depthStencil = { 1.0f, 0 };
+
+        renderPassBeginInfo.clearValueCount = 1;
+        renderPassBeginInfo.pClearValues = &clearValue;
+
         vkCmdBeginRenderPass(commandBuffer, &renderPassBeginInfo, VK_SUBPASS_CONTENTS_INLINE);
 
         return true;
