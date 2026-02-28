@@ -8,7 +8,6 @@
 
 #include "UniformDescriptorBinder.h"
 
-#include "VkRenderTargetManager.h"
 #include "MG_State/GLState/Core.h"
 #include "MG_State/GLState/ProgramState/ProgramObject.h"
 #include "MG_Util/ShaderTranspiler/Types.h"
@@ -138,8 +137,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
     Bool UniformDescriptorBinder::Initialize(VkDevice device, VmaAllocator allocator,
                                              VkDeviceSize minUniformBufferOffsetAlignment, Uint32 frameCount,
                                              Uint32 maxBindings, Uint32 setsPerFrame, VkDeviceSize perFrameUploadBytes,
-                                             VkTextureManager* textureManager, VkSamplerManager* samplerManager,
-                                             VkRenderTargetManager* framebufferManager) {
+                                             VkTextureManager* textureManager, VkSamplerManager* samplerManager) {
         Shutdown();
 
         MOBILEGL_ASSERT(device != VK_NULL_HANDLE, "UniformDescriptorBinder::Initialize requires valid VkDevice");
@@ -151,8 +149,6 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                         "UniformDescriptorBinder::Initialize requires valid texture manager");
         MOBILEGL_ASSERT(samplerManager != nullptr,
                         "UniformDescriptorBinder::Initialize requires valid sampler manager");
-        MOBILEGL_ASSERT(framebufferManager != nullptr,
-                        "UniformDescriptorBinder::Initialize requires valid framebuffer manager");
 
         m_device = device;
         m_allocator = allocator;
@@ -164,7 +160,6 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         m_peakDescriptorSetsObserved = 0;
         m_textureManager = textureManager;
         m_samplerManager = samplerManager;
-        m_framebufferManager = framebufferManager;
 
         m_frames.resize(m_frameCount);
         for (Uint32 frameIndex = 0; frameIndex < m_frameCount; ++frameIndex) {
@@ -228,7 +223,6 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         m_peakDescriptorSetsObserved = 0;
         m_textureManager = nullptr;
         m_samplerManager = nullptr;
-        m_framebufferManager = nullptr;
     }
 
     void UniformDescriptorBinder::BeginFrame(Uint32 frameIndex) {
@@ -451,6 +445,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                                                            const MG_State::GLState::ProgramObject& program,
                                                            const ProgramLayout& layout, Uint32 binding,
                                                            VkDescriptorImageInfo& outImageInfo) const {
+        (void)commandBuffer;
         MOBILEGL_ASSERT(m_textureManager != nullptr, "ResolveSamplerDescriptor: texture manager is null");
         MOBILEGL_ASSERT(m_samplerManager != nullptr, "ResolveSamplerDescriptor: sampler manager is null");
         if (!MG_State::pGLContext || binding >= layout.samplerUniformLocationByBinding.size()) {
@@ -479,36 +474,6 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         const MG_State::GLState::SamplerObject* samplerToUse = samplerOverride ? samplerOverride.get() : texture->GetSamplerObject().get();
         if (!samplerToUse) {
             return false;
-        }
-
-        VkImageView offscreenView = VK_NULL_HANDLE;
-        VkImage offscreenImage = VK_NULL_HANDLE;
-        VkImageLayout* offscreenLayout = nullptr;
-        if (m_framebufferManager->GetOffscreenColorTargetStateByTexture(texture->GetExternalIndex(), offscreenView,
-                                                                         offscreenImage, offscreenLayout) &&
-            offscreenView != VK_NULL_HANDLE && offscreenLayout != nullptr) {
-            const Bool fromUndefined = (*offscreenLayout == VK_IMAGE_LAYOUT_UNDEFINED);
-            if (VkTextureManager::TransitionImageLayout(
-                    commandBuffer, offscreenImage, *offscreenLayout, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-                    fromUndefined
-                        ? VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT
-                        : (VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_TRANSFER_BIT),
-                    VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
-                    fromUndefined ? 0 : (VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_TRANSFER_WRITE_BIT),
-                    VK_ACCESS_SHADER_READ_BIT, VK_IMAGE_ASPECT_COLOR_BIT)) {
-                VkDescriptorImageInfo sampledInfo{};
-                if (!m_textureManager->SyncTextureAndGetDescriptor(*texture, sampledInfo)) {
-                    return false;
-                }
-                sampledInfo.sampler = m_samplerManager->GetOrCreateSampler(*samplerToUse);
-                if (sampledInfo.sampler == VK_NULL_HANDLE) {
-                    return false;
-                }
-                sampledInfo.imageView = offscreenView;
-                sampledInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-                outImageInfo = sampledInfo;
-                return true;
-            }
         }
 
         if (!m_textureManager->SyncTextureAndGetDescriptor(*texture, outImageInfo)) {

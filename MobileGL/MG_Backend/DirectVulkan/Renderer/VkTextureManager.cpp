@@ -62,7 +62,9 @@ namespace MobileGL::MG_Backend::DirectVulkan {
 
         outImageInfo.sampler = VK_NULL_HANDLE;
         outImageInfo.imageView = it->second.view;
-        outImageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        // Will be VK_IMAGE_LAYOUT_UNDEFINED or VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
+        // Shouldn't hardcode VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL here
+        // outImageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
         return true;
     }
     Bool VkTextureManager::TransitionImageLayout(VkCommandBuffer commandBuffer, VkImage image,
@@ -298,6 +300,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                                             VK_ACCESS_TRANSFER_READ_BIT,
                                             VK_IMAGE_ASPECT_COLOR_BIT);
             MOBILEGL_ASSERT(ok, "TransitionImageLayout to VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL failed");
+            outResource.layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
             return ok;
         });
 

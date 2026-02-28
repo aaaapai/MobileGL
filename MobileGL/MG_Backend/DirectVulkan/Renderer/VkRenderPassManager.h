@@ -8,75 +8,54 @@
 
 #pragma once
 
+#include "VkClearManager.h"
+#include "VkTextureManager.h"
 #include "../VkIncludes.h"
+#include "../VulkanRendererConfig.h"
+#include "MG_State/GLState/FramebufferState/FramebufferObject.h"
+
 #include <Includes.h>
 
 namespace MobileGL::MG_Backend::DirectVulkan {
+    struct RenderPassEntry {
+        static inline VkDevice s_device;
+        VkRenderPass renderPass = VK_NULL_HANDLE;
+        VkFramebuffer framebuffer = VK_NULL_HANDLE;
+        Vector<VkDescriptorImageInfo> descriptorImageInfo;
+        IntVec2 extent = {0, 0};
+
+        ~RenderPassEntry() {
+            if (renderPass != VK_NULL_HANDLE) {
+                vkDestroyRenderPass(s_device, renderPass, nullptr);
+            }
+            if (framebuffer != VK_NULL_HANDLE) {
+                vkDestroyFramebuffer(s_device, framebuffer, nullptr);
+            }
+        }
+    };
+
     class VkRenderPassManager {
     public:
-        struct InitInfo {
-            VkDevice device = VK_NULL_HANDLE;
-            VkFormat colorFormat = VK_FORMAT_UNDEFINED;
-            VkFormat depthStencilFormat = VK_FORMAT_UNDEFINED;
-        };
+        using HashType = Uint64;
+        VkRenderPassManager(VkDevice device,
+            const VulkanRendererConfig& config, VkClearManager& clearManager, VkTextureManager& textureManager);
+        ~VkRenderPassManager();
 
-        struct OffscreenRenderTargetInfo {
-            Uint targetExternalIndex = 0;
-            Uint16 targetVersion = 0;
-            VkImageView colorView = VK_NULL_HANDLE;
-            VkFormat colorFormat = VK_FORMAT_UNDEFINED;
-            VkImageView depthStencilView = VK_NULL_HANDLE;
-            VkFormat depthStencilFormat = VK_FORMAT_UNDEFINED;
-            VkExtent2D extent = {0, 0};
-        };
-
-        Bool Initialize(const InitInfo& initInfo);
+        Bool Initialize();
         void Shutdown();
 
-        Bool RecreateDefaultFramebuffers(const Vector<VkImageView>& colorViews,
-                                         const Vector<VkImageView>& depthStencilViews, VkExtent2D extent);
-        Bool GetDefaultRenderTarget(Uint32 imageIndex, VkRenderPass& outRenderPass, VkFramebuffer& outFramebuffer,
-                                    VkExtent2D& outExtent, VkFormat& outDepthStencilFormat) const;
-
-        Bool EnsureOffscreenRenderTarget(const OffscreenRenderTargetInfo& targetInfo);
-        Bool GetOffscreenRenderTarget(Uint targetExternalIndex, VkRenderPass& outRenderPass,
-                                      VkFramebuffer& outFramebuffer, VkExtent2D& outExtent,
-                                      VkFormat& outDepthStencilFormat) const;
-        void RemoveOffscreenRenderTarget(Uint targetExternalIndex);
-
-        void BeginRenderPass(VkCommandBuffer commandBuffer, VkRenderPass renderPass, VkFramebuffer framebuffer,
-                             VkExtent2D extent) const;
-        void EndRenderPass(VkCommandBuffer commandBuffer) const;
-        void RecordColorClear(VkCommandBuffer commandBuffer, VkExtent2D extent,
-                              const VkClearColorValue& clearColor) const;
-        void RecordDepthStencilClear(VkCommandBuffer commandBuffer, VkExtent2D extent, GLbitfield mask, Float depth,
-                                     Uint32 stencil, VkFormat depthStencilFormat) const;
-
+        HashType ComputeHash(const MG_State::GLState::FramebufferObject& fbo) const;
+        RenderPassEntry& GetOrCreateRenderPass(const MG_State::GLState::FramebufferObject& fbo);
+        RenderPassEntry* GetActiveRenderPass() const { return m_activeRenderPass; }
+        Bool StartRenderPass(VkCommandBuffer commandBuffer, RenderPassEntry& renderPassEntry);
+        Bool EndRenderPass(VkCommandBuffer commandBuffer);
     private:
-        struct OffscreenRenderTarget {
-            Uint16 targetVersion = 0;
-            VkImageView colorView = VK_NULL_HANDLE;
-            VkFormat colorFormat = VK_FORMAT_UNDEFINED;
-            VkImageView depthStencilView = VK_NULL_HANDLE;
-            VkFormat depthStencilFormat = VK_FORMAT_UNDEFINED;
-            VkExtent2D extent = {0, 0};
-            VkRenderPass renderPassLoad = VK_NULL_HANDLE;
-            VkFramebuffer framebuffer = VK_NULL_HANDLE;
-        };
-
-        VkRenderPass CreateDefaultRenderPass(VkAttachmentLoadOp colorLoadOp) const;
-        VkRenderPass CreateRenderPass(VkFormat colorFormat, VkFormat depthStencilFormat, VkAttachmentLoadOp colorLoadOp,
-                                      VkImageLayout colorFinalLayout) const;
-        void DestroyDefaultFramebuffers();
-        void DestroyOffscreenRenderTarget(OffscreenRenderTarget& target);
-        static Bool HasStencilComponent(VkFormat format);
-
         VkDevice m_device = VK_NULL_HANDLE;
-        VkFormat m_colorFormat = VK_FORMAT_UNDEFINED;
-        VkFormat m_depthStencilFormat = VK_FORMAT_UNDEFINED;
-        VkRenderPass m_renderPassLoad = VK_NULL_HANDLE;
-        Vector<VkFramebuffer> m_defaultFramebuffers;
-        VkExtent2D m_defaultExtent = {0, 0};
-        UnorderedMap<Uint, OffscreenRenderTarget> m_offscreenRenderTargets;
+        const VulkanRendererConfig& m_config;
+        VkClearManager& m_clearManager;
+        VkTextureManager& m_textureManager;
+        UnorderedMap<Uint64, RenderPassEntry> m_renderPasses;
+        RenderPassEntry* m_activeRenderPass = nullptr;
+        static inline XXH64_state_t* m_hashState = XXH64_createState();
     };
 } // namespace MobileGL::MG_Backend::DirectVulkan

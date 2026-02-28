@@ -15,7 +15,7 @@
 #include "UniformDescriptorBinder.h"
 #include "VertexInputStateFactory.h"
 #include "VkBufferObject.h"
-#include "VkRenderTargetManager.h"
+#include "VkClearManager.h"
 #include "VkRenderPassManager.h"
 #include "VkSamplerManager.h"
 #include "VkTextureManager.h"
@@ -143,7 +143,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         UniquePtr<ProgramFactory> m_programFactory;
         UniquePtr<UniformDescriptorBinder> m_uniformDescriptorBinder;
         UniquePtr<VertexInputStateFactory> m_vertexInputStateFactory;
-        UniquePtr<VkRenderTargetManager> m_framebufferManager;
+        UniquePtr<VkClearManager> m_clearManager;
         UniquePtr<VkRenderPassManager> m_renderPassManager;
         UniquePtr<VkTextureManager> m_textureManager;
         UniquePtr<VkSamplerManager> m_samplerManager;
@@ -160,11 +160,6 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         void CreateSwapchain();
         void CreateCommandPool();
         void CreateFrameContexts();
-        Bool GetDefaultRenderTargetForCurrentImage(VkRenderPass& outRenderPass, VkFramebuffer& outFramebuffer,
-                                                   VkExtent2D& outExtent, VkFormat& outDepthStencilFormat) const;
-        Bool EnsureOffscreenRenderTarget(Uint glFboExternalIndex, const MG_State::GLState::FramebufferObject& glFbo,
-                                         VkRenderPass& outRenderPass, VkFramebuffer& outFramebuffer,
-                                         VkExtent2D& outExtent, VkFormat& outDepthStencilFormat);
         VkPipeline GetOrCreatePipeline(const MG_State::GLState::ProgramObject& program, VkPipelineLayout pipelineLayout,
                                        Uint64 vertexInputHash,
                                        const VkPipelineVertexInputStateCreateInfo& vertexInputState);
@@ -177,6 +172,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                                              VkDeviceSize minCapacity, VkBufferUsageFlags usage);
         Bool UploadAndBindVertexStreams(const VertexInputStateFactory::BackendVertexInputState& vertexInputState,
                                         const DrawArrayPayload& payload, VkCommandBuffer commandBuffer);
+        void ApplyPendingClearsForActiveTarget(VkCommandBuffer commandBuffer, Uint64 drawTargetKey);
 
         void ShutdownSwapchain();
 

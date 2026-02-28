@@ -61,14 +61,23 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         m_pendingClears[pTexture] = clearPayload;
     }
 
-    Bool VkClearManager::DequeueClear(MG_State::GLState::ITextureObject* texture, ClearAttachmentPayload& outPayload) {
-        if (m_aliveObjects.find(texture) == m_aliveObjects.end())
+    Bool VkClearManager::HasPendingClear(MG_State::GLState::ITextureObject* texture) {
+        return m_pendingClears.find(texture) != m_pendingClears.end();
+    }
+
+    Bool VkClearManager::GetPendingClear(MG_State::GLState::ITextureObject* texture, ClearAttachmentPayload& outPayload) {
+        if (m_aliveObjects.find(texture) == m_aliveObjects.end() ||
+            m_pendingClears.find(texture) == m_pendingClears.end()) {
             return false;
+        }
 
         outPayload = m_pendingClears[texture];
+        return true;
+    }
+
+    void VkClearManager::PopPendingClear(MG_State::GLState::ITextureObject* texture) {
         m_aliveObjects.erase(texture);
         m_pendingClears.erase(texture);
-        return true;
     }
 
     SizeT VkClearManager::CollectGarbage() {

@@ -20,8 +20,6 @@ namespace MobileGL::MG_State::GLState {
 }
 
 namespace MobileGL::MG_Backend::DirectVulkan {
-    class VkRenderTargetManager;
-
     class UniformDescriptorBinder {
     public:
         enum class BindingKind : Uint8 {
@@ -33,8 +31,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         Bool Initialize(VkDevice device, VmaAllocator allocator, VkDeviceSize minUniformBufferOffsetAlignment,
                         Uint32 frameCount, Uint32 maxBindings = 16, Uint32 setsPerFrame = 64,
                         VkDeviceSize perFrameUploadBytes = 4 * 1024 * 1024,
-                        VkTextureManager* textureManager = nullptr, VkSamplerManager* samplerManager = nullptr,
-                        VkRenderTargetManager* framebufferManager = nullptr);
+                        VkTextureManager* textureManager = nullptr, VkSamplerManager* samplerManager = nullptr);
         void Shutdown();
 
         void BeginFrame(Uint32 frameIndex);
@@ -100,7 +97,6 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         Uint32 m_peakDescriptorSetsObserved = 0;
         VkTextureManager* m_textureManager = nullptr;
         VkSamplerManager* m_samplerManager = nullptr;
-        VkRenderTargetManager* m_framebufferManager = nullptr;
     };
 } // namespace MobileGL::MG_Backend::DirectVulkan
 

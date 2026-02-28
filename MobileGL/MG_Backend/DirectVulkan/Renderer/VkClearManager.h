@@ -40,7 +40,9 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         void QueueClear(
             const ClearAttachmentPayload& clearPayload,
             const SharedPtr<MG_State::GLState::ITextureObject>& texture);
-        Bool DequeueClear(MG_State::GLState::ITextureObject* texture, ClearAttachmentPayload& outPayload);
+        Bool HasPendingClear(MG_State::GLState::ITextureObject* texture);
+        Bool GetPendingClear(MG_State::GLState::ITextureObject* texture, ClearAttachmentPayload& outPayload);
+        void PopPendingClear(MG_State::GLState::ITextureObject* texture);
         SizeT CollectGarbage();
     private:
         UnorderedMap<MG_State::GLState::ITextureObject*, ClearAttachmentPayload> m_pendingClears;

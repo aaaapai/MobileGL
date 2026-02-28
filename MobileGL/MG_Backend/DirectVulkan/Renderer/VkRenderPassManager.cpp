@@ -8,327 +8,234 @@
 
 #include "VkRenderPassManager.h"
 
+#include "MG_Impl/GLImpl/Framebuffer/GL_Framebuffer.h"
+#include "MG_State/GLState/TextureState/TextureObject2D.h"
+#include "MG_Util/Converters/MGToVk/TextureEnumConverter.h"
+
 namespace MobileGL::MG_Backend::DirectVulkan {
-    Bool VkRenderPassManager::Initialize(const InitInfo& initInfo) {
-        Shutdown();
+    VkRenderPassManager::VkRenderPassManager(VkDevice device,
+        const VulkanRendererConfig& config, VkClearManager& clearManager, VkTextureManager& textureManager):
+        m_device(device), m_config(config), m_clearManager(clearManager), m_textureManager(textureManager) {
+        RenderPassEntry::s_device = m_device;
+    }
 
-        if (initInfo.device == VK_NULL_HANDLE || initInfo.colorFormat == VK_FORMAT_UNDEFINED ||
-            initInfo.depthStencilFormat == VK_FORMAT_UNDEFINED) {
-            return false;
-        }
+    VkRenderPassManager::~VkRenderPassManager() {}
 
-        m_device = initInfo.device;
-        m_colorFormat = initInfo.colorFormat;
-        m_depthStencilFormat = initInfo.depthStencilFormat;
-        m_renderPassLoad = CreateDefaultRenderPass(VK_ATTACHMENT_LOAD_OP_LOAD);
-        MGLOG_D("VkRenderPassManager: RenderPasses created (LOAD/CLEAR).");
-        return m_renderPassLoad != VK_NULL_HANDLE;
+    Bool VkRenderPassManager::Initialize() {
+        return true;
     }
 
     void VkRenderPassManager::Shutdown() {
-        DestroyDefaultFramebuffers();
-        for (auto& [_, target] : m_offscreenRenderTargets) {
-            DestroyOffscreenRenderTarget(target);
-        }
-        m_offscreenRenderTargets.clear();
+    }
 
-        if (m_device != VK_NULL_HANDLE) {
-            if (m_renderPassLoad != VK_NULL_HANDLE) {
-                vkDestroyRenderPass(m_device, m_renderPassLoad, nullptr);
+    VkRenderPassManager::HashType VkRenderPassManager::ComputeHash(
+        const MG_State::GLState::FramebufferObject& fbo) const {
+        XXHASH_VERIFY(XXH64_reset(m_hashState, m_config.CacheVersion));
+        auto& drawBuffers = fbo.GetDrawBuffers();
+        XXHASH_VERIFY(XXH64_update(m_hashState, drawBuffers.data(), drawBuffers.size() * sizeof(drawBuffers[0])));
+        auto readBuffer = fbo.GetReadBuffer();
+        XXHASH_VERIFY(XXH64_update(m_hashState, &readBuffer, sizeof(FramebufferAttachmentType)));
+        Int validDrawBufCount = 0;
+        for (Int i = 0; i < drawBuffers.size(); ++i) {
+            auto drawbuf = drawBuffers[i];
+            if (drawbuf != FramebufferAttachmentType::None)
+                validDrawBufCount = std::max(validDrawBufCount, i + 1);
+        }
+        XXHASH_VERIFY(XXH64_update(m_hashState, &validDrawBufCount, sizeof(validDrawBufCount)));
+
+        auto combineFramebufferAttachmentObjHash = [&](FramebufferAttachmentType attachment) {
+            auto& att = fbo.GetAttachment(attachment);
+
+            Int type = 0;
+            if (att.IsEmpty()) type = 0;
+            else if (att.IsTexture()) type = 1;
+            else if (att.IsRenderbuffer()) type = 2;
+            XXHASH_VERIFY(XXH64_update(m_hashState, &type, sizeof(type)));
+            void* contentPtr = nullptr;
+            if (att.IsTexture())
+                contentPtr = att.GetTexture().get();
+            else if (att.IsRenderbuffer())
+                contentPtr = att.GetRenderbuffer().get();
+            XXHASH_VERIFY(XXH64_update(m_hashState, &contentPtr, sizeof(contentPtr)));
+
+            if (att.IsTexture()) {
+                auto hasClear = m_clearManager.HasPendingClear(att.GetTexture().get());
+                XXHASH_VERIFY(XXH64_update(m_hashState, &hasClear, sizeof(hasClear)));
             }
+        };
+
+        for (Int i = 0; i < validDrawBufCount; ++i) {
+            auto drawbuf = drawBuffers[i];
+            combineFramebufferAttachmentObjHash(drawbuf);
         }
 
-        m_renderPassLoad = VK_NULL_HANDLE;
-        m_colorFormat = VK_FORMAT_UNDEFINED;
-        m_depthStencilFormat = VK_FORMAT_UNDEFINED;
-        m_defaultExtent = {0, 0};
-        m_device = VK_NULL_HANDLE;
+        combineFramebufferAttachmentObjHash(FramebufferAttachmentType::Depth);
+        combineFramebufferAttachmentObjHash(FramebufferAttachmentType::Stencil);
+
+        return XXH64_digest(m_hashState);
     }
 
-    Bool VkRenderPassManager::RecreateDefaultFramebuffers(const Vector<VkImageView>& colorViews,
-                                                          const Vector<VkImageView>& depthStencilViews,
-                                                          VkExtent2D extent) {
-        DestroyDefaultFramebuffers();
+    RenderPassEntry& VkRenderPassManager::GetOrCreateRenderPass(const MG_State::GLState::FramebufferObject& fbo) {
+        // retrieve from cache first
+        auto hash = ComputeHash(fbo);
+        auto it = m_renderPasses.find(hash);
+        if (it != m_renderPasses.end())
+            return it->second;
 
-        if (m_device == VK_NULL_HANDLE || m_renderPassLoad == VK_NULL_HANDLE || extent.width == 0 ||
-            extent.height == 0 || colorViews.empty() || colorViews.size() != depthStencilViews.size()) {
-            return false;
+        Bool isDefaultFbo = (&fbo == MG_Impl::GLImpl::FramebufferImpl::pDefaultFramebufferInfo->defaultFBO.get());
+        // Color attachment
+        auto& drawbufs = fbo.GetDrawBuffers();
+        Int validDrawBufCount = 0;
+        for (Int i = 0; i < drawbufs.size(); ++i) {
+            auto drawbuf = drawbufs[i];
+            if (drawbuf != FramebufferAttachmentType::None)
+                validDrawBufCount = std::max(validDrawBufCount, i + 1);
         }
 
-        m_defaultFramebuffers.reserve(colorViews.size());
-        for (SizeT i = 0; i < colorViews.size(); ++i) {
-            if (colorViews[i] == VK_NULL_HANDLE || depthStencilViews[i] == VK_NULL_HANDLE) {
-                DestroyDefaultFramebuffers();
-                return false;
+        Int width = 0;
+        Int height = 0;
+        Vector<VkAttachmentDescription> colorAttachmentDescriptions(validDrawBufCount);
+        Vector<VkAttachmentReference> colorAttachmentRefs(validDrawBufCount);
+        Vector<VkDescriptorImageInfo> descriptorImageInfo(validDrawBufCount);
+        // This should automatically work on default & offscreen FBO
+        // assuming default FBO has the right param
+        for (Int i = 0; i < validDrawBufCount; ++i) {
+            auto drawbuf = drawbufs[i];
+            if (drawbuf == FramebufferAttachmentType::None ||
+                fbo.GetAttachment(drawbuf).IsRenderbuffer())
+                continue;
+
+            auto& att = fbo.GetAttachment(drawbuf);
+            auto* texture = att.GetTexture().get();
+            const auto textureTarget = texture->GetTarget();
+
+            // Color attachment description
+            VkAttachmentDescription& desc = colorAttachmentDescriptions[i];
+            switch (textureTarget) {
+                case TextureTarget::Texture2D: {
+                    auto* texture2d =
+                        static_cast<MG_State::GLState::TextureObject2D*>(texture);
+                    desc.format =
+                        MG_Util::ConvertTextureInternalFormatToVkEnum(
+                            texture2d->GetFormat());
+                    desc.samples = VK_SAMPLE_COUNT_1_BIT;
+                    Bool hasClear = m_clearManager.HasPendingClear(texture);
+                    desc.loadOp = hasClear ?
+                        VK_ATTACHMENT_LOAD_OP_CLEAR :
+                        VK_ATTACHMENT_LOAD_OP_LOAD;
+                    desc.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+                    desc.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+                    desc.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+                    desc.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+                    desc.finalLayout = isDefaultFbo ?
+                        VK_IMAGE_LAYOUT_PRESENT_SRC_KHR :
+                        VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+                    if (width == 0)
+                        width = texture2d->GetBaseSize().x();
+                    if (height == 0)
+                        height = texture2d->GetBaseSize().y();
+
+                    Bool ok = m_textureManager.SyncTextureAndGetDescriptor(*texture, descriptorImageInfo[i]);
+                    MOBILEGL_ASSERT(ok, "GetOrCreateRenderPass: SyncTextureAndGetDescriptor failed");
+
+                    break;
+                }
+                default:
+                    MOBILEGL_ASSERT(false, "Unsupported texture target");
             }
-            VkImageView attachments[] = {colorViews[i], depthStencilViews[i]};
-            VkFramebufferCreateInfo createInfo{VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO};
-            createInfo.renderPass = m_renderPassLoad;
-            createInfo.attachmentCount = static_cast<Uint32>(std::size(attachments));
-            createInfo.pAttachments = attachments;
-            createInfo.width = extent.width;
-            createInfo.height = extent.height;
-            createInfo.layers = 1;
-            VkFramebuffer framebuffer = VK_NULL_HANDLE;
-            if (vkCreateFramebuffer(m_device, &createInfo, nullptr, &framebuffer) != VK_SUCCESS) {
-                DestroyDefaultFramebuffers();
-                return false;
-            }
-            m_defaultFramebuffers.push_back(framebuffer);
-        }
-        m_defaultExtent = extent;
-        return true;
-    }
 
-    Bool VkRenderPassManager::GetDefaultRenderTarget(Uint32 imageIndex, VkRenderPass& outRenderPass,
-                                                     VkFramebuffer& outFramebuffer, VkExtent2D& outExtent,
-                                                     VkFormat& outDepthStencilFormat) const {
-        if (imageIndex >= m_defaultFramebuffers.size() || m_renderPassLoad == VK_NULL_HANDLE) {
-            return false;
-        }
-        outRenderPass = m_renderPassLoad;
-        outFramebuffer = m_defaultFramebuffers[imageIndex];
-        outExtent = m_defaultExtent;
-        outDepthStencilFormat = m_depthStencilFormat;
-        return outFramebuffer != VK_NULL_HANDLE;
-    }
-
-    Bool VkRenderPassManager::EnsureOffscreenRenderTarget(const OffscreenRenderTargetInfo& targetInfo) {
-        if (m_device == VK_NULL_HANDLE || targetInfo.colorView == VK_NULL_HANDLE ||
-            targetInfo.colorFormat == VK_FORMAT_UNDEFINED || targetInfo.extent.width == 0 ||
-            targetInfo.extent.height == 0) {
-            return false;
+            // Attachment reference
+            VkAttachmentReference& attachmentRef = colorAttachmentRefs[i];
+            attachmentRef.attachment = i;
+            attachmentRef.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
         }
 
-        const Bool hasDepthStencil =
-            targetInfo.depthStencilView != VK_NULL_HANDLE && targetInfo.depthStencilFormat != VK_FORMAT_UNDEFINED;
 
-        auto& target = m_offscreenRenderTargets[targetInfo.targetExternalIndex];
-        if (target.framebuffer != VK_NULL_HANDLE && target.renderPassLoad != VK_NULL_HANDLE &&
-            target.targetVersion == targetInfo.targetVersion && target.colorView == targetInfo.colorView &&
-            target.colorFormat == targetInfo.colorFormat && target.depthStencilView == targetInfo.depthStencilView &&
-            target.depthStencilFormat == targetInfo.depthStencilFormat &&
-            target.extent.width == targetInfo.extent.width && target.extent.height == targetInfo.extent.height) {
-            return true;
-        }
 
-        DestroyOffscreenRenderTarget(target);
+        // Depth attachment description
+        VkAttachmentDescription depthAttachmentDescription;
+        auto& depthAtt = fbo.GetAttachment(FramebufferAttachmentType::Depth);
+        depthAttachmentDescription.format =
+            MG_Util::ConvertTextureInternalFormatToVkEnum(depthAtt.GetTexture()->GetFormat());
+        depthAttachmentDescription.samples = VK_SAMPLE_COUNT_1_BIT;
+        depthAttachmentDescription.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+        depthAttachmentDescription.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+        depthAttachmentDescription.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+        depthAttachmentDescription.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+        depthAttachmentDescription.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+        depthAttachmentDescription.finalLayout = isDefaultFbo ?
+            VK_IMAGE_LAYOUT_PRESENT_SRC_KHR :
+            VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
 
-        const VkFormat depthStencilFormat = hasDepthStencil ? targetInfo.depthStencilFormat : VK_FORMAT_UNDEFINED;
-        target.renderPassLoad = CreateRenderPass(targetInfo.colorFormat, depthStencilFormat, VK_ATTACHMENT_LOAD_OP_LOAD,
-                                                 VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
-        if (target.renderPassLoad == VK_NULL_HANDLE) {
-            return false;
-        }
+        // Depth attachment ref
+        VkAttachmentReference depthAttachmentRef;
+        depthAttachmentRef.attachment = 1;
+        depthAttachmentRef.layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
 
-        Array<VkImageView, 2> attachments{};
-        attachments[0] = targetInfo.colorView;
-        Uint32 attachmentCount = 1;
-        if (hasDepthStencil) {
-            attachments[1] = targetInfo.depthStencilView;
-            attachmentCount = 2;
-        }
+        // Subpass
+        VkSubpassDescription subpassDesc;
+        subpassDesc.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
+        subpassDesc.colorAttachmentCount = colorAttachmentRefs.size();
+        subpassDesc.pColorAttachments = colorAttachmentRefs.data();
+        subpassDesc.pDepthStencilAttachment = &depthAttachmentRef;
 
-        VkFramebufferCreateInfo framebufferInfo{VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO};
-        framebufferInfo.renderPass = target.renderPassLoad;
-        framebufferInfo.attachmentCount = attachmentCount;
-        framebufferInfo.pAttachments = attachments.data();
-        framebufferInfo.width = targetInfo.extent.width;
-        framebufferInfo.height = targetInfo.extent.height;
-        framebufferInfo.layers = 1;
-        VK_VERIFY(vkCreateFramebuffer(m_device, &framebufferInfo, nullptr, &target.framebuffer),
-                  "vkCreateFramebuffer(offscreen)");
-
-        target.targetVersion = targetInfo.targetVersion;
-        target.colorView = targetInfo.colorView;
-        target.colorFormat = targetInfo.colorFormat;
-        target.depthStencilView = targetInfo.depthStencilView;
-        target.depthStencilFormat = targetInfo.depthStencilFormat;
-        target.extent = targetInfo.extent;
-        return true;
-    }
-
-    Bool VkRenderPassManager::GetOffscreenRenderTarget(Uint targetExternalIndex, VkRenderPass& outRenderPass,
-                                                       VkFramebuffer& outFramebuffer, VkExtent2D& outExtent,
-                                                       VkFormat& outDepthStencilFormat) const {
-        auto it = m_offscreenRenderTargets.find(targetExternalIndex);
-        if (it == m_offscreenRenderTargets.end() || it->second.renderPassLoad == VK_NULL_HANDLE ||
-            it->second.framebuffer == VK_NULL_HANDLE) {
-            return false;
-        }
-
-        outRenderPass = it->second.renderPassLoad;
-        outFramebuffer = it->second.framebuffer;
-        outExtent = it->second.extent;
-        outDepthStencilFormat = it->second.depthStencilFormat;
-        return true;
-    }
-
-    void VkRenderPassManager::RemoveOffscreenRenderTarget(Uint targetExternalIndex) {
-        auto it = m_offscreenRenderTargets.find(targetExternalIndex);
-        if (it == m_offscreenRenderTargets.end()) {
-            return;
-        }
-        DestroyOffscreenRenderTarget(it->second);
-        m_offscreenRenderTargets.erase(it);
-    }
-
-    void VkRenderPassManager::BeginRenderPass(VkCommandBuffer commandBuffer, VkRenderPass renderPass,
-                                              VkFramebuffer framebuffer, VkExtent2D extent) const {
-        VkRenderPassBeginInfo beginInfo{};
-        beginInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
-        beginInfo.renderPass = renderPass;
-        beginInfo.framebuffer = framebuffer;
-        beginInfo.renderArea.offset = {0, 0};
-        beginInfo.renderArea.extent = extent;
-        beginInfo.clearValueCount = 0;
-        beginInfo.pClearValues = nullptr;
-        vkCmdBeginRenderPass(commandBuffer, &beginInfo, VK_SUBPASS_CONTENTS_INLINE);
-    }
-
-    void VkRenderPassManager::EndRenderPass(VkCommandBuffer commandBuffer) const {
-        vkCmdEndRenderPass(commandBuffer);
-    }
-
-    void VkRenderPassManager::RecordColorClear(VkCommandBuffer commandBuffer, VkExtent2D extent,
-                                               const VkClearColorValue& clearColor) const {
-        VkClearAttachment clearAttachment{};
-        clearAttachment.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-        clearAttachment.colorAttachment = 0;
-        clearAttachment.clearValue.color = clearColor;
-
-        VkClearRect clearRect{};
-        clearRect.rect.offset = {0, 0};
-        clearRect.rect.extent = extent;
-        clearRect.baseArrayLayer = 0;
-        clearRect.layerCount = 1;
-
-        vkCmdClearAttachments(commandBuffer, 1, &clearAttachment, 1, &clearRect);
-    }
-
-    void VkRenderPassManager::RecordDepthStencilClear(VkCommandBuffer commandBuffer, VkExtent2D extent, GLbitfield mask,
-                                                      Float depth, Uint32 stencil, VkFormat depthStencilFormat) const {
-        if (depthStencilFormat == VK_FORMAT_UNDEFINED) {
-            return;
-        }
-
-        VkImageAspectFlags aspectMask = 0;
-        if ((mask & GL_DEPTH_BUFFER_BIT) != 0) {
-            aspectMask |= VK_IMAGE_ASPECT_DEPTH_BIT;
-        }
-        if ((mask & GL_STENCIL_BUFFER_BIT) != 0 && HasStencilComponent(depthStencilFormat)) {
-            aspectMask |= VK_IMAGE_ASPECT_STENCIL_BIT;
-        }
-        if (aspectMask == 0) {
-            return;
-        }
-
-        VkClearAttachment clearAttachment{};
-        clearAttachment.aspectMask = aspectMask;
-        clearAttachment.clearValue.depthStencil.depth = depth;
-        clearAttachment.clearValue.depthStencil.stencil = stencil;
-
-        VkClearRect clearRect{};
-        clearRect.rect.offset = {0, 0};
-        clearRect.rect.extent = extent;
-        clearRect.baseArrayLayer = 0;
-        clearRect.layerCount = 1;
-
-        vkCmdClearAttachments(commandBuffer, 1, &clearAttachment, 1, &clearRect);
-    }
-
-    VkRenderPass VkRenderPassManager::CreateDefaultRenderPass(VkAttachmentLoadOp colorLoadOp) const {
-        MOBILEGL_ASSERT(m_device != VK_NULL_HANDLE, "VkRenderPassManager: device is null");
-        MOBILEGL_ASSERT(m_colorFormat != VK_FORMAT_UNDEFINED, "VkRenderPassManager: color format is undefined");
-        MOBILEGL_ASSERT(m_depthStencilFormat != VK_FORMAT_UNDEFINED,
-                        "VkRenderPassManager: depth/stencil format is undefined");
-        return CreateRenderPass(m_colorFormat, m_depthStencilFormat, colorLoadOp, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
-    }
-
-    VkRenderPass VkRenderPassManager::CreateRenderPass(VkFormat colorFormat, VkFormat depthStencilFormat,
-                                                       VkAttachmentLoadOp colorLoadOp,
-                                                       VkImageLayout colorFinalLayout) const {
-        VkAttachmentDescription color{};
-        color.format = colorFormat;
-        color.samples = VK_SAMPLE_COUNT_1_BIT;
-        color.loadOp = colorLoadOp;
-        color.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-        color.initialLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-        color.finalLayout = colorFinalLayout;
-        color.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
-        color.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-
-        const Bool hasDepthStencil = depthStencilFormat != VK_FORMAT_UNDEFINED;
-        VkAttachmentDescription depthStencil{};
-        if (hasDepthStencil) {
-            depthStencil.format = depthStencilFormat;
-            depthStencil.samples = VK_SAMPLE_COUNT_1_BIT;
-            depthStencil.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
-            depthStencil.storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-            depthStencil.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
-            depthStencil.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-            depthStencil.initialLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
-            depthStencil.finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
-        }
-
-        VkAttachmentReference colorRef{0, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL};
-        VkAttachmentReference depthStencilRef{1, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL};
-
-        VkSubpassDescription subpass{};
-        subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
-        subpass.colorAttachmentCount = 1;
-        subpass.pColorAttachments = &colorRef;
-        if (hasDepthStencil) {
-            subpass.pDepthStencilAttachment = &depthStencilRef;
-        }
-
-        Array<VkAttachmentDescription, 2> attachments{};
-        attachments[0] = color;
-        Uint32 attachmentCount = 1;
-        if (hasDepthStencil) {
-            attachments[1] = depthStencil;
-            attachmentCount = 2;
-        }
-
-        VkRenderPassCreateInfo createInfo{VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO};
-        createInfo.attachmentCount = attachmentCount;
-        createInfo.pAttachments = attachments.data();
-        createInfo.subpassCount = 1;
-        createInfo.pSubpasses = &subpass;
+        // Render Pass
+        VkRenderPassCreateInfo renderPassCreateInfo;
+        renderPassCreateInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
+        renderPassCreateInfo.attachmentCount = colorAttachmentDescriptions.size();
+        renderPassCreateInfo.pAttachments = colorAttachmentDescriptions.data();
+        renderPassCreateInfo.subpassCount = 1;
+        renderPassCreateInfo.pSubpasses = &subpassDesc;
 
         VkRenderPass renderPass = VK_NULL_HANDLE;
-        VK_VERIFY(vkCreateRenderPass(m_device, &createInfo, nullptr, &renderPass), "vkCreateRenderPass");
-        return renderPass;
+        VK_VERIFY(vkCreateRenderPass(m_device, &renderPassCreateInfo, nullptr, &renderPass));
+
+        Vector<VkImageView> attachmentViews(descriptorImageInfo.size(), VK_NULL_HANDLE);
+        for (Int i = 0; i < descriptorImageInfo.size(); i++) {
+            attachmentViews[i] = descriptorImageInfo[i].imageView;
+        }
+
+        // Framebuffer
+        VkFramebufferCreateInfo framebufferCreateInfo;
+        framebufferCreateInfo.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
+        framebufferCreateInfo.renderPass = renderPass;
+        framebufferCreateInfo.attachmentCount = attachmentViews.size();
+        framebufferCreateInfo.pAttachments = attachmentViews.data();
+        framebufferCreateInfo.width = width;
+        framebufferCreateInfo.height = height;
+        VkFramebuffer framebuffer = VK_NULL_HANDLE;
+        VK_VERIFY(vkCreateFramebuffer(m_device, &framebufferCreateInfo, nullptr, &framebuffer));
+        IntVec2 extent = {width, height};
+        m_renderPasses[hash] = { renderPass, framebuffer, Move(descriptorImageInfo), extent };
+        return m_renderPasses[hash];
     }
 
-    void VkRenderPassManager::DestroyDefaultFramebuffers() {
-        for (auto framebuffer : m_defaultFramebuffers) {
-            if (framebuffer != VK_NULL_HANDLE) {
-                vkDestroyFramebuffer(m_device, framebuffer, nullptr);
-            }
-        }
-        m_defaultFramebuffers.clear();
-        m_defaultExtent = {0, 0};
+    Bool VkRenderPassManager::StartRenderPass(VkCommandBuffer commandBuffer, RenderPassEntry& renderPassEntry) {
+        if (m_activeRenderPass != nullptr)
+            return false;
+
+        m_activeRenderPass = &renderPassEntry;
+        VkRenderPassBeginInfo renderPassBeginInfo;
+        renderPassBeginInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+        renderPassBeginInfo.renderPass = m_activeRenderPass->renderPass;
+        renderPassBeginInfo.framebuffer = m_activeRenderPass->framebuffer;
+        renderPassBeginInfo.renderArea.offset = { 0, 0 };
+        renderPassBeginInfo.renderArea.extent = {
+            (Uint32)m_activeRenderPass->extent.x(), (Uint32)m_activeRenderPass->extent.y() };
+
+        // TODO: should query proper clear color
+        VkClearValue clearValue;
+        clearValue.color = { 0.0f, 0.0f, 0.0f, 1.0f };
+        clearValue.depthStencil = { 1.0f, 0 };
+        vkCmdBeginRenderPass(commandBuffer, &renderPassBeginInfo, VK_SUBPASS_CONTENTS_INLINE);
+
+        return true;
     }
 
-    void VkRenderPassManager::DestroyOffscreenRenderTarget(OffscreenRenderTarget& target) {
-        if (target.framebuffer != VK_NULL_HANDLE) {
-            vkDestroyFramebuffer(m_device, target.framebuffer, nullptr);
-            target.framebuffer = VK_NULL_HANDLE;
-        }
-        if (target.renderPassLoad != VK_NULL_HANDLE) {
-            vkDestroyRenderPass(m_device, target.renderPassLoad, nullptr);
-            target.renderPassLoad = VK_NULL_HANDLE;
-        }
-        target.targetVersion = 0;
-        target.colorView = VK_NULL_HANDLE;
-        target.colorFormat = VK_FORMAT_UNDEFINED;
-        target.depthStencilView = VK_NULL_HANDLE;
-        target.depthStencilFormat = VK_FORMAT_UNDEFINED;
-        target.extent = {0, 0};
-    }
-
-    Bool VkRenderPassManager::HasStencilComponent(VkFormat format) {
-        return format == VK_FORMAT_D24_UNORM_S8_UINT || format == VK_FORMAT_D32_SFLOAT_S8_UINT;
+    Bool VkRenderPassManager::EndRenderPass(VkCommandBuffer commandBuffer) {
+        if (m_activeRenderPass == nullptr)
+            return false;
+        vkCmdEndRenderPass(commandBuffer);
+        return true;
     }
 } // namespace MobileGL::MG_Backend::DirectVulkan
