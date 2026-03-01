@@ -58,7 +58,7 @@ namespace MobileGL::MG_ConfigLoader {
 
     inline void InitBackendType() {
         String backendTypeStr;
-        QueryEnvVariable("MOBILEGL_BACKEND_TYPE", backendTypeStr, "DirectGLES");
+        QueryEnvVariable("MOBILEGL_BACKEND_TYPE", backendTypeStr, "DirectVulkan");
 #define ENTRY(backendType)                                                                                             \
     if (backendTypeStr == #backendType) {                                                                              \
         MG_Config::ActiveBackendType = BackendType::backendType;                                                       \

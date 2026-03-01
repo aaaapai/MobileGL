@@ -85,109 +85,6 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         return flags;
     }
 
-    VkPipeline VulkanRenderer::GetOrCreatePipeline(const MG_State::GLState::ProgramObject& program,
-                                                   VkPipelineLayout pipelineLayout, Uint64 vertexInputHash,
-                                                   const VkPipelineVertexInputStateCreateInfo& vertexInputState) {
-        MOBILEGL_ASSERT(m_pipelineFactory != nullptr, "PipelineFactory is not initialized");
-        MOBILEGL_ASSERT(m_programFactory != nullptr, "ProgramFactory is not initialized");
-        ProgramFactory::CompileOptionFlags transformFlags = GetShaderTransformFlags(m_swapchainObject.GetPreTransform());
-        auto& stages = m_programFactory->GetOrCreatePipelineShaderStages(program, transformFlags);
-        if (stages.empty()) {
-            MGLOG_D("GetOrCreatePipeline skipped: program has no shader stages");
-            return VK_NULL_HANDLE;
-        }
-        const Uint64 programHash = m_programFactory->ComputeHash(program, transformFlags);
-        auto toVkCompareOp = [](DepthTestFunc func) -> VkCompareOp {
-            switch (func) {
-            case DepthTestFunc::Never:
-                return VK_COMPARE_OP_NEVER;
-            case DepthTestFunc::Less:
-                return VK_COMPARE_OP_LESS;
-            case DepthTestFunc::Equal:
-                return VK_COMPARE_OP_EQUAL;
-            case DepthTestFunc::LessEqual:
-                return VK_COMPARE_OP_LESS_OR_EQUAL;
-            case DepthTestFunc::Greater:
-                return VK_COMPARE_OP_GREATER;
-            case DepthTestFunc::NotEqual:
-                return VK_COMPARE_OP_NOT_EQUAL;
-            case DepthTestFunc::GreaterEqual:
-                return VK_COMPARE_OP_GREATER_OR_EQUAL;
-            case DepthTestFunc::Always:
-            default:
-                return VK_COMPARE_OP_ALWAYS;
-            }
-        };
-        auto toVkBlendFactor = [](BlendFactor factor) -> VkBlendFactor {
-            switch (factor) {
-            case BlendFactor::Zero:
-                return VK_BLEND_FACTOR_ZERO;
-            case BlendFactor::One:
-                return VK_BLEND_FACTOR_ONE;
-            case BlendFactor::SrcColor:
-                return VK_BLEND_FACTOR_SRC_COLOR;
-            case BlendFactor::OneMinusSrcColor:
-                return VK_BLEND_FACTOR_ONE_MINUS_SRC_COLOR;
-            case BlendFactor::DstColor:
-                return VK_BLEND_FACTOR_DST_COLOR;
-            case BlendFactor::OneMinusDstColor:
-                return VK_BLEND_FACTOR_ONE_MINUS_DST_COLOR;
-            case BlendFactor::SrcAlpha:
-                return VK_BLEND_FACTOR_SRC_ALPHA;
-            case BlendFactor::OneMinusSrcAlpha:
-                return VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
-            case BlendFactor::DstAlpha:
-                return VK_BLEND_FACTOR_DST_ALPHA;
-            case BlendFactor::OneMinusDstAlpha:
-                return VK_BLEND_FACTOR_ONE_MINUS_DST_ALPHA;
-            case BlendFactor::ConstantColor:
-                return VK_BLEND_FACTOR_CONSTANT_COLOR;
-            case BlendFactor::OneMinusConstantColor:
-                return VK_BLEND_FACTOR_ONE_MINUS_CONSTANT_COLOR;
-            case BlendFactor::ConstantAlpha:
-                return VK_BLEND_FACTOR_CONSTANT_ALPHA;
-            case BlendFactor::OneMinusConstantAlpha:
-                return VK_BLEND_FACTOR_ONE_MINUS_CONSTANT_ALPHA;
-            default:
-                return VK_BLEND_FACTOR_ONE;
-            }
-        };
-
-        PipelineFactory::PipelineCreatePayload payload{};
-        payload.programHash = programHash;
-        payload.vertexInputHash = vertexInputHash;
-        payload.pipelineLayout = pipelineLayout;
-        payload.renderPass = m_activeRenderPass;
-        payload.subpass = 0;
-        payload.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
-        const Bool depthTestEnabled = MG_State::pGLContext->IsCapabilityEnabled(CapabilityInput::DepthTest);
-        payload.depthTestEnable = depthTestEnabled;
-        payload.depthWriteEnable = depthTestEnabled && MG_State::pGLContext->GetDepthMask();
-        payload.depthCompareOp = toVkCompareOp(MG_State::pGLContext->GetDepthFunc());
-
-        payload.blendEnable = MG_State::pGLContext->IsCapabilityEnabled(CapabilityInput::Blend);
-        BlendFactor srcRGB = BlendFactor::One;
-        BlendFactor dstRGB = BlendFactor::Zero;
-        BlendFactor srcAlpha = BlendFactor::One;
-        BlendFactor dstAlpha = BlendFactor::Zero;
-        MG_State::pGLContext->GetBlendFunc(srcRGB, dstRGB, srcAlpha, dstAlpha);
-        payload.srcColorBlendFactor = toVkBlendFactor(srcRGB);
-        payload.dstColorBlendFactor = toVkBlendFactor(dstRGB);
-        payload.srcAlphaBlendFactor = toVkBlendFactor(srcAlpha);
-        payload.dstAlphaBlendFactor = toVkBlendFactor(dstAlpha);
-
-        payload.colorWriteMask = 0;
-        const BoolVec4 colorMask = MG_State::pGLContext->GetColorMask();
-        if (colorMask.x()) payload.colorWriteMask |= VK_COLOR_COMPONENT_R_BIT;
-        if (colorMask.y()) payload.colorWriteMask |= VK_COLOR_COMPONENT_G_BIT;
-        if (colorMask.z()) payload.colorWriteMask |= VK_COLOR_COMPONENT_B_BIT;
-        if (colorMask.w()) payload.colorWriteMask |= VK_COLOR_COMPONENT_A_BIT;
-
-        payload.stages = &stages;
-        payload.vertexInputState = &vertexInputState;
-        return m_pipelineFactory->GetOrCreatePipeline(payload);
-    }
-
     void VulkanRenderer::CreateFrameContexts() {
         VK_VERIFY(m_frameContext.Initialize(m_device, m_commandPool, m_config.MaxFramesInFlight),
                   "CreateFrameContexts");
@@ -326,117 +223,6 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         MGLOG_I("VulkanRenderer shut down completed");
     }
 
-    void VulkanRenderer::QueueClearRequest(GLbitfield mask, const FloatVec4& color, Float depth, Uint32 stencil,
-                                           Uint drawFboExternalIndex, Bool isDefaultFramebufferTarget) {
-        const GLbitfield supportedMask = GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT;
-        const GLbitfield requestMask = (mask & supportedMask);
-        if (requestMask == 0) {
-            return;
-        }
-
-        const Uint64 pendingKey = BuildPendingClearKey(drawFboExternalIndex, isDefaultFramebufferTarget);
-        auto& pending = m_pendingClears[pendingKey];
-
-        if ((requestMask & GL_COLOR_BUFFER_BIT) != 0) {
-            pending.color.float32[0] = color.x();
-            pending.color.float32[1] = color.y();
-            pending.color.float32[2] = color.z();
-            pending.color.float32[3] = color.w();
-        }
-        if ((requestMask & GL_DEPTH_BUFFER_BIT) != 0) {
-            pending.depth = depth;
-        }
-        if ((requestMask & GL_STENCIL_BUFFER_BIT) != 0) {
-            pending.stencil = stencil;
-        }
-        pending.drawFboExternalIndex = drawFboExternalIndex;
-        pending.targetsDefaultFramebuffer = isDefaultFramebufferTarget;
-        pending.mask |= requestMask;
-
-        if (m_clearManager == nullptr) {
-            return;
-        }
-        const auto* defaultFboInfo = MG_Impl::GLImpl::FramebufferImpl::pDefaultFramebufferInfo;
-        const auto* defaultFbo = defaultFboInfo ? defaultFboInfo->defaultFBO.get() : nullptr;
-        const MG_State::GLState::FramebufferObject* drawFbo = nullptr;
-        if (isDefaultFramebufferTarget) {
-            drawFbo = defaultFbo;
-        } else {
-            drawFbo = MG_State::pGLContext->GetFramebufferObject(drawFboExternalIndex).get();
-        }
-        if (drawFbo == nullptr) {
-            return;
-        }
-        m_clearManager->QueueClear(
-            requestMask,
-            {
-                .color = color,
-                .depth = depth,
-                .stencil = stencil,
-            },
-            *drawFbo);
-    }
-
-    Bool VulkanRenderer::ConsumePendingColorClear(VkClearColorValue& outClearColor) {
-        for (auto it = m_pendingClears.begin(); it != m_pendingClears.end(); ++it) {
-            if (!it->second.targetsDefaultFramebuffer || (it->second.mask & GL_COLOR_BUFFER_BIT) == 0) {
-                continue;
-            }
-            outClearColor = it->second.color;
-            it->second.mask &= ~GL_COLOR_BUFFER_BIT;
-            if (it->second.mask == 0) {
-                m_pendingClears.erase(it);
-            }
-            return true;
-        }
-        return false;
-    }
-
-    void VulkanRenderer::ApplyPendingClearsForActiveTarget(VkCommandBuffer commandBuffer, Uint64 drawTargetKey) {
-        if (m_activeRenderExtent.width == 0 || m_activeRenderExtent.height == 0) {
-            return;
-        }
-        auto pendingIt = m_pendingClears.find(drawTargetKey);
-        if (pendingIt == m_pendingClears.end()) {
-            return;
-        }
-
-        VkClearRect clearRect{};
-        clearRect.rect.offset = {0, 0};
-        clearRect.rect.extent = m_activeRenderExtent;
-        clearRect.baseArrayLayer = 0;
-        clearRect.layerCount = 1;
-
-        if ((pendingIt->second.mask & GL_COLOR_BUFFER_BIT) != 0) {
-            VkClearAttachment colorAttachment{};
-            colorAttachment.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-            colorAttachment.colorAttachment = 0;
-            colorAttachment.clearValue.color = pendingIt->second.color;
-            vkCmdClearAttachments(commandBuffer, 1, &colorAttachment, 1, &clearRect);
-            pendingIt->second.mask &= ~GL_COLOR_BUFFER_BIT;
-        }
-
-        if ((pendingIt->second.mask & (GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT)) != 0) {
-            VkClearAttachment depthStencilAttachment{};
-            depthStencilAttachment.aspectMask = 0;
-            if ((pendingIt->second.mask & GL_DEPTH_BUFFER_BIT) != 0) {
-                depthStencilAttachment.aspectMask |= VK_IMAGE_ASPECT_DEPTH_BIT;
-            }
-            if ((pendingIt->second.mask & GL_STENCIL_BUFFER_BIT) != 0) {
-                depthStencilAttachment.aspectMask |= VK_IMAGE_ASPECT_STENCIL_BIT;
-            }
-            depthStencilAttachment.colorAttachment = 0;
-            depthStencilAttachment.clearValue.depthStencil.depth = pendingIt->second.depth;
-            depthStencilAttachment.clearValue.depthStencil.stencil = pendingIt->second.stencil;
-            vkCmdClearAttachments(commandBuffer, 1, &depthStencilAttachment, 1, &clearRect);
-            pendingIt->second.mask &= ~(GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
-        }
-
-        if (pendingIt->second.mask == 0) {
-            m_pendingClears.erase(pendingIt);
-        }
-    }
-
     void VulkanRenderer::TransitionSwapchainImageToColorAttachment(VkCommandBuffer commandBuffer, Uint32 imageIndex) {
         auto layout = m_swapchainObject.GetImageLayout(imageIndex);
         Bool ok = VkTextureManager::TransitionImageLayout(commandBuffer, m_swapchainObject.GetImage(imageIndex),
@@ -470,129 +256,12 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         m_swapchainObject.SetDepthStencilImageLayout(imageIndex, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
     }
 
-    void VulkanRenderer::EnsureFrameRecordingStarted() {
-        auto& frame = m_frameContext.GetCurrent();
-        if (frame.hasCommandBufferRecorded) {
-            MGLOG_D("EnsureFrameRecordingStarted skipped: current frame command buffer is already finalized");
-            return;
-        }
-
-        const auto drawFbo = MG_State::pGLContext->GetFramebufferBindingSlot(FramebufferTarget::Draw).GetBoundObject();
-        const auto defaultFboInfo = MG_Impl::GLImpl::FramebufferImpl::pDefaultFramebufferInfo;
-        const auto defaultFbo = defaultFboInfo ? defaultFboInfo->defaultFBO : nullptr;
-        const Bool drawTargetsDefault = (drawFbo == defaultFbo) || (drawFbo == nullptr && defaultFbo != nullptr);
-        const Uint drawFboExternalIndex =
-            drawFbo ? drawFbo->GetExternalIndex() : (defaultFbo ? defaultFbo->GetExternalIndex() : 0U);
-        const Uint64 drawTargetKey = BuildPendingClearKey(drawFboExternalIndex, drawTargetsDefault);
-
-        if (frame.isCommandRecording && m_isMainRenderPassActive) {
-            const Bool activeTargetMismatch =
-                (drawTargetsDefault != m_activeRenderTargetIsDefault) ||
-                (!drawTargetsDefault && m_activeDrawFboExternalIndex != drawFboExternalIndex);
-            if (activeTargetMismatch) {
-                MOBILEGL_ASSERT(m_renderPassManager != nullptr, "EnsureFrameRecordingStarted: manager is null");
-                m_renderPassManager->EndRenderPass(frame.commandBuffer);
-                if (m_activeRenderTargetIsDefault) {
-                    m_swapchainObject.SetImageLayout(m_imageIndexAcquired, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
-                }
-                m_isMainRenderPassActive = false;
-                m_activeRenderPass = VK_NULL_HANDLE;
-                m_activeRenderExtent = {0, 0};
-                m_activeDepthStencilFormat = VK_FORMAT_UNDEFINED;
-                m_activeRenderTargetIsDefault = true;
-                m_activeDrawFboExternalIndex = 0;
-            } else {
-                return;
-            }
-        }
-
-        VkCommandBuffer* commandBufferPtr = nullptr;
-        if (frame.isCommandRecording) {
-            commandBufferPtr = &frame.commandBuffer;
-        } else {
-            commandBufferPtr = &m_frameContext.BeginCommandRecording();
-            MOBILEGL_ASSERT(m_uniformDescriptorBinder != nullptr, "EnsureFrameRecordingStarted: binder is null");
-            m_uniformDescriptorBinder->BeginFrame(m_frameContext.GetCurrentFrameIndex());
-        }
-        VkCommandBuffer& commandBuffer = *commandBufferPtr;
-
-        if (!drawTargetsDefault) {
-            if (!drawFbo) {
-                MGLOG_D("EnsureFrameRecordingStarted skipped: offscreen draw target is unavailable");
-                return;
-            }
-
-            // This frame touched only offscreen resources. Present still requires
-            // the acquired swapchain image to be in PRESENT layout.
-            auto swapchainOldLayout = m_swapchainObject.GetImageLayout(m_imageIndexAcquired);
-            if (swapchainOldLayout != VK_IMAGE_LAYOUT_PRESENT_SRC_KHR &&
-                swapchainOldLayout != VK_IMAGE_LAYOUT_SHARED_PRESENT_KHR) {
-                Bool ok = VkTextureManager::TransitionImageLayout(commandBuffer, m_swapchainObject.GetImage(m_imageIndexAcquired),
-                                                        swapchainOldLayout, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
-                                                        VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
-                                                        0, 0,
-                                                        VK_IMAGE_ASPECT_COLOR_BIT);
-                MOBILEGL_ASSERT(ok, "Transition swapchain image to VK_IMAGE_LAYOUT_PRESENT_SRC_KHR failed");
-                m_swapchainObject.SetImageLayout(m_imageIndexAcquired, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
-            }
-
-            MOBILEGL_ASSERT(m_renderPassManager != nullptr, "EnsureFrameRecordingStarted: manager is null");
-            auto& renderPassEntry = m_renderPassManager->GetOrCreateRenderPass(*drawFbo);
-            Bool started = m_renderPassManager->StartRenderPass(commandBuffer, renderPassEntry);
-            MOBILEGL_ASSERT(started, "EnsureFrameRecordingStarted: StartRenderPass for offscreen target failed");
-            m_isMainRenderPassActive = true;
-            m_activeRenderPass = renderPassEntry.renderPass;
-            m_activeRenderExtent = {
-                static_cast<Uint32>(renderPassEntry.extent.x() > 0 ? renderPassEntry.extent.x() : 0),
-                static_cast<Uint32>(renderPassEntry.extent.y() > 0 ? renderPassEntry.extent.y() : 0)};
-            m_activeDepthStencilFormat = VK_FORMAT_UNDEFINED;
-            m_activeRenderTargetIsDefault = false;
-            m_activeDrawFboExternalIndex = drawFboExternalIndex;
-            ApplyPendingClearsForActiveTarget(commandBuffer, drawTargetKey);
-            return;
-        }
-
-        TransitionSwapchainImageToColorAttachment(commandBuffer, m_imageIndexAcquired);
-        TransitionDepthStencilImageToAttachment(commandBuffer, m_imageIndexAcquired);
-
-        if (!defaultFbo) {
-            MGLOG_D("EnsureFrameRecordingStarted skipped: default render target unavailable");
-            return;
-        }
-        MOBILEGL_ASSERT(m_renderPassManager != nullptr, "EnsureFrameRecordingStarted: manager is null");
-        auto& renderPassEntry = m_renderPassManager->GetOrCreateRenderPass(*defaultFbo);
-        Bool started = m_renderPassManager->StartRenderPass(commandBuffer, renderPassEntry);
-        MOBILEGL_ASSERT(started, "EnsureFrameRecordingStarted: StartRenderPass for default target failed");
-        m_isMainRenderPassActive = true;
-        m_activeRenderPass = renderPassEntry.renderPass;
-        m_activeRenderExtent = {
-            static_cast<Uint32>(renderPassEntry.extent.x() > 0 ? renderPassEntry.extent.x() : 0),
-            static_cast<Uint32>(renderPassEntry.extent.y() > 0 ? renderPassEntry.extent.y() : 0)};
-        m_activeDepthStencilFormat = m_swapchainObject.GetDepthStencilFormat();
-        m_activeRenderTargetIsDefault = true;
-        m_activeDrawFboExternalIndex = drawFboExternalIndex;
-        ApplyPendingClearsForActiveTarget(commandBuffer, drawTargetKey);
-    }
-
     void VulkanRenderer::EndFrameRecordingIfNeeded() {
         auto& frame = m_frameContext.GetCurrent();
         if (!frame.isCommandRecording) {
             return;
         }
 
-        if (m_isMainRenderPassActive) {
-            MOBILEGL_ASSERT(m_renderPassManager != nullptr, "EndFrameRecordingIfNeeded: manager is null");
-            m_renderPassManager->EndRenderPass(frame.commandBuffer);
-            if (m_activeRenderTargetIsDefault) {
-                m_swapchainObject.SetImageLayout(m_imageIndexAcquired, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
-            }
-            m_isMainRenderPassActive = false;
-            m_activeRenderPass = VK_NULL_HANDLE;
-            m_activeRenderExtent = {0, 0};
-            m_activeDepthStencilFormat = VK_FORMAT_UNDEFINED;
-            m_activeRenderTargetIsDefault = true;
-            m_activeDrawFboExternalIndex = 0;
-        }
         m_frameContext.EndCommandRecording();
     }
 
@@ -649,27 +318,17 @@ namespace MobileGL::MG_Backend::DirectVulkan {
     }
 
     Bool VulkanRenderer::UploadAndBindVertexStreams(
-        const VertexInputStateFactory::BackendVertexInputState& vertexInputState, const DrawArrayPayload& payload,
-        VkCommandBuffer commandBuffer) {
-        if (vertexInputState.bindings.empty()) {
-            return true;
-        }
+        VkCommandBuffer commandBuffer, const MG_State::GLState::VertexArrayObject& vao) {
+        auto& vertexInputState = m_vertexInputStateFactory->GetOrCreateVertexInputState(vao);
 
         const auto bindingCount = vertexInputState.bindings.size();
-        if (vertexInputState.bindingBufferKeys.size() != bindingCount) {
-            MGLOG_E("UploadAndBindVertexStreams failed: binding metadata mismatch");
-            return false;
-        }
 
         Vector<VkBuffer> vkBuffers(bindingCount, VK_NULL_HANDLE);
         Vector<VkDeviceSize> vkOffsets(bindingCount, 0);
         const Uint32 frameIndex = m_frameContext.GetCurrentFrameIndex();
 
         auto findBufferByKey = [&](SizeT bufferKey) -> const MG_State::GLState::BufferObject* {
-            if (!payload.vertexArray) {
-                return nullptr;
-            }
-            const auto& attrs = payload.vertexArray->GetAllAttributes();
+            const auto& attrs = vao.GetAllAttributes();
             for (Uint32 location = 0; location < MG_State::GLState::VertexArrayObject::MAX_VERTEX_ATTRIBS; ++location) {
                 const auto& attr = attrs[location];
                 if (!attr.Buffer) {
@@ -687,16 +346,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             const SizeT bufferKey = vertexInputState.bindingBufferKeys[binding];
             const MG_State::GLState::BufferObject* sourceBuffer = findBufferByKey(bufferKey);
 
-            if (!sourceBuffer) {
-                MGLOG_D("UploadAndBindVertexStreams skipped: no source buffer for binding %zu", binding);
-                return false;
-            }
-
             const auto sourceData = sourceBuffer->GetDataReadOnly();
-            if (!sourceData || sourceData->empty()) {
-                MGLOG_D("UploadAndBindVertexStreams skipped: source buffer has no data for binding %zu", binding);
-                return false;
-            }
 
             const SizeT sourceSize = sourceBuffer->GetSize();
             VkDeviceSize& frameHead = m_frameVertexUploadHeads[frameIndex];
@@ -721,98 +371,213 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         return true;
     }
 
-    void VulkanRenderer::DrawArrays(const DrawArrayPayload& payload) {
-        if (payload.mode != GL_TRIANGLES) {
-            MGLOG_D("DrawArrays skipped: primitive mode %u is not supported yet", payload.mode);
-            return;
-        }
-
-        MOBILEGL_ASSERT(m_vertexInputStateFactory != nullptr, "DrawArrays: vertex input state factory is null");
-        const VertexInputStateFactory::BackendVertexInputState* vertexInputState = nullptr;
-        if (payload.vertexArray) {
-            vertexInputState = &m_vertexInputStateFactory->GetOrCreateVertexInputState(*payload.vertexArray);
-        }
-
-        EnsureFrameRecordingStarted();
-        auto& frame = m_frameContext.GetCurrent();
-        if (!frame.isCommandRecording || !m_isMainRenderPassActive) {
-            MGLOG_D("DrawArrays skipped: frame recording was not started");
-            return;
-        }
-
-        VkCommandBuffer& commandBuffer = frame.commandBuffer;
-        const auto activeExtent = m_activeRenderExtent;
-
-        if (payload.program == nullptr) {
-            MGLOG_D("DrawArrays skipped: no current program is bound");
-            return;
-        }
-
-        const Uint64 vertexInputHash = vertexInputState ? vertexInputState->hash : 0;
-        const VkPipelineVertexInputStateCreateInfo* vertexInputInfo =
-            vertexInputState ? &vertexInputState->state : nullptr;
-        if (!vertexInputInfo) {
-            VertexInputStateBuilder emptyVertexInputBuilder;
-            vertexInputInfo = &emptyVertexInputBuilder.Build();
-        }
-
-        MOBILEGL_ASSERT(m_uniformDescriptorBinder != nullptr, "DrawArrays: binder is null");
-        VkPipelineLayout pipelineLayoutToUse = m_uniformDescriptorBinder->GetOrCreatePipelineLayout(*payload.program);
-        if (pipelineLayoutToUse == VK_NULL_HANDLE) {
-            MGLOG_D("DrawArrays skipped: failed to get pipeline layout for program");
-            return;
-        }
-
-        VkPipeline pipelineToBind =
-            GetOrCreatePipeline(*payload.program, pipelineLayoutToUse, vertexInputHash, *vertexInputInfo);
-        if (pipelineToBind == VK_NULL_HANDLE) {
-            MGLOG_D("DrawArrays skipped: failed to create/get pipeline");
-            return;
-        }
-
-        vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineToBind);
-        if (!m_uniformDescriptorBinder->BindProgramUniformBuffers(commandBuffer, pipelineLayoutToUse, *payload.program,
-                                                                  m_frameContext.GetCurrentFrameIndex())) {
-            MGLOG_D("DrawArrays skipped: failed to bind uniform descriptors");
-            return;
-        }
-
-        if (vertexInputState && !vertexInputState->bindings.empty()) {
-            if (!payload.vertexArray) {
-                MGLOG_D("DrawArrays skipped: vertex input requires VAO");
-                return;
+    VkPipeline VulkanRenderer::GetOrCreatePipeline(
+            GLenum mode,
+            const MG_State::GLState::ProgramObject& program,
+            const MG_State::GLState::VertexArrayObject& vao,
+            const MG_State::GLState::FramebufferObject& drawFbo) {
+        auto toVkTopology = [](GLenum mode) -> VkPrimitiveTopology {
+            switch (mode) {
+            case GL_POINTS:
+                return VK_PRIMITIVE_TOPOLOGY_POINT_LIST;
+            case GL_LINES:
+                return VK_PRIMITIVE_TOPOLOGY_LINE_LIST;
+            case GL_LINE_STRIP:
+                return VK_PRIMITIVE_TOPOLOGY_LINE_STRIP;
+            case GL_TRIANGLES:
+                return VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+            case GL_TRIANGLE_STRIP:
+                return VK_PRIMITIVE_TOPOLOGY_TRIANGLE_STRIP;
+            case GL_TRIANGLE_FAN:
+                return VK_PRIMITIVE_TOPOLOGY_TRIANGLE_FAN;
+            case GL_LINE_LOOP:
+            default:
+                MGLOG_W("Unrecognized primitive topology");
+                return VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
             }
-            if (!UploadAndBindVertexStreams(*vertexInputState, payload, commandBuffer)) {
-                return;
+        };
+        auto toVkCompareOp = [](DepthTestFunc func) -> VkCompareOp {
+            switch (func) {
+            case DepthTestFunc::Never:
+                return VK_COMPARE_OP_NEVER;
+            case DepthTestFunc::Less:
+                return VK_COMPARE_OP_LESS;
+            case DepthTestFunc::Equal:
+                return VK_COMPARE_OP_EQUAL;
+            case DepthTestFunc::LessEqual:
+                return VK_COMPARE_OP_LESS_OR_EQUAL;
+            case DepthTestFunc::Greater:
+                return VK_COMPARE_OP_GREATER;
+            case DepthTestFunc::NotEqual:
+                return VK_COMPARE_OP_NOT_EQUAL;
+            case DepthTestFunc::GreaterEqual:
+                return VK_COMPARE_OP_GREATER_OR_EQUAL;
+            case DepthTestFunc::Always:
+            default:
+                return VK_COMPARE_OP_ALWAYS;
             }
+        };
+        auto toVkBlendFactor = [](BlendFactor factor) -> VkBlendFactor {
+            switch (factor) {
+            case BlendFactor::Zero:
+                return VK_BLEND_FACTOR_ZERO;
+            case BlendFactor::One:
+                return VK_BLEND_FACTOR_ONE;
+            case BlendFactor::SrcColor:
+                return VK_BLEND_FACTOR_SRC_COLOR;
+            case BlendFactor::OneMinusSrcColor:
+                return VK_BLEND_FACTOR_ONE_MINUS_SRC_COLOR;
+            case BlendFactor::DstColor:
+                return VK_BLEND_FACTOR_DST_COLOR;
+            case BlendFactor::OneMinusDstColor:
+                return VK_BLEND_FACTOR_ONE_MINUS_DST_COLOR;
+            case BlendFactor::SrcAlpha:
+                return VK_BLEND_FACTOR_SRC_ALPHA;
+            case BlendFactor::OneMinusSrcAlpha:
+                return VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+            case BlendFactor::DstAlpha:
+                return VK_BLEND_FACTOR_DST_ALPHA;
+            case BlendFactor::OneMinusDstAlpha:
+                return VK_BLEND_FACTOR_ONE_MINUS_DST_ALPHA;
+            case BlendFactor::ConstantColor:
+                return VK_BLEND_FACTOR_CONSTANT_COLOR;
+            case BlendFactor::OneMinusConstantColor:
+                return VK_BLEND_FACTOR_ONE_MINUS_CONSTANT_COLOR;
+            case BlendFactor::ConstantAlpha:
+                return VK_BLEND_FACTOR_CONSTANT_ALPHA;
+            case BlendFactor::OneMinusConstantAlpha:
+                return VK_BLEND_FACTOR_ONE_MINUS_CONSTANT_ALPHA;
+            default:
+                return VK_BLEND_FACTOR_ONE;
+            }
+        };
+
+        ProgramFactory::CompileOptionFlags transformFlags = GetShaderTransformFlags(m_swapchainObject.GetPreTransform());
+        auto& stages = m_programFactory->GetOrCreatePipelineShaderStages(program, transformFlags);
+        if (stages.empty()) {
+            MGLOG_D("GetOrCreatePipeline skipped: program has no shader stages");
+            return VK_NULL_HANDLE;
         }
+        const Uint64 programHash = m_programFactory->ComputeHash(program, transformFlags);
+
+        auto vertexInputHash = m_vertexInputStateFactory->ComputeHash(vao);
+        auto& vis = m_vertexInputStateFactory->GetOrCreateVertexInputState(vao);
+        auto pipelineLayout = m_uniformDescriptorBinder->GetOrCreatePipelineLayout(program);
+        auto renderPassEntry = m_renderPassManager->GetOrCreateRenderPass(drawFbo);
+        auto depthTestEnabled = MG_State::pGLContext->IsCapabilityEnabled(CapabilityInput::DepthTest);
+        BlendFactor srcRGB = BlendFactor::One;
+        BlendFactor dstRGB = BlendFactor::Zero;
+        BlendFactor srcAlpha = BlendFactor::One;
+        BlendFactor dstAlpha = BlendFactor::Zero;
+        MG_State::pGLContext->GetBlendFunc(srcRGB, dstRGB, srcAlpha, dstAlpha);
+        auto mask = MG_State::pGLContext->GetColorMask();
+
+        PipelineFactory::PipelineCreatePayload payload {
+            .programHash = programHash,
+            .vertexInputHash = vertexInputHash,
+            .pipelineLayout = pipelineLayout,
+            .renderPass = renderPassEntry.renderPass,
+            .subpass = renderPassEntry.subpass,
+            .topology = toVkTopology(mode),
+            .depthTestEnable = depthTestEnabled,
+            .depthWriteEnable = depthTestEnabled && MG_State::pGLContext->GetDepthMask(),
+            .depthCompareOp = toVkCompareOp(MG_State::pGLContext->GetDepthFunc()),
+            .blendEnable = MG_State::pGLContext->IsCapabilityEnabled(CapabilityInput::Blend),
+            .srcColorBlendFactor = toVkBlendFactor(srcRGB),
+            .dstColorBlendFactor = toVkBlendFactor(dstRGB),
+            .srcAlphaBlendFactor = toVkBlendFactor(srcAlpha),
+            .dstAlphaBlendFactor = toVkBlendFactor(dstAlpha),
+            .colorWriteMask = (
+                (mask.r() ? VK_COLOR_COMPONENT_R_BIT : 0u) |
+                (mask.g() ? VK_COLOR_COMPONENT_G_BIT : 0u) |
+                (mask.b() ? VK_COLOR_COMPONENT_B_BIT : 0u) |
+                (mask.a() ? VK_COLOR_COMPONENT_A_BIT : 0u) ),
+            .stages = &stages,
+            .vertexInputState = &vis.state
+        };
+        return m_pipelineFactory->GetOrCreatePipeline(payload);
+    }
+
+    void VulkanRenderer::SetupDraw(FrameContext::FrameData& frame, GLenum mode, Flags<DrawSetupAspect> aspects) {
+        // Begin command recording if not yet
+        if (!frame.isCommandRecording) {
+            m_frameContext.BeginCommandRecording();
+            m_uniformDescriptorBinder->BeginFrame(m_frameContext.GetCurrentFrameIndex());
+        }
+
+        const auto& drawFbo = MG_State::pGLContext->GetFramebufferBindingSlot(FramebufferTarget::Draw).GetBoundObject();
+
+        // Begin render pass
+        // TODO: properly deal with clear
+        auto& renderPassEntry = m_renderPassManager->GetOrCreateRenderPass(*drawFbo);
+        if (m_activeRenderPass != &renderPassEntry) {
+            if (m_activeRenderPass) {
+                VkRenderPassManager::EndRenderPass(frame.commandBuffer);
+            }
+            m_activeRenderPass = &renderPassEntry;
+            Bool ok = VkRenderPassManager::BeginRenderPass(frame.commandBuffer, renderPassEntry);
+            MOBILEGL_ASSERT(ok, "%s: BeginRenderPass failed", __func__);
+        } else {
+            // We probably already have one compatible render pass running. Keep going.
+        }
+
+        const auto& vao = *MG_State::pGLContext->GetBoundVertexArray();
+        const auto& program = *MG_State::pGLContext->GetCurrentProgram();
+        auto pipeline = GetOrCreatePipeline(mode, program, vao, *drawFbo);
+        vkCmdBindPipeline(frame.commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
+
+        m_uniformDescriptorBinder->BindProgramUniformBuffers(frame.commandBuffer, program,
+                                                                  m_frameContext.GetCurrentFrameIndex());
+
+        UploadAndBindVertexStreams(frame.commandBuffer, vao);
 
         VkViewport viewport{};
         viewport.x = 0.0f;
         viewport.y = 0.0f;
-        viewport.width = static_cast<float>(activeExtent.width);
-        viewport.height = static_cast<float>(activeExtent.height);
+        viewport.width = static_cast<float>(renderPassEntry.extent.x());
+        viewport.height = static_cast<float>(renderPassEntry.extent.y());
         viewport.minDepth = 0.0f;
         viewport.maxDepth = 1.0f;
-        vkCmdSetViewport(commandBuffer, 0, 1, &viewport);
+        vkCmdSetViewport(frame.commandBuffer, 0, 1, &viewport);
 
         VkRect2D scissor{};
         scissor.offset = {0, 0};
-        scissor.extent = activeExtent;
-        vkCmdSetScissor(commandBuffer, 0, 1, &scissor);
+        scissor.extent = { (Uint)renderPassEntry.extent.x(), (Uint)renderPassEntry.extent.y() };
+        vkCmdSetScissor(frame.commandBuffer, 0, 1, &scissor);
+    }
+
+    void VulkanRenderer::Clear(GLbitfield mask) {
+        m_clearManager->CollectGarbage();
+        auto* fbo = MG_State::pGLContext->GetFramebufferBindingSlot(FramebufferTarget::Draw).GetBoundObject().get();
+        if (!fbo) {
+            MGLOG_D("VulkanRenderer::Clear: draw framebuffer not found");
+        }
+        ClearFramebufferPayload payload {
+            .color = MG_State::pGLContext->GetClearColor(),
+            .depth = MG_State::pGLContext->GetClearDepth(),
+            .stencil = MG_State::pGLContext->GetClearStencil()
+        };
+        m_clearManager->QueueClear(mask, payload, *fbo);
+    }
+
+    void VulkanRenderer::DrawArrays(const DrawArrayCmd& payload) {
+        auto& frame = m_frameContext.GetCurrent();
+
+        SetupDraw(frame, payload.mode, 0);
+
+        MOBILEGL_ASSERT(frame.isCommandRecording, "%s: frame recording was not started", __func__);
+
+        VkCommandBuffer& commandBuffer = frame.commandBuffer;
 
         vkCmdDraw(commandBuffer, static_cast<Uint32>(payload.count), 1, static_cast<Uint32>(payload.first), 0);
     }
 
-    void VulkanRenderer::DrawElements(const DrawElementPayload& payload) {
-        if (payload.drawArray.mode != GL_TRIANGLES) {
-            MGLOG_D("DrawElements skipped: primitive mode %u is not supported yet", payload.drawArray.mode);
-            return;
-        }
-
-        EnsureFrameRecordingStarted();
+    void VulkanRenderer::DrawElements(const DrawElementCmd& payload) {
         auto& frame = m_frameContext.GetCurrent();
-        if (!frame.isCommandRecording || !m_isMainRenderPassActive) {
+
+        SetupDraw(frame, payload.mode, 0);
+
+        if (!frame.isCommandRecording) {
             MGLOG_D("DrawElements skipped: frame recording was not started");
             return;
         }
@@ -830,59 +595,14 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             return;
         }
 
-        if (payload.drawArray.vertexArray == nullptr) {
-            MGLOG_D("DrawElements skipped: no VAO provided");
-            return;
-        }
-
-        // VertexArrayObject currently exposes index-buffer binding through non-const accessor.
-        auto* vao = const_cast<MG_State::GLState::VertexArrayObject*>(payload.drawArray.vertexArray);
-        const auto indexBuffer = vao->GetIndexBufferBindingSlot().GetBoundObject();
-        if (!indexBuffer) {
-            MGLOG_D("DrawElements skipped: VAO has no bound ELEMENT_ARRAY_BUFFER");
-            return;
-        }
-
+        auto* vao = MG_State::pGLContext->GetBoundVertexArray().get();
+        const auto* indexBuffer = vao->GetIndexBufferBindingSlot().GetBoundObject().get();
         const auto indexData = indexBuffer->GetDataReadOnly();
         MOBILEGL_ASSERT(indexData != nullptr && !indexData->empty(), "DrawElements requires non-empty EBO data");
         const SizeT indexSize = (payload.indexType == GL_UNSIGNED_SHORT) ? sizeof(Uint16) : sizeof(Uint32);
-        const SizeT indexDataSizeBytes = static_cast<SizeT>(payload.drawArray.count) * indexSize;
+        const SizeT indexDataSizeBytes = static_cast<SizeT>(payload.count) * indexSize;
         MOBILEGL_ASSERT(payload.indexByteOffset + indexDataSizeBytes <= indexBuffer->GetSize(),
                         "DrawElements index range out of bounds");
-
-        MOBILEGL_ASSERT(m_vertexInputStateFactory != nullptr, "DrawElements: vertex input state factory is null");
-        const VertexInputStateFactory::BackendVertexInputState* vertexInputState = nullptr;
-        if (payload.drawArray.vertexArray) {
-            vertexInputState = &m_vertexInputStateFactory->GetOrCreateVertexInputState(*payload.drawArray.vertexArray);
-        }
-
-        if (payload.drawArray.program == nullptr) {
-            MGLOG_D("DrawElements skipped: no current program is bound");
-            return;
-        }
-
-        const Uint64 vertexInputHash = vertexInputState ? vertexInputState->hash : 0;
-        const VkPipelineVertexInputStateCreateInfo* vertexInputInfo =
-            vertexInputState ? &vertexInputState->state : nullptr;
-        if (!vertexInputInfo) {
-            VertexInputStateBuilder emptyVertexInputBuilder;
-            vertexInputInfo = &emptyVertexInputBuilder.Build();
-        }
-
-        MOBILEGL_ASSERT(m_uniformDescriptorBinder != nullptr, "DrawElements: binder is null");
-        VkPipelineLayout pipelineLayoutToUse =
-            m_uniformDescriptorBinder->GetOrCreatePipelineLayout(*payload.drawArray.program);
-        if (pipelineLayoutToUse == VK_NULL_HANDLE) {
-            MGLOG_D("DrawElements skipped: failed to get pipeline layout for program");
-            return;
-        }
-
-        VkPipeline pipelineToBind =
-            GetOrCreatePipeline(*payload.drawArray.program, pipelineLayoutToUse, vertexInputHash, *vertexInputInfo);
-        if (pipelineToBind == VK_NULL_HANDLE) {
-            MGLOG_D("DrawElements skipped: failed to create/get pipeline");
-            return;
-        }
 
         const Uint32 frameIndex = m_frameContext.GetCurrentFrameIndex();
         VkDeviceSize& frameIndexHead = m_frameIndexUploadHeads[frameIndex];
@@ -903,414 +623,20 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         frameIndexHead = writeEnd;
 
         VkCommandBuffer& commandBuffer = frame.commandBuffer;
-        const auto activeExtent = m_activeRenderExtent;
-
-        vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineToBind);
-        if (!m_uniformDescriptorBinder->BindProgramUniformBuffers(commandBuffer, pipelineLayoutToUse,
-                                                                  *payload.drawArray.program,
-                                                                  m_frameContext.GetCurrentFrameIndex())) {
-            MGLOG_D("DrawElements skipped: failed to bind uniform descriptors");
-            return;
-        }
-
-        if (vertexInputState && !vertexInputState->bindings.empty()) {
-            if (!payload.drawArray.vertexArray) {
-                MGLOG_D("DrawElements skipped: vertex input requires VAO");
-                return;
-            }
-            if (!UploadAndBindVertexStreams(*vertexInputState, payload.drawArray, commandBuffer)) {
-                return;
-            }
-        }
-
-        VkViewport viewport{};
-        viewport.x = 0.0f;
-        viewport.y = 0.0f;
-        viewport.width = static_cast<float>(activeExtent.width);
-        viewport.height = static_cast<float>(activeExtent.height);
-        viewport.minDepth = 0.0f;
-        viewport.maxDepth = 1.0f;
-        vkCmdSetViewport(commandBuffer, 0, 1, &viewport);
-
-        VkRect2D scissor{};
-        scissor.offset = {0, 0};
-        scissor.extent = activeExtent;
-        vkCmdSetScissor(commandBuffer, 0, 1, &scissor);
 
         vkCmdBindIndexBuffer(commandBuffer, frameIndexUploadBuffer.GetHandle(), writeOffset, vkIndexType);
-        vkCmdDrawIndexed(commandBuffer, static_cast<Uint32>(payload.drawArray.count), 1, 0,
+        vkCmdDrawIndexed(commandBuffer, static_cast<Uint32>(payload.count), 1, 0,
                          static_cast<Int32>(payload.baseVertex), 0);
     }
 
-    void VulkanRenderer::MultiDrawElements(const Vector<DrawElementPayload>& payloads) {
-        if (payloads.empty()) {
-            return;
-        }
+    void VulkanRenderer::MultiDrawElements(const Vector<DrawElementCmd>& payloads) {
 
-        const DrawElementPayload& firstPayload = payloads.front();
-        if (firstPayload.drawArray.mode != GL_TRIANGLES) {
-            MGLOG_D("MultiDrawElements skipped: primitive mode %u is not supported yet", firstPayload.drawArray.mode);
-            return;
-        }
-
-        EnsureFrameRecordingStarted();
-        auto& frame = m_frameContext.GetCurrent();
-        if (!frame.isCommandRecording || !m_isMainRenderPassActive) {
-            MGLOG_D("MultiDrawElements skipped: frame recording was not started");
-            return;
-        }
-
-        VkIndexType vkIndexType = VK_INDEX_TYPE_MAX_ENUM;
-        SizeT indexSize = 0;
-        switch (firstPayload.indexType) {
-        case GL_UNSIGNED_SHORT:
-            vkIndexType = VK_INDEX_TYPE_UINT16;
-            indexSize = sizeof(Uint16);
-            break;
-        case GL_UNSIGNED_INT:
-            vkIndexType = VK_INDEX_TYPE_UINT32;
-            indexSize = sizeof(Uint32);
-            break;
-        default:
-            MGLOG_D("MultiDrawElements skipped: index type %u is not supported yet", firstPayload.indexType);
-            return;
-        }
-
-        if (firstPayload.drawArray.vertexArray == nullptr) {
-            MGLOG_D("MultiDrawElements skipped: no VAO provided");
-            return;
-        }
-        if (firstPayload.drawArray.program == nullptr) {
-            MGLOG_D("MultiDrawElements skipped: no current program is bound");
-            return;
-        }
-
-        // VertexArrayObject currently exposes index-buffer binding through non-const accessor.
-        auto* vao = const_cast<MG_State::GLState::VertexArrayObject*>(firstPayload.drawArray.vertexArray);
-        const auto indexBuffer = vao->GetIndexBufferBindingSlot().GetBoundObject();
-        if (!indexBuffer) {
-            MGLOG_D("MultiDrawElements skipped: VAO has no bound ELEMENT_ARRAY_BUFFER");
-            return;
-        }
-
-        const auto indexData = indexBuffer->GetDataReadOnly();
-        MOBILEGL_ASSERT(indexData != nullptr && !indexData->empty(), "MultiDrawElements requires non-empty EBO data");
-
-        struct PreparedDraw {
-            Uint32 indexCount = 0;
-            SizeT sourceOffset = 0;
-            SizeT sourceByteCount = 0;
-            Uint32 firstIndex = 0;
-            Int32 vertexOffset = 0;
-        };
-        Vector<PreparedDraw> preparedDraws;
-        preparedDraws.reserve(payloads.size());
-
-        SizeT totalIndexBytes = 0;
-        Uint32 firstIndex = 0;
-        for (const auto& payload : payloads) {
-            if (payload.drawArray.count <= 0) {
-                continue;
-            }
-            if (payload.drawArray.mode != firstPayload.drawArray.mode || payload.indexType != firstPayload.indexType ||
-                payload.drawArray.vertexArray != firstPayload.drawArray.vertexArray ||
-                payload.drawArray.program != firstPayload.drawArray.program) {
-                MGLOG_D("MultiDrawElements skipped: mixed draw state in one multi-draw call is not supported");
-                return;
-            }
-
-            const SizeT drawByteCount = static_cast<SizeT>(payload.drawArray.count) * indexSize;
-            MOBILEGL_ASSERT(payload.indexByteOffset + drawByteCount <= indexBuffer->GetSize(),
-                            "MultiDrawElements index range out of bounds");
-
-            PreparedDraw draw{};
-            draw.indexCount = static_cast<Uint32>(payload.drawArray.count);
-            draw.sourceOffset = payload.indexByteOffset;
-            draw.sourceByteCount = drawByteCount;
-            draw.firstIndex = firstIndex;
-            draw.vertexOffset = static_cast<Int32>(payload.baseVertex);
-            preparedDraws.push_back(draw);
-
-            firstIndex += draw.indexCount;
-            totalIndexBytes += drawByteCount;
-        }
-
-        if (preparedDraws.empty()) {
-            return;
-        }
-
-        MOBILEGL_ASSERT(m_vertexInputStateFactory != nullptr, "MultiDrawElements: vertex input state factory is null");
-        const VertexInputStateFactory::BackendVertexInputState* vertexInputState = nullptr;
-        if (firstPayload.drawArray.vertexArray) {
-            vertexInputState =
-                &m_vertexInputStateFactory->GetOrCreateVertexInputState(*firstPayload.drawArray.vertexArray);
-        }
-
-        const Uint64 vertexInputHash = vertexInputState ? vertexInputState->hash : 0;
-        const VkPipelineVertexInputStateCreateInfo* vertexInputInfo =
-            vertexInputState ? &vertexInputState->state : nullptr;
-        if (!vertexInputInfo) {
-            VertexInputStateBuilder emptyVertexInputBuilder;
-            vertexInputInfo = &emptyVertexInputBuilder.Build();
-        }
-
-        MOBILEGL_ASSERT(m_uniformDescriptorBinder != nullptr, "MultiDrawElements: binder is null");
-        VkPipelineLayout pipelineLayoutToUse =
-            m_uniformDescriptorBinder->GetOrCreatePipelineLayout(*firstPayload.drawArray.program);
-        if (pipelineLayoutToUse == VK_NULL_HANDLE) {
-            MGLOG_D("MultiDrawElements skipped: failed to get pipeline layout for program");
-            return;
-        }
-
-        VkPipeline pipelineToBind = GetOrCreatePipeline(*firstPayload.drawArray.program, pipelineLayoutToUse,
-                                                        vertexInputHash, *vertexInputInfo);
-        if (pipelineToBind == VK_NULL_HANDLE) {
-            MGLOG_D("MultiDrawElements skipped: failed to create/get pipeline");
-            return;
-        }
-
-        const Uint32 frameIndex = m_frameContext.GetCurrentFrameIndex();
-        VkDeviceSize& frameIndexHead = m_frameIndexUploadHeads[frameIndex];
-        const auto alignment = static_cast<VkDeviceSize>(indexSize);
-        const VkDeviceSize writeOffset = (frameIndexHead + alignment - 1) & ~(alignment - 1);
-        const VkDeviceSize writeEnd = writeOffset + static_cast<VkDeviceSize>(totalIndexBytes);
-        if (!EnsureFrameUploadBufferCapacity(frameIndex, true, writeEnd, 1 * 1024 * 1024,
-                                             VK_BUFFER_USAGE_INDEX_BUFFER_BIT)) {
-            MGLOG_E("MultiDrawElements skipped: failed to prepare index upload buffer");
-            return;
-        }
-        auto& frameIndexUploadBuffer = m_frameIndexUploadBuffers[frameIndex];
-
-        VkDeviceSize writeCursor = writeOffset;
-        for (const auto& draw : preparedDraws) {
-            if (!frameIndexUploadBuffer.Upload(indexData->data() + draw.sourceOffset,
-                                               static_cast<VkDeviceSize>(draw.sourceByteCount), writeCursor)) {
-                MGLOG_E("MultiDrawElements skipped: failed to upload index data");
-                return;
-            }
-            writeCursor += static_cast<VkDeviceSize>(draw.sourceByteCount);
-        }
-        frameIndexHead = writeEnd;
-
-        VkCommandBuffer& commandBuffer = frame.commandBuffer;
-        const auto activeExtent = m_activeRenderExtent;
-        vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineToBind);
-        if (!m_uniformDescriptorBinder->BindProgramUniformBuffers(commandBuffer, pipelineLayoutToUse,
-                                                                  *firstPayload.drawArray.program,
-                                                                  m_frameContext.GetCurrentFrameIndex())) {
-            MGLOG_D("MultiDrawElements skipped: failed to bind uniform descriptors");
-            return;
-        }
-
-        if (vertexInputState && !vertexInputState->bindings.empty()) {
-            if (!UploadAndBindVertexStreams(*vertexInputState, firstPayload.drawArray, commandBuffer)) {
-                return;
-            }
-        }
-
-        VkViewport viewport{};
-        viewport.x = 0.0f;
-        viewport.y = 0.0f;
-        viewport.width = static_cast<float>(activeExtent.width);
-        viewport.height = static_cast<float>(activeExtent.height);
-        viewport.minDepth = 0.0f;
-        viewport.maxDepth = 1.0f;
-        vkCmdSetViewport(commandBuffer, 0, 1, &viewport);
-
-        VkRect2D scissor{};
-        scissor.offset = {0, 0};
-        scissor.extent = activeExtent;
-        vkCmdSetScissor(commandBuffer, 0, 1, &scissor);
-
-        vkCmdBindIndexBuffer(commandBuffer, frameIndexUploadBuffer.GetHandle(), writeOffset, vkIndexType);
-
-        const Bool canUseIndirectCount =
-            m_drawIndirectCountExtensionEnabled && m_cmdDrawIndexedIndirectCount != nullptr;
-        if (canUseIndirectCount) {
-            Vector<VkDrawIndexedIndirectCommand> indirectCommands(preparedDraws.size());
-            for (SizeT i = 0; i < preparedDraws.size(); ++i) {
-                indirectCommands[i].indexCount = preparedDraws[i].indexCount;
-                indirectCommands[i].instanceCount = 1;
-                indirectCommands[i].firstIndex = preparedDraws[i].firstIndex;
-                indirectCommands[i].vertexOffset = preparedDraws[i].vertexOffset;
-                indirectCommands[i].firstInstance = 0;
-            }
-
-            const auto commandBytes =
-                static_cast<VkDeviceSize>(indirectCommands.size() * sizeof(VkDrawIndexedIndirectCommand));
-            const VkDeviceSize countOffset = (commandBytes + 3) & ~VkDeviceSize(3);
-            const VkDeviceSize totalBytes = countOffset + sizeof(Uint32);
-
-            VkBufferObject indirectUploadBuffer;
-            if (!indirectUploadBuffer.Create(
-                    m_allocator, totalBytes, VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT, VMA_MEMORY_USAGE_AUTO_PREFER_HOST,
-                    VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT)) {
-                MGLOG_W("MultiDrawElements: failed to allocate indirect buffer, fallback to vkCmdDrawIndexed loop");
-            } else {
-                Vector<Uint8> indirectBlob(static_cast<SizeT>(totalBytes), 0);
-                memcpy(indirectBlob.data(), indirectCommands.data(), static_cast<SizeT>(commandBytes));
-                const auto indirectDrawCount = static_cast<Uint32>(indirectCommands.size());
-                memcpy(indirectBlob.data() + static_cast<SizeT>(countOffset), &indirectDrawCount,
-                       sizeof(indirectDrawCount));
-
-                if (!indirectUploadBuffer.Upload(indirectBlob.data(), totalBytes, 0)) {
-                    MGLOG_W("MultiDrawElements: failed to upload indirect commands, fallback to vkCmdDrawIndexed loop");
-                } else {
-                    m_cmdDrawIndexedIndirectCount(commandBuffer, indirectUploadBuffer.GetHandle(), 0,
-                                                  indirectUploadBuffer.GetHandle(), countOffset,
-                                                  static_cast<Uint32>(indirectCommands.size()),
-                                                  static_cast<Uint32>(sizeof(VkDrawIndexedIndirectCommand)));
-                    DeferDestroyBuffer(indirectUploadBuffer);
-                    return;
-                }
-                DeferDestroyBuffer(indirectUploadBuffer);
-            }
-        }
-
-        // Fallback
-        for (const auto& draw : preparedDraws) {
-            vkCmdDrawIndexed(commandBuffer, draw.indexCount, 1, draw.firstIndex, draw.vertexOffset, 0);
-        }
     }
 
     void VulkanRenderer::Present() {
         MOBILEGL_ASSERT(m_imageIndexAcquired < m_swapchainObject.GetImageCount(),
                         "Present, acquired image index out of range");
         auto& frame = m_frameContext.GetCurrent();
-        if (!m_pendingClears.empty() && frame.hasCommandBufferRecorded) {
-            MGLOG_D("Dropping pending clears for current frame because command buffer is already finalized");
-            m_pendingClears.clear();
-        } else if (!m_pendingClears.empty()) {
-            auto activateTarget = [&](Bool targetIsDefault, Uint targetFboExternalIndex) -> Bool {
-                const Bool alreadyMatched = frame.isCommandRecording && m_isMainRenderPassActive &&
-                                            (targetIsDefault == m_activeRenderTargetIsDefault) &&
-                                            (targetIsDefault || targetFboExternalIndex == m_activeDrawFboExternalIndex);
-                if (alreadyMatched) {
-                    return true;
-                }
-                if (frame.hasCommandBufferRecorded) {
-                    return false;
-                }
-                MOBILEGL_ASSERT(m_renderPassManager != nullptr, "Present: render pass manager is null");
-                if (!frame.isCommandRecording) {
-                    m_frameContext.BeginCommandRecording();
-                    MOBILEGL_ASSERT(m_uniformDescriptorBinder != nullptr, "Present: binder is null");
-                    m_uniformDescriptorBinder->BeginFrame(m_frameContext.GetCurrentFrameIndex());
-                }
-                VkCommandBuffer commandBuffer = frame.commandBuffer;
-
-                if (m_isMainRenderPassActive) {
-                    MOBILEGL_ASSERT(m_renderPassManager != nullptr, "Present: render pass manager is null");
-                    m_renderPassManager->EndRenderPass(commandBuffer);
-                    if (m_activeRenderTargetIsDefault) {
-                        m_swapchainObject.SetImageLayout(m_imageIndexAcquired, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
-                    }
-                    m_isMainRenderPassActive = false;
-                    m_activeRenderPass = VK_NULL_HANDLE;
-                    m_activeRenderExtent = {0, 0};
-                    m_activeDepthStencilFormat = VK_FORMAT_UNDEFINED;
-                    m_activeRenderTargetIsDefault = true;
-                    m_activeDrawFboExternalIndex = 0;
-                }
-
-                if (targetIsDefault) {
-                    TransitionSwapchainImageToColorAttachment(commandBuffer, m_imageIndexAcquired);
-                    TransitionDepthStencilImageToAttachment(commandBuffer, m_imageIndexAcquired);
-
-                    const auto* defaultFboInfo = MG_Impl::GLImpl::FramebufferImpl::pDefaultFramebufferInfo;
-                    const auto* defaultFbo = defaultFboInfo ? defaultFboInfo->defaultFBO.get() : nullptr;
-                    if (defaultFbo == nullptr) {
-                        return false;
-                    }
-                    auto& renderPassEntry = m_renderPassManager->GetOrCreateRenderPass(*defaultFbo);
-                    const Bool started = m_renderPassManager->StartRenderPass(commandBuffer, renderPassEntry);
-                    if (!started) {
-                        return false;
-                    }
-                    m_isMainRenderPassActive = true;
-                    m_activeRenderPass = renderPassEntry.renderPass;
-                    m_activeRenderExtent = {
-                        static_cast<Uint32>(renderPassEntry.extent.x() > 0 ? renderPassEntry.extent.x() : 0),
-                        static_cast<Uint32>(renderPassEntry.extent.y() > 0 ? renderPassEntry.extent.y() : 0)};
-                    m_activeDepthStencilFormat = m_swapchainObject.GetDepthStencilFormat();
-                    m_activeRenderTargetIsDefault = true;
-                    m_activeDrawFboExternalIndex = 0;
-                    return true;
-                }
-
-                const auto pendingFbo = MG_State::pGLContext->GetFramebufferObject(targetFboExternalIndex);
-                if (!pendingFbo) {
-                    return false;
-                }
-
-                const auto swapchainOldLayout = m_swapchainObject.GetImageLayout(m_imageIndexAcquired);
-                if (swapchainOldLayout != VK_IMAGE_LAYOUT_PRESENT_SRC_KHR &&
-                    swapchainOldLayout != VK_IMAGE_LAYOUT_SHARED_PRESENT_KHR) {
-                    VkImageMemoryBarrier presentBarrier{};
-                    presentBarrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
-                    presentBarrier.srcAccessMask = 0;
-                    presentBarrier.dstAccessMask = 0;
-                    presentBarrier.oldLayout = swapchainOldLayout;
-                    presentBarrier.newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
-                    presentBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-                    presentBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-                    presentBarrier.image = m_swapchainObject.GetImage(m_imageIndexAcquired);
-                    presentBarrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-                    presentBarrier.subresourceRange.baseMipLevel = 0;
-                    presentBarrier.subresourceRange.levelCount = 1;
-                    presentBarrier.subresourceRange.baseArrayLayer = 0;
-                    presentBarrier.subresourceRange.layerCount = 1;
-                    vkCmdPipelineBarrier(commandBuffer, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
-                                         VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, 0, 0, nullptr, 0, nullptr, 1,
-                                         &presentBarrier);
-                    m_swapchainObject.SetImageLayout(m_imageIndexAcquired, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
-                }
-
-                auto& renderPassEntry = m_renderPassManager->GetOrCreateRenderPass(*pendingFbo);
-                const Bool started = m_renderPassManager->StartRenderPass(commandBuffer, renderPassEntry);
-                if (!started) {
-                    return false;
-                }
-                m_isMainRenderPassActive = true;
-                m_activeRenderPass = renderPassEntry.renderPass;
-                m_activeRenderExtent = {
-                    static_cast<Uint32>(renderPassEntry.extent.x() > 0 ? renderPassEntry.extent.x() : 0),
-                    static_cast<Uint32>(renderPassEntry.extent.y() > 0 ? renderPassEntry.extent.y() : 0)};
-                m_activeDepthStencilFormat = VK_FORMAT_UNDEFINED;
-                m_activeRenderTargetIsDefault = false;
-                m_activeDrawFboExternalIndex = targetFboExternalIndex;
-                return true;
-            };
-
-            while (!m_pendingClears.empty()) {
-                auto pendingIt = m_pendingClears.end();
-                if (m_isMainRenderPassActive) {
-                    const Uint64 activeKey =
-                        BuildPendingClearKey(m_activeDrawFboExternalIndex, m_activeRenderTargetIsDefault);
-                    pendingIt = m_pendingClears.find(activeKey);
-                }
-                if (pendingIt == m_pendingClears.end()) {
-                    pendingIt = m_pendingClears.begin();
-                }
-
-                const auto pendingTarget = pendingIt->second;
-                if (!activateTarget(pendingTarget.targetsDefaultFramebuffer, pendingTarget.drawFboExternalIndex)) {
-                    MGLOG_D("Present: dropping pending clear because target activation failed (FBO %u, default=%d)",
-                            pendingTarget.drawFboExternalIndex, pendingTarget.targetsDefaultFramebuffer);
-                    m_pendingClears.erase(pendingIt);
-                    continue;
-                }
-
-                const Uint64 activeKey =
-                    BuildPendingClearKey(m_activeDrawFboExternalIndex, m_activeRenderTargetIsDefault);
-                auto activePendingIt = m_pendingClears.find(activeKey);
-                if (activePendingIt == m_pendingClears.end()) {
-                    continue;
-                }
-
-                ApplyPendingClearsForActiveTarget(frame.commandBuffer, activeKey);
-            }
-        }
         EndFrameRecordingIfNeeded();
 
         const auto acquiredImageLayout = m_swapchainObject.GetImageLayout(m_imageIndexAcquired);
@@ -1902,13 +1228,6 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         m_frameVertexUploadHeads.assign(m_frameContext.GetFrameCount(), 0);
         m_frameIndexUploadBuffers.resize(m_frameContext.GetFrameCount());
         m_frameIndexUploadHeads.assign(m_frameContext.GetFrameCount(), 0);
-        m_isMainRenderPassActive = false;
-        m_activeRenderPass = VK_NULL_HANDLE;
-        m_activeRenderExtent = {0, 0};
-        m_activeDepthStencilFormat = VK_FORMAT_UNDEFINED;
-        m_activeRenderTargetIsDefault = true;
-        m_activeDrawFboExternalIndex = 0;
-        m_pendingClears.clear();
     }
 
     const PhysicalDevice& VulkanRenderer::GetPhysicalDevice() const {

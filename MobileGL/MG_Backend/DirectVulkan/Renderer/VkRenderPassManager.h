@@ -21,8 +21,9 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         static inline VkDevice s_device;
         VkRenderPass renderPass = VK_NULL_HANDLE;
         VkFramebuffer framebuffer = VK_NULL_HANDLE;
-        Vector<VkDescriptorImageInfo> descriptorImageInfo;
+        Vector<VkTextureManager::TextureResource> textureResources;
         IntVec2 extent = {0, 0};
+        Uint32 subpass = 0;
 
         ~RenderPassEntry() {
             if (renderPass != VK_NULL_HANDLE) {
@@ -46,16 +47,14 @@ namespace MobileGL::MG_Backend::DirectVulkan {
 
         HashType ComputeHash(const MG_State::GLState::FramebufferObject& fbo) const;
         RenderPassEntry& GetOrCreateRenderPass(const MG_State::GLState::FramebufferObject& fbo);
-        RenderPassEntry* GetActiveRenderPass() const { return m_activeRenderPass; }
-        Bool StartRenderPass(VkCommandBuffer commandBuffer, RenderPassEntry& renderPassEntry);
-        Bool EndRenderPass(VkCommandBuffer commandBuffer);
+        static Bool BeginRenderPass(VkCommandBuffer commandBuffer, RenderPassEntry& renderPassEntry);
+        static Bool EndRenderPass(VkCommandBuffer commandBuffer);
     private:
         VkDevice m_device = VK_NULL_HANDLE;
         const VulkanRendererConfig& m_config;
         VkClearManager& m_clearManager;
         VkTextureManager& m_textureManager;
         UnorderedMap<Uint64, RenderPassEntry> m_renderPasses;
-        RenderPassEntry* m_activeRenderPass = nullptr;
         static inline XXH64_state_t* m_hashState = XXH64_createState();
     };
 } // namespace MobileGL::MG_Backend::DirectVulkan

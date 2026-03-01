@@ -41,7 +41,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
     }
 
     Bool VkTextureManager::SyncTextureAndGetDescriptor(MG_State::GLState::ITextureObject& texture,
-                                                       VkDescriptorImageInfo& outImageInfo) {
+                                                       TextureResource& outTextureResource) {
         MOBILEGL_ASSERT(m_device != VK_NULL_HANDLE, "SyncTextureAndGetDescriptor: m_device == VK_NULL_HANDLE");
 
         auto it = m_textureResources.find(texture.GetExternalIndex());
@@ -56,15 +56,8 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             return false;
         }
 
-        if (it->second.view == VK_NULL_HANDLE) {
-            return false;
-        }
+        outTextureResource = it->second;
 
-        outImageInfo.sampler = VK_NULL_HANDLE;
-        outImageInfo.imageView = it->second.view;
-        // Will be VK_IMAGE_LAYOUT_UNDEFINED or VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
-        // Shouldn't hardcode VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL here
-        // outImageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
         return true;
     }
     Bool VkTextureManager::TransitionImageLayout(VkCommandBuffer commandBuffer, VkImage image,

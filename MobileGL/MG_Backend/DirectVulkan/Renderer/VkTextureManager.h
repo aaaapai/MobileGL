@@ -28,17 +28,6 @@ public:
         VkQueue graphicsQueue = VK_NULL_HANDLE;
     };
 
-    Bool Initialize(const InitInfo& initInfo);
-    void Shutdown();
-
-    Bool SyncTextureAndGetDescriptor(MG_State::GLState::ITextureObject& texture, VkDescriptorImageInfo& outImageInfo);
-
-
-    static Bool TransitionImageLayout(VkCommandBuffer commandBuffer, VkImage image, VkImageLayout& trackedLayout,
-                               VkImageLayout newLayout, VkPipelineStageFlags srcStageMask,
-                               VkPipelineStageFlags dstStageMask, VkAccessFlags srcAccessMask,
-                               VkAccessFlags dstAccessMask, VkImageAspectFlags aspectMask);
-private:
     struct TextureResource {
         VkImage image = VK_NULL_HANDLE;
         VmaAllocation allocation = nullptr;
@@ -49,6 +38,19 @@ private:
         VkFormat format = VK_FORMAT_UNDEFINED;
         Uint textureExternalIndex = 0;
     };
+
+    Bool Initialize(const InitInfo& initInfo);
+    void Shutdown();
+
+    Bool SyncTextureAndGetDescriptor(
+        MG_State::GLState::ITextureObject& texture, TextureResource& outTextureResource);
+
+
+    static Bool TransitionImageLayout(VkCommandBuffer commandBuffer, VkImage image, VkImageLayout& trackedLayout,
+                               VkImageLayout newLayout, VkPipelineStageFlags srcStageMask,
+                               VkPipelineStageFlags dstStageMask, VkAccessFlags srcAccessMask,
+                               VkAccessFlags dstAccessMask, VkImageAspectFlags aspectMask);
+private:
 
     Bool SyncTexture(MG_State::GLState::ITextureObject &texture,
                      TextureResource &outResource);

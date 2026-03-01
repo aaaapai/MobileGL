@@ -475,11 +475,15 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         if (!samplerToUse) {
             return false;
         }
-
-        if (!m_textureManager->SyncTextureAndGetDescriptor(*texture, outImageInfo)) {
+        VkTextureManager::TextureResource resource;
+        if (!m_textureManager->SyncTextureAndGetDescriptor(*texture, resource)) {
             return false;
         }
-        outImageInfo.sampler = m_samplerManager->GetOrCreateSampler(*samplerToUse);
+        outImageInfo = {
+            .sampler = m_samplerManager->GetOrCreateSampler(*samplerToUse),
+            .imageView = resource.view,
+            .imageLayout = resource.layout,
+        };
         return outImageInfo.sampler != VK_NULL_HANDLE;
     }
 
@@ -678,27 +682,10 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         return true;
     }
 
-    Bool UniformDescriptorBinder::BindProgramUniformBuffers(VkCommandBuffer commandBuffer, VkPipelineLayout pipelineLayout,
+    Bool UniformDescriptorBinder::BindProgramUniformBuffers(VkCommandBuffer commandBuffer,
                                                             const MG_State::GLState::ProgramObject& program,
                                                             Uint32 frameIndex) {
-        if (m_frames.empty()) {
-            MGLOG_E("UniformDescriptorBinder::BindProgramUniformBuffers failed: binder is not initialized");
-            return false;
-        }
-        if (frameIndex >= m_frames.size()) {
-            MGLOG_E("UniformDescriptorBinder::BindProgramUniformBuffers failed: invalid frame index %u", frameIndex);
-            return false;
-        }
-
         ProgramLayout* layout = GetOrCreateProgramLayout(program);
-        if (!layout || layout->pipelineLayout == VK_NULL_HANDLE || layout->descriptorSetLayout == VK_NULL_HANDLE) {
-            MGLOG_E("UniformDescriptorBinder::BindProgramUniformBuffers failed: cannot get program layout");
-            return false;
-        }
-        if (layout->pipelineLayout != pipelineLayout) {
-            MGLOG_E("UniformDescriptorBinder::BindProgramUniformBuffers failed: pipelineLayout mismatch");
-            return false;
-        }
 
         auto& frame = m_frames[frameIndex];
         if (frame.descriptorPools.empty()) {
@@ -837,7 +824,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             vkUpdateDescriptorSets(m_device, static_cast<Uint32>(writes.size()), writes.data(), 0, nullptr);
         }
 
-        vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0, 1, &descriptorSet,
+        vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, layout->pipelineLayout, 0, 1, &descriptorSet,
                                 static_cast<Uint32>(dynamicOffsets.size()), dynamicOffsets.data());
         return true;
     }

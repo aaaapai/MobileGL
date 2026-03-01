@@ -81,6 +81,11 @@ namespace MobileGL::MG_Backend::DirectVulkan {
     }
 
     SizeT VkClearManager::CollectGarbage() {
+        m_gcCounter++;
+        if (m_gcCounter != 0) {
+            return 0;
+        }
+
         SizeT count = 0;
         for (const auto& [raw, weak]: m_aliveObjects) {
             if (weak.expired()) {

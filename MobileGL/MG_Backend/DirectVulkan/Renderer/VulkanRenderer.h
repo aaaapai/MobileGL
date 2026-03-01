@@ -32,16 +32,23 @@ namespace MobileGL::MG_State::GLState {
 } // namespace MobileGL::MG_State::GLState
 
 namespace MobileGL::MG_Backend::DirectVulkan {
-    struct DrawArrayPayload {
+    enum class DrawSetupAspect: Uint8 {
+        FramebufferObject = 1 << 0,
+        VertexArrayObject = 1 << 1,
+        UniformBuffer     = 1 << 2,
+        VertexBuffer      = 1 << 3,
+        IndexBuffer       = 1 << 4,
+        Viewport          = 1 << 5,
+        Scissor           = 1 << 6,
+    };
+
+    struct DrawArrayCmd {
         GLenum mode = GL_TRIANGLES;
         GLint first = 0;
         GLsizei count = 0;
-        const MG_State::GLState::ProgramObject* program = nullptr;
-        const MG_State::GLState::VertexArrayObject* vertexArray = nullptr;
     };
 
-    struct DrawElementPayload {
-        DrawArrayPayload drawArray;
+    struct DrawElementCmd: public DrawArrayCmd {
         GLenum indexType = GL_UNSIGNED_SHORT;
         SizeT indexByteOffset = 0;
         GLint baseVertex = 0;
@@ -70,13 +77,12 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         void Initialize();
         void Shutdown();
 
-        void QueueClearRequest(GLbitfield mask, const FloatVec4& color, Float depth, Uint32 stencil,
-                               Uint drawFboExternalIndex, Bool isDefaultFramebufferTarget);
-        Bool ConsumePendingColorClear(VkClearColorValue& outClearColor);
-        void EnsureFrameRecordingStarted();
-        void DrawArrays(const DrawArrayPayload& payload);
-        void DrawElements(const DrawElementPayload& payload);
-        void MultiDrawElements(const Vector<DrawElementPayload>& payloads);
+        void SetupDraw(FrameContext::FrameData& frame, GLenum mode, Flags<DrawSetupAspect> aspects);
+
+        void Clear(GLbitfield mask);
+        void DrawArrays(const DrawArrayCmd& payload);
+        void DrawElements(const DrawElementCmd& payload);
+        void MultiDrawElements(const Vector<DrawElementCmd>& payloads);
         void Present();
 
         const PhysicalDevice& GetPhysicalDevice() const;
@@ -85,15 +91,6 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         void RecreateSwapchain();
 
     private:
-        struct PendingClearState {
-            GLbitfield mask = 0;
-            VkClearColorValue color = {{0.0f, 0.0f, 0.0f, 1.0f}};
-            Float depth = 1.0f;
-            Uint32 stencil = 0;
-            Uint drawFboExternalIndex = 0;
-            Bool targetsDefaultFramebuffer = true;
-        };
-
         NativeWindowType m_window = 0;
         VulkanRendererConfig m_config;
 
@@ -123,6 +120,8 @@ namespace MobileGL::MG_Backend::DirectVulkan {
 
         VkCommandPool m_commandPool = VK_NULL_HANDLE;
 
+        RenderPassEntry* m_activeRenderPass = nullptr;
+
         Vector<VkBufferObject> m_frameVertexUploadBuffers;
         Vector<VkDeviceSize> m_frameVertexUploadHeads;
         Vector<VkBufferObject> m_frameIndexUploadBuffers;
@@ -131,13 +130,6 @@ namespace MobileGL::MG_Backend::DirectVulkan {
 
         Uint m_imageIndexAcquired = 0;
         FrameContext m_frameContext;
-        UnorderedMap<Uint64, PendingClearState> m_pendingClears;
-        Bool m_isMainRenderPassActive = false;
-        VkRenderPass m_activeRenderPass = VK_NULL_HANDLE;
-        VkExtent2D m_activeRenderExtent = {0, 0};
-        VkFormat m_activeDepthStencilFormat = VK_FORMAT_UNDEFINED;
-        Bool m_activeRenderTargetIsDefault = true;
-        Uint m_activeDrawFboExternalIndex = 0;
 
         UniquePtr<PipelineFactory> m_pipelineFactory;
         UniquePtr<ProgramFactory> m_programFactory;
@@ -160,9 +152,13 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         void CreateSwapchain();
         void CreateCommandPool();
         void CreateFrameContexts();
-        VkPipeline GetOrCreatePipeline(const MG_State::GLState::ProgramObject& program, VkPipelineLayout pipelineLayout,
-                                       Uint64 vertexInputHash,
-                                       const VkPipelineVertexInputStateCreateInfo& vertexInputState);
+
+        VkPipeline GetOrCreatePipeline(
+            GLenum mode,
+            const MG_State::GLState::ProgramObject& program,
+            const MG_State::GLState::VertexArrayObject& vao,
+            const MG_State::GLState::FramebufferObject& drawFbo);
+
         void TransitionSwapchainImageToColorAttachment(VkCommandBuffer commandBuffer, Uint32 imageIndex);
         void TransitionDepthStencilImageToAttachment(VkCommandBuffer commandBuffer, Uint32 imageIndex);
         void EndFrameRecordingIfNeeded();
@@ -170,9 +166,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         void CollectDeferredBufferReleases(Uint32 frameIndex);
         Bool EnsureFrameUploadBufferCapacity(Uint32 frameIndex, Bool isIndexBuffer, VkDeviceSize requiredEndOffset,
                                              VkDeviceSize minCapacity, VkBufferUsageFlags usage);
-        Bool UploadAndBindVertexStreams(const VertexInputStateFactory::BackendVertexInputState& vertexInputState,
-                                        const DrawArrayPayload& payload, VkCommandBuffer commandBuffer);
-        void ApplyPendingClearsForActiveTarget(VkCommandBuffer commandBuffer, Uint64 drawTargetKey);
+        Bool UploadAndBindVertexStreams(VkCommandBuffer commandBuffer, const MG_State::GLState::VertexArrayObject& vao);
 
         void ShutdownSwapchain();
 

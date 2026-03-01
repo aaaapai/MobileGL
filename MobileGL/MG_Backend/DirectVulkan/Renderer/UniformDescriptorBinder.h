@@ -36,7 +36,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
 
         void BeginFrame(Uint32 frameIndex);
         VkPipelineLayout GetOrCreatePipelineLayout(const MG_State::GLState::ProgramObject& program);
-        Bool BindProgramUniformBuffers(VkCommandBuffer commandBuffer, VkPipelineLayout pipelineLayout,
+        Bool BindProgramUniformBuffers(VkCommandBuffer commandBuffer,
                                        const MG_State::GLState::ProgramObject& program, Uint32 frameIndex);
 
     private:

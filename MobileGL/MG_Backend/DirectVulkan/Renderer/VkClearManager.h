@@ -45,6 +45,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         void PopPendingClear(MG_State::GLState::ITextureObject* texture);
         SizeT CollectGarbage();
     private:
+        Uint8 m_gcCounter = 0;
         UnorderedMap<MG_State::GLState::ITextureObject*, ClearAttachmentPayload> m_pendingClears;
         UnorderedMap<MG_State::GLState::ITextureObject*, WeakPtr<MG_State::GLState::ITextureObject>> m_aliveObjects;
     };

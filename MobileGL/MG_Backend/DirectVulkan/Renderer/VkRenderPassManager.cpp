@@ -94,9 +94,9 @@ namespace MobileGL::MG_Backend::DirectVulkan {
 
         Int width = 0;
         Int height = 0;
-        Vector<VkAttachmentDescription> colorAttachmentDescriptions(validDrawBufCount);
+        Vector<VkAttachmentDescription> attachmentDescriptions(validDrawBufCount);
         Vector<VkAttachmentReference> colorAttachmentRefs(validDrawBufCount);
-        Vector<VkDescriptorImageInfo> descriptorImageInfo(validDrawBufCount);
+        Vector<VkTextureManager::TextureResource> textureResources(validDrawBufCount);
         // This should automatically work on default & offscreen FBO
         // assuming default FBO has the right param
         for (Int i = 0; i < validDrawBufCount; ++i) {
@@ -110,7 +110,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             const auto textureTarget = texture->GetTarget();
 
             // Color attachment description
-            VkAttachmentDescription& desc = colorAttachmentDescriptions[i];
+            VkAttachmentDescription& desc = attachmentDescriptions[i];
             switch (textureTarget) {
                 case TextureTarget::Texture2D: {
                     auto* texture2d =
@@ -135,8 +135,8 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                     if (height == 0)
                         height = texture2d->GetBaseSize().y();
 
-                    Bool ok = m_textureManager.SyncTextureAndGetDescriptor(*texture, descriptorImageInfo[i]);
-                    MOBILEGL_ASSERT(ok, "GetOrCreateRenderPass: SyncTextureAndGetDescriptor failed");
+                    Bool ok = m_textureManager.SyncTextureAndGetDescriptor(*texture, textureResources[i]);
+                    MOBILEGL_ASSERT(ok, "GetOrCreateRenderPass: SyncTextureAndGetDescriptor failed at color attachment %d", i);
 
                     break;
                 }
@@ -153,9 +153,11 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         // Depth attachment description
         auto& depthAtt = fbo.GetAttachment(FramebufferAttachmentType::Depth);
         VkAttachmentDescription depthAttachmentDescription;
-        if (depthAtt.IsComplete()) {
+        VkTextureManager::TextureResource depthTextureResource;
+        if (depthAtt.IsComplete() && depthAtt.IsTexture()) {
+            auto& texture = *depthAtt.GetTexture();
             depthAttachmentDescription.format =
-                MG_Util::ConvertTextureInternalFormatToVkEnum(depthAtt.GetTexture()->GetFormat());
+                MG_Util::ConvertTextureInternalFormatToVkEnum(texture.GetFormat());
             depthAttachmentDescription.samples = VK_SAMPLE_COUNT_1_BIT;
             depthAttachmentDescription.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
             depthAttachmentDescription.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
@@ -165,6 +167,9 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             depthAttachmentDescription.finalLayout = isDefaultFbo ?
                 VK_IMAGE_LAYOUT_PRESENT_SRC_KHR :
                 VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+            Bool ok = m_textureManager.SyncTextureAndGetDescriptor(texture, depthTextureResource);
+            MOBILEGL_ASSERT(ok, "GetOrCreateRenderPass: SyncTextureAndGetDescriptor failed at depth attachment");
+            attachmentDescriptions.emplace_back(depthAttachmentDescription);
         }
 
         // Depth attachment ref
@@ -190,8 +195,8 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         renderPassCreateInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
         renderPassCreateInfo.pNext = VK_NULL_HANDLE;
         renderPassCreateInfo.flags = 0;
-        renderPassCreateInfo.attachmentCount = colorAttachmentDescriptions.size();
-        renderPassCreateInfo.pAttachments = colorAttachmentDescriptions.data();
+        renderPassCreateInfo.attachmentCount = attachmentDescriptions.size();
+        renderPassCreateInfo.pAttachments = attachmentDescriptions.data();
         renderPassCreateInfo.subpassCount = 1;
         renderPassCreateInfo.pSubpasses = &subpassDesc;
         renderPassCreateInfo.dependencyCount = 0;
@@ -200,9 +205,9 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         VkRenderPass renderPass = VK_NULL_HANDLE;
         VK_VERIFY(vkCreateRenderPass(m_device, &renderPassCreateInfo, nullptr, &renderPass));
 
-        Vector<VkImageView> attachmentViews(descriptorImageInfo.size(), VK_NULL_HANDLE);
-        for (Int i = 0; i < descriptorImageInfo.size(); i++) {
-            attachmentViews[i] = descriptorImageInfo[i].imageView;
+        Vector<VkImageView> attachmentViews(textureResources.size(), VK_NULL_HANDLE);
+        for (Int i = 0; i < textureResources.size(); i++) {
+            attachmentViews[i] = textureResources[i].view;
         }
 
         // Framebuffer
@@ -219,23 +224,22 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         VkFramebuffer framebuffer = VK_NULL_HANDLE;
         VK_VERIFY(vkCreateFramebuffer(m_device, &framebufferCreateInfo, nullptr, &framebuffer));
         IntVec2 extent = {width, height};
-        m_renderPasses[hash] = { renderPass, framebuffer, Move(descriptorImageInfo), extent };
+        m_renderPasses[hash] = { renderPass, framebuffer, Move(textureResources), extent, 1 };
         return m_renderPasses[hash];
     }
 
-    Bool VkRenderPassManager::StartRenderPass(VkCommandBuffer commandBuffer, RenderPassEntry& renderPassEntry) {
-        if (m_activeRenderPass != nullptr)
-            return false;
+    Bool VkRenderPassManager::BeginRenderPass(VkCommandBuffer commandBuffer, RenderPassEntry& renderPassEntry) {
+        // TODO: Transition all the attachments into proper layout before starting the render pass
 
-        m_activeRenderPass = &renderPassEntry;
+
         VkRenderPassBeginInfo renderPassBeginInfo;
         renderPassBeginInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
         renderPassBeginInfo.pNext = nullptr;
-        renderPassBeginInfo.renderPass = m_activeRenderPass->renderPass;
-        renderPassBeginInfo.framebuffer = m_activeRenderPass->framebuffer;
+        renderPassBeginInfo.renderPass = renderPassEntry.renderPass;
+        renderPassBeginInfo.framebuffer = renderPassEntry.framebuffer;
         renderPassBeginInfo.renderArea.offset = { 0, 0 };
         renderPassBeginInfo.renderArea.extent = {
-            (Uint32)m_activeRenderPass->extent.x(), (Uint32)m_activeRenderPass->extent.y() };
+            (Uint32)renderPassEntry.extent.x(), (Uint32)renderPassEntry.extent.y() };
 
         // TODO: should query proper clear color
         VkClearValue clearValue;
@@ -251,8 +255,6 @@ namespace MobileGL::MG_Backend::DirectVulkan {
     }
 
     Bool VkRenderPassManager::EndRenderPass(VkCommandBuffer commandBuffer) {
-        if (m_activeRenderPass == nullptr)
-            return false;
         vkCmdEndRenderPass(commandBuffer);
         return true;
     }
