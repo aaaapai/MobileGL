@@ -96,7 +96,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         Int height = 0;
         Vector<VkAttachmentDescription> attachmentDescriptions(validDrawBufCount);
         Vector<VkAttachmentReference> colorAttachmentRefs(validDrawBufCount);
-        Vector<VkTextureManager::TextureResource> textureResources(validDrawBufCount);
+        Vector<VkTextureManager::TextureResource*> textureResources(validDrawBufCount, nullptr);
         // This should automatically work on default & offscreen FBO
         // assuming default FBO has the right param
         for (Int i = 0; i < validDrawBufCount; ++i) {
@@ -135,8 +135,8 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                     if (height == 0)
                         height = texture2d->GetBaseSize().y();
 
-                    Bool ok = m_textureManager.SyncTextureAndGetDescriptor(*texture, textureResources[i]);
-                    MOBILEGL_ASSERT(ok, "GetOrCreateRenderPass: SyncTextureAndGetDescriptor failed at color attachment %d", i);
+                    textureResources[i] = m_textureManager.SyncTextureAndGetDescriptor(*texture);
+                    MOBILEGL_ASSERT(textureResources[i], "GetOrCreateRenderPass: SyncTextureAndGetDescriptor failed at color attachment %d", i);
 
                     break;
                 }
@@ -153,7 +153,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         // Depth attachment description
         auto& depthAtt = fbo.GetAttachment(FramebufferAttachmentType::Depth);
         VkAttachmentDescription depthAttachmentDescription;
-        VkTextureManager::TextureResource depthTextureResource;
+        VkTextureManager::TextureResource* depthTextureResource = nullptr;
         if (depthAtt.IsComplete() && depthAtt.IsTexture()) {
             auto& texture = *depthAtt.GetTexture();
             depthAttachmentDescription.format =
@@ -167,8 +167,8 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             depthAttachmentDescription.finalLayout = isDefaultFbo ?
                 VK_IMAGE_LAYOUT_PRESENT_SRC_KHR :
                 VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-            Bool ok = m_textureManager.SyncTextureAndGetDescriptor(texture, depthTextureResource);
-            MOBILEGL_ASSERT(ok, "GetOrCreateRenderPass: SyncTextureAndGetDescriptor failed at depth attachment");
+            depthTextureResource = m_textureManager.SyncTextureAndGetDescriptor(texture);
+            MOBILEGL_ASSERT(depthTextureResource, "GetOrCreateRenderPass: SyncTextureAndGetDescriptor failed at depth attachment");
             attachmentDescriptions.emplace_back(depthAttachmentDescription);
         }
 
@@ -207,7 +207,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
 
         Vector<VkImageView> attachmentViews(textureResources.size(), VK_NULL_HANDLE);
         for (Int i = 0; i < textureResources.size(); i++) {
-            attachmentViews[i] = textureResources[i].view;
+            attachmentViews[i] = textureResources[i]->view;
         }
 
         // Framebuffer

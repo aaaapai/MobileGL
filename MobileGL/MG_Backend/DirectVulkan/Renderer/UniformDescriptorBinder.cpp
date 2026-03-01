@@ -475,14 +475,15 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         if (!samplerToUse) {
             return false;
         }
-        VkTextureManager::TextureResource resource;
-        if (!m_textureManager->SyncTextureAndGetDescriptor(*texture, resource)) {
+        VkTextureManager::TextureResource* resource =
+            m_textureManager->SyncTextureAndGetDescriptor(*texture);
+        if (resource == nullptr) {
             return false;
         }
         outImageInfo = {
             .sampler = m_samplerManager->GetOrCreateSampler(*samplerToUse),
-            .imageView = resource.view,
-            .imageLayout = resource.layout,
+            .imageView = resource->view,
+            .imageLayout = resource->layout,
         };
         return outImageInfo.sampler != VK_NULL_HANDLE;
     }

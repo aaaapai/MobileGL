@@ -36,20 +36,51 @@ public:
         VkExtent2D extent = {0, 0};
         Uint32 mipLevels = 1;
         VkFormat format = VK_FORMAT_UNDEFINED;
-        Uint textureExternalIndex = 0;
+
+        TextureResource() {}
+        TextureResource(const TextureResource&) = delete;
+        TextureResource(TextureResource&& that) noexcept {
+            std::swap(this->image, that.image);
+            std::swap(this->allocation, that.allocation);
+            std::swap(this->view, that.view);
+            std::swap(this->layout, that.layout);
+            std::swap(this->extent, that.extent);
+            std::swap(this->mipLevels, that.mipLevels);
+            std::swap(this->format, that.format);
+        }
+
+        ~TextureResource() {
+            if (view != VK_NULL_HANDLE) {
+                vkDestroyImageView(s_device, view, nullptr);
+            }
+            if (image != VK_NULL_HANDLE && allocation != nullptr) {
+                vmaDestroyImage(s_allocator, image, allocation);
+            }
+            view = VK_NULL_HANDLE;
+            image = VK_NULL_HANDLE;
+            allocation = nullptr;
+            layout = VK_IMAGE_LAYOUT_UNDEFINED;
+            extent = {0, 0};
+            mipLevels = 1;
+            format = VK_FORMAT_UNDEFINED;
+        }
+
+        static inline VkDevice s_device = VK_NULL_HANDLE;
+        static inline VmaAllocator s_allocator = VK_NULL_HANDLE;
     };
 
     Bool Initialize(const InitInfo& initInfo);
     void Shutdown();
 
-    Bool SyncTextureAndGetDescriptor(
-        MG_State::GLState::ITextureObject& texture, TextureResource& outTextureResource);
-
+    TextureResource* SyncTextureAndGetDescriptor(
+        MG_State::GLState::ITextureObject& texture);
 
     static Bool TransitionImageLayout(VkCommandBuffer commandBuffer, VkImage image, VkImageLayout& trackedLayout,
                                VkImageLayout newLayout, VkPipelineStageFlags srcStageMask,
                                VkPipelineStageFlags dstStageMask, VkAccessFlags srcAccessMask,
                                VkAccessFlags dstAccessMask, VkImageAspectFlags aspectMask);
+
+    SizeT CollectGarbage();
 private:
 
     Bool SyncTexture(MG_State::GLState::ITextureObject &texture,
@@ -62,7 +93,6 @@ private:
                       TextureUploadTarget uploadTarget,
                       TextureResource &outResource);
     Bool ExecuteCmdBufImmediate(const std::function<void(VkCommandBuffer)>& recorder) const;
-    void DestroyTextureResource(TextureResource& resource) const;
     static Bool CheckMipmapCompleteness(const MG_State::GLState::ITextureObject& texture,
                                         TextureUploadTarget& outTarget,
                                         IntVec3& outTexelSize,
@@ -77,6 +107,8 @@ private:
     VkCommandPool m_commandPool = VK_NULL_HANDLE;
     VkQueue m_graphicsQueue = VK_NULL_HANDLE;
 
-    UnorderedMap<Uint, TextureResource> m_textureResources;
+    Uint8 m_gcCounter = 0;
+    UnorderedMap<MG_State::GLState::ITextureObject*, WeakPtr<MG_State::GLState::ITextureObject>> m_aliveObjects;
+    UnorderedMap<MG_State::GLState::ITextureObject*, TextureResource> m_textureResources;
 };
 } // namespace MobileGL::MG_Backend::DirectVulkan

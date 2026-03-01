@@ -8,6 +8,9 @@
 
 #include "SwapchainObject.h"
 
+#include "MG_Impl/GLImpl/Framebuffer/GL_Framebuffer.h"
+#include "MG_State/GLState/TextureState/TextureObject2D.h"
+
 #if defined(__has_include)
 #if __has_include(<vulkan/vk_enum_string_helper.h>)
 #include <vulkan/vk_enum_string_helper.h>
@@ -228,6 +231,35 @@ namespace MobileGL::MG_Backend::DirectVulkan {
 
         MGLOG_I("Swapchain created, extent = %dx%d, swapchain imageCount = %d", m_extent.width, m_extent.height,
                 imageCount);
+
+        // Properly initialize Default FBO here
+        auto* defaultFBOInfo = MG_Impl::GLImpl::FramebufferImpl::pDefaultFramebufferInfo;
+        auto* colorTex = static_cast<MG_State::GLState::TextureObject2D*>(defaultFBOInfo->colorAttachment.get());
+        colorTex->AllocateStorage(
+            TextureUploadTarget::Texture2D, 0, {
+                {(Int)createInfo.imageExtent.width, (Int)createInfo.imageExtent.height, 1},
+                createInfo.imageExtent.width * (Int)createInfo.imageExtent.height * 4}); // TODO: 4 is format size
+        TextureInternalFormat depthFormat = TextureInternalFormat::Depth24Stencil8;
+        switch (m_depthStencilFormat) {
+            case VK_FORMAT_D24_UNORM_S8_UINT:
+                depthFormat = TextureInternalFormat::Depth24Stencil8;
+                break;
+            case VK_FORMAT_D32_SFLOAT_S8_UINT:
+                depthFormat = TextureInternalFormat::Depth32FStencil8;
+                break;
+            case VK_FORMAT_D32_SFLOAT:
+                depthFormat = TextureInternalFormat::DepthComponent32F;
+                break;
+            default:
+                depthFormat = TextureInternalFormat::Depth24Stencil8;
+                break;
+        }
+        auto* depthTex = static_cast<MG_State::GLState::TextureObject2D*>(defaultFBOInfo->depthAttachment.get());
+        depthTex->SetInternalFormat(depthFormat);
+        depthTex->AllocateStorage(TextureUploadTarget::Texture2D, 0, {
+            {(Int)createInfo.imageExtent.width, (Int)createInfo.imageExtent.height, 1},
+                        createInfo.imageExtent.width * createInfo.imageExtent.width * 4}); // TODO: 4 is format size
+
     }
 
     void SwapchainObject::CreateDepthStencilResources(VkDevice device, VkPhysicalDevice physicalDevice) {

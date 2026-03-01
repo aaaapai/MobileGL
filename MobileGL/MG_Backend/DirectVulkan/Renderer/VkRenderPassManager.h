@@ -21,7 +21,8 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         static inline VkDevice s_device;
         VkRenderPass renderPass = VK_NULL_HANDLE;
         VkFramebuffer framebuffer = VK_NULL_HANDLE;
-        Vector<VkTextureManager::TextureResource> textureResources;
+        // Should we hold pointer-to-resource here?
+        Vector<VkTextureManager::TextureResource*> textureResources;
         IntVec2 extent = {0, 0};
         Uint32 subpass = 0;
 

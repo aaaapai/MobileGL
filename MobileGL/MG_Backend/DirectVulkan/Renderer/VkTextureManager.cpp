@@ -24,13 +24,13 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                             m_commandPool != VK_NULL_HANDLE && m_graphicsQueue != VK_NULL_HANDLE,
                         "VkTextureManager::Initialize failed: invalid initialization info");
 
+        TextureResource::s_device = m_device;
+        TextureResource::s_allocator = m_allocator;
+
         return true;
     }
 
     void VkTextureManager::Shutdown() {
-        for (auto& [_, resource] : m_textureResources) {
-            DestroyTextureResource(resource);
-        }
         m_textureResources.clear();
 
         m_device = VK_NULL_HANDLE;
@@ -40,25 +40,21 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         m_graphicsQueue = VK_NULL_HANDLE;
     }
 
-    Bool VkTextureManager::SyncTextureAndGetDescriptor(MG_State::GLState::ITextureObject& texture,
-                                                       TextureResource& outTextureResource) {
+    VkTextureManager::TextureResource* VkTextureManager::SyncTextureAndGetDescriptor(MG_State::GLState::ITextureObject& texture) {
         MOBILEGL_ASSERT(m_device != VK_NULL_HANDLE, "SyncTextureAndGetDescriptor: m_device == VK_NULL_HANDLE");
 
-        auto it = m_textureResources.find(texture.GetExternalIndex());
+        auto it = m_textureResources.find(&texture);
         if (it == m_textureResources.end()) {
             TextureResource initial{};
-            initial.textureExternalIndex = texture.GetExternalIndex();
-            auto [insertIt, _] = m_textureResources.emplace(texture.GetExternalIndex(), initial);
+            auto [insertIt, _] = m_textureResources.emplace(&texture, Move(initial));
             it = insertIt;
         }
 
         if (!SyncTexture(texture, it->second)) {
-            return false;
+            return nullptr;
         }
 
-        outTextureResource = it->second;
-
-        return true;
+        return &(it->second);
     }
     Bool VkTextureManager::TransitionImageLayout(VkCommandBuffer commandBuffer, VkImage image,
                                                  VkImageLayout& trackedLayout, VkImageLayout newLayout,
@@ -89,6 +85,22 @@ namespace MobileGL::MG_Backend::DirectVulkan {
 
         trackedLayout = newLayout;
         return true;
+    }
+
+    SizeT VkTextureManager::CollectGarbage() {
+        m_gcCounter++;
+        if (m_gcCounter != 0) {
+            return 0;
+        }
+        SizeT count = 0;
+        for (const auto& [raw, weak]: m_aliveObjects) {
+            if (weak.expired()) {
+                count++;
+                m_textureResources.erase(raw);
+                m_aliveObjects.erase(raw);
+            }
+        }
+        return count;
     }
 
     Bool VkTextureManager::SyncTexture(MG_State::GLState::ITextureObject &texture,
@@ -153,7 +165,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             return true;
         }
 
-        DestroyTextureResource(resource);
+        resource.~TextureResource();
 
         VkImageCreateInfo imageInfo{};
         imageInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
@@ -191,7 +203,6 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         resource.extent = {static_cast<Uint32>(texelSize.x()), static_cast<Uint32>(texelSize.y())};
         resource.mipLevels = mipLevels;
         resource.format = format;
-        resource.textureExternalIndex = texture.GetExternalIndex();
         return true;
     }
 
@@ -339,22 +350,6 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         return true;
     }
 
-    void VkTextureManager::DestroyTextureResource(TextureResource& resource) const {
-        if (m_device != VK_NULL_HANDLE && resource.view != VK_NULL_HANDLE) {
-            vkDestroyImageView(m_device, resource.view, nullptr);
-        }
-        if (m_allocator != nullptr && resource.image != VK_NULL_HANDLE && resource.allocation != nullptr) {
-            vmaDestroyImage(m_allocator, resource.image, resource.allocation);
-        }
-        resource.view = VK_NULL_HANDLE;
-        resource.image = VK_NULL_HANDLE;
-        resource.allocation = nullptr;
-        resource.layout = VK_IMAGE_LAYOUT_UNDEFINED;
-        resource.extent = {0, 0};
-        resource.mipLevels = 1;
-        resource.format = VK_FORMAT_UNDEFINED;
-    }
-
     Bool VkTextureManager::CheckMipmapCompleteness(const MG_State::GLState::ITextureObject& texture,
                                                    TextureUploadTarget& outTarget,
                                                    IntVec3& outTexelSize,
@@ -416,6 +411,12 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             return VK_FORMAT_R8G8B8A8_UNORM;
         case TextureInternalFormat::SRGB8Alpha8:
             return VK_FORMAT_R8G8B8A8_SRGB;
+        case TextureInternalFormat::Depth24Stencil8:
+            return VK_FORMAT_D24_UNORM_S8_UINT;
+        case TextureInternalFormat::Depth32FStencil8:
+            return VK_FORMAT_D32_SFLOAT_S8_UINT;
+        case TextureInternalFormat::DepthComponent32F:
+            return VK_FORMAT_D32_SFLOAT;
         default:
             return VK_FORMAT_UNDEFINED;
         }
