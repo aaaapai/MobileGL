@@ -510,11 +510,11 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         // Begin render pass
         // TODO: properly deal with clear
         auto& renderPassEntry = m_renderPassManager->GetOrCreateRenderPass(*drawFbo);
-        if (m_activeRenderPass != &renderPassEntry) {
-            if (m_activeRenderPass) {
+        auto* activeRenderPass = VkRenderPassManager::GetActiveRenderPass();
+        if (activeRenderPass != &renderPassEntry) {
+            if (activeRenderPass) {
                 VkRenderPassManager::EndRenderPass(frame.commandBuffer);
             }
-            m_activeRenderPass = &renderPassEntry;
             Bool ok = VkRenderPassManager::BeginRenderPass(frame.commandBuffer, renderPassEntry);
             MOBILEGL_ASSERT(ok, "%s: BeginRenderPass failed", __func__);
         } else {
@@ -637,7 +637,13 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         MOBILEGL_ASSERT(m_imageIndexAcquired < m_swapchainObject.GetImageCount(),
                         "Present, acquired image index out of range");
         auto& frame = m_frameContext.GetCurrent();
-        EndFrameRecordingIfNeeded();
+        auto* activeRenderPass = VkRenderPassManager::GetActiveRenderPass();
+        if (activeRenderPass)
+            VkRenderPassManager::EndRenderPass(frame.commandBuffer);
+        if (frame.isCommandRecording) {
+            m_frameContext.EndCommandRecording();
+            frame.hasCommandBufferRecorded = true;
+        }
 
         const auto acquiredImageLayout = m_swapchainObject.GetImageLayout(m_imageIndexAcquired);
         const Bool needsLayoutTransitionForPresent =

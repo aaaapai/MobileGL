@@ -254,12 +254,18 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         renderPassBeginInfo.pClearValues = clearValue.data();
 
         vkCmdBeginRenderPass(commandBuffer, &renderPassBeginInfo, VK_SUBPASS_CONTENTS_INLINE);
+        s_activeRenderPass = &renderPassEntry;
 
         return true;
     }
 
     Bool VkRenderPassManager::EndRenderPass(VkCommandBuffer commandBuffer) {
         vkCmdEndRenderPass(commandBuffer);
+        s_activeRenderPass = nullptr;
         return true;
+    }
+
+    RenderPassEntry* VkRenderPassManager::GetActiveRenderPass() {
+        return s_activeRenderPass;
     }
 } // namespace MobileGL::MG_Backend::DirectVulkan

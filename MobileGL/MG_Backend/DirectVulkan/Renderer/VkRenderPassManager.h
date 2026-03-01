@@ -71,6 +71,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         RenderPassEntry& GetOrCreateRenderPass(const MG_State::GLState::FramebufferObject& fbo);
         static Bool BeginRenderPass(VkCommandBuffer commandBuffer, RenderPassEntry& renderPassEntry);
         static Bool EndRenderPass(VkCommandBuffer commandBuffer);
+        static RenderPassEntry* GetActiveRenderPass();
     private:
         VkDevice m_device = VK_NULL_HANDLE;
         const VulkanRendererConfig& m_config;
@@ -78,5 +79,6 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         VkTextureManager& m_textureManager;
         UnorderedMap<Uint64, RenderPassEntry> m_renderPasses;
         static inline XXH64_state_t* m_hashState = XXH64_createState();
+        static inline RenderPassEntry* s_activeRenderPass = nullptr;
     };
 } // namespace MobileGL::MG_Backend::DirectVulkan
