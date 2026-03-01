@@ -97,6 +97,7 @@ namespace MobileGL {
 
 #if MOBILEGL_LOG_ENABLE_CONSOLE
             std::fwrite(out.c_str(), 1, out.size(), stdout);
+            fflush(stdout);
 #endif
 
 #if MOBILEGL_LOG_ENABLE_ANDROID && defined(__ANDROID__)

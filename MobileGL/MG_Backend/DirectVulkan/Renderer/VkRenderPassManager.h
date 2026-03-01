@@ -26,6 +26,27 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         IntVec2 extent = {0, 0};
         Uint32 subpass = 0;
 
+        RenderPassEntry() = default;
+        RenderPassEntry(const RenderPassEntry&) = delete;
+        RenderPassEntry(RenderPassEntry&& that) noexcept {
+            std::swap(renderPass, that.renderPass);
+            std::swap(framebuffer, that.framebuffer);
+            std::swap(textureResources, that.textureResources);
+            std::swap(extent, that.extent);
+            std::swap(subpass, that.subpass);
+        }
+        RenderPassEntry(
+            VkRenderPass renderpass,
+            VkFramebuffer framebuffer,
+            const std::vector<VkTextureManager::TextureResource*>& textureResources,
+            IntVec2 extent, int subpass):
+            renderPass(renderpass),
+            framebuffer(framebuffer),
+            textureResources(Move(textureResources)),
+            extent(extent),
+            subpass(subpass)
+        {}
+
         ~RenderPassEntry() {
             if (renderPass != VK_NULL_HANDLE) {
                 vkDestroyRenderPass(s_device, renderPass, nullptr);

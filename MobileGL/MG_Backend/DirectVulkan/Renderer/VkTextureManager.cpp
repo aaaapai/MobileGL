@@ -167,6 +167,8 @@ namespace MobileGL::MG_Backend::DirectVulkan {
 
         resource.~TextureResource();
 
+        auto aspect = GetAspectMaskForFormat(format);
+
         VkImageCreateInfo imageInfo{};
         imageInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
         imageInfo.imageType = VK_IMAGE_TYPE_2D;
@@ -178,7 +180,12 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         imageInfo.format = format;
         imageInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
         imageInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-        imageInfo.usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
+        imageInfo.usage =
+            VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT |
+            ((aspect & VK_IMAGE_ASPECT_COLOR_BIT) ?
+                VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT : 0) |
+            ((aspect & VK_IMAGE_ASPECT_DEPTH_BIT || aspect & VK_IMAGE_ASPECT_STENCIL_BIT) ?
+                VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT : 0);
         imageInfo.samples = VK_SAMPLE_COUNT_1_BIT;
         imageInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
         VmaAllocationCreateInfo allocationInfo{};
@@ -192,7 +199,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         viewInfo.image = resource.image;
         viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
         viewInfo.format = format;
-        viewInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        viewInfo.subresourceRange.aspectMask = aspect;
         viewInfo.subresourceRange.baseMipLevel = 0;
         viewInfo.subresourceRange.levelCount = mipLevels;
         viewInfo.subresourceRange.baseArrayLayer = 0;
@@ -203,6 +210,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         resource.extent = {static_cast<Uint32>(texelSize.x()), static_cast<Uint32>(texelSize.y())};
         resource.mipLevels = mipLevels;
         resource.format = format;
+        resource.aspect = viewInfo.subresourceRange.aspectMask;
         return true;
     }
 
@@ -270,6 +278,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
 
         // TODO: Could be uploaded asynchronously?
         const Bool ok = ExecuteCmdBufImmediate([&](VkCommandBuffer commandBuffer) {
+            const VkImageAspectFlags aspectMask = GetAspectMaskForFormat(outResource.format);
             Bool ok = TransitionImageLayout(commandBuffer, outResource.image,
                                   outResource.layout,
                                   VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
@@ -277,7 +286,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                                   VK_PIPELINE_STAGE_TRANSFER_BIT,
                                   outResource.layout == VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL ? VK_ACCESS_SHADER_READ_BIT : 0,
                                   VK_ACCESS_TRANSFER_WRITE_BIT,
-                                  VK_IMAGE_ASPECT_COLOR_BIT);
+                                  aspectMask);
             MOBILEGL_ASSERT(ok, "TransitionImageLayout to VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL failed");
 
             for (const auto& item : uploadItems) {
@@ -285,7 +294,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                 copy.bufferOffset = item.offset;
                 copy.bufferRowLength = 0;
                 copy.bufferImageHeight = 0;
-                copy.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+                copy.imageSubresource.aspectMask = aspectMask;
                 copy.imageSubresource.mipLevel = item.level;
                 copy.imageSubresource.baseArrayLayer = 0;
                 copy.imageSubresource.layerCount = 1;
@@ -302,7 +311,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                                             VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
                                             VK_ACCESS_TRANSFER_WRITE_BIT,
                                             VK_ACCESS_TRANSFER_READ_BIT,
-                                            VK_IMAGE_ASPECT_COLOR_BIT);
+                                            aspectMask);
             MOBILEGL_ASSERT(ok, "TransitionImageLayout to VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL failed");
             outResource.layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
             return ok;
@@ -419,6 +428,23 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             return VK_FORMAT_D32_SFLOAT;
         default:
             return VK_FORMAT_UNDEFINED;
+        }
+    }
+
+    VkImageAspectFlags VkTextureManager::GetAspectMaskForFormat(VkFormat format) {
+        switch (format) {
+        case VK_FORMAT_D16_UNORM:
+        case VK_FORMAT_X8_D24_UNORM_PACK32:
+        case VK_FORMAT_D32_SFLOAT:
+            return VK_IMAGE_ASPECT_DEPTH_BIT;
+        case VK_FORMAT_S8_UINT:
+            return VK_IMAGE_ASPECT_STENCIL_BIT;
+        case VK_FORMAT_D16_UNORM_S8_UINT:
+        case VK_FORMAT_D24_UNORM_S8_UINT:
+        case VK_FORMAT_D32_SFLOAT_S8_UINT:
+            return VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT;
+        default:
+            return VK_IMAGE_ASPECT_COLOR_BIT;
         }
     }
 } // namespace MobileGL::MG_Backend::DirectVulkan

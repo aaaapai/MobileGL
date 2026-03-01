@@ -36,8 +36,9 @@ public:
         VkExtent2D extent = {0, 0};
         Uint32 mipLevels = 1;
         VkFormat format = VK_FORMAT_UNDEFINED;
+        VkImageAspectFlags aspect = VK_IMAGE_ASPECT_NONE;
 
-        TextureResource() {}
+        TextureResource() = default;
         TextureResource(const TextureResource&) = delete;
         TextureResource(TextureResource&& that) noexcept {
             std::swap(this->image, that.image);
@@ -100,6 +101,7 @@ private:
                                         Uint32& outMipLevelCount);
     static Uint32 GetUploadMipLevelCount(const MG_State::GLState::TextureObjectMipmap& texture, TextureUploadTarget target);
     static VkFormat GetVkFormat(TextureInternalFormat format);
+    static VkImageAspectFlags GetAspectMaskForFormat(VkFormat format);
 
     VkDevice m_device = VK_NULL_HANDLE;
     VkPhysicalDevice m_physicalDevice = VK_NULL_HANDLE;

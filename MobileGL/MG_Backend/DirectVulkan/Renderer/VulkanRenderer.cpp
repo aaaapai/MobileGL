@@ -463,7 +463,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         auto vertexInputHash = m_vertexInputStateFactory->ComputeHash(vao);
         auto& vis = m_vertexInputStateFactory->GetOrCreateVertexInputState(vao);
         auto pipelineLayout = m_uniformDescriptorBinder->GetOrCreatePipelineLayout(program);
-        auto renderPassEntry = m_renderPassManager->GetOrCreateRenderPass(drawFbo);
+        auto& renderPassEntry = m_renderPassManager->GetOrCreateRenderPass(drawFbo);
         auto depthTestEnabled = MG_State::pGLContext->IsCapabilityEnabled(CapabilityInput::DepthTest);
         BlendFactor srcRGB = BlendFactor::One;
         BlendFactor dstRGB = BlendFactor::Zero;
@@ -477,7 +477,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             .vertexInputHash = vertexInputHash,
             .pipelineLayout = pipelineLayout,
             .renderPass = renderPassEntry.renderPass,
-            .subpass = renderPassEntry.subpass,
+            .subpass = 0,
             .topology = toVkTopology(mode),
             .depthTestEnable = depthTestEnabled,
             .depthWriteEnable = depthTestEnabled && MG_State::pGLContext->GetDepthMask(),
