@@ -51,6 +51,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         }
 
         if (!SyncTexture(texture, it->second)) {
+            MGLOG_D("%s: Syncing texture %d failed", __func__, texture.GetExternalIndex());
             return nullptr;
         }
 
@@ -110,15 +111,18 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         SizeT byteSize = 0;
         Uint32 mipLevelCount = 0;
         if (!CheckMipmapCompleteness(texture, uploadTarget, texelSize, byteSize, mipLevelCount)) {
+            MGLOG_D("%s: mipmap not complete", __func__);
             return false;
         }
 
         auto* mipTexture = dynamic_cast<MG_State::GLState::TextureObjectMipmap*>(&texture);
         if (!mipTexture) {
+            MGLOG_D("%s: not TextureObjectMipmap", __func__);
             return false;
         }
 
         if (!SyncTextureResource(texture, uploadTarget, texelSize, byteSize, mipLevelCount, outResource)) {
+            MGLOG_D("%s: SyncTextureResource failed", __func__);
             return false;
         }
 
@@ -134,6 +138,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         }
 
         if (!UploadDirtyMipLevels(*mipTexture, uploadTarget, outResource)) {
+            MGLOG_D("%s: UploadDirtyMipLevels failed", __func__);
             return false;
         }
         return true;
@@ -145,15 +150,19 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                                                TextureResource &resource) {
         const VkFormat format = GetVkFormat(texture.GetFormat());
         if (format == VK_FORMAT_UNDEFINED) {
+            MGLOG_D("%s: format == VK_FORMAT_UNDEFINED", __func__);
             return false;
         }
-        if (texelSize.x() <= 0 || texelSize.y() <= 0 || byteSize == 0) {
+        if (texelSize.x() <= 0 || texelSize.y() <= 0 /*|| byteSize == 0*/) {
+            MGLOG_D("%s: texelSize or byteSize is zero", __func__);
             return false;
         }
         if (mipLevels == 0) {
+            MGLOG_D("%s: no mip levels", __func__);
             return false;
         }
         if (uploadTarget != TextureUploadTarget::Texture2D) {
+            MGLOG_D("%s: not Texture2D, unsupported", __func__);
             return false;
         }
 
@@ -243,6 +252,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
 
             const void* source = mipmapTexture.MapMipmapData(uploadTarget, level);
             if (source == nullptr) {
+                MGLOG_D("%s: MapmipmapData failed at level %d", __func__, level);
                 return false;
             }
 
@@ -320,6 +330,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         vmaDestroyBuffer(m_allocator, stagingBuffer, stagingAllocation);
 
         if (!ok) {
+            MGLOG_D("%s: texture upload cmd failed", __func__);
             return false;
         }
         for (const auto& item : uploadItems) {
@@ -366,22 +377,25 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                                                    Uint32& outMipLevelCount) {
         const auto* mipTexture = dynamic_cast<const MG_State::GLState::TextureObjectMipmap*>(&texture);
         if (!mipTexture) {
+            MGLOG_D("%s: not TextureObjectMipmap", __func__);
             return false;
         }
         const auto& targets = texture.GetUploadTargets();
         if (targets.empty()) {
+            MGLOG_D("%s: upload target empty", __func__);
             return false;
         }
 
         for (const auto target : targets) {
             const Uint32 mipLevelCount = GetUploadMipLevelCount(*mipTexture, target);
             if (mipLevelCount == 0) {
+                MGLOG_D("%s: mipLevelCount == 0", __func__);
                 continue;
             }
 
             const auto level0TexelSize = mipTexture->GetMipmapTexelSize(target, 0);
             const auto level0ByteSize = mipTexture->GetMipmapByteSize(target, 0);
-            if (level0TexelSize.x() <= 0 || level0TexelSize.y() <= 0 || level0ByteSize == 0) {
+            if (level0TexelSize.x() <= 0 || level0TexelSize.y() <= 0 /*|| level0ByteSize == 0*/) {
                 continue;
             }
 
@@ -391,6 +405,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             outMipLevelCount = mipLevelCount;
             return true;
         }
+        MGLOG_D("%s: no valid target or mipmap", __func__);
         return false;
     }
 
@@ -405,7 +420,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         for (Uint level = 0; level < totalLevelCount; ++level) {
             const auto size = texture.GetMipmapTexelSize(target, level);
             const auto byteSize = texture.GetMipmapByteSize(target, level);
-            if (size.x() <= 0 || size.y() <= 0 || byteSize == 0) {
+            if (size.x() <= 0 || size.y() <= 0 /*|| byteSize == 0*/) {
                 break;
             }
             ++validLevelCount;
