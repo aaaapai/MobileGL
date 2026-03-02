@@ -14,8 +14,10 @@
 
 namespace MobileGL::MG_Backend::DirectVulkan {
     VkRenderPassManager::VkRenderPassManager(VkDevice device,
-        const VulkanRendererConfig& config, VkClearManager& clearManager, VkTextureManager& textureManager):
-        m_device(device), m_config(config), m_clearManager(clearManager), m_textureManager(textureManager) {
+        const VulkanRendererConfig& config, VkClearManager& clearManager, VkTextureManager& textureManager,
+        const SwapchainObject& swapchainObject):
+        m_device(device), m_config(config), m_clearManager(clearManager), m_textureManager(textureManager),
+        m_swapchainObject(swapchainObject) {
         RenderPassEntry::s_device = m_device;
     }
 
@@ -29,8 +31,12 @@ namespace MobileGL::MG_Backend::DirectVulkan {
     }
 
     VkRenderPassManager::HashType VkRenderPassManager::ComputeHash(
-        const MG_State::GLState::FramebufferObject& fbo) const {
+        const MG_State::GLState::FramebufferObject& fbo, Uint32 swapchainImageIndex) const {
         XXHASH_VERIFY(XXH64_reset(m_hashState, m_config.CacheVersion));
+        const Bool isDefaultFbo = (&fbo == MG_Impl::GLImpl::FramebufferImpl::pDefaultFramebufferInfo->defaultFBO.get());
+        if (isDefaultFbo) {
+            XXHASH_VERIFY(XXH64_update(m_hashState, &swapchainImageIndex, sizeof(swapchainImageIndex)));
+        }
         auto& drawBuffers = fbo.GetDrawBuffers();
         XXHASH_VERIFY(XXH64_update(m_hashState, drawBuffers.data(), drawBuffers.size() * sizeof(drawBuffers[0])));
         auto readBuffer = fbo.GetReadBuffer();
@@ -75,9 +81,10 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         return XXH64_digest(m_hashState);
     }
 
-    RenderPassEntry& VkRenderPassManager::GetOrCreateRenderPass(const MG_State::GLState::FramebufferObject& fbo) {
+    RenderPassEntry& VkRenderPassManager::GetOrCreateRenderPass(const MG_State::GLState::FramebufferObject& fbo,
+                                                                Uint32 swapchainImageIndex) {
         // retrieve from cache first
-        auto hash = ComputeHash(fbo);
+        auto hash = ComputeHash(fbo, swapchainImageIndex);
         auto it = m_renderPasses.find(hash);
         if (it != m_renderPasses.end())
             return it->second;
@@ -97,6 +104,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         Vector<VkAttachmentDescription> attachmentDescriptions(validDrawBufCount);
         Vector<VkAttachmentReference> colorAttachmentRefs(validDrawBufCount);
         Vector<VkTextureManager::TextureResource*> textureResources(validDrawBufCount, nullptr);
+        Vector<VkImageView> attachmentViews(validDrawBufCount, VK_NULL_HANDLE);
         // This should automatically work on default & offscreen FBO
         // assuming default FBO has the right param
         for (Int i = 0; i < validDrawBufCount; ++i) {
@@ -136,8 +144,17 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                     if (height == 0)
                         height = texture2d->GetBaseSize().y();
 
-                    textureResources[i] = m_textureManager.SyncTextureAndGetDescriptor(*texture);
-                    MOBILEGL_ASSERT(textureResources[i], "GetOrCreateRenderPass: SyncTextureAndGetDescriptor failed at color attachment %d", i);
+                    if (isDefaultFbo) {
+                        const auto& swapchainViews = m_swapchainObject.GetImageViews();
+                        MOBILEGL_ASSERT(swapchainImageIndex < swapchainViews.size(),
+                                        "GetOrCreateRenderPass: swapchain image index out of range");
+                        attachmentViews[i] = swapchainViews[swapchainImageIndex];
+                    } else {
+                        textureResources[i] = m_textureManager.SyncTextureAndGetDescriptor(*texture);
+                        MOBILEGL_ASSERT(textureResources[i],
+                                        "GetOrCreateRenderPass: SyncTextureAndGetDescriptor failed at color attachment %d", i);
+                        attachmentViews[i] = textureResources[i]->view;
+                    }
 
                     break;
                 }
@@ -166,13 +183,17 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             depthAttachmentDescription.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
             depthAttachmentDescription.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
             depthAttachmentDescription.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-            depthAttachmentDescription.finalLayout = isDefaultFbo ?
-                VK_IMAGE_LAYOUT_PRESENT_SRC_KHR :
-                VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-            depthTextureResource = m_textureManager.SyncTextureAndGetDescriptor(texture);
-            MOBILEGL_ASSERT(depthTextureResource, "GetOrCreateRenderPass: SyncTextureAndGetDescriptor failed at depth attachment");
+            depthAttachmentDescription.finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+            if (isDefaultFbo) {
+                attachmentViews.emplace_back(m_swapchainObject.GetDepthStencilImageView(swapchainImageIndex));
+            } else {
+                depthTextureResource = m_textureManager.SyncTextureAndGetDescriptor(texture);
+                MOBILEGL_ASSERT(depthTextureResource,
+                                "GetOrCreateRenderPass: SyncTextureAndGetDescriptor failed at depth attachment");
+                textureResources.emplace_back(depthTextureResource);
+                attachmentViews.emplace_back(depthTextureResource->view);
+            }
             attachmentDescriptions.emplace_back(depthAttachmentDescription);
-            textureResources.emplace_back(depthTextureResource);
         }
 
         // Depth attachment ref
@@ -208,11 +229,6 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         VkRenderPass renderPass = VK_NULL_HANDLE;
         VK_VERIFY(vkCreateRenderPass(m_device, &renderPassCreateInfo, nullptr, &renderPass));
 
-        Vector<VkImageView> attachmentViews(textureResources.size(), VK_NULL_HANDLE);
-        for (Int i = 0; i < textureResources.size(); i++) {
-            attachmentViews[i] = textureResources[i]->view;
-        }
-
         // Framebuffer
         VkFramebufferCreateInfo framebufferCreateInfo;
         framebufferCreateInfo.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
@@ -228,7 +244,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         VK_VERIFY(vkCreateFramebuffer(m_device, &framebufferCreateInfo, nullptr, &framebuffer));
         IntVec2 extent = {width, height};
         RenderPassEntry renderPassEntry {
-            renderPass, framebuffer, Move(textureResources), extent, 1 };
+            renderPass, framebuffer, Move(textureResources), static_cast<Uint32>(attachmentViews.size()), extent, 1 };
         auto [insertedIt, _] = m_renderPasses.emplace(hash, Move(renderPassEntry));
         return insertedIt->second;
     }
@@ -248,7 +264,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         VkClearValue defaultClearValue;
         defaultClearValue.color = { 0.0f, 0.0f, 0.0f, 1.0f };
         defaultClearValue.depthStencil = { 1.0f, 0 };
-        Vector<VkClearValue> clearValue(renderPassEntry.textureResources.size(), defaultClearValue);
+        Vector<VkClearValue> clearValue(renderPassEntry.attachmentCount, defaultClearValue);
 
         renderPassBeginInfo.clearValueCount = clearValue.size();
         renderPassBeginInfo.pClearValues = clearValue.data();

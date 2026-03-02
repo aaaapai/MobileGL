@@ -112,7 +112,8 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         MOBILEGL_ASSERT(m_clearManager != nullptr, "VkClearManager creation failed.");
         succeeded = m_clearManager->Initialize();
         MOBILEGL_ASSERT(succeeded, "VkClearManager initialization failed.");
-        m_renderPassManager = MakeUnique<VkRenderPassManager>(m_device, m_config, *m_clearManager, *m_textureManager);
+        m_renderPassManager =
+            MakeUnique<VkRenderPassManager>(m_device, m_config, *m_clearManager, *m_textureManager, m_swapchainObject);
         MOBILEGL_ASSERT(m_renderPassManager != nullptr, "VkRenderPassManager creation failed.");
         succeeded = m_renderPassManager->Initialize();
         MOBILEGL_ASSERT(succeeded, "VkRenderPassManager initialization failed.");
@@ -463,7 +464,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         auto vertexInputHash = m_vertexInputStateFactory->ComputeHash(vao);
         auto& vis = m_vertexInputStateFactory->GetOrCreateVertexInputState(vao);
         auto pipelineLayout = m_uniformDescriptorBinder->GetOrCreatePipelineLayout(program);
-        auto& renderPassEntry = m_renderPassManager->GetOrCreateRenderPass(drawFbo);
+        auto& renderPassEntry = m_renderPassManager->GetOrCreateRenderPass(drawFbo, m_imageIndexAcquired);
         auto depthTestEnabled = MG_State::pGLContext->IsCapabilityEnabled(CapabilityInput::DepthTest);
         BlendFactor srcRGB = BlendFactor::One;
         BlendFactor dstRGB = BlendFactor::Zero;
@@ -505,11 +506,12 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             m_uniformDescriptorBinder->BeginFrame(m_frameContext.GetCurrentFrameIndex());
         }
 
-        const auto& drawFbo = MG_State::pGLContext->GetFramebufferBindingSlot(FramebufferTarget::Draw).GetBoundObject();
+        const auto& drawFbo =
+            MG_State::pGLContext->GetFramebufferBindingSlot(FramebufferTarget::Draw).GetBoundObject();
 
         // Begin render pass
         // TODO: properly deal with clear
-        auto& renderPassEntry = m_renderPassManager->GetOrCreateRenderPass(*drawFbo);
+        auto& renderPassEntry = m_renderPassManager->GetOrCreateRenderPass(*drawFbo, m_imageIndexAcquired);
         auto* activeRenderPass = VkRenderPassManager::GetActiveRenderPass();
         if (activeRenderPass != &renderPassEntry) {
             if (activeRenderPass) {

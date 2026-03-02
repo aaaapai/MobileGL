@@ -8,6 +8,7 @@
 
 #pragma once
 
+#include "SwapchainObject.h"
 #include "VkClearManager.h"
 #include "VkTextureManager.h"
 #include "../VkIncludes.h"
@@ -23,6 +24,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         VkFramebuffer framebuffer = VK_NULL_HANDLE;
         // Should we hold pointer-to-resource here?
         Vector<VkTextureManager::TextureResource*> textureResources;
+        Uint32 attachmentCount = 0;
         IntVec2 extent = {0, 0};
         Uint32 subpass = 0;
 
@@ -32,6 +34,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             std::swap(renderPass, that.renderPass);
             std::swap(framebuffer, that.framebuffer);
             std::swap(textureResources, that.textureResources);
+            std::swap(attachmentCount, that.attachmentCount);
             std::swap(extent, that.extent);
             std::swap(subpass, that.subpass);
         }
@@ -39,10 +42,12 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             VkRenderPass renderpass,
             VkFramebuffer framebuffer,
             const std::vector<VkTextureManager::TextureResource*>& textureResources,
+            Uint32 attachmentCount,
             IntVec2 extent, int subpass):
             renderPass(renderpass),
             framebuffer(framebuffer),
             textureResources(Move(textureResources)),
+            attachmentCount(attachmentCount),
             extent(extent),
             subpass(subpass)
         {}
@@ -61,14 +66,15 @@ namespace MobileGL::MG_Backend::DirectVulkan {
     public:
         using HashType = Uint64;
         VkRenderPassManager(VkDevice device,
-            const VulkanRendererConfig& config, VkClearManager& clearManager, VkTextureManager& textureManager);
+            const VulkanRendererConfig& config, VkClearManager& clearManager, VkTextureManager& textureManager,
+            const SwapchainObject& swapchainObject);
         ~VkRenderPassManager();
 
         Bool Initialize();
         void Shutdown();
 
-        HashType ComputeHash(const MG_State::GLState::FramebufferObject& fbo) const;
-        RenderPassEntry& GetOrCreateRenderPass(const MG_State::GLState::FramebufferObject& fbo);
+        HashType ComputeHash(const MG_State::GLState::FramebufferObject& fbo, Uint32 swapchainImageIndex) const;
+        RenderPassEntry& GetOrCreateRenderPass(const MG_State::GLState::FramebufferObject& fbo, Uint32 swapchainImageIndex);
         static Bool BeginRenderPass(VkCommandBuffer commandBuffer, RenderPassEntry& renderPassEntry);
         static Bool EndRenderPass(VkCommandBuffer commandBuffer);
         static RenderPassEntry* GetActiveRenderPass();
@@ -77,6 +83,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         const VulkanRendererConfig& m_config;
         VkClearManager& m_clearManager;
         VkTextureManager& m_textureManager;
+        const SwapchainObject& m_swapchainObject;
         UnorderedMap<Uint64, RenderPassEntry> m_renderPasses;
         static inline XXH64_state_t* m_hashState = XXH64_createState();
         static inline RenderPassEntry* s_activeRenderPass = nullptr;
