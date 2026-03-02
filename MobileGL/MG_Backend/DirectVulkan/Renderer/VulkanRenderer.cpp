@@ -514,11 +514,16 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         auto& renderPassEntry = m_renderPassManager->GetOrCreateRenderPass(*drawFbo, m_imageIndexAcquired);
         auto* activeRenderPass = VkRenderPassManager::GetActiveRenderPass();
         if (activeRenderPass != &renderPassEntry) {
-            if (activeRenderPass) {
-                VkRenderPassManager::EndRenderPass(frame.commandBuffer);
+            if (activeRenderPass &&
+                VkRenderPassManager::TryClearPendingAttachmentsOnActiveRenderPass(frame.commandBuffer, renderPassEntry)) {
+                // Keep the current compatible render pass open and clear inside it.
+            } else {
+                if (activeRenderPass) {
+                    VkRenderPassManager::EndRenderPass(frame.commandBuffer);
+                }
+                Bool ok = VkRenderPassManager::BeginRenderPass(frame.commandBuffer, renderPassEntry);
+                MOBILEGL_ASSERT(ok, "%s: BeginRenderPass failed", __func__);
             }
-            Bool ok = VkRenderPassManager::BeginRenderPass(frame.commandBuffer, renderPassEntry);
-            MOBILEGL_ASSERT(ok, "%s: BeginRenderPass failed", __func__);
         } else {
             // We probably already have one compatible render pass running. Keep going.
         }

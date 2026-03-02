@@ -27,6 +27,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         static inline VkDevice s_device;
         VkRenderPass renderPass = VK_NULL_HANDLE;
         VkFramebuffer framebuffer = VK_NULL_HANDLE;
+        Uint64 compatibilityHash = 0;
         // Should we hold pointer-to-resource here?
         Vector<VkTextureManager::TextureResource*> textureResources;
         Vector<PendingClearAttachmentInfo> pendingClearAttachments;
@@ -39,6 +40,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         RenderPassEntry(RenderPassEntry&& that) noexcept {
             std::swap(renderPass, that.renderPass);
             std::swap(framebuffer, that.framebuffer);
+            std::swap(compatibilityHash, that.compatibilityHash);
             std::swap(textureResources, that.textureResources);
             std::swap(pendingClearAttachments, that.pendingClearAttachments);
             std::swap(attachmentCount, that.attachmentCount);
@@ -48,12 +50,14 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         RenderPassEntry(
             VkRenderPass renderpass,
             VkFramebuffer framebuffer,
+            Uint64 compatibilityHash,
             const std::vector<VkTextureManager::TextureResource*>& textureResources,
             const Vector<PendingClearAttachmentInfo>& pendingClearAttachments,
             Uint32 attachmentCount,
             IntVec2 extent, int subpass):
             renderPass(renderpass),
             framebuffer(framebuffer),
+            compatibilityHash(compatibilityHash),
             textureResources(Move(textureResources)),
             pendingClearAttachments(Move(pendingClearAttachments)),
             attachmentCount(attachmentCount),
@@ -82,8 +86,14 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         Bool Initialize();
         void Shutdown();
 
-        HashType ComputeHash(const MG_State::GLState::FramebufferObject& fbo, Uint32 swapchainImageIndex) const;
+        HashType ComputeHash(
+            const MG_State::GLState::FramebufferObject& fbo,
+            Uint32 swapchainImageIndex,
+            Bool includePendingClear = true) const;
         RenderPassEntry& GetOrCreateRenderPass(const MG_State::GLState::FramebufferObject& fbo, Uint32 swapchainImageIndex);
+        static Bool TryClearPendingAttachmentsOnActiveRenderPass(
+            VkCommandBuffer commandBuffer,
+            const RenderPassEntry& compatibleRenderPassEntry);
         static Bool BeginRenderPass(VkCommandBuffer commandBuffer, RenderPassEntry& renderPassEntry);
         static Bool EndRenderPass(VkCommandBuffer commandBuffer);
         static RenderPassEntry* GetActiveRenderPass();

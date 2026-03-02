@@ -32,7 +32,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
     }
 
     VkRenderPassManager::HashType VkRenderPassManager::ComputeHash(
-        const MG_State::GLState::FramebufferObject& fbo, Uint32 swapchainImageIndex) const {
+        const MG_State::GLState::FramebufferObject& fbo, Uint32 swapchainImageIndex, Bool includePendingClear) const {
         XXHASH_VERIFY(XXH64_reset(m_hashState, m_config.CacheVersion));
         const Bool isDefaultFbo = (&fbo == MG_Impl::GLImpl::FramebufferImpl::pDefaultFramebufferInfo->defaultFBO.get());
         if (isDefaultFbo) {
@@ -65,7 +65,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                 contentPtr = att.GetRenderbuffer().get();
             XXHASH_VERIFY(XXH64_update(m_hashState, &contentPtr, sizeof(contentPtr)));
 
-            if (att.IsTexture()) {
+            if (includePendingClear && att.IsTexture()) {
                 auto* texture = att.GetTexture().get();
                 auto hasClear = m_clearManager.HasPendingClear(texture);
                 XXHASH_VERIFY(XXH64_update(m_hashState, &hasClear, sizeof(hasClear)));
@@ -95,7 +95,8 @@ namespace MobileGL::MG_Backend::DirectVulkan {
     RenderPassEntry& VkRenderPassManager::GetOrCreateRenderPass(const MG_State::GLState::FramebufferObject& fbo,
                                                                 Uint32 swapchainImageIndex) {
         // retrieve from cache first
-        auto hash = ComputeHash(fbo, swapchainImageIndex);
+        auto hash = ComputeHash(fbo, swapchainImageIndex, true);
+        auto compatibilityHash = ComputeHash(fbo, swapchainImageIndex, false);
         auto it = m_renderPasses.find(hash);
         if (it != m_renderPasses.end())
             return it->second;
@@ -288,6 +289,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         RenderPassEntry renderPassEntry {
             renderPass,
             framebuffer,
+            compatibilityHash,
             Move(textureResources),
             Move(pendingClearAttachments),
             static_cast<Uint32>(attachmentViews.size()),
@@ -295,6 +297,64 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             1 };
         auto [insertedIt, _] = m_renderPasses.emplace(hash, Move(renderPassEntry));
         return insertedIt->second;
+    }
+
+    Bool VkRenderPassManager::TryClearPendingAttachmentsOnActiveRenderPass(
+        VkCommandBuffer commandBuffer,
+        const RenderPassEntry& compatibleRenderPassEntry) {
+        if (!s_activeRenderPass || !s_clearManager) {
+            return false;
+        }
+        if (s_activeRenderPass->compatibilityHash != compatibleRenderPassEntry.compatibilityHash) {
+            return false;
+        }
+
+        VkClearRect clearRect{};
+        clearRect.rect.offset = {0, 0};
+        clearRect.rect.extent = {
+            static_cast<Uint32>(s_activeRenderPass->extent.x()),
+            static_cast<Uint32>(s_activeRenderPass->extent.y())
+        };
+        clearRect.baseArrayLayer = 0;
+        clearRect.layerCount = 1;
+
+        for (const auto& pending : compatibleRenderPassEntry.pendingClearAttachments) {
+            if (!pending.texture) {
+                continue;
+            }
+
+            ClearAttachmentPayload clearPayload{};
+            if (!s_clearManager->GetPendingClear(pending.texture, clearPayload)) {
+                continue;
+            }
+
+            VkClearAttachment clearAttachment{};
+            clearAttachment.clearValue.depthStencil = {1.0f, 0};
+            if (clearPayload.attachmentType >= FramebufferAttachmentType::Color0 &&
+                clearPayload.attachmentType <= FramebufferAttachmentType::Color31) {
+                clearAttachment.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+                clearAttachment.colorAttachment = pending.attachmentIndex;
+                clearAttachment.clearValue.color = {
+                    clearPayload.color.x(),
+                    clearPayload.color.y(),
+                    clearPayload.color.z(),
+                    clearPayload.color.w()
+                };
+            } else if (clearPayload.attachmentType == FramebufferAttachmentType::Depth) {
+                clearAttachment.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
+                clearAttachment.clearValue.depthStencil.depth = clearPayload.depth;
+            } else if (clearPayload.attachmentType == FramebufferAttachmentType::Stencil) {
+                clearAttachment.aspectMask = VK_IMAGE_ASPECT_STENCIL_BIT;
+                clearAttachment.clearValue.depthStencil.stencil = clearPayload.stencil;
+            } else {
+                continue;
+            }
+
+            vkCmdClearAttachments(commandBuffer, 1, &clearAttachment, 1, &clearRect);
+            s_clearManager->PopPendingClear(pending.texture);
+        }
+
+        return true;
     }
 
     Bool VkRenderPassManager::BeginRenderPass(VkCommandBuffer commandBuffer, RenderPassEntry& renderPassEntry) {
