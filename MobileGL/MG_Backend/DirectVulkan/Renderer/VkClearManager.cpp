@@ -47,7 +47,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             QueueClear({
                 .stencil = clearPayload.stencil,
                 .attachmentType = FramebufferAttachmentType::Stencil,
-            }, drawFbo.GetAttachment(FramebufferAttachmentType::Depth).GetTexture());
+            }, drawFbo.GetAttachment(FramebufferAttachmentType::Stencil).GetTexture());
         }
     }
 

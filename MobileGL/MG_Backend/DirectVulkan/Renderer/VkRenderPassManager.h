@@ -18,12 +18,18 @@
 #include <Includes.h>
 
 namespace MobileGL::MG_Backend::DirectVulkan {
+    struct PendingClearAttachmentInfo {
+        Uint32 attachmentIndex = 0;
+        MG_State::GLState::ITextureObject* texture = nullptr;
+    };
+
     struct RenderPassEntry {
         static inline VkDevice s_device;
         VkRenderPass renderPass = VK_NULL_HANDLE;
         VkFramebuffer framebuffer = VK_NULL_HANDLE;
         // Should we hold pointer-to-resource here?
         Vector<VkTextureManager::TextureResource*> textureResources;
+        Vector<PendingClearAttachmentInfo> pendingClearAttachments;
         Uint32 attachmentCount = 0;
         IntVec2 extent = {0, 0};
         Uint32 subpass = 0;
@@ -34,6 +40,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             std::swap(renderPass, that.renderPass);
             std::swap(framebuffer, that.framebuffer);
             std::swap(textureResources, that.textureResources);
+            std::swap(pendingClearAttachments, that.pendingClearAttachments);
             std::swap(attachmentCount, that.attachmentCount);
             std::swap(extent, that.extent);
             std::swap(subpass, that.subpass);
@@ -42,11 +49,13 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             VkRenderPass renderpass,
             VkFramebuffer framebuffer,
             const std::vector<VkTextureManager::TextureResource*>& textureResources,
+            const Vector<PendingClearAttachmentInfo>& pendingClearAttachments,
             Uint32 attachmentCount,
             IntVec2 extent, int subpass):
             renderPass(renderpass),
             framebuffer(framebuffer),
             textureResources(Move(textureResources)),
+            pendingClearAttachments(Move(pendingClearAttachments)),
             attachmentCount(attachmentCount),
             extent(extent),
             subpass(subpass)
@@ -87,5 +96,6 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         UnorderedMap<Uint64, RenderPassEntry> m_renderPasses;
         static inline XXH64_state_t* m_hashState = XXH64_createState();
         static inline RenderPassEntry* s_activeRenderPass = nullptr;
+        static inline VkClearManager* s_clearManager = nullptr;
     };
 } // namespace MobileGL::MG_Backend::DirectVulkan
