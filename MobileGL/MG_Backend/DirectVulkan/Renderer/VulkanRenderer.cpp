@@ -224,48 +224,6 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         MGLOG_I("VulkanRenderer shut down completed");
     }
 
-    void VulkanRenderer::TransitionSwapchainImageToColorAttachment(VkCommandBuffer commandBuffer, Uint32 imageIndex) {
-        auto layout = m_swapchainObject.GetImageLayout(imageIndex);
-        Bool ok = VkTextureManager::TransitionImageLayout(commandBuffer, m_swapchainObject.GetImage(imageIndex),
-                                                layout, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-                                                VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
-                                                0, VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
-                                                VK_IMAGE_ASPECT_COLOR_BIT);
-        MOBILEGL_ASSERT(ok, "TransitionSwapchainImageToColorAttachment failed");
-        m_swapchainObject.SetImageLayout(imageIndex, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
-    }
-
-    void VulkanRenderer::TransitionDepthStencilImageToAttachment(VkCommandBuffer commandBuffer, Uint32 imageIndex) {
-        if (m_swapchainObject.GetDepthStencilFormat() == VK_FORMAT_UNDEFINED) {
-            return;
-        }
-
-        VkImageAspectFlags aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
-        const auto depthStencilFormat = m_swapchainObject.GetDepthStencilFormat();
-        if (depthStencilFormat == VK_FORMAT_D24_UNORM_S8_UINT || depthStencilFormat == VK_FORMAT_D32_SFLOAT_S8_UINT) {
-            aspectMask |= VK_IMAGE_ASPECT_STENCIL_BIT;
-        }
-
-        auto oldLayout = m_swapchainObject.GetDepthStencilImageLayout(imageIndex);
-        Bool ok = VkTextureManager::TransitionImageLayout(
-            commandBuffer, m_swapchainObject.GetDepthStencilImage(imageIndex),
-            oldLayout, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
-            VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
-            VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT, 0,
-            VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT, aspectMask);
-        MOBILEGL_ASSERT(ok, "TransitionDepthStencilImageToAttachment failed");
-        m_swapchainObject.SetDepthStencilImageLayout(imageIndex, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
-    }
-
-    void VulkanRenderer::EndFrameRecordingIfNeeded() {
-        auto& frame = m_frameContext.GetCurrent();
-        if (!frame.isCommandRecording) {
-            return;
-        }
-
-        m_frameContext.EndCommandRecording();
-    }
-
     void VulkanRenderer::DeferDestroyBuffer(VkBufferObject& buffer) {
         if (!buffer.IsValid()) {
             return;

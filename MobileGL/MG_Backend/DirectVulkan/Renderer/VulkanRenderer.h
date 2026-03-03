@@ -100,14 +100,10 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         VkInstance m_instance = VK_NULL_HANDLE;
         VkDebugUtilsMessengerEXT m_debugMessenger = VK_NULL_HANDLE;
         PhysicalDevice m_physicalDevice;
-        // VkPhysicalDevice m_physicalDevice = VK_NULL_HANDLE;
         VkDevice m_device = VK_NULL_HANDLE;
         VmaAllocator m_allocator = nullptr;
         VkSurfaceKHR m_surface = VK_NULL_HANDLE;
         SwapchainObject m_swapchainObject;
-
-        // Vector<VkQueueFamilyProperties> m_queueFamilies;
-        // QueueFamilyIndices m_queueFamilyIndices;
 
         VkQueue m_graphicsQueue = VK_NULL_HANDLE;
         VkQueue m_presentQueue = VK_NULL_HANDLE;
@@ -159,9 +155,6 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             const MG_State::GLState::VertexArrayObject& vao,
             const MG_State::GLState::FramebufferObject& drawFbo);
 
-        void TransitionSwapchainImageToColorAttachment(VkCommandBuffer commandBuffer, Uint32 imageIndex);
-        void TransitionDepthStencilImageToAttachment(VkCommandBuffer commandBuffer, Uint32 imageIndex);
-        void EndFrameRecordingIfNeeded();
         void DeferDestroyBuffer(VkBufferObject& buffer);
         void CollectDeferredBufferReleases(Uint32 frameIndex);
         Bool EnsureFrameUploadBufferCapacity(Uint32 frameIndex, Bool isIndexBuffer, VkDeviceSize requiredEndOffset,
