@@ -299,57 +299,6 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         return insertedIt->second;
     }
 
-    Bool VkRenderPassManager::TryClearPendingAttachmentsOnActiveRenderPass(
-        VkCommandBuffer commandBuffer,
-        const RenderPassEntry& compatibleRenderPassEntry) {
-        VkClearRect clearRect{};
-        clearRect.rect.offset = {0, 0};
-        clearRect.rect.extent = {
-            static_cast<Uint32>(s_activeRenderPass->extent.x()),
-            static_cast<Uint32>(s_activeRenderPass->extent.y())
-        };
-        clearRect.baseArrayLayer = 0;
-        clearRect.layerCount = 1;
-
-        for (const auto& pending : compatibleRenderPassEntry.pendingClearAttachments) {
-            if (!pending.texture) {
-                continue;
-            }
-
-            ClearAttachmentPayload clearPayload{};
-            if (!s_clearManager->GetPendingClear(pending.texture, clearPayload)) {
-                continue;
-            }
-
-            VkClearAttachment clearAttachment{};
-            clearAttachment.clearValue.depthStencil = {1.0f, 0};
-            if (clearPayload.attachmentType >= FramebufferAttachmentType::Color0 &&
-                clearPayload.attachmentType <= FramebufferAttachmentType::Color31) {
-                clearAttachment.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-                clearAttachment.colorAttachment = pending.attachmentIndex;
-                clearAttachment.clearValue.color = {
-                    clearPayload.color.x(),
-                    clearPayload.color.y(),
-                    clearPayload.color.z(),
-                    clearPayload.color.w()
-                };
-            } else if (clearPayload.attachmentType == FramebufferAttachmentType::Depth) {
-                clearAttachment.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
-                clearAttachment.clearValue.depthStencil.depth = clearPayload.depth;
-            } else if (clearPayload.attachmentType == FramebufferAttachmentType::Stencil) {
-                clearAttachment.aspectMask = VK_IMAGE_ASPECT_STENCIL_BIT;
-                clearAttachment.clearValue.depthStencil.stencil = clearPayload.stencil;
-            } else {
-                continue;
-            }
-
-            vkCmdClearAttachments(commandBuffer, 1, &clearAttachment, 1, &clearRect);
-            s_clearManager->PopPendingClear(pending.texture);
-        }
-
-        return true;
-    }
-
     Bool VkRenderPassManager::BeginRenderPass(VkCommandBuffer commandBuffer, RenderPassEntry& renderPassEntry) {
         // TODO: Transition all the attachments into proper layout before starting the render pass
         VkRenderPassBeginInfo renderPassBeginInfo;

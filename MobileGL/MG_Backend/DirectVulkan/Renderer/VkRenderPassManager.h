@@ -95,9 +95,6 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             Uint32 swapchainImageIndex,
             Bool includePendingClear = true) const;
         RenderPassEntry& GetOrCreateRenderPass(const MG_State::GLState::FramebufferObject& fbo, Uint32 swapchainImageIndex);
-        static Bool TryClearPendingAttachmentsOnActiveRenderPass(
-            VkCommandBuffer commandBuffer,
-            const RenderPassEntry& compatibleRenderPassEntry);
         static Bool BeginRenderPass(VkCommandBuffer commandBuffer, RenderPassEntry& renderPassEntry);
         static Bool EndRenderPass(VkCommandBuffer commandBuffer);
         static RenderPassEntry* GetActiveRenderPass();
