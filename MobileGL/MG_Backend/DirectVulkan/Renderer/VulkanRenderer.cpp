@@ -547,9 +547,16 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         viewport.maxDepth = 1.0f;
         vkCmdSetViewport(frame.commandBuffer, 0, 1, &viewport);
 
+        Bool scissorEnabled = MG_State::pGLContext->IsCapabilityEnabled(CapabilityInput::ScissorTest);
         VkRect2D scissor{};
-        scissor.offset = {0, 0};
-        scissor.extent = { (Uint)renderPassEntry.extent.x(), (Uint)renderPassEntry.extent.y() };
+        if (scissorEnabled) {
+            const auto& scissorBox = MG_State::pGLContext->GetScissorBox();
+            scissor.offset = { scissorBox[0], scissorBox[1] };
+            scissor.extent = { (Uint)scissorBox[2], (Uint)scissorBox[3] };
+        } else {
+            scissor.offset = {0, 0};
+            scissor.extent = { (Uint)renderPassEntry.extent.x(), (Uint)renderPassEntry.extent.y() };
+        }
         vkCmdSetScissor(frame.commandBuffer, 0, 1, &scissor);
     }
 
