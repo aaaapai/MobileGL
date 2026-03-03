@@ -392,23 +392,19 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         const auto& drawFbo =
             MG_State::pGLContext->GetFramebufferBindingSlot(FramebufferTarget::Draw).GetBoundObject();
 
-        // Begin render pass
-        // TODO: properly deal with clear
+        // Begin render pass, and handle clear
         auto& renderPassEntry = m_renderPassManager->GetOrCreateRenderPass(*drawFbo, m_imageIndexAcquired);
         auto* activeRenderPass = VkRenderPassManager::GetActiveRenderPass();
-        if (activeRenderPass != &renderPassEntry) {
-            if (activeRenderPass &&
-                VkRenderPassManager::TryClearPendingAttachmentsOnActiveRenderPass(frame.commandBuffer, renderPassEntry)) {
-                // Keep the current compatible render pass open and clear inside it.
-            } else {
-                if (activeRenderPass) {
-                    VkRenderPassManager::EndRenderPass(frame.commandBuffer);
-                }
-                Bool ok = VkRenderPassManager::BeginRenderPass(frame.commandBuffer, renderPassEntry);
-                MOBILEGL_ASSERT(ok, "%s: BeginRenderPass failed", __func__);
-            }
+
+        if (activeRenderPass && (activeRenderPass == &renderPassEntry || activeRenderPass->CompatibleWith(renderPassEntry))) {
+            ClearAttachmentsOnActiveRenderPass(frame.commandBuffer, renderPassEntry);
         } else {
-            // We probably already have one compatible render pass running. Keep going.
+            // No active render pass or active one not compatible.
+            // Restart a new render pass
+            if (activeRenderPass)
+                VkRenderPassManager::EndRenderPass(frame.commandBuffer);
+            Bool ok = VkRenderPassManager::BeginRenderPass(frame.commandBuffer, renderPassEntry);
+            MOBILEGL_ASSERT(ok, "%s: BeginRenderPass failed", __func__);
         }
 
         const auto& vao = *MG_State::pGLContext->GetBoundVertexArray();
@@ -1139,5 +1135,55 @@ namespace MobileGL::MG_Backend::DirectVulkan {
 
     Bool VulkanRenderer::IsDrawIndirectCountExtensionEnabled() const {
         return m_drawIndirectCountExtensionEnabled;
+    }
+
+    void VulkanRenderer::ClearAttachmentsOnActiveRenderPass(VkCommandBuffer commandBuffer,
+                                                            const RenderPassEntry &compatibleRenderPassEntry) {
+        auto* activeRenderPass = VkRenderPassManager::GetActiveRenderPass();
+        MOBILEGL_ASSERT(activeRenderPass, "No render pass active");
+        VkClearRect clearRect{};
+        clearRect.rect.offset = {0, 0};
+        clearRect.rect.extent = {
+                static_cast<Uint32>(activeRenderPass->extent.x()),
+                static_cast<Uint32>(activeRenderPass->extent.y())
+        };
+        clearRect.baseArrayLayer = 0;
+        clearRect.layerCount = 1;
+
+        for (const auto& pending : compatibleRenderPassEntry.pendingClearAttachments) {
+            if (!pending.texture) {
+                continue;
+            }
+
+            ClearAttachmentPayload clearPayload{};
+            if (!m_clearManager->GetPendingClear(pending.texture, clearPayload)) {
+                continue;
+            }
+
+            VkClearAttachment clearAttachment{};
+            clearAttachment.clearValue.depthStencil = {1.0f, 0};
+            if (clearPayload.attachmentType >= FramebufferAttachmentType::Color0 &&
+                clearPayload.attachmentType <= FramebufferAttachmentType::Color31) {
+                clearAttachment.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+                clearAttachment.colorAttachment = pending.attachmentIndex;
+                clearAttachment.clearValue.color = {
+                        clearPayload.color.x(),
+                        clearPayload.color.y(),
+                        clearPayload.color.z(),
+                        clearPayload.color.w()
+                };
+            } else if (clearPayload.attachmentType == FramebufferAttachmentType::Depth) {
+                clearAttachment.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
+                clearAttachment.clearValue.depthStencil.depth = clearPayload.depth;
+            } else if (clearPayload.attachmentType == FramebufferAttachmentType::Stencil) {
+                clearAttachment.aspectMask = VK_IMAGE_ASPECT_STENCIL_BIT;
+                clearAttachment.clearValue.depthStencil.stencil = clearPayload.stencil;
+            } else {
+                continue;
+            }
+
+            vkCmdClearAttachments(commandBuffer, 1, &clearAttachment, 1, &clearRect);
+            m_clearManager->PopPendingClear(pending.texture);
+        }
     }
 } // namespace MobileGL::MG_Backend::DirectVulkan

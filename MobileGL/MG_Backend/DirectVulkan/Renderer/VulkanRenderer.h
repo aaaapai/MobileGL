@@ -78,6 +78,8 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         void Shutdown();
 
         void SetupDraw(FrameContext::FrameData& frame, GLenum mode, Flags<DrawSetupAspect> aspects);
+        void ClearAttachmentsOnActiveRenderPass(VkCommandBuffer commandBuffer,
+                                                const RenderPassEntry& compatibleRenderPassEntry);
 
         void Clear(GLbitfield mask);
         void DrawArrays(const DrawArrayCmd& payload);
@@ -115,8 +117,6 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         PFNDrawIndexedIndirectCountFunc m_cmdDrawIndexedIndirectCount = nullptr;
 
         VkCommandPool m_commandPool = VK_NULL_HANDLE;
-
-        RenderPassEntry* m_activeRenderPass = nullptr;
 
         Vector<VkBufferObject> m_frameVertexUploadBuffers;
         Vector<VkDeviceSize> m_frameVertexUploadHeads;

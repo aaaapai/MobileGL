@@ -302,13 +302,6 @@ namespace MobileGL::MG_Backend::DirectVulkan {
     Bool VkRenderPassManager::TryClearPendingAttachmentsOnActiveRenderPass(
         VkCommandBuffer commandBuffer,
         const RenderPassEntry& compatibleRenderPassEntry) {
-        if (!s_activeRenderPass || !s_clearManager) {
-            return false;
-        }
-        if (s_activeRenderPass->compatibilityHash != compatibleRenderPassEntry.compatibilityHash) {
-            return false;
-        }
-
         VkClearRect clearRect{};
         clearRect.rect.offset = {0, 0};
         clearRect.rect.extent = {

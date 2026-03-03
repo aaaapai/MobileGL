@@ -73,6 +73,10 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                 vkDestroyFramebuffer(s_device, framebuffer, nullptr);
             }
         }
+
+        Bool CompatibleWith(const RenderPassEntry& that) {
+            return this->compatibilityHash == that.compatibilityHash;
+        }
     };
 
     class VkRenderPassManager {
