@@ -100,7 +100,6 @@ private:
                                         SizeT& outByteSize,
                                         Uint32& outMipLevelCount);
     static Uint32 GetUploadMipLevelCount(const MG_State::GLState::TextureObjectMipmap& texture, TextureUploadTarget target);
-    static VkFormat GetVkFormat(TextureInternalFormat format);
     static VkImageAspectFlags GetAspectMaskForFormat(VkFormat format);
 
     VkDevice m_device = VK_NULL_HANDLE;

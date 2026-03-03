@@ -126,8 +126,6 @@ namespace MobileGL {
                 return VK_FORMAT_A2R10G10B10_UNORM_PACK32;
             case TextureInternalFormat::RGB10A2UI:
                 return VK_FORMAT_A2R10G10B10_UINT_PACK32;
-            case TextureInternalFormat::RGBA12:
-                return VK_FORMAT_UNDEFINED;
             case TextureInternalFormat::RGBA16:
                 return VK_FORMAT_R16G16B16A16_UNORM;
             case TextureInternalFormat::SRGB8:
@@ -226,6 +224,7 @@ namespace MobileGL {
                 return VK_FORMAT_R8G8B8_UNORM;
             case TextureInternalFormat::RGBA:
                 return VK_FORMAT_R8G8B8A8_UNORM;
+            case TextureInternalFormat::RGBA12:
             default:
                 return VK_FORMAT_UNDEFINED;
             }

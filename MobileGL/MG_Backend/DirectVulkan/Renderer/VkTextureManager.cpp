@@ -9,6 +9,7 @@
 #include "VkTextureManager.h"
 
 #include "MG_State/GLState/Core.h"
+#include "MG_Util/Converters/MGToVk/TextureEnumConverter.h"
 
 namespace MobileGL::MG_Backend::DirectVulkan {
     Bool VkTextureManager::Initialize(const InitInfo& initInfo) {
@@ -148,7 +149,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                                                TextureUploadTarget uploadTarget,
                                                const IntVec3 &texelSize, SizeT byteSize, Uint32 mipLevels,
                                                TextureResource &resource) {
-        const VkFormat format = GetVkFormat(texture.GetFormat());
+        const VkFormat format = MG_Util::ConvertTextureInternalFormatToVkEnum(texture.GetFormat());
         if (format == VK_FORMAT_UNDEFINED) {
             MGLOG_D("%s: format == VK_FORMAT_UNDEFINED", __func__);
             return false;
@@ -426,24 +427,6 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             ++validLevelCount;
         }
         return validLevelCount;
-    }
-
-    VkFormat VkTextureManager::GetVkFormat(TextureInternalFormat format) {
-        switch (format) {
-        case TextureInternalFormat::RGBA:
-        case TextureInternalFormat::RGBA8:
-            return VK_FORMAT_R8G8B8A8_UNORM;
-        case TextureInternalFormat::SRGB8Alpha8:
-            return VK_FORMAT_R8G8B8A8_SRGB;
-        case TextureInternalFormat::Depth24Stencil8:
-            return VK_FORMAT_D24_UNORM_S8_UINT;
-        case TextureInternalFormat::Depth32FStencil8:
-            return VK_FORMAT_D32_SFLOAT_S8_UINT;
-        case TextureInternalFormat::DepthComponent32F:
-            return VK_FORMAT_D32_SFLOAT;
-        default:
-            return VK_FORMAT_UNDEFINED;
-        }
     }
 
     VkImageAspectFlags VkTextureManager::GetAspectMaskForFormat(VkFormat format) {
