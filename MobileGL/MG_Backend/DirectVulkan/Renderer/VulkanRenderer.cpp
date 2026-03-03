@@ -13,6 +13,7 @@
 #include "MG_State/GLState/Core.h"
 #include "MG_State/GLState/ProgramState/ProgramObject.h"
 #include "MG_Impl/GLImpl/Framebuffer/GL_Framebuffer.h"
+#include "MG_Util/Converters/MGToVk/RenderStateEnumConverter.h"
 #include <vulkan/vulkan_core.h>
 
 namespace MobileGL::MG_Backend::DirectVulkan {
@@ -335,82 +336,6 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             const MG_State::GLState::ProgramObject& program,
             const MG_State::GLState::VertexArrayObject& vao,
             const MG_State::GLState::FramebufferObject& drawFbo) {
-        auto toVkTopology = [](GLenum mode) -> VkPrimitiveTopology {
-            switch (mode) {
-            case GL_POINTS:
-                return VK_PRIMITIVE_TOPOLOGY_POINT_LIST;
-            case GL_LINES:
-                return VK_PRIMITIVE_TOPOLOGY_LINE_LIST;
-            case GL_LINE_STRIP:
-                return VK_PRIMITIVE_TOPOLOGY_LINE_STRIP;
-            case GL_TRIANGLES:
-                return VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
-            case GL_TRIANGLE_STRIP:
-                return VK_PRIMITIVE_TOPOLOGY_TRIANGLE_STRIP;
-            case GL_TRIANGLE_FAN:
-                return VK_PRIMITIVE_TOPOLOGY_TRIANGLE_FAN;
-            case GL_LINE_LOOP:
-            default:
-                MGLOG_W("Unrecognized primitive topology");
-                return VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
-            }
-        };
-        auto toVkCompareOp = [](DepthTestFunc func) -> VkCompareOp {
-            switch (func) {
-            case DepthTestFunc::Never:
-                return VK_COMPARE_OP_NEVER;
-            case DepthTestFunc::Less:
-                return VK_COMPARE_OP_LESS;
-            case DepthTestFunc::Equal:
-                return VK_COMPARE_OP_EQUAL;
-            case DepthTestFunc::LessEqual:
-                return VK_COMPARE_OP_LESS_OR_EQUAL;
-            case DepthTestFunc::Greater:
-                return VK_COMPARE_OP_GREATER;
-            case DepthTestFunc::NotEqual:
-                return VK_COMPARE_OP_NOT_EQUAL;
-            case DepthTestFunc::GreaterEqual:
-                return VK_COMPARE_OP_GREATER_OR_EQUAL;
-            case DepthTestFunc::Always:
-            default:
-                return VK_COMPARE_OP_ALWAYS;
-            }
-        };
-        auto toVkBlendFactor = [](BlendFactor factor) -> VkBlendFactor {
-            switch (factor) {
-            case BlendFactor::Zero:
-                return VK_BLEND_FACTOR_ZERO;
-            case BlendFactor::One:
-                return VK_BLEND_FACTOR_ONE;
-            case BlendFactor::SrcColor:
-                return VK_BLEND_FACTOR_SRC_COLOR;
-            case BlendFactor::OneMinusSrcColor:
-                return VK_BLEND_FACTOR_ONE_MINUS_SRC_COLOR;
-            case BlendFactor::DstColor:
-                return VK_BLEND_FACTOR_DST_COLOR;
-            case BlendFactor::OneMinusDstColor:
-                return VK_BLEND_FACTOR_ONE_MINUS_DST_COLOR;
-            case BlendFactor::SrcAlpha:
-                return VK_BLEND_FACTOR_SRC_ALPHA;
-            case BlendFactor::OneMinusSrcAlpha:
-                return VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
-            case BlendFactor::DstAlpha:
-                return VK_BLEND_FACTOR_DST_ALPHA;
-            case BlendFactor::OneMinusDstAlpha:
-                return VK_BLEND_FACTOR_ONE_MINUS_DST_ALPHA;
-            case BlendFactor::ConstantColor:
-                return VK_BLEND_FACTOR_CONSTANT_COLOR;
-            case BlendFactor::OneMinusConstantColor:
-                return VK_BLEND_FACTOR_ONE_MINUS_CONSTANT_COLOR;
-            case BlendFactor::ConstantAlpha:
-                return VK_BLEND_FACTOR_CONSTANT_ALPHA;
-            case BlendFactor::OneMinusConstantAlpha:
-                return VK_BLEND_FACTOR_ONE_MINUS_CONSTANT_ALPHA;
-            default:
-                return VK_BLEND_FACTOR_ONE;
-            }
-        };
-
         ProgramFactory::CompileOptionFlags transformFlags = GetShaderTransformFlags(m_swapchainObject.GetPreTransform());
         auto& stages = m_programFactory->GetOrCreatePipelineShaderStages(program, transformFlags);
         if (stages.empty()) {
@@ -437,15 +362,15 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             .pipelineLayout = pipelineLayout,
             .renderPass = renderPassEntry.renderPass,
             .subpass = 0,
-            .topology = toVkTopology(mode),
+            .topology = MG_Util::ConvertPrimitiveModeToVkEnum(mode),
             .depthTestEnable = depthTestEnabled,
             .depthWriteEnable = depthTestEnabled && MG_State::pGLContext->GetDepthMask(),
-            .depthCompareOp = toVkCompareOp(MG_State::pGLContext->GetDepthFunc()),
+            .depthCompareOp = MG_Util::ConvertDepthTestFuncToVkEnum(MG_State::pGLContext->GetDepthFunc()),
             .blendEnable = MG_State::pGLContext->IsCapabilityEnabled(CapabilityInput::Blend),
-            .srcColorBlendFactor = toVkBlendFactor(srcRGB),
-            .dstColorBlendFactor = toVkBlendFactor(dstRGB),
-            .srcAlphaBlendFactor = toVkBlendFactor(srcAlpha),
-            .dstAlphaBlendFactor = toVkBlendFactor(dstAlpha),
+            .srcColorBlendFactor = MG_Util::ConvertBlendFactorToVkEnum(srcRGB),
+            .dstColorBlendFactor = MG_Util::ConvertBlendFactorToVkEnum(dstRGB),
+            .srcAlphaBlendFactor = MG_Util::ConvertBlendFactorToVkEnum(srcAlpha),
+            .dstAlphaBlendFactor = MG_Util::ConvertBlendFactorToVkEnum(dstAlpha),
             .colorWriteMask = (
                 (mask.r() ? VK_COLOR_COMPONENT_R_BIT : 0u) |
                 (mask.g() ? VK_COLOR_COMPONENT_G_BIT : 0u) |
