@@ -13,6 +13,7 @@
 namespace MobileGL {
     namespace MG_Util {
         VkPrimitiveTopology ConvertPrimitiveModeToVkEnum(GLenum mode);
+        VkCullModeFlags ConvertCullFaceModeToVkEnum(CullFaceMode value);
         VkCompareOp ConvertDepthTestFuncToVkEnum(DepthTestFunc value);
         VkBlendFactor ConvertBlendFactorToVkEnum(BlendFactor value);
     } // namespace MG_Util

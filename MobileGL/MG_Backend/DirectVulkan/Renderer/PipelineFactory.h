@@ -24,6 +24,8 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             VkRenderPass renderPass = VK_NULL_HANDLE;
             Uint32 subpass = 0;
             VkPrimitiveTopology topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+            VkCullModeFlags cullMode = VK_CULL_MODE_NONE;
+            VkFrontFace frontFace = VK_FRONT_FACE_CLOCKWISE;
             Bool depthTestEnable = false;
             Bool depthWriteEnable = false;
             VkCompareOp depthCompareOp = VK_COMPARE_OP_ALWAYS;

@@ -31,6 +31,22 @@ namespace MobileGL {
             }
         }
 
+        VkCullModeFlags ConvertCullFaceModeToVkEnum(CullFaceMode v) {
+            switch (v) {
+            case CullFaceMode::Front:
+                return VK_CULL_MODE_FRONT_BIT;
+            case CullFaceMode::Back:
+                return VK_CULL_MODE_BACK_BIT;
+            case CullFaceMode::FrontAndBack:
+                return VK_CULL_MODE_FRONT_AND_BACK;
+            case CullFaceMode::Unknown:
+            case CullFaceMode::CullFaceModeCount:
+            default:
+                MGLOG_W("Unrecognized cull face mode");
+                return VK_CULL_MODE_BACK_BIT;
+            }
+        }
+
         VkCompareOp ConvertDepthTestFuncToVkEnum(DepthTestFunc v) {
             switch (v) {
             case DepthTestFunc::Never:

@@ -348,6 +348,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         auto& vis = m_vertexInputStateFactory->GetOrCreateVertexInputState(vao);
         auto pipelineLayout = m_uniformDescriptorBinder->GetOrCreatePipelineLayout(program);
         auto& renderPassEntry = m_renderPassManager->GetOrCreateRenderPass(drawFbo, m_imageIndexAcquired);
+        auto cullFaceEnabled = MG_State::pGLContext->IsCapabilityEnabled(CapabilityInput::CullFace);
         auto depthTestEnabled = MG_State::pGLContext->IsCapabilityEnabled(CapabilityInput::DepthTest);
         BlendFactor srcRGB = BlendFactor::One;
         BlendFactor dstRGB = BlendFactor::Zero;
@@ -363,6 +364,11 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             .renderPass = renderPassEntry.renderPass,
             .subpass = 0,
             .topology = MG_Util::ConvertPrimitiveModeToVkEnum(mode),
+//            .cullMode = cullFaceEnabled
+//                ? MG_Util::ConvertCullFaceModeToVkEnum(MG_State::pGLContext->GetCullFaceMode())
+//                : VK_CULL_MODE_NONE,
+            .cullMode = VK_CULL_MODE_NONE,
+            .frontFace = VK_FRONT_FACE_CLOCKWISE,
             .depthTestEnable = depthTestEnabled,
             .depthWriteEnable = depthTestEnabled && MG_State::pGLContext->GetDepthMask(),
             .depthCompareOp = MG_Util::ConvertDepthTestFuncToVkEnum(MG_State::pGLContext->GetDepthFunc()),
