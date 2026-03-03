@@ -162,6 +162,7 @@ set(SOURCE_FILES
     MobileGL/MG_Util/Converters/GLToMG/RenderStateEnumConverter.cpp
     MobileGL/MG_Util/Converters/GLToMG/ProgramEnumConverter.cpp
     MobileGL/MG_Util/Converters/MGToMG/TextureEnumConverter.cpp
+    MobileGL/MG_Util/Converters/MGToVk/RenderStateEnumConverter.cpp
     MobileGL/MG_Util/Converters/MGToVk/TextureEnumConverter.cpp
 
     MobileGL/MG_Util/Classifiers/TextureEnumClassifier.cpp
