@@ -31,12 +31,12 @@ namespace MobileGL {
             }
         }
 
-        VkCullModeFlags ConvertCullFaceModeToVkEnum(CullFaceMode v) {
+        VkCullModeFlags ConvertCullFaceModeToVkEnum(CullFaceMode v, Bool invertClockwise) {
             switch (v) {
             case CullFaceMode::Front:
-                return VK_CULL_MODE_FRONT_BIT;
+                return invertClockwise ? VK_CULL_MODE_BACK_BIT : VK_CULL_MODE_FRONT_BIT;
             case CullFaceMode::Back:
-                return VK_CULL_MODE_BACK_BIT;
+                return invertClockwise ? VK_CULL_MODE_FRONT_BIT : VK_CULL_MODE_BACK_BIT;
             case CullFaceMode::FrontAndBack:
                 return VK_CULL_MODE_FRONT_AND_BACK;
             case CullFaceMode::Unknown:

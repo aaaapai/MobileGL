@@ -337,6 +337,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             const MG_State::GLState::VertexArrayObject& vao,
             const MG_State::GLState::FramebufferObject& drawFbo) {
         ProgramFactory::CompileOptionFlags transformFlags = GetShaderTransformFlags(m_swapchainObject.GetPreTransform());
+        Bool invertClockwise = transformFlags & ProgramFactory::CompileOptionBit::PositionYFlip;
         auto& stages = m_programFactory->GetOrCreatePipelineShaderStages(program, transformFlags);
         if (stages.empty()) {
             MGLOG_D("GetOrCreatePipeline skipped: program has no shader stages");
@@ -364,10 +365,9 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             .renderPass = renderPassEntry.renderPass,
             .subpass = 0,
             .topology = MG_Util::ConvertPrimitiveModeToVkEnum(mode),
-//            .cullMode = cullFaceEnabled
-//                ? MG_Util::ConvertCullFaceModeToVkEnum(MG_State::pGLContext->GetCullFaceMode())
-//                : VK_CULL_MODE_NONE,
-            .cullMode = VK_CULL_MODE_NONE,
+            .cullMode = cullFaceEnabled
+                ? MG_Util::ConvertCullFaceModeToVkEnum(MG_State::pGLContext->GetCullFaceMode(), invertClockwise)
+                : VK_CULL_MODE_NONE,
             .frontFace = VK_FRONT_FACE_CLOCKWISE,
             .depthTestEnable = depthTestEnabled,
             .depthWriteEnable = depthTestEnabled && MG_State::pGLContext->GetDepthMask(),
@@ -389,17 +389,23 @@ namespace MobileGL::MG_Backend::DirectVulkan {
     }
 
     void VulkanRenderer::SetupDraw(FrameContext::FrameData& frame, GLenum mode, Flags<DrawSetupAspect> aspects) {
+        // Prepare render pass
+        const auto& drawFbo =
+                MG_State::pGLContext->GetFramebufferBindingSlot(FramebufferTarget::Draw).GetBoundObject();
+        auto& renderPassEntry = m_renderPassManager->GetOrCreateRenderPass(*drawFbo, m_imageIndexAcquired);
+
+        // Prepare pipeline
+        const auto& vao = *MG_State::pGLContext->GetBoundVertexArray();
+        const auto& program = *MG_State::pGLContext->GetCurrentProgram();
+        auto pipeline = GetOrCreatePipeline(mode, program, vao, *drawFbo);
+
         // Begin command recording if not yet
         if (!frame.isCommandRecording) {
             m_frameContext.BeginCommandRecording();
             m_uniformDescriptorBinder->BeginFrame(m_frameContext.GetCurrentFrameIndex());
         }
 
-        const auto& drawFbo =
-            MG_State::pGLContext->GetFramebufferBindingSlot(FramebufferTarget::Draw).GetBoundObject();
-
         // Begin render pass, and handle clear
-        auto& renderPassEntry = m_renderPassManager->GetOrCreateRenderPass(*drawFbo, m_imageIndexAcquired);
         auto* activeRenderPass = VkRenderPassManager::GetActiveRenderPass();
 
         if (activeRenderPass && (activeRenderPass == &renderPassEntry || activeRenderPass->CompatibleWith(renderPassEntry))) {
@@ -413,9 +419,6 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             MOBILEGL_ASSERT(ok, "%s: BeginRenderPass failed", __func__);
         }
 
-        const auto& vao = *MG_State::pGLContext->GetBoundVertexArray();
-        const auto& program = *MG_State::pGLContext->GetCurrentProgram();
-        auto pipeline = GetOrCreatePipeline(mode, program, vao, *drawFbo);
         vkCmdBindPipeline(frame.commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
 
         m_uniformDescriptorBinder->BindProgramUniformBuffers(frame.commandBuffer, program,
