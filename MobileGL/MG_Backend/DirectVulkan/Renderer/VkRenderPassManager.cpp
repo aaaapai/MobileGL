@@ -315,28 +315,26 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             clearValue.color = {0.0f, 0.0f, 0.0f, 1.0f};
             clearValue.depthStencil = {1.0f, 0};
         }
-        if (s_clearManager) {
-            for (const auto& pending: renderPassEntry.pendingClearAttachments) {
-                if (!pending.texture || pending.attachmentIndex >= clearValues.size()) {
-                    continue;
-                }
-                ClearAttachmentPayload clearPayload{};
-                if (!s_clearManager->GetPendingClear(pending.texture, clearPayload)) {
-                    continue;
-                }
-                if (clearPayload.attachmentType >= FramebufferAttachmentType::Color0 &&
-                    clearPayload.attachmentType <= FramebufferAttachmentType::Color31) {
-                    clearValues[pending.attachmentIndex].color = {
-                        clearPayload.color.x(),
-                        clearPayload.color.y(),
-                        clearPayload.color.z(),
-                        clearPayload.color.w()
-                    };
-                } else if (clearPayload.attachmentType == FramebufferAttachmentType::Depth) {
-                    clearValues[pending.attachmentIndex].depthStencil.depth = clearPayload.depth;
-                } else if (clearPayload.attachmentType == FramebufferAttachmentType::Stencil) {
-                    clearValues[pending.attachmentIndex].depthStencil.stencil = clearPayload.stencil;
-                }
+        for (const auto& pending: renderPassEntry.pendingClearAttachments) {
+            if (!pending.texture || pending.attachmentIndex >= clearValues.size()) {
+                continue;
+            }
+            ClearAttachmentPayload clearPayload{};
+            if (!s_clearManager->GetPendingClear(pending.texture, clearPayload)) {
+                continue;
+            }
+            if (clearPayload.attachmentType >= FramebufferAttachmentType::Color0 &&
+                clearPayload.attachmentType <= FramebufferAttachmentType::Color31) {
+                clearValues[pending.attachmentIndex].color = {
+                    clearPayload.color.x(),
+                    clearPayload.color.y(),
+                    clearPayload.color.z(),
+                    clearPayload.color.w()
+                };
+            } else if (clearPayload.attachmentType == FramebufferAttachmentType::Depth) {
+                clearValues[pending.attachmentIndex].depthStencil.depth = clearPayload.depth;
+            } else if (clearPayload.attachmentType == FramebufferAttachmentType::Stencil) {
+                clearValues[pending.attachmentIndex].depthStencil.stencil = clearPayload.stencil;
             }
         }
 
@@ -344,10 +342,8 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         renderPassBeginInfo.pClearValues = clearValues.data();
 
         vkCmdBeginRenderPass(commandBuffer, &renderPassBeginInfo, VK_SUBPASS_CONTENTS_INLINE);
-        if (s_clearManager) {
-            for (const auto& pending: renderPassEntry.pendingClearAttachments) {
-                s_clearManager->PopPendingClear(pending.texture);
-            }
+        for (const auto& pending: renderPassEntry.pendingClearAttachments) {
+            s_clearManager->PopPendingClear(pending.texture);
         }
         s_activeRenderPass = &renderPassEntry;
 
