@@ -25,11 +25,10 @@ namespace MobileGL::MG_Backend::DirectVulkan {
 
     struct RenderPassEntry {
         static inline VkDevice s_device;
+        static inline Vector<VkTextureManager::TextureResource*> s_textureResourcesScratch;
         VkRenderPass renderPass = VK_NULL_HANDLE;
         VkFramebuffer framebuffer = VK_NULL_HANDLE;
         Uint64 compatibilityHash = 0;
-        // Should we hold pointer-to-resource here?
-        Vector<VkTextureManager::TextureResource*> textureResources;
         Vector<PendingClearAttachmentInfo> pendingClearAttachments;
         Uint32 attachmentCount = 0;
         IntVec2 extent = {0, 0};
@@ -41,7 +40,6 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             std::swap(renderPass, that.renderPass);
             std::swap(framebuffer, that.framebuffer);
             std::swap(compatibilityHash, that.compatibilityHash);
-            std::swap(textureResources, that.textureResources);
             std::swap(pendingClearAttachments, that.pendingClearAttachments);
             std::swap(attachmentCount, that.attachmentCount);
             std::swap(extent, that.extent);
@@ -51,14 +49,12 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             VkRenderPass renderpass,
             VkFramebuffer framebuffer,
             Uint64 compatibilityHash,
-            const std::vector<VkTextureManager::TextureResource*>& textureResources,
             const Vector<PendingClearAttachmentInfo>& pendingClearAttachments,
             Uint32 attachmentCount,
             IntVec2 extent, int subpass):
             renderPass(renderpass),
             framebuffer(framebuffer),
             compatibilityHash(compatibilityHash),
-            textureResources(Move(textureResources)),
             pendingClearAttachments(Move(pendingClearAttachments)),
             attachmentCount(attachmentCount),
             extent(extent),

@@ -116,7 +116,9 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         Vector<VkAttachmentDescription> attachmentDescriptions(validDrawBufCount);
         Vector<VkAttachmentReference> colorAttachmentRefs(validDrawBufCount);
         Vector<PendingClearAttachmentInfo> pendingClearAttachments;
-        Vector<VkTextureManager::TextureResource*> textureResources(validDrawBufCount, nullptr);
+        auto& textureResources = RenderPassEntry::s_textureResourcesScratch;
+        textureResources.clear();
+        textureResources.resize(validDrawBufCount, nullptr);
         Vector<VkImageView> attachmentViews(validDrawBufCount, VK_NULL_HANDLE);
         // This should automatically work on default & offscreen FBO
         // assuming default FBO has the right param
@@ -290,7 +292,6 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             renderPass,
             framebuffer,
             compatibilityHash,
-            Move(textureResources),
             Move(pendingClearAttachments),
             static_cast<Uint32>(attachmentViews.size()),
             extent,
