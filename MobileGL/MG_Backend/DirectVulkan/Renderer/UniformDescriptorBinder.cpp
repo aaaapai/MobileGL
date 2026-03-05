@@ -14,6 +14,19 @@
 #include <limits>
 
 namespace MobileGL::MG_Backend::DirectVulkan {
+    static Bool IsValidSampledImageLayout(VkImageLayout layout) {
+        switch (layout) {
+        case VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL:
+        case VK_IMAGE_LAYOUT_GENERAL:
+        case VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL:
+        case VK_IMAGE_LAYOUT_DEPTH_READ_ONLY_STENCIL_ATTACHMENT_OPTIMAL:
+        case VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_STENCIL_READ_ONLY_OPTIMAL:
+            return true;
+        default:
+            return false;
+        }
+    }
+
     VkDeviceSize UniformDescriptorBinder::AlignUp(VkDeviceSize value, VkDeviceSize alignment) {
         if (alignment == 0) {
             return value;
@@ -480,6 +493,9 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         if (resource == nullptr) {
             return false;
         }
+        MOBILEGL_ASSERT(IsValidSampledImageLayout(resource->layout),
+                        "ResolveSamplerDescriptor: invalid sampled image layout=%d for textureId=%d, binding=%u",
+                        static_cast<Int>(resource->layout), texture->GetExternalIndex(), binding);
         outImageInfo = {
             .sampler = m_samplerManager->GetOrCreateSampler(*samplerToUse),
             .imageView = resource->view,

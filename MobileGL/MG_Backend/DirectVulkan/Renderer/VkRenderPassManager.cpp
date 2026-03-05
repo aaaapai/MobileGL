@@ -177,6 +177,9 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                         textureResources[i] = m_textureManager.SyncTextureAndGetDescriptor(*texture);
                         MOBILEGL_ASSERT(textureResources[i],
                                         "GetOrCreateRenderPass: SyncTextureAndGetDescriptor failed at color attachment %d", i);
+                        MOBILEGL_ASSERT(hasClear || textureResources[i]->layout != VK_IMAGE_LAYOUT_UNDEFINED,
+                                        "GetOrCreateRenderPass: color attachment textureId=%d has undefined tracked layout with LOAD_OP_LOAD (attachment=%d)",
+                                        texture->GetExternalIndex(), i);
                         attachmentViews[i] = textureResources[i]->view;
                     }
 
@@ -218,10 +221,15 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                 VK_ATTACHMENT_LOAD_OP_CLEAR :
                 VK_ATTACHMENT_LOAD_OP_LOAD;
             depthAttachmentDescription.stencilStoreOp = VK_ATTACHMENT_STORE_OP_STORE;
-            depthAttachmentDescription.initialLayout = hasClear ?
+            // UNDEFINED is only valid when both depth and stencil are discarded/cleared.
+            depthAttachmentDescription.initialLayout = (clearDepth && clearStencil) ?
                 VK_IMAGE_LAYOUT_UNDEFINED :
                 VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
             depthAttachmentDescription.finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+            MOBILEGL_ASSERT(!(depthAttachmentDescription.stencilLoadOp == VK_ATTACHMENT_LOAD_OP_LOAD &&
+                              depthAttachmentDescription.initialLayout == VK_IMAGE_LAYOUT_UNDEFINED),
+                            "GetOrCreateRenderPass: invalid depth-stencil state (stencil LOAD + initialLayout UNDEFINED), textureId=%d",
+                            texture.GetExternalIndex());
             if (hasClear) {
                 pendingClearAttachments.emplace_back(PendingClearAttachmentInfo {
                     .attachmentIndex = depthAttachmentIndex,
@@ -234,6 +242,9 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                 depthTextureResource = m_textureManager.SyncTextureAndGetDescriptor(texture);
                 MOBILEGL_ASSERT(depthTextureResource,
                                 "GetOrCreateRenderPass: SyncTextureAndGetDescriptor failed at depth attachment");
+                MOBILEGL_ASSERT(clearDepth || clearStencil || depthTextureResource->layout != VK_IMAGE_LAYOUT_UNDEFINED,
+                                "GetOrCreateRenderPass: depth attachment textureId=%d has undefined tracked layout with LOAD_OP_LOAD",
+                                texture.GetExternalIndex());
                 textureResources.emplace_back(depthTextureResource);
                 attachmentViews.emplace_back(depthTextureResource->view);
                 if (width == 0 || height == 0) {

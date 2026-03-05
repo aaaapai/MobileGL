@@ -64,6 +64,11 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                                                  VkAccessFlags srcAccessMask, VkAccessFlags dstAccessMask,
                                                  VkImageAspectFlags aspectMask) {
         MOBILEGL_ASSERT(image != VK_NULL_HANDLE, "TransitionImageLayout: m_image == VK_NULL_HANDLE");
+        MOBILEGL_ASSERT(!((dstAccessMask & VK_ACCESS_TRANSFER_READ_BIT) != 0 &&
+                          (dstStageMask & VK_PIPELINE_STAGE_TRANSFER_BIT) == 0),
+                        "TransitionImageLayout: invalid dstAccess/dstStage pair (dstAccess=0x%x, dstStage=0x%x, oldLayout=%d, newLayout=%d)",
+                        static_cast<Uint32>(dstAccessMask), static_cast<Uint32>(dstStageMask), static_cast<Int>(trackedLayout),
+                        static_cast<Int>(newLayout));
 
         if (trackedLayout == newLayout) {
             return true;
@@ -333,7 +338,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                                         VK_PIPELINE_STAGE_TRANSFER_BIT,
                                         VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
                                         VK_ACCESS_TRANSFER_WRITE_BIT,
-                                        VK_ACCESS_TRANSFER_READ_BIT,
+                                        VK_ACCESS_SHADER_READ_BIT,
                                         aspectMask);
         MOBILEGL_ASSERT(ok, "TransitionImageLayout to VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL failed");
         outResource.layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
