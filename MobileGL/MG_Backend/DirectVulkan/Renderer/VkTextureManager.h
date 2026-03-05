@@ -93,7 +93,6 @@ private:
     Bool UploadDirtyMipLevels(MG_State::GLState::TextureObjectMipmap &mipmapTexture,
                       TextureUploadTarget uploadTarget,
                       TextureResource &outResource);
-    Bool ExecuteCmdBufImmediate(const std::function<void(VkCommandBuffer)>& recorder) const;
     static Bool CheckMipmapCompleteness(const MG_State::GLState::ITextureObject& texture,
                                         TextureUploadTarget& outTarget,
                                         IntVec3& outTexelSize,

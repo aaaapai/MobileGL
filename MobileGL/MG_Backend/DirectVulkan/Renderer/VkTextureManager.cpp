@@ -287,61 +287,6 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         }
         vmaUnmapMemory(m_allocator, stagingAllocation);
 
-        // TODO: Could be uploaded asynchronously?
-        const Bool ok = ExecuteCmdBufImmediate([&](VkCommandBuffer commandBuffer) {
-            const VkImageAspectFlags aspectMask = GetAspectMaskForFormat(outResource.format);
-            Bool ok = TransitionImageLayout(commandBuffer, outResource.image,
-                                  outResource.layout,
-                                  VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                                  VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL ? VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT : VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
-                                  VK_PIPELINE_STAGE_TRANSFER_BIT,
-                                  outResource.layout == VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL ? VK_ACCESS_SHADER_READ_BIT : 0,
-                                  VK_ACCESS_TRANSFER_WRITE_BIT,
-                                  aspectMask);
-            MOBILEGL_ASSERT(ok, "TransitionImageLayout to VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL failed");
-
-            for (const auto& item : uploadItems) {
-                VkBufferImageCopy copy{};
-                copy.bufferOffset = item.offset;
-                copy.bufferRowLength = 0;
-                copy.bufferImageHeight = 0;
-                copy.imageSubresource.aspectMask = aspectMask;
-                copy.imageSubresource.mipLevel = item.level;
-                copy.imageSubresource.baseArrayLayer = 0;
-                copy.imageSubresource.layerCount = 1;
-                copy.imageOffset = {0, 0, 0};
-                copy.imageExtent = {static_cast<Uint32>(item.texelSize.x()), static_cast<Uint32>(item.texelSize.y()), 1};
-                vkCmdCopyBufferToImage(commandBuffer, stagingBuffer, outResource.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                                       1, &copy);
-            }
-
-            ok = TransitionImageLayout(commandBuffer, outResource.image,
-                                            outResource.layout,
-                                            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-                                            VK_PIPELINE_STAGE_TRANSFER_BIT,
-                                            VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
-                                            VK_ACCESS_TRANSFER_WRITE_BIT,
-                                            VK_ACCESS_TRANSFER_READ_BIT,
-                                            aspectMask);
-            MOBILEGL_ASSERT(ok, "TransitionImageLayout to VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL failed");
-            outResource.layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-            return ok;
-        });
-
-        vmaDestroyBuffer(m_allocator, stagingBuffer, stagingAllocation);
-
-        if (!ok) {
-            MGLOG_D("%s: texture upload cmd failed", __func__);
-            return false;
-        }
-        for (const auto& item : uploadItems) {
-            mipmapTexture.MarkStorageDirty(uploadTarget, item.level, false);
-        }
-        outResource.layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-        return true;
-    }
-
-    Bool VkTextureManager::ExecuteCmdBufImmediate(const std::function<void(VkCommandBuffer)>& recorder) const {
         VkCommandBufferAllocateInfo allocInfo{};
         allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
         allocInfo.commandPool = m_commandPool;
@@ -356,7 +301,42 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
         VK_VERIFY(vkBeginCommandBuffer(commandBuffer, &beginInfo), "vkBeginCommandBuffer(texture)");
 
-        recorder(commandBuffer);
+        const VkImageAspectFlags aspectMask = GetAspectMaskForFormat(outResource.format);
+        Bool ok = TransitionImageLayout(commandBuffer, outResource.image,
+                              outResource.layout,
+                              VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                              VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL ? VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT : VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+                              VK_PIPELINE_STAGE_TRANSFER_BIT,
+                              outResource.layout == VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL ? VK_ACCESS_SHADER_READ_BIT : 0,
+                              VK_ACCESS_TRANSFER_WRITE_BIT,
+                              aspectMask);
+        MOBILEGL_ASSERT(ok, "TransitionImageLayout to VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL failed");
+
+        for (const auto& item : uploadItems) {
+            VkBufferImageCopy copy{};
+            copy.bufferOffset = item.offset;
+            copy.bufferRowLength = 0;
+            copy.bufferImageHeight = 0;
+            copy.imageSubresource.aspectMask = aspectMask;
+            copy.imageSubresource.mipLevel = item.level;
+            copy.imageSubresource.baseArrayLayer = 0;
+            copy.imageSubresource.layerCount = 1;
+            copy.imageOffset = {0, 0, 0};
+            copy.imageExtent = {static_cast<Uint32>(item.texelSize.x()), static_cast<Uint32>(item.texelSize.y()), 1};
+            vkCmdCopyBufferToImage(commandBuffer, stagingBuffer, outResource.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                                   1, &copy);
+        }
+
+        ok = TransitionImageLayout(commandBuffer, outResource.image,
+                                        outResource.layout,
+                                        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                                        VK_PIPELINE_STAGE_TRANSFER_BIT,
+                                        VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+                                        VK_ACCESS_TRANSFER_WRITE_BIT,
+                                        VK_ACCESS_TRANSFER_READ_BIT,
+                                        aspectMask);
+        MOBILEGL_ASSERT(ok, "TransitionImageLayout to VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL failed");
+        outResource.layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 
         VK_VERIFY(vkEndCommandBuffer(commandBuffer), "vkEndCommandBuffer(texture)");
 
@@ -364,10 +344,27 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
         submitInfo.commandBufferCount = 1;
         submitInfo.pCommandBuffers = &commandBuffer;
-        VK_VERIFY(vkQueueSubmit(m_graphicsQueue, 1, &submitInfo, VK_NULL_HANDLE), "vkQueueSubmit(texture)");
-        VK_VERIFY(vkQueueWaitIdle(m_graphicsQueue), "vkQueueWaitIdle(texture)");
 
+        VkFenceCreateInfo fenceInfo{};
+        fenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+        VkFence uploadFence = VK_NULL_HANDLE;
+        VK_VERIFY(vkCreateFence(m_device, &fenceInfo, nullptr, &uploadFence), "vkCreateFence(texture upload)");
+
+        VK_VERIFY(vkQueueSubmit(m_graphicsQueue, 1, &submitInfo, uploadFence), "vkQueueSubmit(texture)");
+        VK_VERIFY(vkWaitForFences(m_device, 1, &uploadFence, VK_TRUE, UINT64_MAX), "vkWaitForFences(texture upload)");
+        vkDestroyFence(m_device, uploadFence, nullptr);
         vkFreeCommandBuffers(m_device, m_commandPool, 1, &commandBuffer);
+
+        vmaDestroyBuffer(m_allocator, stagingBuffer, stagingAllocation);
+
+        if (!ok) {
+            MGLOG_D("%s: texture upload cmd failed", __func__);
+            return false;
+        }
+        for (const auto& item : uploadItems) {
+            mipmapTexture.MarkStorageDirty(uploadTarget, item.level, false);
+        }
+        outResource.layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
         return true;
     }
 
