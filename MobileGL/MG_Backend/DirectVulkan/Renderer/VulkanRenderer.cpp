@@ -335,7 +335,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             GLenum mode,
             const MG_State::GLState::ProgramObject& program,
             const MG_State::GLState::VertexArrayObject& vao,
-            const MG_State::GLState::FramebufferObject& drawFbo) {
+            const RenderPassEntry& renderPassEntry) {
         ProgramFactory::CompileOptionFlags transformFlags = GetShaderTransformFlags(m_swapchainObject.GetPreTransform());
         Bool invertClockwise = transformFlags & ProgramFactory::CompileOptionBit::PositionYFlip;
         auto& stages = m_programFactory->GetOrCreatePipelineShaderStages(program, transformFlags);
@@ -348,7 +348,6 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         auto vertexInputHash = m_vertexInputStateFactory->ComputeHash(vao);
         auto& vis = m_vertexInputStateFactory->GetOrCreateVertexInputState(vao);
         auto pipelineLayout = m_uniformDescriptorBinder->GetOrCreatePipelineLayout(program);
-        auto& renderPassEntry = m_renderPassManager->GetOrCreateRenderPass(drawFbo, m_imageIndexAcquired);
         auto cullFaceEnabled = MG_State::pGLContext->IsCapabilityEnabled(CapabilityInput::CullFace);
         auto depthTestEnabled = MG_State::pGLContext->IsCapabilityEnabled(CapabilityInput::DepthTest);
         BlendFactor srcRGB = BlendFactor::One;
@@ -389,15 +388,10 @@ namespace MobileGL::MG_Backend::DirectVulkan {
     }
 
     void VulkanRenderer::SetupDraw(FrameContext::FrameData& frame, GLenum mode, Flags<DrawSetupAspect> aspects) {
-        // Prepare render pass
         const auto& drawFbo =
                 MG_State::pGLContext->GetFramebufferBindingSlot(FramebufferTarget::Draw).GetBoundObject();
-        auto& renderPassEntry = m_renderPassManager->GetOrCreateRenderPass(*drawFbo, m_imageIndexAcquired);
-
-        // Prepare pipeline
         const auto& vao = *MG_State::pGLContext->GetBoundVertexArray();
         const auto& program = *MG_State::pGLContext->GetCurrentProgram();
-        auto pipeline = GetOrCreatePipeline(mode, program, vao, *drawFbo);
 
         // Begin command recording if not yet
         if (!frame.isCommandRecording) {
@@ -422,6 +416,10 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             MOBILEGL_ASSERT(ready, "%s: TransitionTextureForSampling failed for textureId=%d",
                             __func__, sampledTexture->GetExternalIndex());
         }
+
+        auto& renderPassEntry = m_renderPassManager->GetOrCreateRenderPass(*drawFbo, m_imageIndexAcquired);
+        auto pipeline = GetOrCreatePipeline(mode, program, vao, renderPassEntry);
+        activeRenderPass = VkRenderPassManager::GetActiveRenderPass();
 
         // Begin render pass, and handle clear
 

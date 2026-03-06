@@ -153,7 +153,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             GLenum mode,
             const MG_State::GLState::ProgramObject& program,
             const MG_State::GLState::VertexArrayObject& vao,
-            const MG_State::GLState::FramebufferObject& drawFbo);
+            const RenderPassEntry& renderPassEntry);
 
         void DeferDestroyBuffer(VkBufferObject& buffer);
         void CollectDeferredBufferReleases(Uint32 frameIndex);

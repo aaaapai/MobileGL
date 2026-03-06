@@ -18,6 +18,11 @@
 #include <Includes.h>
 
 namespace MobileGL::MG_Backend::DirectVulkan {
+    enum class TrackedAttachmentTarget : Uint8 {
+        Texture,
+        SwapchainColor,
+        SwapchainDepthStencil
+    };
 
     struct PendingClearAttachmentInfo {
         Uint32 attachmentIndex = 0;
@@ -25,7 +30,9 @@ namespace MobileGL::MG_Backend::DirectVulkan {
     };
 
     struct TrackedAttachmentLayoutInfo {
+        TrackedAttachmentTarget target = TrackedAttachmentTarget::Texture;
         MG_State::GLState::ITextureObject* texture = nullptr;
+        Uint32 swapchainImageIndex = 0;
         VkImageLayout finalLayout = VK_IMAGE_LAYOUT_UNDEFINED;
     };
 
@@ -113,7 +120,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         using HashType = Uint64;
         VkRenderPassManager(VkDevice device,
             const VulkanRendererConfig& config, VkClearManager& clearManager, VkTextureManager& textureManager,
-            const SwapchainObject& swapchainObject);
+            SwapchainObject& swapchainObject);
         ~VkRenderPassManager();
 
         Bool Initialize();
@@ -132,12 +139,13 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         const VulkanRendererConfig& m_config;
         VkClearManager& m_clearManager;
         VkTextureManager& m_textureManager;
-        const SwapchainObject& m_swapchainObject;
+        SwapchainObject& m_swapchainObject;
         UnorderedMap<Uint64, RenderPassEntry> m_renderPasses;
         static inline XXH64_state_t* m_hashState = XXH64_createState();
         static inline ActiveRenderPassInfo s_activeRenderPass{};
         static inline Bool s_hasActiveRenderPass = false;
         static inline VkClearManager* s_clearManager = nullptr;
         static inline VkTextureManager* s_textureManager = nullptr;
+        static inline SwapchainObject* s_swapchainObject = nullptr;
     };
 } // namespace MobileGL::MG_Backend::DirectVulkan

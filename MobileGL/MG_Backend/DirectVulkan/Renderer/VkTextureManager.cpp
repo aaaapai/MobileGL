@@ -95,18 +95,24 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         VkPipelineStageFlags srcStageMask = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
         VkAccessFlags srcAccessMask = 0;
         if ((resource->aspect & VK_IMAGE_ASPECT_COLOR_BIT) != 0) {
-            MOBILEGL_ASSERT(resource->layout == VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+            MOBILEGL_ASSERT(resource->layout == VK_IMAGE_LAYOUT_UNDEFINED ||
+                            resource->layout == VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
                             "TransitionTextureForSampling: unsupported color layout=%d for textureId=%d",
                             static_cast<Int>(resource->layout), texture.GetExternalIndex());
-            srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-            srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+            if (resource->layout == VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL) {
+                srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+                srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+            }
             targetLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
         } else if ((resource->aspect & (VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT)) != 0) {
-            MOBILEGL_ASSERT(resource->layout == VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
+            MOBILEGL_ASSERT(resource->layout == VK_IMAGE_LAYOUT_UNDEFINED ||
+                            resource->layout == VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
                             "TransitionTextureForSampling: unsupported depth/stencil layout=%d for textureId=%d",
                             static_cast<Int>(resource->layout), texture.GetExternalIndex());
-            srcStageMask = VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;
-            srcAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+            if (resource->layout == VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL) {
+                srcStageMask = VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;
+                srcAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+            }
             targetLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
         } else {
             MOBILEGL_ASSERT(false, "TransitionTextureForSampling: unsupported aspect mask=0x%x for textureId=%d",
