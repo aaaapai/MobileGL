@@ -17,6 +17,19 @@
 #include <vulkan/vulkan_core.h>
 
 namespace MobileGL::MG_Backend::DirectVulkan {
+    static Bool IsValidSampledImageLayout(VkImageLayout layout) {
+        switch (layout) {
+            case VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL:
+            case VK_IMAGE_LAYOUT_GENERAL:
+            case VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL:
+            case VK_IMAGE_LAYOUT_DEPTH_READ_ONLY_STENCIL_ATTACHMENT_OPTIMAL:
+            case VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_STENCIL_READ_ONLY_OPTIMAL:
+                return true;
+            default:
+                return false;
+        }
+    }
+
     VkBool32 VulkanRenderer::DebugCallback(VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity,
                                            VkDebugUtilsMessageTypeFlagsEXT messageType,
                                            const VkDebugUtilsMessengerCallbackDataEXT* pCallbackData, void* pUserData) {
@@ -403,7 +416,23 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         Vector<MG_State::GLState::ITextureObject*> sampledTextures;
         Bool hasSampledTextures = m_uniformDescriptorBinder->CollectSampledTextures(program, sampledTextures);
         MOBILEGL_ASSERT(hasSampledTextures, "%s: CollectSampledTextures failed", __func__);
-        if (activeRenderPass && !sampledTextures.empty()) {
+        Bool needSampledTextureTransitions = false;
+        for (auto* sampledTexture : sampledTextures) {
+            if (!sampledTexture) {
+                continue;
+            }
+
+            auto* textureResource = m_textureManager->SyncTextureAndGetDescriptor(*sampledTexture);
+            MOBILEGL_ASSERT(textureResource != nullptr,
+                            "%s: SyncTextureAndGetDescriptor failed for textureId=%d",
+                            __func__, sampledTexture->GetExternalIndex());
+            if (!IsValidSampledImageLayout(textureResource->layout)) {
+                needSampledTextureTransitions = true;
+                break;
+            }
+        }
+
+        if (activeRenderPass && needSampledTextureTransitions) {
             VkRenderPassManager::EndRenderPass(frame.commandBuffer);
             activeRenderPass = nullptr;
         }
