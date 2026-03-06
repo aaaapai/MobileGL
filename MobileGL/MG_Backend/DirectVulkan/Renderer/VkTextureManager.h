@@ -48,9 +48,10 @@ public:
             std::swap(this->extent, that.extent);
             std::swap(this->mipLevels, that.mipLevels);
             std::swap(this->format, that.format);
+            std::swap(this->aspect, that.aspect);
         }
 
-        ~TextureResource() {
+        void Reset() {
             if (view != VK_NULL_HANDLE) {
                 vkDestroyImageView(s_device, view, nullptr);
             }
@@ -64,6 +65,11 @@ public:
             extent = {0, 0};
             mipLevels = 1;
             format = VK_FORMAT_UNDEFINED;
+            aspect = VK_IMAGE_ASPECT_NONE;
+        }
+
+        ~TextureResource() {
+            Reset();
         }
 
         static inline VkDevice s_device = VK_NULL_HANDLE;
