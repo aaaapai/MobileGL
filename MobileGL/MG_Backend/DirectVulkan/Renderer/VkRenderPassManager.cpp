@@ -99,7 +99,11 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         auto* activeRenderPass = GetActiveRenderPass();
         auto compatibilityHash = ComputeHash(fbo, swapchainImageIndex, false);
         if (activeRenderPass != nullptr && activeRenderPass->CompatibleWith(compatibilityHash)) {
-            return *activeRenderPass;
+            auto activeIt = m_renderPasses.find(activeRenderPass->hash);
+            MOBILEGL_ASSERT(activeIt != m_renderPasses.end(),
+                            "GetOrCreateRenderPass: active render pass hash=0x%llx is missing from cache",
+                            static_cast<unsigned long long>(activeRenderPass->hash));
+            return activeIt->second;
         }
         auto hash = ComputeHash(fbo, swapchainImageIndex, true);
         auto it = m_renderPasses.find(hash);
@@ -157,9 +161,6 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                     desc.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
                     desc.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
                     desc.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-                    desc.initialLayout = hasClear ?
-                        VK_IMAGE_LAYOUT_UNDEFINED :
-                        VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
                     desc.finalLayout = isDefaultFbo ?
                         VK_IMAGE_LAYOUT_PRESENT_SRC_KHR :
                         VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
@@ -178,6 +179,9 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                         const auto& swapchainViews = m_swapchainObject.GetImageViews();
                         MOBILEGL_ASSERT(swapchainImageIndex < swapchainViews.size(),
                                         "GetOrCreateRenderPass: swapchain image index out of range");
+                        desc.initialLayout = hasClear ?
+                            VK_IMAGE_LAYOUT_UNDEFINED :
+                            VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
                         attachmentViews[i] = swapchainViews[swapchainImageIndex];
                     } else {
                         textureResources[i] = m_textureManager.SyncTextureAndGetDescriptor(*texture);
@@ -186,6 +190,9 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                         MOBILEGL_ASSERT(hasClear || textureResources[i]->layout != VK_IMAGE_LAYOUT_UNDEFINED,
                                         "GetOrCreateRenderPass: color attachment textureId=%d has undefined tracked layout with LOAD_OP_LOAD (attachment=%d)",
                                         texture->GetExternalIndex(), i);
+                        desc.initialLayout = hasClear ?
+                            VK_IMAGE_LAYOUT_UNDEFINED :
+                            textureResources[i]->layout;
                         trackedAttachmentLayouts.emplace_back(TrackedAttachmentLayoutInfo {
                             .texture = texture,
                             .finalLayout = desc.finalLayout,
@@ -219,6 +226,13 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             Bool hasClear = m_clearManager.GetPendingClear(&texture, clearPayload);
             Bool clearDepth = hasClear && clearPayload.attachmentType == FramebufferAttachmentType::Depth;
             Bool clearStencil = hasClear && clearPayload.attachmentType == FramebufferAttachmentType::Stencil;
+            VkImageLayout trackedDepthLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+            if (!isDefaultFbo) {
+                depthTextureResource = m_textureManager.SyncTextureAndGetDescriptor(texture);
+                MOBILEGL_ASSERT(depthTextureResource,
+                                "GetOrCreateRenderPass: SyncTextureAndGetDescriptor failed at depth attachment");
+                trackedDepthLayout = depthTextureResource->layout;
+            }
             depthAttachmentDescription.flags = 0;
             depthAttachmentDescription.format =
                 MG_Util::ConvertTextureInternalFormatToVkEnum(texture.GetFormat());
@@ -231,15 +245,19 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                 VK_ATTACHMENT_LOAD_OP_CLEAR :
                 VK_ATTACHMENT_LOAD_OP_LOAD;
             depthAttachmentDescription.stencilStoreOp = VK_ATTACHMENT_STORE_OP_STORE;
-            // UNDEFINED is only valid when both depth and stencil are discarded/cleared.
-            depthAttachmentDescription.initialLayout = (clearDepth && clearStencil) ?
-                VK_IMAGE_LAYOUT_UNDEFINED :
-                VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
             depthAttachmentDescription.finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
-            MOBILEGL_ASSERT(!(depthAttachmentDescription.stencilLoadOp == VK_ATTACHMENT_LOAD_OP_LOAD &&
-                              depthAttachmentDescription.initialLayout == VK_IMAGE_LAYOUT_UNDEFINED),
-                            "GetOrCreateRenderPass: invalid depth-stencil state (stencil LOAD + initialLayout UNDEFINED), textureId=%d",
-                            texture.GetExternalIndex());
+            if (!isDefaultFbo && trackedDepthLayout == VK_IMAGE_LAYOUT_UNDEFINED) {
+                if (!clearDepth) {
+                    depthAttachmentDescription.loadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+                }
+                if (!clearStencil) {
+                    depthAttachmentDescription.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+                }
+            }
+            depthAttachmentDescription.initialLayout =
+                (clearDepth && clearStencil) || (!isDefaultFbo && trackedDepthLayout == VK_IMAGE_LAYOUT_UNDEFINED) ?
+                    VK_IMAGE_LAYOUT_UNDEFINED :
+                    trackedDepthLayout;
             if (hasClear) {
                 pendingClearAttachments.emplace_back(PendingClearAttachmentInfo {
                     .attachmentIndex = depthAttachmentIndex,
@@ -249,9 +267,6 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             if (isDefaultFbo) {
                 attachmentViews.emplace_back(m_swapchainObject.GetDepthStencilImageView(swapchainImageIndex));
             } else {
-                depthTextureResource = m_textureManager.SyncTextureAndGetDescriptor(texture);
-                MOBILEGL_ASSERT(depthTextureResource,
-                                "GetOrCreateRenderPass: SyncTextureAndGetDescriptor failed at depth attachment");
                 MOBILEGL_ASSERT(clearDepth || clearStencil || depthTextureResource->layout != VK_IMAGE_LAYOUT_UNDEFINED,
                                 "GetOrCreateRenderPass: depth attachment textureId=%d has undefined tracked layout with LOAD_OP_LOAD",
                                 texture.GetExternalIndex());
@@ -314,6 +329,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         VK_VERIFY(vkCreateFramebuffer(m_device, &framebufferCreateInfo, nullptr, &framebuffer));
         IntVec2 extent = {width, height};
         RenderPassEntry renderPassEntry {
+            hash,
             renderPass,
             framebuffer,
             compatibilityHash,
@@ -372,13 +388,17 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         for (const auto& pending: renderPassEntry.pendingClearAttachments) {
             s_clearManager->PopPendingClear(pending.texture);
         }
-        s_activeRenderPass = &renderPassEntry;
+        s_activeRenderPass.hash = renderPassEntry.hash;
+        s_activeRenderPass.compatibilityHash = renderPassEntry.compatibilityHash;
+        s_activeRenderPass.trackedAttachmentLayouts = renderPassEntry.trackedAttachmentLayouts;
+        s_activeRenderPass.extent = renderPassEntry.extent;
+        s_hasActiveRenderPass = true;
 
         return true;
     }
 
     Bool VkRenderPassManager::EndRenderPass(VkCommandBuffer commandBuffer) {
-        auto* activeRenderPass = s_activeRenderPass;
+        auto* activeRenderPass = GetActiveRenderPass();
         vkCmdEndRenderPass(commandBuffer);
         if (activeRenderPass != nullptr && !activeRenderPass->trackedAttachmentLayouts.empty()) {
             MOBILEGL_ASSERT(s_textureManager != nullptr, "EndRenderPass: texture manager is null");
@@ -386,11 +406,12 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                 s_textureManager->UpdateTrackedImageLayout(trackedAttachment.texture, trackedAttachment.finalLayout);
             }
         }
-        s_activeRenderPass = nullptr;
+        s_activeRenderPass = {};
+        s_hasActiveRenderPass = false;
         return true;
     }
 
-    RenderPassEntry* VkRenderPassManager::GetActiveRenderPass() {
-        return s_activeRenderPass;
+    ActiveRenderPassInfo* VkRenderPassManager::GetActiveRenderPass() {
+        return s_hasActiveRenderPass ? &s_activeRenderPass : nullptr;
     }
 } // namespace MobileGL::MG_Backend::DirectVulkan

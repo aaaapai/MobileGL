@@ -425,7 +425,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
 
         // Begin render pass, and handle clear
 
-        if (activeRenderPass && (activeRenderPass == &renderPassEntry || activeRenderPass->CompatibleWith(renderPassEntry))) {
+        if (activeRenderPass && activeRenderPass->CompatibleWith(renderPassEntry)) {
             ClearAttachmentsOnActiveRenderPass(frame.commandBuffer, renderPassEntry);
         } else {
             // No active render pass or active one not compatible.

@@ -32,6 +32,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
     struct RenderPassEntry {
         static inline VkDevice s_device;
         static inline Vector<VkTextureManager::TextureResource*> s_textureResourcesScratch;
+        Uint64 hash = 0;
         VkRenderPass renderPass = VK_NULL_HANDLE;
         VkFramebuffer framebuffer = VK_NULL_HANDLE;
         Uint64 compatibilityHash = 0;
@@ -44,6 +45,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         RenderPassEntry() = default;
         RenderPassEntry(const RenderPassEntry&) = delete;
         RenderPassEntry(RenderPassEntry&& that) noexcept {
+            std::swap(hash, that.hash);
             std::swap(renderPass, that.renderPass);
             std::swap(framebuffer, that.framebuffer);
             std::swap(compatibilityHash, that.compatibilityHash);
@@ -54,6 +56,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             std::swap(subpass, that.subpass);
         }
         RenderPassEntry(
+            Uint64 hash,
             VkRenderPass renderpass,
             VkFramebuffer framebuffer,
             Uint64 compatibilityHash,
@@ -61,6 +64,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             const Vector<TrackedAttachmentLayoutInfo>& trackedAttachmentLayouts,
             Uint32 attachmentCount,
             IntVec2 extent, int subpass):
+            hash(hash),
             renderPass(renderpass),
             framebuffer(framebuffer),
             compatibilityHash(compatibilityHash),
@@ -89,6 +93,21 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         }
     };
 
+    struct ActiveRenderPassInfo {
+        Uint64 hash = 0;
+        Uint64 compatibilityHash = 0;
+        Vector<TrackedAttachmentLayoutInfo> trackedAttachmentLayouts;
+        IntVec2 extent = {0, 0};
+
+        Bool CompatibleWith(const RenderPassEntry& that) const {
+            return compatibilityHash == that.compatibilityHash;
+        }
+
+        Bool CompatibleWith(Uint64 thatCompatibilityHash) const {
+            return compatibilityHash == thatCompatibilityHash;
+        }
+    };
+
     class VkRenderPassManager {
     public:
         using HashType = Uint64;
@@ -107,7 +126,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         RenderPassEntry& GetOrCreateRenderPass(const MG_State::GLState::FramebufferObject& fbo, Uint32 swapchainImageIndex);
         static Bool BeginRenderPass(VkCommandBuffer commandBuffer, RenderPassEntry& renderPassEntry);
         static Bool EndRenderPass(VkCommandBuffer commandBuffer);
-        static RenderPassEntry* GetActiveRenderPass();
+        static ActiveRenderPassInfo* GetActiveRenderPass();
     private:
         VkDevice m_device = VK_NULL_HANDLE;
         const VulkanRendererConfig& m_config;
@@ -116,7 +135,8 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         const SwapchainObject& m_swapchainObject;
         UnorderedMap<Uint64, RenderPassEntry> m_renderPasses;
         static inline XXH64_state_t* m_hashState = XXH64_createState();
-        static inline RenderPassEntry* s_activeRenderPass = nullptr;
+        static inline ActiveRenderPassInfo s_activeRenderPass{};
+        static inline Bool s_hasActiveRenderPass = false;
         static inline VkClearManager* s_clearManager = nullptr;
         static inline VkTextureManager* s_textureManager = nullptr;
     };

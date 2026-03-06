@@ -242,7 +242,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             return true;
         }
 
-        resource.~TextureResource();
+         resource.Reset();
 
         auto aspect = GetAspectMaskForFormat(format);
 
