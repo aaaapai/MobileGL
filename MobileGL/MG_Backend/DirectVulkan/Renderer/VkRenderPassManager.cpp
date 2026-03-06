@@ -95,8 +95,12 @@ namespace MobileGL::MG_Backend::DirectVulkan {
     RenderPassEntry& VkRenderPassManager::GetOrCreateRenderPass(const MG_State::GLState::FramebufferObject& fbo,
                                                                 Uint32 swapchainImageIndex) {
         // retrieve from cache first
-        auto hash = ComputeHash(fbo, swapchainImageIndex, true);
+        auto* activeRenderPass = GetActiveRenderPass();
         auto compatibilityHash = ComputeHash(fbo, swapchainImageIndex, false);
+        if (activeRenderPass != nullptr && activeRenderPass->CompatibleWith(compatibilityHash)) {
+            return *activeRenderPass;
+        }
+        auto hash = ComputeHash(fbo, swapchainImageIndex, true);
         auto it = m_renderPasses.find(hash);
         if (it != m_renderPasses.end())
             return it->second;
