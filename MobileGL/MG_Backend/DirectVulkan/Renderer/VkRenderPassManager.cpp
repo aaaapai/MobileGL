@@ -20,6 +20,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         m_swapchainObject(swapchainObject) {
         RenderPassEntry::s_device = m_device;
         s_clearManager = &m_clearManager;
+        s_textureManager = &m_textureManager;
     }
 
     VkRenderPassManager::~VkRenderPassManager() {}
@@ -120,6 +121,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         Vector<VkAttachmentDescription> attachmentDescriptions(validDrawBufCount);
         Vector<VkAttachmentReference> colorAttachmentRefs(validDrawBufCount);
         Vector<PendingClearAttachmentInfo> pendingClearAttachments;
+        Vector<TrackedAttachmentLayoutInfo> trackedAttachmentLayouts;
         auto& textureResources = RenderPassEntry::s_textureResourcesScratch;
         textureResources.clear();
         textureResources.resize(validDrawBufCount, nullptr);
@@ -184,6 +186,10 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                         MOBILEGL_ASSERT(hasClear || textureResources[i]->layout != VK_IMAGE_LAYOUT_UNDEFINED,
                                         "GetOrCreateRenderPass: color attachment textureId=%d has undefined tracked layout with LOAD_OP_LOAD (attachment=%d)",
                                         texture->GetExternalIndex(), i);
+                        trackedAttachmentLayouts.emplace_back(TrackedAttachmentLayoutInfo {
+                            .texture = texture,
+                            .finalLayout = desc.finalLayout,
+                        });
                         attachmentViews[i] = textureResources[i]->view;
                     }
 
@@ -249,6 +255,10 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                 MOBILEGL_ASSERT(clearDepth || clearStencil || depthTextureResource->layout != VK_IMAGE_LAYOUT_UNDEFINED,
                                 "GetOrCreateRenderPass: depth attachment textureId=%d has undefined tracked layout with LOAD_OP_LOAD",
                                 texture.GetExternalIndex());
+                trackedAttachmentLayouts.emplace_back(TrackedAttachmentLayoutInfo {
+                    .texture = &texture,
+                    .finalLayout = depthAttachmentDescription.finalLayout,
+                });
                 textureResources.emplace_back(depthTextureResource);
                 attachmentViews.emplace_back(depthTextureResource->view);
                 if (width == 0 || height == 0) {
@@ -308,6 +318,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             framebuffer,
             compatibilityHash,
             Move(pendingClearAttachments),
+            Move(trackedAttachmentLayouts),
             static_cast<Uint32>(attachmentViews.size()),
             extent,
             1 };
@@ -367,7 +378,14 @@ namespace MobileGL::MG_Backend::DirectVulkan {
     }
 
     Bool VkRenderPassManager::EndRenderPass(VkCommandBuffer commandBuffer) {
+        auto* activeRenderPass = s_activeRenderPass;
         vkCmdEndRenderPass(commandBuffer);
+        if (activeRenderPass != nullptr && !activeRenderPass->trackedAttachmentLayouts.empty()) {
+            MOBILEGL_ASSERT(s_textureManager != nullptr, "EndRenderPass: texture manager is null");
+            for (const auto& trackedAttachment : activeRenderPass->trackedAttachmentLayouts) {
+                s_textureManager->UpdateTrackedImageLayout(trackedAttachment.texture, trackedAttachment.finalLayout);
+            }
+        }
         s_activeRenderPass = nullptr;
         return true;
     }

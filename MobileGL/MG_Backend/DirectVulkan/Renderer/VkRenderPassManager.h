@@ -18,9 +18,15 @@
 #include <Includes.h>
 
 namespace MobileGL::MG_Backend::DirectVulkan {
+
     struct PendingClearAttachmentInfo {
         Uint32 attachmentIndex = 0;
         MG_State::GLState::ITextureObject* texture = nullptr;
+    };
+
+    struct TrackedAttachmentLayoutInfo {
+        MG_State::GLState::ITextureObject* texture = nullptr;
+        VkImageLayout finalLayout = VK_IMAGE_LAYOUT_UNDEFINED;
     };
 
     struct RenderPassEntry {
@@ -30,6 +36,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         VkFramebuffer framebuffer = VK_NULL_HANDLE;
         Uint64 compatibilityHash = 0;
         Vector<PendingClearAttachmentInfo> pendingClearAttachments;
+        Vector<TrackedAttachmentLayoutInfo> trackedAttachmentLayouts;
         Uint32 attachmentCount = 0;
         IntVec2 extent = {0, 0};
         Uint32 subpass = 0;
@@ -41,6 +48,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             std::swap(framebuffer, that.framebuffer);
             std::swap(compatibilityHash, that.compatibilityHash);
             std::swap(pendingClearAttachments, that.pendingClearAttachments);
+            std::swap(trackedAttachmentLayouts, that.trackedAttachmentLayouts);
             std::swap(attachmentCount, that.attachmentCount);
             std::swap(extent, that.extent);
             std::swap(subpass, that.subpass);
@@ -50,12 +58,14 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             VkFramebuffer framebuffer,
             Uint64 compatibilityHash,
             const Vector<PendingClearAttachmentInfo>& pendingClearAttachments,
+            const Vector<TrackedAttachmentLayoutInfo>& trackedAttachmentLayouts,
             Uint32 attachmentCount,
             IntVec2 extent, int subpass):
             renderPass(renderpass),
             framebuffer(framebuffer),
             compatibilityHash(compatibilityHash),
             pendingClearAttachments(Move(pendingClearAttachments)),
+            trackedAttachmentLayouts(Move(trackedAttachmentLayouts)),
             attachmentCount(attachmentCount),
             extent(extent),
             subpass(subpass)
@@ -70,8 +80,12 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             }
         }
 
-        Bool CompatibleWith(const RenderPassEntry& that) {
+        Bool CompatibleWith(const RenderPassEntry& that) const {
             return this->compatibilityHash == that.compatibilityHash;
+        }
+
+        Bool CompatibleWith(Uint64 compatibilityHash) const {
+            return this->compatibilityHash == compatibilityHash;
         }
     };
 
@@ -104,5 +118,6 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         static inline XXH64_state_t* m_hashState = XXH64_createState();
         static inline RenderPassEntry* s_activeRenderPass = nullptr;
         static inline VkClearManager* s_clearManager = nullptr;
+        static inline VkTextureManager* s_textureManager = nullptr;
     };
 } // namespace MobileGL::MG_Backend::DirectVulkan

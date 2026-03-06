@@ -58,6 +58,17 @@ namespace MobileGL::MG_Backend::DirectVulkan {
 
         return &(it->second);
     }
+
+    void VkTextureManager::UpdateTrackedImageLayout(MG_State::GLState::ITextureObject* texture, VkImageLayout newLayout) {
+        MOBILEGL_ASSERT(texture != nullptr, "UpdateTrackedImageLayout: texture is null");
+        auto it = m_textureResources.find(texture);
+        MOBILEGL_ASSERT(it != m_textureResources.end(),
+                        "UpdateTrackedImageLayout: textureId=%d has no tracked resource", texture->GetExternalIndex());
+        MOBILEGL_ASSERT(it->second.image != VK_NULL_HANDLE,
+                        "UpdateTrackedImageLayout: textureId=%d has null image", texture->GetExternalIndex());
+        it->second.layout = newLayout;
+    }
+
     Bool VkTextureManager::TransitionImageLayout(VkCommandBuffer commandBuffer, VkImage image,
                                                  VkImageLayout& trackedLayout, VkImageLayout newLayout,
                                                  VkPipelineStageFlags srcStageMask, VkPipelineStageFlags dstStageMask,
