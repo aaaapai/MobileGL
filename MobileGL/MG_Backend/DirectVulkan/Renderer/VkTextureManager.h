@@ -76,6 +76,7 @@ public:
     TextureResource* SyncTextureAndGetDescriptor(
         MG_State::GLState::ITextureObject& texture);
     void UpdateTrackedImageLayout(MG_State::GLState::ITextureObject* texture, VkImageLayout newLayout);
+    Bool TransitionTextureForSampling(VkCommandBuffer commandBuffer, MG_State::GLState::ITextureObject& texture);
 
     static Bool TransitionImageLayout(VkCommandBuffer commandBuffer, VkImage image, VkImageLayout& trackedLayout,
                                VkImageLayout newLayout, VkPipelineStageFlags srcStageMask,

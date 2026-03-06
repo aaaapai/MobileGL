@@ -405,8 +405,25 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             m_uniformDescriptorBinder->BeginFrame(m_frameContext.GetCurrentFrameIndex());
         }
 
-        // Begin render pass, and handle clear
         auto* activeRenderPass = VkRenderPassManager::GetActiveRenderPass();
+        Vector<MG_State::GLState::ITextureObject*> sampledTextures;
+        Bool hasSampledTextures = m_uniformDescriptorBinder->CollectSampledTextures(program, sampledTextures);
+        MOBILEGL_ASSERT(hasSampledTextures, "%s: CollectSampledTextures failed", __func__);
+        if (activeRenderPass && !sampledTextures.empty()) {
+            VkRenderPassManager::EndRenderPass(frame.commandBuffer);
+            activeRenderPass = nullptr;
+        }
+
+        for (auto* sampledTexture : sampledTextures) {
+            if (!sampledTexture) {
+                continue;
+            }
+            const Bool ready = m_textureManager->TransitionTextureForSampling(frame.commandBuffer, *sampledTexture);
+            MOBILEGL_ASSERT(ready, "%s: TransitionTextureForSampling failed for textureId=%d",
+                            __func__, sampledTexture->GetExternalIndex());
+        }
+
+        // Begin render pass, and handle clear
 
         if (activeRenderPass && (activeRenderPass == &renderPassEntry || activeRenderPass->CompatibleWith(renderPassEntry))) {
             ClearAttachmentsOnActiveRenderPass(frame.commandBuffer, renderPassEntry);

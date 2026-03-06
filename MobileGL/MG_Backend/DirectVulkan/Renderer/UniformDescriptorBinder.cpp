@@ -461,25 +461,15 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         (void)commandBuffer;
         MOBILEGL_ASSERT(m_textureManager != nullptr, "ResolveSamplerDescriptor: texture manager is null");
         MOBILEGL_ASSERT(m_samplerManager != nullptr, "ResolveSamplerDescriptor: sampler manager is null");
-        if (!MG_State::pGLContext || binding >= layout.samplerUniformLocationByBinding.size()) {
+        SharedPtr<MG_State::GLState::ITextureObject> texture;
+        if (!ResolveSamplerTexture(program, layout, binding, texture)) {
             return false;
         }
 
         const Int location = layout.samplerUniformLocationByBinding[binding];
-        if (location < 0) {
-            return false;
-        }
-
         const Int unit = program.GetUniformSamplerOrImageUnitIndex(static_cast<Uint>(location));
-        if (unit < 0) {
-            return false;
-        }
-
         auto& textureUnit = MG_State::pGLContext->GetTextureUnitObject(unit);
         const auto samplerOverride = textureUnit.GetSamplerObject();
-
-        const TextureTarget preferredTarget = layout.samplerTextureTargetByBinding[binding];
-        auto texture = textureUnit.GetBindingSlot(preferredTarget).GetBoundObject();
         if (!texture) {
             return false;
         }
@@ -502,6 +492,56 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             .imageLayout = resource->layout,
         };
         return outImageInfo.sampler != VK_NULL_HANDLE;
+    }
+
+    Bool UniformDescriptorBinder::ResolveSamplerTexture(const MG_State::GLState::ProgramObject& program,
+                                                        const ProgramLayout& layout, Uint32 binding,
+                                                        SharedPtr<MG_State::GLState::ITextureObject>& outTexture) const {
+        outTexture.reset();
+        if (!MG_State::pGLContext || binding >= layout.samplerUniformLocationByBinding.size()) {
+            return false;
+        }
+
+        const Int location = layout.samplerUniformLocationByBinding[binding];
+        if (location < 0) {
+            return false;
+        }
+
+        const Int unit = program.GetUniformSamplerOrImageUnitIndex(static_cast<Uint>(location));
+        if (unit < 0) {
+            return false;
+        }
+
+        auto& textureUnit = MG_State::pGLContext->GetTextureUnitObject(unit);
+        const TextureTarget preferredTarget = layout.samplerTextureTargetByBinding[binding];
+        outTexture = textureUnit.GetBindingSlot(preferredTarget).GetBoundObject();
+        return outTexture != nullptr;
+    }
+
+    Bool UniformDescriptorBinder::CollectSampledTextures(const MG_State::GLState::ProgramObject& program,
+                                                         Vector<MG_State::GLState::ITextureObject*>& outTextures) {
+        outTextures.clear();
+        ProgramLayout* layout = GetOrCreateProgramLayout(program);
+        if (layout == nullptr) {
+            return false;
+        }
+
+        for (Uint32 binding = 0; binding < m_maxBindings; ++binding) {
+            if (layout->bindingKinds[binding] != BindingKind::CombinedImageSampler) {
+                continue;
+            }
+
+            SharedPtr<MG_State::GLState::ITextureObject> texture;
+            if (!ResolveSamplerTexture(program, *layout, binding, texture) || !texture) {
+                continue;
+            }
+
+            auto found = std::find(outTextures.begin(), outTextures.end(), texture.get());
+            if (found == outTextures.end()) {
+                outTextures.push_back(texture.get());
+            }
+        }
+        return true;
     }
 
     UniformDescriptorBinder::ProgramLayout* UniformDescriptorBinder::GetOrCreateProgramLayout(

@@ -36,6 +36,8 @@ namespace MobileGL::MG_Backend::DirectVulkan {
 
         void BeginFrame(Uint32 frameIndex);
         VkPipelineLayout GetOrCreatePipelineLayout(const MG_State::GLState::ProgramObject& program);
+        Bool CollectSampledTextures(const MG_State::GLState::ProgramObject& program,
+                                    Vector<MG_State::GLState::ITextureObject*>& outTextures);
         Bool BindProgramUniformBuffers(VkCommandBuffer commandBuffer,
                                        const MG_State::GLState::ProgramObject& program, Uint32 frameIndex);
 
@@ -72,6 +74,8 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         static TextureTarget UniformTypeToTextureTarget(GLenum glType);
         Bool ReflectSamplerBindings(const MG_State::GLState::ProgramObject& program, ProgramLayout& layout) const;
         Bool ReflectGlobalUboBinding(const MG_State::GLState::ProgramObject& program, ProgramLayout& layout) const;
+        Bool ResolveSamplerTexture(const MG_State::GLState::ProgramObject& program, const ProgramLayout& layout,
+                                   Uint32 binding, SharedPtr<MG_State::GLState::ITextureObject>& outTexture) const;
         Bool ResolveSamplerDescriptor(VkCommandBuffer commandBuffer, const MG_State::GLState::ProgramObject& program,
                                       const ProgramLayout& layout, Uint32 binding,
                                       VkDescriptorImageInfo& outImageInfo) const;
