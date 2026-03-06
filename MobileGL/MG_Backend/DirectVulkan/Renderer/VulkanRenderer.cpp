@@ -17,6 +17,48 @@
 #include <vulkan/vulkan_core.h>
 
 namespace MobileGL::MG_Backend::DirectVulkan {
+    static const char* VkImageLayoutToString(VkImageLayout layout) {
+        switch (layout) {
+            case VK_IMAGE_LAYOUT_UNDEFINED:
+                return "VK_IMAGE_LAYOUT_UNDEFINED";
+            case VK_IMAGE_LAYOUT_GENERAL:
+                return "VK_IMAGE_LAYOUT_GENERAL";
+            case VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL:
+                return "VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL";
+            case VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL:
+                return "VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL";
+            case VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL:
+                return "VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL";
+            case VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL:
+                return "VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL";
+            case VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL:
+                return "VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL";
+            case VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL:
+                return "VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL";
+            case VK_IMAGE_LAYOUT_PRESENT_SRC_KHR:
+                return "VK_IMAGE_LAYOUT_PRESENT_SRC_KHR";
+            case VK_IMAGE_LAYOUT_DEPTH_READ_ONLY_STENCIL_ATTACHMENT_OPTIMAL:
+                return "VK_IMAGE_LAYOUT_DEPTH_READ_ONLY_STENCIL_ATTACHMENT_OPTIMAL";
+            case VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_STENCIL_READ_ONLY_OPTIMAL:
+                return "VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_STENCIL_READ_ONLY_OPTIMAL";
+            default:
+                return "VK_IMAGE_LAYOUT_OTHER";
+        }
+    }
+
+    static Bool ActiveRenderPassUsesTexture(const ActiveRenderPassInfo& activeRenderPass,
+                                            const MG_State::GLState::ITextureObject& texture) {
+        for (const auto& trackedAttachment : activeRenderPass.trackedAttachmentLayouts) {
+            if (trackedAttachment.target != TrackedAttachmentTarget::Texture) {
+                continue;
+            }
+            if (trackedAttachment.texture == &texture) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     static Bool IsValidSampledImageLayout(VkImageLayout layout) {
         switch (layout) {
             case VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL:
@@ -416,6 +458,27 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         Vector<MG_State::GLState::ITextureObject*> sampledTextures;
         Bool hasSampledTextures = m_uniformDescriptorBinder->CollectSampledTextures(program, sampledTextures);
         MOBILEGL_ASSERT(hasSampledTextures, "%s: CollectSampledTextures failed", __func__);
+        MGLOG_D("SetupDraw: program=%u drawFbo=%u sampledTextureCount=%zu activeRenderPass=%s",
+                program.GetExternalIndex(), drawFbo ? drawFbo->GetExternalIndex() : 0u, sampledTextures.size(),
+                activeRenderPass ? "true" : "false");
+        Bool activeRenderPassUsesSampledTexture = false;
+        if (activeRenderPass != nullptr) {
+            for (auto* sampledTexture : sampledTextures) {
+                if (sampledTexture == nullptr) {
+                    continue;
+                }
+                if (ActiveRenderPassUsesTexture(*activeRenderPass, *sampledTexture)) {
+                    MGLOG_D("SetupDraw: active render pass is still using sampled textureId=%d; ending render pass before descriptor preparation",
+                            sampledTexture->GetExternalIndex());
+                    activeRenderPassUsesSampledTexture = true;
+                    break;
+                }
+            }
+        }
+        if (activeRenderPassUsesSampledTexture) {
+            VkRenderPassManager::EndRenderPass(frame.commandBuffer);
+            activeRenderPass = nullptr;
+        }
         Bool needSampledTextureTransitions = false;
         for (auto* sampledTexture : sampledTextures) {
             if (!sampledTexture) {
@@ -426,6 +489,9 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             MOBILEGL_ASSERT(textureResource != nullptr,
                             "%s: SyncTextureAndGetDescriptor failed for textureId=%d",
                             __func__, sampledTexture->GetExternalIndex());
+            MGLOG_D("SetupDraw: sampled textureId=%d layout(before)=%s(%d)",
+                    sampledTexture->GetExternalIndex(), VkImageLayoutToString(textureResource->layout),
+                    static_cast<Int>(textureResource->layout));
             if (!IsValidSampledImageLayout(textureResource->layout)) {
                 needSampledTextureTransitions = true;
                 break;
@@ -433,6 +499,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         }
 
         if (activeRenderPass && needSampledTextureTransitions) {
+            MGLOG_D("SetupDraw: ending active render pass before sampled texture transitions");
             VkRenderPassManager::EndRenderPass(frame.commandBuffer);
             activeRenderPass = nullptr;
         }
@@ -444,6 +511,13 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             const Bool ready = m_textureManager->TransitionTextureForSampling(frame.commandBuffer, *sampledTexture);
             MOBILEGL_ASSERT(ready, "%s: TransitionTextureForSampling failed for textureId=%d",
                             __func__, sampledTexture->GetExternalIndex());
+            auto* transitionedResource = m_textureManager->SyncTextureAndGetDescriptor(*sampledTexture);
+            MOBILEGL_ASSERT(transitionedResource != nullptr,
+                            "%s: post-transition SyncTextureAndGetDescriptor failed for textureId=%d",
+                            __func__, sampledTexture->GetExternalIndex());
+            MGLOG_D("SetupDraw: sampled textureId=%d layout(after)=%s(%d)",
+                    sampledTexture->GetExternalIndex(), VkImageLayoutToString(transitionedResource->layout),
+                    static_cast<Int>(transitionedResource->layout));
         }
 
         auto& renderPassEntry = m_renderPassManager->GetOrCreateRenderPass(*drawFbo, m_imageIndexAcquired);

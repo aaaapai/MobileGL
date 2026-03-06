@@ -10,10 +10,37 @@
 
 #include "MG_State/GLState/Core.h"
 #include "MG_State/GLState/ProgramState/ProgramObject.h"
+#include "MG_Util/Converters/MGToStr/FramebufferEnumConverter.h"
 #include "MG_Util/ShaderTranspiler/Types.h"
 #include <limits>
 
 namespace MobileGL::MG_Backend::DirectVulkan {
+    static Bool FindFramebufferAttachmentForTexture(const MG_State::GLState::FramebufferObject& framebuffer,
+                                                    const MG_State::GLState::ITextureObject& texture,
+                                                    FramebufferAttachmentType& outAttachment, Int& outLevel) {
+        const auto& attachments = framebuffer.GetAllAttachmentObjects();
+        for (SizeT i = 0; i < attachments.size(); ++i) {
+            const auto attachmentType = static_cast<FramebufferAttachmentType>(i);
+            if (attachmentType == FramebufferAttachmentType::None) {
+                continue;
+            }
+
+            const auto& attachment = attachments[i];
+            if (!attachment.IsTexture()) {
+                continue;
+            }
+
+            auto attachedTexture = attachment.GetTexture();
+            if (attachedTexture && attachedTexture.get() == &texture) {
+                outAttachment = attachmentType;
+                outLevel = attachment.GetTextureLevel();
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     static Bool IsValidSampledImageLayout(VkImageLayout layout) {
         switch (layout) {
         case VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL:
@@ -483,9 +510,26 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         if (resource == nullptr) {
             return false;
         }
-        MOBILEGL_ASSERT(IsValidSampledImageLayout(resource->layout),
-                        "ResolveSamplerDescriptor: invalid sampled image layout=%d for textureId=%d, binding=%u",
-                        static_cast<Int>(resource->layout), texture->GetExternalIndex(), binding);
+        if (!IsValidSampledImageLayout(resource->layout)) {
+            auto drawFbo = MG_State::pGLContext->GetFramebufferBindingSlot(FramebufferTarget::Draw).GetBoundObject();
+            FramebufferAttachmentType attachmentType = FramebufferAttachmentType::None;
+            Int attachmentLevel = 0;
+            if (drawFbo &&
+                FindFramebufferAttachmentForTexture(*drawFbo, *texture, attachmentType, attachmentLevel)) {
+                MOBILEGL_ASSERT(false,
+                                "ResolveSamplerDescriptor: framebuffer feedback loop detected: textureId=%d is bound "
+                                "for sampling at binding=%u, but is also attached to drawFbo=%u as %s (level=%d, "
+                                "trackedLayout=%d)",
+                                texture->GetExternalIndex(), binding, drawFbo->GetExternalIndex(),
+                                MG_Util::ConvertFramebufferAttachmentTypeToString(attachmentType).c_str(),
+                                attachmentLevel, static_cast<Int>(resource->layout));
+            }
+
+            MOBILEGL_ASSERT(false,
+                            "ResolveSamplerDescriptor: invalid sampled image layout=%d for textureId=%d, binding=%u",
+                            static_cast<Int>(resource->layout), texture->GetExternalIndex(), binding);
+            return false;
+        }
         outImageInfo = {
             .sampler = m_samplerManager->GetOrCreateSampler(*samplerToUse),
             .imageView = resource->view,
