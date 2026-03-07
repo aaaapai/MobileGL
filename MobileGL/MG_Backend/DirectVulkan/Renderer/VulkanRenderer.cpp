@@ -569,9 +569,8 @@ namespace MobileGL::MG_Backend::DirectVulkan {
     void VulkanRenderer::Clear(GLbitfield mask) {
         m_clearManager->CollectGarbage();
         auto* fbo = MG_State::pGLContext->GetFramebufferBindingSlot(FramebufferTarget::Draw).GetBoundObject().get();
-        if (!fbo) {
-            MGLOG_D("VulkanRenderer::Clear: draw framebuffer not found");
-        }
+        MOBILEGL_ASSERT(fbo, "VulkanRenderer::Clear: draw framebuffer not found (fbo == nullptr)");
+
         ClearFramebufferPayload payload {
             .color = MG_State::pGLContext->GetClearColor(),
             .depth = MG_State::pGLContext->GetClearDepth(),
