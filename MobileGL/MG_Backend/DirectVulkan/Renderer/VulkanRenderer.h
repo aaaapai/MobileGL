@@ -82,6 +82,9 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                                                 const RenderPassEntry& compatibleRenderPassEntry);
 
         void Clear(GLbitfield mask);
+        void BlitFramebuffer(GLint srcX0, GLint srcY0, GLint srcX1, GLint srcY1,
+                             GLint dstX0, GLint dstY0, GLint dstX1, GLint dstY1,
+                             GLbitfield mask, GLenum filter);
         void DrawArrays(const DrawArrayCmd& payload);
         void DrawElements(const DrawElementCmd& payload);
         void MultiDrawElements(const Vector<DrawElementCmd>& payloads);
@@ -93,6 +96,24 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         void RecreateSwapchain();
 
     private:
+        struct BlitPushConstants {
+            float srcRect[4] = {0.f, 0.f, 1.f, 1.f};
+            float dstRect[4] = {0.f, 0.f, 1.f, 1.f};
+            Uint32 surfaceTransform = 0;
+            Uint32 padding[3] = {0, 0, 0};
+        };
+
+        struct BlitPipelineResources {
+            VkDescriptorSetLayout descriptorSetLayout = VK_NULL_HANDLE;
+            VkPipelineLayout pipelineLayout = VK_NULL_HANDLE;
+            VkDescriptorPool descriptorPool = VK_NULL_HANDLE;
+            Vector<VkDescriptorSet> descriptorSets;
+            Vector<VkPipelineShaderStageCreateInfo> shaderStages;
+            Vector<VkShaderModule> shaderModules;
+            VkSampler nearestSampler = VK_NULL_HANDLE;
+            VkSampler linearSampler = VK_NULL_HANDLE;
+        };
+
         NativeWindowType m_window = 0;
         VulkanRendererConfig m_config;
 
@@ -135,6 +156,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         UniquePtr<VkRenderPassManager> m_renderPassManager;
         UniquePtr<VkTextureManager> m_textureManager;
         UniquePtr<VkSamplerManager> m_samplerManager;
+        BlitPipelineResources m_blitPipelineResources;
 
         void CreateInstance();
         VkResult SetupDebugMessenger();
@@ -160,6 +182,15 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         Bool EnsureFrameUploadBufferCapacity(Uint32 frameIndex, Bool isIndexBuffer, VkDeviceSize requiredEndOffset,
                                              VkDeviceSize minCapacity, VkBufferUsageFlags usage);
         Bool UploadAndBindVertexStreams(VkCommandBuffer commandBuffer, const MG_State::GLState::VertexArrayObject& vao);
+        Bool InitializeBlitResources();
+        void ShutdownBlitResources();
+        Bool TryBlitToDefaultFramebufferWithShader(FrameContext::FrameData& frame,
+                                                   MG_State::GLState::FramebufferObject& readFbo,
+                                                   MG_State::GLState::FramebufferObject& drawFbo,
+                                                   GLint srcX0, GLint srcY0, GLint srcX1, GLint srcY1,
+                                                   GLint dstX0, GLint dstY0, GLint dstX1, GLint dstY1,
+                                                   GLenum filter);
+        VkPipeline GetOrCreateBlitPipeline(const RenderPassEntry& renderPassEntry);
 
         void ShutdownSwapchain();
 

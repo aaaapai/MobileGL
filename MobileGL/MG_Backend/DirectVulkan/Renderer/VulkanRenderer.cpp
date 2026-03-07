@@ -12,6 +12,7 @@
 
 #include "MG_State/GLState/Core.h"
 #include "MG_State/GLState/ProgramState/ProgramObject.h"
+#include "MG_Util/ShaderTranspiler/ShaderCompiler.h"
 #include "MG_Impl/GLImpl/Framebuffer/GL_Framebuffer.h"
 #include "MG_Util/Converters/MGToVk/RenderStateEnumConverter.h"
 #include <vulkan/vulkan_core.h>
@@ -71,6 +72,126 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                 return false;
         }
     }
+
+    namespace {
+        enum class BlitSurfaceTransform : Uint32 {
+            Identity = 0,
+            Rotate90 = 1,
+            Rotate180 = 2,
+            Rotate270 = 3,
+        };
+
+        struct BlitImageBinding {
+            VkImage image = VK_NULL_HANDLE;
+            VkImageLayout* trackedLayout = nullptr;
+            VkImageAspectFlags aspectMask = VK_IMAGE_ASPECT_NONE;
+            IntVec2 extent = {0, 0};
+            const char* label = nullptr;
+        };
+
+        static void GetImageTransitionSourceState(VkImageLayout oldLayout, VkPipelineStageFlags& outSrcStageMask,
+                                                  VkAccessFlags& outSrcAccessMask) {
+            switch (oldLayout) {
+                case VK_IMAGE_LAYOUT_UNDEFINED:
+                case VK_IMAGE_LAYOUT_PRESENT_SRC_KHR:
+                    outSrcStageMask = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
+                    outSrcAccessMask = 0;
+                    break;
+                case VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL:
+                    outSrcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+                    outSrcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+                    break;
+                case VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL:
+                    outSrcStageMask = VK_PIPELINE_STAGE_TRANSFER_BIT;
+                    outSrcAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+                    break;
+                case VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL:
+                    outSrcStageMask = VK_PIPELINE_STAGE_TRANSFER_BIT;
+                    outSrcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+                    break;
+                case VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL:
+                    outSrcStageMask = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+                    outSrcAccessMask = VK_ACCESS_SHADER_READ_BIT;
+                    break;
+                default:
+                    outSrcStageMask = VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
+                    outSrcAccessMask = VK_ACCESS_MEMORY_READ_BIT | VK_ACCESS_MEMORY_WRITE_BIT;
+                    break;
+            }
+        }
+
+        static Bool ResolveColorBlitBinding(MG_State::GLState::FramebufferObject& fbo, Bool isReadFramebuffer,
+                                            Uint32 swapchainImageIndex, SwapchainObject& swapchainObject,
+                                            VkTextureManager& textureManager, BlitImageBinding& outBinding) {
+            const Bool isDefaultFbo = (&fbo == MG_Impl::GLImpl::FramebufferImpl::pDefaultFramebufferInfo->defaultFBO.get());
+            const FramebufferAttachmentType attachmentType =
+                isReadFramebuffer ? fbo.GetReadBuffer() : fbo.GetDrawBuffers()[0];
+            if (attachmentType < FramebufferAttachmentType::Color0 || attachmentType > FramebufferAttachmentType::Color31) {
+                MGLOG_E("BlitFramebuffer only supports color attachments right now (attachment=%d)",
+                        static_cast<Int>(attachmentType));
+                return false;
+            }
+
+            const auto& attachment = fbo.GetAttachment(attachmentType);
+            if (!attachment.IsComplete()) {
+                MGLOG_E("BlitFramebuffer skipped: %s framebuffer color attachment is incomplete",
+                        isReadFramebuffer ? "read" : "draw");
+                return false;
+            }
+            if (attachment.IsRenderbuffer()) {
+                MGLOG_E("BlitFramebuffer skipped: renderbuffer attachments are not supported yet");
+                return false;
+            }
+            if (!attachment.IsTexture()) {
+                MGLOG_E("BlitFramebuffer skipped: unsupported framebuffer attachment type");
+                return false;
+            }
+
+            auto* texture = attachment.GetTexture().get();
+            MOBILEGL_ASSERT(texture != nullptr, "ResolveColorBlitBinding: texture attachment is null");
+            outBinding.label = isReadFramebuffer ? "read" : "draw";
+
+            if (isDefaultFbo) {
+                outBinding.image = swapchainObject.GetImage(swapchainImageIndex);
+                outBinding.trackedLayout = nullptr;
+                outBinding.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+                const auto extent = swapchainObject.GetExtent();
+                outBinding.extent = {static_cast<Int>(extent.width), static_cast<Int>(extent.height)};
+                return true;
+            }
+
+            auto* resource = textureManager.SyncTextureAndGetDescriptor(*texture);
+            if (resource == nullptr) {
+                MGLOG_E("BlitFramebuffer skipped: failed to sync %s framebuffer textureId=%d",
+                        outBinding.label, texture->GetExternalIndex());
+                return false;
+            }
+            if ((resource->aspect & VK_IMAGE_ASPECT_COLOR_BIT) == 0) {
+                MGLOG_E("BlitFramebuffer skipped: %s framebuffer attachment textureId=%d is not a color image",
+                        outBinding.label, texture->GetExternalIndex());
+                return false;
+            }
+
+            outBinding.image = resource->image;
+            outBinding.trackedLayout = &resource->layout;
+            outBinding.aspectMask = resource->aspect;
+            outBinding.extent = {static_cast<Int>(resource->extent.width), static_cast<Int>(resource->extent.height)};
+            return true;
+        }
+
+        static BlitSurfaceTransform ToBlitSurfaceTransform(VkSurfaceTransformFlagBitsKHR preTransform) {
+            switch (preTransform) {
+                case VK_SURFACE_TRANSFORM_ROTATE_90_BIT_KHR:
+                    return BlitSurfaceTransform::Rotate90;
+                case VK_SURFACE_TRANSFORM_ROTATE_180_BIT_KHR:
+                    return BlitSurfaceTransform::Rotate180;
+                case VK_SURFACE_TRANSFORM_ROTATE_270_BIT_KHR:
+                    return BlitSurfaceTransform::Rotate270;
+                default:
+                    return BlitSurfaceTransform::Identity;
+            }
+        }
+    } // namespace
 
     VkBool32 VulkanRenderer::DebugCallback(VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity,
                                            VkDebugUtilsMessageTypeFlagsEXT messageType,
@@ -185,6 +306,8 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         MOBILEGL_ASSERT(m_samplerManager != nullptr, "VkSamplerManager creation failed.");
         succeeded = m_samplerManager->Initialize({m_device, &m_config});
         MOBILEGL_ASSERT(succeeded, "VkSamplerManager initialization failed.");
+        succeeded = InitializeBlitResources();
+        MOBILEGL_ASSERT(succeeded, "Blit pipeline resource initialization failed.");
 
         m_uniformDescriptorBinder = MakeUnique<UniformDescriptorBinder>();
         MOBILEGL_ASSERT(m_uniformDescriptorBinder != nullptr, "UniformDescriptorBinder creation failed.");
@@ -216,6 +339,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
 
         m_pipelineFactory.reset();
         m_programFactory.reset();
+        ShutdownBlitResources();
         if (m_samplerManager) {
             m_samplerManager->Shutdown();
             m_samplerManager.reset();
@@ -386,6 +510,217 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         return true;
     }
 
+    Bool VulkanRenderer::InitializeBlitResources() {
+        ShutdownBlitResources();
+
+        using namespace MG_Util::ShaderTranspiler;
+
+        static constexpr StringView kVertexShaderSource = R"(#version 450
+layout(push_constant) uniform BlitPushConstants {
+    vec4 srcRect;
+    vec4 dstRect;
+    uint surfaceTransform;
+} pc;
+
+layout(location = 0) out vec2 vTexCoord;
+
+vec2 ApplySurfaceTransform(vec2 position, uint transform) {
+    vec2 p = position;
+    p.y = -p.y;
+    if (transform == 1u) {
+        p = vec2(-p.y, p.x);
+    } else if (transform == 2u) {
+        p = -p;
+    } else if (transform == 3u) {
+        p = vec2(p.y, -p.x);
+    }
+    return p;
+}
+
+void main() {
+    const vec2 uvTri[3] = vec2[](
+        vec2(0.0, 0.0),
+        vec2(2.0, 0.0),
+        vec2(0.0, 2.0)
+    );
+    vec2 uv = uvTri[gl_VertexIndex];
+    vec2 dst = pc.dstRect.xy + uv * pc.dstRect.zw;
+    vec2 clip = dst * 2.0 - 1.0;
+    clip = ApplySurfaceTransform(clip, pc.surfaceTransform);
+    gl_Position = vec4(clip, 0.0, 1.0);
+    vTexCoord = pc.srcRect.xy + uv * pc.srcRect.zw;
+}
+)";
+        static constexpr StringView kFragmentShaderSource = R"(#version 450
+layout(set = 0, binding = 0) uniform sampler2D uSource;
+layout(location = 0) in vec2 vTexCoord;
+layout(location = 0) out vec4 outColor;
+
+void main() {
+    outColor = texture(uSource, vTexCoord);
+}
+)";
+
+        auto vs = ShaderCompiler::CompileShader({GL_VERTEX_SHADER, kVertexShaderSource, {}});
+        if (!vs) {
+            MGLOG_E("InitializeBlitResources failed: vertex shader compile error: %s", vs.error().log.c_str());
+            return false;
+        }
+        auto fs = ShaderCompiler::CompileShader({GL_FRAGMENT_SHADER, kFragmentShaderSource, {}});
+        if (!fs) {
+            MGLOG_E("InitializeBlitResources failed: fragment shader compile error: %s", fs.error().log.c_str());
+            return false;
+        }
+        auto program = ShaderCompiler::LinkProgram({{vs.value(), fs.value()}, {}, {}});
+        if (!program) {
+            MGLOG_E("InitializeBlitResources failed: link error: %s", program.error().log.c_str());
+            return false;
+        }
+        auto spirv = ShaderCompiler::GetSpirvBinaryFromProgram({{GL_VERTEX_SHADER, GL_FRAGMENT_SHADER}, *program.value()});
+        if (!spirv || spirv->size() != 2) {
+            MGLOG_E("InitializeBlitResources failed: SPIR-V generation failed");
+            return false;
+        }
+
+        for (SizeT i = 0; i < spirv->size(); ++i) {
+            const auto& moduleSpv = spirv.value()[i];
+            VkShaderModuleCreateInfo smci{VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO};
+            smci.codeSize = moduleSpv.size() * sizeof(Uint);
+            smci.pCode = moduleSpv.data();
+
+            VkShaderModule module = VK_NULL_HANDLE;
+            VK_VERIFY(vkCreateShaderModule(m_device, &smci, nullptr, &module), "InitializeBlitResources, vkCreateShaderModule");
+            m_blitPipelineResources.shaderModules.push_back(module);
+
+            VkPipelineShaderStageCreateInfo stage{VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO};
+            stage.stage = (i == 0) ? VK_SHADER_STAGE_VERTEX_BIT : VK_SHADER_STAGE_FRAGMENT_BIT;
+            stage.module = module;
+            stage.pName = "main";
+            m_blitPipelineResources.shaderStages.push_back(stage);
+        }
+
+        VkDescriptorSetLayoutBinding binding{};
+        binding.binding = 0;
+        binding.descriptorCount = 1;
+        binding.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        binding.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+
+        VkDescriptorSetLayoutCreateInfo setLayoutInfo{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
+        setLayoutInfo.bindingCount = 1;
+        setLayoutInfo.pBindings = &binding;
+        VK_VERIFY(vkCreateDescriptorSetLayout(m_device, &setLayoutInfo, nullptr, &m_blitPipelineResources.descriptorSetLayout),
+                  "InitializeBlitResources, vkCreateDescriptorSetLayout");
+
+        VkPushConstantRange pushConstantRange{};
+        pushConstantRange.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
+        pushConstantRange.offset = 0;
+        pushConstantRange.size = sizeof(BlitPushConstants);
+
+        VkPipelineLayoutCreateInfo pipelineLayoutInfo{VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
+        pipelineLayoutInfo.setLayoutCount = 1;
+        pipelineLayoutInfo.pSetLayouts = &m_blitPipelineResources.descriptorSetLayout;
+        pipelineLayoutInfo.pushConstantRangeCount = 1;
+        pipelineLayoutInfo.pPushConstantRanges = &pushConstantRange;
+        VK_VERIFY(vkCreatePipelineLayout(m_device, &pipelineLayoutInfo, nullptr, &m_blitPipelineResources.pipelineLayout),
+                  "InitializeBlitResources, vkCreatePipelineLayout");
+
+        VkDescriptorPoolSize poolSize{};
+        poolSize.type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        poolSize.descriptorCount = m_frameContext.GetFrameCount() > 0 ? m_frameContext.GetFrameCount() : m_config.MaxFramesInFlight;
+        VkDescriptorPoolCreateInfo poolInfo{VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
+        poolInfo.maxSets = poolSize.descriptorCount;
+        poolInfo.poolSizeCount = 1;
+        poolInfo.pPoolSizes = &poolSize;
+        VK_VERIFY(vkCreateDescriptorPool(m_device, &poolInfo, nullptr, &m_blitPipelineResources.descriptorPool),
+                  "InitializeBlitResources, vkCreateDescriptorPool");
+
+        const Uint32 setCount = std::max<Uint32>(1, m_config.MaxFramesInFlight);
+        m_blitPipelineResources.descriptorSets.resize(setCount, VK_NULL_HANDLE);
+        Vector<VkDescriptorSetLayout> layouts(setCount, m_blitPipelineResources.descriptorSetLayout);
+        VkDescriptorSetAllocateInfo allocInfo{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};
+        allocInfo.descriptorPool = m_blitPipelineResources.descriptorPool;
+        allocInfo.descriptorSetCount = setCount;
+        allocInfo.pSetLayouts = layouts.data();
+        VK_VERIFY(vkAllocateDescriptorSets(m_device, &allocInfo, m_blitPipelineResources.descriptorSets.data()),
+                  "InitializeBlitResources, vkAllocateDescriptorSets");
+
+        auto createSampler = [&](VkFilter filter, VkSampler& outSampler) {
+            VkSamplerCreateInfo samplerInfo{VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO};
+            samplerInfo.magFilter = filter;
+            samplerInfo.minFilter = filter;
+            samplerInfo.mipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST;
+            samplerInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+            samplerInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+            samplerInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+            samplerInfo.minLod = 0.f;
+            samplerInfo.maxLod = 0.f;
+            samplerInfo.maxAnisotropy = 1.f;
+            samplerInfo.borderColor = VK_BORDER_COLOR_FLOAT_OPAQUE_BLACK;
+            VK_VERIFY(vkCreateSampler(m_device, &samplerInfo, nullptr, &outSampler),
+                      "InitializeBlitResources, vkCreateSampler");
+        };
+        createSampler(VK_FILTER_NEAREST, m_blitPipelineResources.nearestSampler);
+        createSampler(VK_FILTER_LINEAR, m_blitPipelineResources.linearSampler);
+        return true;
+    }
+
+    void VulkanRenderer::ShutdownBlitResources() {
+        if (m_device == VK_NULL_HANDLE) {
+            m_blitPipelineResources = {};
+            return;
+        }
+        if (m_blitPipelineResources.nearestSampler != VK_NULL_HANDLE) {
+            vkDestroySampler(m_device, m_blitPipelineResources.nearestSampler, nullptr);
+        }
+        if (m_blitPipelineResources.linearSampler != VK_NULL_HANDLE) {
+            vkDestroySampler(m_device, m_blitPipelineResources.linearSampler, nullptr);
+        }
+        if (m_blitPipelineResources.descriptorPool != VK_NULL_HANDLE) {
+            vkDestroyDescriptorPool(m_device, m_blitPipelineResources.descriptorPool, nullptr);
+        }
+        if (m_blitPipelineResources.pipelineLayout != VK_NULL_HANDLE) {
+            vkDestroyPipelineLayout(m_device, m_blitPipelineResources.pipelineLayout, nullptr);
+        }
+        if (m_blitPipelineResources.descriptorSetLayout != VK_NULL_HANDLE) {
+            vkDestroyDescriptorSetLayout(m_device, m_blitPipelineResources.descriptorSetLayout, nullptr);
+        }
+        for (auto module : m_blitPipelineResources.shaderModules) {
+            if (module != VK_NULL_HANDLE) {
+                vkDestroyShaderModule(m_device, module, nullptr);
+            }
+        }
+        m_blitPipelineResources = {};
+    }
+
+    VkPipeline VulkanRenderer::GetOrCreateBlitPipeline(const RenderPassEntry& renderPassEntry) {
+        static const VkPipelineVertexInputStateCreateInfo kEmptyVertexInputState {
+            VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO
+        };
+        PipelineFactory::PipelineCreatePayload payload{
+            .programHash = 0xB17FB17FULL,
+            .vertexInputHash = 0,
+            .pipelineLayout = m_blitPipelineResources.pipelineLayout,
+            .renderPass = renderPassEntry.renderPass,
+            .subpass = 0,
+            .topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST,
+            .cullMode = VK_CULL_MODE_NONE,
+            .frontFace = VK_FRONT_FACE_CLOCKWISE,
+            .depthTestEnable = false,
+            .depthWriteEnable = false,
+            .depthCompareOp = VK_COMPARE_OP_ALWAYS,
+            .blendEnable = false,
+            .srcColorBlendFactor = VK_BLEND_FACTOR_ONE,
+            .dstColorBlendFactor = VK_BLEND_FACTOR_ZERO,
+            .srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE,
+            .dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO,
+            .colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
+                              VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT,
+            .stages = &m_blitPipelineResources.shaderStages,
+            .vertexInputState = &kEmptyVertexInputState
+        };
+        return m_pipelineFactory->GetOrCreatePipeline(payload);
+    }
+
     VkPipeline VulkanRenderer::GetOrCreatePipeline(
             GLenum mode,
             const MG_State::GLState::ProgramObject& program,
@@ -443,6 +778,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
     }
 
     void VulkanRenderer::SetupDraw(FrameContext::FrameData& frame, GLenum mode, Flags<DrawSetupAspect> aspects) {
+        m_textureManager->CollectGarbage();
         const auto& drawFbo =
                 MG_State::pGLContext->GetFramebufferBindingSlot(FramebufferTarget::Draw).GetBoundObject();
         const auto& vao = *MG_State::pGLContext->GetBoundVertexArray();
@@ -577,6 +913,249 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             .stencil = MG_State::pGLContext->GetClearStencil()
         };
         m_clearManager->QueueClear(mask, payload, *fbo);
+    }
+
+    Bool VulkanRenderer::TryBlitToDefaultFramebufferWithShader(FrameContext::FrameData& frame,
+                                                               MG_State::GLState::FramebufferObject& readFbo,
+                                                               MG_State::GLState::FramebufferObject& drawFbo,
+                                                               GLint srcX0, GLint srcY0, GLint srcX1, GLint srcY1,
+                                                               GLint dstX0, GLint dstY0, GLint dstX1, GLint dstY1,
+                                                               GLenum filter) {
+        const Bool drawIsDefaultFbo =
+            (&drawFbo == MG_Impl::GLImpl::FramebufferImpl::pDefaultFramebufferInfo->defaultFBO.get());
+        if (!drawIsDefaultFbo) {
+            return false;
+        }
+
+        BlitImageBinding srcBinding{};
+        BlitImageBinding dstBinding{};
+        if (!ResolveColorBlitBinding(readFbo, true, m_imageIndexAcquired, m_swapchainObject, *m_textureManager, srcBinding) ||
+            !ResolveColorBlitBinding(drawFbo, false, m_imageIndexAcquired, m_swapchainObject, *m_textureManager, dstBinding)) {
+            return false;
+        }
+        if (srcBinding.trackedLayout == nullptr) {
+            MGLOG_E("BlitFramebuffer skipped: shader blit to default framebuffer requires a texture-backed source framebuffer");
+            return false;
+        }
+
+        auto* activeRenderPass = VkRenderPassManager::GetActiveRenderPass();
+        if (activeRenderPass != nullptr) {
+            VkRenderPassManager::EndRenderPass(frame.commandBuffer);
+        }
+
+        const auto& attachment = readFbo.GetAttachment(readFbo.GetReadBuffer());
+        auto sourceTexture = attachment.GetTexture();
+        MOBILEGL_ASSERT(sourceTexture != nullptr, "TryBlitToDefaultFramebufferWithShader: source texture is null");
+        const Bool ready = m_textureManager->TransitionTextureForSampling(frame.commandBuffer, *sourceTexture);
+        if (!ready) {
+            MGLOG_E("BlitFramebuffer skipped: failed to transition source textureId=%d for sampling",
+                    sourceTexture->GetExternalIndex());
+            return false;
+        }
+        auto* sourceResource = m_textureManager->SyncTextureAndGetDescriptor(*sourceTexture);
+        if (sourceResource == nullptr) {
+            MGLOG_E("BlitFramebuffer skipped: failed to resolve source textureId=%d after sampling transition",
+                    sourceTexture->GetExternalIndex());
+            return false;
+        }
+
+        auto& renderPassEntry = m_renderPassManager->GetOrCreateRenderPass(drawFbo, m_imageIndexAcquired);
+        const Bool ok = VkRenderPassManager::BeginRenderPass(frame.commandBuffer, renderPassEntry);
+        MOBILEGL_ASSERT(ok, "%s: BeginRenderPass failed", __func__);
+
+        VkViewport viewport{};
+        viewport.x = 0.0f;
+        viewport.y = 0.0f;
+        viewport.width = static_cast<float>(renderPassEntry.extent.x());
+        viewport.height = static_cast<float>(renderPassEntry.extent.y());
+        viewport.minDepth = 0.0f;
+        viewport.maxDepth = 1.0f;
+        vkCmdSetViewport(frame.commandBuffer, 0, 1, &viewport);
+
+        VkRect2D scissor{};
+        scissor.offset = {0, 0};
+        scissor.extent = {static_cast<Uint32>(renderPassEntry.extent.x()), static_cast<Uint32>(renderPassEntry.extent.y())};
+        vkCmdSetScissor(frame.commandBuffer, 0, 1, &scissor);
+
+        const VkPipeline pipeline = GetOrCreateBlitPipeline(renderPassEntry);
+        vkCmdBindPipeline(frame.commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
+
+        const Uint32 frameIndex = m_frameContext.GetCurrentFrameIndex() % static_cast<Uint32>(m_blitPipelineResources.descriptorSets.size());
+        const VkSampler sampler = (filter == GL_LINEAR) ? m_blitPipelineResources.linearSampler
+                                                        : m_blitPipelineResources.nearestSampler;
+        VkDescriptorImageInfo imageInfo{
+            .sampler = sampler,
+            .imageView = sourceResource->view,
+            .imageLayout = sourceResource->layout,
+        };
+        VkWriteDescriptorSet write{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
+        write.dstSet = m_blitPipelineResources.descriptorSets[frameIndex];
+        write.dstBinding = 0;
+        write.descriptorCount = 1;
+        write.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        write.pImageInfo = &imageInfo;
+        vkUpdateDescriptorSets(m_device, 1, &write, 0, nullptr);
+
+        vkCmdBindDescriptorSets(frame.commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                                m_blitPipelineResources.pipelineLayout, 0, 1,
+                                &m_blitPipelineResources.descriptorSets[frameIndex], 0, nullptr);
+
+        BlitPushConstants pushConstants{};
+        const float srcWidth = static_cast<float>(srcBinding.extent.x());
+        const float srcHeight = static_cast<float>(srcBinding.extent.y());
+        const float dstWidth = static_cast<float>(dstBinding.extent.x());
+        const float dstHeight = static_cast<float>(dstBinding.extent.y());
+        float dstNormWidth = dstWidth;
+        float dstNormHeight = dstHeight;
+        switch (m_swapchainObject.GetPreTransform()) {
+            case VK_SURFACE_TRANSFORM_ROTATE_90_BIT_KHR:
+            case VK_SURFACE_TRANSFORM_ROTATE_270_BIT_KHR:
+                dstNormWidth = dstHeight;
+                dstNormHeight = dstWidth;
+                break;
+            default:
+                break;
+        }
+        pushConstants.srcRect[0] = static_cast<float>(srcX0) / srcWidth;
+        pushConstants.srcRect[1] = static_cast<float>(srcY0) / srcHeight;
+        pushConstants.srcRect[2] = static_cast<float>(srcX1 - srcX0) / srcWidth;
+        pushConstants.srcRect[3] = static_cast<float>(srcY1 - srcY0) / srcHeight;
+        pushConstants.dstRect[0] = static_cast<float>(dstX0) / dstNormWidth;
+        pushConstants.dstRect[1] = static_cast<float>(dstY0) / dstNormHeight;
+        pushConstants.dstRect[2] = static_cast<float>(dstX1 - dstX0) / dstNormWidth;
+        pushConstants.dstRect[3] = static_cast<float>(dstY1 - dstY0) / dstNormHeight;
+        pushConstants.surfaceTransform = static_cast<Uint32>(ToBlitSurfaceTransform(m_swapchainObject.GetPreTransform()));
+
+        vkCmdPushConstants(frame.commandBuffer, m_blitPipelineResources.pipelineLayout,
+                           VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0,
+                           sizeof(pushConstants), &pushConstants);
+        vkCmdDraw(frame.commandBuffer, 3, 1, 0, 0);
+        return true;
+    }
+
+    void VulkanRenderer::BlitFramebuffer(GLint srcX0, GLint srcY0, GLint srcX1, GLint srcY1,
+                                         GLint dstX0, GLint dstY0, GLint dstX1, GLint dstY1,
+                                         GLbitfield mask, GLenum filter) {
+        if ((mask & ~GL_COLOR_BUFFER_BIT) != 0) {
+            MGLOG_E("BlitFramebuffer skipped: only GL_COLOR_BUFFER_BIT is supported right now (mask=0x%x)",
+                    static_cast<Uint32>(mask));
+            return;
+        }
+        if ((mask & GL_COLOR_BUFFER_BIT) == 0) {
+            return;
+        }
+        if (filter != GL_NEAREST && filter != GL_LINEAR) {
+            MGLOG_E("BlitFramebuffer skipped: unsupported filter=0x%x", static_cast<Uint32>(filter));
+            return;
+        }
+
+        auto readFbo = MG_State::pGLContext->GetFramebufferBindingSlot(FramebufferTarget::Read).GetBoundObject();
+        auto drawFbo = MG_State::pGLContext->GetFramebufferBindingSlot(FramebufferTarget::Draw).GetBoundObject();
+        MOBILEGL_ASSERT(readFbo != nullptr, "VulkanRenderer::BlitFramebuffer: read framebuffer is null");
+        MOBILEGL_ASSERT(drawFbo != nullptr, "VulkanRenderer::BlitFramebuffer: draw framebuffer is null");
+
+        auto& frame = m_frameContext.GetCurrent();
+        if (!frame.isCommandRecording) {
+            m_frameContext.BeginCommandRecording();
+            m_uniformDescriptorBinder->BeginFrame(m_frameContext.GetCurrentFrameIndex());
+        }
+
+        auto* activeRenderPass = VkRenderPassManager::GetActiveRenderPass();
+        if (activeRenderPass != nullptr) {
+            VkRenderPassManager::EndRenderPass(frame.commandBuffer);
+        }
+
+        const Bool readIsDefaultFbo =
+            (readFbo == MG_Impl::GLImpl::FramebufferImpl::pDefaultFramebufferInfo->defaultFBO);
+        const Bool drawIsDefaultFbo =
+            (drawFbo == MG_Impl::GLImpl::FramebufferImpl::pDefaultFramebufferInfo->defaultFBO);
+        if (drawIsDefaultFbo && m_swapchainObject.GetPreTransform() != VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR) {
+            if (TryBlitToDefaultFramebufferWithShader(frame, *readFbo, *drawFbo,
+                                                      srcX0, srcY0, srcX1, srcY1,
+                                                      dstX0, dstY0, dstX1, dstY1, filter)) {
+                return;
+            }
+            MGLOG_E("BlitFramebuffer skipped: rotated blit to default framebuffer requires a texture-backed source framebuffer");
+            return;
+        }
+
+        BlitImageBinding srcBinding{};
+        BlitImageBinding dstBinding{};
+        if (!ResolveColorBlitBinding(*readFbo, true, m_imageIndexAcquired, m_swapchainObject, *m_textureManager, srcBinding) ||
+            !ResolveColorBlitBinding(*drawFbo, false, m_imageIndexAcquired, m_swapchainObject, *m_textureManager, dstBinding)) {
+            return;
+        }
+
+        VkImageLayout srcLayout = readIsDefaultFbo
+            ? m_swapchainObject.GetImageLayout(m_imageIndexAcquired)
+            : *srcBinding.trackedLayout;
+        VkImageLayout dstLayout = drawIsDefaultFbo
+            ? m_swapchainObject.GetImageLayout(m_imageIndexAcquired)
+            : *dstBinding.trackedLayout;
+
+        if (readIsDefaultFbo && srcLayout == VK_IMAGE_LAYOUT_UNDEFINED) {
+            MGLOG_E("BlitFramebuffer skipped: swapchain source image layout is undefined");
+            return;
+        }
+        if (srcLayout == VK_IMAGE_LAYOUT_UNDEFINED) {
+            MGLOG_E("BlitFramebuffer skipped: source image layout is undefined");
+            return;
+        }
+
+        VkPipelineStageFlags srcStageMask = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
+        VkAccessFlags srcAccessMask = 0;
+        GetImageTransitionSourceState(srcLayout, srcStageMask, srcAccessMask);
+        if (readIsDefaultFbo) {
+            Bool ok = VkTextureManager::TransitionImageLayout(
+                frame.commandBuffer, srcBinding.image, srcLayout, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                srcStageMask, VK_PIPELINE_STAGE_TRANSFER_BIT,
+                srcAccessMask, VK_ACCESS_TRANSFER_READ_BIT, srcBinding.aspectMask);
+            MOBILEGL_ASSERT(ok, "%s: failed to transition swapchain source image", __func__);
+            m_swapchainObject.SetImageLayout(m_imageIndexAcquired, srcLayout);
+        } else {
+            Bool ok = VkTextureManager::TransitionImageLayout(
+                frame.commandBuffer, srcBinding.image, *srcBinding.trackedLayout, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                srcStageMask, VK_PIPELINE_STAGE_TRANSFER_BIT,
+                srcAccessMask, VK_ACCESS_TRANSFER_READ_BIT, srcBinding.aspectMask);
+            MOBILEGL_ASSERT(ok, "%s: failed to transition source image", __func__);
+        }
+
+        VkPipelineStageFlags dstStageMask = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
+        VkAccessFlags dstAccessMask = 0;
+        GetImageTransitionSourceState(dstLayout, dstStageMask, dstAccessMask);
+        if (drawIsDefaultFbo) {
+            Bool ok = VkTextureManager::TransitionImageLayout(
+                frame.commandBuffer, dstBinding.image, dstLayout, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                dstStageMask, VK_PIPELINE_STAGE_TRANSFER_BIT,
+                dstAccessMask, VK_ACCESS_TRANSFER_WRITE_BIT, dstBinding.aspectMask);
+            MOBILEGL_ASSERT(ok, "%s: failed to transition swapchain destination image", __func__);
+            m_swapchainObject.SetImageLayout(m_imageIndexAcquired, dstLayout);
+        } else {
+            Bool ok = VkTextureManager::TransitionImageLayout(
+                frame.commandBuffer, dstBinding.image, *dstBinding.trackedLayout, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                dstStageMask, VK_PIPELINE_STAGE_TRANSFER_BIT,
+                dstAccessMask, VK_ACCESS_TRANSFER_WRITE_BIT, dstBinding.aspectMask);
+            MOBILEGL_ASSERT(ok, "%s: failed to transition destination image", __func__);
+        }
+
+        VkImageBlit blitRegion{};
+        blitRegion.srcSubresource.aspectMask = srcBinding.aspectMask;
+        blitRegion.srcSubresource.mipLevel = 0;
+        blitRegion.srcSubresource.baseArrayLayer = 0;
+        blitRegion.srcSubresource.layerCount = 1;
+        blitRegion.srcOffsets[0] = {srcX0, srcY0, 0};
+        blitRegion.srcOffsets[1] = {srcX1, srcY1, 1};
+        blitRegion.dstSubresource.aspectMask = dstBinding.aspectMask;
+        blitRegion.dstSubresource.mipLevel = 0;
+        blitRegion.dstSubresource.baseArrayLayer = 0;
+        blitRegion.dstSubresource.layerCount = 1;
+        blitRegion.dstOffsets[0] = {dstX0, dstY0, 0};
+        blitRegion.dstOffsets[1] = {dstX1, dstY1, 1};
+
+        vkCmdBlitImage(frame.commandBuffer,
+                       srcBinding.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                       dstBinding.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                       1, &blitRegion, filter == GL_LINEAR ? VK_FILTER_LINEAR : VK_FILTER_NEAREST);
     }
 
     void VulkanRenderer::DrawArrays(const DrawArrayCmd& payload) {
