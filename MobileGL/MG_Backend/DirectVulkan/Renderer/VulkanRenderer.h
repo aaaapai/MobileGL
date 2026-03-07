@@ -190,6 +190,8 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                                                    GLint srcX0, GLint srcY0, GLint srcX1, GLint srcY1,
                                                    GLint dstX0, GLint dstY0, GLint dstX1, GLint dstY1,
                                                    GLenum filter);
+        Bool MaterializePendingClearForTexture(VkCommandBuffer commandBuffer,
+                                               MG_State::GLState::ITextureObject& texture);
         VkPipeline GetOrCreateBlitPipeline(const RenderPassEntry& renderPassEntry);
 
         void ShutdownSwapchain();

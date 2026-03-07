@@ -117,7 +117,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                     outSrcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
                     break;
                 case VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL:
-                    outSrcStageMask = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+                    outSrcStageMask = VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT;
                     outSrcAccessMask = VK_ACCESS_SHADER_READ_BIT;
                     break;
                 default:
@@ -763,7 +763,8 @@ void main() {
             MGLOG_D("SetupDraw: sampled textureId=%d layout(before)=%s(%d)",
                     sampledTexture->GetExternalIndex(), VkImageLayoutToString(textureResource->layout),
                     static_cast<Int>(textureResource->layout));
-            if (!IsValidSampledImageLayout(textureResource->layout)) {
+            if (m_clearManager->HasPendingClear(sampledTexture) ||
+                !IsValidSampledImageLayout(textureResource->layout)) {
                 needSampledTextureTransitions = true;
                 break;
             }
@@ -779,6 +780,9 @@ void main() {
             if (!sampledTexture) {
                 continue;
             }
+            const Bool clearReady = MaterializePendingClearForTexture(frame.commandBuffer, *sampledTexture);
+            MOBILEGL_ASSERT(clearReady, "%s: MaterializePendingClearForTexture failed for textureId=%d",
+                            __func__, sampledTexture->GetExternalIndex());
             const Bool ready = m_textureManager->TransitionTextureForSampling(frame.commandBuffer, *sampledTexture);
             MOBILEGL_ASSERT(ready, "%s: TransitionTextureForSampling failed for textureId=%d",
                             __func__, sampledTexture->GetExternalIndex());
@@ -850,6 +854,71 @@ void main() {
         m_clearManager->QueueClear(mask, payload, *fbo);
     }
 
+    Bool VulkanRenderer::MaterializePendingClearForTexture(VkCommandBuffer commandBuffer,
+                                                           MG_State::GLState::ITextureObject& texture) {
+        ClearAttachmentPayload clearPayload{};
+        if (!m_clearManager->GetPendingClear(&texture, clearPayload)) {
+            return true;
+        }
+        MOBILEGL_ASSERT(VkRenderPassManager::GetActiveRenderPass() == nullptr,
+                        "MaterializePendingClearForTexture requires no active render pass");
+
+        auto* resource = m_textureManager->SyncTextureAndGetDescriptor(texture);
+        MOBILEGL_ASSERT(resource != nullptr,
+                        "MaterializePendingClearForTexture: SyncTextureAndGetDescriptor failed for textureId=%d",
+                        texture.GetExternalIndex());
+
+        VkPipelineStageFlags srcStageMask = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
+        VkAccessFlags srcAccessMask = 0;
+        GetImageTransitionSourceState(resource->layout, srcStageMask, srcAccessMask);
+
+        Bool ok = VkTextureManager::TransitionImageLayout(
+            commandBuffer, resource->image, resource->layout, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+            srcStageMask, VK_PIPELINE_STAGE_TRANSFER_BIT, srcAccessMask, VK_ACCESS_TRANSFER_WRITE_BIT,
+            resource->aspect);
+        MOBILEGL_ASSERT(ok,
+                        "MaterializePendingClearForTexture: failed to transition textureId=%d to TRANSFER_DST",
+                        texture.GetExternalIndex());
+
+        VkImageSubresourceRange subresourceRange{};
+        subresourceRange.aspectMask = resource->aspect;
+        subresourceRange.baseMipLevel = 0;
+        subresourceRange.levelCount = 1;
+        subresourceRange.baseArrayLayer = 0;
+        subresourceRange.layerCount = 1;
+
+        VkImageLayout sampledLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        if ((resource->aspect & VK_IMAGE_ASPECT_COLOR_BIT) != 0) {
+            VkClearColorValue clearValue{};
+            clearValue.float32[0] = clearPayload.color.x();
+            clearValue.float32[1] = clearPayload.color.y();
+            clearValue.float32[2] = clearPayload.color.z();
+            clearValue.float32[3] = clearPayload.color.w();
+            vkCmdClearColorImage(commandBuffer, resource->image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                                 &clearValue, 1, &subresourceRange);
+        } else {
+            VkClearDepthStencilValue clearValue{};
+            clearValue.depth = clearPayload.depth;
+            clearValue.stencil = clearPayload.stencil;
+            vkCmdClearDepthStencilImage(commandBuffer, resource->image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                                        &clearValue, 1, &subresourceRange);
+            sampledLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
+        }
+
+        ok = VkTextureManager::TransitionImageLayout(
+            commandBuffer, resource->image, resource->layout, sampledLayout,
+            VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT,
+            VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT, resource->aspect);
+        MOBILEGL_ASSERT(ok,
+                        "MaterializePendingClearForTexture: failed to transition textureId=%d to sampled layout",
+                        texture.GetExternalIndex());
+
+        m_clearManager->PopPendingClear(&texture);
+        MGLOG_D("MaterializePendingClearForTexture: textureId=%d pending clear materialized",
+                texture.GetExternalIndex());
+        return true;
+    }
+
     Bool VulkanRenderer::TryBlitToDefaultFramebufferWithShader(FrameContext::FrameData& frame,
                                                                MG_State::GLState::FramebufferObject& readFbo,
                                                                MG_State::GLState::FramebufferObject& drawFbo,
@@ -881,6 +950,10 @@ void main() {
         const auto& attachment = readFbo.GetAttachment(readFbo.GetReadBuffer());
         auto sourceTexture = attachment.GetTexture();
         MOBILEGL_ASSERT(sourceTexture != nullptr, "TryBlitToDefaultFramebufferWithShader: source texture is null");
+        const Bool clearReady = MaterializePendingClearForTexture(frame.commandBuffer, *sourceTexture);
+        MOBILEGL_ASSERT(clearReady,
+                        "TryBlitToDefaultFramebufferWithShader: failed to materialize pending clear for textureId=%d",
+                        sourceTexture->GetExternalIndex());
         const Bool ready = m_textureManager->TransitionTextureForSampling(frame.commandBuffer, *sourceTexture);
         if (!ready) {
             MGLOG_E("BlitFramebuffer skipped: failed to transition source textureId=%d for sampling",
@@ -1023,6 +1096,16 @@ void main() {
         if (!ResolveColorBlitBinding(*readFbo, true, m_imageIndexAcquired, m_swapchainObject, *m_textureManager, srcBinding) ||
             !ResolveColorBlitBinding(*drawFbo, false, m_imageIndexAcquired, m_swapchainObject, *m_textureManager, dstBinding)) {
             return;
+        }
+
+        if (!readIsDefaultFbo) {
+            const auto& sourceAttachment = readFbo->GetAttachment(readFbo->GetReadBuffer());
+            auto sourceTexture = sourceAttachment.GetTexture();
+            MOBILEGL_ASSERT(sourceTexture != nullptr, "BlitFramebuffer: source texture attachment is null");
+            const Bool clearReady = MaterializePendingClearForTexture(frame.commandBuffer, *sourceTexture);
+            MOBILEGL_ASSERT(clearReady,
+                            "BlitFramebuffer: failed to materialize pending clear for source textureId=%d",
+                            sourceTexture->GetExternalIndex());
         }
 
         VkImageLayout srcLayout = readIsDefaultFbo

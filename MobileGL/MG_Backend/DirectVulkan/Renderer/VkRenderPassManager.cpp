@@ -173,6 +173,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                     desc.samples = VK_SAMPLE_COUNT_1_BIT;
                     ClearAttachmentPayload clearPayload{};
                     Bool hasClear = m_clearManager.GetPendingClear(texture, clearPayload);
+                    VkImageLayout trackedColorLayout = VK_IMAGE_LAYOUT_UNDEFINED;
                     desc.loadOp = hasClear ?
                         VK_ATTACHMENT_LOAD_OP_CLEAR :
                         VK_ATTACHMENT_LOAD_OP_LOAD;
@@ -197,9 +198,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                         const auto& swapchainViews = m_swapchainObject.GetImageViews();
                         MOBILEGL_ASSERT(swapchainImageIndex < swapchainViews.size(),
                                         "GetOrCreateRenderPass: swapchain image index out of range");
-                        desc.initialLayout = hasClear ?
-                            VK_IMAGE_LAYOUT_UNDEFINED :
-                            m_swapchainObject.GetImageLayout(swapchainImageIndex);
+                        trackedColorLayout = m_swapchainObject.GetImageLayout(swapchainImageIndex);
                         trackedAttachmentLayouts.emplace_back(TrackedAttachmentLayoutInfo {
                             .target = TrackedAttachmentTarget::SwapchainColor,
                             .swapchainImageIndex = swapchainImageIndex,
@@ -210,12 +209,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                         textureResources[i] = m_textureManager.SyncTextureAndGetDescriptor(*texture);
                         MOBILEGL_ASSERT(textureResources[i],
                                         "GetOrCreateRenderPass: SyncTextureAndGetDescriptor failed at color attachment %d", i);
-                        MOBILEGL_ASSERT(hasClear || textureResources[i]->layout != VK_IMAGE_LAYOUT_UNDEFINED,
-                                        "GetOrCreateRenderPass: color attachment textureId=%d has undefined tracked layout with LOAD_OP_LOAD (attachment=%d)",
-                                        texture->GetExternalIndex(), i);
-                        desc.initialLayout = hasClear ?
-                            VK_IMAGE_LAYOUT_UNDEFINED :
-                            textureResources[i]->layout;
+                        trackedColorLayout = textureResources[i]->layout;
                         trackedAttachmentLayouts.emplace_back(TrackedAttachmentLayoutInfo {
                             .target = TrackedAttachmentTarget::Texture,
                             .texture = texture,
@@ -223,6 +217,16 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                         });
                         attachmentViews[i] = textureResources[i]->view;
                     }
+
+                    if (!hasClear && trackedColorLayout == VK_IMAGE_LAYOUT_UNDEFINED) {
+                        MGLOG_W("GetOrCreateRenderPass: color attachment textureId=%d starts with undefined layout and no clear; "
+                                "using LOAD_OP_DONT_CARE",
+                                texture->GetExternalIndex());
+                        desc.loadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+                    }
+                    desc.initialLayout = (hasClear || trackedColorLayout == VK_IMAGE_LAYOUT_UNDEFINED) ?
+                        VK_IMAGE_LAYOUT_UNDEFINED :
+                        trackedColorLayout;
 
                     break;
                 }

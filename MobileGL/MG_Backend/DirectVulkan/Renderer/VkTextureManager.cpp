@@ -12,6 +12,8 @@
 #include "MG_Util/Converters/MGToVk/TextureEnumConverter.h"
 
 namespace MobileGL::MG_Backend::DirectVulkan {
+    static constexpr VkPipelineStageFlags kGraphicsSampledReadStages = VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT;
+
     static Bool IsValidSampledImageLayout(VkImageLayout layout) {
         switch (layout) {
         case VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL:
@@ -90,6 +92,10 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         if (IsValidSampledImageLayout(resource->layout)) {
             return true;
         }
+        if (resource->layout == VK_IMAGE_LAYOUT_UNDEFINED) {
+            MGLOG_W("TransitionTextureForSampling: textureId=%d is still in VK_IMAGE_LAYOUT_UNDEFINED before sampling",
+                    texture.GetExternalIndex());
+        }
 
         VkImageLayout targetLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
         VkPipelineStageFlags srcStageMask = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
@@ -120,7 +126,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         }
 
         const Bool ok = TransitionImageLayout(commandBuffer, resource->image, resource->layout, targetLayout, srcStageMask,
-                                              VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, srcAccessMask,
+                                              kGraphicsSampledReadStages, srcAccessMask,
                                               VK_ACCESS_SHADER_READ_BIT, resource->aspect);
         MOBILEGL_ASSERT(ok, "TransitionTextureForSampling: transition failed for textureId=%d", texture.GetExternalIndex());
         return ok;
@@ -378,7 +384,9 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         Bool ok = TransitionImageLayout(commandBuffer, outResource.image,
                               outResource.layout,
                               VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                              VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL ? VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT : VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+                              outResource.layout == VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL ?
+                                  kGraphicsSampledReadStages :
+                                  VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
                               VK_PIPELINE_STAGE_TRANSFER_BIT,
                               outResource.layout == VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL ? VK_ACCESS_SHADER_READ_BIT : 0,
                               VK_ACCESS_TRANSFER_WRITE_BIT,
@@ -404,7 +412,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                                         outResource.layout,
                                         VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
                                         VK_PIPELINE_STAGE_TRANSFER_BIT,
-                                        VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+                                        kGraphicsSampledReadStages,
                                         VK_ACCESS_TRANSFER_WRITE_BIT,
                                         VK_ACCESS_SHADER_READ_BIT,
                                         aspectMask);
