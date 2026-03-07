@@ -37,5 +37,7 @@ namespace MobileGL::MG_Impl {
         fbo0->AttachTexture(FramebufferAttachmentType::Stencil, stencilTex);
         GLImpl::FramebufferImpl::pDefaultFramebufferInfo =
             new GLImpl::FramebufferImpl::DefaultFramebufferInfo(fbo0, colorTex, depthTex, stencilTex);
+        MG_State::pGLContext->GetFramebufferBindingSlot(FramebufferTarget::Draw).Bind(fbo0);
+        MG_State::pGLContext->GetFramebufferBindingSlot(FramebufferTarget::Read).Bind(fbo0);
     }
 } // namespace MobileGL::MG_Impl
