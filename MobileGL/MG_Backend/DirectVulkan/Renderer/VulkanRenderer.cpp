@@ -12,7 +12,8 @@
 
 #include "MG_State/GLState/Core.h"
 #include "MG_State/GLState/ProgramState/ProgramObject.h"
-#include "MG_Util/ShaderTranspiler/ShaderCompiler.h"
+#include "MG_State/GLState/ProgramState/ShaderObject.h"
+#include "MG_State/GLState/SamplerState/SamplerObject.h"
 #include "MG_Impl/GLImpl/Framebuffer/GL_Framebuffer.h"
 #include "MG_Util/Converters/MGToVk/RenderStateEnumConverter.h"
 #include <vulkan/vulkan_core.h>
@@ -74,6 +75,12 @@ namespace MobileGL::MG_Backend::DirectVulkan {
     }
 
     namespace {
+        static constexpr Uint kHiddenBlitProgramId = 0xFFFFFFF0u;
+        static constexpr Uint kHiddenBlitVertexShaderId = 0xFFFFFFF1u;
+        static constexpr Uint kHiddenBlitFragmentShaderId = 0xFFFFFFF2u;
+        static constexpr Uint kHiddenBlitNearestSamplerId = 0xFFFFFFF3u;
+        static constexpr Uint kHiddenBlitLinearSamplerId = 0xFFFFFFF4u;
+
         enum class BlitSurfaceTransform : Uint32 {
             Identity = 0,
             Rotate90 = 1,
@@ -513,25 +520,21 @@ namespace MobileGL::MG_Backend::DirectVulkan {
     Bool VulkanRenderer::InitializeBlitResources() {
         ShutdownBlitResources();
 
-        using namespace MG_Util::ShaderTranspiler;
-
-        static constexpr StringView kVertexShaderSource = R"(#version 450
-layout(push_constant) uniform BlitPushConstants {
-    vec4 srcRect;
-    vec4 dstRect;
-    uint surfaceTransform;
-} pc;
+        static constexpr const char* kVertexShaderSource = R"(#version 460 core
+uniform vec4 uSrcRect;
+uniform vec4 uDstRect;
+uniform int uSurfaceTransform;
 
 layout(location = 0) out vec2 vTexCoord;
 
-vec2 ApplySurfaceTransform(vec2 position, uint transform) {
+vec2 ApplySurfaceTransform(vec2 position, int transform) {
     vec2 p = position;
     p.y = -p.y;
-    if (transform == 1u) {
+    if (transform == 1) {
         p = vec2(-p.y, p.x);
-    } else if (transform == 2u) {
+    } else if (transform == 2) {
         p = -p;
-    } else if (transform == 3u) {
+    } else if (transform == 3) {
         p = vec2(p.y, -p.x);
     }
     return p;
@@ -543,16 +546,16 @@ void main() {
         vec2(2.0, 0.0),
         vec2(0.0, 2.0)
     );
-    vec2 uv = uvTri[gl_VertexIndex];
-    vec2 dst = pc.dstRect.xy + uv * pc.dstRect.zw;
+    vec2 uv = uvTri[gl_VertexID];
+    vec2 dst = uDstRect.xy + uv * uDstRect.zw;
     vec2 clip = dst * 2.0 - 1.0;
-    clip = ApplySurfaceTransform(clip, pc.surfaceTransform);
+    clip = ApplySurfaceTransform(clip, uSurfaceTransform);
     gl_Position = vec4(clip, 0.0, 1.0);
-    vTexCoord = pc.srcRect.xy + uv * pc.srcRect.zw;
+    vTexCoord = uSrcRect.xy + uv * uSrcRect.zw;
 }
 )";
-        static constexpr StringView kFragmentShaderSource = R"(#version 450
-layout(set = 0, binding = 0) uniform sampler2D uSource;
+        static constexpr const char* kFragmentShaderSource = R"(#version 460 core
+layout(binding = 0) uniform sampler2D uSource;
 layout(location = 0) in vec2 vTexCoord;
 layout(location = 0) out vec4 outColor;
 
@@ -561,145 +564,77 @@ void main() {
 }
 )";
 
-        auto vs = ShaderCompiler::CompileShader({GL_VERTEX_SHADER, kVertexShaderSource, {}});
-        if (!vs) {
-            MGLOG_E("InitializeBlitResources failed: vertex shader compile error: %s", vs.error().log.c_str());
-            return false;
-        }
-        auto fs = ShaderCompiler::CompileShader({GL_FRAGMENT_SHADER, kFragmentShaderSource, {}});
-        if (!fs) {
-            MGLOG_E("InitializeBlitResources failed: fragment shader compile error: %s", fs.error().log.c_str());
-            return false;
-        }
-        auto program = ShaderCompiler::LinkProgram({{vs.value(), fs.value()}, {}, {}});
-        if (!program) {
-            MGLOG_E("InitializeBlitResources failed: link error: %s", program.error().log.c_str());
-            return false;
-        }
-        auto spirv = ShaderCompiler::GetSpirvBinaryFromProgram({{GL_VERTEX_SHADER, GL_FRAGMENT_SHADER}, *program.value()});
-        if (!spirv || spirv->size() != 2) {
-            MGLOG_E("InitializeBlitResources failed: SPIR-V generation failed");
+        auto vertexShader = MakeShared<MG_State::GLState::ShaderObject>(ShaderStage::Vertex, kHiddenBlitVertexShaderId);
+        vertexShader->SetShaderSource(kVertexShaderSource);
+        vertexShader->Compile();
+        if (!vertexShader->GetCompileStatus()) {
+            MGLOG_E("InitializeBlitResources failed: vertex shader compile error: %s", vertexShader->GetInfoLog().c_str());
             return false;
         }
 
-        for (SizeT i = 0; i < spirv->size(); ++i) {
-            const auto& moduleSpv = spirv.value()[i];
-            VkShaderModuleCreateInfo smci{VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO};
-            smci.codeSize = moduleSpv.size() * sizeof(Uint);
-            smci.pCode = moduleSpv.data();
-
-            VkShaderModule module = VK_NULL_HANDLE;
-            VK_VERIFY(vkCreateShaderModule(m_device, &smci, nullptr, &module), "InitializeBlitResources, vkCreateShaderModule");
-            m_blitPipelineResources.shaderModules.push_back(module);
-
-            VkPipelineShaderStageCreateInfo stage{VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO};
-            stage.stage = (i == 0) ? VK_SHADER_STAGE_VERTEX_BIT : VK_SHADER_STAGE_FRAGMENT_BIT;
-            stage.module = module;
-            stage.pName = "main";
-            m_blitPipelineResources.shaderStages.push_back(stage);
+        auto fragmentShader = MakeShared<MG_State::GLState::ShaderObject>(ShaderStage::Fragment, kHiddenBlitFragmentShaderId);
+        fragmentShader->SetShaderSource(kFragmentShaderSource);
+        fragmentShader->Compile();
+        if (!fragmentShader->GetCompileStatus()) {
+            MGLOG_E("InitializeBlitResources failed: fragment shader compile error: %s", fragmentShader->GetInfoLog().c_str());
+            return false;
         }
 
-        VkDescriptorSetLayoutBinding binding{};
-        binding.binding = 0;
-        binding.descriptorCount = 1;
-        binding.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-        binding.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+        m_blitResources.program = MakeShared<MG_State::GLState::ProgramObject>(kHiddenBlitProgramId);
+        m_blitResources.program->AttachShader(vertexShader);
+        m_blitResources.program->AttachShader(fragmentShader);
+        m_blitResources.program->Link(false);
+        if (!m_blitResources.program->GetLinkStatus()) {
+            MGLOG_E("InitializeBlitResources failed: program link error: %s", m_blitResources.program->GetInfoLog().c_str());
+            return false;
+        }
 
-        VkDescriptorSetLayoutCreateInfo setLayoutInfo{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
-        setLayoutInfo.bindingCount = 1;
-        setLayoutInfo.pBindings = &binding;
-        VK_VERIFY(vkCreateDescriptorSetLayout(m_device, &setLayoutInfo, nullptr, &m_blitPipelineResources.descriptorSetLayout),
-                  "InitializeBlitResources, vkCreateDescriptorSetLayout");
+        m_blitResources.srcRectLocation = m_blitResources.program->GetUniformLocation("uSrcRect");
+        m_blitResources.dstRectLocation = m_blitResources.program->GetUniformLocation("uDstRect");
+        m_blitResources.surfaceTransformLocation = m_blitResources.program->GetUniformLocation("uSurfaceTransform");
+        MOBILEGL_ASSERT(m_blitResources.srcRectLocation >= 0, "InitializeBlitResources: missing uSrcRect");
+        MOBILEGL_ASSERT(m_blitResources.dstRectLocation >= 0, "InitializeBlitResources: missing uDstRect");
+        MOBILEGL_ASSERT(m_blitResources.surfaceTransformLocation >= 0,
+                        "InitializeBlitResources: missing uSurfaceTransform");
+        MOBILEGL_ASSERT(m_blitResources.program->GetUBOSize() > 0,
+                        "InitializeBlitResources: blit program global UBO is empty");
 
-        VkPushConstantRange pushConstantRange{};
-        pushConstantRange.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
-        pushConstantRange.offset = 0;
-        pushConstantRange.size = sizeof(BlitPushConstants);
-
-        VkPipelineLayoutCreateInfo pipelineLayoutInfo{VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
-        pipelineLayoutInfo.setLayoutCount = 1;
-        pipelineLayoutInfo.pSetLayouts = &m_blitPipelineResources.descriptorSetLayout;
-        pipelineLayoutInfo.pushConstantRangeCount = 1;
-        pipelineLayoutInfo.pPushConstantRanges = &pushConstantRange;
-        VK_VERIFY(vkCreatePipelineLayout(m_device, &pipelineLayoutInfo, nullptr, &m_blitPipelineResources.pipelineLayout),
-                  "InitializeBlitResources, vkCreatePipelineLayout");
-
-        VkDescriptorPoolSize poolSize{};
-        poolSize.type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-        poolSize.descriptorCount = m_frameContext.GetFrameCount() > 0 ? m_frameContext.GetFrameCount() : m_config.MaxFramesInFlight;
-        VkDescriptorPoolCreateInfo poolInfo{VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
-        poolInfo.maxSets = poolSize.descriptorCount;
-        poolInfo.poolSizeCount = 1;
-        poolInfo.pPoolSizes = &poolSize;
-        VK_VERIFY(vkCreateDescriptorPool(m_device, &poolInfo, nullptr, &m_blitPipelineResources.descriptorPool),
-                  "InitializeBlitResources, vkCreateDescriptorPool");
-
-        const Uint32 setCount = std::max<Uint32>(1, m_config.MaxFramesInFlight);
-        m_blitPipelineResources.descriptorSets.resize(setCount, VK_NULL_HANDLE);
-        Vector<VkDescriptorSetLayout> layouts(setCount, m_blitPipelineResources.descriptorSetLayout);
-        VkDescriptorSetAllocateInfo allocInfo{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};
-        allocInfo.descriptorPool = m_blitPipelineResources.descriptorPool;
-        allocInfo.descriptorSetCount = setCount;
-        allocInfo.pSetLayouts = layouts.data();
-        VK_VERIFY(vkAllocateDescriptorSets(m_device, &allocInfo, m_blitPipelineResources.descriptorSets.data()),
-                  "InitializeBlitResources, vkAllocateDescriptorSets");
-
-        auto createSampler = [&](VkFilter filter, VkSampler& outSampler) {
-            VkSamplerCreateInfo samplerInfo{VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO};
-            samplerInfo.magFilter = filter;
-            samplerInfo.minFilter = filter;
-            samplerInfo.mipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST;
-            samplerInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-            samplerInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-            samplerInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-            samplerInfo.minLod = 0.f;
-            samplerInfo.maxLod = 0.f;
-            samplerInfo.maxAnisotropy = 1.f;
-            samplerInfo.borderColor = VK_BORDER_COLOR_FLOAT_OPAQUE_BLACK;
-            VK_VERIFY(vkCreateSampler(m_device, &samplerInfo, nullptr, &outSampler),
-                      "InitializeBlitResources, vkCreateSampler");
+        auto createSampler = [](Uint externalIndex, SamplerFilterMode filter) {
+            auto sampler = MakeShared<MG_State::GLState::SamplerObject>(externalIndex);
+            sampler->SetWrapS(SamplerWrapMode::ClampToEdge);
+            sampler->SetWrapT(SamplerWrapMode::ClampToEdge);
+            sampler->SetWrapR(SamplerWrapMode::ClampToEdge);
+            sampler->SetMinFilter(filter);
+            sampler->SetMagFilter(filter);
+            sampler->SetMipmapMode(SamplerMipmapMode::None);
+            sampler->SetLodRange(0.0f, 0.0f);
+            return sampler;
         };
-        createSampler(VK_FILTER_NEAREST, m_blitPipelineResources.nearestSampler);
-        createSampler(VK_FILTER_LINEAR, m_blitPipelineResources.linearSampler);
+
+        m_blitResources.nearestSampler = createSampler(kHiddenBlitNearestSamplerId, SamplerFilterMode::Nearest);
+        m_blitResources.linearSampler = createSampler(kHiddenBlitLinearSamplerId, SamplerFilterMode::Linear);
+        m_blitResources.samplerBinding = 0;
         return true;
     }
 
     void VulkanRenderer::ShutdownBlitResources() {
-        if (m_device == VK_NULL_HANDLE) {
-            m_blitPipelineResources = {};
-            return;
-        }
-        if (m_blitPipelineResources.nearestSampler != VK_NULL_HANDLE) {
-            vkDestroySampler(m_device, m_blitPipelineResources.nearestSampler, nullptr);
-        }
-        if (m_blitPipelineResources.linearSampler != VK_NULL_HANDLE) {
-            vkDestroySampler(m_device, m_blitPipelineResources.linearSampler, nullptr);
-        }
-        if (m_blitPipelineResources.descriptorPool != VK_NULL_HANDLE) {
-            vkDestroyDescriptorPool(m_device, m_blitPipelineResources.descriptorPool, nullptr);
-        }
-        if (m_blitPipelineResources.pipelineLayout != VK_NULL_HANDLE) {
-            vkDestroyPipelineLayout(m_device, m_blitPipelineResources.pipelineLayout, nullptr);
-        }
-        if (m_blitPipelineResources.descriptorSetLayout != VK_NULL_HANDLE) {
-            vkDestroyDescriptorSetLayout(m_device, m_blitPipelineResources.descriptorSetLayout, nullptr);
-        }
-        for (auto module : m_blitPipelineResources.shaderModules) {
-            if (module != VK_NULL_HANDLE) {
-                vkDestroyShaderModule(m_device, module, nullptr);
-            }
-        }
-        m_blitPipelineResources = {};
+        m_blitResources = {};
     }
 
     VkPipeline VulkanRenderer::GetOrCreateBlitPipeline(const RenderPassEntry& renderPassEntry) {
+        MOBILEGL_ASSERT(m_blitResources.program != nullptr, "GetOrCreateBlitPipeline: blit program is null");
+        MOBILEGL_ASSERT(m_programFactory != nullptr, "GetOrCreateBlitPipeline: program factory is null");
+        MOBILEGL_ASSERT(m_uniformDescriptorBinder != nullptr, "GetOrCreateBlitPipeline: descriptor binder is null");
+
         static const VkPipelineVertexInputStateCreateInfo kEmptyVertexInputState {
             VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO
         };
+        ProgramFactory::CompileOptionFlags transformFlags = 0;
+        auto& stages = m_programFactory->GetOrCreatePipelineShaderStages(*m_blitResources.program, transformFlags);
         PipelineFactory::PipelineCreatePayload payload{
-            .programHash = 0xB17FB17FULL,
+            .programHash = m_programFactory->ComputeHash(*m_blitResources.program, transformFlags),
             .vertexInputHash = 0,
-            .pipelineLayout = m_blitPipelineResources.pipelineLayout,
+            .pipelineLayout = m_uniformDescriptorBinder->GetOrCreatePipelineLayout(*m_blitResources.program),
             .renderPass = renderPassEntry.renderPass,
             .subpass = 0,
             .topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST,
@@ -715,7 +650,7 @@ void main() {
             .dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO,
             .colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
                               VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT,
-            .stages = &m_blitPipelineResources.shaderStages,
+            .stages = &stages,
             .vertexInputState = &kEmptyVertexInputState
         };
         return m_pipelineFactory->GetOrCreatePipeline(payload);
@@ -952,8 +887,7 @@ void main() {
                     sourceTexture->GetExternalIndex());
             return false;
         }
-        auto* sourceResource = m_textureManager->SyncTextureAndGetDescriptor(*sourceTexture);
-        if (sourceResource == nullptr) {
+        if (m_textureManager->SyncTextureAndGetDescriptor(*sourceTexture) == nullptr) {
             MGLOG_E("BlitFramebuffer skipped: failed to resolve source textureId=%d after sampling transition",
                     sourceTexture->GetExternalIndex());
             return false;
@@ -977,30 +911,16 @@ void main() {
         scissor.extent = {static_cast<Uint32>(renderPassEntry.extent.x()), static_cast<Uint32>(renderPassEntry.extent.y())};
         vkCmdSetScissor(frame.commandBuffer, 0, 1, &scissor);
 
+        MOBILEGL_ASSERT(m_blitResources.program != nullptr, "TryBlitToDefaultFramebufferWithShader: blit program is null");
         const VkPipeline pipeline = GetOrCreateBlitPipeline(renderPassEntry);
+        MOBILEGL_ASSERT(pipeline != VK_NULL_HANDLE, "TryBlitToDefaultFramebufferWithShader: blit pipeline is null");
         vkCmdBindPipeline(frame.commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
 
-        const Uint32 frameIndex = m_frameContext.GetCurrentFrameIndex() % static_cast<Uint32>(m_blitPipelineResources.descriptorSets.size());
-        const VkSampler sampler = (filter == GL_LINEAR) ? m_blitPipelineResources.linearSampler
-                                                        : m_blitPipelineResources.nearestSampler;
-        VkDescriptorImageInfo imageInfo{
-            .sampler = sampler,
-            .imageView = sourceResource->view,
-            .imageLayout = sourceResource->layout,
-        };
-        VkWriteDescriptorSet write{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
-        write.dstSet = m_blitPipelineResources.descriptorSets[frameIndex];
-        write.dstBinding = 0;
-        write.descriptorCount = 1;
-        write.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-        write.pImageInfo = &imageInfo;
-        vkUpdateDescriptorSets(m_device, 1, &write, 0, nullptr);
+        auto* blitProgramData = static_cast<Uint8*>(m_blitResources.program->MapUBO());
+        MOBILEGL_ASSERT(blitProgramData != nullptr, "TryBlitToDefaultFramebufferWithShader: blit UBO is null");
+        std::fill(blitProgramData, blitProgramData + m_blitResources.program->GetUBOSize(), Uint8{0});
 
-        vkCmdBindDescriptorSets(frame.commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                                m_blitPipelineResources.pipelineLayout, 0, 1,
-                                &m_blitPipelineResources.descriptorSets[frameIndex], 0, nullptr);
-
-        BlitPushConstants pushConstants{};
+        BlitUniformData blitUniformData{};
         const float srcWidth = static_cast<float>(srcBinding.extent.x());
         const float srcHeight = static_cast<float>(srcBinding.extent.y());
         const float dstWidth = static_cast<float>(dstBinding.extent.x());
@@ -1016,19 +936,38 @@ void main() {
             default:
                 break;
         }
-        pushConstants.srcRect[0] = static_cast<float>(srcX0) / srcWidth;
-        pushConstants.srcRect[1] = static_cast<float>(srcY0) / srcHeight;
-        pushConstants.srcRect[2] = static_cast<float>(srcX1 - srcX0) / srcWidth;
-        pushConstants.srcRect[3] = static_cast<float>(srcY1 - srcY0) / srcHeight;
-        pushConstants.dstRect[0] = static_cast<float>(dstX0) / dstNormWidth;
-        pushConstants.dstRect[1] = static_cast<float>(dstY0) / dstNormHeight;
-        pushConstants.dstRect[2] = static_cast<float>(dstX1 - dstX0) / dstNormWidth;
-        pushConstants.dstRect[3] = static_cast<float>(dstY1 - dstY0) / dstNormHeight;
-        pushConstants.surfaceTransform = static_cast<Uint32>(ToBlitSurfaceTransform(m_swapchainObject.GetPreTransform()));
+        blitUniformData.srcRect[0] = static_cast<float>(srcX0) / srcWidth;
+        blitUniformData.srcRect[1] = static_cast<float>(srcY0) / srcHeight;
+        blitUniformData.srcRect[2] = static_cast<float>(srcX1 - srcX0) / srcWidth;
+        blitUniformData.srcRect[3] = static_cast<float>(srcY1 - srcY0) / srcHeight;
+        blitUniformData.dstRect[0] = static_cast<float>(dstX0) / dstNormWidth;
+        blitUniformData.dstRect[1] = static_cast<float>(dstY0) / dstNormHeight;
+        blitUniformData.dstRect[2] = static_cast<float>(dstX1 - dstX0) / dstNormWidth;
+        blitUniformData.dstRect[3] = static_cast<float>(dstY1 - dstY0) / dstNormHeight;
+        blitUniformData.surfaceTransform = static_cast<Int>(ToBlitSurfaceTransform(m_swapchainObject.GetPreTransform()));
 
-        vkCmdPushConstants(frame.commandBuffer, m_blitPipelineResources.pipelineLayout,
-                           VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0,
-                           sizeof(pushConstants), &pushConstants);
+        auto writeUniform = [&](Int location, const void* data, SizeT size) {
+            MOBILEGL_ASSERT(location >= 0, "TryBlitToDefaultFramebufferWithShader: invalid uniform location");
+            const Uint offset = m_blitResources.program->GetUniformOffset(static_cast<Uint>(location));
+            MOBILEGL_ASSERT(offset + size <= m_blitResources.program->GetUBOSize(),
+                            "TryBlitToDefaultFramebufferWithShader: uniform write out of bounds");
+            memcpy(blitProgramData + offset, data, size);
+        };
+        writeUniform(m_blitResources.srcRectLocation, blitUniformData.srcRect, sizeof(blitUniformData.srcRect));
+        writeUniform(m_blitResources.dstRectLocation, blitUniformData.dstRect, sizeof(blitUniformData.dstRect));
+        writeUniform(m_blitResources.surfaceTransformLocation, &blitUniformData.surfaceTransform,
+                     sizeof(blitUniformData.surfaceTransform));
+
+        const auto samplerBindingOverride = UniformDescriptorBinder::SamplerBindingOverride{
+            .binding = m_blitResources.samplerBinding,
+            .texture = sourceTexture.get(),
+            .sampler = (filter == GL_LINEAR ? m_blitResources.linearSampler.get()
+                                            : m_blitResources.nearestSampler.get()),
+        };
+        const Bool bound = m_uniformDescriptorBinder->BindProgramUniformBuffers(
+            frame.commandBuffer, *m_blitResources.program, m_frameContext.GetCurrentFrameIndex(),
+            &samplerBindingOverride);
+        MOBILEGL_ASSERT(bound, "TryBlitToDefaultFramebufferWithShader: BindProgramUniformBuffers failed");
         vkCmdDraw(frame.commandBuffer, 3, 1, 0, 0);
         return true;
     }

@@ -16,7 +16,9 @@
 #include <vk_mem_alloc.h>
 
 namespace MobileGL::MG_State::GLState {
+    class ITextureObject;
     class ProgramObject;
+    class SamplerObject;
 }
 
 namespace MobileGL::MG_Backend::DirectVulkan {
@@ -26,6 +28,12 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             None = 0,
             UniformBufferDynamic,
             CombinedImageSampler
+        };
+
+        struct SamplerBindingOverride {
+            Uint32 binding = 0;
+            MG_State::GLState::ITextureObject* texture = nullptr;
+            const MG_State::GLState::SamplerObject* sampler = nullptr;
         };
 
         Bool Initialize(VkDevice device, VmaAllocator allocator, VkDeviceSize minUniformBufferOffsetAlignment,
@@ -40,6 +48,9 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                                     Vector<MG_State::GLState::ITextureObject*>& outTextures);
         Bool BindProgramUniformBuffers(VkCommandBuffer commandBuffer,
                                        const MG_State::GLState::ProgramObject& program, Uint32 frameIndex);
+        Bool BindProgramUniformBuffers(VkCommandBuffer commandBuffer,
+                                       const MG_State::GLState::ProgramObject& program, Uint32 frameIndex,
+                                       const SamplerBindingOverride* samplerBindingOverride);
 
     private:
         struct DescriptorPoolBucket {
@@ -79,6 +90,8 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         Bool ResolveSamplerDescriptor(VkCommandBuffer commandBuffer, const MG_State::GLState::ProgramObject& program,
                                       const ProgramLayout& layout, Uint32 binding,
                                       VkDescriptorImageInfo& outImageInfo) const;
+        Bool ResolveSamplerDescriptorOverride(const SamplerBindingOverride& samplerBindingOverride,
+                                              VkDescriptorImageInfo& outImageInfo) const;
         Bool ReflectBindingKinds(const MG_State::GLState::ProgramObject& program, Vector<BindingKind>& outKinds) const;
         ProgramLayout* GetOrCreateProgramLayout(const MG_State::GLState::ProgramObject& program);
         Bool AllocateUploadRegion(FrameResources& frame, VkDeviceSize size, VkDeviceSize& outOffset);

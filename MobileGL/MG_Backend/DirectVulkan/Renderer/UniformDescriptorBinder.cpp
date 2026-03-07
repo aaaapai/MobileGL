@@ -538,6 +538,28 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         return outImageInfo.sampler != VK_NULL_HANDLE;
     }
 
+    Bool UniformDescriptorBinder::ResolveSamplerDescriptorOverride(
+        const SamplerBindingOverride& samplerBindingOverride,
+        VkDescriptorImageInfo& outImageInfo) const {
+        MOBILEGL_ASSERT(m_textureManager != nullptr, "ResolveSamplerDescriptorOverride: texture manager is null");
+        MOBILEGL_ASSERT(m_samplerManager != nullptr, "ResolveSamplerDescriptorOverride: sampler manager is null");
+        if (samplerBindingOverride.texture == nullptr || samplerBindingOverride.sampler == nullptr) {
+            return false;
+        }
+
+        auto* resource = m_textureManager->SyncTextureAndGetDescriptor(*samplerBindingOverride.texture);
+        if (resource == nullptr || !IsValidSampledImageLayout(resource->layout)) {
+            return false;
+        }
+
+        outImageInfo = {
+            .sampler = m_samplerManager->GetOrCreateSampler(*samplerBindingOverride.sampler),
+            .imageView = resource->view,
+            .imageLayout = resource->layout,
+        };
+        return outImageInfo.sampler != VK_NULL_HANDLE;
+    }
+
     Bool UniformDescriptorBinder::ResolveSamplerTexture(const MG_State::GLState::ProgramObject& program,
                                                         const ProgramLayout& layout, Uint32 binding,
                                                         SharedPtr<MG_State::GLState::ITextureObject>& outTexture) const {
@@ -786,7 +808,16 @@ namespace MobileGL::MG_Backend::DirectVulkan {
     Bool UniformDescriptorBinder::BindProgramUniformBuffers(VkCommandBuffer commandBuffer,
                                                             const MG_State::GLState::ProgramObject& program,
                                                             Uint32 frameIndex) {
+        return BindProgramUniformBuffers(commandBuffer, program, frameIndex, nullptr);
+    }
+
+    Bool UniformDescriptorBinder::BindProgramUniformBuffers(VkCommandBuffer commandBuffer,
+                                                            const MG_State::GLState::ProgramObject& program,
+                                                            Uint32 frameIndex,
+                                                            const SamplerBindingOverride* samplerBindingOverride) {
         ProgramLayout* layout = GetOrCreateProgramLayout(program);
+        MOBILEGL_ASSERT(layout != nullptr,
+                        "UniformDescriptorBinder::BindProgramUniformBuffers: program layout is null");
 
         auto& frame = m_frames[frameIndex];
         if (frame.descriptorPools.empty()) {
@@ -903,7 +934,15 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                 dynamicOffsets.push_back(static_cast<Uint32>(payloadOffset));
             } else {
                 VkDescriptorImageInfo imageInfo{};
-                Bool hasImage = ResolveSamplerDescriptor(commandBuffer, program, *layout, binding, imageInfo);
+                Bool hasImage = false;
+                if (samplerBindingOverride != nullptr &&
+                    samplerBindingOverride->binding == binding &&
+                    samplerBindingOverride->texture != nullptr &&
+                    samplerBindingOverride->sampler != nullptr) {
+                    hasImage = ResolveSamplerDescriptorOverride(*samplerBindingOverride, imageInfo);
+                } else {
+                    hasImage = ResolveSamplerDescriptor(commandBuffer, program, *layout, binding, imageInfo);
+                }
                 if (!hasImage) {
                     MGLOG_E("UniformDescriptorBinder::BindProgramUniformBuffers failed: sampler binding %u has no valid texture descriptor",
                             binding);

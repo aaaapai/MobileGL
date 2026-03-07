@@ -28,6 +28,7 @@
 namespace MobileGL::MG_State::GLState {
     class FramebufferObject;
     class ProgramObject;
+    class SamplerObject;
     class VertexArrayObject;
 } // namespace MobileGL::MG_State::GLState
 
@@ -96,22 +97,21 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         void RecreateSwapchain();
 
     private:
-        struct BlitPushConstants {
+        struct BlitUniformData {
             float srcRect[4] = {0.f, 0.f, 1.f, 1.f};
             float dstRect[4] = {0.f, 0.f, 1.f, 1.f};
-            Uint32 surfaceTransform = 0;
-            Uint32 padding[3] = {0, 0, 0};
+            Int surfaceTransform = 0;
+            Int padding[3] = {0, 0, 0};
         };
 
-        struct BlitPipelineResources {
-            VkDescriptorSetLayout descriptorSetLayout = VK_NULL_HANDLE;
-            VkPipelineLayout pipelineLayout = VK_NULL_HANDLE;
-            VkDescriptorPool descriptorPool = VK_NULL_HANDLE;
-            Vector<VkDescriptorSet> descriptorSets;
-            Vector<VkPipelineShaderStageCreateInfo> shaderStages;
-            Vector<VkShaderModule> shaderModules;
-            VkSampler nearestSampler = VK_NULL_HANDLE;
-            VkSampler linearSampler = VK_NULL_HANDLE;
+        struct BlitResources {
+            SharedPtr<MG_State::GLState::ProgramObject> program;
+            SharedPtr<MG_State::GLState::SamplerObject> nearestSampler;
+            SharedPtr<MG_State::GLState::SamplerObject> linearSampler;
+            Int srcRectLocation = -1;
+            Int dstRectLocation = -1;
+            Int surfaceTransformLocation = -1;
+            Uint32 samplerBinding = 0;
         };
 
         NativeWindowType m_window = 0;
@@ -156,7 +156,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         UniquePtr<VkRenderPassManager> m_renderPassManager;
         UniquePtr<VkTextureManager> m_textureManager;
         UniquePtr<VkSamplerManager> m_samplerManager;
-        BlitPipelineResources m_blitPipelineResources;
+        BlitResources m_blitResources;
 
         void CreateInstance();
         VkResult SetupDebugMessenger();
