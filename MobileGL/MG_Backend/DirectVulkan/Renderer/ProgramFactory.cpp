@@ -364,7 +364,6 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         }
 
         auto& entry = m_cache[hash];
-        entry.device = m_device;
         entry.hash = hash;
         auto& shaders = program.GetAttachedShaders();
         auto& spirv = program.GetGeneratedSpirv();

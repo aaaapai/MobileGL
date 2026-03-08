@@ -16,6 +16,10 @@ namespace MobileGL {
                 constexpr EGLint EGL_DISPLAY_MINOR_VERSION = 5;
             } // namespace
 
+            Bool EGLContext::DisplayLookupKey::operator==(const DisplayLookupKey& rhs) const {
+                return this->NativeDisplayKey == rhs.NativeDisplayKey && this->Platform == rhs.Platform;
+            }
+
             SizeT EGLContext::DisplayLookupHasher::operator()(const DisplayLookupKey& key) const {
                 const auto nativeHash = std::hash<Uint64>{}(key.NativeDisplayKey);
                 const auto platformHash = std::hash<Uint64>{}(static_cast<Uint64>(key.Platform));

@@ -154,7 +154,7 @@ namespace MobileGL {
         // Clear State
         FloatVec4 ClearColor = FloatVec4(0.0f, 0.0f, 0.0f, 1.0f);
         Float ClearDepth = 1.0f;
-        Int ClearStencil = 0;
+        Uint32 ClearStencil = 0;
 
         // Cull Face
         Bool CullFaceEnabled = false;
@@ -209,7 +209,7 @@ namespace MobileGL {
                 void SetClearDepth(Float depth);
                 Float GetClearDepth() const;
                 void SetClearStencil(Int stencil);
-                Int GetClearStencil() const;
+                Uint32 GetClearStencil() const;
 
                 // Pixel Store
                 void SetPixelStoreParam(PixelStoreParam param, Int value);

@@ -115,7 +115,7 @@ namespace MobileGL {
                     Uint64 NativeDisplayKey = 0;
                     EGLenum Platform = EGL_NONE;
 
-                    Bool operator==(const DisplayLookupKey& rhs) const = default;
+                    Bool operator==(const DisplayLookupKey& rhs) const;
                 };
 
                 struct DisplayLookupHasher {

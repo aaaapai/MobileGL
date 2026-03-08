@@ -75,6 +75,8 @@ set(SPIRV_CROSS_STATIC         ON  CACHE BOOL "Prefer static libs" FORCE)
 add_subdirectory(3rdparty/glslang)
 add_subdirectory(3rdparty/SPIRV-Cross)
 add_subdirectory(3rdparty/VulkanMemoryAllocator)
+add_subdirectory(3rdparty/Vulkan-Headers)
+add_subdirectory(3rdparty/Vulkan-Utility-Libraries)
 
 set(XXHASH_BUILD_XXHSUM OFF)
 option(BUILD_SHARED_LIBS OFF)
@@ -127,6 +129,8 @@ set(SOURCE_FILES
     MobileGL/MG_Util/Converters/GLToMG/RenderStateEnumConverter.cpp
     MobileGL/MG_Util/Converters/GLToMG/ProgramEnumConverter.cpp
     MobileGL/MG_Util/Converters/MGToMG/TextureEnumConverter.cpp
+    MobileGL/MG_Util/Converters/MGToVk/RenderStateEnumConverter.cpp
+    MobileGL/MG_Util/Converters/MGToVk/TextureEnumConverter.cpp
 
     MobileGL/MG_Util/Classifiers/TextureEnumClassifier.cpp
 
@@ -190,9 +194,10 @@ set(SOURCE_FILES
     MobileGL/MG_Backend/DirectVulkan/Renderer/VertexInputStateBuilder.cpp
     MobileGL/MG_Backend/DirectVulkan/Renderer/VertexInputStateFactory.cpp
     MobileGL/MG_Backend/DirectVulkan/Renderer/VkBufferObject.cpp
-    MobileGL/MG_Backend/DirectVulkan/Renderer/VkFramebufferManager.cpp
+    MobileGL/MG_Backend/DirectVulkan/Renderer/VkTextureManager.cpp
+    MobileGL/MG_Backend/DirectVulkan/Renderer/VkSamplerManager.cpp
+    MobileGL/MG_Backend/DirectVulkan/Renderer/VkClearManager.cpp
     MobileGL/MG_Backend/DirectVulkan/Renderer/VkRenderPassManager.cpp
-    MobileGL/MG_Backend/DirectVulkan/Renderer/VkTextureSamplerManager.cpp
 
     MobileGL/MG_State/GLState/Core.cpp
     MobileGL/MG_State/EGLState/Core.cpp
@@ -233,6 +238,7 @@ set(MOBILEGL_LINK_LIBRARIES
         SPIRV-Tools
         xxHash::xxhash
         GPUOpen::VulkanMemoryAllocator
+        Vulkan::UtilityHeaders
 )
 
 set(MOBILEGL_COMPILE_DEF

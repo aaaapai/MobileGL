@@ -12,10 +12,194 @@
 
 #include "MG_State/GLState/Core.h"
 #include "MG_State/GLState/ProgramState/ProgramObject.h"
+#include "MG_State/GLState/ProgramState/ShaderObject.h"
+#include "MG_State/GLState/SamplerState/SamplerObject.h"
 #include "MG_Impl/GLImpl/Framebuffer/GL_Framebuffer.h"
+#include "MG_Util/Converters/MGToVk/RenderStateEnumConverter.h"
 #include <vulkan/vulkan_core.h>
 
 namespace MobileGL::MG_Backend::DirectVulkan {
+    static const char* VkImageLayoutToString(VkImageLayout layout) {
+        switch (layout) {
+            case VK_IMAGE_LAYOUT_UNDEFINED:
+                return "VK_IMAGE_LAYOUT_UNDEFINED";
+            case VK_IMAGE_LAYOUT_GENERAL:
+                return "VK_IMAGE_LAYOUT_GENERAL";
+            case VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL:
+                return "VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL";
+            case VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL:
+                return "VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL";
+            case VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL:
+                return "VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL";
+            case VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL:
+                return "VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL";
+            case VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL:
+                return "VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL";
+            case VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL:
+                return "VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL";
+            case VK_IMAGE_LAYOUT_PRESENT_SRC_KHR:
+                return "VK_IMAGE_LAYOUT_PRESENT_SRC_KHR";
+            case VK_IMAGE_LAYOUT_DEPTH_READ_ONLY_STENCIL_ATTACHMENT_OPTIMAL:
+                return "VK_IMAGE_LAYOUT_DEPTH_READ_ONLY_STENCIL_ATTACHMENT_OPTIMAL";
+            case VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_STENCIL_READ_ONLY_OPTIMAL:
+                return "VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_STENCIL_READ_ONLY_OPTIMAL";
+            default:
+                return "VK_IMAGE_LAYOUT_OTHER";
+        }
+    }
+
+    static Bool ActiveRenderPassUsesTexture(const ActiveRenderPassInfo& activeRenderPass,
+                                            const MG_State::GLState::ITextureObject& texture) {
+        for (const auto& trackedAttachment : activeRenderPass.trackedAttachmentLayouts) {
+            if (trackedAttachment.target != TrackedAttachmentTarget::Texture) {
+                continue;
+            }
+            if (trackedAttachment.texture == &texture) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    static Bool IsValidSampledImageLayout(VkImageLayout layout) {
+        switch (layout) {
+            case VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL:
+            case VK_IMAGE_LAYOUT_GENERAL:
+            case VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL:
+            case VK_IMAGE_LAYOUT_DEPTH_READ_ONLY_STENCIL_ATTACHMENT_OPTIMAL:
+            case VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_STENCIL_READ_ONLY_OPTIMAL:
+                return true;
+            default:
+                return false;
+        }
+    }
+
+    namespace {
+        static constexpr Uint kHiddenBlitProgramId = 0xFFFFFFF0u;
+        static constexpr Uint kHiddenBlitVertexShaderId = 0xFFFFFFF1u;
+        static constexpr Uint kHiddenBlitFragmentShaderId = 0xFFFFFFF2u;
+        static constexpr Uint kHiddenBlitNearestSamplerId = 0xFFFFFFF3u;
+        static constexpr Uint kHiddenBlitLinearSamplerId = 0xFFFFFFF4u;
+
+        enum class BlitSurfaceTransform : Uint32 {
+            Identity = 0,
+            Rotate90 = 1,
+            Rotate180 = 2,
+            Rotate270 = 3,
+        };
+
+        struct BlitImageBinding {
+            VkImage image = VK_NULL_HANDLE;
+            VkImageLayout* trackedLayout = nullptr;
+            VkImageAspectFlags aspectMask = VK_IMAGE_ASPECT_NONE;
+            IntVec2 extent = {0, 0};
+            const char* label = nullptr;
+        };
+
+        static void GetImageTransitionSourceState(VkImageLayout oldLayout, VkPipelineStageFlags& outSrcStageMask,
+                                                  VkAccessFlags& outSrcAccessMask) {
+            switch (oldLayout) {
+                case VK_IMAGE_LAYOUT_UNDEFINED:
+                case VK_IMAGE_LAYOUT_PRESENT_SRC_KHR:
+                    outSrcStageMask = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
+                    outSrcAccessMask = 0;
+                    break;
+                case VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL:
+                    outSrcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+                    outSrcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+                    break;
+                case VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL:
+                    outSrcStageMask = VK_PIPELINE_STAGE_TRANSFER_BIT;
+                    outSrcAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+                    break;
+                case VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL:
+                    outSrcStageMask = VK_PIPELINE_STAGE_TRANSFER_BIT;
+                    outSrcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+                    break;
+                case VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL:
+                    outSrcStageMask = VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT;
+                    outSrcAccessMask = VK_ACCESS_SHADER_READ_BIT;
+                    break;
+                default:
+                    outSrcStageMask = VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
+                    outSrcAccessMask = VK_ACCESS_MEMORY_READ_BIT | VK_ACCESS_MEMORY_WRITE_BIT;
+                    break;
+            }
+        }
+
+        static Bool ResolveColorBlitBinding(MG_State::GLState::FramebufferObject& fbo, Bool isReadFramebuffer,
+                                            Uint32 swapchainImageIndex, SwapchainObject& swapchainObject,
+                                            VkTextureManager& textureManager, BlitImageBinding& outBinding) {
+            const Bool isDefaultFbo = (&fbo == MG_Impl::GLImpl::FramebufferImpl::pDefaultFramebufferInfo->defaultFBO.get());
+            const FramebufferAttachmentType attachmentType =
+                isReadFramebuffer ? fbo.GetReadBuffer() : fbo.GetDrawBuffers()[0];
+            if (attachmentType < FramebufferAttachmentType::Color0 || attachmentType > FramebufferAttachmentType::Color31) {
+                MGLOG_E("BlitFramebuffer only supports color attachments right now (attachment=%d)",
+                        static_cast<Int>(attachmentType));
+                return false;
+            }
+
+            const auto& attachment = fbo.GetAttachment(attachmentType);
+            if (!attachment.IsComplete()) {
+                MGLOG_E("BlitFramebuffer skipped: %s framebuffer color attachment is incomplete",
+                        isReadFramebuffer ? "read" : "draw");
+                return false;
+            }
+            if (attachment.IsRenderbuffer()) {
+                MGLOG_E("BlitFramebuffer skipped: renderbuffer attachments are not supported yet");
+                return false;
+            }
+            if (!attachment.IsTexture()) {
+                MGLOG_E("BlitFramebuffer skipped: unsupported framebuffer attachment type");
+                return false;
+            }
+
+            auto* texture = attachment.GetTexture().get();
+            MOBILEGL_ASSERT(texture != nullptr, "ResolveColorBlitBinding: texture attachment is null");
+            outBinding.label = isReadFramebuffer ? "read" : "draw";
+
+            if (isDefaultFbo) {
+                outBinding.image = swapchainObject.GetImage(swapchainImageIndex);
+                outBinding.trackedLayout = nullptr;
+                outBinding.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+                const auto extent = swapchainObject.GetExtent();
+                outBinding.extent = {static_cast<Int>(extent.width), static_cast<Int>(extent.height)};
+                return true;
+            }
+
+            auto* resource = textureManager.SyncTextureAndGetDescriptor(*texture);
+            if (resource == nullptr) {
+                MGLOG_E("BlitFramebuffer skipped: failed to sync %s framebuffer textureId=%d",
+                        outBinding.label, texture->GetExternalIndex());
+                return false;
+            }
+            if ((resource->aspect & VK_IMAGE_ASPECT_COLOR_BIT) == 0) {
+                MGLOG_E("BlitFramebuffer skipped: %s framebuffer attachment textureId=%d is not a color image",
+                        outBinding.label, texture->GetExternalIndex());
+                return false;
+            }
+
+            outBinding.image = resource->image;
+            outBinding.trackedLayout = &resource->layout;
+            outBinding.aspectMask = resource->aspect;
+            outBinding.extent = {static_cast<Int>(resource->extent.width), static_cast<Int>(resource->extent.height)};
+            return true;
+        }
+
+        static BlitSurfaceTransform ToBlitSurfaceTransform(VkSurfaceTransformFlagBitsKHR preTransform) {
+            switch (preTransform) {
+                case VK_SURFACE_TRANSFORM_ROTATE_90_BIT_KHR:
+                    return BlitSurfaceTransform::Rotate90;
+                case VK_SURFACE_TRANSFORM_ROTATE_180_BIT_KHR:
+                    return BlitSurfaceTransform::Rotate180;
+                case VK_SURFACE_TRANSFORM_ROTATE_270_BIT_KHR:
+                    return BlitSurfaceTransform::Rotate270;
+                default:
+                    return BlitSurfaceTransform::Identity;
+            }
+        }
+    } // namespace
+
     VkBool32 VulkanRenderer::DebugCallback(VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity,
                                            VkDebugUtilsMessageTypeFlagsEXT messageType,
                                            const VkDebugUtilsMessengerCallbackDataEXT* pCallbackData, void* pUserData) {
@@ -85,120 +269,6 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         return flags;
     }
 
-    VkPipeline VulkanRenderer::GetOrCreatePipeline(const MG_State::GLState::ProgramObject& program,
-                                                   VkPipelineLayout pipelineLayout, Uint64 vertexInputHash,
-                                                   const VkPipelineVertexInputStateCreateInfo& vertexInputState) {
-        MOBILEGL_ASSERT(m_pipelineFactory != nullptr, "PipelineFactory is not initialized");
-        MOBILEGL_ASSERT(m_programFactory != nullptr, "ProgramFactory is not initialized");
-        ProgramFactory::CompileOptionFlags transformFlags =
-            GetShaderTransformFlags(m_swapchainObject.GetPreTransform());
-        auto& stages = m_programFactory->GetOrCreatePipelineShaderStages(program, transformFlags);
-        if (stages.empty()) {
-            MGLOG_D("GetOrCreatePipeline skipped: program has no shader stages");
-            return VK_NULL_HANDLE;
-        }
-        const Uint64 programHash = m_programFactory->ComputeHash(program, transformFlags);
-        auto toVkCompareOp = [](DepthTestFunc func) -> VkCompareOp {
-            switch (func) {
-            case DepthTestFunc::Never:
-                return VK_COMPARE_OP_NEVER;
-            case DepthTestFunc::Less:
-                return VK_COMPARE_OP_LESS;
-            case DepthTestFunc::Equal:
-                return VK_COMPARE_OP_EQUAL;
-            case DepthTestFunc::LessEqual:
-                return VK_COMPARE_OP_LESS_OR_EQUAL;
-            case DepthTestFunc::Greater:
-                return VK_COMPARE_OP_GREATER;
-            case DepthTestFunc::NotEqual:
-                return VK_COMPARE_OP_NOT_EQUAL;
-            case DepthTestFunc::GreaterEqual:
-                return VK_COMPARE_OP_GREATER_OR_EQUAL;
-            case DepthTestFunc::Always:
-            default:
-                return VK_COMPARE_OP_ALWAYS;
-            }
-        };
-        auto toVkBlendFactor = [](BlendFactor factor) -> VkBlendFactor {
-            switch (factor) {
-            case BlendFactor::Zero:
-                return VK_BLEND_FACTOR_ZERO;
-            case BlendFactor::One:
-                return VK_BLEND_FACTOR_ONE;
-            case BlendFactor::SrcColor:
-                return VK_BLEND_FACTOR_SRC_COLOR;
-            case BlendFactor::OneMinusSrcColor:
-                return VK_BLEND_FACTOR_ONE_MINUS_SRC_COLOR;
-            case BlendFactor::DstColor:
-                return VK_BLEND_FACTOR_DST_COLOR;
-            case BlendFactor::OneMinusDstColor:
-                return VK_BLEND_FACTOR_ONE_MINUS_DST_COLOR;
-            case BlendFactor::SrcAlpha:
-                return VK_BLEND_FACTOR_SRC_ALPHA;
-            case BlendFactor::OneMinusSrcAlpha:
-                return VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
-            case BlendFactor::DstAlpha:
-                return VK_BLEND_FACTOR_DST_ALPHA;
-            case BlendFactor::OneMinusDstAlpha:
-                return VK_BLEND_FACTOR_ONE_MINUS_DST_ALPHA;
-            case BlendFactor::ConstantColor:
-                return VK_BLEND_FACTOR_CONSTANT_COLOR;
-            case BlendFactor::OneMinusConstantColor:
-                return VK_BLEND_FACTOR_ONE_MINUS_CONSTANT_COLOR;
-            case BlendFactor::ConstantAlpha:
-                return VK_BLEND_FACTOR_CONSTANT_ALPHA;
-            case BlendFactor::OneMinusConstantAlpha:
-                return VK_BLEND_FACTOR_ONE_MINUS_CONSTANT_ALPHA;
-            default:
-                return VK_BLEND_FACTOR_ONE;
-            }
-        };
-
-        PipelineFactory::PipelineCreatePayload payload{};
-        payload.programHash = programHash;
-        payload.vertexInputHash = vertexInputHash;
-        payload.pipelineLayout = pipelineLayout;
-        payload.renderPass = (m_activeRenderPass != VK_NULL_HANDLE) ? m_activeRenderPass : GetDefaultLoadRenderPass();
-        payload.subpass = 0;
-        payload.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
-        if (MG_State::pGLContext != nullptr) {
-            const Bool depthTestEnabled = MG_State::pGLContext->IsCapabilityEnabled(CapabilityInput::DepthTest);
-            payload.depthTestEnable = depthTestEnabled;
-            payload.depthWriteEnable = depthTestEnabled && MG_State::pGLContext->GetDepthMask();
-            payload.depthCompareOp = toVkCompareOp(MG_State::pGLContext->GetDepthFunc());
-
-            payload.blendEnable = MG_State::pGLContext->IsCapabilityEnabled(CapabilityInput::Blend);
-            BlendFactor srcRGB = BlendFactor::One;
-            BlendFactor dstRGB = BlendFactor::Zero;
-            BlendFactor srcAlpha = BlendFactor::One;
-            BlendFactor dstAlpha = BlendFactor::Zero;
-            MG_State::pGLContext->GetBlendFunc(srcRGB, dstRGB, srcAlpha, dstAlpha);
-            payload.srcColorBlendFactor = toVkBlendFactor(srcRGB);
-            payload.dstColorBlendFactor = toVkBlendFactor(dstRGB);
-            payload.srcAlphaBlendFactor = toVkBlendFactor(srcAlpha);
-            payload.dstAlphaBlendFactor = toVkBlendFactor(dstAlpha);
-
-            payload.colorWriteMask = 0;
-            auto colorMask = MG_State::pGLContext->GetColorMask();
-            if (colorMask.x()) payload.colorWriteMask |= VK_COLOR_COMPONENT_R_BIT;
-            if (colorMask.y()) payload.colorWriteMask |= VK_COLOR_COMPONENT_G_BIT;
-            if (colorMask.z()) payload.colorWriteMask |= VK_COLOR_COMPONENT_B_BIT;
-            if (colorMask.w()) payload.colorWriteMask |= VK_COLOR_COMPONENT_A_BIT;
-        }
-        payload.stages = &stages;
-        payload.vertexInputState = &vertexInputState;
-        return m_pipelineFactory->GetOrCreatePipeline(payload);
-    }
-
-    void VulkanRenderer::PrepareDemoPipeline() {
-        MGLOG_D("PrepareDemoPipeline called");
-
-        VkPipelineLayoutCreateInfo plci{VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
-        VK_VERIFY(vkCreatePipelineLayout(m_device, &plci, nullptr, &m_pipelineLayout), "vkCreatePipelineLayout");
-
-        MGLOG_I("PrepareDemoPipeline completed");
-    }
-
     void VulkanRenderer::CreateFrameContexts() {
         VK_VERIFY(m_frameContext.Initialize(m_device, m_commandPool, m_config.MaxFramesInFlight),
                   "CreateFrameContexts");
@@ -216,33 +286,46 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         CreateAllocator();
 
         CreateCommandPool();
-        m_renderPassManager = MakeUnique<VkRenderPassManager>();
+        m_textureManager = MakeUnique<VkTextureManager>();
+        MOBILEGL_ASSERT(m_textureManager != nullptr, "VkTextureManager creation failed.");
+        auto succeeded = false;
+        succeeded = m_textureManager->Initialize(
+            {m_device, m_physicalDevice.handle, m_allocator, m_commandPool, m_graphicsQueue});
+        MOBILEGL_ASSERT(succeeded, "VkTextureManager initialization failed.");
+        m_clearManager = MakeUnique<VkClearManager>();
+        MOBILEGL_ASSERT(m_clearManager != nullptr, "VkClearManager creation failed.");
+        succeeded = m_clearManager->Initialize();
+        MOBILEGL_ASSERT(succeeded, "VkClearManager initialization failed.");
+        m_renderPassManager =
+            MakeUnique<VkRenderPassManager>(m_device, m_config, *m_clearManager, *m_textureManager, m_swapchainObject);
+        MOBILEGL_ASSERT(m_renderPassManager != nullptr, "VkRenderPassManager creation failed.");
+        succeeded = m_renderPassManager->Initialize();
+        MOBILEGL_ASSERT(succeeded, "VkRenderPassManager initialization failed.");
 
         RecreateSwapchain();
 
         m_pipelineFactory = MakeUnique<PipelineFactory>(m_device, m_config);
+        MOBILEGL_ASSERT(m_pipelineFactory != nullptr, "PipelineFactory creation failed.");
         m_programFactory = MakeUnique<ProgramFactory>(m_device, m_config);
-        m_textureSamplerManager = MakeUnique<VkTextureSamplerManager>();
-        if (!m_textureSamplerManager->Initialize({m_device, m_physicalDevice.handle, m_commandPool, m_graphicsQueue})) {
-            MGLOG_E("VkTextureSamplerManager initialization failed. Sampler/texture descriptors will fallback.");
-            m_textureSamplerManager.reset();
-        }
-        m_framebufferManager = MakeUnique<VkFramebufferManager>();
-        if (!m_framebufferManager->Initialize({m_device, m_physicalDevice.handle})) {
-            MGLOG_E("VkFramebufferManager initialization failed. Offscreen FBO clear path is disabled.");
-            m_framebufferManager.reset();
-        }
+        MOBILEGL_ASSERT(m_programFactory != nullptr, "ProgramFactory creation failed.");
+
+        m_samplerManager = MakeUnique<VkSamplerManager>();
+        MOBILEGL_ASSERT(m_samplerManager != nullptr, "VkSamplerManager creation failed.");
+        succeeded = m_samplerManager->Initialize({m_device, &m_config});
+        MOBILEGL_ASSERT(succeeded, "VkSamplerManager initialization failed.");
+        succeeded = InitializeBlitResources();
+        MOBILEGL_ASSERT(succeeded, "Blit pipeline resource initialization failed.");
+
         m_uniformDescriptorBinder = MakeUnique<UniformDescriptorBinder>();
-        if (!m_uniformDescriptorBinder->Initialize(m_device, m_allocator,
+        MOBILEGL_ASSERT(m_uniformDescriptorBinder != nullptr, "UniformDescriptorBinder creation failed.");
+        succeeded = m_uniformDescriptorBinder->Initialize(m_device, m_allocator,
                                                    m_physicalDevice.properties.limits.minUniformBufferOffsetAlignment,
                                                    m_config.MaxFramesInFlight, 16, 64, 4 * 1024 * 1024,
-                                                   m_textureSamplerManager.get(), m_framebufferManager.get())) {
-            MGLOG_E("UniformDescriptorBinder initialization failed. UBO sync on Vulkan backend is disabled.");
-            m_uniformDescriptorBinder.reset();
-        }
+                                                   m_textureManager.get(), m_samplerManager.get());
+        MOBILEGL_ASSERT(succeeded, "UniformDescriptorBinder initialization failed.");
         m_vertexInputStateFactory = MakeUnique<VertexInputStateFactory>(m_config);
+        MOBILEGL_ASSERT(m_vertexInputStateFactory != nullptr, "VertexInputStateFactory creation failed.");
 
-        PrepareDemoPipeline();
         CreateFrameContexts();
         m_frameVertexUploadBuffers.resize(m_frameContext.GetFrameCount());
         m_frameVertexUploadHeads.assign(m_frameContext.GetFrameCount(), 0);
@@ -263,9 +346,14 @@ namespace MobileGL::MG_Backend::DirectVulkan {
 
         m_pipelineFactory.reset();
         m_programFactory.reset();
-        if (m_textureSamplerManager) {
-            m_textureSamplerManager->Shutdown();
-            m_textureSamplerManager.reset();
+        ShutdownBlitResources();
+        if (m_samplerManager) {
+            m_samplerManager->Shutdown();
+            m_samplerManager.reset();
+        }
+        if (m_textureManager) {
+            m_textureManager->Shutdown();
+            m_textureManager.reset();
         }
         m_vertexInputStateFactory.reset();
         for (auto& buffer : m_frameVertexUploadBuffers) {
@@ -282,10 +370,6 @@ namespace MobileGL::MG_Backend::DirectVulkan {
 
         m_frameContext.Destroy(m_device, m_commandPool);
 
-        if (m_pipelineLayout != VK_NULL_HANDLE) {
-            vkDestroyPipelineLayout(m_device, m_pipelineLayout, nullptr);
-            m_pipelineLayout = VK_NULL_HANDLE;
-        }
         if (m_uniformDescriptorBinder) {
             m_uniformDescriptorBinder->Shutdown();
             m_uniformDescriptorBinder.reset();
@@ -293,11 +377,10 @@ namespace MobileGL::MG_Backend::DirectVulkan {
 
         ShutdownSwapchain();
         m_renderPassManager.reset();
-        if (m_framebufferManager) {
-            m_framebufferManager->Shutdown();
-            m_framebufferManager.reset();
+        if (m_clearManager) {
+            m_clearManager->Shutdown();
+            m_clearManager.reset();
         }
-
         if (m_commandPool != VK_NULL_HANDLE) {
             vkDestroyCommandPool(m_device, m_commandPool, nullptr);
             m_commandPool = VK_NULL_HANDLE;
@@ -326,294 +409,6 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             m_instance = VK_NULL_HANDLE;
         }
         MGLOG_I("VulkanRenderer shut down completed");
-    }
-
-    void VulkanRenderer::RequestClear(GLbitfield mask, const FloatVec4& color, Float depth, Uint32 stencil,
-                                      Uint drawFboExternalIndex, Bool isDefaultFramebufferTarget) {
-        const GLbitfield supportedMask = GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT;
-        const GLbitfield requestMask = (mask & supportedMask);
-        if (requestMask == 0) {
-            return;
-        }
-
-        const Uint64 pendingKey = BuildPendingClearKey(drawFboExternalIndex, isDefaultFramebufferTarget);
-        auto& pending = m_pendingClears[pendingKey];
-
-        if ((requestMask & GL_COLOR_BUFFER_BIT) != 0) {
-            pending.color.float32[0] = color.x();
-            pending.color.float32[1] = color.y();
-            pending.color.float32[2] = color.z();
-            pending.color.float32[3] = color.w();
-        }
-        if ((requestMask & GL_DEPTH_BUFFER_BIT) != 0) {
-            pending.depth = depth;
-        }
-        if ((requestMask & GL_STENCIL_BUFFER_BIT) != 0) {
-            pending.stencil = stencil;
-        }
-        pending.drawFboExternalIndex = drawFboExternalIndex;
-        pending.targetsDefaultFramebuffer = isDefaultFramebufferTarget;
-        pending.mask |= requestMask;
-    }
-
-    Bool VulkanRenderer::ConsumePendingColorClear(VkClearColorValue& outClearColor) {
-        for (auto it = m_pendingClears.begin(); it != m_pendingClears.end(); ++it) {
-            if (!it->second.targetsDefaultFramebuffer || (it->second.mask & GL_COLOR_BUFFER_BIT) == 0) {
-                continue;
-            }
-            outClearColor = it->second.color;
-            it->second.mask &= ~GL_COLOR_BUFFER_BIT;
-            if (it->second.mask == 0) {
-                m_pendingClears.erase(it);
-            }
-            return true;
-        }
-        return false;
-    }
-
-    void VulkanRenderer::TransitionSwapchainImageToColorAttachment(VkCommandBuffer commandBuffer, Uint32 imageIndex) {
-        const auto oldLayout = m_swapchainObject.GetImageLayout(imageIndex);
-        if (oldLayout == VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL) {
-            return;
-        }
-
-        VkImageMemoryBarrier barrier{};
-        barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
-        barrier.srcAccessMask = 0;
-        barrier.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
-        barrier.oldLayout = oldLayout;
-        barrier.newLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-        barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        barrier.image = m_swapchainObject.GetImage(imageIndex);
-        barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-        barrier.subresourceRange.baseMipLevel = 0;
-        barrier.subresourceRange.levelCount = 1;
-        barrier.subresourceRange.baseArrayLayer = 0;
-        barrier.subresourceRange.layerCount = 1;
-
-        vkCmdPipelineBarrier(commandBuffer, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
-                             VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, 0, 0, nullptr, 0, nullptr, 1, &barrier);
-        m_swapchainObject.SetImageLayout(imageIndex, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
-    }
-
-    void VulkanRenderer::TransitionDepthStencilImageToAttachment(VkCommandBuffer commandBuffer, Uint32 imageIndex) {
-        if (m_depthStencilImageLayouts.empty()) {
-            return;
-        }
-
-        const auto oldLayout = m_depthStencilImageLayouts[imageIndex];
-        if (oldLayout == VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL) {
-            return;
-        }
-
-        VkImageMemoryBarrier barrier{};
-        barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
-        barrier.srcAccessMask = 0;
-        barrier.dstAccessMask =
-            VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
-        barrier.oldLayout = oldLayout;
-        barrier.newLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
-        barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        barrier.image = m_depthStencilImages[imageIndex];
-        barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
-        if (HasStencilComponent(m_depthStencilFormat)) {
-            barrier.subresourceRange.aspectMask |= VK_IMAGE_ASPECT_STENCIL_BIT;
-        }
-        barrier.subresourceRange.baseMipLevel = 0;
-        barrier.subresourceRange.levelCount = 1;
-        barrier.subresourceRange.baseArrayLayer = 0;
-        barrier.subresourceRange.layerCount = 1;
-
-        vkCmdPipelineBarrier(commandBuffer, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
-                             VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT, 0,
-                             0, nullptr, 0, nullptr, 1, &barrier);
-        m_depthStencilImageLayouts[imageIndex] = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
-    }
-
-    void VulkanRenderer::EnsureFrameRecordingStarted() {
-        auto& frame = m_frameContext.GetCurrent();
-        if (frame.hasCommandBufferRecorded) {
-            MGLOG_D("EnsureFrameRecordingStarted skipped: current frame command buffer is already finalized");
-            return;
-        }
-
-        const auto drawFbo =
-            MG_State::pGLContext
-                ? MG_State::pGLContext->GetFramebufferBindingSlot(FramebufferTarget::Draw).GetBoundObject()
-                : nullptr;
-        const auto& defaultFboInfo = MG_Impl::GLImpl::FramebufferImpl::pDefaultFramebufferInfo;
-        const auto defaultFbo = defaultFboInfo ? defaultFboInfo->defaultFBO : nullptr;
-        const Bool drawTargetsDefault = (drawFbo == defaultFbo) || (drawFbo == nullptr && defaultFbo != nullptr);
-        const Uint drawFboExternalIndex =
-            drawFbo ? drawFbo->GetExternalIndex() : (defaultFbo ? defaultFbo->GetExternalIndex() : 0U);
-        const Uint64 drawTargetKey = BuildPendingClearKey(drawFboExternalIndex, drawTargetsDefault);
-
-        if (frame.isCommandRecording && m_isMainRenderPassActive) {
-            const Bool activeTargetMismatch =
-                (drawTargetsDefault != m_activeRenderTargetIsDefault) ||
-                (!drawTargetsDefault && m_activeDrawFboExternalIndex != drawFboExternalIndex);
-            if (activeTargetMismatch) {
-                MOBILEGL_ASSERT(m_renderPassManager != nullptr, "EnsureFrameRecordingStarted: manager is null");
-                m_renderPassManager->EndRenderPass(frame.commandBuffer);
-                if (m_activeRenderTargetIsDefault) {
-                    m_swapchainObject.SetImageLayout(m_imageIndexAcquired, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
-                }
-                m_isMainRenderPassActive = false;
-                m_activeRenderPass = VK_NULL_HANDLE;
-                m_activeRenderExtent = {0, 0};
-                m_activeDepthStencilFormat = VK_FORMAT_UNDEFINED;
-                m_activeRenderTargetIsDefault = true;
-                m_activeDrawFboExternalIndex = 0;
-            } else {
-                return;
-            }
-        }
-
-        VkCommandBuffer* commandBufferPtr = nullptr;
-        if (frame.isCommandRecording) {
-            commandBufferPtr = &frame.commandBuffer;
-        } else {
-            commandBufferPtr = &m_frameContext.BeginCommandRecording();
-            if (m_uniformDescriptorBinder) {
-                m_uniformDescriptorBinder->BeginFrame(m_frameContext.GetCurrentFrameIndex());
-            }
-        }
-        VkCommandBuffer& commandBuffer = *commandBufferPtr;
-
-        if (!drawTargetsDefault) {
-            if (!m_framebufferManager || !m_renderPassManager || !drawFbo) {
-                MGLOG_D("EnsureFrameRecordingStarted skipped: offscreen draw target is unavailable");
-                return;
-            }
-
-            // This frame touched only offscreen resources. Present still requires
-            // the acquired swapchain image to be in PRESENT layout.
-            const auto swapchainOldLayout = m_swapchainObject.GetImageLayout(m_imageIndexAcquired);
-            if (swapchainOldLayout != VK_IMAGE_LAYOUT_PRESENT_SRC_KHR &&
-                swapchainOldLayout != VK_IMAGE_LAYOUT_SHARED_PRESENT_KHR) {
-                VkImageMemoryBarrier presentBarrier{};
-                presentBarrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
-                presentBarrier.srcAccessMask = 0;
-                presentBarrier.dstAccessMask = 0;
-                presentBarrier.oldLayout = swapchainOldLayout;
-                presentBarrier.newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
-                presentBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-                presentBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-                presentBarrier.image = m_swapchainObject.GetImage(m_imageIndexAcquired);
-                presentBarrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-                presentBarrier.subresourceRange.baseMipLevel = 0;
-                presentBarrier.subresourceRange.levelCount = 1;
-                presentBarrier.subresourceRange.baseArrayLayer = 0;
-                presentBarrier.subresourceRange.layerCount = 1;
-                vkCmdPipelineBarrier(commandBuffer, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
-                                     VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, 0, 0, nullptr, 0, nullptr, 1,
-                                     &presentBarrier);
-                m_swapchainObject.SetImageLayout(m_imageIndexAcquired, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
-            }
-
-            VkRenderPass offscreenRenderPass = VK_NULL_HANDLE;
-            VkFramebuffer offscreenFramebuffer = VK_NULL_HANDLE;
-            VkExtent2D offscreenExtent{};
-            VkFormat offscreenDepthStencilFormat = VK_FORMAT_UNDEFINED;
-            if (!EnsureOffscreenRenderTarget(drawFboExternalIndex, *drawFbo, offscreenRenderPass, offscreenFramebuffer,
-                                             offscreenExtent, offscreenDepthStencilFormat)) {
-                MGLOG_D("EnsureFrameRecordingStarted skipped: offscreen render target for FBO %u is unavailable",
-                        drawFboExternalIndex);
-                return;
-            }
-
-            if (!m_framebufferManager->TransitionOffscreenColorToAttachment(commandBuffer, drawFboExternalIndex)) {
-                MGLOG_D("EnsureFrameRecordingStarted skipped: failed to transition offscreen FBO %u for attachment",
-                        drawFboExternalIndex);
-                return;
-            }
-            m_renderPassManager->BeginRenderPass(commandBuffer, offscreenRenderPass, offscreenFramebuffer,
-                                                 offscreenExtent);
-            m_isMainRenderPassActive = true;
-            m_activeRenderPass = offscreenRenderPass;
-            m_activeRenderExtent = offscreenExtent;
-            m_activeDepthStencilFormat = offscreenDepthStencilFormat;
-            m_activeRenderTargetIsDefault = false;
-            m_activeDrawFboExternalIndex = drawFboExternalIndex;
-            auto pendingIt = m_pendingClears.find(drawTargetKey);
-            if (pendingIt != m_pendingClears.end()) {
-                if ((pendingIt->second.mask & GL_COLOR_BUFFER_BIT) != 0) {
-                    m_renderPassManager->RecordColorClear(commandBuffer, m_activeRenderExtent, pendingIt->second.color);
-                    pendingIt->second.mask &= ~GL_COLOR_BUFFER_BIT;
-                }
-                if ((pendingIt->second.mask & (GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT)) != 0) {
-                    m_renderPassManager->RecordDepthStencilClear(commandBuffer, m_activeRenderExtent,
-                                                                 pendingIt->second.mask, pendingIt->second.depth,
-                                                                 pendingIt->second.stencil, m_activeDepthStencilFormat);
-                    pendingIt->second.mask &= ~(GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
-                }
-                if (pendingIt->second.mask == 0) {
-                    m_pendingClears.erase(pendingIt);
-                }
-            }
-            return;
-        }
-
-        TransitionSwapchainImageToColorAttachment(commandBuffer, m_imageIndexAcquired);
-        TransitionDepthStencilImageToAttachment(commandBuffer, m_imageIndexAcquired);
-
-        VkRenderPass defaultRenderPass = VK_NULL_HANDLE;
-        VkFramebuffer defaultFramebuffer = VK_NULL_HANDLE;
-        VkExtent2D defaultExtent{};
-        VkFormat defaultDepthStencilFormat = VK_FORMAT_UNDEFINED;
-        if (!GetDefaultRenderTargetForCurrentImage(defaultRenderPass, defaultFramebuffer, defaultExtent,
-                                                   defaultDepthStencilFormat)) {
-            MGLOG_D("EnsureFrameRecordingStarted skipped: default render target unavailable");
-            return;
-        }
-        MOBILEGL_ASSERT(m_renderPassManager != nullptr, "EnsureFrameRecordingStarted: manager is null");
-        m_renderPassManager->BeginRenderPass(commandBuffer, defaultRenderPass, defaultFramebuffer, defaultExtent);
-        m_isMainRenderPassActive = true;
-        m_activeRenderPass = defaultRenderPass;
-        m_activeRenderExtent = defaultExtent;
-        m_activeDepthStencilFormat = defaultDepthStencilFormat;
-        m_activeRenderTargetIsDefault = true;
-        m_activeDrawFboExternalIndex = drawFboExternalIndex;
-        auto pendingIt = m_pendingClears.find(drawTargetKey);
-        if (pendingIt != m_pendingClears.end()) {
-            if ((pendingIt->second.mask & GL_COLOR_BUFFER_BIT) != 0) {
-                m_renderPassManager->RecordColorClear(commandBuffer, m_activeRenderExtent, pendingIt->second.color);
-                pendingIt->second.mask &= ~GL_COLOR_BUFFER_BIT;
-            }
-            if ((pendingIt->second.mask & (GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT)) != 0) {
-                m_renderPassManager->RecordDepthStencilClear(commandBuffer, m_activeRenderExtent,
-                                                             pendingIt->second.mask, pendingIt->second.depth,
-                                                             pendingIt->second.stencil, m_activeDepthStencilFormat);
-                pendingIt->second.mask &= ~(GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
-            }
-            if (pendingIt->second.mask == 0) {
-                m_pendingClears.erase(pendingIt);
-            }
-        }
-    }
-
-    void VulkanRenderer::EndFrameRecordingIfNeeded() {
-        auto& frame = m_frameContext.GetCurrent();
-        if (!frame.isCommandRecording) {
-            return;
-        }
-
-        if (m_isMainRenderPassActive) {
-            MOBILEGL_ASSERT(m_renderPassManager != nullptr, "EndFrameRecordingIfNeeded: manager is null");
-            m_renderPassManager->EndRenderPass(frame.commandBuffer);
-            if (m_activeRenderTargetIsDefault) {
-                m_swapchainObject.SetImageLayout(m_imageIndexAcquired, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
-            }
-            m_isMainRenderPassActive = false;
-            m_activeRenderPass = VK_NULL_HANDLE;
-            m_activeRenderExtent = {0, 0};
-            m_activeDepthStencilFormat = VK_FORMAT_UNDEFINED;
-            m_activeRenderTargetIsDefault = true;
-            m_activeDrawFboExternalIndex = 0;
-        }
-        m_frameContext.EndCommandRecording();
     }
 
     void VulkanRenderer::DeferDestroyBuffer(VkBufferObject& buffer) {
@@ -669,27 +464,17 @@ namespace MobileGL::MG_Backend::DirectVulkan {
     }
 
     Bool VulkanRenderer::UploadAndBindVertexStreams(
-        const VertexInputStateFactory::BackendVertexInputState& vertexInputState, const DrawArrayPayload& payload,
-        VkCommandBuffer commandBuffer) {
-        if (vertexInputState.bindings.empty()) {
-            return true;
-        }
+        VkCommandBuffer commandBuffer, const MG_State::GLState::VertexArrayObject& vao) {
+        auto& vertexInputState = m_vertexInputStateFactory->GetOrCreateVertexInputState(vao);
 
         const auto bindingCount = vertexInputState.bindings.size();
-        if (vertexInputState.bindingBufferKeys.size() != bindingCount) {
-            MGLOG_E("UploadAndBindVertexStreams failed: binding metadata mismatch");
-            return false;
-        }
 
         Vector<VkBuffer> vkBuffers(bindingCount, VK_NULL_HANDLE);
         Vector<VkDeviceSize> vkOffsets(bindingCount, 0);
         const Uint32 frameIndex = m_frameContext.GetCurrentFrameIndex();
 
         auto findBufferByKey = [&](SizeT bufferKey) -> const MG_State::GLState::BufferObject* {
-            if (!payload.vertexArray) {
-                return nullptr;
-            }
-            const auto& attrs = payload.vertexArray->GetAllAttributes();
+            const auto& attrs = vao.GetAllAttributes();
             for (Uint32 location = 0; location < MG_State::GLState::VertexArrayObject::MAX_VERTEX_ATTRIBS; ++location) {
                 const auto& attr = attrs[location];
                 if (!attr.Buffer) {
@@ -707,16 +492,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             const SizeT bufferKey = vertexInputState.bindingBufferKeys[binding];
             const MG_State::GLState::BufferObject* sourceBuffer = findBufferByKey(bufferKey);
 
-            if (!sourceBuffer) {
-                MGLOG_D("UploadAndBindVertexStreams skipped: no source buffer for binding %zu", binding);
-                return false;
-            }
-
             const auto sourceData = sourceBuffer->GetDataReadOnly();
-            if (!sourceData || sourceData->empty()) {
-                MGLOG_D("UploadAndBindVertexStreams skipped: source buffer has no data for binding %zu", binding);
-                return false;
-            }
 
             const SizeT sourceSize = sourceBuffer->GetSize();
             VkDeviceSize& frameHead = m_frameVertexUploadHeads[frameIndex];
@@ -741,100 +517,687 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         return true;
     }
 
-    void VulkanRenderer::DrawArrays(const DrawArrayPayload& payload) {
-        if (payload.mode != GL_TRIANGLES) {
-            MGLOG_D("DrawArrays skipped: primitive mode %u is not supported yet", payload.mode);
-            return;
+    Bool VulkanRenderer::InitializeBlitResources() {
+        ShutdownBlitResources();
+
+        static constexpr const char* kVertexShaderSource = R"(#version 460 core
+uniform vec4 uSrcRect;
+uniform vec4 uDstRect;
+uniform int uSurfaceTransform;
+
+layout(location = 0) out vec2 vTexCoord;
+
+vec2 ApplySurfaceTransform(vec2 position, int transform) {
+    vec2 p = position;
+    p.y = -p.y;
+    if (transform == 1) {
+        p = vec2(-p.y, p.x);
+    } else if (transform == 2) {
+        p = -p;
+    } else if (transform == 3) {
+        p = vec2(p.y, -p.x);
+    }
+    return p;
+}
+
+void main() {
+    const vec2 uvTri[3] = vec2[](
+        vec2(0.0, 0.0),
+        vec2(2.0, 0.0),
+        vec2(0.0, 2.0)
+    );
+    vec2 uv = uvTri[gl_VertexID];
+    vec2 dst = uDstRect.xy + uv * uDstRect.zw;
+    vec2 clip = dst * 2.0 - 1.0;
+    clip = ApplySurfaceTransform(clip, uSurfaceTransform);
+    gl_Position = vec4(clip, 0.0, 1.0);
+    vTexCoord = uSrcRect.xy + uv * uSrcRect.zw;
+}
+)";
+        static constexpr const char* kFragmentShaderSource = R"(#version 460 core
+layout(binding = 0) uniform sampler2D uSource;
+layout(location = 0) in vec2 vTexCoord;
+layout(location = 0) out vec4 outColor;
+
+void main() {
+    outColor = texture(uSource, vTexCoord);
+}
+)";
+
+        auto vertexShader = MakeShared<MG_State::GLState::ShaderObject>(ShaderStage::Vertex, kHiddenBlitVertexShaderId);
+        vertexShader->SetShaderSource(kVertexShaderSource);
+        vertexShader->Compile();
+        if (!vertexShader->GetCompileStatus()) {
+            MGLOG_E("InitializeBlitResources failed: vertex shader compile error: %s", vertexShader->GetInfoLog().c_str());
+            return false;
         }
 
-        const VertexInputStateFactory::BackendVertexInputState* vertexInputState = nullptr;
-        if (payload.vertexArray && m_vertexInputStateFactory) {
-            vertexInputState = &m_vertexInputStateFactory->GetOrCreateVertexInputState(*payload.vertexArray);
+        auto fragmentShader = MakeShared<MG_State::GLState::ShaderObject>(ShaderStage::Fragment, kHiddenBlitFragmentShaderId);
+        fragmentShader->SetShaderSource(kFragmentShaderSource);
+        fragmentShader->Compile();
+        if (!fragmentShader->GetCompileStatus()) {
+            MGLOG_E("InitializeBlitResources failed: fragment shader compile error: %s", fragmentShader->GetInfoLog().c_str());
+            return false;
         }
 
-        EnsureFrameRecordingStarted();
-        auto& frame = m_frameContext.GetCurrent();
-        if (!frame.isCommandRecording || !m_isMainRenderPassActive) {
-            MGLOG_D("DrawArrays skipped: frame recording was not started");
-            return;
+        m_blitResources.program = MakeShared<MG_State::GLState::ProgramObject>(kHiddenBlitProgramId);
+        m_blitResources.program->AttachShader(vertexShader);
+        m_blitResources.program->AttachShader(fragmentShader);
+        m_blitResources.program->Link(false);
+        if (!m_blitResources.program->GetLinkStatus()) {
+            MGLOG_E("InitializeBlitResources failed: program link error: %s", m_blitResources.program->GetInfoLog().c_str());
+            return false;
         }
 
-        VkCommandBuffer& commandBuffer = frame.commandBuffer;
-        const auto activeExtent = m_activeRenderExtent;
+        m_blitResources.srcRectLocation = m_blitResources.program->GetUniformLocation("uSrcRect");
+        m_blitResources.dstRectLocation = m_blitResources.program->GetUniformLocation("uDstRect");
+        m_blitResources.surfaceTransformLocation = m_blitResources.program->GetUniformLocation("uSurfaceTransform");
+        MOBILEGL_ASSERT(m_blitResources.srcRectLocation >= 0, "InitializeBlitResources: missing uSrcRect");
+        MOBILEGL_ASSERT(m_blitResources.dstRectLocation >= 0, "InitializeBlitResources: missing uDstRect");
+        MOBILEGL_ASSERT(m_blitResources.surfaceTransformLocation >= 0,
+                        "InitializeBlitResources: missing uSurfaceTransform");
+        MOBILEGL_ASSERT(m_blitResources.program->GetUBOSize() > 0,
+                        "InitializeBlitResources: blit program global UBO is empty");
 
-        if (payload.program == nullptr) {
-            MGLOG_D("DrawArrays skipped: no current program is bound");
-            return;
+        auto createSampler = [](Uint externalIndex, SamplerFilterMode filter) {
+            auto sampler = MakeShared<MG_State::GLState::SamplerObject>(externalIndex);
+            sampler->SetWrapS(SamplerWrapMode::ClampToEdge);
+            sampler->SetWrapT(SamplerWrapMode::ClampToEdge);
+            sampler->SetWrapR(SamplerWrapMode::ClampToEdge);
+            sampler->SetMinFilter(filter);
+            sampler->SetMagFilter(filter);
+            sampler->SetMipmapMode(SamplerMipmapMode::None);
+            sampler->SetLodRange(0.0f, 0.0f);
+            return sampler;
+        };
+
+        m_blitResources.nearestSampler = createSampler(kHiddenBlitNearestSamplerId, SamplerFilterMode::Nearest);
+        m_blitResources.linearSampler = createSampler(kHiddenBlitLinearSamplerId, SamplerFilterMode::Linear);
+        m_blitResources.samplerBinding = 0;
+        return true;
+    }
+
+    void VulkanRenderer::ShutdownBlitResources() {
+        m_blitResources = {};
+    }
+
+    VkPipeline VulkanRenderer::GetOrCreateBlitPipeline(const RenderPassEntry& renderPassEntry) {
+        MOBILEGL_ASSERT(m_blitResources.program != nullptr, "GetOrCreateBlitPipeline: blit program is null");
+        MOBILEGL_ASSERT(m_programFactory != nullptr, "GetOrCreateBlitPipeline: program factory is null");
+        MOBILEGL_ASSERT(m_uniformDescriptorBinder != nullptr, "GetOrCreateBlitPipeline: descriptor binder is null");
+
+        static const VkPipelineVertexInputStateCreateInfo kEmptyVertexInputState {
+            VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO
+        };
+        ProgramFactory::CompileOptionFlags transformFlags = 0;
+        auto& stages = m_programFactory->GetOrCreatePipelineShaderStages(*m_blitResources.program, transformFlags);
+        PipelineFactory::PipelineCreatePayload payload{
+            .programHash = m_programFactory->ComputeHash(*m_blitResources.program, transformFlags),
+            .vertexInputHash = 0,
+            .pipelineLayout = m_uniformDescriptorBinder->GetOrCreatePipelineLayout(*m_blitResources.program),
+            .renderPass = renderPassEntry.renderPass,
+            .subpass = 0,
+            .topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST,
+            .cullMode = VK_CULL_MODE_NONE,
+            .frontFace = VK_FRONT_FACE_CLOCKWISE,
+            .depthTestEnable = false,
+            .depthWriteEnable = false,
+            .depthCompareOp = VK_COMPARE_OP_ALWAYS,
+            .blendEnable = false,
+            .srcColorBlendFactor = VK_BLEND_FACTOR_ONE,
+            .dstColorBlendFactor = VK_BLEND_FACTOR_ZERO,
+            .srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE,
+            .dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO,
+            .colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
+                              VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT,
+            .stages = &stages,
+            .vertexInputState = &kEmptyVertexInputState
+        };
+        return m_pipelineFactory->GetOrCreatePipeline(payload);
+    }
+
+    VkPipeline VulkanRenderer::GetOrCreatePipeline(
+            GLenum mode,
+            const MG_State::GLState::ProgramObject& program,
+            const MG_State::GLState::VertexArrayObject& vao,
+            const RenderPassEntry& renderPassEntry) {
+        ProgramFactory::CompileOptionFlags transformFlags = GetShaderTransformFlags(m_swapchainObject.GetPreTransform());
+        Bool invertClockwise = transformFlags & ProgramFactory::CompileOptionBit::PositionYFlip;
+        auto& stages = m_programFactory->GetOrCreatePipelineShaderStages(program, transformFlags);
+        if (stages.empty()) {
+            MGLOG_D("GetOrCreatePipeline skipped: program has no shader stages");
+            return VK_NULL_HANDLE;
+        }
+        const Uint64 programHash = m_programFactory->ComputeHash(program, transformFlags);
+
+        auto vertexInputHash = m_vertexInputStateFactory->ComputeHash(vao);
+        auto& vis = m_vertexInputStateFactory->GetOrCreateVertexInputState(vao);
+        auto pipelineLayout = m_uniformDescriptorBinder->GetOrCreatePipelineLayout(program);
+        auto cullFaceEnabled = MG_State::pGLContext->IsCapabilityEnabled(CapabilityInput::CullFace);
+        auto depthTestEnabled = MG_State::pGLContext->IsCapabilityEnabled(CapabilityInput::DepthTest);
+        BlendFactor srcRGB = BlendFactor::One;
+        BlendFactor dstRGB = BlendFactor::Zero;
+        BlendFactor srcAlpha = BlendFactor::One;
+        BlendFactor dstAlpha = BlendFactor::Zero;
+        MG_State::pGLContext->GetBlendFunc(srcRGB, dstRGB, srcAlpha, dstAlpha);
+        auto mask = MG_State::pGLContext->GetColorMask();
+
+        PipelineFactory::PipelineCreatePayload payload {
+            .programHash = programHash,
+            .vertexInputHash = vertexInputHash,
+            .pipelineLayout = pipelineLayout,
+            .renderPass = renderPassEntry.renderPass,
+            .subpass = 0,
+            .topology = MG_Util::ConvertPrimitiveModeToVkEnum(mode),
+            .cullMode = cullFaceEnabled
+                ? MG_Util::ConvertCullFaceModeToVkEnum(MG_State::pGLContext->GetCullFaceMode(), invertClockwise)
+                : VK_CULL_MODE_NONE,
+            .frontFace = VK_FRONT_FACE_CLOCKWISE,
+            .depthTestEnable = depthTestEnabled,
+            .depthWriteEnable = depthTestEnabled && MG_State::pGLContext->GetDepthMask(),
+            .depthCompareOp = MG_Util::ConvertDepthTestFuncToVkEnum(MG_State::pGLContext->GetDepthFunc()),
+            .blendEnable = MG_State::pGLContext->IsCapabilityEnabled(CapabilityInput::Blend),
+            .srcColorBlendFactor = MG_Util::ConvertBlendFactorToVkEnum(srcRGB),
+            .dstColorBlendFactor = MG_Util::ConvertBlendFactorToVkEnum(dstRGB),
+            .srcAlphaBlendFactor = MG_Util::ConvertBlendFactorToVkEnum(srcAlpha),
+            .dstAlphaBlendFactor = MG_Util::ConvertBlendFactorToVkEnum(dstAlpha),
+            .colorWriteMask = (
+                (mask.r() ? VK_COLOR_COMPONENT_R_BIT : 0u) |
+                (mask.g() ? VK_COLOR_COMPONENT_G_BIT : 0u) |
+                (mask.b() ? VK_COLOR_COMPONENT_B_BIT : 0u) |
+                (mask.a() ? VK_COLOR_COMPONENT_A_BIT : 0u) ),
+            .stages = &stages,
+            .vertexInputState = &vis.state
+        };
+        return m_pipelineFactory->GetOrCreatePipeline(payload);
+    }
+
+    void VulkanRenderer::SetupDraw(FrameContext::FrameData& frame, GLenum mode, Flags<DrawSetupAspect> aspects) {
+        m_textureManager->CollectGarbage();
+        const auto& drawFbo =
+                MG_State::pGLContext->GetFramebufferBindingSlot(FramebufferTarget::Draw).GetBoundObject();
+        const auto& vao = *MG_State::pGLContext->GetBoundVertexArray();
+        const auto& program = *MG_State::pGLContext->GetCurrentProgram();
+
+        // Begin command recording if not yet
+        if (!frame.isCommandRecording) {
+            m_frameContext.BeginCommandRecording();
+            m_uniformDescriptorBinder->BeginFrame(m_frameContext.GetCurrentFrameIndex());
         }
 
-        const Uint64 vertexInputHash = vertexInputState ? vertexInputState->hash : 0;
-        const VkPipelineVertexInputStateCreateInfo* vertexInputInfo =
-            vertexInputState ? &vertexInputState->state : nullptr;
-        if (!vertexInputInfo) {
-            VertexInputStateBuilder emptyVertexInputBuilder;
-            vertexInputInfo = &emptyVertexInputBuilder.Build();
+        auto* activeRenderPass = VkRenderPassManager::GetActiveRenderPass();
+        Vector<MG_State::GLState::ITextureObject*> sampledTextures;
+        Bool hasSampledTextures = m_uniformDescriptorBinder->CollectSampledTextures(program, sampledTextures);
+        MOBILEGL_ASSERT(hasSampledTextures, "%s: CollectSampledTextures failed", __func__);
+        MGLOG_D("SetupDraw: program=%u drawFbo=%u sampledTextureCount=%zu activeRenderPass=%s",
+                program.GetExternalIndex(), drawFbo ? drawFbo->GetExternalIndex() : 0u, sampledTextures.size(),
+                activeRenderPass ? "true" : "false");
+        Bool activeRenderPassUsesSampledTexture = false;
+        if (activeRenderPass != nullptr) {
+            for (auto* sampledTexture : sampledTextures) {
+                if (sampledTexture == nullptr) {
+                    continue;
+                }
+                if (ActiveRenderPassUsesTexture(*activeRenderPass, *sampledTexture)) {
+                    MGLOG_D("SetupDraw: active render pass is still using sampled textureId=%d; ending render pass before descriptor preparation",
+                            sampledTexture->GetExternalIndex());
+                    activeRenderPassUsesSampledTexture = true;
+                    break;
+                }
+            }
         }
+        if (activeRenderPassUsesSampledTexture) {
+            VkRenderPassManager::EndRenderPass(frame.commandBuffer);
+            activeRenderPass = nullptr;
+        }
+        Bool needSampledTextureTransitions = false;
+        for (auto* sampledTexture : sampledTextures) {
+            if (!sampledTexture) {
+                continue;
+            }
 
-        VkPipelineLayout pipelineLayoutToUse = m_pipelineLayout;
-        if (m_uniformDescriptorBinder) {
-            pipelineLayoutToUse = m_uniformDescriptorBinder->GetOrCreatePipelineLayout(*payload.program);
-            if (pipelineLayoutToUse == VK_NULL_HANDLE) {
-                MGLOG_D("DrawArrays skipped: failed to get pipeline layout for program");
-                return;
+            auto* textureResource = m_textureManager->SyncTextureAndGetDescriptor(*sampledTexture);
+            MOBILEGL_ASSERT(textureResource != nullptr,
+                            "%s: SyncTextureAndGetDescriptor failed for textureId=%d",
+                            __func__, sampledTexture->GetExternalIndex());
+            MGLOG_D("SetupDraw: sampled textureId=%d layout(before)=%s(%d)",
+                    sampledTexture->GetExternalIndex(), VkImageLayoutToString(textureResource->layout),
+                    static_cast<Int>(textureResource->layout));
+            if (m_clearManager->HasPendingClear(sampledTexture) ||
+                !IsValidSampledImageLayout(textureResource->layout)) {
+                needSampledTextureTransitions = true;
+                break;
             }
         }
 
-        VkPipeline pipelineToBind =
-            GetOrCreatePipeline(*payload.program, pipelineLayoutToUse, vertexInputHash, *vertexInputInfo);
-        if (pipelineToBind == VK_NULL_HANDLE) {
-            MGLOG_D("DrawArrays skipped: failed to create/get pipeline");
-            return;
+        if (activeRenderPass && needSampledTextureTransitions) {
+            MGLOG_D("SetupDraw: ending active render pass before sampled texture transitions");
+            VkRenderPassManager::EndRenderPass(frame.commandBuffer);
+            activeRenderPass = nullptr;
         }
 
-        vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineToBind);
-        if (m_uniformDescriptorBinder &&
-            !m_uniformDescriptorBinder->BindProgramUniformBuffers(commandBuffer, pipelineLayoutToUse, *payload.program,
-                                                                  m_frameContext.GetCurrentFrameIndex())) {
-            MGLOG_D("DrawArrays skipped: failed to bind uniform descriptors");
-            return;
+        for (auto* sampledTexture : sampledTextures) {
+            if (!sampledTexture) {
+                continue;
+            }
+            const Bool clearReady = MaterializePendingClearForTexture(frame.commandBuffer, *sampledTexture);
+            MOBILEGL_ASSERT(clearReady, "%s: MaterializePendingClearForTexture failed for textureId=%d",
+                            __func__, sampledTexture->GetExternalIndex());
+            const Bool ready = m_textureManager->TransitionTextureForSampling(frame.commandBuffer, *sampledTexture);
+            MOBILEGL_ASSERT(ready, "%s: TransitionTextureForSampling failed for textureId=%d",
+                            __func__, sampledTexture->GetExternalIndex());
+            auto* transitionedResource = m_textureManager->SyncTextureAndGetDescriptor(*sampledTexture);
+            MOBILEGL_ASSERT(transitionedResource != nullptr,
+                            "%s: post-transition SyncTextureAndGetDescriptor failed for textureId=%d",
+                            __func__, sampledTexture->GetExternalIndex());
+            MGLOG_D("SetupDraw: sampled textureId=%d layout(after)=%s(%d)",
+                    sampledTexture->GetExternalIndex(), VkImageLayoutToString(transitionedResource->layout),
+                    static_cast<Int>(transitionedResource->layout));
         }
 
-        if (vertexInputState && !vertexInputState->bindings.empty()) {
-            if (!payload.vertexArray) {
-                MGLOG_D("DrawArrays skipped: vertex input requires VAO");
-                return;
-            }
-            if (!UploadAndBindVertexStreams(*vertexInputState, payload, commandBuffer)) {
-                return;
-            }
+        auto& renderPassEntry = m_renderPassManager->GetOrCreateRenderPass(*drawFbo, m_imageIndexAcquired);
+        auto pipeline = GetOrCreatePipeline(mode, program, vao, renderPassEntry);
+        activeRenderPass = VkRenderPassManager::GetActiveRenderPass();
+
+        // Begin render pass, and handle clear
+
+        if (activeRenderPass && activeRenderPass->CompatibleWith(renderPassEntry)) {
+            ClearAttachmentsOnActiveRenderPass(frame.commandBuffer, renderPassEntry);
+        } else {
+            // No active render pass or active one not compatible.
+            // Restart a new render pass
+            if (activeRenderPass)
+                VkRenderPassManager::EndRenderPass(frame.commandBuffer);
+            Bool ok = VkRenderPassManager::BeginRenderPass(frame.commandBuffer, renderPassEntry);
+            MOBILEGL_ASSERT(ok, "%s: BeginRenderPass failed", __func__);
         }
+
+        vkCmdBindPipeline(frame.commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
+
+        m_uniformDescriptorBinder->BindProgramUniformBuffers(frame.commandBuffer, program,
+                                                                  m_frameContext.GetCurrentFrameIndex());
+
+        UploadAndBindVertexStreams(frame.commandBuffer, vao);
 
         VkViewport viewport{};
         viewport.x = 0.0f;
         viewport.y = 0.0f;
-        viewport.width = static_cast<float>(activeExtent.width);
-        viewport.height = static_cast<float>(activeExtent.height);
+        viewport.width = static_cast<float>(renderPassEntry.extent.x());
+        viewport.height = static_cast<float>(renderPassEntry.extent.y());
         viewport.minDepth = 0.0f;
         viewport.maxDepth = 1.0f;
-        vkCmdSetViewport(commandBuffer, 0, 1, &viewport);
+        vkCmdSetViewport(frame.commandBuffer, 0, 1, &viewport);
+
+        Bool scissorEnabled = MG_State::pGLContext->IsCapabilityEnabled(CapabilityInput::ScissorTest);
+        VkRect2D scissor{};
+        if (scissorEnabled) {
+            const auto& scissorBox = MG_State::pGLContext->GetScissorBox();
+            scissor.offset = { scissorBox[0], scissorBox[1] };
+            scissor.extent = { (Uint)scissorBox[2], (Uint)scissorBox[3] };
+        } else {
+            scissor.offset = {0, 0};
+            scissor.extent = { (Uint)renderPassEntry.extent.x(), (Uint)renderPassEntry.extent.y() };
+        }
+        vkCmdSetScissor(frame.commandBuffer, 0, 1, &scissor);
+    }
+
+    void VulkanRenderer::Clear(GLbitfield mask) {
+        m_clearManager->CollectGarbage();
+        auto* fbo = MG_State::pGLContext->GetFramebufferBindingSlot(FramebufferTarget::Draw).GetBoundObject().get();
+        MOBILEGL_ASSERT(fbo, "VulkanRenderer::Clear: draw framebuffer not found (fbo == nullptr)");
+
+        ClearFramebufferPayload payload {
+            .color = MG_State::pGLContext->GetClearColor(),
+            .depth = MG_State::pGLContext->GetClearDepth(),
+            .stencil = MG_State::pGLContext->GetClearStencil()
+        };
+        m_clearManager->QueueClear(mask, payload, *fbo);
+    }
+
+    Bool VulkanRenderer::MaterializePendingClearForTexture(VkCommandBuffer commandBuffer,
+                                                           MG_State::GLState::ITextureObject& texture) {
+        ClearAttachmentPayload clearPayload{};
+        if (!m_clearManager->GetPendingClear(&texture, clearPayload)) {
+            return true;
+        }
+        MOBILEGL_ASSERT(VkRenderPassManager::GetActiveRenderPass() == nullptr,
+                        "MaterializePendingClearForTexture requires no active render pass");
+
+        auto* resource = m_textureManager->SyncTextureAndGetDescriptor(texture);
+        MOBILEGL_ASSERT(resource != nullptr,
+                        "MaterializePendingClearForTexture: SyncTextureAndGetDescriptor failed for textureId=%d",
+                        texture.GetExternalIndex());
+
+        VkPipelineStageFlags srcStageMask = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
+        VkAccessFlags srcAccessMask = 0;
+        GetImageTransitionSourceState(resource->layout, srcStageMask, srcAccessMask);
+
+        Bool ok = VkTextureManager::TransitionImageLayout(
+            commandBuffer, resource->image, resource->layout, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+            srcStageMask, VK_PIPELINE_STAGE_TRANSFER_BIT, srcAccessMask, VK_ACCESS_TRANSFER_WRITE_BIT,
+            resource->aspect);
+        MOBILEGL_ASSERT(ok,
+                        "MaterializePendingClearForTexture: failed to transition textureId=%d to TRANSFER_DST",
+                        texture.GetExternalIndex());
+
+        VkImageSubresourceRange subresourceRange{};
+        subresourceRange.aspectMask = resource->aspect;
+        subresourceRange.baseMipLevel = 0;
+        subresourceRange.levelCount = 1;
+        subresourceRange.baseArrayLayer = 0;
+        subresourceRange.layerCount = 1;
+
+        VkImageLayout sampledLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        if ((resource->aspect & VK_IMAGE_ASPECT_COLOR_BIT) != 0) {
+            VkClearColorValue clearValue{};
+            clearValue.float32[0] = clearPayload.color.x();
+            clearValue.float32[1] = clearPayload.color.y();
+            clearValue.float32[2] = clearPayload.color.z();
+            clearValue.float32[3] = clearPayload.color.w();
+            vkCmdClearColorImage(commandBuffer, resource->image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                                 &clearValue, 1, &subresourceRange);
+        } else {
+            VkClearDepthStencilValue clearValue{};
+            clearValue.depth = clearPayload.depth;
+            clearValue.stencil = clearPayload.stencil;
+            vkCmdClearDepthStencilImage(commandBuffer, resource->image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                                        &clearValue, 1, &subresourceRange);
+            sampledLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
+        }
+
+        ok = VkTextureManager::TransitionImageLayout(
+            commandBuffer, resource->image, resource->layout, sampledLayout,
+            VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT,
+            VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT, resource->aspect);
+        MOBILEGL_ASSERT(ok,
+                        "MaterializePendingClearForTexture: failed to transition textureId=%d to sampled layout",
+                        texture.GetExternalIndex());
+
+        m_clearManager->PopPendingClear(&texture);
+        MGLOG_D("MaterializePendingClearForTexture: textureId=%d pending clear materialized",
+                texture.GetExternalIndex());
+        return true;
+    }
+
+    Bool VulkanRenderer::TryBlitToDefaultFramebufferWithShader(FrameContext::FrameData& frame,
+                                                               MG_State::GLState::FramebufferObject& readFbo,
+                                                               MG_State::GLState::FramebufferObject& drawFbo,
+                                                               GLint srcX0, GLint srcY0, GLint srcX1, GLint srcY1,
+                                                               GLint dstX0, GLint dstY0, GLint dstX1, GLint dstY1,
+                                                               GLenum filter) {
+        const Bool drawIsDefaultFbo =
+            (&drawFbo == MG_Impl::GLImpl::FramebufferImpl::pDefaultFramebufferInfo->defaultFBO.get());
+        if (!drawIsDefaultFbo) {
+            return false;
+        }
+
+        BlitImageBinding srcBinding{};
+        BlitImageBinding dstBinding{};
+        if (!ResolveColorBlitBinding(readFbo, true, m_imageIndexAcquired, m_swapchainObject, *m_textureManager, srcBinding) ||
+            !ResolveColorBlitBinding(drawFbo, false, m_imageIndexAcquired, m_swapchainObject, *m_textureManager, dstBinding)) {
+            return false;
+        }
+        if (srcBinding.trackedLayout == nullptr) {
+            MGLOG_E("BlitFramebuffer skipped: shader blit to default framebuffer requires a texture-backed source framebuffer");
+            return false;
+        }
+
+        auto* activeRenderPass = VkRenderPassManager::GetActiveRenderPass();
+        if (activeRenderPass != nullptr) {
+            VkRenderPassManager::EndRenderPass(frame.commandBuffer);
+        }
+
+        const auto& attachment = readFbo.GetAttachment(readFbo.GetReadBuffer());
+        auto sourceTexture = attachment.GetTexture();
+        MOBILEGL_ASSERT(sourceTexture != nullptr, "TryBlitToDefaultFramebufferWithShader: source texture is null");
+        const Bool clearReady = MaterializePendingClearForTexture(frame.commandBuffer, *sourceTexture);
+        MOBILEGL_ASSERT(clearReady,
+                        "TryBlitToDefaultFramebufferWithShader: failed to materialize pending clear for textureId=%d",
+                        sourceTexture->GetExternalIndex());
+        const Bool ready = m_textureManager->TransitionTextureForSampling(frame.commandBuffer, *sourceTexture);
+        if (!ready) {
+            MGLOG_E("BlitFramebuffer skipped: failed to transition source textureId=%d for sampling",
+                    sourceTexture->GetExternalIndex());
+            return false;
+        }
+        if (m_textureManager->SyncTextureAndGetDescriptor(*sourceTexture) == nullptr) {
+            MGLOG_E("BlitFramebuffer skipped: failed to resolve source textureId=%d after sampling transition",
+                    sourceTexture->GetExternalIndex());
+            return false;
+        }
+
+        auto& renderPassEntry = m_renderPassManager->GetOrCreateRenderPass(drawFbo, m_imageIndexAcquired);
+        const Bool ok = VkRenderPassManager::BeginRenderPass(frame.commandBuffer, renderPassEntry);
+        MOBILEGL_ASSERT(ok, "%s: BeginRenderPass failed", __func__);
+
+        VkViewport viewport{};
+        viewport.x = 0.0f;
+        viewport.y = 0.0f;
+        viewport.width = static_cast<float>(renderPassEntry.extent.x());
+        viewport.height = static_cast<float>(renderPassEntry.extent.y());
+        viewport.minDepth = 0.0f;
+        viewport.maxDepth = 1.0f;
+        vkCmdSetViewport(frame.commandBuffer, 0, 1, &viewport);
 
         VkRect2D scissor{};
         scissor.offset = {0, 0};
-        scissor.extent = activeExtent;
-        vkCmdSetScissor(commandBuffer, 0, 1, &scissor);
+        scissor.extent = {static_cast<Uint32>(renderPassEntry.extent.x()), static_cast<Uint32>(renderPassEntry.extent.y())};
+        vkCmdSetScissor(frame.commandBuffer, 0, 1, &scissor);
+
+        MOBILEGL_ASSERT(m_blitResources.program != nullptr, "TryBlitToDefaultFramebufferWithShader: blit program is null");
+        const VkPipeline pipeline = GetOrCreateBlitPipeline(renderPassEntry);
+        MOBILEGL_ASSERT(pipeline != VK_NULL_HANDLE, "TryBlitToDefaultFramebufferWithShader: blit pipeline is null");
+        vkCmdBindPipeline(frame.commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
+
+        auto* blitProgramData = static_cast<Uint8*>(m_blitResources.program->MapUBO());
+        MOBILEGL_ASSERT(blitProgramData != nullptr, "TryBlitToDefaultFramebufferWithShader: blit UBO is null");
+        std::fill(blitProgramData, blitProgramData + m_blitResources.program->GetUBOSize(), Uint8{0});
+
+        BlitUniformData blitUniformData{};
+        const float srcWidth = static_cast<float>(srcBinding.extent.x());
+        const float srcHeight = static_cast<float>(srcBinding.extent.y());
+        const float dstWidth = static_cast<float>(dstBinding.extent.x());
+        const float dstHeight = static_cast<float>(dstBinding.extent.y());
+        float dstNormWidth = dstWidth;
+        float dstNormHeight = dstHeight;
+        switch (m_swapchainObject.GetPreTransform()) {
+            case VK_SURFACE_TRANSFORM_ROTATE_90_BIT_KHR:
+            case VK_SURFACE_TRANSFORM_ROTATE_270_BIT_KHR:
+                dstNormWidth = dstHeight;
+                dstNormHeight = dstWidth;
+                break;
+            default:
+                break;
+        }
+        blitUniformData.srcRect[0] = static_cast<float>(srcX0) / srcWidth;
+        blitUniformData.srcRect[1] = static_cast<float>(srcY0) / srcHeight;
+        blitUniformData.srcRect[2] = static_cast<float>(srcX1 - srcX0) / srcWidth;
+        blitUniformData.srcRect[3] = static_cast<float>(srcY1 - srcY0) / srcHeight;
+        blitUniformData.dstRect[0] = static_cast<float>(dstX0) / dstNormWidth;
+        blitUniformData.dstRect[1] = static_cast<float>(dstY0) / dstNormHeight;
+        blitUniformData.dstRect[2] = static_cast<float>(dstX1 - dstX0) / dstNormWidth;
+        blitUniformData.dstRect[3] = static_cast<float>(dstY1 - dstY0) / dstNormHeight;
+        blitUniformData.surfaceTransform = static_cast<Int>(ToBlitSurfaceTransform(m_swapchainObject.GetPreTransform()));
+
+        auto writeUniform = [&](Int location, const void* data, SizeT size) {
+            MOBILEGL_ASSERT(location >= 0, "TryBlitToDefaultFramebufferWithShader: invalid uniform location");
+            const Uint offset = m_blitResources.program->GetUniformOffset(static_cast<Uint>(location));
+            MOBILEGL_ASSERT(offset + size <= m_blitResources.program->GetUBOSize(),
+                            "TryBlitToDefaultFramebufferWithShader: uniform write out of bounds");
+            memcpy(blitProgramData + offset, data, size);
+        };
+        writeUniform(m_blitResources.srcRectLocation, blitUniformData.srcRect, sizeof(blitUniformData.srcRect));
+        writeUniform(m_blitResources.dstRectLocation, blitUniformData.dstRect, sizeof(blitUniformData.dstRect));
+        writeUniform(m_blitResources.surfaceTransformLocation, &blitUniformData.surfaceTransform,
+                     sizeof(blitUniformData.surfaceTransform));
+
+        const auto samplerBindingOverride = UniformDescriptorBinder::SamplerBindingOverride{
+            .binding = m_blitResources.samplerBinding,
+            .texture = sourceTexture.get(),
+            .sampler = (filter == GL_LINEAR ? m_blitResources.linearSampler.get()
+                                            : m_blitResources.nearestSampler.get()),
+        };
+        const Bool bound = m_uniformDescriptorBinder->BindProgramUniformBuffers(
+            frame.commandBuffer, *m_blitResources.program, m_frameContext.GetCurrentFrameIndex(),
+            &samplerBindingOverride);
+        MOBILEGL_ASSERT(bound, "TryBlitToDefaultFramebufferWithShader: BindProgramUniformBuffers failed");
+        vkCmdDraw(frame.commandBuffer, 3, 1, 0, 0);
+        return true;
+    }
+
+    void VulkanRenderer::BlitFramebuffer(GLint srcX0, GLint srcY0, GLint srcX1, GLint srcY1,
+                                         GLint dstX0, GLint dstY0, GLint dstX1, GLint dstY1,
+                                         GLbitfield mask, GLenum filter) {
+        if ((mask & ~GL_COLOR_BUFFER_BIT) != 0) {
+            MGLOG_E("BlitFramebuffer skipped: only GL_COLOR_BUFFER_BIT is supported right now (mask=0x%x)",
+                    static_cast<Uint32>(mask));
+            return;
+        }
+        if ((mask & GL_COLOR_BUFFER_BIT) == 0) {
+            return;
+        }
+        if (filter != GL_NEAREST && filter != GL_LINEAR) {
+            MGLOG_E("BlitFramebuffer skipped: unsupported filter=0x%x", static_cast<Uint32>(filter));
+            return;
+        }
+
+        auto readFbo = MG_State::pGLContext->GetFramebufferBindingSlot(FramebufferTarget::Read).GetBoundObject();
+        auto drawFbo = MG_State::pGLContext->GetFramebufferBindingSlot(FramebufferTarget::Draw).GetBoundObject();
+        MOBILEGL_ASSERT(readFbo != nullptr, "VulkanRenderer::BlitFramebuffer: read framebuffer is null");
+        MOBILEGL_ASSERT(drawFbo != nullptr, "VulkanRenderer::BlitFramebuffer: draw framebuffer is null");
+
+        auto& frame = m_frameContext.GetCurrent();
+        if (!frame.isCommandRecording) {
+            m_frameContext.BeginCommandRecording();
+            m_uniformDescriptorBinder->BeginFrame(m_frameContext.GetCurrentFrameIndex());
+        }
+
+        auto* activeRenderPass = VkRenderPassManager::GetActiveRenderPass();
+        if (activeRenderPass != nullptr) {
+            VkRenderPassManager::EndRenderPass(frame.commandBuffer);
+        }
+
+        const Bool readIsDefaultFbo =
+            (readFbo == MG_Impl::GLImpl::FramebufferImpl::pDefaultFramebufferInfo->defaultFBO);
+        const Bool drawIsDefaultFbo =
+            (drawFbo == MG_Impl::GLImpl::FramebufferImpl::pDefaultFramebufferInfo->defaultFBO);
+        if (drawIsDefaultFbo && m_swapchainObject.GetPreTransform() != VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR) {
+            if (TryBlitToDefaultFramebufferWithShader(frame, *readFbo, *drawFbo,
+                                                      srcX0, srcY0, srcX1, srcY1,
+                                                      dstX0, dstY0, dstX1, dstY1, filter)) {
+                return;
+            }
+            MGLOG_E("BlitFramebuffer skipped: rotated blit to default framebuffer requires a texture-backed source framebuffer");
+            return;
+        }
+
+        BlitImageBinding srcBinding{};
+        BlitImageBinding dstBinding{};
+        if (!ResolveColorBlitBinding(*readFbo, true, m_imageIndexAcquired, m_swapchainObject, *m_textureManager, srcBinding) ||
+            !ResolveColorBlitBinding(*drawFbo, false, m_imageIndexAcquired, m_swapchainObject, *m_textureManager, dstBinding)) {
+            return;
+        }
+
+        if (!readIsDefaultFbo) {
+            const auto& sourceAttachment = readFbo->GetAttachment(readFbo->GetReadBuffer());
+            auto sourceTexture = sourceAttachment.GetTexture();
+            MOBILEGL_ASSERT(sourceTexture != nullptr, "BlitFramebuffer: source texture attachment is null");
+            const Bool clearReady = MaterializePendingClearForTexture(frame.commandBuffer, *sourceTexture);
+            MOBILEGL_ASSERT(clearReady,
+                            "BlitFramebuffer: failed to materialize pending clear for source textureId=%d",
+                            sourceTexture->GetExternalIndex());
+        }
+
+        VkImageLayout srcLayout = readIsDefaultFbo
+            ? m_swapchainObject.GetImageLayout(m_imageIndexAcquired)
+            : *srcBinding.trackedLayout;
+        VkImageLayout dstLayout = drawIsDefaultFbo
+            ? m_swapchainObject.GetImageLayout(m_imageIndexAcquired)
+            : *dstBinding.trackedLayout;
+
+        if (readIsDefaultFbo && srcLayout == VK_IMAGE_LAYOUT_UNDEFINED) {
+            MGLOG_E("BlitFramebuffer skipped: swapchain source image layout is undefined");
+            return;
+        }
+        if (srcLayout == VK_IMAGE_LAYOUT_UNDEFINED) {
+            MGLOG_E("BlitFramebuffer skipped: source image layout is undefined");
+            return;
+        }
+
+        VkPipelineStageFlags srcStageMask = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
+        VkAccessFlags srcAccessMask = 0;
+        GetImageTransitionSourceState(srcLayout, srcStageMask, srcAccessMask);
+        if (readIsDefaultFbo) {
+            Bool ok = VkTextureManager::TransitionImageLayout(
+                frame.commandBuffer, srcBinding.image, srcLayout, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                srcStageMask, VK_PIPELINE_STAGE_TRANSFER_BIT,
+                srcAccessMask, VK_ACCESS_TRANSFER_READ_BIT, srcBinding.aspectMask);
+            MOBILEGL_ASSERT(ok, "%s: failed to transition swapchain source image", __func__);
+            m_swapchainObject.SetImageLayout(m_imageIndexAcquired, srcLayout);
+        } else {
+            Bool ok = VkTextureManager::TransitionImageLayout(
+                frame.commandBuffer, srcBinding.image, *srcBinding.trackedLayout, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                srcStageMask, VK_PIPELINE_STAGE_TRANSFER_BIT,
+                srcAccessMask, VK_ACCESS_TRANSFER_READ_BIT, srcBinding.aspectMask);
+            MOBILEGL_ASSERT(ok, "%s: failed to transition source image", __func__);
+        }
+
+        VkPipelineStageFlags dstStageMask = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
+        VkAccessFlags dstAccessMask = 0;
+        GetImageTransitionSourceState(dstLayout, dstStageMask, dstAccessMask);
+        if (drawIsDefaultFbo) {
+            Bool ok = VkTextureManager::TransitionImageLayout(
+                frame.commandBuffer, dstBinding.image, dstLayout, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                dstStageMask, VK_PIPELINE_STAGE_TRANSFER_BIT,
+                dstAccessMask, VK_ACCESS_TRANSFER_WRITE_BIT, dstBinding.aspectMask);
+            MOBILEGL_ASSERT(ok, "%s: failed to transition swapchain destination image", __func__);
+            m_swapchainObject.SetImageLayout(m_imageIndexAcquired, dstLayout);
+        } else {
+            Bool ok = VkTextureManager::TransitionImageLayout(
+                frame.commandBuffer, dstBinding.image, *dstBinding.trackedLayout, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                dstStageMask, VK_PIPELINE_STAGE_TRANSFER_BIT,
+                dstAccessMask, VK_ACCESS_TRANSFER_WRITE_BIT, dstBinding.aspectMask);
+            MOBILEGL_ASSERT(ok, "%s: failed to transition destination image", __func__);
+        }
+
+        VkImageBlit blitRegion{};
+        blitRegion.srcSubresource.aspectMask = srcBinding.aspectMask;
+        blitRegion.srcSubresource.mipLevel = 0;
+        blitRegion.srcSubresource.baseArrayLayer = 0;
+        blitRegion.srcSubresource.layerCount = 1;
+        blitRegion.srcOffsets[0] = {srcX0, srcY0, 0};
+        blitRegion.srcOffsets[1] = {srcX1, srcY1, 1};
+        blitRegion.dstSubresource.aspectMask = dstBinding.aspectMask;
+        blitRegion.dstSubresource.mipLevel = 0;
+        blitRegion.dstSubresource.baseArrayLayer = 0;
+        blitRegion.dstSubresource.layerCount = 1;
+        blitRegion.dstOffsets[0] = {dstX0, dstY0, 0};
+        blitRegion.dstOffsets[1] = {dstX1, dstY1, 1};
+
+        vkCmdBlitImage(frame.commandBuffer,
+                       srcBinding.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                       dstBinding.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                       1, &blitRegion, filter == GL_LINEAR ? VK_FILTER_LINEAR : VK_FILTER_NEAREST);
+    }
+
+    void VulkanRenderer::DrawArrays(const DrawArrayCmd& payload) {
+        auto& frame = m_frameContext.GetCurrent();
+
+        SetupDraw(frame, payload.mode, 0);
+
+        MOBILEGL_ASSERT(frame.isCommandRecording, "%s: frame recording was not started", __func__);
+
+        VkCommandBuffer& commandBuffer = frame.commandBuffer;
 
         vkCmdDraw(commandBuffer, static_cast<Uint32>(payload.count), 1, static_cast<Uint32>(payload.first), 0);
     }
 
-    void VulkanRenderer::DrawElements(const DrawElementPayload& payload) {
-        if (payload.drawArray.mode != GL_TRIANGLES) {
-            MGLOG_D("DrawElements skipped: primitive mode %u is not supported yet", payload.drawArray.mode);
-            return;
-        }
-
-        EnsureFrameRecordingStarted();
+    void VulkanRenderer::DrawElements(const DrawElementCmd& payload) {
         auto& frame = m_frameContext.GetCurrent();
-        if (!frame.isCommandRecording || !m_isMainRenderPassActive) {
+
+        SetupDraw(frame, payload.mode, 0);
+
+        if (!frame.isCommandRecording) {
             MGLOG_D("DrawElements skipped: frame recording was not started");
             return;
         }
@@ -852,59 +1215,14 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             return;
         }
 
-        if (payload.drawArray.vertexArray == nullptr) {
-            MGLOG_D("DrawElements skipped: no VAO provided");
-            return;
-        }
-
-        // VertexArrayObject currently exposes index-buffer binding through non-const accessor.
-        auto* vao = const_cast<MG_State::GLState::VertexArrayObject*>(payload.drawArray.vertexArray);
-        const auto indexBuffer = vao->GetIndexBufferBindingSlot().GetBoundObject();
-        if (!indexBuffer) {
-            MGLOG_D("DrawElements skipped: VAO has no bound ELEMENT_ARRAY_BUFFER");
-            return;
-        }
-
+        auto* vao = MG_State::pGLContext->GetBoundVertexArray().get();
+        const auto* indexBuffer = vao->GetIndexBufferBindingSlot().GetBoundObject().get();
         const auto indexData = indexBuffer->GetDataReadOnly();
         MOBILEGL_ASSERT(indexData != nullptr && !indexData->empty(), "DrawElements requires non-empty EBO data");
         const SizeT indexSize = (payload.indexType == GL_UNSIGNED_SHORT) ? sizeof(Uint16) : sizeof(Uint32);
-        const SizeT indexDataSizeBytes = static_cast<SizeT>(payload.drawArray.count) * indexSize;
+        const SizeT indexDataSizeBytes = static_cast<SizeT>(payload.count) * indexSize;
         MOBILEGL_ASSERT(payload.indexByteOffset + indexDataSizeBytes <= indexBuffer->GetSize(),
                         "DrawElements index range out of bounds");
-
-        const VertexInputStateFactory::BackendVertexInputState* vertexInputState = nullptr;
-        if (payload.drawArray.vertexArray && m_vertexInputStateFactory) {
-            vertexInputState = &m_vertexInputStateFactory->GetOrCreateVertexInputState(*payload.drawArray.vertexArray);
-        }
-
-        if (payload.drawArray.program == nullptr) {
-            MGLOG_D("DrawElements skipped: no current program is bound");
-            return;
-        }
-
-        const Uint64 vertexInputHash = vertexInputState ? vertexInputState->hash : 0;
-        const VkPipelineVertexInputStateCreateInfo* vertexInputInfo =
-            vertexInputState ? &vertexInputState->state : nullptr;
-        if (!vertexInputInfo) {
-            VertexInputStateBuilder emptyVertexInputBuilder;
-            vertexInputInfo = &emptyVertexInputBuilder.Build();
-        }
-
-        VkPipelineLayout pipelineLayoutToUse = m_pipelineLayout;
-        if (m_uniformDescriptorBinder) {
-            pipelineLayoutToUse = m_uniformDescriptorBinder->GetOrCreatePipelineLayout(*payload.drawArray.program);
-            if (pipelineLayoutToUse == VK_NULL_HANDLE) {
-                MGLOG_D("DrawElements skipped: failed to get pipeline layout for program");
-                return;
-            }
-        }
-
-        VkPipeline pipelineToBind =
-            GetOrCreatePipeline(*payload.drawArray.program, pipelineLayoutToUse, vertexInputHash, *vertexInputInfo);
-        if (pipelineToBind == VK_NULL_HANDLE) {
-            MGLOG_D("DrawElements skipped: failed to create/get pipeline");
-            return;
-        }
 
         const Uint32 frameIndex = m_frameContext.GetCurrentFrameIndex();
         VkDeviceSize& frameIndexHead = m_frameIndexUploadHeads[frameIndex];
@@ -925,1042 +1243,27 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         frameIndexHead = writeEnd;
 
         VkCommandBuffer& commandBuffer = frame.commandBuffer;
-        const auto activeExtent = m_activeRenderExtent;
-
-        vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineToBind);
-        if (m_uniformDescriptorBinder && !m_uniformDescriptorBinder->BindProgramUniformBuffers(
-                                             commandBuffer, pipelineLayoutToUse, *payload.drawArray.program,
-                                             m_frameContext.GetCurrentFrameIndex())) {
-            MGLOG_D("DrawElements skipped: failed to bind uniform descriptors");
-            return;
-        }
-
-        if (vertexInputState && !vertexInputState->bindings.empty()) {
-            if (!payload.drawArray.vertexArray) {
-                MGLOG_D("DrawElements skipped: vertex input requires VAO");
-                return;
-            }
-            if (!UploadAndBindVertexStreams(*vertexInputState, payload.drawArray, commandBuffer)) {
-                return;
-            }
-        }
-
-        VkViewport viewport{};
-        viewport.x = 0.0f;
-        viewport.y = 0.0f;
-        viewport.width = static_cast<float>(activeExtent.width);
-        viewport.height = static_cast<float>(activeExtent.height);
-        viewport.minDepth = 0.0f;
-        viewport.maxDepth = 1.0f;
-        vkCmdSetViewport(commandBuffer, 0, 1, &viewport);
-
-        VkRect2D scissor{};
-        scissor.offset = {0, 0};
-        scissor.extent = activeExtent;
-        vkCmdSetScissor(commandBuffer, 0, 1, &scissor);
 
         vkCmdBindIndexBuffer(commandBuffer, frameIndexUploadBuffer.GetHandle(), writeOffset, vkIndexType);
-        vkCmdDrawIndexed(commandBuffer, static_cast<Uint32>(payload.drawArray.count), 1, 0,
+        vkCmdDrawIndexed(commandBuffer, static_cast<Uint32>(payload.count), 1, 0,
                          static_cast<Int32>(payload.baseVertex), 0);
     }
 
-    void VulkanRenderer::MultiDrawElements(const Vector<DrawElementPayload>& payloads) {
-        if (payloads.empty()) {
-            return;
-        }
+    void VulkanRenderer::MultiDrawElements(const Vector<DrawElementCmd>& payloads) {
 
-        const DrawElementPayload& firstPayload = payloads.front();
-        if (firstPayload.drawArray.mode != GL_TRIANGLES) {
-            MGLOG_D("MultiDrawElements skipped: primitive mode %u is not supported yet", firstPayload.drawArray.mode);
-            return;
-        }
-
-        EnsureFrameRecordingStarted();
-        auto& frame = m_frameContext.GetCurrent();
-        if (!frame.isCommandRecording || !m_isMainRenderPassActive) {
-            MGLOG_D("MultiDrawElements skipped: frame recording was not started");
-            return;
-        }
-
-        VkIndexType vkIndexType = VK_INDEX_TYPE_MAX_ENUM;
-        SizeT indexSize = 0;
-        switch (firstPayload.indexType) {
-        case GL_UNSIGNED_SHORT:
-            vkIndexType = VK_INDEX_TYPE_UINT16;
-            indexSize = sizeof(Uint16);
-            break;
-        case GL_UNSIGNED_INT:
-            vkIndexType = VK_INDEX_TYPE_UINT32;
-            indexSize = sizeof(Uint32);
-            break;
-        default:
-            MGLOG_D("MultiDrawElements skipped: index type %u is not supported yet", firstPayload.indexType);
-            return;
-        }
-
-        if (firstPayload.drawArray.vertexArray == nullptr) {
-            MGLOG_D("MultiDrawElements skipped: no VAO provided");
-            return;
-        }
-        if (firstPayload.drawArray.program == nullptr) {
-            MGLOG_D("MultiDrawElements skipped: no current program is bound");
-            return;
-        }
-
-        // VertexArrayObject currently exposes index-buffer binding through non-const accessor.
-        auto* vao = const_cast<MG_State::GLState::VertexArrayObject*>(firstPayload.drawArray.vertexArray);
-        const auto indexBuffer = vao->GetIndexBufferBindingSlot().GetBoundObject();
-        if (!indexBuffer) {
-            MGLOG_D("MultiDrawElements skipped: VAO has no bound ELEMENT_ARRAY_BUFFER");
-            return;
-        }
-
-        const auto indexData = indexBuffer->GetDataReadOnly();
-        MOBILEGL_ASSERT(indexData != nullptr && !indexData->empty(), "MultiDrawElements requires non-empty EBO data");
-
-        struct PreparedDraw {
-            Uint32 indexCount = 0;
-            SizeT sourceOffset = 0;
-            SizeT sourceByteCount = 0;
-            Uint32 firstIndex = 0;
-            Int32 vertexOffset = 0;
-        };
-        Vector<PreparedDraw> preparedDraws;
-        preparedDraws.reserve(payloads.size());
-
-        SizeT totalIndexBytes = 0;
-        Uint32 firstIndex = 0;
-        for (const auto& payload : payloads) {
-            if (payload.drawArray.count <= 0) {
-                continue;
-            }
-            if (payload.drawArray.mode != firstPayload.drawArray.mode || payload.indexType != firstPayload.indexType ||
-                payload.drawArray.vertexArray != firstPayload.drawArray.vertexArray ||
-                payload.drawArray.program != firstPayload.drawArray.program) {
-                MGLOG_D("MultiDrawElements skipped: mixed draw state in one multi-draw call is not supported");
-                return;
-            }
-
-            const SizeT drawByteCount = static_cast<SizeT>(payload.drawArray.count) * indexSize;
-            MOBILEGL_ASSERT(payload.indexByteOffset + drawByteCount <= indexBuffer->GetSize(),
-                            "MultiDrawElements index range out of bounds");
-
-            PreparedDraw draw{};
-            draw.indexCount = static_cast<Uint32>(payload.drawArray.count);
-            draw.sourceOffset = payload.indexByteOffset;
-            draw.sourceByteCount = drawByteCount;
-            draw.firstIndex = firstIndex;
-            draw.vertexOffset = static_cast<Int32>(payload.baseVertex);
-            preparedDraws.push_back(draw);
-
-            firstIndex += draw.indexCount;
-            totalIndexBytes += drawByteCount;
-        }
-
-        if (preparedDraws.empty()) {
-            return;
-        }
-
-        const VertexInputStateFactory::BackendVertexInputState* vertexInputState = nullptr;
-        if (firstPayload.drawArray.vertexArray && m_vertexInputStateFactory) {
-            vertexInputState =
-                &m_vertexInputStateFactory->GetOrCreateVertexInputState(*firstPayload.drawArray.vertexArray);
-        }
-
-        const Uint64 vertexInputHash = vertexInputState ? vertexInputState->hash : 0;
-        const VkPipelineVertexInputStateCreateInfo* vertexInputInfo =
-            vertexInputState ? &vertexInputState->state : nullptr;
-        if (!vertexInputInfo) {
-            VertexInputStateBuilder emptyVertexInputBuilder;
-            vertexInputInfo = &emptyVertexInputBuilder.Build();
-        }
-
-        VkPipelineLayout pipelineLayoutToUse = m_pipelineLayout;
-        if (m_uniformDescriptorBinder) {
-            pipelineLayoutToUse = m_uniformDescriptorBinder->GetOrCreatePipelineLayout(*firstPayload.drawArray.program);
-            if (pipelineLayoutToUse == VK_NULL_HANDLE) {
-                MGLOG_D("MultiDrawElements skipped: failed to get pipeline layout for program");
-                return;
-            }
-        }
-
-        VkPipeline pipelineToBind = GetOrCreatePipeline(*firstPayload.drawArray.program, pipelineLayoutToUse,
-                                                        vertexInputHash, *vertexInputInfo);
-        if (pipelineToBind == VK_NULL_HANDLE) {
-            MGLOG_D("MultiDrawElements skipped: failed to create/get pipeline");
-            return;
-        }
-
-        const Uint32 frameIndex = m_frameContext.GetCurrentFrameIndex();
-        VkDeviceSize& frameIndexHead = m_frameIndexUploadHeads[frameIndex];
-        const auto alignment = static_cast<VkDeviceSize>(indexSize);
-        const VkDeviceSize writeOffset = (frameIndexHead + alignment - 1) & ~(alignment - 1);
-        const VkDeviceSize writeEnd = writeOffset + static_cast<VkDeviceSize>(totalIndexBytes);
-        if (!EnsureFrameUploadBufferCapacity(frameIndex, true, writeEnd, 1 * 1024 * 1024,
-                                             VK_BUFFER_USAGE_INDEX_BUFFER_BIT)) {
-            MGLOG_E("MultiDrawElements skipped: failed to prepare index upload buffer");
-            return;
-        }
-        auto& frameIndexUploadBuffer = m_frameIndexUploadBuffers[frameIndex];
-
-        VkDeviceSize writeCursor = writeOffset;
-        for (const auto& draw : preparedDraws) {
-            if (!frameIndexUploadBuffer.Upload(indexData->data() + draw.sourceOffset,
-                                               static_cast<VkDeviceSize>(draw.sourceByteCount), writeCursor)) {
-                MGLOG_E("MultiDrawElements skipped: failed to upload index data");
-                return;
-            }
-            writeCursor += static_cast<VkDeviceSize>(draw.sourceByteCount);
-        }
-        frameIndexHead = writeEnd;
-
-        VkCommandBuffer& commandBuffer = frame.commandBuffer;
-        const auto activeExtent = m_activeRenderExtent;
-        vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineToBind);
-        if (m_uniformDescriptorBinder && !m_uniformDescriptorBinder->BindProgramUniformBuffers(
-                                             commandBuffer, pipelineLayoutToUse, *firstPayload.drawArray.program,
-                                             m_frameContext.GetCurrentFrameIndex())) {
-            MGLOG_D("MultiDrawElements skipped: failed to bind uniform descriptors");
-            return;
-        }
-
-        if (vertexInputState && !vertexInputState->bindings.empty()) {
-            if (!UploadAndBindVertexStreams(*vertexInputState, firstPayload.drawArray, commandBuffer)) {
-                return;
-            }
-        }
-
-        VkViewport viewport{};
-        viewport.x = 0.0f;
-        viewport.y = 0.0f;
-        viewport.width = static_cast<float>(activeExtent.width);
-        viewport.height = static_cast<float>(activeExtent.height);
-        viewport.minDepth = 0.0f;
-        viewport.maxDepth = 1.0f;
-        vkCmdSetViewport(commandBuffer, 0, 1, &viewport);
-
-        VkRect2D scissor{};
-        scissor.offset = {0, 0};
-        scissor.extent = activeExtent;
-        vkCmdSetScissor(commandBuffer, 0, 1, &scissor);
-
-        vkCmdBindIndexBuffer(commandBuffer, frameIndexUploadBuffer.GetHandle(), writeOffset, vkIndexType);
-
-        const Bool canUseIndirectCount =
-            m_drawIndirectCountExtensionEnabled && m_cmdDrawIndexedIndirectCount != nullptr;
-        if (canUseIndirectCount) {
-            Vector<VkDrawIndexedIndirectCommand> indirectCommands(preparedDraws.size());
-            for (SizeT i = 0; i < preparedDraws.size(); ++i) {
-                indirectCommands[i].indexCount = preparedDraws[i].indexCount;
-                indirectCommands[i].instanceCount = 1;
-                indirectCommands[i].firstIndex = preparedDraws[i].firstIndex;
-                indirectCommands[i].vertexOffset = preparedDraws[i].vertexOffset;
-                indirectCommands[i].firstInstance = 0;
-            }
-
-            const auto commandBytes =
-                static_cast<VkDeviceSize>(indirectCommands.size() * sizeof(VkDrawIndexedIndirectCommand));
-            const VkDeviceSize countOffset = (commandBytes + 3) & ~VkDeviceSize(3);
-            const VkDeviceSize totalBytes = countOffset + sizeof(Uint32);
-
-            VkBufferObject indirectUploadBuffer;
-            if (!indirectUploadBuffer.Create(
-                    m_allocator, totalBytes, VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT, VMA_MEMORY_USAGE_AUTO_PREFER_HOST,
-                    VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT)) {
-                MGLOG_W("MultiDrawElements: failed to allocate indirect buffer, fallback to vkCmdDrawIndexed loop");
-            } else {
-                Vector<Uint8> indirectBlob(static_cast<SizeT>(totalBytes), 0);
-                memcpy(indirectBlob.data(), indirectCommands.data(), static_cast<SizeT>(commandBytes));
-                const auto indirectDrawCount = static_cast<Uint32>(indirectCommands.size());
-                memcpy(indirectBlob.data() + static_cast<SizeT>(countOffset), &indirectDrawCount,
-                       sizeof(indirectDrawCount));
-
-                if (!indirectUploadBuffer.Upload(indirectBlob.data(), totalBytes, 0)) {
-                    MGLOG_W("MultiDrawElements: failed to upload indirect commands, fallback to vkCmdDrawIndexed loop");
-                } else {
-                    m_cmdDrawIndexedIndirectCount(commandBuffer, indirectUploadBuffer.GetHandle(), 0,
-                                                  indirectUploadBuffer.GetHandle(), countOffset,
-                                                  static_cast<Uint32>(indirectCommands.size()),
-                                                  static_cast<Uint32>(sizeof(VkDrawIndexedIndirectCommand)));
-                    DeferDestroyBuffer(indirectUploadBuffer);
-                    return;
-                }
-                DeferDestroyBuffer(indirectUploadBuffer);
-            }
-        }
-
-        // Fallback
-        for (const auto& draw : preparedDraws) {
-            vkCmdDrawIndexed(commandBuffer, draw.indexCount, 1, draw.firstIndex, draw.vertexOffset, 0);
-        }
-    }
-
-    Bool VulkanRenderer::BlitFramebuffer(GLint srcX0, GLint srcY0, GLint srcX1, GLint srcY1, GLint dstX0, GLint dstY0,
-                                         GLint dstX1, GLint dstY1, GLbitfield mask, GLenum filter,
-                                         Uint readFboExternalIndex, Uint drawFboExternalIndex,
-
-                                         Bool readIsDefaultFramebuffer, Bool drawIsDefaultFramebuffer) {
-        if ((mask & (GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT)) == 0) {
-            MGLOG_D("BlitFramebuffer skipped: empty mask");
-            return false;
-        }
-
-        VkFilter vkFilter = VK_FILTER_NEAREST;
-        if (filter == GL_NEAREST) {
-            vkFilter = VK_FILTER_NEAREST;
-        } else if (filter == GL_LINEAR) {
-            vkFilter = VK_FILTER_LINEAR;
-        } else {
-            MGLOG_W("BlitFramebuffer skipped: filter %u is not supported", filter);
-            return false;
-        }
-
-        auto& frame = m_frameContext.GetCurrent();
-        if (frame.hasCommandBufferRecorded) {
-            MGLOG_D("BlitFramebuffer skipped: current frame command buffer already finalized");
-            return false;
-        }
-
-        if (!frame.isCommandRecording) {
-            m_frameContext.BeginCommandRecording();
-            if (m_uniformDescriptorBinder) {
-                m_uniformDescriptorBinder->BeginFrame(m_frameContext.GetCurrentFrameIndex());
-            }
-        }
-
-        VkCommandBuffer commandBuffer = frame.commandBuffer;
-        if (m_isMainRenderPassActive) {
-            MOBILEGL_ASSERT(m_renderPassManager != nullptr, "BlitFramebuffer: render pass manager is null");
-            m_renderPassManager->EndRenderPass(commandBuffer);
-            if (m_activeRenderTargetIsDefault) {
-                m_swapchainObject.SetImageLayout(m_imageIndexAcquired, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
-            }
-            m_isMainRenderPassActive = false;
-            m_activeRenderPass = VK_NULL_HANDLE;
-            m_activeRenderExtent = {0, 0};
-            m_activeDepthStencilFormat = VK_FORMAT_UNDEFINED;
-            m_activeRenderTargetIsDefault = true;
-            m_activeDrawFboExternalIndex = 0;
-        }
-
-        if (!m_framebufferManager && (!readIsDefaultFramebuffer || !drawIsDefaultFramebuffer)) {
-            MGLOG_W("BlitFramebuffer skipped: offscreen framebuffer manager not available");
-            return false;
-        }
-        if (!m_renderPassManager) {
-            MGLOG_W("BlitFramebuffer skipped: render pass manager not available");
-            return false;
-        }
-
-        auto consumePendingClearForTarget = [&](Bool targetIsDefault, Uint targetFboExternalIndex) {
-            const Uint64 pendingKey = BuildPendingClearKey(targetFboExternalIndex, targetIsDefault);
-            auto pendingIt = m_pendingClears.find(pendingKey);
-            if (pendingIt == m_pendingClears.end()) {
-                return;
-            }
-
-            const PendingClearState pending = pendingIt->second;
-            m_pendingClears.erase(pendingIt);
-
-            const auto prevExtent = m_activeRenderExtent;
-            const auto prevDepthStencilFormat = m_activeDepthStencilFormat;
-
-            if (targetIsDefault) {
-                TransitionSwapchainImageToColorAttachment(commandBuffer, m_imageIndexAcquired);
-                TransitionDepthStencilImageToAttachment(commandBuffer, m_imageIndexAcquired);
-
-                VkRenderPass renderPass = VK_NULL_HANDLE;
-                VkFramebuffer framebuffer = VK_NULL_HANDLE;
-                VkExtent2D extent{};
-                VkFormat depthStencilFormat = VK_FORMAT_UNDEFINED;
-                if (!GetDefaultRenderTargetForCurrentImage(renderPass, framebuffer, extent, depthStencilFormat)) {
-                    return;
-                }
-                MOBILEGL_ASSERT(m_renderPassManager != nullptr, "BlitFramebuffer: manager is null");
-                m_renderPassManager->BeginRenderPass(commandBuffer, renderPass, framebuffer, extent);
-
-                m_activeRenderExtent = extent;
-                m_activeDepthStencilFormat = depthStencilFormat;
-
-                if ((pending.mask & GL_COLOR_BUFFER_BIT) != 0) {
-                    m_renderPassManager->RecordColorClear(commandBuffer, m_activeRenderExtent, pending.color);
-                }
-                if ((pending.mask & (GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT)) != 0) {
-                    m_renderPassManager->RecordDepthStencilClear(commandBuffer, m_activeRenderExtent, pending.mask,
-                                                                 pending.depth, pending.stencil,
-                                                                 m_activeDepthStencilFormat);
-                }
-
-                m_renderPassManager->EndRenderPass(commandBuffer);
-            } else if (m_framebufferManager && MG_State::pGLContext) {
-                const auto targetFbo = MG_State::pGLContext->GetFramebufferObject(targetFboExternalIndex);
-                VkRenderPass offscreenRenderPass = VK_NULL_HANDLE;
-                VkFramebuffer offscreenFramebuffer = VK_NULL_HANDLE;
-                VkExtent2D offscreenExtent{};
-                VkFormat offscreenDepthStencilFormat = VK_FORMAT_UNDEFINED;
-                if (targetFbo &&
-                    EnsureOffscreenRenderTarget(targetFboExternalIndex, *targetFbo, offscreenRenderPass,
-                                                offscreenFramebuffer, offscreenExtent, offscreenDepthStencilFormat) &&
-                    m_framebufferManager->TransitionOffscreenColorToAttachment(commandBuffer, targetFboExternalIndex)) {
-                    m_renderPassManager->BeginRenderPass(commandBuffer, offscreenRenderPass, offscreenFramebuffer,
-                                                         offscreenExtent);
-
-                    m_activeRenderExtent = offscreenExtent;
-                    m_activeDepthStencilFormat = offscreenDepthStencilFormat;
-
-                    if ((pending.mask & GL_COLOR_BUFFER_BIT) != 0) {
-                        m_renderPassManager->RecordColorClear(commandBuffer, m_activeRenderExtent, pending.color);
-                    }
-                    if ((pending.mask & (GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT)) != 0) {
-                        m_renderPassManager->RecordDepthStencilClear(commandBuffer, m_activeRenderExtent, pending.mask,
-                                                                     pending.depth, pending.stencil,
-                                                                     m_activeDepthStencilFormat);
-                    }
-
-                    m_renderPassManager->EndRenderPass(commandBuffer);
-                }
-            }
-
-            m_activeRenderExtent = prevExtent;
-            m_activeDepthStencilFormat = prevDepthStencilFormat;
-        };
-
-        consumePendingClearForTarget(drawIsDefaultFramebuffer, drawFboExternalIndex);
-
-        auto selectSrcStageAccess = [](VkImageLayout layout, VkPipelineStageFlags& outStage, VkAccessFlags& outAccess) {
-            switch (layout) {
-            case VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL:
-                outStage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-                outAccess = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
-                break;
-            case VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL:
-                outStage = VK_PIPELINE_STAGE_TRANSFER_BIT;
-                outAccess = VK_ACCESS_TRANSFER_WRITE_BIT;
-                break;
-            case VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL:
-                outStage = VK_PIPELINE_STAGE_TRANSFER_BIT;
-                outAccess = VK_ACCESS_TRANSFER_READ_BIT;
-                break;
-            case VK_IMAGE_LAYOUT_GENERAL:
-                outStage = VK_PIPELINE_STAGE_TRANSFER_BIT;
-                outAccess = VK_ACCESS_TRANSFER_READ_BIT | VK_ACCESS_TRANSFER_WRITE_BIT;
-                break;
-            case VK_IMAGE_LAYOUT_PRESENT_SRC_KHR:
-            default:
-                outStage = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
-                outAccess = 0;
-                break;
-            }
-        };
-
-        auto transitionSwapchainLayout = [&](VkImageLayout newLayout, VkPipelineStageFlags dstStage,
-                                             VkAccessFlags dstAccess) {
-            const auto oldLayout = m_swapchainObject.GetImageLayout(m_imageIndexAcquired);
-            if (oldLayout == newLayout) {
-                return;
-            }
-            VkPipelineStageFlags srcStage = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
-            VkAccessFlags srcAccess = 0;
-            selectSrcStageAccess(oldLayout, srcStage, srcAccess);
-
-            VkImageMemoryBarrier barrier{};
-            barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
-            barrier.srcAccessMask = srcAccess;
-            barrier.dstAccessMask = dstAccess;
-            barrier.oldLayout = oldLayout;
-            barrier.newLayout = newLayout;
-            barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-            barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-            barrier.image = m_swapchainObject.GetImage(m_imageIndexAcquired);
-            barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-            barrier.subresourceRange.baseMipLevel = 0;
-            barrier.subresourceRange.levelCount = 1;
-            barrier.subresourceRange.baseArrayLayer = 0;
-            barrier.subresourceRange.layerCount = 1;
-
-            vkCmdPipelineBarrier(commandBuffer, srcStage, dstStage, 0, 0, nullptr, 0, nullptr, 1, &barrier);
-            m_swapchainObject.SetImageLayout(m_imageIndexAcquired, newLayout);
-        };
-
-        auto clampCoord = [](GLint value, GLint minValue, GLint maxValue) -> GLint {
-            if (value < minValue) {
-                return minValue;
-            }
-            if (value > maxValue) {
-                return maxValue;
-            }
-            return value;
-        };
-
-        const Bool wantColor = (mask & GL_COLOR_BUFFER_BIT) != 0;
-        if (wantColor) {
-            VkImage srcImage = VK_NULL_HANDLE;
-            VkImage dstImage = VK_NULL_HANDLE;
-            VkExtent2D srcExtent{};
-            VkExtent2D dstExtent{};
-
-            if (readIsDefaultFramebuffer) {
-                srcImage = m_swapchainObject.GetImage(m_imageIndexAcquired);
-                srcExtent = m_swapchainObject.GetExtent();
-            } else {
-                if (!MG_State::pGLContext) {
-                    MGLOG_W("BlitFramebuffer skipped: GL context unavailable for read FBO");
-                    return false;
-                }
-                const auto readFbo = MG_State::pGLContext->GetFramebufferObject(readFboExternalIndex);
-                if (!readFbo) {
-                    MGLOG_W("BlitFramebuffer skipped: read FBO %u not found", readFboExternalIndex);
-                    return false;
-                }
-                if (!m_framebufferManager->EnsureOffscreenColorTarget(readFboExternalIndex, *readFbo)) {
-                    MGLOG_W("BlitFramebuffer skipped: failed to materialize read FBO %u", readFboExternalIndex);
-                    return false;
-                }
-                if (!m_framebufferManager->GetOffscreenColorImage(readFboExternalIndex, srcImage, srcExtent)) {
-                    MGLOG_W("BlitFramebuffer skipped: read FBO %u has no color target", readFboExternalIndex);
-                    return false;
-                }
-            }
-
-            if (drawIsDefaultFramebuffer) {
-                dstImage = m_swapchainObject.GetImage(m_imageIndexAcquired);
-                dstExtent = m_swapchainObject.GetExtent();
-            } else {
-                if (!MG_State::pGLContext) {
-                    MGLOG_W("BlitFramebuffer skipped: GL context unavailable for draw FBO");
-                    return false;
-                }
-                const auto drawFbo = MG_State::pGLContext->GetFramebufferObject(drawFboExternalIndex);
-                if (!drawFbo) {
-                    MGLOG_W("BlitFramebuffer skipped: draw FBO %u not found", drawFboExternalIndex);
-                    return false;
-                }
-                if (!m_framebufferManager->EnsureOffscreenColorTarget(drawFboExternalIndex, *drawFbo)) {
-                    MGLOG_W("BlitFramebuffer skipped: failed to materialize draw FBO %u", drawFboExternalIndex);
-                    return false;
-                }
-                if (!m_framebufferManager->GetOffscreenColorImage(drawFboExternalIndex, dstImage, dstExtent)) {
-                    MGLOG_W("BlitFramebuffer skipped: draw FBO %u has no color target", drawFboExternalIndex);
-                    return false;
-                }
-            }
-
-            if (srcImage == VK_NULL_HANDLE || dstImage == VK_NULL_HANDLE) {
-                MGLOG_W("BlitFramebuffer skipped: missing source/destination image");
-                return false;
-            }
-
-            const Bool sameImage = (srcImage == dstImage);
-
-            if (readIsDefaultFramebuffer) {
-                if (sameImage) {
-                    transitionSwapchainLayout(VK_IMAGE_LAYOUT_GENERAL, VK_PIPELINE_STAGE_TRANSFER_BIT,
-                                              VK_ACCESS_TRANSFER_READ_BIT | VK_ACCESS_TRANSFER_WRITE_BIT);
-                } else {
-                    transitionSwapchainLayout(VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_PIPELINE_STAGE_TRANSFER_BIT,
-                                              VK_ACCESS_TRANSFER_READ_BIT);
-                }
-            } else if (!m_framebufferManager->TransitionOffscreenColorToTransferSrc(commandBuffer,
-                                                                                    readFboExternalIndex)) {
-                MGLOG_W("BlitFramebuffer skipped: failed to transition read FBO %u to transfer src",
-                        readFboExternalIndex);
-                return false;
-            }
-
-            if (drawIsDefaultFramebuffer) {
-                if (sameImage) {
-                    transitionSwapchainLayout(VK_IMAGE_LAYOUT_GENERAL, VK_PIPELINE_STAGE_TRANSFER_BIT,
-                                              VK_ACCESS_TRANSFER_READ_BIT | VK_ACCESS_TRANSFER_WRITE_BIT);
-                } else {
-                    transitionSwapchainLayout(VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_PIPELINE_STAGE_TRANSFER_BIT,
-                                              VK_ACCESS_TRANSFER_WRITE_BIT);
-                }
-            } else if (sameImage) {
-                if (!m_framebufferManager->TransitionOffscreenColorToGeneral(commandBuffer, drawFboExternalIndex)) {
-                    MGLOG_W("BlitFramebuffer skipped: failed to transition draw FBO %u to general",
-                            drawFboExternalIndex);
-                    return false;
-                }
-            } else if (!m_framebufferManager->TransitionOffscreenColorToTransferDst(commandBuffer,
-                                                                                    drawFboExternalIndex)) {
-                MGLOG_W("BlitFramebuffer skipped: failed to transition draw FBO %u to transfer dst",
-                        drawFboExternalIndex);
-                return false;
-            }
-
-            GLint srcX0Clamped = clampCoord(srcX0, 0, static_cast<GLint>(srcExtent.width));
-            GLint srcX1Clamped = clampCoord(srcX1, 0, static_cast<GLint>(srcExtent.width));
-            GLint srcY0Clamped = clampCoord(srcY0, 0, static_cast<GLint>(srcExtent.height));
-            GLint srcY1Clamped = clampCoord(srcY1, 0, static_cast<GLint>(srcExtent.height));
-            if (readIsDefaultFramebuffer) {
-                const GLint height = static_cast<GLint>(srcExtent.height);
-                srcY0Clamped = height - srcY0Clamped;
-                srcY1Clamped = height - srcY1Clamped;
-                srcY0Clamped = clampCoord(srcY0Clamped, 0, height);
-                srcY1Clamped = clampCoord(srcY1Clamped, 0, height);
-            }
-
-            GLint dstX0Clamped = clampCoord(dstX0, 0, static_cast<GLint>(dstExtent.width));
-            GLint dstX1Clamped = clampCoord(dstX1, 0, static_cast<GLint>(dstExtent.width));
-            GLint dstY0Clamped = clampCoord(dstY0, 0, static_cast<GLint>(dstExtent.height));
-            GLint dstY1Clamped = clampCoord(dstY1, 0, static_cast<GLint>(dstExtent.height));
-            if (drawIsDefaultFramebuffer) {
-                const GLint height = static_cast<GLint>(dstExtent.height);
-                dstY0Clamped = height - dstY0Clamped;
-                dstY1Clamped = height - dstY1Clamped;
-                dstY0Clamped = clampCoord(dstY0Clamped, 0, height);
-                dstY1Clamped = clampCoord(dstY1Clamped, 0, height);
-            }
-
-            if (srcX0Clamped == srcX1Clamped || srcY0Clamped == srcY1Clamped || dstX0Clamped == dstX1Clamped ||
-                dstY0Clamped == dstY1Clamped) {
-                MGLOG_D("BlitFramebuffer skipped: empty blit region");
-                return true;
-            }
-
-            VkImageBlit blit{};
-            blit.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-            blit.srcSubresource.mipLevel = 0;
-            blit.srcSubresource.baseArrayLayer = 0;
-            blit.srcSubresource.layerCount = 1;
-            blit.srcOffsets[0] = {srcX0Clamped, srcY0Clamped, 0};
-            blit.srcOffsets[1] = {srcX1Clamped, srcY1Clamped, 1};
-            blit.dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-            blit.dstSubresource.mipLevel = 0;
-            blit.dstSubresource.baseArrayLayer = 0;
-            blit.dstSubresource.layerCount = 1;
-            blit.dstOffsets[0] = {dstX0Clamped, dstY0Clamped, 0};
-            blit.dstOffsets[1] = {dstX1Clamped, dstY1Clamped, 1};
-
-            const VkImageLayout srcLayout = sameImage ? VK_IMAGE_LAYOUT_GENERAL : VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
-            const VkImageLayout dstLayout = sameImage ? VK_IMAGE_LAYOUT_GENERAL : VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-            vkCmdBlitImage(commandBuffer, srcImage, srcLayout, dstImage, dstLayout, 1, &blit, vkFilter);
-        }
-
-        auto hasStencilComponent = [](VkFormat format) -> Bool {
-            return format == VK_FORMAT_D24_UNORM_S8_UINT || format == VK_FORMAT_D32_SFLOAT_S8_UINT;
-        };
-
-        const Bool wantDepth = (mask & GL_DEPTH_BUFFER_BIT) != 0;
-        const Bool wantStencil = (mask & GL_STENCIL_BUFFER_BIT) != 0;
-
-        if (wantDepth || wantStencil) {
-            if (filter != GL_NEAREST) {
-                MGLOG_W("BlitFramebuffer: depth/stencil blit requires GL_NEAREST, overriding filter");
-                vkFilter = VK_FILTER_NEAREST;
-            }
-
-            VkImage srcDepthImage = VK_NULL_HANDLE;
-            VkImage dstDepthImage = VK_NULL_HANDLE;
-            VkExtent2D srcDepthExtent{};
-            VkExtent2D dstDepthExtent{};
-            VkFormat srcDepthFormat = VK_FORMAT_UNDEFINED;
-            VkFormat dstDepthFormat = VK_FORMAT_UNDEFINED;
-
-            if (readIsDefaultFramebuffer) {
-                if (m_depthStencilImages.empty() || m_depthStencilFormat == VK_FORMAT_UNDEFINED) {
-                    MGLOG_W("BlitFramebuffer: default framebuffer has no depth/stencil image");
-                } else {
-                    srcDepthImage = m_depthStencilImages[m_imageIndexAcquired];
-                    srcDepthExtent = m_swapchainObject.GetExtent();
-                    srcDepthFormat = m_depthStencilFormat;
-                }
-            } else if (m_framebufferManager) {
-                if (!MG_State::pGLContext) {
-                    MGLOG_W("BlitFramebuffer: GL context unavailable for read depth/stencil FBO");
-                } else {
-                    const auto readFbo = MG_State::pGLContext->GetFramebufferObject(readFboExternalIndex);
-                    if (!readFbo) {
-                        MGLOG_W("BlitFramebuffer: read FBO %u not found", readFboExternalIndex);
-                    } else if (!m_framebufferManager->EnsureOffscreenColorTarget(readFboExternalIndex, *readFbo)) {
-                        MGLOG_W("BlitFramebuffer: failed to materialize read FBO %u for depth/stencil",
-                                readFboExternalIndex);
-                    } else if (!m_framebufferManager->GetOffscreenDepthStencilImage(readFboExternalIndex, srcDepthImage,
-                                                                                    srcDepthExtent, srcDepthFormat)) {
-                        MGLOG_W("BlitFramebuffer: read FBO %u has no depth/stencil image", readFboExternalIndex);
-                    }
-                }
-            }
-
-            if (drawIsDefaultFramebuffer) {
-                if (m_depthStencilImages.empty() || m_depthStencilFormat == VK_FORMAT_UNDEFINED) {
-                    MGLOG_W("BlitFramebuffer: default framebuffer has no depth/stencil image");
-                } else {
-                    dstDepthImage = m_depthStencilImages[m_imageIndexAcquired];
-                    dstDepthExtent = m_swapchainObject.GetExtent();
-                    dstDepthFormat = m_depthStencilFormat;
-                }
-            } else if (m_framebufferManager) {
-                if (!MG_State::pGLContext) {
-                    MGLOG_W("BlitFramebuffer: GL context unavailable for draw depth/stencil FBO");
-                } else {
-                    const auto drawFbo = MG_State::pGLContext->GetFramebufferObject(drawFboExternalIndex);
-                    if (!drawFbo) {
-                        MGLOG_W("BlitFramebuffer: draw FBO %u not found", drawFboExternalIndex);
-                    } else if (!m_framebufferManager->EnsureOffscreenColorTarget(drawFboExternalIndex, *drawFbo)) {
-                        MGLOG_W("BlitFramebuffer: failed to materialize draw FBO %u for depth/stencil",
-                                drawFboExternalIndex);
-                    } else if (!m_framebufferManager->GetOffscreenDepthStencilImage(drawFboExternalIndex, dstDepthImage,
-                                                                                    dstDepthExtent, dstDepthFormat)) {
-                        MGLOG_W("BlitFramebuffer: draw FBO %u has no depth/stencil image", drawFboExternalIndex);
-                    }
-                }
-            }
-
-            if (srcDepthImage != VK_NULL_HANDLE && dstDepthImage != VK_NULL_HANDLE) {
-                if (srcDepthFormat != dstDepthFormat) {
-                    MGLOG_W("BlitFramebuffer: depth/stencil format mismatch (src=%d, dst=%d), skipping", srcDepthFormat,
-                            dstDepthFormat);
-                } else {
-                    VkImageAspectFlags srcAspectMask = 0;
-                    VkImageAspectFlags dstAspectMask = 0;
-                    if (wantDepth) {
-                        srcAspectMask |= VK_IMAGE_ASPECT_DEPTH_BIT;
-                        dstAspectMask |= VK_IMAGE_ASPECT_DEPTH_BIT;
-                    }
-                    if (wantStencil && hasStencilComponent(srcDepthFormat)) {
-                        srcAspectMask |= VK_IMAGE_ASPECT_STENCIL_BIT;
-                        dstAspectMask |= VK_IMAGE_ASPECT_STENCIL_BIT;
-                    } else if (wantStencil) {
-                        MGLOG_W("BlitFramebuffer: stencil bit requested but format has no stencil component");
-                    }
-
-                    const VkImageAspectFlags aspectMask = srcAspectMask & dstAspectMask;
-                    if (aspectMask != 0) {
-                        const Bool sameDepthImage = (srcDepthImage == dstDepthImage);
-                        const VkImageAspectFlags fullAspectMask =
-                            VK_IMAGE_ASPECT_DEPTH_BIT |
-                            (hasStencilComponent(srcDepthFormat) ? VK_IMAGE_ASPECT_STENCIL_BIT : 0);
-
-                        auto transitionDefaultDepthStencil = [&](VkImageLayout newLayout, VkPipelineStageFlags dstStage,
-                                                                 VkAccessFlags dstAccess) {
-                            if (m_depthStencilImages.empty()) {
-                                return;
-                            }
-                            const auto oldLayout = m_depthStencilImageLayouts[m_imageIndexAcquired];
-                            if (oldLayout == newLayout) {
-                                return;
-                            }
-                            VkPipelineStageFlags srcStage = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
-                            VkAccessFlags srcAccess = 0;
-                            switch (oldLayout) {
-                            case VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL:
-                                srcStage = VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT |
-                                           VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;
-                                srcAccess = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
-                                break;
-                            case VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL:
-                                srcStage = VK_PIPELINE_STAGE_TRANSFER_BIT;
-                                srcAccess = VK_ACCESS_TRANSFER_READ_BIT;
-                                break;
-                            case VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL:
-                                srcStage = VK_PIPELINE_STAGE_TRANSFER_BIT;
-                                srcAccess = VK_ACCESS_TRANSFER_WRITE_BIT;
-                                break;
-                            case VK_IMAGE_LAYOUT_GENERAL:
-                                srcStage = VK_PIPELINE_STAGE_TRANSFER_BIT;
-                                srcAccess = VK_ACCESS_TRANSFER_READ_BIT | VK_ACCESS_TRANSFER_WRITE_BIT;
-                                break;
-                            default:
-                                srcStage = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
-                                srcAccess = 0;
-                                break;
-                            }
-
-                            VkImageMemoryBarrier barrier{};
-                            barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
-                            barrier.srcAccessMask = srcAccess;
-                            barrier.dstAccessMask = dstAccess;
-                            barrier.oldLayout = oldLayout;
-                            barrier.newLayout = newLayout;
-                            barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-                            barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-                            barrier.image = m_depthStencilImages[m_imageIndexAcquired];
-                            barrier.subresourceRange.aspectMask = fullAspectMask;
-                            barrier.subresourceRange.baseMipLevel = 0;
-                            barrier.subresourceRange.levelCount = 1;
-                            barrier.subresourceRange.baseArrayLayer = 0;
-                            barrier.subresourceRange.layerCount = 1;
-
-                            vkCmdPipelineBarrier(commandBuffer, srcStage, dstStage, 0, 0, nullptr, 0, nullptr, 1,
-                                                 &barrier);
-                            m_depthStencilImageLayouts[m_imageIndexAcquired] = newLayout;
-                        };
-
-                        if (readIsDefaultFramebuffer) {
-                            if (sameDepthImage) {
-                                transitionDefaultDepthStencil(VK_IMAGE_LAYOUT_GENERAL, VK_PIPELINE_STAGE_TRANSFER_BIT,
-                                                              VK_ACCESS_TRANSFER_READ_BIT |
-                                                                  VK_ACCESS_TRANSFER_WRITE_BIT);
-                            } else {
-                                transitionDefaultDepthStencil(VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-                                                              VK_PIPELINE_STAGE_TRANSFER_BIT,
-                                                              VK_ACCESS_TRANSFER_READ_BIT);
-                            }
-                        } else if (!m_framebufferManager->TransitionOffscreenDepthStencilToTransferSrc(
-                                       commandBuffer, readFboExternalIndex)) {
-                            MGLOG_W("BlitFramebuffer: failed to transition read depth/stencil FBO %u to transfer src",
-                                    readFboExternalIndex);
-                        }
-
-                        if (drawIsDefaultFramebuffer) {
-                            if (sameDepthImage) {
-                                transitionDefaultDepthStencil(VK_IMAGE_LAYOUT_GENERAL, VK_PIPELINE_STAGE_TRANSFER_BIT,
-                                                              VK_ACCESS_TRANSFER_READ_BIT |
-                                                                  VK_ACCESS_TRANSFER_WRITE_BIT);
-                            } else {
-                                transitionDefaultDepthStencil(VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                                                              VK_PIPELINE_STAGE_TRANSFER_BIT,
-                                                              VK_ACCESS_TRANSFER_WRITE_BIT);
-                            }
-                        } else if (sameDepthImage) {
-                            if (!m_framebufferManager->TransitionOffscreenDepthStencilToGeneral(commandBuffer,
-                                                                                                drawFboExternalIndex)) {
-                                MGLOG_W("BlitFramebuffer: failed to transition draw depth/stencil FBO %u to general",
-                                        drawFboExternalIndex);
-                            }
-                        } else if (!m_framebufferManager->TransitionOffscreenDepthStencilToTransferDst(
-                                       commandBuffer, drawFboExternalIndex)) {
-                            MGLOG_W("BlitFramebuffer: failed to transition draw depth/stencil FBO %u to transfer dst",
-                                    drawFboExternalIndex);
-                        }
-
-                        GLint srcDX0 = clampCoord(srcX0, 0, static_cast<GLint>(srcDepthExtent.width));
-                        GLint srcDX1 = clampCoord(srcX1, 0, static_cast<GLint>(srcDepthExtent.width));
-                        GLint srcDY0 = clampCoord(srcY0, 0, static_cast<GLint>(srcDepthExtent.height));
-                        GLint srcDY1 = clampCoord(srcY1, 0, static_cast<GLint>(srcDepthExtent.height));
-                        if (readIsDefaultFramebuffer) {
-                            const GLint height = static_cast<GLint>(srcDepthExtent.height);
-                            srcDY0 = height - srcDY0;
-                            srcDY1 = height - srcDY1;
-                            srcDY0 = clampCoord(srcDY0, 0, height);
-                            srcDY1 = clampCoord(srcDY1, 0, height);
-                        }
-
-                        GLint dstDX0 = clampCoord(dstX0, 0, static_cast<GLint>(dstDepthExtent.width));
-                        GLint dstDX1 = clampCoord(dstX1, 0, static_cast<GLint>(dstDepthExtent.width));
-                        GLint dstDY0 = clampCoord(dstY0, 0, static_cast<GLint>(dstDepthExtent.height));
-                        GLint dstDY1 = clampCoord(dstY1, 0, static_cast<GLint>(dstDepthExtent.height));
-                        if (drawIsDefaultFramebuffer) {
-                            const GLint height = static_cast<GLint>(dstDepthExtent.height);
-                            dstDY0 = height - dstDY0;
-                            dstDY1 = height - dstDY1;
-                            dstDY0 = clampCoord(dstDY0, 0, height);
-                            dstDY1 = clampCoord(dstDY1, 0, height);
-                        }
-
-                        if (srcDX0 != srcDX1 && srcDY0 != srcDY1 && dstDX0 != dstDX1 && dstDY0 != dstDY1) {
-                            VkImageBlit depthBlit{};
-                            depthBlit.srcSubresource.aspectMask = aspectMask;
-                            depthBlit.srcSubresource.mipLevel = 0;
-                            depthBlit.srcSubresource.baseArrayLayer = 0;
-                            depthBlit.srcSubresource.layerCount = 1;
-                            depthBlit.srcOffsets[0] = {srcDX0, srcDY0, 0};
-                            depthBlit.srcOffsets[1] = {srcDX1, srcDY1, 1};
-                            depthBlit.dstSubresource.aspectMask = aspectMask;
-                            depthBlit.dstSubresource.mipLevel = 0;
-                            depthBlit.dstSubresource.baseArrayLayer = 0;
-                            depthBlit.dstSubresource.layerCount = 1;
-                            depthBlit.dstOffsets[0] = {dstDX0, dstDY0, 0};
-                            depthBlit.dstOffsets[1] = {dstDX1, dstDY1, 1};
-
-                            const VkImageLayout depthSrcLayout =
-                                sameDepthImage ? VK_IMAGE_LAYOUT_GENERAL : VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
-                            const VkImageLayout depthDstLayout =
-                                sameDepthImage ? VK_IMAGE_LAYOUT_GENERAL : VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-                            vkCmdBlitImage(commandBuffer, srcDepthImage, depthSrcLayout, dstDepthImage, depthDstLayout,
-                                           1, &depthBlit, vkFilter);
-                        }
-                    }
-                }
-            }
-        }
-
-        if (readIsDefaultFramebuffer || drawIsDefaultFramebuffer) {
-            transitionSwapchainLayout(VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, 0);
-        }
-
-        return true;
-    }
-
-    void VulkanRenderer::Render() {
-        // Route test rendering through the same frame-start logic used by draw calls,
-        // so pending glClear() state can be consumed consistently.
-        EnsureFrameRecordingStarted();
-        auto& frame = m_frameContext.GetCurrent();
-        if (!frame.isCommandRecording || !m_isMainRenderPassActive) {
-            MGLOG_D("Render skipped: frame recording was not started");
-            return;
-        }
-
-        VkCommandBuffer& commandBuffer = frame.commandBuffer;
-        const auto swapchainExtent = m_swapchainObject.GetExtent();
-
-        (void)commandBuffer;
-        (void)swapchainExtent;
     }
 
     void VulkanRenderer::Present() {
         MOBILEGL_ASSERT(m_imageIndexAcquired < m_swapchainObject.GetImageCount(),
                         "Present, acquired image index out of range");
         auto& frame = m_frameContext.GetCurrent();
-        if (!m_pendingClears.empty() && frame.hasCommandBufferRecorded) {
-            MGLOG_D("Dropping pending clears for current frame because command buffer is already finalized");
-            m_pendingClears.clear();
-        } else if (!m_pendingClears.empty()) {
-            auto activateTarget = [&](Bool targetIsDefault, Uint targetFboExternalIndex) -> Bool {
-                const Bool alreadyMatched = frame.isCommandRecording && m_isMainRenderPassActive &&
-                                            (targetIsDefault == m_activeRenderTargetIsDefault) &&
-                                            (targetIsDefault || targetFboExternalIndex == m_activeDrawFboExternalIndex);
-                if (alreadyMatched) {
-                    return true;
-                }
-                if (frame.hasCommandBufferRecorded) {
-                    return false;
-                }
-                if (!m_renderPassManager) {
-                    return false;
-                }
-                if (!frame.isCommandRecording) {
-                    m_frameContext.BeginCommandRecording();
-                    if (m_uniformDescriptorBinder) {
-                        m_uniformDescriptorBinder->BeginFrame(m_frameContext.GetCurrentFrameIndex());
-                    }
-                }
-                VkCommandBuffer commandBuffer = frame.commandBuffer;
-
-                if (m_isMainRenderPassActive) {
-                    MOBILEGL_ASSERT(m_renderPassManager != nullptr, "Present: render pass manager is null");
-                    m_renderPassManager->EndRenderPass(commandBuffer);
-                    if (m_activeRenderTargetIsDefault) {
-                        m_swapchainObject.SetImageLayout(m_imageIndexAcquired, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
-                    }
-                    m_isMainRenderPassActive = false;
-                    m_activeRenderPass = VK_NULL_HANDLE;
-                    m_activeRenderExtent = {0, 0};
-                    m_activeDepthStencilFormat = VK_FORMAT_UNDEFINED;
-                    m_activeRenderTargetIsDefault = true;
-                    m_activeDrawFboExternalIndex = 0;
-                }
-
-                if (targetIsDefault) {
-                    TransitionSwapchainImageToColorAttachment(commandBuffer, m_imageIndexAcquired);
-                    TransitionDepthStencilImageToAttachment(commandBuffer, m_imageIndexAcquired);
-
-                    VkRenderPass renderPass = VK_NULL_HANDLE;
-                    VkFramebuffer framebuffer = VK_NULL_HANDLE;
-                    VkExtent2D extent{};
-                    VkFormat depthStencilFormat = VK_FORMAT_UNDEFINED;
-                    if (!GetDefaultRenderTargetForCurrentImage(renderPass, framebuffer, extent, depthStencilFormat)) {
-                        return false;
-                    }
-                    m_renderPassManager->BeginRenderPass(commandBuffer, renderPass, framebuffer, extent);
-                    m_isMainRenderPassActive = true;
-                    m_activeRenderPass = renderPass;
-                    m_activeRenderExtent = extent;
-                    m_activeDepthStencilFormat = depthStencilFormat;
-                    m_activeRenderTargetIsDefault = true;
-                    m_activeDrawFboExternalIndex = 0;
-                    return true;
-                }
-
-                if (!m_framebufferManager || !MG_State::pGLContext) {
-                    return false;
-                }
-                const auto pendingFbo = MG_State::pGLContext->GetFramebufferObject(targetFboExternalIndex);
-                if (!pendingFbo) {
-                    return false;
-                }
-                VkRenderPass offscreenRenderPass = VK_NULL_HANDLE;
-                VkFramebuffer offscreenFramebuffer = VK_NULL_HANDLE;
-                VkExtent2D offscreenExtent{};
-                VkFormat offscreenDepthStencilFormat = VK_FORMAT_UNDEFINED;
-                if (!EnsureOffscreenRenderTarget(targetFboExternalIndex, *pendingFbo, offscreenRenderPass,
-                                                 offscreenFramebuffer, offscreenExtent, offscreenDepthStencilFormat)) {
-                    return false;
-                }
-                if (!m_framebufferManager->TransitionOffscreenColorToAttachment(commandBuffer,
-                                                                                targetFboExternalIndex)) {
-                    return false;
-                }
-
-                const auto swapchainOldLayout = m_swapchainObject.GetImageLayout(m_imageIndexAcquired);
-                if (swapchainOldLayout != VK_IMAGE_LAYOUT_PRESENT_SRC_KHR &&
-                    swapchainOldLayout != VK_IMAGE_LAYOUT_SHARED_PRESENT_KHR) {
-                    VkImageMemoryBarrier presentBarrier{};
-                    presentBarrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
-                    presentBarrier.srcAccessMask = 0;
-                    presentBarrier.dstAccessMask = 0;
-                    presentBarrier.oldLayout = swapchainOldLayout;
-                    presentBarrier.newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
-                    presentBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-                    presentBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-                    presentBarrier.image = m_swapchainObject.GetImage(m_imageIndexAcquired);
-                    presentBarrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-                    presentBarrier.subresourceRange.baseMipLevel = 0;
-                    presentBarrier.subresourceRange.levelCount = 1;
-                    presentBarrier.subresourceRange.baseArrayLayer = 0;
-                    presentBarrier.subresourceRange.layerCount = 1;
-                    vkCmdPipelineBarrier(commandBuffer, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
-                                         VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, 0, 0, nullptr, 0, nullptr, 1,
-                                         &presentBarrier);
-                    m_swapchainObject.SetImageLayout(m_imageIndexAcquired, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
-                }
-
-                m_renderPassManager->BeginRenderPass(commandBuffer, offscreenRenderPass, offscreenFramebuffer,
-                                                     offscreenExtent);
-                m_isMainRenderPassActive = true;
-                m_activeRenderPass = offscreenRenderPass;
-                m_activeRenderExtent = offscreenExtent;
-                m_activeDepthStencilFormat = offscreenDepthStencilFormat;
-                m_activeRenderTargetIsDefault = false;
-                m_activeDrawFboExternalIndex = targetFboExternalIndex;
-                return true;
-            };
-
-            while (!m_pendingClears.empty()) {
-                auto pendingIt = m_pendingClears.end();
-                if (m_isMainRenderPassActive) {
-                    const Uint64 activeKey =
-                        BuildPendingClearKey(m_activeDrawFboExternalIndex, m_activeRenderTargetIsDefault);
-                    pendingIt = m_pendingClears.find(activeKey);
-                }
-                if (pendingIt == m_pendingClears.end()) {
-                    pendingIt = m_pendingClears.begin();
-                }
-
-                const auto pendingTarget = pendingIt->second;
-                if (!activateTarget(pendingTarget.targetsDefaultFramebuffer, pendingTarget.drawFboExternalIndex)) {
-                    MGLOG_D("Present: dropping pending clear because target activation failed (FBO %u, default=%d)",
-                            pendingTarget.drawFboExternalIndex, pendingTarget.targetsDefaultFramebuffer);
-                    m_pendingClears.erase(pendingIt);
-                    continue;
-                }
-
-                const Uint64 activeKey =
-                    BuildPendingClearKey(m_activeDrawFboExternalIndex, m_activeRenderTargetIsDefault);
-                auto activePendingIt = m_pendingClears.find(activeKey);
-                if (activePendingIt == m_pendingClears.end()) {
-                    continue;
-                }
-
-                if ((activePendingIt->second.mask & GL_COLOR_BUFFER_BIT) != 0) {
-                    m_renderPassManager->RecordColorClear(frame.commandBuffer, m_activeRenderExtent,
-                                                          activePendingIt->second.color);
-                    activePendingIt->second.mask &= ~GL_COLOR_BUFFER_BIT;
-                }
-                if ((activePendingIt->second.mask & (GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT)) != 0) {
-                    m_renderPassManager->RecordDepthStencilClear(
-                        frame.commandBuffer, m_activeRenderExtent, activePendingIt->second.mask,
-                        activePendingIt->second.depth, activePendingIt->second.stencil, m_activeDepthStencilFormat);
-                    activePendingIt->second.mask &= ~(GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
-                }
-                if (activePendingIt->second.mask == 0) {
-                    m_pendingClears.erase(activePendingIt);
-                }
-            }
+        auto* activeRenderPass = VkRenderPassManager::GetActiveRenderPass();
+        if (activeRenderPass)
+            VkRenderPassManager::EndRenderPass(frame.commandBuffer);
+        if (frame.isCommandRecording) {
+            m_frameContext.EndCommandRecording();
+            frame.hasCommandBufferRecorded = true;
         }
-        EndFrameRecordingIfNeeded();
 
         const auto acquiredImageLayout = m_swapchainObject.GetImageLayout(m_imageIndexAcquired);
         const Bool needsLayoutTransitionForPresent =
@@ -2144,7 +1447,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
     }
 
     Bool VulkanRenderer::GetMoreCapablePhysicalDevice(VkPhysicalDevice newVkDevice, VkSurfaceKHR surface,
-                                                      const PhysicalDevice& compareWithDevice,
+                                                      const PhysicalDevice& otherDevice,
                                                       PhysicalDevice& outBetterDevice) {
         const auto deviceTypeToStr = [](VkPhysicalDeviceType type) {
             switch (type) {
@@ -2176,7 +1479,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         // Check device extensions (including swapchain extension)
         Bool deviceExtSupported = IsNecessaryDeviceExtensionSupported(newVkDevice);
         if (!deviceExtSupported) {
-            outBetterDevice = compareWithDevice;
+            outBetterDevice = otherDevice;
             MGLOG_I("    Ignored physical device. (Reason: Some of the required device extension not supported on this "
                     "device)");
             return false;
@@ -2185,7 +1488,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         // Check swapchain capabilities
         auto swapchainCapabilities = SwapchainObject::GetSwapchainCapabilities(newVkDevice, surface);
         if (!swapchainCapabilities.IsComplete()) {
-            outBetterDevice = compareWithDevice;
+            outBetterDevice = otherDevice;
             MGLOG_I("    Ignored physical device. (Reason: Swapchain capabilities not met)");
             return false;
         }
@@ -2194,7 +1497,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         Vector<VkQueueFamilyProperties> queueFamilies = GetQueueFamilyFromPhysicalDevice(newVkDevice);
         newDevice.queueFamilies.graphicsFamily = GetQueueFamilyIndex(queueFamilies, VK_QUEUE_GRAPHICS_BIT);
         if (newDevice.queueFamilies.graphicsFamily == -1) {
-            outBetterDevice = compareWithDevice;
+            outBetterDevice = otherDevice;
             MGLOG_I("    Ignored physical device. (Reason: No graphics queue family)");
             return false;
         }
@@ -2202,14 +1505,14 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         newDevice.queueFamilies.presentFamily =
             GetPresentQueueFamilyIndex(newDevice, surface, queueFamilies, newDevice.queueFamilies.graphicsFamily);
         if (newDevice.queueFamilies.presentFamily == -1) {
-            outBetterDevice = compareWithDevice;
+            outBetterDevice = otherDevice;
             MGLOG_I("    Ignored physical device. (Reason: No present queue family)");
             return false;
         }
 
         // Pick discrete GPU
         if (newDevice.properties.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU &&
-            compareWithDevice.properties.deviceType != VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU) {
+            otherDevice.properties.deviceType != VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU) {
             outBetterDevice = newDevice;
             MGLOG_I("    Picked physical device. (Reason: Discrete GPU)");
             return true;
@@ -2217,7 +1520,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
 
         // Pick integrated GPU if no discrete GPU
         if (newDevice.properties.deviceType == VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU &&
-            compareWithDevice.properties.deviceType != VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU) {
+            otherDevice.properties.deviceType != VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU) {
             outBetterDevice = newDevice;
             MGLOG_I("    Picked physical device. (Reason: Integrated GPU and no discrete one found yet)");
             return true;
@@ -2225,7 +1528,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
 
         // Ignore other GPU when discrete GPU found
         if (newDevice.properties.deviceType != VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU &&
-            compareWithDevice.properties.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU) {
+            otherDevice.properties.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU) {
             outBetterDevice = newDevice;
             MGLOG_I("    Ignored physical device. (Reason: Already picked discrete GPU)");
             return false;
@@ -2355,127 +1658,9 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                                  m_config.MaxFramesInFlight);
     }
 
-    Uint32 VulkanRenderer::FindMemoryType(Uint32 typeFilter, VkMemoryPropertyFlags properties) const {
-        VkPhysicalDeviceMemoryProperties memProperties{};
-        vkGetPhysicalDeviceMemoryProperties(m_physicalDevice.handle, &memProperties);
-
-        for (Uint32 i = 0; i < memProperties.memoryTypeCount; i++) {
-            if ((typeFilter & (1 << i)) && (memProperties.memoryTypes[i].propertyFlags & properties) == properties) {
-                return i;
-            }
-        }
-
-        MOBILEGL_ASSERT(false, "Failed to find suitable memory type.");
-        return 0;
-    }
-
     Uint64 VulkanRenderer::BuildPendingClearKey(Uint drawFboExternalIndex, Bool targetsDefaultFramebuffer) {
         return (static_cast<Uint64>(targetsDefaultFramebuffer ? 1 : 0) << 63) |
                static_cast<Uint64>(drawFboExternalIndex);
-    }
-
-    Bool VulkanRenderer::HasStencilComponent(VkFormat format) {
-        return format == VK_FORMAT_D24_UNORM_S8_UINT || format == VK_FORMAT_D32_SFLOAT_S8_UINT;
-    }
-
-    VkFormat VulkanRenderer::FindSupportedDepthStencilFormat(VkPhysicalDevice physicalDevice) {
-        const VkFormat candidates[] = {VK_FORMAT_D24_UNORM_S8_UINT, VK_FORMAT_D32_SFLOAT_S8_UINT, VK_FORMAT_D32_SFLOAT};
-        for (VkFormat format : candidates) {
-            VkFormatProperties props{};
-            vkGetPhysicalDeviceFormatProperties(physicalDevice, format, &props);
-            if ((props.optimalTilingFeatures & VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT) != 0) {
-                return format;
-            }
-        }
-        return VK_FORMAT_UNDEFINED;
-    }
-
-    void VulkanRenderer::CreateDepthStencilResources() {
-        const auto imageCount = static_cast<Uint32>(m_swapchainObject.GetImageCount());
-        if (imageCount == 0) {
-            return;
-        }
-
-        m_depthStencilFormat = FindSupportedDepthStencilFormat(m_physicalDevice.handle);
-        MOBILEGL_ASSERT(m_depthStencilFormat != VK_FORMAT_UNDEFINED, "No supported depth/stencil format found.");
-
-        const auto extent = m_swapchainObject.GetExtent();
-        m_depthStencilImages.assign(imageCount, VK_NULL_HANDLE);
-        m_depthStencilImageMemories.assign(imageCount, VK_NULL_HANDLE);
-        m_depthStencilImageViews.assign(imageCount, VK_NULL_HANDLE);
-        m_depthStencilImageLayouts.assign(imageCount, VK_IMAGE_LAYOUT_UNDEFINED);
-
-        for (Uint32 i = 0; i < imageCount; ++i) {
-            VkImageCreateInfo imageInfo{};
-            imageInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
-            imageInfo.imageType = VK_IMAGE_TYPE_2D;
-            imageInfo.extent.width = extent.width;
-            imageInfo.extent.height = extent.height;
-            imageInfo.extent.depth = 1;
-            imageInfo.mipLevels = 1;
-            imageInfo.arrayLayers = 1;
-            imageInfo.format = m_depthStencilFormat;
-            imageInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
-            imageInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-            imageInfo.usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
-            imageInfo.samples = VK_SAMPLE_COUNT_1_BIT;
-            imageInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-            VK_VERIFY(vkCreateImage(m_device, &imageInfo, nullptr, &m_depthStencilImages[i]), "vkCreateImage(depth)");
-
-            VkMemoryRequirements memRequirements{};
-            vkGetImageMemoryRequirements(m_device, m_depthStencilImages[i], &memRequirements);
-
-            VkMemoryAllocateInfo allocInfo{};
-            allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
-            allocInfo.allocationSize = memRequirements.size;
-            allocInfo.memoryTypeIndex =
-                FindMemoryType(memRequirements.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
-            VK_VERIFY(vkAllocateMemory(m_device, &allocInfo, nullptr, &m_depthStencilImageMemories[i]),
-                      "vkAllocateMemory(depth)");
-            VK_VERIFY(vkBindImageMemory(m_device, m_depthStencilImages[i], m_depthStencilImageMemories[i], 0),
-                      "vkBindImageMemory(depth)");
-
-            VkImageViewCreateInfo viewInfo{};
-            viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
-            viewInfo.image = m_depthStencilImages[i];
-            viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
-            viewInfo.format = m_depthStencilFormat;
-            viewInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
-            if (HasStencilComponent(m_depthStencilFormat)) {
-                viewInfo.subresourceRange.aspectMask |= VK_IMAGE_ASPECT_STENCIL_BIT;
-            }
-            viewInfo.subresourceRange.baseMipLevel = 0;
-            viewInfo.subresourceRange.levelCount = 1;
-            viewInfo.subresourceRange.baseArrayLayer = 0;
-            viewInfo.subresourceRange.layerCount = 1;
-            VK_VERIFY(vkCreateImageView(m_device, &viewInfo, nullptr, &m_depthStencilImageViews[i]),
-                      "vkCreateImageView(depth)");
-        }
-    }
-
-    void VulkanRenderer::DestroyDepthStencilResources() {
-        for (auto view : m_depthStencilImageViews) {
-            if (view != VK_NULL_HANDLE) {
-                vkDestroyImageView(m_device, view, nullptr);
-            }
-        }
-        m_depthStencilImageViews.clear();
-
-        for (auto image : m_depthStencilImages) {
-            if (image != VK_NULL_HANDLE) {
-                vkDestroyImage(m_device, image, nullptr);
-            }
-        }
-        m_depthStencilImages.clear();
-
-        for (auto memory : m_depthStencilImageMemories) {
-            if (memory != VK_NULL_HANDLE) {
-                vkFreeMemory(m_device, memory, nullptr);
-            }
-        }
-        m_depthStencilImageMemories.clear();
-        m_depthStencilImageLayouts.clear();
-        m_depthStencilFormat = VK_FORMAT_UNDEFINED;
     }
 
     void VulkanRenderer::CreateCommandPool() {
@@ -2484,59 +1669,6 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         createInfo.queueFamilyIndex = m_physicalDevice.queueFamilies.graphicsFamily;
         VK_VERIFY(vkCreateCommandPool(m_device, &createInfo, nullptr, &m_commandPool));
         MGLOG_I("Command pool created");
-    }
-
-    VkRenderPass VulkanRenderer::GetDefaultLoadRenderPass() const {
-        MOBILEGL_ASSERT(m_renderPassManager != nullptr, "GetDefaultLoadRenderPass: render pass manager is null");
-        VkRenderPass renderPass = m_renderPassManager->GetLoadRenderPass();
-        MOBILEGL_ASSERT(renderPass != VK_NULL_HANDLE,
-                        "GetDefaultLoadRenderPass: default load render pass is unavailable");
-        return renderPass;
-    }
-
-    Bool VulkanRenderer::GetDefaultRenderTargetForCurrentImage(VkRenderPass& outRenderPass,
-                                                               VkFramebuffer& outFramebuffer, VkExtent2D& outExtent,
-                                                               VkFormat& outDepthStencilFormat) const {
-        MOBILEGL_ASSERT(m_renderPassManager != nullptr, "GetDefaultRenderTargetForCurrentImage: manager is null");
-        return m_renderPassManager->GetDefaultRenderTarget(m_imageIndexAcquired, outRenderPass, outFramebuffer,
-                                                           outExtent, outDepthStencilFormat);
-    }
-
-    Bool VulkanRenderer::EnsureOffscreenRenderTarget(Uint glFboExternalIndex,
-                                                     const MG_State::GLState::FramebufferObject& glFbo,
-                                                     VkRenderPass& outRenderPass, VkFramebuffer& outFramebuffer,
-                                                     VkExtent2D& outExtent, VkFormat& outDepthStencilFormat) {
-        MOBILEGL_ASSERT(m_framebufferManager != nullptr, "EnsureOffscreenRenderTarget: framebuffer manager is null");
-        MOBILEGL_ASSERT(m_renderPassManager != nullptr, "EnsureOffscreenRenderTarget: render pass manager is null");
-
-        if (!m_framebufferManager->EnsureOffscreenColorTarget(glFboExternalIndex, glFbo)) {
-            return false;
-        }
-
-        VkImageView colorView = VK_NULL_HANDLE;
-        VkFormat colorFormat = VK_FORMAT_UNDEFINED;
-        VkImageView depthStencilView = VK_NULL_HANDLE;
-        VkFormat depthStencilFormat = VK_FORMAT_UNDEFINED;
-        VkExtent2D extent{};
-        if (!m_framebufferManager->GetOffscreenRenderSurface(glFboExternalIndex, colorView, colorFormat,
-                                                             depthStencilView, depthStencilFormat, extent)) {
-            return false;
-        }
-
-        VkRenderPassManager::OffscreenRenderTargetInfo targetInfo{};
-        targetInfo.targetExternalIndex = glFboExternalIndex;
-        targetInfo.targetVersion = glFbo.GetObjectVersion();
-        targetInfo.colorView = colorView;
-        targetInfo.colorFormat = colorFormat;
-        targetInfo.depthStencilView = depthStencilView;
-        targetInfo.depthStencilFormat = depthStencilFormat;
-        targetInfo.extent = extent;
-        if (!m_renderPassManager->EnsureOffscreenRenderTarget(targetInfo)) {
-            return false;
-        }
-
-        return m_renderPassManager->GetOffscreenRenderTarget(glFboExternalIndex, outRenderPass, outFramebuffer,
-                                                             outExtent, outDepthStencilFormat);
     }
 
     void VulkanRenderer::CreateSurface() {
@@ -2580,7 +1712,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                                             VkQueueFlagBits flag) {
         for (Uint32 i = 0; i < queueFamilies.size(); i++) {
             if (queueFamilies[i].queueFlags & flag) {
-                return (Int)i;
+                return i;
             }
         }
         return -1;
@@ -2599,7 +1731,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         for (Uint32 i = 0; i < queueFamilies.size(); i++) {
             VkBool32 supportsPresent = false;
             vkGetPhysicalDeviceSurfaceSupportKHR(physicalDevice.handle, i, surface, &supportsPresent);
-            if (supportsPresent) return (Int)i;
+            if (supportsPresent) return i;
         }
         return -1;
     }
@@ -2679,11 +1811,8 @@ namespace MobileGL::MG_Backend::DirectVulkan {
     }
 
     void VulkanRenderer::ShutdownSwapchain() {
-        DestroyDepthStencilResources();
-
-        if (m_renderPassManager) {
-            m_renderPassManager->Shutdown();
-        }
+        MOBILEGL_ASSERT(m_renderPassManager != nullptr, "ShutdownSwapchain: render pass manager is null");
+        m_renderPassManager->Shutdown();
 
         m_swapchainObject.Shutdown(m_device);
     }
@@ -2705,17 +1834,9 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         VK_VERIFY(m_frameContext.InitializeSwapchainSemaphores(m_device,
                                                                static_cast<Uint32>(m_swapchainObject.GetImageCount())),
                   "RecreateSwapchain, InitializeSwapchainSemaphores");
-        CreateDepthStencilResources();
         MOBILEGL_ASSERT(m_renderPassManager != nullptr, "RecreateSwapchain: render pass manager is null");
-        VkRenderPassManager::InitInfo renderPassInitInfo{};
-        renderPassInitInfo.device = m_device;
-        renderPassInitInfo.colorFormat = m_swapchainObject.GetSurfaceFormat().format;
-        renderPassInitInfo.depthStencilFormat = m_depthStencilFormat;
-        MOBILEGL_ASSERT(m_renderPassManager->Initialize(renderPassInitInfo),
-                        "RecreateSwapchain: render pass manager initialization failed");
-        MOBILEGL_ASSERT(m_renderPassManager->RecreateDefaultFramebuffers(
-                            m_swapchainObject.GetImageViews(), m_depthStencilImageViews, m_swapchainObject.GetExtent()),
-                        "RecreateSwapchain: default framebuffers initialization failed");
+        Bool ok = m_renderPassManager->Initialize();
+        MOBILEGL_ASSERT(ok, "RecreateSwapchain: render pass manager initialization failed");
         if (m_pipelineFactory) {
             m_pipelineFactory->DestroyAll();
         }
@@ -2729,13 +1850,6 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         m_frameVertexUploadHeads.assign(m_frameContext.GetFrameCount(), 0);
         m_frameIndexUploadBuffers.resize(m_frameContext.GetFrameCount());
         m_frameIndexUploadHeads.assign(m_frameContext.GetFrameCount(), 0);
-        m_isMainRenderPassActive = false;
-        m_activeRenderPass = VK_NULL_HANDLE;
-        m_activeRenderExtent = {0, 0};
-        m_activeDepthStencilFormat = VK_FORMAT_UNDEFINED;
-        m_activeRenderTargetIsDefault = true;
-        m_activeDrawFboExternalIndex = 0;
-        m_pendingClears.clear();
     }
 
     const PhysicalDevice& VulkanRenderer::GetPhysicalDevice() const {
@@ -2744,5 +1858,55 @@ namespace MobileGL::MG_Backend::DirectVulkan {
 
     Bool VulkanRenderer::IsDrawIndirectCountExtensionEnabled() const {
         return m_drawIndirectCountExtensionEnabled;
+    }
+
+    void VulkanRenderer::ClearAttachmentsOnActiveRenderPass(VkCommandBuffer commandBuffer,
+                                                            const RenderPassEntry &compatibleRenderPassEntry) {
+        auto* activeRenderPass = VkRenderPassManager::GetActiveRenderPass();
+        MOBILEGL_ASSERT(activeRenderPass, "No render pass active");
+        VkClearRect clearRect{};
+        clearRect.rect.offset = {0, 0};
+        clearRect.rect.extent = {
+                static_cast<Uint32>(activeRenderPass->extent.x()),
+                static_cast<Uint32>(activeRenderPass->extent.y())
+        };
+        clearRect.baseArrayLayer = 0;
+        clearRect.layerCount = 1;
+
+        for (const auto& pending : compatibleRenderPassEntry.pendingClearAttachments) {
+            if (!pending.texture) {
+                continue;
+            }
+
+            ClearAttachmentPayload clearPayload{};
+            if (!m_clearManager->GetPendingClear(pending.texture, clearPayload)) {
+                continue;
+            }
+
+            VkClearAttachment clearAttachment{};
+            clearAttachment.clearValue.depthStencil = {1.0f, 0};
+            if (clearPayload.attachmentType >= FramebufferAttachmentType::Color0 &&
+                clearPayload.attachmentType <= FramebufferAttachmentType::Color31) {
+                clearAttachment.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+                clearAttachment.colorAttachment = pending.attachmentIndex;
+                clearAttachment.clearValue.color = {
+                        clearPayload.color.x(),
+                        clearPayload.color.y(),
+                        clearPayload.color.z(),
+                        clearPayload.color.w()
+                };
+            } else if (clearPayload.attachmentType == FramebufferAttachmentType::Depth) {
+                clearAttachment.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
+                clearAttachment.clearValue.depthStencil.depth = clearPayload.depth;
+            } else if (clearPayload.attachmentType == FramebufferAttachmentType::Stencil) {
+                clearAttachment.aspectMask = VK_IMAGE_ASPECT_STENCIL_BIT;
+                clearAttachment.clearValue.depthStencil.stencil = clearPayload.stencil;
+            } else {
+                continue;
+            }
+
+            vkCmdClearAttachments(commandBuffer, 1, &clearAttachment, 1, &clearRect);
+            m_clearManager->PopPendingClear(pending.texture);
+        }
     }
 } // namespace MobileGL::MG_Backend::DirectVulkan

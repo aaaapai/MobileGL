@@ -8,79 +8,144 @@
 
 #pragma once
 
+#include "SwapchainObject.h"
+#include "VkClearManager.h"
+#include "VkTextureManager.h"
 #include "../VkIncludes.h"
+#include "../VulkanRendererConfig.h"
+#include "MG_State/GLState/FramebufferState/FramebufferObject.h"
+
 #include <Includes.h>
 
 namespace MobileGL::MG_Backend::DirectVulkan {
+    enum class TrackedAttachmentTarget : Uint8 {
+        Texture,
+        SwapchainColor,
+        SwapchainDepthStencil
+    };
+
+    struct PendingClearAttachmentInfo {
+        Uint32 attachmentIndex = 0;
+        MG_State::GLState::ITextureObject* texture = nullptr;
+    };
+
+    struct TrackedAttachmentLayoutInfo {
+        TrackedAttachmentTarget target = TrackedAttachmentTarget::Texture;
+        MG_State::GLState::ITextureObject* texture = nullptr;
+        Uint32 swapchainImageIndex = 0;
+        VkImageLayout finalLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    };
+
+    struct RenderPassEntry {
+        static inline VkDevice s_device;
+        static inline Vector<VkTextureManager::TextureResource*> s_textureResourcesScratch;
+        Uint64 hash = 0;
+        VkRenderPass renderPass = VK_NULL_HANDLE;
+        VkFramebuffer framebuffer = VK_NULL_HANDLE;
+        Uint64 compatibilityHash = 0;
+        Vector<PendingClearAttachmentInfo> pendingClearAttachments;
+        Vector<TrackedAttachmentLayoutInfo> trackedAttachmentLayouts;
+        Uint32 attachmentCount = 0;
+        IntVec2 extent = {0, 0};
+        Uint32 subpass = 0;
+
+        RenderPassEntry() = default;
+        RenderPassEntry(const RenderPassEntry&) = delete;
+        RenderPassEntry(RenderPassEntry&& that) noexcept {
+            std::swap(hash, that.hash);
+            std::swap(renderPass, that.renderPass);
+            std::swap(framebuffer, that.framebuffer);
+            std::swap(compatibilityHash, that.compatibilityHash);
+            std::swap(pendingClearAttachments, that.pendingClearAttachments);
+            std::swap(trackedAttachmentLayouts, that.trackedAttachmentLayouts);
+            std::swap(attachmentCount, that.attachmentCount);
+            std::swap(extent, that.extent);
+            std::swap(subpass, that.subpass);
+        }
+        RenderPassEntry(
+            Uint64 hash,
+            VkRenderPass renderpass,
+            VkFramebuffer framebuffer,
+            Uint64 compatibilityHash,
+            const Vector<PendingClearAttachmentInfo>& pendingClearAttachments,
+            const Vector<TrackedAttachmentLayoutInfo>& trackedAttachmentLayouts,
+            Uint32 attachmentCount,
+            IntVec2 extent, int subpass):
+            hash(hash),
+            renderPass(renderpass),
+            framebuffer(framebuffer),
+            compatibilityHash(compatibilityHash),
+            pendingClearAttachments(Move(pendingClearAttachments)),
+            trackedAttachmentLayouts(Move(trackedAttachmentLayouts)),
+            attachmentCount(attachmentCount),
+            extent(extent),
+            subpass(subpass)
+        {}
+
+        ~RenderPassEntry() {
+            if (renderPass != VK_NULL_HANDLE) {
+                vkDestroyRenderPass(s_device, renderPass, nullptr);
+            }
+            if (framebuffer != VK_NULL_HANDLE) {
+                vkDestroyFramebuffer(s_device, framebuffer, nullptr);
+            }
+        }
+
+        Bool CompatibleWith(const RenderPassEntry& that) const {
+            return this->compatibilityHash == that.compatibilityHash;
+        }
+
+        Bool CompatibleWith(Uint64 compatibilityHash) const {
+            return this->compatibilityHash == compatibilityHash;
+        }
+    };
+
+    struct ActiveRenderPassInfo {
+        Uint64 hash = 0;
+        Uint64 compatibilityHash = 0;
+        Vector<TrackedAttachmentLayoutInfo> trackedAttachmentLayouts;
+        IntVec2 extent = {0, 0};
+
+        Bool CompatibleWith(const RenderPassEntry& that) const {
+            return compatibilityHash == that.compatibilityHash;
+        }
+
+        Bool CompatibleWith(Uint64 thatCompatibilityHash) const {
+            return compatibilityHash == thatCompatibilityHash;
+        }
+    };
+
     class VkRenderPassManager {
     public:
-        struct InitInfo {
-            VkDevice device = VK_NULL_HANDLE;
-            VkFormat colorFormat = VK_FORMAT_UNDEFINED;
-            VkFormat depthStencilFormat = VK_FORMAT_UNDEFINED;
-        };
+        using HashType = Uint64;
+        VkRenderPassManager(VkDevice device,
+            const VulkanRendererConfig& config, VkClearManager& clearManager, VkTextureManager& textureManager,
+            SwapchainObject& swapchainObject);
+        ~VkRenderPassManager();
 
-        struct OffscreenRenderTargetInfo {
-            Uint targetExternalIndex = 0;
-            Uint16 targetVersion = 0;
-            VkImageView colorView = VK_NULL_HANDLE;
-            VkFormat colorFormat = VK_FORMAT_UNDEFINED;
-            VkImageView depthStencilView = VK_NULL_HANDLE;
-            VkFormat depthStencilFormat = VK_FORMAT_UNDEFINED;
-            VkExtent2D extent = {0, 0};
-        };
-
-        Bool Initialize(const InitInfo& initInfo);
+        Bool Initialize();
         void Shutdown();
 
-        Bool RecreateDefaultFramebuffers(const Vector<VkImageView>& colorViews,
-                                         const Vector<VkImageView>& depthStencilViews, VkExtent2D extent);
-        Bool GetDefaultRenderTarget(Uint32 imageIndex, VkRenderPass& outRenderPass, VkFramebuffer& outFramebuffer,
-                                    VkExtent2D& outExtent, VkFormat& outDepthStencilFormat) const;
-
-        Bool EnsureOffscreenRenderTarget(const OffscreenRenderTargetInfo& targetInfo);
-        Bool GetOffscreenRenderTarget(Uint targetExternalIndex, VkRenderPass& outRenderPass,
-                                      VkFramebuffer& outFramebuffer, VkExtent2D& outExtent,
-                                      VkFormat& outDepthStencilFormat) const;
-        void RemoveOffscreenRenderTarget(Uint targetExternalIndex);
-
-        void BeginRenderPass(VkCommandBuffer commandBuffer, VkRenderPass renderPass, VkFramebuffer framebuffer,
-                             VkExtent2D extent) const;
-        void EndRenderPass(VkCommandBuffer commandBuffer) const;
-        void RecordColorClear(VkCommandBuffer commandBuffer, VkExtent2D extent,
-                              const VkClearColorValue& clearColor) const;
-        void RecordDepthStencilClear(VkCommandBuffer commandBuffer, VkExtent2D extent, GLbitfield mask, Float depth,
-                                     Uint32 stencil, VkFormat depthStencilFormat) const;
-
-        VkRenderPass GetLoadRenderPass() const;
-        VkRenderPass GetClearRenderPass() const;
-
+        HashType ComputeHash(
+            const MG_State::GLState::FramebufferObject& fbo,
+            Uint32 swapchainImageIndex,
+            Bool includePendingClear = true) const;
+        RenderPassEntry& GetOrCreateRenderPass(const MG_State::GLState::FramebufferObject& fbo, Uint32 swapchainImageIndex);
+        static Bool BeginRenderPass(VkCommandBuffer commandBuffer, RenderPassEntry& renderPassEntry);
+        static Bool EndRenderPass(VkCommandBuffer commandBuffer);
+        static ActiveRenderPassInfo* GetActiveRenderPass();
     private:
-        struct OffscreenRenderTarget {
-            Uint16 targetVersion = 0;
-            VkImageView colorView = VK_NULL_HANDLE;
-            VkFormat colorFormat = VK_FORMAT_UNDEFINED;
-            VkImageView depthStencilView = VK_NULL_HANDLE;
-            VkFormat depthStencilFormat = VK_FORMAT_UNDEFINED;
-            VkExtent2D extent = {0, 0};
-            VkRenderPass renderPassLoad = VK_NULL_HANDLE;
-            VkFramebuffer framebuffer = VK_NULL_HANDLE;
-        };
-
-        VkRenderPass CreateDefaultRenderPass(VkAttachmentLoadOp colorLoadOp) const;
-        VkRenderPass CreateRenderPass(VkFormat colorFormat, VkFormat depthStencilFormat, VkAttachmentLoadOp colorLoadOp,
-                                      VkImageLayout colorFinalLayout) const;
-        void DestroyDefaultFramebuffers();
-        void DestroyOffscreenRenderTarget(OffscreenRenderTarget& target);
-        static Bool HasStencilComponent(VkFormat format);
-
         VkDevice m_device = VK_NULL_HANDLE;
-        VkFormat m_colorFormat = VK_FORMAT_UNDEFINED;
-        VkFormat m_depthStencilFormat = VK_FORMAT_UNDEFINED;
-        VkRenderPass m_renderPassLoad = VK_NULL_HANDLE;
-        VkRenderPass m_renderPassClear = VK_NULL_HANDLE;
-        Vector<VkFramebuffer> m_defaultFramebuffers;
-        VkExtent2D m_defaultExtent = {0, 0};
-        UnorderedMap<Uint, OffscreenRenderTarget> m_offscreenRenderTargets;
+        const VulkanRendererConfig& m_config;
+        VkClearManager& m_clearManager;
+        VkTextureManager& m_textureManager;
+        SwapchainObject& m_swapchainObject;
+        UnorderedMap<Uint64, RenderPassEntry> m_renderPasses;
+        static inline XXH64_state_t* m_hashState = XXH64_createState();
+        static inline ActiveRenderPassInfo s_activeRenderPass{};
+        static inline Bool s_hasActiveRenderPass = false;
+        static inline VkClearManager* s_clearManager = nullptr;
+        static inline VkTextureManager* s_textureManager = nullptr;
+        static inline SwapchainObject* s_swapchainObject = nullptr;
     };
 } // namespace MobileGL::MG_Backend::DirectVulkan

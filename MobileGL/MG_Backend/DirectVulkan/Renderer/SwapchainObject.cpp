@@ -8,6 +8,9 @@
 
 #include "SwapchainObject.h"
 
+#include "MG_Impl/GLImpl/Framebuffer/GL_Framebuffer.h"
+#include "MG_State/GLState/TextureState/TextureObject2D.h"
+
 #if defined(__has_include)
 #if __has_include(<vulkan/vk_enum_string_helper.h>)
 #include <vulkan/vk_enum_string_helper.h>
@@ -38,6 +41,40 @@ static const char* string_VkSurfaceTransformFlagBitsKHR(VkSurfaceTransformFlagBi
 #endif
 
 namespace MobileGL::MG_Backend::DirectVulkan {
+    namespace {
+        Bool HasStencilComponent(VkFormat format) {
+            return format == VK_FORMAT_D24_UNORM_S8_UINT || format == VK_FORMAT_D32_SFLOAT_S8_UINT;
+        }
+
+        VkFormat FindSupportedDepthStencilFormat(VkPhysicalDevice physicalDevice) {
+            const VkFormat candidates[] = {VK_FORMAT_D24_UNORM_S8_UINT, VK_FORMAT_D32_SFLOAT_S8_UINT,
+                                           VK_FORMAT_D32_SFLOAT};
+            for (VkFormat format : candidates) {
+                VkFormatProperties props{};
+                vkGetPhysicalDeviceFormatProperties(physicalDevice, format, &props);
+                if ((props.optimalTilingFeatures & VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT) != 0) {
+                    return format;
+                }
+            }
+            return VK_FORMAT_UNDEFINED;
+        }
+
+        Uint32 FindMemoryType(VkPhysicalDevice physicalDevice, Uint32 typeFilter, VkMemoryPropertyFlags properties) {
+            VkPhysicalDeviceMemoryProperties memProperties{};
+            vkGetPhysicalDeviceMemoryProperties(physicalDevice, &memProperties);
+
+            for (Uint32 i = 0; i < memProperties.memoryTypeCount; i++) {
+                if ((typeFilter & (1 << i)) &&
+                    (memProperties.memoryTypes[i].propertyFlags & properties) == properties) {
+                    return i;
+                }
+            }
+
+            MOBILEGL_ASSERT(false, "Failed to find suitable memory type.");
+            return 0;
+        }
+    } // namespace
+
     SwapchainObject::SwapchainCapabilities SwapchainObject::GetSwapchainCapabilities(VkPhysicalDevice physicalDevice,
                                                                                       VkSurfaceKHR surface) {
         SwapchainCapabilities swapchainCapabilities{};
@@ -127,6 +164,11 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         createInfo.imageFormat = pickedSurfaceFormat.format;
         createInfo.imageColorSpace = pickedSurfaceFormat.colorSpace;
         createInfo.imageExtent = swapchainCaps.currentExtent;
+        if (swapchainCaps.currentTransform == VK_SURFACE_TRANSFORM_ROTATE_90_BIT_KHR ||
+            swapchainCaps.currentTransform == VK_SURFACE_TRANSFORM_ROTATE_270_BIT_KHR) {
+            std::swap(createInfo.imageExtent.width, createInfo.imageExtent.height);
+        }
+
         createInfo.imageArrayLayers = 1;
         const VkImageUsageFlags requiredImageUsage =
             VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
@@ -185,12 +227,133 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         m_imageLayouts.assign(imageCount, VK_IMAGE_LAYOUT_UNDEFINED);
 
         CreateImageViews(device);
+        CreateDepthStencilResources(device, physicalDevice);
 
         MGLOG_I("Swapchain created, extent = %dx%d, swapchain imageCount = %d", m_extent.width, m_extent.height,
                 imageCount);
+
+        // Properly initialize Default FBO here
+        auto& defaultFBOInfo = MG_Impl::GLImpl::FramebufferImpl::pDefaultFramebufferInfo;
+        auto* colorTex = static_cast<MG_State::GLState::TextureObject2D*>(defaultFBOInfo->colorAttachment.get());
+        colorTex->AllocateStorage(
+            TextureUploadTarget::Texture2D, 0, {
+                {(Int)createInfo.imageExtent.width, (Int)createInfo.imageExtent.height, 1},
+                createInfo.imageExtent.width * (Int)createInfo.imageExtent.height * 4}); // TODO: 4 is format size
+        TextureInternalFormat depthFormat = TextureInternalFormat::Depth24Stencil8;
+        switch (m_depthStencilFormat) {
+            case VK_FORMAT_D24_UNORM_S8_UINT:
+                depthFormat = TextureInternalFormat::Depth24Stencil8;
+                break;
+            case VK_FORMAT_D32_SFLOAT_S8_UINT:
+                depthFormat = TextureInternalFormat::Depth32FStencil8;
+                break;
+            case VK_FORMAT_D32_SFLOAT:
+                depthFormat = TextureInternalFormat::DepthComponent32F;
+                break;
+            default:
+                depthFormat = TextureInternalFormat::Depth24Stencil8;
+                break;
+        }
+        auto* depthTex = static_cast<MG_State::GLState::TextureObject2D*>(defaultFBOInfo->depthAttachment.get());
+        depthTex->SetInternalFormat(depthFormat);
+        depthTex->AllocateStorage(TextureUploadTarget::Texture2D, 0, {
+            {(Int)createInfo.imageExtent.width, (Int)createInfo.imageExtent.height, 1},
+                        createInfo.imageExtent.width * createInfo.imageExtent.width * 4}); // TODO: 4 is format size
+
+    }
+
+    void SwapchainObject::CreateDepthStencilResources(VkDevice device, VkPhysicalDevice physicalDevice) {
+        DestroyDepthStencilResources(device);
+
+        const auto imageCount = static_cast<Uint32>(m_images.size());
+        if (imageCount == 0) {
+            return;
+        }
+
+        m_depthStencilFormat = FindSupportedDepthStencilFormat(physicalDevice);
+        MOBILEGL_ASSERT(m_depthStencilFormat != VK_FORMAT_UNDEFINED, "No supported depth/stencil format found.");
+
+        m_depthStencilImages.assign(imageCount, VK_NULL_HANDLE);
+        m_depthStencilImageMemories.assign(imageCount, VK_NULL_HANDLE);
+        m_depthStencilImageViews.assign(imageCount, VK_NULL_HANDLE);
+        m_depthStencilImageLayouts.assign(imageCount, VK_IMAGE_LAYOUT_UNDEFINED);
+
+        for (Uint32 i = 0; i < imageCount; ++i) {
+            VkImageCreateInfo imageInfo{};
+            imageInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+            imageInfo.imageType = VK_IMAGE_TYPE_2D;
+            imageInfo.extent.width = m_extent.width;
+            imageInfo.extent.height = m_extent.height;
+            imageInfo.extent.depth = 1;
+            imageInfo.mipLevels = 1;
+            imageInfo.arrayLayers = 1;
+            imageInfo.format = m_depthStencilFormat;
+            imageInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
+            imageInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+            imageInfo.usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
+            imageInfo.samples = VK_SAMPLE_COUNT_1_BIT;
+            imageInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+            VK_VERIFY(vkCreateImage(device, &imageInfo, nullptr, &m_depthStencilImages[i]), "vkCreateImage(depth)");
+
+            VkMemoryRequirements memRequirements{};
+            vkGetImageMemoryRequirements(device, m_depthStencilImages[i], &memRequirements);
+
+            VkMemoryAllocateInfo allocInfo{};
+            allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+            allocInfo.allocationSize = memRequirements.size;
+            allocInfo.memoryTypeIndex =
+                FindMemoryType(physicalDevice, memRequirements.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+            VK_VERIFY(vkAllocateMemory(device, &allocInfo, nullptr, &m_depthStencilImageMemories[i]),
+                      "vkAllocateMemory(depth)");
+            VK_VERIFY(vkBindImageMemory(device, m_depthStencilImages[i], m_depthStencilImageMemories[i], 0),
+                      "vkBindImageMemory(depth)");
+
+            VkImageViewCreateInfo viewInfo{};
+            viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+            viewInfo.image = m_depthStencilImages[i];
+            viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
+            viewInfo.format = m_depthStencilFormat;
+            viewInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
+            if (HasStencilComponent(m_depthStencilFormat)) {
+                viewInfo.subresourceRange.aspectMask |= VK_IMAGE_ASPECT_STENCIL_BIT;
+            }
+            viewInfo.subresourceRange.baseMipLevel = 0;
+            viewInfo.subresourceRange.levelCount = 1;
+            viewInfo.subresourceRange.baseArrayLayer = 0;
+            viewInfo.subresourceRange.layerCount = 1;
+            VK_VERIFY(vkCreateImageView(device, &viewInfo, nullptr, &m_depthStencilImageViews[i]),
+                      "vkCreateImageView(depth)");
+        }
+    }
+
+    void SwapchainObject::DestroyDepthStencilResources(VkDevice device) {
+        for (auto view : m_depthStencilImageViews) {
+            if (view != VK_NULL_HANDLE) {
+                vkDestroyImageView(device, view, nullptr);
+            }
+        }
+        m_depthStencilImageViews.clear();
+
+        for (auto image : m_depthStencilImages) {
+            if (image != VK_NULL_HANDLE) {
+                vkDestroyImage(device, image, nullptr);
+            }
+        }
+        m_depthStencilImages.clear();
+
+        for (auto memory : m_depthStencilImageMemories) {
+            if (memory != VK_NULL_HANDLE) {
+                vkFreeMemory(device, memory, nullptr);
+            }
+        }
+        m_depthStencilImageMemories.clear();
+        m_depthStencilImageLayouts.clear();
+        m_depthStencilFormat = VK_FORMAT_UNDEFINED;
     }
 
     void SwapchainObject::Shutdown(VkDevice device) {
+        DestroyDepthStencilResources(device);
+
         for (auto imageView : m_imageViews) {
             vkDestroyImageView(device, imageView, nullptr);
         }
@@ -219,6 +382,29 @@ namespace MobileGL::MG_Backend::DirectVulkan {
     void SwapchainObject::SetImageLayout(Uint32 index, VkImageLayout layout) {
         MOBILEGL_ASSERT(index < m_imageLayouts.size(), "Swapchain image layout index out of range");
         m_imageLayouts[index] = layout;
+    }
+
+    VkImage SwapchainObject::GetDepthStencilImage(Uint32 index) const {
+        MOBILEGL_ASSERT(index < m_depthStencilImages.size(), "Swapchain depth/stencil image index out of range");
+        return m_depthStencilImages[index];
+    }
+
+    VkImageView SwapchainObject::GetDepthStencilImageView(Uint32 index) const {
+        MOBILEGL_ASSERT(index < m_depthStencilImageViews.size(),
+                        "Swapchain depth/stencil image view index out of range");
+        return m_depthStencilImageViews[index];
+    }
+
+    VkImageLayout SwapchainObject::GetDepthStencilImageLayout(Uint32 index) const {
+        MOBILEGL_ASSERT(index < m_depthStencilImageLayouts.size(),
+                        "Swapchain depth/stencil image layout index out of range");
+        return m_depthStencilImageLayouts[index];
+    }
+
+    void SwapchainObject::SetDepthStencilImageLayout(Uint32 index, VkImageLayout layout) {
+        MOBILEGL_ASSERT(index < m_depthStencilImageLayouts.size(),
+                        "Swapchain depth/stencil image layout index out of range");
+        m_depthStencilImageLayouts[index] = layout;
     }
 
     void SwapchainObject::CreateImageViews(VkDevice device) {

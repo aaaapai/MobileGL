@@ -9,18 +9,19 @@
 #pragma once
 
 #include "VkBufferObject.h"
-#include "VkTextureSamplerManager.h"
+#include "VkSamplerManager.h"
+#include "VkTextureManager.h"
 #include "../VkIncludes.h"
 #include <Includes.h>
 #include <vk_mem_alloc.h>
 
 namespace MobileGL::MG_State::GLState {
+    class ITextureObject;
     class ProgramObject;
+    class SamplerObject;
 }
 
 namespace MobileGL::MG_Backend::DirectVulkan {
-    class VkFramebufferManager;
-
     class UniformDescriptorBinder {
     public:
         enum class BindingKind : Uint8 {
@@ -29,17 +30,27 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             CombinedImageSampler
         };
 
+        struct SamplerBindingOverride {
+            Uint32 binding = 0;
+            MG_State::GLState::ITextureObject* texture = nullptr;
+            const MG_State::GLState::SamplerObject* sampler = nullptr;
+        };
+
         Bool Initialize(VkDevice device, VmaAllocator allocator, VkDeviceSize minUniformBufferOffsetAlignment,
                         Uint32 frameCount, Uint32 maxBindings = 16, Uint32 setsPerFrame = 64,
                         VkDeviceSize perFrameUploadBytes = 4 * 1024 * 1024,
-                        VkTextureSamplerManager* textureSamplerManager = nullptr,
-                        VkFramebufferManager* framebufferManager = nullptr);
+                        VkTextureManager* textureManager = nullptr, VkSamplerManager* samplerManager = nullptr);
         void Shutdown();
 
         void BeginFrame(Uint32 frameIndex);
         VkPipelineLayout GetOrCreatePipelineLayout(const MG_State::GLState::ProgramObject& program);
-        Bool BindProgramUniformBuffers(VkCommandBuffer commandBuffer, VkPipelineLayout pipelineLayout,
+        Bool CollectSampledTextures(const MG_State::GLState::ProgramObject& program,
+                                    Vector<MG_State::GLState::ITextureObject*>& outTextures);
+        Bool BindProgramUniformBuffers(VkCommandBuffer commandBuffer,
                                        const MG_State::GLState::ProgramObject& program, Uint32 frameIndex);
+        Bool BindProgramUniformBuffers(VkCommandBuffer commandBuffer,
+                                       const MG_State::GLState::ProgramObject& program, Uint32 frameIndex,
+                                       const SamplerBindingOverride* samplerBindingOverride);
 
     private:
         struct DescriptorPoolBucket {
@@ -74,9 +85,13 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         static TextureTarget UniformTypeToTextureTarget(GLenum glType);
         Bool ReflectSamplerBindings(const MG_State::GLState::ProgramObject& program, ProgramLayout& layout) const;
         Bool ReflectGlobalUboBinding(const MG_State::GLState::ProgramObject& program, ProgramLayout& layout) const;
+        Bool ResolveSamplerTexture(const MG_State::GLState::ProgramObject& program, const ProgramLayout& layout,
+                                   Uint32 binding, SharedPtr<MG_State::GLState::ITextureObject>& outTexture) const;
         Bool ResolveSamplerDescriptor(VkCommandBuffer commandBuffer, const MG_State::GLState::ProgramObject& program,
                                       const ProgramLayout& layout, Uint32 binding,
                                       VkDescriptorImageInfo& outImageInfo) const;
+        Bool ResolveSamplerDescriptorOverride(const SamplerBindingOverride& samplerBindingOverride,
+                                              VkDescriptorImageInfo& outImageInfo) const;
         Bool ReflectBindingKinds(const MG_State::GLState::ProgramObject& program, Vector<BindingKind>& outKinds) const;
         ProgramLayout* GetOrCreateProgramLayout(const MG_State::GLState::ProgramObject& program);
         Bool AllocateUploadRegion(FrameResources& frame, VkDeviceSize size, VkDeviceSize& outOffset);
@@ -97,8 +112,8 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         Uint32 m_maxBindings = 0;
         Uint32 m_setsPerFrame = 0;
         Uint32 m_peakDescriptorSetsObserved = 0;
-        VkTextureSamplerManager* m_textureSamplerManager = nullptr;
-        VkFramebufferManager* m_framebufferManager = nullptr;
+        VkTextureManager* m_textureManager = nullptr;
+        VkSamplerManager* m_samplerManager = nullptr;
     };
 } // namespace MobileGL::MG_Backend::DirectVulkan
 

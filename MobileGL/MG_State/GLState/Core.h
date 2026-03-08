@@ -112,7 +112,7 @@ namespace MobileGL {
                 void SetClearDepth(Float depth);
                 Float GetClearDepth() const;
                 void SetClearStencil(Int stencil);
-                Int GetClearStencil() const;
+                Uint32 GetClearStencil() const;
                 void SetPixelStoreParam(PixelStoreParam param, Int value);
                 Int GetPixelStoreParam(PixelStoreParam param) const;
                 PixelStoreParameters GetPixelStoreParameters(Bool isUnpack) const;

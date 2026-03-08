@@ -19,7 +19,8 @@ namespace MobileGL {
         };
     } // namespace MG_External
     namespace MG_Util::BackendLoader {
-        Bool QueryVulkanCapabilities(MobileGL::MG_External::VulkanCapabilities& caps, VkPhysicalDevice physicalDevice);
+        Bool QueryVulkanCapabilities(MobileGL::MG_External::VulkanCapabilities& caps, VkInstance instance,
+                                     VkPhysicalDevice physicalDevice);
         void FillInVulkanCapabilities(MobileGL::MG_External::VulkanCapabilities& caps,
                                       VkPhysicalDeviceProperties properties);
     } // namespace MG_Util::BackendLoader
