@@ -233,7 +233,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                 imageCount);
 
         // Properly initialize Default FBO here
-        auto* defaultFBOInfo = MG_Impl::GLImpl::FramebufferImpl::pDefaultFramebufferInfo;
+        auto& defaultFBOInfo = MG_Impl::GLImpl::FramebufferImpl::pDefaultFramebufferInfo;
         auto* colorTex = static_cast<MG_State::GLState::TextureObject2D*>(defaultFBOInfo->colorAttachment.get());
         colorTex->AllocateStorage(
             TextureUploadTarget::Texture2D, 0, {
