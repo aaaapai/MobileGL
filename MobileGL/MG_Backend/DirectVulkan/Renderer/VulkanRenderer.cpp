@@ -1764,12 +1764,8 @@ void main() {
 
     Bool VulkanRenderer::IsExtensionAlreadyEnabled(const Vector<const char*>& enabledExtensions,
                                                    const char* extensionName) {
-        for (const char* enabledExtensionName : enabledExtensions) {
-            if (strcmp(enabledExtensionName, extensionName) == 0) {
-                return true;
-            }
-        }
-        return false;
+        return std::any_of(enabledExtensions.begin(), enabledExtensions.end(),
+                           [&extensionName](const String& name) { return name == extensionName; });
     }
 
     Bool VulkanRenderer::EnableOptionalDeviceExtension(const Vector<VkExtensionProperties>& availableExtensions,

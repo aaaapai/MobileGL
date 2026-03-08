@@ -9,8 +9,6 @@
 #pragma once
 #include <Includes.h>
 
-namespace MobileGL {
-    namespace MG_Impl {
-        void* GetProcAddress(const char* name);
-    } // namespace MG_Impl
-} // namespace MobileGL
+namespace MobileGL::MG_Impl {
+    void* GetProcAddress(const char* name);
+} // namespace MobileGL::MG_Impl

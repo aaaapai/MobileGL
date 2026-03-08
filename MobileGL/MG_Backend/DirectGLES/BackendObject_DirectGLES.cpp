@@ -13,16 +13,24 @@
 #include <format>
 
 namespace MobileGL::MG_Backend::DirectGLES {
+    namespace {
+        Bool IsReleaseCurrentRequest(EGLDisplay dpy, EGLSurface draw, EGLSurface read, EGLContext ctx) {
+            return dpy == EGL_NO_DISPLAY && draw == EGL_NO_SURFACE && read == EGL_NO_SURFACE && ctx == EGL_NO_CONTEXT;
+        }
+    } // namespace
+
     BackendObject_DirectGLES::~BackendObject_DirectGLES() {
         DestroyEGLContext();
     }
 
-    void BackendObject_DirectGLES::InitWindowSurface() {
+    Bool BackendObject_DirectGLES::InitWindowSurface() {
         // Only use EGL for now
         auto nativeWindow = reinterpret_cast<NativeWindowType>(m_windowHandle.Handle);
         if (!DirectGLES::InitWindowSurface(nativeWindow)) {
             MGLOG_E("Failed to initialize window surface for DirectGLES backend");
+            return false;
         }
+        return true;
     }
 
     void BackendObject_DirectGLES::Initialize() {
@@ -40,18 +48,65 @@ namespace MobileGL::MG_Backend::DirectGLES {
         DirectGLES::SetGLESFuncsTable(m_GLESFunctions);
     }
 
-    void BackendObject_DirectGLES::InitCapabilities() {
+    Bool BackendObject_DirectGLES::InitCapabilities() {
         if (!m_initialized) {
             MGLOG_E("DirectGLES backend not initialized");
-            return;
+            return false;
         }
 
         if (!MG_Util::BackendLoader::FillInGLESCapabilities(m_GLESCapabilities, m_GLESFunctions)) {
             MGLOG_E("Failed to fill in GLES capabilities for DirectGLES backend");
-            return;
+            return false;
         }
         DirectGLES::SetGLESCapabilities(m_GLESCapabilities);
         UpdateDynamicBackendParameters();
+        return true;
+    }
+
+    Bool BackendObject_DirectGLES::InitializeEGLDisplay(EGLDisplay dpy, EGLint* major, EGLint* minor) {
+        if (!m_initialized) {
+            MGLOG_E("DirectGLES backend not initialized");
+            return false;
+        }
+        return BackendObject::InitializeEGLDisplay(dpy, major, minor);
+    }
+
+    Bool BackendObject_DirectGLES::CreateEGLWindowSurface(const WindowHandle& handle) {
+        const std::lock_guard<std::recursive_mutex> lock(m_eglStateMutex);
+        if (!m_initialized) {
+            MGLOG_E("DirectGLES backend not initialized");
+            return false;
+        }
+
+        if (handle.Backend != WindowBackend::Android || !handle.Handle) {
+            MGLOG_E("DirectGLES backend only supports Android native windows");
+            return false;
+        }
+
+        const Bool sameHandle =
+            m_eglWindowSurfaceInitialized && m_windowHandle.Backend == handle.Backend && m_windowHandle.Handle == handle.Handle;
+        if (sameHandle) {
+            return true;
+        }
+
+        if (m_eglWindowSurfaceInitialized) {
+            DestroyEGLContext();
+            ResetEGLRuntimeState();
+        }
+
+        return BackendObject::CreateEGLWindowSurface(handle);
+    }
+
+    Bool BackendObject_DirectGLES::MakeEGLCurrent(EGLDisplay dpy, EGLSurface draw, EGLSurface read, EGLContext ctx) {
+        if (IsReleaseCurrentRequest(dpy, draw, read, ctx)) {
+            return BackendObject::MakeEGLCurrent(dpy, draw, read, ctx);
+        }
+
+        return BackendObject::MakeEGLCurrent(dpy, draw, read, ctx);
+    }
+
+    Bool BackendObject_DirectGLES::SwapEGLBuffers(EGLDisplay dpy, EGLSurface draw) {
+        return BackendObject::SwapEGLBuffers(dpy, draw);
     }
 
     const RendererInfo& BackendObject_DirectGLES::GetRendererInfo() const {

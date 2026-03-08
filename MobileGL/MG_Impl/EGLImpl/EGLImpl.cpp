@@ -9,177 +9,451 @@
 #include "EGLImpl.h"
 #include "../GetProcAddress.h"
 #include <MG_Backend/BackendObjects.h>
+#include <MG_State/EGLState/Core.h>
+#include <type_traits>
 
 namespace MobileGL::MG_Impl::EGLImpl {
+    namespace {
+        using EGLStateContext = MG_State::EGLState::EGLContext;
+
+        EGLStateContext* GetState() {
+            if (!MG_State::pEGLContext) {
+                MGLOG_E("pEGLContext is null. MG_State may not be initialized.");
+            }
+            return MG_State::pEGLContext.get();
+        }
+
+        MG_Backend::BackendObject* GetBackendObject(EGLStateContext* state) {
+            auto* backendObject = MG_Backend::pActiveBackendObject.get();
+            if (!backendObject && state) {
+                state->SetError(EGL_NOT_INITIALIZED);
+            }
+            return backendObject;
+        }
+
+        MG_Backend::WindowBackend DetectWindowBackend() {
+#if defined(ANDROID) || defined(__ANDROID__)
+            return MG_Backend::WindowBackend::Android;
+#else
+            return MG_Backend::WindowBackend::Unknown;
+#endif
+        }
+
+        template <typename NativeType>
+        Bool IsNullNativeHandle(NativeType nativeHandle) {
+            if constexpr (std::is_pointer_v<NativeType>) {
+                return nativeHandle == nullptr;
+            } else {
+                return nativeHandle == 0;
+            }
+        }
+
+        template <typename NativeType>
+        void* ToVoidHandle(NativeType nativeHandle) {
+            if constexpr (std::is_pointer_v<NativeType>) {
+                return reinterpret_cast<void*>(nativeHandle);
+            } else {
+                return reinterpret_cast<void*>(static_cast<SizeT>(nativeHandle));
+            }
+        }
+    } // namespace
+
     EGLSurface CreateWindowSurface(EGLDisplay dpy, EGLConfig config, NativeWindowType window,
                                    const EGLint* attrib_list) {
-        MGLOG_D("EGLImpl::CreateWindowSurface called with window=%p", window);
-        const auto& activeBackendObject = MG_Backend::pActiveBackendObject;
-        if (!activeBackendObject) {
+        auto* state = GetState();
+        if (!state) {
+            return EGL_NO_SURFACE;
+        }
+        if (!state->IsDisplayInitialized(dpy)) {
+            state->SetError(EGL_NOT_INITIALIZED);
+            return EGL_NO_SURFACE;
+        }
+        if (!state->ValidateConfigOnDisplay(dpy, config)) {
+            state->SetError(EGL_BAD_CONFIG);
+            return EGL_NO_SURFACE;
+        }
+        if (IsNullNativeHandle(window)) {
+            state->SetError(EGL_BAD_NATIVE_WINDOW);
+            return EGL_NO_SURFACE;
+        }
+
+        auto* backendObject = GetBackendObject(state);
+        if (!backendObject) {
             MGLOG_E("activeBackendObject not initialized!");
             return EGL_NO_SURFACE;
         }
-        activeBackendObject->SetWindowHandle({MG_Backend::WindowBackend::Android, reinterpret_cast<void*>(window)});
-        activeBackendObject->InitWindowSurface();
-        return (EGLSurface)1;
+
+        const MG_Backend::WindowHandle windowHandle = {
+            .Backend = DetectWindowBackend(),
+            .Handle = ToVoidHandle(window),
+        };
+        if (!backendObject->CreateEGLWindowSurface(windowHandle)) {
+            state->SetError(EGL_BAD_NATIVE_WINDOW);
+            return EGL_NO_SURFACE;
+        }
+
+        return state->CreateWindowSurface(dpy, config, window, attrib_list);
     }
 
     EGLBoolean SwapBuffers(EGLDisplay dpy, EGLSurface draw) {
-        MGLOG_D("EGLImpl::SwapBuffers called with dpy=%p", dpy);
-        if (!MG_Backend::gBackendFunctionsTable.Present) {
-            MGLOG_E("MG_Backend::gBackendFunctionsTable.Present not initialized!");
+        auto* state = GetState();
+        if (!state) {
             return EGL_FALSE;
         }
-        MG_Backend::gBackendFunctionsTable.Present();
+        if (!state->ValidateSurfaceOnDisplay(dpy, draw)) {
+            state->SetError(EGL_BAD_SURFACE);
+            return EGL_FALSE;
+        }
+
+        auto* backendObject = GetBackendObject(state);
+        if (!backendObject) {
+            MGLOG_E("activeBackendObject not initialized!");
+            return EGL_FALSE;
+        }
+        if (!backendObject->SwapEGLBuffers(dpy, draw)) {
+            state->SetError(EGL_BAD_SURFACE);
+            return EGL_FALSE;
+        }
         return EGL_TRUE;
     }
 
     EGLBoolean ChooseConfig(EGLDisplay dpy, const EGLint* attrib_list, EGLConfig* configs, EGLint config_size,
                             EGLint* num_config) {
-        *num_config = 1;
-        return EGL_TRUE;
+        auto* state = GetState();
+        if (!state) {
+            return EGL_FALSE;
+        }
+        return state->ChooseConfig(dpy, attrib_list, configs, config_size, num_config) ? EGL_TRUE : EGL_FALSE;
     }
 
     EGLContext CreateContext(EGLDisplay dpy, EGLConfig config, EGLContext shareCtx, const EGLint* attrib_list) {
-        return (EGLContext)1;
+        auto* state = GetState();
+        if (!state) {
+            return EGL_NO_CONTEXT;
+        }
+        return state->CreateContext(dpy, config, shareCtx, attrib_list);
     }
 
     EGLBoolean Initialize(EGLDisplay dpy, EGLint* major, EGLint* minor) {
-        if (major) *major = 1;
-        if (minor) *minor = 5;
+        auto* state = GetState();
+        if (!state) {
+            return EGL_FALSE;
+        }
+        if (!state->InitializeDisplay(dpy, major, minor)) {
+            return EGL_FALSE;
+        }
+
+        auto* backendObject = GetBackendObject(state);
+        if (!backendObject) {
+            MGLOG_E("activeBackendObject not initialized!");
+            return EGL_FALSE;
+        }
+        if (!backendObject->InitializeEGLDisplay(dpy, major, minor)) {
+            state->SetError(EGL_NOT_INITIALIZED);
+            return EGL_FALSE;
+        }
         return EGL_TRUE;
     }
 
     EGLDisplay GetDisplay(NativeDisplayType display) {
-        return (EGLDisplay)1;
+        auto* state = GetState();
+        if (!state) {
+            return EGL_NO_DISPLAY;
+        }
+        return state->GetDisplay(display);
     }
 
     EGLint GetError() {
-        return EGL_SUCCESS;
+        auto* state = GetState();
+        if (!state) {
+            return EGL_NOT_INITIALIZED;
+        }
+        return state->ConsumeError();
     }
 
     EGLBoolean MakeCurrent(EGLDisplay dpy, EGLSurface draw, EGLSurface read, EGLContext ctx) {
-        const auto& activeBackendObject = MG_Backend::pActiveBackendObject;
-        if (!activeBackendObject) {
-            MGLOG_E("activeBackendObject not initialized!");
+        auto* state = GetState();
+        if (!state) {
             return EGL_FALSE;
         }
-        activeBackendObject->InitCapabilities();
+
+        const auto oldDisplay = state->GetCurrentDisplay();
+        const auto oldDraw = state->GetCurrentSurface(EGL_DRAW);
+        const auto oldRead = state->GetCurrentSurface(EGL_READ);
+        const auto oldContext = state->GetCurrentContext();
+
+        if (!state->MakeCurrent(dpy, draw, read, ctx)) {
+            return EGL_FALSE;
+        }
+
+        const Bool releaseCurrentRequest =
+            dpy == EGL_NO_DISPLAY && draw == EGL_NO_SURFACE && read == EGL_NO_SURFACE && ctx == EGL_NO_CONTEXT;
+        if (releaseCurrentRequest) {
+            if (auto* backendObject = MG_Backend::pActiveBackendObject.get()) {
+                (void)backendObject->MakeEGLCurrent(dpy, draw, read, ctx);
+            }
+            return EGL_TRUE;
+        }
+
+        auto* backendObject = GetBackendObject(state);
+        if (!backendObject) {
+            MGLOG_E("activeBackendObject not initialized!");
+            state->MakeCurrent(oldDisplay, oldDraw, oldRead, oldContext);
+            return EGL_FALSE;
+        }
+        if (!backendObject->MakeEGLCurrent(dpy, draw, read, ctx)) {
+            state->SetError(EGL_BAD_ACCESS);
+            state->MakeCurrent(oldDisplay, oldDraw, oldRead, oldContext);
+            return EGL_FALSE;
+        }
         return EGL_TRUE;
     }
 
     EGLBoolean DestroyContext(EGLDisplay dpy, EGLContext ctx) {
-        return EGL_TRUE;
+        auto* state = GetState();
+        if (!state) {
+            return EGL_FALSE;
+        }
+        return state->DestroyContext(dpy, ctx) ? EGL_TRUE : EGL_FALSE;
     }
 
     EGLBoolean DestroySurface(EGLDisplay dpy, EGLSurface surface) {
-        return EGL_TRUE;
+        auto* state = GetState();
+        if (!state) {
+            return EGL_FALSE;
+        }
+        return state->DestroySurface(dpy, surface) ? EGL_TRUE : EGL_FALSE;
     }
 
     EGLBoolean Terminate(EGLDisplay dpy) {
-        return EGL_TRUE;
+        auto* state = GetState();
+        if (!state) {
+            return EGL_FALSE;
+        }
+        return state->TerminateDisplay(dpy) ? EGL_TRUE : EGL_FALSE;
     }
 
     EGLBoolean ReleaseThread() {
+        auto* state = GetState();
+        if (!state) {
+            return EGL_FALSE;
+        }
+        state->ReleaseThread();
         return EGL_TRUE;
     }
 
     EGLContext GetCurrentContext() {
-        return (EGLContext)1;
+        auto* state = GetState();
+        if (!state) {
+            return EGL_NO_CONTEXT;
+        }
+        return state->GetCurrentContext();
     }
 
     EGLBoolean GetConfigAttrib(EGLDisplay dpy, EGLConfig config, EGLint attribute, EGLint* value) {
-        if (attribute == EGL_NATIVE_VISUAL_ID) {
-#if defined(ANDROID)
-            *value = AHARDWAREBUFFER_FORMAT_R8G8B8A8_UNORM;
-            return EGL_TRUE;
-#elif defined(__linux__)
-            *value = 0;
-            return EGL_TRUE;
-#elif defined(_WIN32)
-            *value = 0;
-            return EGL_TRUE;
-#else
-            *value = 0;
+        auto* state = GetState();
+        if (!state) {
             return EGL_FALSE;
-#endif
+        }
+        return state->GetConfigAttrib(dpy, config, attribute, value) ? EGL_TRUE : EGL_FALSE;
+    }
+
+    EGLBoolean BindAPI(EGLenum api) {
+        auto* state = GetState();
+        if (!state) {
+            return EGL_FALSE;
+        }
+        switch (api) {
+        case EGL_OPENGL_API:
+        case EGL_OPENGL_ES_API:
+        case EGL_OPENVG_API:
+            state->SetBoundAPI(api);
+            return EGL_TRUE;
+        default:
+            state->SetError(EGL_BAD_PARAMETER);
+            return EGL_FALSE;
+        }
+    }
+
+    EGLSurface GetCurrentSurface(EGLint readdraw) {
+        auto* state = GetState();
+        if (!state) {
+            return EGL_NO_SURFACE;
+        }
+        return state->GetCurrentSurface(readdraw);
+    }
+
+    EGLBoolean QuerySurface(EGLDisplay display, EGLSurface surface, EGLint attribute, EGLint* value) {
+        auto* state = GetState();
+        if (!state) {
+            return EGL_FALSE;
+        }
+        return state->QuerySurface(display, surface, attribute, value) ? EGL_TRUE : EGL_FALSE;
+    }
+
+    char const* QueryString(EGLDisplay display, EGLint name) {
+        auto* state = GetState();
+        if (!state) {
+            return nullptr;
+        }
+
+        if (display != EGL_NO_DISPLAY && !state->ValidateDisplay(display)) {
+            state->SetError(EGL_BAD_DISPLAY);
+            return nullptr;
+        }
+
+        switch (name) {
+        case EGL_VENDOR:
+            return "MobileGL";
+        case EGL_VERSION:
+            return "1.5 MobileGL";
+        case EGL_CLIENT_APIS:
+            return "OpenGL OpenGL_ES";
+        case EGL_EXTENSIONS:
+            return "";
+        default:
+            state->SetError(EGL_BAD_PARAMETER);
+            return nullptr;
+        }
+    }
+
+    EGLBoolean SwapInterval(EGLDisplay dpy, EGLint interval) {
+        auto* state = GetState();
+        if (!state) {
+            return EGL_FALSE;
+        }
+        return state->SwapInterval(dpy, interval) ? EGL_TRUE : EGL_FALSE;
+    }
+
+    EGLSurface CreatePbufferSurface(EGLDisplay dpy, EGLConfig config, const EGLint* attrib_list) {
+        auto* state = GetState();
+        if (!state) {
+            return EGL_NO_SURFACE;
+        }
+        return state->CreatePbufferSurface(dpy, config, attrib_list);
+    }
+
+    EGLBoolean BindTexImage(EGLDisplay dpy, EGLSurface surface, EGLint buffer) {
+        auto* state = GetState();
+        if (!state) {
+            return EGL_FALSE;
+        }
+        if (!state->ValidateSurfaceOnDisplay(dpy, surface)) {
+            state->SetError(EGL_BAD_SURFACE);
+            return EGL_FALSE;
+        }
+        if (buffer != EGL_BACK_BUFFER) {
+            state->SetError(EGL_BAD_PARAMETER);
+            return EGL_FALSE;
         }
         return EGL_TRUE;
     }
 
-    EGLBoolean BindAPI(EGLenum api) {
-        return EGL_TRUE;
-    }
-
-    EGLSurface GetCurrentSurface(EGLint readdraw) {
-        return (EGLSurface)1;
-    }
-
-    EGLBoolean QuerySurface(EGLDisplay display, EGLSurface surface, EGLint attribute, EGLint* value) {
-        return EGL_TRUE;
-    }
-
-    char const* QueryString(EGLDisplay display, EGLint name) {
-        return "";
-    }
-
-    EGLBoolean SwapInterval(EGLDisplay dpy, EGLint interval) {
-        return EGL_TRUE;
-    }
-
-    EGLSurface CreatePbufferSurface(EGLDisplay dpy, EGLConfig config, const EGLint* attrib_list) {
-        return (EGLSurface)1;
-    }
-
-    EGLBoolean BindTexImage(EGLDisplay dpy, EGLSurface surface, EGLint buffer) {
-        return EGL_TRUE;
-    }
-
     EGLBoolean ReleaseTexImage(EGLDisplay dpy, EGLSurface surface, EGLint buffer) {
+        auto* state = GetState();
+        if (!state) {
+            return EGL_FALSE;
+        }
+        if (!state->ValidateSurfaceOnDisplay(dpy, surface)) {
+            state->SetError(EGL_BAD_SURFACE);
+            return EGL_FALSE;
+        }
+        if (buffer != EGL_BACK_BUFFER) {
+            state->SetError(EGL_BAD_PARAMETER);
+            return EGL_FALSE;
+        }
         return EGL_TRUE;
     }
 
     EGLBoolean CopyBuffers(EGLDisplay dpy, EGLSurface surface, EGLNativePixmapType target) {
+        auto* state = GetState();
+        if (!state) {
+            return EGL_FALSE;
+        }
+        if (!state->ValidateSurfaceOnDisplay(dpy, surface)) {
+            state->SetError(EGL_BAD_SURFACE);
+            return EGL_FALSE;
+        }
+        if (IsNullNativeHandle(target)) {
+            state->SetError(EGL_BAD_NATIVE_PIXMAP);
+            return EGL_FALSE;
+        }
         return EGL_TRUE;
     }
 
     EGLSurface CreatePbufferFromClientBuffer(EGLDisplay dpy, EGLenum buftype, EGLClientBuffer buffer, EGLConfig config,
                                              const EGLint* attrib_list) {
-        return (EGLSurface)1;
+        auto* state = GetState();
+        if (!state) {
+            return EGL_NO_SURFACE;
+        }
+        return state->CreatePbufferFromClientBuffer(dpy, buftype, buffer, config, attrib_list);
     }
 
     EGLSurface CreatePixmapSurface(EGLDisplay dpy, EGLConfig config, EGLNativePixmapType pixmap,
                                    const EGLint* attrib_list) {
-        return (EGLSurface)1;
+        auto* state = GetState();
+        if (!state) {
+            return EGL_NO_SURFACE;
+        }
+        return state->CreatePixmapSurface(dpy, config, pixmap, attrib_list);
     }
 
     EGLBoolean GetConfigs(EGLDisplay dpy, EGLConfig* configs, EGLint config_size, EGLint* num_config) {
-        if (num_config) {
-            *num_config = 1;
+        auto* state = GetState();
+        if (!state) {
+            return EGL_FALSE;
         }
-        if (configs && config_size > 0) {
-            configs[0] = (EGLConfig)1;
-        }
-        return EGL_TRUE;
+        return state->GetConfigs(dpy, configs, config_size, num_config) ? EGL_TRUE : EGL_FALSE;
     }
 
     EGLDisplay GetCurrentDisplay() {
-        return (EGLDisplay)1;
+        auto* state = GetState();
+        if (!state) {
+            return EGL_NO_DISPLAY;
+        }
+        return state->GetCurrentDisplay();
     }
 
     EGLenum QueryAPI() {
-        return EGL_OPENGL_API;
+        auto* state = GetState();
+        if (!state) {
+            return EGL_OPENGL_API;
+        }
+        return state->GetBoundAPI();
     }
 
     EGLBoolean QueryContext(EGLDisplay dpy, EGLContext ctx, EGLint attribute, EGLint* value) {
-        if (value) {
-            *value = 1;
+        auto* state = GetState();
+        if (!state) {
+            return EGL_FALSE;
         }
-        return EGL_TRUE;
+        return state->QueryContext(dpy, ctx, attribute, value) ? EGL_TRUE : EGL_FALSE;
     }
 
     EGLBoolean SurfaceAttrib(EGLDisplay dpy, EGLSurface surface, EGLint attribute, EGLint value) {
-        return EGL_TRUE;
+        (void)value;
+
+        auto* state = GetState();
+        if (!state) {
+            return EGL_FALSE;
+        }
+        if (!state->ValidateSurfaceOnDisplay(dpy, surface)) {
+            state->SetError(EGL_BAD_SURFACE);
+            return EGL_FALSE;
+        }
+
+        switch (attribute) {
+        case EGL_MIPMAP_LEVEL:
+        case EGL_SWAP_BEHAVIOR:
+        case EGL_TEXTURE_FORMAT:
+        case EGL_TEXTURE_TARGET:
+        case EGL_MIPMAP_TEXTURE:
+            return EGL_TRUE;
+        default:
+            state->SetError(EGL_BAD_ATTRIBUTE);
+            return EGL_FALSE;
+        }
     }
 
     EGLBoolean WaitClient() {
@@ -191,60 +465,132 @@ namespace MobileGL::MG_Impl::EGLImpl {
     }
 
     EGLBoolean WaitNative(EGLint engine) {
+        (void)engine;
         return EGL_TRUE;
     }
 
     EGLSync CreateSync(EGLDisplay dpy, EGLenum type, const EGLAttrib* attrib_list) {
-        return reinterpret_cast<EGLSync>(0x1);
+        auto* state = GetState();
+        if (!state) {
+            return EGL_NO_SYNC;
+        }
+        return state->CreateSync(dpy, type, attrib_list);
     }
 
-    EGLBoolean DestroySync(void* dpy, void* sync) {
-        return EGL_TRUE;
+    EGLBoolean DestroySync(EGLDisplay dpy, EGLSync sync) {
+        auto* state = GetState();
+        if (!state) {
+            return EGL_FALSE;
+        }
+        return state->DestroySync(dpy, sync) ? EGL_TRUE : EGL_FALSE;
     }
 
     EGLint ClientWaitSync(EGLDisplay dpy, EGLSync sync, EGLint flags, EGLTime timeout) {
-        return EGL_CONDITION_SATISFIED;
+        auto* state = GetState();
+        if (!state) {
+            return EGL_FALSE;
+        }
+        return state->ClientWaitSync(dpy, sync, flags, timeout);
     }
 
     EGLBoolean GetSyncAttrib(EGLDisplay dpy, EGLSync sync, EGLint attribute, EGLAttrib* value) {
-        if (value) {
-            *value = 1;
+        auto* state = GetState();
+        if (!state) {
+            return EGL_FALSE;
         }
-        return EGL_TRUE;
+        return state->GetSyncAttrib(dpy, sync, attribute, value) ? EGL_TRUE : EGL_FALSE;
     }
 
     EGLImage CreateImage(EGLDisplay dpy, EGLContext ctx, EGLenum target, EGLClientBuffer buffer,
                          const EGLAttrib* attrib_list) {
-        return reinterpret_cast<EGLImage>(0x1);
+        auto* state = GetState();
+        if (!state) {
+            return EGL_NO_IMAGE;
+        }
+        return state->CreateImage(dpy, ctx, target, buffer, attrib_list);
     }
 
     EGLBoolean DestroyImage(EGLDisplay dpy, EGLImage image) {
-        return EGL_TRUE;
+        auto* state = GetState();
+        if (!state) {
+            return EGL_FALSE;
+        }
+        return state->DestroyImage(dpy, image) ? EGL_TRUE : EGL_FALSE;
     }
 
     EGLDisplay GetPlatformDisplay(EGLenum platform, void* native_display, const EGLAttrib* attrib_list) {
-        return reinterpret_cast<EGLDisplay>(0x1);
+        (void)attrib_list;
+
+        auto* state = GetState();
+        if (!state) {
+            return EGL_NO_DISPLAY;
+        }
+        return state->GetPlatformDisplay(platform, native_display);
     }
 
     EGLSurface CreatePlatformWindowSurface(EGLDisplay dpy, EGLConfig config, void* native_window,
                                            const EGLAttrib* attrib_list) {
-        return reinterpret_cast<EGLSurface>(0x1);
+        auto* state = GetState();
+        if (!state) {
+            return EGL_NO_SURFACE;
+        }
+        if (native_window == nullptr) {
+            state->SetError(EGL_BAD_NATIVE_WINDOW);
+            return EGL_NO_SURFACE;
+        }
+        if (!state->IsDisplayInitialized(dpy)) {
+            state->SetError(EGL_NOT_INITIALIZED);
+            return EGL_NO_SURFACE;
+        }
+        if (!state->ValidateConfigOnDisplay(dpy, config)) {
+            state->SetError(EGL_BAD_CONFIG);
+            return EGL_NO_SURFACE;
+        }
+
+        auto* backendObject = GetBackendObject(state);
+        if (!backendObject) {
+            MGLOG_E("activeBackendObject not initialized!");
+            return EGL_NO_SURFACE;
+        }
+
+        const MG_Backend::WindowHandle windowHandle = {
+            .Backend = DetectWindowBackend(),
+            .Handle = native_window,
+        };
+        if (!backendObject->CreateEGLWindowSurface(windowHandle)) {
+            state->SetError(EGL_BAD_NATIVE_WINDOW);
+            return EGL_NO_SURFACE;
+        }
+
+        return state->CreatePlatformWindowSurface(dpy, config, native_window, attrib_list);
     }
 
     EGLSurface CreatePlatformPixmapSurface(EGLDisplay dpy, EGLConfig config, void* native_pixmap,
                                            const EGLAttrib* attrib_list) {
-        return reinterpret_cast<EGLSurface>(0x1);
+        auto* state = GetState();
+        if (!state) {
+            return EGL_NO_SURFACE;
+        }
+        return state->CreatePlatformPixmapSurface(dpy, config, native_pixmap, attrib_list);
     }
 
-    EGLBoolean WaitSync(void* dpy, void* sync, int flags) {
-        return EGL_TRUE;
+    EGLBoolean WaitSync(EGLDisplay dpy, EGLSync sync, EGLint flags) {
+        auto* state = GetState();
+        if (!state) {
+            return EGL_FALSE;
+        }
+        return state->WaitSync(dpy, sync, flags) ? EGL_TRUE : EGL_FALSE;
     }
 
     __eglMustCastToProperFunctionPointerType GetProcAddress(const char* name) {
+        if (!name) {
+            return nullptr;
+        }
+
         MGLOG_D("eglGetProcAddress(%s)", name);
         void* proc = MG_Impl::GetProcAddress(name);
         if (!proc) {
-            MGLOG_W("Failed to get function: %s", (const char*)name);
+            MGLOG_W("Failed to get function: %s", name);
             return nullptr;
         }
         return (__eglMustCastToProperFunctionPointerType)proc;

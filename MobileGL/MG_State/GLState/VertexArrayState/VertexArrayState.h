@@ -18,14 +18,14 @@ namespace MobileGL {
             public:
                 VertexArrayState();
 
-                SharedPtr<VertexArrayObject> GetVertexArrayObject(Uint index);
-                Vector<Uint> GenerateNames(Uint number);
+                const SharedPtr<VertexArrayObject>& GetVertexArrayObject(Uint index);
+                void GenerateNames(Uint number, Vector<Uint>& arrays);
                 void Bind(Uint index);
-                SharedPtr<VertexArrayObject> CreateVertexArrayObject(Uint index);
+                const SharedPtr<VertexArrayObject>& CreateVertexArrayObject(Uint index);
                 void MarkVertexArrayForDeletion(Uint index);
                 Bool ValidateName(Uint index) const;
                 Bool ValidateVertexArrayObject(Uint index) const;
-                SharedPtr<VertexArrayObject> GetBoundVertexArray();
+                const SharedPtr<VertexArrayObject>& GetBoundVertexArray();
                 Vector<SharedPtr<VertexArrayObject>>& GetAllVertexArrays();
 
             private:

@@ -14,26 +14,24 @@
 namespace MobileGL {
     struct Error {
         ErrorCode code;
-        SharedPtr<ErrorInfo> info;
+        UniquePtr<ErrorInfo> info;
     };
 
-    namespace MG_State {
-        namespace GLState {
-            class ErrorState {
-            public:
-                void RecordError(ErrorCode code, SharedPtr<ErrorInfo> info = nullptr);
-                Bool HasNonGLError() const;
-                Optional<const Error> PeekNonGLError() const;
-                Optional<Error> PopNonGLError();
-                Bool HasGLError() const;
-                Optional<const Error> PeekGLError() const;
-                Optional<Error> PopGLError();
-                void Clear();
+    namespace MG_State::GLState {
+        class ErrorState {
+        public:
+            void RecordError(ErrorCode code, UniquePtr<ErrorInfo> info);
+            Bool HasNonGLError() const;
+            Optional<const Error*> PeekNonGLError() const;
+            Optional<UniquePtr<Error>> PopNonGLError();
+            Bool HasGLError() const;
+            Optional<const Error*> PeekGLError() const;
+            Optional<UniquePtr<Error>> PopGLError();
+            void Clear();
 
-            private:
-                Vector<Error> m_errors;
-                Vector<Error> m_nonGLErrors;
-            };
-        } // namespace GLState
-    } // namespace MG_State
+        private:
+            Vector<UniquePtr<Error>> m_errors;
+            Vector<UniquePtr<Error>> m_nonGLErrors;
+        };
+    } // namespace MG_State::GLState
 } // namespace MobileGL

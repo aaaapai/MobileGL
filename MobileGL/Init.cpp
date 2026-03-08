@@ -10,6 +10,7 @@
 #include "Config.h"
 #include <MG_Backend/BackendObjects.h>
 #include <MG_State/GLState/Core.h>
+#include <MG_State/EGLState/Core.h>
 #include <MG_Impl/GLImpl/Texture/ProxyTexture.h>
 #include <MG_Impl/GLImpl/Framebuffer/GL_Framebuffer.h>
 
@@ -33,9 +34,10 @@ namespace MobileGL {
     void Destroy() {
         MGLOG_I("MobileGL closing...");
         glslang::FinalizeProcess();
-        delete MG_State::pGLContext;
-        delete MG_Impl::GLImpl::TextureImpl::pProxyTextureManager;
-        delete MG_Impl::GLImpl::FramebufferImpl::pDefaultFramebufferInfo;
+        MG_State::pGLContext.reset();
+        MG_State::pEGLContext.reset();
+        MG_Impl::GLImpl::TextureImpl::pProxyTextureManager.reset();
+        MG_Impl::GLImpl::FramebufferImpl::pDefaultFramebufferInfo.reset();
         MG_Util::Debug::Close();
 
         // TODO: add and use Destroy functions for other subsystems

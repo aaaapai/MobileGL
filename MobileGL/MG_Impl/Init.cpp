@@ -18,25 +18,27 @@
 namespace MobileGL::MG_Impl {
     void Init() {
         MGLOG_D("Initializing MobileGL Implementation...");
-        GLImpl::TextureImpl::pProxyTextureManager = new GLImpl::TextureImpl::ProxyTextureManager();
+        GLImpl::TextureImpl::pProxyTextureManager = MakeUnique<GLImpl::TextureImpl::ProxyTextureManager>();
 
         // TODO: get real info in EGL
-        auto fbo0 = MG_State::pGLContext->CreateFramebufferObject(0);
+        auto& fbo0 = MG_State::pGLContext->CreateFramebufferObject(0);
         auto colorTex = MakeShared<MG_State::GLState::TextureObject2D>(0);
         colorTex->SetInternalFormat(TextureInternalFormat::RGBA8);
         colorTex->AllocateStorage(TextureUploadTarget::Texture2D, 0, {{512, 512, 1}, 0});
-
+        // colorTex->SetMipmapLevel({{512, 512, 1}, 0, false, 0, {nullptr, 0}});
         auto depthTex = MakeShared<MG_State::GLState::TextureObject2D>(0);
         depthTex->SetInternalFormat(TextureInternalFormat::Depth32FStencil8);
         depthTex->AllocateStorage(TextureUploadTarget::Texture2D, 0, {{512, 512, 1}, 0});
+        // depthTex->SetMipmapLevel({{512, 512, 1}, 0, false, 0, {nullptr, 0}});
         auto stencilTex = MakeShared<MG_State::GLState::TextureObject2D>(0);
         stencilTex->SetInternalFormat(TextureInternalFormat::Depth32FStencil8);
         stencilTex->AllocateStorage(TextureUploadTarget::Texture2D, 0, {{512, 512, 1}, 0});
+        // stencilTex->SetMipmapLevel({{512, 512, 1}, 0, false, 0, {nullptr, 0}});
         fbo0->AttachTexture(FramebufferAttachmentType::Color0, colorTex);
         fbo0->AttachTexture(FramebufferAttachmentType::Depth, depthTex);
         fbo0->AttachTexture(FramebufferAttachmentType::Stencil, stencilTex);
         GLImpl::FramebufferImpl::pDefaultFramebufferInfo =
-            new GLImpl::FramebufferImpl::DefaultFramebufferInfo(fbo0, colorTex, depthTex, stencilTex);
+            MakeUnique<GLImpl::FramebufferImpl::DefaultFramebufferInfo>(fbo0, colorTex, depthTex, stencilTex);
         MG_State::pGLContext->GetFramebufferBindingSlot(FramebufferTarget::Draw).Bind(fbo0);
         MG_State::pGLContext->GetFramebufferBindingSlot(FramebufferTarget::Read).Bind(fbo0);
     }

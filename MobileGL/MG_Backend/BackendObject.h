@@ -91,8 +91,13 @@ namespace MobileGL {
             virtual ~BackendObject() = default;
 
             virtual void Initialize() = 0;
-            virtual void InitCapabilities() = 0;
-            virtual void InitWindowSurface() = 0;
+            virtual Bool InitCapabilities() = 0;
+            virtual Bool InitWindowSurface() = 0;
+
+            virtual Bool InitializeEGLDisplay(EGLDisplay dpy, EGLint* major, EGLint* minor);
+            virtual Bool CreateEGLWindowSurface(const WindowHandle& handle);
+            virtual Bool MakeEGLCurrent(EGLDisplay dpy, EGLSurface draw, EGLSurface read, EGLContext ctx);
+            virtual Bool SwapEGLBuffers(EGLDisplay dpy, EGLSurface draw);
 
             void SetWindowHandle(const WindowHandle& handle);
 
@@ -103,7 +108,15 @@ namespace MobileGL {
             virtual BackendType GetBackendType() const = 0;
 
         protected:
+            void ResetEGLRuntimeState();
+
+            mutable std::recursive_mutex m_eglStateMutex;
             WindowHandle m_windowHandle;
+            EGLDisplay m_eglDisplay = EGL_NO_DISPLAY;
+            Bool m_eglDisplayInitialized = false;
+            Bool m_eglWindowSurfaceInitialized = false;
+            Bool m_backendCapabilitiesInitialized = false;
+            UnorderedMap<std::thread::id, Bool> m_eglCurrentThreads;
         };
     } // namespace MG_Backend
 } // namespace MobileGL

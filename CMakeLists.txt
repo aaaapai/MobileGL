@@ -233,6 +233,7 @@ set(SOURCE_FILES
     MobileGL/MG_Backend/DirectVulkan/Renderer/VkRenderPassManager.cpp
 
     MobileGL/MG_State/GLState/Core.cpp
+    MobileGL/MG_State/EGLState/Core.cpp
     MobileGL/MG_State/GLState/ErrorState/Error.cpp
     MobileGL/MG_State/GLState/BufferState/BufferState.cpp
     MobileGL/MG_State/GLState/BufferState/BufferObject.cpp

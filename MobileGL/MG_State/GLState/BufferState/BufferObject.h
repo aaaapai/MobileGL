@@ -7,7 +7,6 @@
 // End of Source File Header
 
 #pragma once
-#include "MG_Util/Types.h"
 #include <Includes.h>
 #include <MG_Util/Math/VectorTypes.h>
 
@@ -73,47 +72,45 @@ namespace MobileGL {
         VecRange1D DirtyRanges;
     };
 
-    namespace MG_State {
-        namespace GLState {
-            class BufferObject {
-            public:
-                using TargetEnum = BufferTarget;
+    namespace MG_State::GLState {
+        class BufferObject {
+        public:
+            using TargetEnum = BufferTarget;
 
-                BufferObject(Uint externalIndex);
+            BufferObject(Uint externalIndex);
 
-                void Resize(SizeT size);
-                void UploadData(DataPtr data, SizeT atOffset);
-                void SetUsage(BufferUsage usage);
-                void* AcquireMemory(Bool markMapped, Bool read, Bool write);
-                void* AcquireMemoryRange(Range1D range, Flags<BufferMappingAccessBit> access);
-                void ReleaseMemory();
-                void FlushMemoryRange(SizeT offset, SizeT length);
-                void UploadSubData(DataPtr data, SizeT atOffset);
-                void CopyDataFrom(const SharedPtr<BufferObject>& src, SizeT srcOffset, SizeT dstOffset, SizeT size);
-                void ClearDirty();
+            void Resize(SizeT size);
+            void UploadData(DataPtr data, SizeT atOffset);
+            void SetUsage(BufferUsage usage);
+            void* AcquireMemory(Bool markMapped, Bool read, Bool write);
+            void* AcquireMemoryRange(Range1D range, Flags<BufferMappingAccessBit> access);
+            void ReleaseMemory();
+            void FlushMemoryRange(SizeT offset, SizeT length);
+            void UploadSubData(DataPtr data, SizeT atOffset);
+            void CopyDataFrom(const SharedPtr<BufferObject>& src, SizeT srcOffset, SizeT dstOffset, SizeT size);
+            void ClearDirty();
 
-                Bool IsMapped() const;
-                SizeT GetSize() const;
-                BufferUsage GetUsage() const;
-                Range1D GetMappedRange() const;
-                const SharedPtr<Data> GetDataReadOnly() const;
-                Flags<BufferMappingAccessBit> GetMappingAccess() const;
-                Uint GetExternalIndex() const;
-                const VecRange1D& GetDirtyRanges() const;
-                Flags<BufferChangeBits> GetChangeBits() const;
+            Bool IsMapped() const;
+            SizeT GetSize() const;
+            BufferUsage GetUsage() const;
+            Range1D GetMappedRange() const;
+            const SharedPtr<Data>& GetDataReadOnly() const;
+            Flags<BufferMappingAccessBit> GetMappingAccess() const;
+            Uint GetExternalIndex() const;
+            const VecRange1D& GetDirtyRanges() const;
+            Flags<BufferChangeBits> GetChangeBits() const;
 
-            private:
-                const Uint m_externalIndex = 0;
-                SizeT m_size = 0;
-                BufferUsage m_usage = BufferUsage::StaticDraw;
-                SharedPtr<Data> m_dataPtr;
-                Bool m_isMapped;
-                Flags<BufferMappingAccessBit> m_mappingAccess;
-                BufferChange m_change;
-                Range1D m_mappedRange;
-                Vector<Uint8> m_stagingData;
-                Bool m_ownsStagingData;
-            };
-        } // namespace GLState
-    } // namespace MG_State
+        private:
+            const Uint m_externalIndex = 0;
+            SizeT m_size = 0;
+            BufferUsage m_usage = BufferUsage::StaticDraw;
+            SharedPtr<Data> m_dataPtr;
+            Bool m_isMapped;
+            Flags<BufferMappingAccessBit> m_mappingAccess;
+            BufferChange m_change;
+            Range1D m_mappedRange;
+            Vector<Uint8> m_stagingData;
+            Bool m_ownsStagingData;
+        };
+    } // namespace MG_State::GLState
 } // namespace MobileGL

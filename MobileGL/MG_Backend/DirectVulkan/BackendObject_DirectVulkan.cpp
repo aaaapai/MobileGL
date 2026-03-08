@@ -11,28 +11,99 @@
 #include "DirectVulkan.h"
 
 namespace MobileGL::MG_Backend::DirectVulkan {
+    namespace {
+        Bool IsReleaseCurrentRequest(EGLDisplay dpy, EGLSurface draw, EGLSurface read, EGLContext ctx) {
+            return dpy == EGL_NO_DISPLAY && draw == EGL_NO_SURFACE && read == EGL_NO_SURFACE && ctx == EGL_NO_CONTEXT;
+        }
+    } // namespace
+
     BackendObject_DirectVulkan::~BackendObject_DirectVulkan() = default;
 
-    void BackendObject_DirectVulkan::InitWindowSurface() {
+    Bool BackendObject_DirectVulkan::InitWindowSurface() {
+        if (!m_windowHandle.Handle) {
+            MGLOG_E("Cannot initialize DirectVulkan window surface: native window handle is null");
+            return false;
+        }
+
         auto nativeWindow = reinterpret_cast<NativeWindowType>(m_windowHandle.Handle);
 
         pVulkanRenderer = MakeUnique<MG_Backend::DirectVulkan::VulkanRenderer>(nativeWindow);
         MOBILEGL_ASSERT(pVulkanRenderer != nullptr, "InitWindowSurface: VulkanRenderer creation failed");
         pVulkanRenderer->Initialize();
+        return true;
     }
 
     void BackendObject_DirectVulkan::Initialize() {
         m_initialized = true;
     }
 
-    void BackendObject_DirectVulkan::InitCapabilities() {
+    Bool BackendObject_DirectVulkan::InitCapabilities() {
         if (!m_initialized) {
             MGLOG_E("Cannot initialize capabilities before backend is initialized");
-            return;
+            return false;
+        }
+        if (!pVulkanRenderer) {
+            MGLOG_E("Cannot initialize capabilities: Vulkan renderer has not been created");
+            return false;
         }
 
         MG_Util::BackendLoader::FillInVulkanCapabilities(m_vulkanCaps, pVulkanRenderer->GetPhysicalDevice().properties);
         UpdateDynamicBackendParameters();
+        return true;
+    }
+
+    Bool BackendObject_DirectVulkan::InitializeEGLDisplay(EGLDisplay dpy, EGLint* major, EGLint* minor) {
+        if (!m_initialized) {
+            MGLOG_E("DirectVulkan backend not initialized");
+            return false;
+        }
+        return BackendObject::InitializeEGLDisplay(dpy, major, minor);
+    }
+
+    Bool BackendObject_DirectVulkan::CreateEGLWindowSurface(const WindowHandle& handle) {
+        const std::lock_guard<std::recursive_mutex> lock(m_eglStateMutex);
+        if (!m_initialized) {
+            MGLOG_E("DirectVulkan backend not initialized");
+            return false;
+        }
+        if (handle.Backend != WindowBackend::Android || !handle.Handle) {
+            MGLOG_E("DirectVulkan backend only supports Android native windows");
+            return false;
+        }
+
+        const Bool sameHandle =
+            m_eglWindowSurfaceInitialized && m_windowHandle.Backend == handle.Backend && m_windowHandle.Handle == handle.Handle;
+        if (sameHandle) {
+            return true;
+        }
+
+        if (m_eglWindowSurfaceInitialized || pVulkanRenderer) {
+            pVulkanRenderer.reset();
+            ResetEGLRuntimeState();
+        }
+
+        return BackendObject::CreateEGLWindowSurface(handle);
+    }
+
+    Bool BackendObject_DirectVulkan::MakeEGLCurrent(EGLDisplay dpy, EGLSurface draw, EGLSurface read, EGLContext ctx) {
+        const std::lock_guard<std::recursive_mutex> lock(m_eglStateMutex);
+        if (IsReleaseCurrentRequest(dpy, draw, read, ctx)) {
+            return BackendObject::MakeEGLCurrent(dpy, draw, read, ctx);
+        }
+        if (!pVulkanRenderer) {
+            MGLOG_E("DirectVulkan renderer is not initialized");
+            return false;
+        }
+        return BackendObject::MakeEGLCurrent(dpy, draw, read, ctx);
+    }
+
+    Bool BackendObject_DirectVulkan::SwapEGLBuffers(EGLDisplay dpy, EGLSurface draw) {
+        const std::lock_guard<std::recursive_mutex> lock(m_eglStateMutex);
+        if (!pVulkanRenderer) {
+            MGLOG_E("DirectVulkan renderer is not initialized");
+            return false;
+        }
+        return BackendObject::SwapEGLBuffers(dpy, draw);
     }
 
     const RendererInfo& BackendObject_DirectVulkan::GetRendererInfo() const {
