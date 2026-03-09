@@ -807,7 +807,6 @@ void main() {
         activeRenderPass = VkRenderPassManager::GetActiveRenderPass();
 
         // Begin render pass, and handle clear
-
         if (activeRenderPass && activeRenderPass->CompatibleWith(renderPassEntry)) {
             ClearAttachmentsOnActiveRenderPass(frame.commandBuffer, renderPassEntry);
         } else {
