@@ -733,6 +733,11 @@ void main() {
         }
 
         auto* activeRenderPass = VkRenderPassManager::GetActiveRenderPass();
+
+        // Check if any of the textures to sample have pending clears,
+        // which probably indicates it's been gone through codepath like `fbo attach` -> `clear` -> `fbo detach`, and
+        // without draws in between to give it a chance to materialize such clear.
+        // Deal with this situation here.
         Vector<MG_State::GLState::ITextureObject*> sampledTextures;
         Bool hasSampledTextures = m_uniformDescriptorBinder->CollectSampledTextures(program, sampledTextures);
         MOBILEGL_ASSERT(hasSampledTextures, "%s: CollectSampledTextures failed", __func__);
