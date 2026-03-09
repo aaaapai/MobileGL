@@ -93,6 +93,8 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             VkImageLayout* trackedLayout = nullptr;
             VkImageAspectFlags aspectMask = VK_IMAGE_ASPECT_NONE;
             IntVec2 extent = {0, 0};
+            Uint32 mipLevel = 0;
+            Uint32 mipLevelCount = 1;
             const char* label = nullptr;
         };
 
@@ -164,6 +166,8 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                 outBinding.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
                 const auto extent = swapchainObject.GetExtent();
                 outBinding.extent = {static_cast<Int>(extent.width), static_cast<Int>(extent.height)};
+                outBinding.mipLevel = 0;
+                outBinding.mipLevelCount = 1;
                 return true;
             }
 
@@ -182,7 +186,10 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             outBinding.image = resource->image;
             outBinding.trackedLayout = &resource->layout;
             outBinding.aspectMask = resource->aspect;
-            outBinding.extent = {static_cast<Int>(resource->extent.width), static_cast<Int>(resource->extent.height)};
+            const auto attachmentExtent = attachment.GetSize();
+            outBinding.extent = {attachmentExtent.x(), attachmentExtent.y()};
+            outBinding.mipLevel = static_cast<Uint32>(std::max(attachment.GetTextureLevel(), 0));
+            outBinding.mipLevelCount = resource->mipLevels;
             return true;
         }
 
@@ -875,7 +882,7 @@ void main() {
         Bool ok = VkTextureManager::TransitionImageLayout(
             commandBuffer, resource->image, resource->layout, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
             srcStageMask, VK_PIPELINE_STAGE_TRANSFER_BIT, srcAccessMask, VK_ACCESS_TRANSFER_WRITE_BIT,
-            resource->aspect);
+            resource->aspect, 0, resource->mipLevels);
         MOBILEGL_ASSERT(ok,
                         "MaterializePendingClearForTexture: failed to transition textureId=%d to TRANSFER_DST",
                         texture.GetExternalIndex());
@@ -908,7 +915,7 @@ void main() {
         ok = VkTextureManager::TransitionImageLayout(
             commandBuffer, resource->image, resource->layout, sampledLayout,
             VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT,
-            VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT, resource->aspect);
+            VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT, resource->aspect, 0, resource->mipLevels);
         MOBILEGL_ASSERT(ok,
                         "MaterializePendingClearForTexture: failed to transition textureId=%d to sampled layout",
                         texture.GetExternalIndex());
@@ -1138,7 +1145,7 @@ void main() {
             Bool ok = VkTextureManager::TransitionImageLayout(
                 frame.commandBuffer, srcBinding.image, *srcBinding.trackedLayout, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
                 srcStageMask, VK_PIPELINE_STAGE_TRANSFER_BIT,
-                srcAccessMask, VK_ACCESS_TRANSFER_READ_BIT, srcBinding.aspectMask);
+                srcAccessMask, VK_ACCESS_TRANSFER_READ_BIT, srcBinding.aspectMask, 0, srcBinding.mipLevelCount);
             MOBILEGL_ASSERT(ok, "%s: failed to transition source image", __func__);
         }
 
@@ -1156,19 +1163,19 @@ void main() {
             Bool ok = VkTextureManager::TransitionImageLayout(
                 frame.commandBuffer, dstBinding.image, *dstBinding.trackedLayout, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
                 dstStageMask, VK_PIPELINE_STAGE_TRANSFER_BIT,
-                dstAccessMask, VK_ACCESS_TRANSFER_WRITE_BIT, dstBinding.aspectMask);
+                dstAccessMask, VK_ACCESS_TRANSFER_WRITE_BIT, dstBinding.aspectMask, 0, dstBinding.mipLevelCount);
             MOBILEGL_ASSERT(ok, "%s: failed to transition destination image", __func__);
         }
 
         VkImageBlit blitRegion{};
         blitRegion.srcSubresource.aspectMask = srcBinding.aspectMask;
-        blitRegion.srcSubresource.mipLevel = 0;
+        blitRegion.srcSubresource.mipLevel = srcBinding.mipLevel;
         blitRegion.srcSubresource.baseArrayLayer = 0;
         blitRegion.srcSubresource.layerCount = 1;
         blitRegion.srcOffsets[0] = {srcX0, srcY0, 0};
         blitRegion.srcOffsets[1] = {srcX1, srcY1, 1};
         blitRegion.dstSubresource.aspectMask = dstBinding.aspectMask;
-        blitRegion.dstSubresource.mipLevel = 0;
+        blitRegion.dstSubresource.mipLevel = dstBinding.mipLevel;
         blitRegion.dstSubresource.baseArrayLayer = 0;
         blitRegion.dstSubresource.layerCount = 1;
         blitRegion.dstOffsets[0] = {dstX0, dstY0, 0};

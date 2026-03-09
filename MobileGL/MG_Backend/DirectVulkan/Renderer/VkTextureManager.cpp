@@ -74,6 +74,30 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         return &(it->second);
     }
 
+    VkImageView VkTextureManager::GetOrCreateViewAtMipLevel(MG_State::GLState::ITextureObject& texture, Uint32 mipLevel) {
+        TextureResource* resource = SyncTextureAndGetDescriptor(texture);
+        if (resource == nullptr || resource->image == VK_NULL_HANDLE || mipLevel >= resource->mipLevels) {
+            return VK_NULL_HANDLE;
+        }
+
+        if (resource->perMipViews.size() != resource->mipLevels) {
+            resource->perMipViews.resize(resource->mipLevels, VK_NULL_HANDLE);
+        }
+
+        VkImageView& perMipView = resource->perMipViews[mipLevel];
+        if (perMipView != VK_NULL_HANDLE) {
+            return perMipView;
+        }
+
+        perMipView = CreateImageView(resource->image, resource->format, resource->aspect, mipLevel, 1);
+        if (perMipView == VK_NULL_HANDLE) {
+            MGLOG_D("%s: CreateImageView failed for textureId=%d mipLevel=%u", __func__, texture.GetExternalIndex(), mipLevel);
+            return VK_NULL_HANDLE;
+        }
+
+        return perMipView;
+    }
+
     void VkTextureManager::UpdateTrackedImageLayout(MG_State::GLState::ITextureObject* texture, VkImageLayout newLayout) {
         MOBILEGL_ASSERT(texture != nullptr, "UpdateTrackedImageLayout: texture is null");
         auto it = m_textureResources.find(texture);
@@ -127,7 +151,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
 
         const Bool ok = TransitionImageLayout(commandBuffer, resource->image, resource->layout, targetLayout, srcStageMask,
                                               kGraphicsSampledReadStages, srcAccessMask,
-                                              VK_ACCESS_SHADER_READ_BIT, resource->aspect);
+                                              VK_ACCESS_SHADER_READ_BIT, resource->aspect, 0, resource->mipLevels);
         MOBILEGL_ASSERT(ok, "TransitionTextureForSampling: transition failed for textureId=%d", texture.GetExternalIndex());
         return ok;
     }
@@ -136,7 +160,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                                                  VkImageLayout& trackedLayout, VkImageLayout newLayout,
                                                  VkPipelineStageFlags srcStageMask, VkPipelineStageFlags dstStageMask,
                                                  VkAccessFlags srcAccessMask, VkAccessFlags dstAccessMask,
-                                                 VkImageAspectFlags aspectMask) {
+                                                 VkImageAspectFlags aspectMask, Uint32 baseMipLevel, Uint32 levelCount) {
         MOBILEGL_ASSERT(image != VK_NULL_HANDLE, "TransitionImageLayout: m_image == VK_NULL_HANDLE");
         MOBILEGL_ASSERT(!((dstAccessMask & VK_ACCESS_TRANSFER_READ_BIT) != 0 &&
                           (dstStageMask & VK_PIPELINE_STAGE_TRANSFER_BIT) == 0),
@@ -158,8 +182,8 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
         barrier.image = image;
         barrier.subresourceRange.aspectMask = aspectMask;
-        barrier.subresourceRange.baseMipLevel = 0;
-        barrier.subresourceRange.levelCount = 1;
+        barrier.subresourceRange.baseMipLevel = baseMipLevel;
+        barrier.subresourceRange.levelCount = levelCount;
         barrier.subresourceRange.baseArrayLayer = 0;
         barrier.subresourceRange.layerCount = 1;
         vkCmdPipelineBarrier(commandBuffer, srcStageMask, dstStageMask, 0, 0, nullptr, 0, nullptr, 1, &barrier);
@@ -203,6 +227,10 @@ namespace MobileGL::MG_Backend::DirectVulkan {
 
         if (!SyncTextureResource(texture, uploadTarget, texelSize, byteSize, mipLevelCount, outResource)) {
             MGLOG_D("%s: SyncTextureResource failed", __func__);
+            return false;
+        }
+        if (!SyncTextureViews(texture, outResource)) {
+            MGLOG_D("%s: SyncTextureViews failed", __func__);
             return false;
         }
 
@@ -251,6 +279,9 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                                 resource.extent.height == static_cast<Uint32>(texelSize.y()) &&
                                 resource.mipLevels == mipLevels;
         if (compatible) {
+            if (resource.perMipViews.size() != mipLevels) {
+                resource.perMipViews.resize(mipLevels, VK_NULL_HANDLE);
+            }
             return true;
         }
 
@@ -283,24 +314,66 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         VK_VERIFY(vmaCreateImage(m_allocator, &imageInfo, &allocationInfo, &resource.image, &resource.allocation, nullptr),
                   "vmaCreateImage(texture)");
 
-        VkImageViewCreateInfo viewInfo{};
-        viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
-        viewInfo.image = resource.image;
-        viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
-        viewInfo.format = format;
-        viewInfo.subresourceRange.aspectMask = aspect;
-        viewInfo.subresourceRange.baseMipLevel = 0;
-        viewInfo.subresourceRange.levelCount = mipLevels;
-        viewInfo.subresourceRange.baseArrayLayer = 0;
-        viewInfo.subresourceRange.layerCount = 1;
-        VK_VERIFY(vkCreateImageView(m_device, &viewInfo, nullptr, &resource.view), "vkCreateImageView(texture)");
-
         resource.layout = VK_IMAGE_LAYOUT_UNDEFINED;
         resource.extent = {static_cast<Uint32>(texelSize.x()), static_cast<Uint32>(texelSize.y())};
         resource.mipLevels = mipLevels;
+        resource.perMipViews.assign(mipLevels, VK_NULL_HANDLE);
+        resource.sampledBaseMipLevel = 0;
+        resource.sampledLevelCount = mipLevels;
         resource.format = format;
-        resource.aspect = viewInfo.subresourceRange.aspectMask;
+        resource.aspect = aspect;
+        resource.syncedTextureParamsVersion = 0;
         return true;
+    }
+
+    Bool VkTextureManager::SyncTextureViews(const MG_State::GLState::ITextureObject& texture, TextureResource& resource) {
+        MOBILEGL_ASSERT(resource.image != VK_NULL_HANDLE, "SyncTextureViews: image == VK_NULL_HANDLE");
+
+        Uint32 baseMipLevel = 0;
+        Uint32 levelCount = 1;
+        ResolveViewMipRange(texture, resource.mipLevels, baseMipLevel, levelCount);
+
+        const Bool needsRecreate =
+            resource.fullView == VK_NULL_HANDLE ||
+            resource.sampledBaseMipLevel != baseMipLevel ||
+            resource.sampledLevelCount != levelCount ||
+            resource.syncedTextureParamsVersion != texture.GetTextureParamsVersion();
+        if (!needsRecreate) {
+            return true;
+        }
+
+        if (resource.fullView != VK_NULL_HANDLE) {
+            vkDestroyImageView(m_device, resource.fullView, nullptr);
+            resource.fullView = VK_NULL_HANDLE;
+        }
+
+        resource.fullView = CreateImageView(resource.image, resource.format, resource.aspect, baseMipLevel, levelCount);
+        if (resource.fullView == VK_NULL_HANDLE) {
+            return false;
+        }
+
+        resource.sampledBaseMipLevel = baseMipLevel;
+        resource.sampledLevelCount = levelCount;
+        resource.syncedTextureParamsVersion = texture.GetTextureParamsVersion();
+        return true;
+    }
+
+    VkImageView VkTextureManager::CreateImageView(VkImage image, VkFormat format, VkImageAspectFlags aspect,
+                                                  Uint32 baseMipLevel, Uint32 levelCount) const {
+        VkImageViewCreateInfo viewInfo{};
+        viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+        viewInfo.image = image;
+        viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
+        viewInfo.format = format;
+        viewInfo.subresourceRange.aspectMask = aspect;
+        viewInfo.subresourceRange.baseMipLevel = baseMipLevel;
+        viewInfo.subresourceRange.levelCount = levelCount;
+        viewInfo.subresourceRange.baseArrayLayer = 0;
+        viewInfo.subresourceRange.layerCount = 1;
+
+        VkImageView view = VK_NULL_HANDLE;
+        VK_VERIFY(vkCreateImageView(m_device, &viewInfo, nullptr, &view), "vkCreateImageView(texture)");
+        return view;
     }
 
     Bool VkTextureManager::UploadDirtyMipLevels(MG_State::GLState::TextureObjectMipmap &mipmapTexture,
@@ -390,7 +463,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                               VK_PIPELINE_STAGE_TRANSFER_BIT,
                               outResource.layout == VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL ? VK_ACCESS_SHADER_READ_BIT : 0,
                               VK_ACCESS_TRANSFER_WRITE_BIT,
-                              aspectMask);
+                              aspectMask, 0, outResource.mipLevels);
         MOBILEGL_ASSERT(ok, "TransitionImageLayout to VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL failed");
 
         for (const auto& item : uploadItems) {
@@ -415,7 +488,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                                         kGraphicsSampledReadStages,
                                         VK_ACCESS_TRANSFER_WRITE_BIT,
                                         VK_ACCESS_SHADER_READ_BIT,
-                                        aspectMask);
+                                        aspectMask, 0, outResource.mipLevels);
         MOBILEGL_ASSERT(ok, "TransitionImageLayout to VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL failed");
         outResource.layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 
@@ -472,15 +545,17 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                 continue;
             }
 
-            const auto level0TexelSize = mipTexture->GetMipmapTexelSize(target, 0);
-            const auto level0ByteSize = mipTexture->GetMipmapByteSize(target, 0);
-            if (level0TexelSize.x() <= 0 || level0TexelSize.y() <= 0 /*|| level0ByteSize == 0*/) {
+            // Backing VkImage allocation still uses storage mip 0 as the physical image extent.
+            // GL_TEXTURE_BASE_LEVEL / MAX_LEVEL are applied later when building the sampled view.
+            const auto storageBaseTexelSize = mipTexture->GetMipmapTexelSize(target, 0);
+            const auto storageBaseByteSize = mipTexture->GetMipmapByteSize(target, 0);
+            if (storageBaseTexelSize.x() <= 0 || storageBaseTexelSize.y() <= 0 /*|| storageBaseByteSize == 0*/) {
                 continue;
             }
 
             outTarget = target;
-            outTexelSize = level0TexelSize;
-            outByteSize = level0ByteSize;
+            outTexelSize = storageBaseTexelSize;
+            outByteSize = storageBaseByteSize;
             outMipLevelCount = mipLevelCount;
             return true;
         }
@@ -505,6 +580,22 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             ++validLevelCount;
         }
         return validLevelCount;
+    }
+
+    void VkTextureManager::ResolveViewMipRange(const MG_State::GLState::ITextureObject& texture, Uint32 mipLevels,
+                                               Uint32& outBaseMipLevel, Uint32& outLevelCount) {
+        MOBILEGL_ASSERT(mipLevels > 0, "ResolveViewMipRange: mipLevels must be > 0");
+
+        const auto& levelRange = texture.GetLevelRange();
+        const Uint32 maxAvailableMipLevel = mipLevels - 1;
+        const Uint32 requestedBaseMipLevel = std::min(static_cast<Uint32>(levelRange.x()), maxAvailableMipLevel);
+        Uint32 requestedMaxMipLevel = std::min(static_cast<Uint32>(levelRange.y()), maxAvailableMipLevel);
+        if (requestedMaxMipLevel < requestedBaseMipLevel) {
+            requestedMaxMipLevel = requestedBaseMipLevel;
+        }
+
+        outBaseMipLevel = requestedBaseMipLevel;
+        outLevelCount = requestedMaxMipLevel - requestedBaseMipLevel + 1;
     }
 
     VkImageAspectFlags VkTextureManager::GetAspectMaskForFormat(VkFormat format) {

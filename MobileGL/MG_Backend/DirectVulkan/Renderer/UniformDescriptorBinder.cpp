@@ -532,7 +532,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         }
         outImageInfo = {
             .sampler = m_samplerManager->GetOrCreateSampler(*samplerToUse),
-            .imageView = resource->view,
+            .imageView = resource->fullView,
             .imageLayout = resource->layout,
         };
         return outImageInfo.sampler != VK_NULL_HANDLE;
@@ -554,7 +554,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
 
         outImageInfo = {
             .sampler = m_samplerManager->GetOrCreateSampler(*samplerBindingOverride.sampler),
-            .imageView = resource->view,
+            .imageView = resource->fullView,
             .imageLayout = resource->layout,
         };
         return outImageInfo.sampler != VK_NULL_HANDLE;
