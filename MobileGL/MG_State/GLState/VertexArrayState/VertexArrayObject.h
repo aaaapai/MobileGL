@@ -48,6 +48,7 @@ namespace MobileGL {
                 void BindAttributeBuffer(Uint index, const SharedPtr<BufferObject>& buffer);
 
                 BindingSlot<BufferObject>& GetIndexBufferBindingSlot();
+                const BindingSlot<BufferObject>& GetIndexBufferBindingSlot() const;
 
                 const VertexAttribute& GetAttribute(Uint index) const;
                 const Array<VertexAttribute, MAX_VERTEX_ATTRIBS>& GetAllAttributes() const;
