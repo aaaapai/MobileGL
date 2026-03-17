@@ -524,6 +524,57 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         return true;
     }
 
+    Bool VulkanRenderer::UploadAndBindIndexBuffer(FrameContext::FrameData& frame,
+                                                  const MG_State::GLState::VertexArrayObject& vao,
+                                                  GLenum indexType,
+                                                  SizeT indexByteOffset,
+                                                  Uint32 indexCount) {
+        VkIndexType vkIndexType = VK_INDEX_TYPE_MAX_ENUM;
+        switch (indexType) {
+        case GL_UNSIGNED_SHORT:
+            vkIndexType = VK_INDEX_TYPE_UINT16;
+            break;
+        case GL_UNSIGNED_INT:
+            vkIndexType = VK_INDEX_TYPE_UINT32;
+            break;
+        default:
+            MGLOG_D("DrawElements skipped: index type %u is not supported yet", indexType);
+            return false;
+        }
+
+        const auto* indexBuffer = vao.GetIndexBufferBindingSlot().GetBoundObject().get();
+        MOBILEGL_ASSERT(indexBuffer != nullptr, "UploadAndBindIndexBuffer requires bound EBO");
+        const auto indexData = indexBuffer->GetDataReadOnly();
+        MOBILEGL_ASSERT(indexData != nullptr && !indexData->empty(), "DrawElements requires non-empty EBO data");
+
+        const SizeT indexSize = (indexType == GL_UNSIGNED_SHORT) ? sizeof(Uint16) : sizeof(Uint32);
+        const SizeT indexDataSizeBytes = static_cast<SizeT>(indexCount) * indexSize;
+        MOBILEGL_ASSERT(indexByteOffset + indexDataSizeBytes <= indexBuffer->GetSize(),
+                        "DrawElements index range out of bounds");
+
+        const Uint32 frameIndex = m_frameContext.GetCurrentFrameIndex();
+        VkDeviceSize& frameIndexHead = m_frameIndexUploadHeads[frameIndex];
+        const VkDeviceSize alignment = static_cast<VkDeviceSize>(indexSize);
+        const VkDeviceSize writeOffset = (frameIndexHead + alignment - 1) & ~(alignment - 1);
+        const VkDeviceSize writeEnd = writeOffset + static_cast<VkDeviceSize>(indexDataSizeBytes);
+        if (!EnsureFrameUploadBufferCapacity(frameIndex, true, writeEnd, 1 * 1024 * 1024,
+                                             VK_BUFFER_USAGE_INDEX_BUFFER_BIT)) {
+            MGLOG_E("DrawElements skipped: failed to prepare index upload buffer");
+            return false;
+        }
+
+        auto& frameIndexUploadBuffer = m_frameIndexUploadBuffers[frameIndex];
+        if (!frameIndexUploadBuffer.Upload(indexData->data() + indexByteOffset,
+                                           static_cast<VkDeviceSize>(indexDataSizeBytes), writeOffset)) {
+            MGLOG_E("DrawElements skipped: failed to upload index data");
+            return false;
+        }
+
+        frameIndexHead = writeEnd;
+        vkCmdBindIndexBuffer(frame.commandBuffer, frameIndexUploadBuffer.GetHandle(), writeOffset, vkIndexType);
+        return true;
+    }
+
     Bool VulkanRenderer::InitializeBlitResources() {
         ShutdownBlitResources();
 
@@ -719,7 +770,8 @@ void main() {
         return m_pipelineFactory->GetOrCreatePipeline(payload);
     }
 
-    void VulkanRenderer::SetupDraw(FrameContext::FrameData& frame, GLenum mode, Flags<DrawSetupAspect> aspects) {
+    Bool VulkanRenderer::SetupDraw(FrameContext::FrameData& frame, GLenum mode, Flags<DrawSetupAspect> aspects,
+                                   GLenum indexType, SizeT indexByteOffset, Uint32 indexCount) {
         m_textureManager->CollectGarbage();
         const auto& drawFbo =
                 MG_State::pGLContext->GetFramebufferBindingSlot(FramebufferTarget::Draw).GetBoundObject();
@@ -828,7 +880,15 @@ void main() {
         m_uniformDescriptorBinder->BindProgramUniformBuffers(frame.commandBuffer, program,
                                                                   m_frameContext.GetCurrentFrameIndex());
 
-        UploadAndBindVertexStreams(frame.commandBuffer, vao);
+        if (!UploadAndBindVertexStreams(frame.commandBuffer, vao)) {
+            MGLOG_E("SetupDraw skipped: failed to upload vertex streams");
+            return false;
+        }
+        if (aspects & DrawSetupAspect::IndexBuffer) {
+            if (!UploadAndBindIndexBuffer(frame, vao, indexType, indexByteOffset, indexCount)) {
+                return false;
+            }
+        }
 
         VkViewport viewport{};
         viewport.x = 0.0f;
@@ -850,6 +910,7 @@ void main() {
             scissor.extent = { (Uint)renderPassEntry.extent.x(), (Uint)renderPassEntry.extent.y() };
         }
         vkCmdSetScissor(frame.commandBuffer, 0, 1, &scissor);
+        return true;
     }
 
     void VulkanRenderer::Clear(GLbitfield mask) {
@@ -1194,7 +1255,9 @@ void main() {
     void VulkanRenderer::DrawArrays(const DrawCmd& payload) {
         auto& frame = m_frameContext.GetCurrent();
 
-        SetupDraw(frame, payload.mode, 0);
+        if (!SetupDraw(frame, payload.mode, 0)) {
+            return;
+        }
 
         MOBILEGL_ASSERT(frame.isCommandRecording, "%s: frame recording was not started", __func__);
 
@@ -1210,56 +1273,15 @@ void main() {
     void VulkanRenderer::DrawElements(const DrawIndexedCmd& payload) {
         auto& frame = m_frameContext.GetCurrent();
 
-        SetupDraw(frame, payload.mode, 0);
-
-        if (!frame.isCommandRecording) {
-            MGLOG_D("DrawElements skipped: frame recording was not started");
+        if (!SetupDraw(frame, payload.mode, DrawSetupAspect::IndexBuffer,
+                       payload.indexType, payload.indexByteOffset, payload.indexCount)) {
             return;
         }
 
-        VkIndexType vkIndexType = VK_INDEX_TYPE_MAX_ENUM;
-        switch (payload.indexType) {
-        case GL_UNSIGNED_SHORT:
-            vkIndexType = VK_INDEX_TYPE_UINT16;
-            break;
-        case GL_UNSIGNED_INT:
-            vkIndexType = VK_INDEX_TYPE_UINT32;
-            break;
-        default:
-            MGLOG_D("DrawElements skipped: index type %u is not supported yet", payload.indexType);
-            return;
-        }
-
-        auto* vao = MG_State::pGLContext->GetBoundVertexArray().get();
-        const auto* indexBuffer = vao->GetIndexBufferBindingSlot().GetBoundObject().get();
-        const auto indexData = indexBuffer->GetDataReadOnly();
-        MOBILEGL_ASSERT(indexData != nullptr && !indexData->empty(), "DrawElements requires non-empty EBO data");
-        const SizeT indexSize = (payload.indexType == GL_UNSIGNED_SHORT) ? sizeof(Uint16) : sizeof(Uint32);
-        const SizeT indexDataSizeBytes = static_cast<SizeT>(payload.indexCount) * indexSize;
-        MOBILEGL_ASSERT(payload.indexByteOffset + indexDataSizeBytes <= indexBuffer->GetSize(),
-                        "DrawElements index range out of bounds");
-
-        const Uint32 frameIndex = m_frameContext.GetCurrentFrameIndex();
-        VkDeviceSize& frameIndexHead = m_frameIndexUploadHeads[frameIndex];
-        const VkDeviceSize alignment = static_cast<VkDeviceSize>(indexSize);
-        const VkDeviceSize writeOffset = (frameIndexHead + alignment - 1) & ~(alignment - 1);
-        const VkDeviceSize writeEnd = writeOffset + static_cast<VkDeviceSize>(indexDataSizeBytes);
-        if (!EnsureFrameUploadBufferCapacity(frameIndex, true, writeEnd, 1 * 1024 * 1024,
-                                             VK_BUFFER_USAGE_INDEX_BUFFER_BIT)) {
-            MGLOG_E("DrawElements skipped: failed to prepare index upload buffer");
-            return;
-        }
-        auto& frameIndexUploadBuffer = m_frameIndexUploadBuffers[frameIndex];
-        if (!frameIndexUploadBuffer.Upload(indexData->data() + payload.indexByteOffset,
-                                           static_cast<VkDeviceSize>(indexDataSizeBytes), writeOffset)) {
-            MGLOG_E("DrawElements skipped: failed to upload index data");
-            return;
-        }
-        frameIndexHead = writeEnd;
+        MOBILEGL_ASSERT(frame.isCommandRecording, "%s: frame recording was not started", __func__);
 
         VkCommandBuffer& commandBuffer = frame.commandBuffer;
 
-        vkCmdBindIndexBuffer(commandBuffer, frameIndexUploadBuffer.GetHandle(), writeOffset, vkIndexType);
         vkCmdDrawIndexed(commandBuffer,
             payload.indexCount,
             payload.instanceCount,
