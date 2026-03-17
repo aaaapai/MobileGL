@@ -117,10 +117,38 @@ namespace MobileGL::MG_Backend::DirectVulkan {
 
     RenderPassEntry& VkRenderPassManager::GetOrCreateRenderPass(const MG_State::GLState::FramebufferObject& fbo,
                                                                 Uint32 swapchainImageIndex) {
+        auto hasPendingClearOnFramebuffer = [&]() -> Bool {
+            const auto& drawBuffers = fbo.GetDrawBuffers();
+            for (auto attachment : drawBuffers) {
+                if (attachment == FramebufferAttachmentType::None) {
+                    continue;
+                }
+
+                const auto& att = fbo.GetAttachment(attachment);
+                if (att.IsTexture() && m_clearManager.HasPendingClear(att.GetTexture().get())) {
+                    return true;
+                }
+            }
+
+            const auto& depthAtt = fbo.GetAttachment(FramebufferAttachmentType::Depth);
+            if (depthAtt.IsTexture() && m_clearManager.HasPendingClear(depthAtt.GetTexture().get())) {
+                return true;
+            }
+
+            const auto& stencilAtt = fbo.GetAttachment(FramebufferAttachmentType::Stencil);
+            if (stencilAtt.IsTexture() && m_clearManager.HasPendingClear(stencilAtt.GetTexture().get())) {
+                return true;
+            }
+
+            return false;
+        };
+
         // retrieve from cache first
         auto* activeRenderPass = GetActiveRenderPass();
         auto compatibilityHash = ComputeHash(fbo, swapchainImageIndex, false);
-        if (activeRenderPass != nullptr && activeRenderPass->CompatibleWith(compatibilityHash)) {
+        if (activeRenderPass != nullptr &&
+            activeRenderPass->CompatibleWith(compatibilityHash) &&
+            !hasPendingClearOnFramebuffer()) {
             auto activeIt = m_renderPasses.find(activeRenderPass->hash);
             MOBILEGL_ASSERT(activeIt != m_renderPasses.end(),
                             "GetOrCreateRenderPass: active render pass hash=0x%llx is missing from cache",
