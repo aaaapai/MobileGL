@@ -43,16 +43,30 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         Scissor           = 1 << 6,
     };
 
-    struct DrawArrayCmd {
+    struct DrawBaseCmd {
         GLenum mode = GL_TRIANGLES;
-        GLint first = 0;
-        GLsizei count = 0;
     };
 
-    struct DrawElementCmd: public DrawArrayCmd {
+    struct DrawCmd: public DrawBaseCmd {
+        Uint32 vertexCount = 0;
+        Uint32 instanceCount = 1;
+        Uint32 firstVertex = 0;
+        Uint32 firstInstance = 0;
+    };
+
+    struct DrawIndexedCmd: public DrawBaseCmd {
         GLenum indexType = GL_UNSIGNED_SHORT;
         SizeT indexByteOffset = 0;
-        GLint baseVertex = 0;
+
+        Uint32 indexCount = 0;
+        Uint32 instanceCount = 1;
+        Uint32 firstIndex = 0;
+        Int32 vertexOffset = 0;
+        Int32 firstInstance = 0;
+    };
+
+    struct MultiDrawElementsCmd {
+
     };
 
     struct QueueFamilyIndices {
@@ -86,9 +100,9 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         void BlitFramebuffer(GLint srcX0, GLint srcY0, GLint srcX1, GLint srcY1,
                              GLint dstX0, GLint dstY0, GLint dstX1, GLint dstY1,
                              GLbitfield mask, GLenum filter);
-        void DrawArrays(const DrawArrayCmd& payload);
-        void DrawElements(const DrawElementCmd& payload);
-        void MultiDrawElements(const Vector<DrawElementCmd>& payloads);
+        void DrawArrays(const DrawCmd& payload);
+        void DrawElements(const DrawIndexedCmd& payload);
+        void MultiDrawElements(const Vector<DrawIndexedCmd>& payloads);
         void Present();
 
         const PhysicalDevice& GetPhysicalDevice() const;

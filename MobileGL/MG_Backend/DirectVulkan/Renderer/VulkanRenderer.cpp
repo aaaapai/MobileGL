@@ -1191,7 +1191,7 @@ void main() {
                        1, &blitRegion, filter == GL_LINEAR ? VK_FILTER_LINEAR : VK_FILTER_NEAREST);
     }
 
-    void VulkanRenderer::DrawArrays(const DrawArrayCmd& payload) {
+    void VulkanRenderer::DrawArrays(const DrawCmd& payload) {
         auto& frame = m_frameContext.GetCurrent();
 
         SetupDraw(frame, payload.mode, 0);
@@ -1200,10 +1200,14 @@ void main() {
 
         VkCommandBuffer& commandBuffer = frame.commandBuffer;
 
-        vkCmdDraw(commandBuffer, static_cast<Uint32>(payload.count), 1, static_cast<Uint32>(payload.first), 0);
+        vkCmdDraw(commandBuffer,
+            payload.vertexCount,
+            payload.instanceCount,
+            payload.firstVertex,
+            payload.firstInstance);
     }
 
-    void VulkanRenderer::DrawElements(const DrawElementCmd& payload) {
+    void VulkanRenderer::DrawElements(const DrawIndexedCmd& payload) {
         auto& frame = m_frameContext.GetCurrent();
 
         SetupDraw(frame, payload.mode, 0);
@@ -1231,7 +1235,7 @@ void main() {
         const auto indexData = indexBuffer->GetDataReadOnly();
         MOBILEGL_ASSERT(indexData != nullptr && !indexData->empty(), "DrawElements requires non-empty EBO data");
         const SizeT indexSize = (payload.indexType == GL_UNSIGNED_SHORT) ? sizeof(Uint16) : sizeof(Uint32);
-        const SizeT indexDataSizeBytes = static_cast<SizeT>(payload.count) * indexSize;
+        const SizeT indexDataSizeBytes = static_cast<SizeT>(payload.indexCount) * indexSize;
         MOBILEGL_ASSERT(payload.indexByteOffset + indexDataSizeBytes <= indexBuffer->GetSize(),
                         "DrawElements index range out of bounds");
 
@@ -1256,11 +1260,15 @@ void main() {
         VkCommandBuffer& commandBuffer = frame.commandBuffer;
 
         vkCmdBindIndexBuffer(commandBuffer, frameIndexUploadBuffer.GetHandle(), writeOffset, vkIndexType);
-        vkCmdDrawIndexed(commandBuffer, static_cast<Uint32>(payload.count), 1, 0,
-                         static_cast<Int32>(payload.baseVertex), 0);
+        vkCmdDrawIndexed(commandBuffer,
+            payload.indexCount,
+            payload.instanceCount,
+            payload.firstIndex,
+            payload.vertexOffset,
+            payload.firstInstance);
     }
 
-    void VulkanRenderer::MultiDrawElements(const Vector<DrawElementCmd>& payloads) {
+    void VulkanRenderer::MultiDrawElements(const Vector<DrawIndexedCmd>& payloads) {
 
     }
 
