@@ -1269,7 +1269,7 @@ void main() {
         auto& frame = m_frameContext.GetCurrent();
 
         SetupDraw(frame, payload.mode, DrawSetupAspect::IndexBuffer,
-                       payload.indexType, payload.indexByteOffset, payload.indexCount);
+                       payload.indexBufferView.indexType, payload.indexBufferView.indexByteOffset, payload.indexCount);
 
         MOBILEGL_ASSERT(frame.isCommandRecording, "%s: frame recording was not started", __func__);
 

@@ -67,8 +67,8 @@ namespace MobileGL::MG_Backend::DirectVulkan {
 
         DrawIndexedCmd payload{};
         payload.mode = mode;
-        payload.indexType = type;
-        payload.indexByteOffset = reinterpret_cast<SizeT>(indices);
+        payload.indexBufferView.indexType = type;
+        payload.indexBufferView.indexByteOffset = reinterpret_cast<SizeT>(indices);
         payload.indexCount = count;
         payload.instanceCount = 1;
 
@@ -107,8 +107,8 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         MOBILEGL_ASSERT(MG_State::pGLContext, "DirectVulkan::DrawElementsBaseVertex called with null GL context");
         DrawIndexedCmd payload{};
         payload.mode = mode;
-        payload.indexType = type;
-        payload.indexByteOffset = reinterpret_cast<SizeT>(indices);
+        payload.indexBufferView.indexType = type;
+        payload.indexBufferView.indexByteOffset = reinterpret_cast<SizeT>(indices);
         payload.indexCount = count;
         payload.instanceCount = 1;
         payload.firstIndex = 0;

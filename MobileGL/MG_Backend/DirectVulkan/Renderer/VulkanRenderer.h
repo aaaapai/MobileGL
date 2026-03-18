@@ -54,9 +54,13 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         Uint32 firstInstance = 0;
     };
 
-    struct DrawIndexedCmd: public DrawBaseCmd {
+    struct IndexBufferView {
         GLenum indexType = GL_UNSIGNED_SHORT;
         SizeT indexByteOffset = 0;
+    };
+
+    struct DrawIndexedCmd: public DrawBaseCmd {
+        IndexBufferView indexBufferView;
 
         Uint32 indexCount = 0;
         Uint32 instanceCount = 1;
