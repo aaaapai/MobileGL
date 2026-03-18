@@ -770,7 +770,7 @@ void main() {
         return m_pipelineFactory->GetOrCreatePipeline(payload);
     }
 
-    Bool VulkanRenderer::SetupDraw(FrameContext::FrameData& frame, GLenum mode, Flags<DrawSetupAspect> aspects,
+    void VulkanRenderer::SetupDraw(FrameContext::FrameData& frame, GLenum mode, Flags<DrawSetupAspect> aspects,
                                    GLenum indexType, SizeT indexByteOffset, Uint32 indexCount) {
         m_textureManager->CollectGarbage();
         const auto& drawFbo =
@@ -880,14 +880,12 @@ void main() {
         m_uniformDescriptorBinder->BindProgramUniformBuffers(frame.commandBuffer, program,
                                                                   m_frameContext.GetCurrentFrameIndex());
 
-        if (!UploadAndBindVertexStreams(frame.commandBuffer, vao)) {
-            MGLOG_E("SetupDraw skipped: failed to upload vertex streams");
-            return false;
-        }
+        auto vtxUploadOk = UploadAndBindVertexStreams(frame.commandBuffer, vao);
+        MOBILEGL_ASSERT(vtxUploadOk, "SetupDraw skipped: failed to upload vertex streams");
+
         if (aspects & DrawSetupAspect::IndexBuffer) {
-            if (!UploadAndBindIndexBuffer(frame, vao, indexType, indexByteOffset, indexCount)) {
-                return false;
-            }
+            auto idxUploadOk = UploadAndBindIndexBuffer(frame, vao, indexType, indexByteOffset, indexCount);
+            MOBILEGL_ASSERT(idxUploadOk, "SetupDraw skipped: failed to upload index buffer");
         }
 
         VkViewport viewport{};
@@ -910,7 +908,6 @@ void main() {
             scissor.extent = { (Uint)renderPassEntry.extent.x(), (Uint)renderPassEntry.extent.y() };
         }
         vkCmdSetScissor(frame.commandBuffer, 0, 1, &scissor);
-        return true;
     }
 
     void VulkanRenderer::Clear(GLbitfield mask) {
@@ -1255,9 +1252,7 @@ void main() {
     void VulkanRenderer::DrawArrays(const DrawCmd& payload) {
         auto& frame = m_frameContext.GetCurrent();
 
-        if (!SetupDraw(frame, payload.mode, 0)) {
-            return;
-        }
+        SetupDraw(frame, payload.mode, 0);
 
         MOBILEGL_ASSERT(frame.isCommandRecording, "%s: frame recording was not started", __func__);
 
@@ -1273,10 +1268,8 @@ void main() {
     void VulkanRenderer::DrawElements(const DrawIndexedCmd& payload) {
         auto& frame = m_frameContext.GetCurrent();
 
-        if (!SetupDraw(frame, payload.mode, DrawSetupAspect::IndexBuffer,
-                       payload.indexType, payload.indexByteOffset, payload.indexCount)) {
-            return;
-        }
+        SetupDraw(frame, payload.mode, DrawSetupAspect::IndexBuffer,
+                       payload.indexType, payload.indexByteOffset, payload.indexCount);
 
         MOBILEGL_ASSERT(frame.isCommandRecording, "%s: frame recording was not started", __func__);
 
