@@ -105,14 +105,29 @@ namespace MobileGL::MG_Backend::DirectVulkan {
     void DrawElementsBaseVertex(GLenum mode, GLsizei count, GLenum type, const GLvoid* indices, GLint basevertex) {
         MOBILEGL_ASSERT(pVulkanRenderer, "DirectVulkan::DrawElementsBaseVertex called with null VulkanRenderer");
         MOBILEGL_ASSERT(MG_State::pGLContext, "DirectVulkan::DrawElementsBaseVertex called with null GL context");
-
+        DrawIndexedCmd payload{};
+        payload.mode = mode;
+        payload.indexType = type;
+        payload.indexByteOffset = reinterpret_cast<SizeT>(indices);
+        payload.indexCount = count;
+        payload.instanceCount = 1;
+        payload.firstIndex = 0;
+        payload.vertexOffset = basevertex;
+        payload.firstInstance = 0;
+        pVulkanRenderer->DrawElements(payload);
     }
 
     void MultiDrawElementsBaseVertex(GLenum mode, const GLsizei* count, GLenum type, const GLvoid* const* indices,
                                      GLsizei drawcount, const GLint* basevertex) {
         MOBILEGL_ASSERT(pVulkanRenderer, "DirectVulkan::MultiDrawElements called with null VulkanRenderer");
         MOBILEGL_ASSERT(MG_State::pGLContext, "DirectVulkan::MultiDrawElements called with null GL context");
-
+        // TODO: properly batch the draw calls
+        for (GLsizei i = 0; i < drawcount; ++i) {
+            if (count[i] == 0) {
+                 continue;
+            }
+            DrawElementsBaseVertex(mode, count[i], type, indices[i], basevertex[i]);
+        }
     }
 
     void BlitFramebuffer(GLint srcX0, GLint srcY0, GLint srcX1, GLint srcY1, GLint dstX0, GLint dstY0, GLint dstX1,
