@@ -399,7 +399,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             vkDestroyDevice(m_device, nullptr);
             m_device = VK_NULL_HANDLE;
         }
-        m_cmdDrawIndexedIndirectCount = nullptr;
+        s_vkCmdDrawIndexedIndirectCount = nullptr;
 
         if (m_surface != VK_NULL_HANDLE) {
             vkDestroySurfaceKHR(m_instance, m_surface, nullptr);
@@ -526,11 +526,9 @@ namespace MobileGL::MG_Backend::DirectVulkan {
 
     Bool VulkanRenderer::UploadAndBindIndexBuffer(FrameContext::FrameData& frame,
                                                   const MG_State::GLState::VertexArrayObject& vao,
-                                                  GLenum indexType,
-                                                  SizeT indexByteOffset,
-                                                  Uint32 indexCount) {
+                                                  const IndexBufferView* pIndexBufferView) {
         VkIndexType vkIndexType = VK_INDEX_TYPE_MAX_ENUM;
-        switch (indexType) {
+        switch (pIndexBufferView->indexType) {
         case GL_UNSIGNED_SHORT:
             vkIndexType = VK_INDEX_TYPE_UINT16;
             break;
@@ -538,7 +536,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             vkIndexType = VK_INDEX_TYPE_UINT32;
             break;
         default:
-            MGLOG_D("DrawElements skipped: index type %u is not supported yet", indexType);
+            MGLOG_D("DrawElements skipped: index type %u is not supported yet", pIndexBufferView->indexType);
             return false;
         }
 
@@ -547,14 +545,14 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         const auto indexData = indexBuffer->GetDataReadOnly();
         MOBILEGL_ASSERT(indexData != nullptr && !indexData->empty(), "DrawElements requires non-empty EBO data");
 
-        const SizeT indexSize = (indexType == GL_UNSIGNED_SHORT) ? sizeof(Uint16) : sizeof(Uint32);
-        const SizeT indexDataSizeBytes = static_cast<SizeT>(indexCount) * indexSize;
-        MOBILEGL_ASSERT(indexByteOffset + indexDataSizeBytes <= indexBuffer->GetSize(),
+        const SizeT indexSize = MG_Util::GetGLTypeSize(pIndexBufferView->indexType);
+        const SizeT indexDataSizeBytes = pIndexBufferView->indexByteSize;
+        MOBILEGL_ASSERT(pIndexBufferView->indexByteOffset + indexDataSizeBytes <= indexBuffer->GetSize(),
                         "DrawElements index range out of bounds");
 
         const Uint32 frameIndex = m_frameContext.GetCurrentFrameIndex();
         VkDeviceSize& frameIndexHead = m_frameIndexUploadHeads[frameIndex];
-        const VkDeviceSize alignment = static_cast<VkDeviceSize>(indexSize);
+        const VkDeviceSize alignment = indexSize;
         const VkDeviceSize writeOffset = (frameIndexHead + alignment - 1) & ~(alignment - 1);
         const VkDeviceSize writeEnd = writeOffset + static_cast<VkDeviceSize>(indexDataSizeBytes);
         if (!EnsureFrameUploadBufferCapacity(frameIndex, true, writeEnd, 1 * 1024 * 1024,
@@ -564,7 +562,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         }
 
         auto& frameIndexUploadBuffer = m_frameIndexUploadBuffers[frameIndex];
-        if (!frameIndexUploadBuffer.Upload(indexData->data() + indexByteOffset,
+        if (!frameIndexUploadBuffer.Upload(indexData->data() + pIndexBufferView->indexByteOffset,
                                            static_cast<VkDeviceSize>(indexDataSizeBytes), writeOffset)) {
             MGLOG_E("DrawElements skipped: failed to upload index data");
             return false;
@@ -771,7 +769,7 @@ void main() {
     }
 
     void VulkanRenderer::SetupDraw(FrameContext::FrameData& frame, GLenum mode, Flags<DrawSetupAspect> aspects,
-                                   GLenum indexType, SizeT indexByteOffset, Uint32 indexCount) {
+                                   const IndexBufferView* pIndexBufferView) {
         m_textureManager->CollectGarbage();
         const auto& drawFbo =
                 MG_State::pGLContext->GetFramebufferBindingSlot(FramebufferTarget::Draw).GetBoundObject();
@@ -884,7 +882,7 @@ void main() {
         MOBILEGL_ASSERT(vtxUploadOk, "SetupDraw skipped: failed to upload vertex streams");
 
         if (aspects & DrawSetupAspect::IndexBuffer) {
-            auto idxUploadOk = UploadAndBindIndexBuffer(frame, vao, indexType, indexByteOffset, indexCount);
+            auto idxUploadOk = UploadAndBindIndexBuffer(frame, vao, pIndexBufferView);
             MOBILEGL_ASSERT(idxUploadOk, "SetupDraw skipped: failed to upload index buffer");
         }
 
@@ -1259,32 +1257,48 @@ void main() {
         VkCommandBuffer& commandBuffer = frame.commandBuffer;
 
         vkCmdDraw(commandBuffer,
-            payload.vertexCount,
-            payload.instanceCount,
-            payload.firstVertex,
-            payload.firstInstance);
+            payload.params.vertexCount,
+            payload.params.instanceCount,
+            payload.params.firstVertex,
+            payload.params.firstInstance);
     }
 
     void VulkanRenderer::DrawElements(const DrawIndexedCmd& payload) {
         auto& frame = m_frameContext.GetCurrent();
 
         SetupDraw(frame, payload.mode, DrawSetupAspect::IndexBuffer,
-                       payload.indexBufferView.indexType, payload.indexBufferView.indexByteOffset, payload.indexCount);
+                       &payload.indexBufferView);
 
         MOBILEGL_ASSERT(frame.isCommandRecording, "%s: frame recording was not started", __func__);
 
         VkCommandBuffer& commandBuffer = frame.commandBuffer;
 
         vkCmdDrawIndexed(commandBuffer,
-            payload.indexCount,
-            payload.instanceCount,
-            payload.firstIndex,
-            payload.vertexOffset,
-            payload.firstInstance);
+            payload.params.indexCount,
+            payload.params.instanceCount,
+            payload.params.firstIndex,
+            payload.params.vertexOffset,
+            payload.params.firstInstance);
     }
 
-    void VulkanRenderer::MultiDrawElements(const Vector<DrawIndexedCmd>& payloads) {
+    void VulkanRenderer::MultiDrawElements(const MultiDrawIndexedCmd& payload) {
+        auto& frame = m_frameContext.GetCurrent();
 
+        SetupDraw(frame, payload.mode, DrawSetupAspect::IndexBuffer,
+                  &payload.indexBufferView);
+
+        MOBILEGL_ASSERT(frame.isCommandRecording, "%s: frame recording was not started", __func__);
+
+        VkCommandBuffer& commandBuffer = frame.commandBuffer;
+
+        for (Uint32 idraw = 0; idraw < payload.drawCount; ++idraw) {
+            vkCmdDrawIndexed(commandBuffer,
+                             payload.pParams[idraw].indexCount,
+                             payload.pParams[idraw].instanceCount,
+                             payload.pParams[idraw].firstIndex,
+                             payload.pParams[idraw].vertexOffset,
+                             payload.pParams[idraw].firstInstance);
+        }
     }
 
     void VulkanRenderer::Present() {
@@ -1639,14 +1653,15 @@ void main() {
         deviceCreateInfo.ppEnabledExtensionNames = enabledDeviceExtensions.data();
         VK_VERIFY(vkCreateDevice(m_physicalDevice.handle, &deviceCreateInfo, nullptr, &m_device), "vkCreateDevice");
 
-        m_cmdDrawIndexedIndirectCount = reinterpret_cast<PFNDrawIndexedIndirectCountFunc>(
+        s_vkCmdDrawIndexedIndirectCount = reinterpret_cast<PFNDrawIndexedIndirectCountFunc>(
             vkGetDeviceProcAddr(m_device, "vkCmdDrawIndexedIndirectCountKHR"));
-        if (m_cmdDrawIndexedIndirectCount == nullptr) {
-            m_cmdDrawIndexedIndirectCount = reinterpret_cast<PFNDrawIndexedIndirectCountFunc>(
+        if (s_vkCmdDrawIndexedIndirectCount == nullptr) {
+            s_vkCmdDrawIndexedIndirectCount = reinterpret_cast<PFNDrawIndexedIndirectCountFunc>(
                 vkGetDeviceProcAddr(m_device, "vkCmdDrawIndexedIndirectCount"));
         }
-        if (m_drawIndirectCountExtensionEnabled && m_cmdDrawIndexedIndirectCount == nullptr) {
-            MGLOG_W("VK_KHR_draw_indirect_count enabled but vkCmdDrawIndexedIndirectCount entry point is missing");
+        if (m_drawIndirectCountExtensionEnabled && s_vkCmdDrawIndexedIndirectCount == nullptr) {
+            MGLOG_W("VK_KHR_draw_indirect_count enabled but vkCmdDrawIndexedIndirectCount entry point is missing, will continue as if VK_KHR_draw_indirect_count is not supported!");
+            m_drawIndirectCountExtensionEnabled = false;
         }
         MGLOG_I("Logical device created.");
 

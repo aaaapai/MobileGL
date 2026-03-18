@@ -55,8 +55,8 @@ namespace MobileGL::MG_Backend::DirectVulkan {
 
         DrawCmd payload{};
         payload.mode = mode;
-        payload.firstVertex = first;
-        payload.vertexCount = count;
+        payload.params.firstVertex = first;
+        payload.params.vertexCount = count;
 
         pVulkanRenderer->DrawArrays(payload);
     }
@@ -69,8 +69,9 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         payload.mode = mode;
         payload.indexBufferView.indexType = type;
         payload.indexBufferView.indexByteOffset = reinterpret_cast<SizeT>(indices);
-        payload.indexCount = count;
-        payload.instanceCount = 1;
+        payload.indexBufferView.indexByteSize = count * MG_Util::GetGLTypeSize(type);
+        payload.params.indexCount = count;
+        payload.params.instanceCount = 1;
 
         pVulkanRenderer->DrawElements(payload);
     }
@@ -109,11 +110,12 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         payload.mode = mode;
         payload.indexBufferView.indexType = type;
         payload.indexBufferView.indexByteOffset = reinterpret_cast<SizeT>(indices);
-        payload.indexCount = count;
-        payload.instanceCount = 1;
-        payload.firstIndex = 0;
-        payload.vertexOffset = basevertex;
-        payload.firstInstance = 0;
+        payload.indexBufferView.indexByteSize = count * MG_Util::GetGLTypeSize(type);
+        payload.params.indexCount = count;
+        payload.params.instanceCount = 1;
+        payload.params.firstIndex = 0;
+        payload.params.vertexOffset = basevertex;
+        payload.params.firstInstance = 0;
         pVulkanRenderer->DrawElements(payload);
     }
 
@@ -121,13 +123,38 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                                      GLsizei drawcount, const GLint* basevertex) {
         MOBILEGL_ASSERT(pVulkanRenderer, "DirectVulkan::MultiDrawElements called with null VulkanRenderer");
         MOBILEGL_ASSERT(MG_State::pGLContext, "DirectVulkan::MultiDrawElements called with null GL context");
-        // TODO: properly batch the draw calls
+        MultiDrawIndexedCmd payload{};
+        payload.mode = mode;
+        payload.indexBufferView.indexType = type;
+
+        // TODO: allocate draw cmd buf elsewhere
+        static Vector<DrawIndexedCmdParam> params;
+        params.clear();
+        params.resize(drawcount);
+
         for (GLsizei i = 0; i < drawcount; ++i) {
             if (count[i] == 0) {
-                 continue;
+                continue;
             }
-            DrawElementsBaseVertex(mode, count[i], type, indices[i], basevertex[i]);
+
+            // TODO: this index view needs a redesign, now there's a lotta redundant uploads
+
+            payload.indexBufferView.indexByteOffset = 0;
+            payload.indexBufferView.indexByteSize =
+                    std::max(reinterpret_cast<SizeT>(indices[i]) + count[i] * MG_Util::GetGLTypeSize(type),
+                             payload.indexBufferView.indexByteSize);
+
+            auto& param = params[i];
+
+            param.indexCount = count[i];
+            param.instanceCount = 1;
+            param.firstIndex = reinterpret_cast<SizeT>(indices[i]) / MG_Util::GetGLTypeSize(type);
+            param.vertexOffset = basevertex[i];
+            param.firstInstance = 0;
         }
+        payload.drawCount = drawcount;
+        payload.pParams = params.data();
+        pVulkanRenderer->MultiDrawElements(payload);
     }
 
     void BlitFramebuffer(GLint srcX0, GLint srcY0, GLint srcX1, GLint srcY1, GLint dstX0, GLint dstY0, GLint dstX1,

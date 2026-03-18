@@ -34,34 +34,24 @@ namespace MobileGL::MG_State::GLState {
 
 namespace MobileGL::MG_Backend::DirectVulkan {
     enum class DrawSetupAspect: Uint8 {
-        FramebufferObject = 1 << 0,
-        VertexArrayObject = 1 << 1,
-        UniformBuffer     = 1 << 2,
-        VertexBuffer      = 1 << 3,
-        IndexBuffer       = 1 << 4,
-        Viewport          = 1 << 5,
-        Scissor           = 1 << 6,
+        FramebufferObject  = 1 << 0,
+        VertexArrayObject  = 1 << 1,
+        UniformBuffer      = 1 << 2,
+        VertexBuffer       = 1 << 3,
+        IndexBuffer        = 1 << 4,
+        IndirectDrawBuffer = 1 << 5,
+        Viewport           = 1 << 6,
+        Scissor            = 1 << 7,
     };
 
-    struct DrawBaseCmd {
-        GLenum mode = GL_TRIANGLES;
-    };
-
-    struct DrawCmd: public DrawBaseCmd {
+    struct DrawCmdParam {
         Uint32 vertexCount = 0;
         Uint32 instanceCount = 1;
         Uint32 firstVertex = 0;
         Uint32 firstInstance = 0;
     };
 
-    struct IndexBufferView {
-        GLenum indexType = GL_UNSIGNED_SHORT;
-        SizeT indexByteOffset = 0;
-    };
-
-    struct DrawIndexedCmd: public DrawBaseCmd {
-        IndexBufferView indexBufferView;
-
+    struct DrawIndexedCmdParam {
         Uint32 indexCount = 0;
         Uint32 instanceCount = 1;
         Uint32 firstIndex = 0;
@@ -69,8 +59,30 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         Int32 firstInstance = 0;
     };
 
-    struct MultiDrawElementsCmd {
+    struct DrawCmd {
+        GLenum mode = GL_TRIANGLES;
+        DrawCmdParam params;
+    };
 
+    struct IndexBufferView {
+        GLenum indexType = GL_UNSIGNED_SHORT;
+        SizeT indexByteOffset = 0;
+        SizeT indexByteSize = 0;
+    };
+
+    struct DrawIndexedCmd {
+        GLenum mode = GL_TRIANGLES;
+        IndexBufferView indexBufferView;
+
+        DrawIndexedCmdParam params;
+    };
+
+    struct MultiDrawIndexedCmd {
+        GLenum mode = GL_TRIANGLES;
+        IndexBufferView indexBufferView;
+
+        Uint32 drawCount = 0;
+        DrawIndexedCmdParam* pParams = nullptr;
     };
 
     struct QueueFamilyIndices {
@@ -97,7 +109,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         void Shutdown();
 
         void SetupDraw(FrameContext::FrameData& frame, GLenum mode, Flags<DrawSetupAspect> aspects,
-                       GLenum indexType = 0, SizeT indexByteOffset = 0, Uint32 indexCount = 0);
+                       const IndexBufferView* pIndexBufferView = nullptr);
         void ClearAttachmentsOnActiveRenderPass(VkCommandBuffer commandBuffer,
                                                 const RenderPassEntry& compatibleRenderPassEntry);
 
@@ -107,7 +119,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                              GLbitfield mask, GLenum filter);
         void DrawArrays(const DrawCmd& payload);
         void DrawElements(const DrawIndexedCmd& payload);
-        void MultiDrawElements(const Vector<DrawIndexedCmd>& payloads);
+        void MultiDrawElements(const MultiDrawIndexedCmd& payloads);
         void Present();
 
         const PhysicalDevice& GetPhysicalDevice() const;
@@ -154,7 +166,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                                                                  VkDeviceSize offset, VkBuffer countBuffer,
                                                                  VkDeviceSize countBufferOffset, Uint32 maxDrawCount,
                                                                  Uint32 stride);
-        PFNDrawIndexedIndirectCountFunc m_cmdDrawIndexedIndirectCount = nullptr;
+        static inline PFNDrawIndexedIndirectCountFunc s_vkCmdDrawIndexedIndirectCount = nullptr;
 
         VkCommandPool m_commandPool = VK_NULL_HANDLE;
 
@@ -203,9 +215,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         Bool UploadAndBindVertexStreams(VkCommandBuffer commandBuffer, const MG_State::GLState::VertexArrayObject& vao);
         Bool UploadAndBindIndexBuffer(FrameContext::FrameData& frame,
                                       const MG_State::GLState::VertexArrayObject& vao,
-                                      GLenum indexType,
-                                      SizeT indexByteOffset,
-                                      Uint32 indexCount);
+                                      const IndexBufferView* pIndexBufferView = nullptr);
         Bool InitializeBlitResources();
         void ShutdownBlitResources();
         Bool TryBlitToDefaultFramebufferWithShader(FrameContext::FrameData& frame,
