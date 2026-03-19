@@ -250,8 +250,6 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         static Bool GetMoreCapablePhysicalDevice(VkPhysicalDevice newVkDevice, VkSurfaceKHR surface,
                                                  const PhysicalDevice& compareWithDevice,
                                                  PhysicalDevice& outBetterDevice);
-        static Uint64 BuildPendingClearKey(Uint drawFboExternalIndex, Bool targetsDefaultFramebuffer);
-        static constexpr VkDynamicState s_dynamicStates[] = {VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR};
         static constexpr const char* s_validationLayerNames[] = {"VK_LAYER_KHRONOS_validation"};
         static constexpr const char* s_deviceExtensionNames[] = {VK_KHR_SWAPCHAIN_EXTENSION_NAME};
         static Bool CheckValidationLayerSupport();

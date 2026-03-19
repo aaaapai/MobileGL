@@ -1707,11 +1707,6 @@ void main() {
                                  m_config.MaxFramesInFlight);
     }
 
-    Uint64 VulkanRenderer::BuildPendingClearKey(Uint drawFboExternalIndex, Bool targetsDefaultFramebuffer) {
-        return (static_cast<Uint64>(targetsDefaultFramebuffer ? 1 : 0) << 63) |
-               static_cast<Uint64>(drawFboExternalIndex);
-    }
-
     void VulkanRenderer::CreateCommandPool() {
         VkCommandPoolCreateInfo createInfo{VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO};
         createInfo.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
