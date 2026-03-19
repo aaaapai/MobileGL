@@ -8,6 +8,7 @@
 
 #pragma once
 #include "Config.h"
+#include "BufferArena.h"
 #include "FrameContext.h"
 #include "PipelineFactory.h"
 #include "ProgramFactory.h"
@@ -170,11 +171,8 @@ namespace MobileGL::MG_Backend::DirectVulkan {
 
         VkCommandPool m_commandPool = VK_NULL_HANDLE;
 
-        Vector<VkBufferObject> m_frameVertexUploadBuffers;
-        Vector<VkDeviceSize> m_frameVertexUploadHeads;
-        Vector<VkBufferObject> m_frameIndexUploadBuffers;
-        Vector<VkDeviceSize> m_frameIndexUploadHeads;
-        Vector<Vector<VkBufferObject>> m_deferredBufferReleases;
+        BufferArena m_vertexUploadArena;
+        BufferArena m_indexUploadArena;
 
         Uint m_imageIndexAcquired = 0;
         FrameContext m_frameContext;
@@ -208,13 +206,9 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             const MG_State::GLState::VertexArrayObject& vao,
             const RenderPassEntry& renderPassEntry);
 
-        void DeferDestroyBuffer(VkBufferObject& buffer);
-        void CollectDeferredBufferReleases(Uint32 frameIndex);
-        Bool EnsureFrameUploadBufferCapacity(Uint32 frameIndex, Bool isIndexBuffer, VkDeviceSize requiredEndOffset,
-                                             VkDeviceSize minCapacity, VkBufferUsageFlags usage);
         Bool UploadAndBindVertexStreams(VkCommandBuffer commandBuffer, const MG_State::GLState::VertexArrayObject& vao);
         Bool UploadAndBindIndexBuffer(FrameContext::FrameData& frame,
-                                      const MG_State::GLState::VertexArrayObject& vao,
+                                     const MG_State::GLState::VertexArrayObject& vao,
                                       const IndexBufferView* pIndexBufferView = nullptr);
         Bool InitializeBlitResources();
         void ShutdownBlitResources();
