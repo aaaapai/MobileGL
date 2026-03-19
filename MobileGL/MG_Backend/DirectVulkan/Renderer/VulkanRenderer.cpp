@@ -334,32 +334,21 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         MOBILEGL_ASSERT(m_vertexInputStateFactory != nullptr, "VertexInputStateFactory creation failed.");
 
         CreateFrameContexts();
-        succeeded = m_vertexUploadArena.Initialize({
+        succeeded = m_bufferManager.Initialize({
             .allocator = m_allocator,
             .frameCount = m_frameContext.GetFrameCount(),
-            .usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
-            .memoryUsage = VMA_MEMORY_USAGE_AUTO,
-            .allocationFlags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT,
-            .minBufferSize = 4 * 1024 * 1024,
-            .persistentlyMapped = false,
+            .minVertexUploadBytes = 4 * 1024 * 1024,
+            .minIndexUploadBytes = 1 * 1024 * 1024,
+            .transientMemoryUsage = VMA_MEMORY_USAGE_AUTO,
+            .transientAllocationFlags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT,
+            .transientPersistentMapping = false,
         });
-        MOBILEGL_ASSERT(succeeded, "Vertex upload arena initialization failed.");
-        succeeded = m_indexUploadArena.Initialize({
-            .allocator = m_allocator,
-            .frameCount = m_frameContext.GetFrameCount(),
-            .usage = VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
-            .memoryUsage = VMA_MEMORY_USAGE_AUTO,
-            .allocationFlags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT,
-            .minBufferSize = 1 * 1024 * 1024,
-            .persistentlyMapped = false,
-        });
-        MOBILEGL_ASSERT(succeeded, "Index upload arena initialization failed.");
+        MOBILEGL_ASSERT(succeeded, "Buffer manager initialization failed.");
 
         // Prime the first frame so Render() always targets an acquired swapchain image.
         VK_VERIFY(m_frameContext.WaitAndAcquireNextImage(m_device, m_swapchainObject.GetHandle(), m_imageIndexAcquired),
                   "Initialize, WaitAndAcquireNextImage");
-        m_vertexUploadArena.BeginFrame(m_frameContext.GetCurrentFrameIndex());
-        m_indexUploadArena.BeginFrame(m_frameContext.GetCurrentFrameIndex());
+        m_bufferManager.BeginFrame(m_frameContext.GetCurrentFrameIndex());
 
         MGLOG_D("VulkanRenderer initialized");
     }
@@ -379,8 +368,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             m_textureManager.reset();
         }
         m_vertexInputStateFactory.reset();
-        m_vertexUploadArena.Shutdown();
-        m_indexUploadArena.Shutdown();
+        m_bufferManager.Shutdown();
 
         m_frameContext.Destroy(m_device, m_commandPool);
 
@@ -459,8 +447,8 @@ namespace MobileGL::MG_Backend::DirectVulkan {
 
             const SizeT sourceSize = sourceBuffer->GetSize();
             BufferSlice slice{};
-            if (!m_vertexUploadArena.Upload(frameIndex, sourceData->data(), static_cast<VkDeviceSize>(sourceSize), 16,
-                                            slice)) {
+            if (!m_bufferManager.UploadTransient(TransientBufferKind::Vertex, frameIndex, sourceData->data(),
+                                                 static_cast<VkDeviceSize>(sourceSize), 16, slice)) {
                 MGLOG_E("UploadAndBindVertexStreams skipped: failed to upload binding %zu", binding);
                 return false;
             }
@@ -501,8 +489,9 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         const Uint32 frameIndex = m_frameContext.GetCurrentFrameIndex();
         const VkDeviceSize alignment = indexSize;
         BufferSlice slice{};
-        if (!m_indexUploadArena.Upload(frameIndex, indexData->data() + pIndexBufferView->indexByteOffset,
-                                       static_cast<VkDeviceSize>(indexDataSizeBytes), alignment, slice)) {
+        if (!m_bufferManager.UploadTransient(TransientBufferKind::Index, frameIndex,
+                                             indexData->data() + pIndexBufferView->indexByteOffset,
+                                             static_cast<VkDeviceSize>(indexDataSizeBytes), alignment, slice)) {
             MGLOG_E("DrawElements skipped: failed to prepare index upload buffer");
             return false;
         }
@@ -1283,8 +1272,7 @@ void main() {
             result = VK_SUCCESS;
         }
         VK_VERIFY(result, "Present, vkAcquireNextImageKHR");
-        m_vertexUploadArena.BeginFrame(m_frameContext.GetCurrentFrameIndex());
-        m_indexUploadArena.BeginFrame(m_frameContext.GetCurrentFrameIndex());
+        m_bufferManager.BeginFrame(m_frameContext.GetCurrentFrameIndex());
     }
 
     void VulkanRenderer::CreateInstance() {
@@ -1820,31 +1808,10 @@ void main() {
             m_frameContext.GetCurrent().isCommandRecording = false;
             m_frameContext.GetCurrent().hasCommandBufferRecorded = false;
         }
-        m_vertexUploadArena.Shutdown();
-        Bool okArena = m_vertexUploadArena.Initialize({
-            .allocator = m_allocator,
-            .frameCount = m_frameContext.GetFrameCount(),
-            .usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
-            .memoryUsage = VMA_MEMORY_USAGE_AUTO,
-            .allocationFlags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT,
-            .minBufferSize = 4 * 1024 * 1024,
-            .persistentlyMapped = false,
-        });
-        MOBILEGL_ASSERT(okArena, "RecreateSwapchain: vertex upload arena initialization failed");
-        m_indexUploadArena.Shutdown();
-        okArena = m_indexUploadArena.Initialize({
-            .allocator = m_allocator,
-            .frameCount = m_frameContext.GetFrameCount(),
-            .usage = VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
-            .memoryUsage = VMA_MEMORY_USAGE_AUTO,
-            .allocationFlags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT,
-            .minBufferSize = 1 * 1024 * 1024,
-            .persistentlyMapped = false,
-        });
-        MOBILEGL_ASSERT(okArena, "RecreateSwapchain: index upload arena initialization failed");
+        const Bool okArena = m_bufferManager.RecreateTransientArenas(m_frameContext.GetFrameCount());
+        MOBILEGL_ASSERT(okArena, "RecreateSwapchain: buffer manager transient arena initialization failed");
         if (m_frameContext.GetFrameCount() > 0) {
-            m_vertexUploadArena.BeginFrame(m_frameContext.GetCurrentFrameIndex());
-            m_indexUploadArena.BeginFrame(m_frameContext.GetCurrentFrameIndex());
+            m_bufferManager.BeginFrame(m_frameContext.GetCurrentFrameIndex());
         }
     }
 

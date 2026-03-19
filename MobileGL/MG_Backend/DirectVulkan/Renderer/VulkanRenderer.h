@@ -8,7 +8,6 @@
 
 #pragma once
 #include "Config.h"
-#include "BufferArena.h"
 #include "FrameContext.h"
 #include "PipelineFactory.h"
 #include "ProgramFactory.h"
@@ -16,6 +15,7 @@
 #include "UniformDescriptorBinder.h"
 #include "VertexInputStateFactory.h"
 #include "VkBufferObject.h"
+#include "VkBufferManager.h"
 #include "VkClearManager.h"
 #include "VkRenderPassManager.h"
 #include "VkSamplerManager.h"
@@ -171,8 +171,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
 
         VkCommandPool m_commandPool = VK_NULL_HANDLE;
 
-        BufferArena m_vertexUploadArena;
-        BufferArena m_indexUploadArena;
+        VkBufferManager m_bufferManager;
 
         Uint m_imageIndexAcquired = 0;
         FrameContext m_frameContext;
