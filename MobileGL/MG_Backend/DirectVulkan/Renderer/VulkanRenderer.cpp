@@ -276,12 +276,6 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         return flags;
     }
 
-    void VulkanRenderer::CreateFrameContexts() {
-        VK_VERIFY(m_frameContext.Initialize(m_device, m_commandPool, m_config.MaxFramesInFlight),
-                  "CreateFrameContexts");
-        MGLOG_I("CreateFrameContexts completed");
-    }
-
     void VulkanRenderer::Initialize() {
         CreateInstance();
         CreateSurface();
@@ -290,7 +284,9 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         CreateAllocator();
 
         CreateCommandPool();
-        CreateFrameContexts();
+        VK_VERIFY(m_frameContext.Initialize(m_device, m_commandPool, m_config.MaxFramesInFlight),
+                  "CreateFrameContexts");
+        MGLOG_I("CreateFrameContexts completed");
         auto succeeded = false;
         succeeded = m_bufferManager.Initialize({
             .allocator = m_allocator,

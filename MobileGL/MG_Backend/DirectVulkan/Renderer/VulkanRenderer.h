@@ -197,7 +197,6 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         void DestroyAllocator();
         void CreateSwapchain();
         void CreateCommandPool();
-        void CreateFrameContexts();
 
         VkPipeline GetOrCreatePipeline(
             GLenum mode,
