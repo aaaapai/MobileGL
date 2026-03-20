@@ -173,6 +173,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         VkCommandPool m_commandPool = VK_NULL_HANDLE;
 
         VkBufferManager m_bufferManager;
+        Vector<const MG_State::GLState::BufferObject*> m_transientVertexIndexBuffersThisFrame;
 
         Uint m_imageIndexAcquired = 0;
         FrameContext m_frameContext;

@@ -9,12 +9,13 @@
 #pragma once
 
 #include "BufferArena.h"
+#include "MG_State/GLState/BufferState/BufferObject.h"
 #include "../VkIncludes.h"
 #include <Includes.h>
 #include <vk_mem_alloc.h>
 
 namespace MobileGL::MG_Backend::DirectVulkan {
-    enum class TransientBufferKind : Uint8 {
+    enum class BufferKind : Uint8 {
         Vertex,
         Index,
         Uniform,
@@ -38,13 +39,34 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         Bool RecreateTransientArenas(Uint32 frameCount);
         void BeginFrame(Uint32 frameIndex);
 
-        Bool UploadTransient(TransientBufferKind kind, Uint32 frameIndex, const void* data, VkDeviceSize size,
+        Bool UploadTransient(BufferKind kind, Uint32 frameIndex, const void* data, VkDeviceSize size,
                              VkDeviceSize alignment, BufferSlice& outSlice);
+        Bool SyncResidentBuffer(BufferKind kind, const SharedPtr<MG_State::GLState::BufferObject>& bufferObject,
+                                BufferSlice& outSlice);
+        void DowngradeResidentBufferToTransient(const SharedPtr<MG_State::GLState::BufferObject>& bufferObject);
 
     private:
+        struct ResidentBufferEntry {
+            WeakPtr<MG_State::GLState::BufferObject> aliveRef;
+            VkBufferObject buffer;
+            VkDeviceSize size = 0;
+            VkBufferUsageFlags usage = 0;
+        };
+
         Bool InitializeTransientArenas();
+        static VkBufferUsageFlags GetVkBufferUsage(BufferKind kind);
+        void DeferResidentRelease(VkBufferObject&& buffer);
+        void CollectDeferredResidentReleases(Uint32 frameIndex);
+        void CollectResidentGarbageIfNeeded();
+        void CollectResidentGarbageNow();
+        void DestroyDeferredResidentReleases();
+        void DestroyResidentBuffers();
 
         VkBufferManagerInitInfo m_initInfo{};
         BufferArena m_transientUploadArena;
+        UnorderedMap<MG_State::GLState::BufferObject*, ResidentBufferEntry> m_residentBuffers;
+        Vector<Vector<VkBufferObject>> m_deferredResidentReleases;
+        Uint32 m_currentFrameIndex = 0;
+        Uint32 m_residentGcTick = 0;
     };
 } // namespace MobileGL::MG_Backend::DirectVulkan

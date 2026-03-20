@@ -888,7 +888,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                 }
 
                 BufferSlice slice{};
-                if (!m_bufferManager->UploadTransient(TransientBufferKind::Uniform, frameIndex, payload, payloadSize,
+                if (!m_bufferManager->UploadTransient(BufferKind::Uniform, frameIndex, payload, payloadSize,
                                                      m_minDynamicOffsetAlignment, slice)) {
                     MGLOG_E("UniformDescriptorBinder::BindProgramUniformBuffers failed: UBO upload failed on binding %u",
                             binding);
