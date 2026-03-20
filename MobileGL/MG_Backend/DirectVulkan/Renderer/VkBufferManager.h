@@ -23,9 +23,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
     struct VkBufferManagerInitInfo {
         VmaAllocator allocator = nullptr;
         Uint32 frameCount = 0;
-        VkDeviceSize minVertexUploadBytes = 4 * 1024 * 1024;
-        VkDeviceSize minIndexUploadBytes = 1 * 1024 * 1024;
-        VkDeviceSize minUniformUploadBytes = 4 * 1024 * 1024;
+        VkDeviceSize minUploadBytes = 4 * 1024 * 1024;
         VmaMemoryUsage transientMemoryUsage = VMA_MEMORY_USAGE_AUTO;
         VmaAllocationCreateFlags transientAllocationFlags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT;
         Bool transientPersistentMapping = false;
@@ -47,8 +45,6 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         Bool InitializeTransientArenas();
 
         VkBufferManagerInitInfo m_initInfo{};
-        BufferArena m_vertexUploadArena;
-        BufferArena m_indexUploadArena;
-        BufferArena m_uniformUploadArena;
+        BufferArena m_transientUploadArena;
     };
 } // namespace MobileGL::MG_Backend::DirectVulkan

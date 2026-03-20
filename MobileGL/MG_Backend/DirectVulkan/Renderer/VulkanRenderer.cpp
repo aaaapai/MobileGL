@@ -291,9 +291,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         succeeded = m_bufferManager.Initialize({
             .allocator = m_allocator,
             .frameCount = m_frameContext.GetFrameCount(),
-            .minVertexUploadBytes = 4 * 1024 * 1024,
-            .minIndexUploadBytes = 1 * 1024 * 1024,
-            .minUniformUploadBytes = 4 * 1024 * 1024,
+            .minUploadBytes = 4 * 1024 * 1024,
             .transientMemoryUsage = VMA_MEMORY_USAGE_AUTO,
             .transientAllocationFlags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT,
             .transientPersistentMapping = false,

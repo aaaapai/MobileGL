@@ -20,9 +20,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
     }
 
     void VkBufferManager::Shutdown() {
-        m_vertexUploadArena.Shutdown();
-        m_indexUploadArena.Shutdown();
-        m_uniformUploadArena.Shutdown();
+        m_transientUploadArena.Shutdown();
         m_initInfo = {};
     }
 
@@ -30,76 +28,31 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         MOBILEGL_ASSERT(m_initInfo.allocator != nullptr, "VkBufferManager::RecreateTransientArenas requires initialized manager");
         MOBILEGL_ASSERT(frameCount > 0, "VkBufferManager::RecreateTransientArenas requires non-zero frame count");
 
-        m_vertexUploadArena.Shutdown();
-        m_indexUploadArena.Shutdown();
-        m_uniformUploadArena.Shutdown();
+        m_transientUploadArena.Shutdown();
         m_initInfo.frameCount = frameCount;
         return InitializeTransientArenas();
     }
 
     void VkBufferManager::BeginFrame(Uint32 frameIndex) {
-        m_vertexUploadArena.BeginFrame(frameIndex);
-        m_indexUploadArena.BeginFrame(frameIndex);
-        m_uniformUploadArena.BeginFrame(frameIndex);
+        m_transientUploadArena.BeginFrame(frameIndex);
     }
 
     Bool VkBufferManager::UploadTransient(TransientBufferKind kind, Uint32 frameIndex, const void* data,
                                           VkDeviceSize size, VkDeviceSize alignment, BufferSlice& outSlice) {
-        switch (kind) {
-        case TransientBufferKind::Vertex:
-            return m_vertexUploadArena.Upload(frameIndex, data, size, alignment, outSlice);
-        case TransientBufferKind::Index:
-            return m_indexUploadArena.Upload(frameIndex, data, size, alignment, outSlice);
-        case TransientBufferKind::Uniform:
-            return m_uniformUploadArena.Upload(frameIndex, data, size, alignment, outSlice);
-        default:
-            return false;
-        }
+        (void)kind;
+        return m_transientUploadArena.Upload(frameIndex, data, size, alignment, outSlice);
     }
 
     Bool VkBufferManager::InitializeTransientArenas() {
-        Bool ok = m_vertexUploadArena.Initialize({
+        return m_transientUploadArena.Initialize({
             .allocator = m_initInfo.allocator,
             .frameCount = m_initInfo.frameCount,
-            .usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+            .usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT |
+                     VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
             .memoryUsage = m_initInfo.transientMemoryUsage,
             .allocationFlags = m_initInfo.transientAllocationFlags,
-            .minBufferSize = m_initInfo.minVertexUploadBytes,
+            .minBufferSize = m_initInfo.minUploadBytes,
             .persistentlyMapped = m_initInfo.transientPersistentMapping,
         });
-        if (!ok) {
-            return false;
-        }
-
-        ok = m_indexUploadArena.Initialize({
-            .allocator = m_initInfo.allocator,
-            .frameCount = m_initInfo.frameCount,
-            .usage = VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
-            .memoryUsage = m_initInfo.transientMemoryUsage,
-            .allocationFlags = m_initInfo.transientAllocationFlags,
-            .minBufferSize = m_initInfo.minIndexUploadBytes,
-            .persistentlyMapped = m_initInfo.transientPersistentMapping,
-        });
-        if (!ok) {
-            m_vertexUploadArena.Shutdown();
-            return false;
-        }
-
-        ok = m_uniformUploadArena.Initialize({
-            .allocator = m_initInfo.allocator,
-            .frameCount = m_initInfo.frameCount,
-            .usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
-            .memoryUsage = m_initInfo.transientMemoryUsage,
-            .allocationFlags = m_initInfo.transientAllocationFlags,
-            .minBufferSize = m_initInfo.minUniformUploadBytes,
-            .persistentlyMapped = m_initInfo.transientPersistentMapping,
-        });
-        if (!ok) {
-            m_vertexUploadArena.Shutdown();
-            m_indexUploadArena.Shutdown();
-            return false;
-        }
-
-        return true;
     }
 } // namespace MobileGL::MG_Backend::DirectVulkan
