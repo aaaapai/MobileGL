@@ -109,7 +109,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         void Initialize();
         void Shutdown();
 
-        void SetupDraw(FrameContext::FrameData& frame, GLenum mode, Flags<DrawSetupAspect> aspects,
+        Bool SetupDraw(FrameContext::FrameData& frame, GLenum mode, Flags<DrawSetupAspect> aspects,
                        const IndexBufferView* pIndexBufferView = nullptr);
         void ClearAttachmentsOnActiveRenderPass(VkCommandBuffer commandBuffer,
                                                 const RenderPassEntry& compatibleRenderPassEntry);
@@ -163,6 +163,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         VkQueue m_graphicsQueue = VK_NULL_HANDLE;
         VkQueue m_presentQueue = VK_NULL_HANDLE;
         Bool m_drawIndirectCountExtensionEnabled = false;
+        Bool m_indexTypeUint8ExtensionEnabled = false;
         using PFNDrawIndexedIndirectCountFunc = void(VKAPI_PTR*)(VkCommandBuffer commandBuffer, VkBuffer buffer,
                                                                  VkDeviceSize offset, VkBuffer countBuffer,
                                                                  VkDeviceSize countBufferOffset, Uint32 maxDrawCount,

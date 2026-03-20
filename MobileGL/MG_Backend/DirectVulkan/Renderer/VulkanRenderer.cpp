@@ -456,6 +456,11 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                                                   const IndexBufferView* pIndexBufferView) {
         VkIndexType vkIndexType = VK_INDEX_TYPE_MAX_ENUM;
         switch (pIndexBufferView->indexType) {
+        case GL_UNSIGNED_BYTE:
+            MOBILEGL_ASSERT(m_indexTypeUint8ExtensionEnabled,
+                            "DrawElements with GL_UNSIGNED_BYTE requires VK_KHR_index_type_uint8 or VK_EXT_index_type_uint8");
+            vkIndexType = VK_INDEX_TYPE_UINT8;
+            break;
         case GL_UNSIGNED_SHORT:
             vkIndexType = VK_INDEX_TYPE_UINT16;
             break;
@@ -685,7 +690,7 @@ void main() {
         return m_pipelineFactory->GetOrCreatePipeline(payload);
     }
 
-    void VulkanRenderer::SetupDraw(FrameContext::FrameData& frame, GLenum mode, Flags<DrawSetupAspect> aspects,
+    Bool VulkanRenderer::SetupDraw(FrameContext::FrameData& frame, GLenum mode, Flags<DrawSetupAspect> aspects,
                                    const IndexBufferView* pIndexBufferView) {
         m_textureManager->CollectGarbage();
         const auto& drawFbo =
@@ -823,6 +828,7 @@ void main() {
             scissor.extent = { (Uint)renderPassEntry.extent.x(), (Uint)renderPassEntry.extent.y() };
         }
         vkCmdSetScissor(frame.commandBuffer, 0, 1, &scissor);
+        return true;
     }
 
     void VulkanRenderer::Clear(GLbitfield mask) {
@@ -1560,6 +1566,45 @@ void main() {
         ResolveOptionalDeviceExtensions(availableExtensions, enabledDeviceExtensions);
         MGLOG_I("VK_KHR_draw_indirect_count enabled: %s", m_drawIndirectCountExtensionEnabled ? "true" : "false");
 
+        m_indexTypeUint8ExtensionEnabled = false;
+        const char* indexTypeUint8ExtensionName = nullptr;
+        if (IsExtensionSupported(availableExtensions, VK_KHR_INDEX_TYPE_UINT8_EXTENSION_NAME)) {
+            indexTypeUint8ExtensionName = VK_KHR_INDEX_TYPE_UINT8_EXTENSION_NAME;
+        } else if (IsExtensionSupported(availableExtensions, VK_EXT_INDEX_TYPE_UINT8_EXTENSION_NAME)) {
+            indexTypeUint8ExtensionName = VK_EXT_INDEX_TYPE_UINT8_EXTENSION_NAME;
+        }
+
+        VkPhysicalDeviceIndexTypeUint8Features indexTypeUint8Features{};
+        indexTypeUint8Features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_INDEX_TYPE_UINT8_FEATURES;
+        if (indexTypeUint8ExtensionName != nullptr) {
+            VkPhysicalDeviceFeatures2 featureQuery{};
+            featureQuery.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
+            featureQuery.pNext = &indexTypeUint8Features;
+            auto getPhysicalDeviceFeatures2 = reinterpret_cast<PFN_vkGetPhysicalDeviceFeatures2>(
+                vkGetInstanceProcAddr(m_instance, "vkGetPhysicalDeviceFeatures2"));
+            if (getPhysicalDeviceFeatures2 == nullptr) {
+                getPhysicalDeviceFeatures2 = reinterpret_cast<PFN_vkGetPhysicalDeviceFeatures2>(
+                    vkGetInstanceProcAddr(m_instance, "vkGetPhysicalDeviceFeatures2KHR"));
+            }
+            MOBILEGL_ASSERT(getPhysicalDeviceFeatures2 != nullptr,
+                            "CreateLogicalDeviceAndQueues: vkGetPhysicalDeviceFeatures2 is unavailable");
+            getPhysicalDeviceFeatures2(m_physicalDevice.handle, &featureQuery);
+            if (indexTypeUint8Features.indexTypeUint8 == VK_TRUE) {
+                if (!IsExtensionAlreadyEnabled(enabledDeviceExtensions, indexTypeUint8ExtensionName)) {
+                    enabledDeviceExtensions.push_back(indexTypeUint8ExtensionName);
+                }
+                m_indexTypeUint8ExtensionEnabled = true;
+                indexTypeUint8Features.pNext = const_cast<void*>(deviceCreateInfo.pNext);
+                deviceCreateInfo.pNext = &indexTypeUint8Features;
+                MGLOG_I("Enabled optional device extension: %s", indexTypeUint8ExtensionName);
+            } else {
+                MGLOG_W("%s is advertised, but indexTypeUint8 feature is unavailable; uint8 index buffers will stay disabled",
+                        indexTypeUint8ExtensionName);
+            }
+        } else {
+            MGLOG_W("VK_KHR_index_type_uint8 / VK_EXT_index_type_uint8 not supported; uint8 index buffers will stay disabled");
+        }
+
         deviceCreateInfo.enabledExtensionCount = static_cast<Uint32>(enabledDeviceExtensions.size());
         deviceCreateInfo.ppEnabledExtensionNames = enabledDeviceExtensions.data();
         VK_VERIFY(vkCreateDevice(m_physicalDevice.handle, &deviceCreateInfo, nullptr, &m_device), "vkCreateDevice");
@@ -1574,6 +1619,7 @@ void main() {
             MGLOG_W("VK_KHR_draw_indirect_count enabled but vkCmdDrawIndexedIndirectCount entry point is missing, will continue as if VK_KHR_draw_indirect_count is not supported!");
             m_drawIndirectCountExtensionEnabled = false;
         }
+        MGLOG_I("index type uint8 enabled: %s", m_indexTypeUint8ExtensionEnabled ? "true" : "false");
         MGLOG_I("Logical device created.");
 
         // Queues
