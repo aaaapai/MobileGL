@@ -279,9 +279,6 @@ namespace MobileGL::MG_Backend::DirectVulkan {
     void VulkanRenderer::CreateFrameContexts() {
         VK_VERIFY(m_frameContext.Initialize(m_device, m_commandPool, m_config.MaxFramesInFlight),
                   "CreateFrameContexts");
-        VK_VERIFY(m_frameContext.InitializeSwapchainSemaphores(m_device,
-                                                               static_cast<Uint32>(m_swapchainObject.GetImageCount())),
-                  "CreateFrameContexts, InitializeSwapchainSemaphores");
         MGLOG_I("CreateFrameContexts completed");
     }
 
@@ -293,9 +290,20 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         CreateAllocator();
 
         CreateCommandPool();
+        CreateFrameContexts();
+        auto succeeded = false;
+        succeeded = m_bufferManager.Initialize({
+            .allocator = m_allocator,
+            .frameCount = m_frameContext.GetFrameCount(),
+            .minVertexUploadBytes = 4 * 1024 * 1024,
+            .minIndexUploadBytes = 1 * 1024 * 1024,
+            .transientMemoryUsage = VMA_MEMORY_USAGE_AUTO,
+            .transientAllocationFlags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT,
+            .transientPersistentMapping = false,
+        });
+        MOBILEGL_ASSERT(succeeded, "VkBufferManager initialization failed.");
         m_textureManager = MakeUnique<VkTextureManager>();
         MOBILEGL_ASSERT(m_textureManager != nullptr, "VkTextureManager creation failed.");
-        auto succeeded = false;
         succeeded = m_textureManager->Initialize(
             {m_device, m_physicalDevice.handle, m_allocator, m_commandPool, m_graphicsQueue});
         MOBILEGL_ASSERT(succeeded, "VkTextureManager initialization failed.");
@@ -332,18 +340,6 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         MOBILEGL_ASSERT(succeeded, "UniformDescriptorBinder initialization failed.");
         m_vertexInputStateFactory = MakeUnique<VertexInputStateFactory>(m_config);
         MOBILEGL_ASSERT(m_vertexInputStateFactory != nullptr, "VertexInputStateFactory creation failed.");
-
-        CreateFrameContexts();
-        succeeded = m_bufferManager.Initialize({
-            .allocator = m_allocator,
-            .frameCount = m_frameContext.GetFrameCount(),
-            .minVertexUploadBytes = 4 * 1024 * 1024,
-            .minIndexUploadBytes = 1 * 1024 * 1024,
-            .transientMemoryUsage = VMA_MEMORY_USAGE_AUTO,
-            .transientAllocationFlags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT,
-            .transientPersistentMapping = false,
-        });
-        MOBILEGL_ASSERT(succeeded, "Buffer manager initialization failed.");
 
         // Prime the first frame so Render() always targets an acquired swapchain image.
         VK_VERIFY(m_frameContext.WaitAndAcquireNextImage(m_device, m_swapchainObject.GetHandle(), m_imageIndexAcquired),
