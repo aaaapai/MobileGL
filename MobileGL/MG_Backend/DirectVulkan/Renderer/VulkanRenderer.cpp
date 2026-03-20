@@ -293,6 +293,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             .frameCount = m_frameContext.GetFrameCount(),
             .minVertexUploadBytes = 4 * 1024 * 1024,
             .minIndexUploadBytes = 1 * 1024 * 1024,
+            .minUniformUploadBytes = 4 * 1024 * 1024,
             .transientMemoryUsage = VMA_MEMORY_USAGE_AUTO,
             .transientAllocationFlags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT,
             .transientPersistentMapping = false,
@@ -329,9 +330,9 @@ namespace MobileGL::MG_Backend::DirectVulkan {
 
         m_uniformDescriptorBinder = MakeUnique<UniformDescriptorBinder>();
         MOBILEGL_ASSERT(m_uniformDescriptorBinder != nullptr, "UniformDescriptorBinder creation failed.");
-        succeeded = m_uniformDescriptorBinder->Initialize(m_device, m_allocator,
+        succeeded = m_uniformDescriptorBinder->Initialize(m_device, &m_bufferManager,
                                                    m_physicalDevice.properties.limits.minUniformBufferOffsetAlignment,
-                                                   m_config.MaxFramesInFlight, 16, 64, 4 * 1024 * 1024,
+                                                   m_config.MaxFramesInFlight, 16, 64,
                                                    m_textureManager.get(), m_samplerManager.get());
         MOBILEGL_ASSERT(succeeded, "UniformDescriptorBinder initialization failed.");
         m_vertexInputStateFactory = MakeUnique<VertexInputStateFactory>(m_config);

@@ -174,14 +174,14 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         }
     }
 
-    Bool UniformDescriptorBinder::Initialize(VkDevice device, VmaAllocator allocator,
+    Bool UniformDescriptorBinder::Initialize(VkDevice device, VkBufferManager* bufferManager,
                                              VkDeviceSize minUniformBufferOffsetAlignment, Uint32 frameCount,
-                                             Uint32 maxBindings, Uint32 setsPerFrame, VkDeviceSize perFrameUploadBytes,
+                                             Uint32 maxBindings, Uint32 setsPerFrame,
                                              VkTextureManager* textureManager, VkSamplerManager* samplerManager) {
         Shutdown();
 
         MOBILEGL_ASSERT(device != VK_NULL_HANDLE, "UniformDescriptorBinder::Initialize requires valid VkDevice");
-        MOBILEGL_ASSERT(allocator != nullptr, "UniformDescriptorBinder::Initialize requires valid VMA allocator");
+        MOBILEGL_ASSERT(bufferManager != nullptr, "UniformDescriptorBinder::Initialize requires valid buffer manager");
         MOBILEGL_ASSERT(frameCount > 0, "UniformDescriptorBinder::Initialize requires frameCount > 0");
         MOBILEGL_ASSERT(maxBindings > 0, "UniformDescriptorBinder::Initialize requires maxBindings > 0");
         MOBILEGL_ASSERT(setsPerFrame > 0, "UniformDescriptorBinder::Initialize requires setsPerFrame > 0");
@@ -191,9 +191,8 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                         "UniformDescriptorBinder::Initialize requires valid sampler manager");
 
         m_device = device;
-        m_allocator = allocator;
+        m_bufferManager = bufferManager;
         m_minDynamicOffsetAlignment = std::max<VkDeviceSize>(1, minUniformBufferOffsetAlignment);
-        m_perFrameUploadBytes = perFrameUploadBytes;
         m_frameCount = frameCount;
         m_maxBindings = maxBindings;
         m_setsPerFrame = setsPerFrame;
@@ -204,7 +203,6 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         m_frames.resize(m_frameCount);
         for (Uint32 frameIndex = 0; frameIndex < m_frameCount; ++frameIndex) {
             auto& frame = m_frames[frameIndex];
-            frame.writeCursor = 0;
             frame.activeDescriptorPoolIndex = 0;
             frame.allocatedSetsThisFrame = 0;
             frame.peakAllocatedSetsThisFrame = 0;
@@ -219,15 +217,6 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             }
             frame.descriptorPools.push_back({initialPool, m_setsPerFrame, 0});
             MGLOG_D("UniformDescriptorBinder: frame %u descriptor pool created (maxSets=%u)", frameIndex, m_setsPerFrame);
-
-            const Bool created = frame.uploadBuffer.Create(
-                m_allocator, m_perFrameUploadBytes, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VMA_MEMORY_USAGE_AUTO,
-                VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT);
-            if (!created) {
-                MGLOG_E("UniformDescriptorBinder::Initialize failed: cannot create frame upload buffer %u", frameIndex);
-                Shutdown();
-                return false;
-            }
         }
 
         return true;
@@ -235,7 +224,6 @@ namespace MobileGL::MG_Backend::DirectVulkan {
 
     void UniformDescriptorBinder::Shutdown() {
         for (auto& frame : m_frames) {
-            frame.uploadBuffer.Destroy();
             if (m_device != VK_NULL_HANDLE) {
                 for (auto& bucket : frame.descriptorPools) {
                     if (bucket.handle != VK_NULL_HANDLE) {
@@ -248,15 +236,13 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             frame.activeDescriptorPoolIndex = 0;
             frame.allocatedSetsThisFrame = 0;
             frame.peakAllocatedSetsThisFrame = 0;
-            frame.writeCursor = 0;
         }
         m_frames.clear();
         DestroyProgramLayouts();
 
-        m_allocator = nullptr;
+        m_bufferManager = nullptr;
         m_device = VK_NULL_HANDLE;
         m_minDynamicOffsetAlignment = 1;
-        m_perFrameUploadBytes = 0;
         m_frameCount = 0;
         m_maxBindings = 0;
         m_setsPerFrame = 0;
@@ -274,7 +260,6 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                 "UniformDescriptorBinder: new descriptor set peak observed=%u (base setsPerFrame=%u, frame=%u, pools=%zu)",
                 m_peakDescriptorSetsObserved, m_setsPerFrame, frameIndex, frame.descriptorPools.size());
         }
-        frame.writeCursor = 0;
         frame.activeDescriptorPoolIndex = 0;
         frame.allocatedSetsThisFrame = 0;
         frame.peakAllocatedSetsThisFrame = 0;
@@ -678,16 +663,6 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         return layout ? layout->pipelineLayout : VK_NULL_HANDLE;
     }
 
-    Bool UniformDescriptorBinder::AllocateUploadRegion(FrameResources& frame, VkDeviceSize size, VkDeviceSize& outOffset) {
-        const VkDeviceSize alignedOffset = AlignUp(frame.writeCursor, m_minDynamicOffsetAlignment);
-        if (alignedOffset + size > m_perFrameUploadBytes) {
-            return false;
-        }
-        outOffset = alignedOffset;
-        frame.writeCursor = alignedOffset + size;
-        return true;
-    }
-
     Bool UniformDescriptorBinder::GatherBindingPayloads(const MG_State::GLState::ProgramObject& program,
                                                         Vector<const void*>& outData,
                                                         Vector<VkDeviceSize>& outSizes) const {
@@ -870,6 +845,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         static const Uint8 kFallbackData[16] = {};
         MOBILEGL_ASSERT(m_textureManager != nullptr, "BindProgramUniformBuffers: texture manager is null");
         MOBILEGL_ASSERT(m_samplerManager != nullptr, "BindProgramUniformBuffers: sampler manager is null");
+        MOBILEGL_ASSERT(m_bufferManager != nullptr, "BindProgramUniformBuffers: buffer manager is null");
 
         Vector<VkWriteDescriptorSet> writes;
         writes.reserve(m_maxBindings);
@@ -911,19 +887,16 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                     }
                 }
 
-                VkDeviceSize payloadOffset = 0;
-                if (!AllocateUploadRegion(frame, payloadSize, payloadOffset)) {
-                    MGLOG_E("UniformDescriptorBinder::BindProgramUniformBuffers failed: frame upload buffer exhausted");
-                    return false;
-                }
-                if (!frame.uploadBuffer.Upload(payload, payloadSize, payloadOffset)) {
+                BufferSlice slice{};
+                if (!m_bufferManager->UploadTransient(TransientBufferKind::Uniform, frameIndex, payload, payloadSize,
+                                                     m_minDynamicOffsetAlignment, slice)) {
                     MGLOG_E("UniformDescriptorBinder::BindProgramUniformBuffers failed: UBO upload failed on binding %u",
                             binding);
                     return false;
                 }
 
                 VkDescriptorBufferInfo bufferInfo{};
-                bufferInfo.buffer = frame.uploadBuffer.GetHandle();
+                bufferInfo.buffer = slice.buffer;
                 bufferInfo.offset = 0;
                 bufferInfo.range = payloadSize;
                 bufferInfos.push_back(bufferInfo);
@@ -931,7 +904,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                 write.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
                 write.pBufferInfo = &bufferInfos.back();
                 writes.push_back(write);
-                dynamicOffsets.push_back(static_cast<Uint32>(payloadOffset));
+                dynamicOffsets.push_back(static_cast<Uint32>(slice.offset));
             } else {
                 VkDescriptorImageInfo imageInfo{};
                 Bool hasImage = false;

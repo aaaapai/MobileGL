@@ -22,6 +22,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
     void VkBufferManager::Shutdown() {
         m_vertexUploadArena.Shutdown();
         m_indexUploadArena.Shutdown();
+        m_uniformUploadArena.Shutdown();
         m_initInfo = {};
     }
 
@@ -31,6 +32,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
 
         m_vertexUploadArena.Shutdown();
         m_indexUploadArena.Shutdown();
+        m_uniformUploadArena.Shutdown();
         m_initInfo.frameCount = frameCount;
         return InitializeTransientArenas();
     }
@@ -38,6 +40,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
     void VkBufferManager::BeginFrame(Uint32 frameIndex) {
         m_vertexUploadArena.BeginFrame(frameIndex);
         m_indexUploadArena.BeginFrame(frameIndex);
+        m_uniformUploadArena.BeginFrame(frameIndex);
     }
 
     Bool VkBufferManager::UploadTransient(TransientBufferKind kind, Uint32 frameIndex, const void* data,
@@ -47,6 +50,8 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             return m_vertexUploadArena.Upload(frameIndex, data, size, alignment, outSlice);
         case TransientBufferKind::Index:
             return m_indexUploadArena.Upload(frameIndex, data, size, alignment, outSlice);
+        case TransientBufferKind::Uniform:
+            return m_uniformUploadArena.Upload(frameIndex, data, size, alignment, outSlice);
         default:
             return false;
         }
@@ -77,6 +82,21 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         });
         if (!ok) {
             m_vertexUploadArena.Shutdown();
+            return false;
+        }
+
+        ok = m_uniformUploadArena.Initialize({
+            .allocator = m_initInfo.allocator,
+            .frameCount = m_initInfo.frameCount,
+            .usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+            .memoryUsage = m_initInfo.transientMemoryUsage,
+            .allocationFlags = m_initInfo.transientAllocationFlags,
+            .minBufferSize = m_initInfo.minUniformUploadBytes,
+            .persistentlyMapped = m_initInfo.transientPersistentMapping,
+        });
+        if (!ok) {
+            m_vertexUploadArena.Shutdown();
+            m_indexUploadArena.Shutdown();
             return false;
         }
 

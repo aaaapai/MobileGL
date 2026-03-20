@@ -8,12 +8,11 @@
 
 #pragma once
 
-#include "VkBufferObject.h"
+#include "VkBufferManager.h"
 #include "VkSamplerManager.h"
 #include "VkTextureManager.h"
 #include "../VkIncludes.h"
 #include <Includes.h>
-#include <vk_mem_alloc.h>
 
 namespace MobileGL::MG_State::GLState {
     class ITextureObject;
@@ -36,9 +35,9 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             const MG_State::GLState::SamplerObject* sampler = nullptr;
         };
 
-        Bool Initialize(VkDevice device, VmaAllocator allocator, VkDeviceSize minUniformBufferOffsetAlignment,
-                        Uint32 frameCount, Uint32 maxBindings = 16, Uint32 setsPerFrame = 64,
-                        VkDeviceSize perFrameUploadBytes = 4 * 1024 * 1024,
+        Bool Initialize(VkDevice device, VkBufferManager* bufferManager,
+                        VkDeviceSize minUniformBufferOffsetAlignment, Uint32 frameCount,
+                        Uint32 maxBindings = 16, Uint32 setsPerFrame = 64,
                         VkTextureManager* textureManager = nullptr, VkSamplerManager* samplerManager = nullptr);
         void Shutdown();
 
@@ -60,12 +59,10 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         };
 
         struct FrameResources {
-            VkBufferObject uploadBuffer;
             Vector<DescriptorPoolBucket> descriptorPools;
             Uint32 activeDescriptorPoolIndex = 0;
             Uint32 allocatedSetsThisFrame = 0;
             Uint32 peakAllocatedSetsThisFrame = 0;
-            VkDeviceSize writeCursor = 0;
         };
 
         struct ProgramLayout {
@@ -94,7 +91,6 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                                               VkDescriptorImageInfo& outImageInfo) const;
         Bool ReflectBindingKinds(const MG_State::GLState::ProgramObject& program, Vector<BindingKind>& outKinds) const;
         ProgramLayout* GetOrCreateProgramLayout(const MG_State::GLState::ProgramObject& program);
-        Bool AllocateUploadRegion(FrameResources& frame, VkDeviceSize size, VkDeviceSize& outOffset);
         Bool GatherBindingPayloads(const MG_State::GLState::ProgramObject& program, Vector<const void*>& outData,
                                    Vector<VkDeviceSize>& outSizes) const;
         Bool CreateDescriptorPool(Uint32 maxSets, VkDescriptorPool& outPool) const;
@@ -102,12 +98,11 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         void DestroyProgramLayouts();
 
         VkDevice m_device = VK_NULL_HANDLE;
-        VmaAllocator m_allocator = nullptr;
+        VkBufferManager* m_bufferManager = nullptr;
         Vector<FrameResources> m_frames;
         UnorderedMap<Uint64, ProgramLayout> m_programLayouts;
 
         VkDeviceSize m_minDynamicOffsetAlignment = 1;
-        VkDeviceSize m_perFrameUploadBytes = 0;
         Uint32 m_frameCount = 0;
         Uint32 m_maxBindings = 0;
         Uint32 m_setsPerFrame = 0;
