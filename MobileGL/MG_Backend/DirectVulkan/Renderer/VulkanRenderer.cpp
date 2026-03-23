@@ -98,6 +98,8 @@ namespace MobileGL::MG_Backend::DirectVulkan {
     }
 
     namespace {
+        static constexpr Uint32 kMaxProgramBindings = 16;
+        static constexpr Uint32 kDescriptorSetsPerFrame = 64;
         static constexpr Uint kHiddenBlitProgramId = 0xFFFFFFF0u;
         static constexpr Uint kHiddenBlitVertexShaderId = 0xFFFFFFF1u;
         static constexpr Uint kHiddenBlitFragmentShaderId = 0xFFFFFFF2u;
@@ -339,7 +341,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
 
         m_pipelineFactory = MakeUnique<PipelineFactory>(m_device, m_config);
         MOBILEGL_ASSERT(m_pipelineFactory != nullptr, "PipelineFactory creation failed.");
-        m_programFactory = MakeUnique<ProgramFactory>(m_device, m_config);
+        m_programFactory = MakeUnique<ProgramFactory>(m_device, m_config, kMaxProgramBindings);
         MOBILEGL_ASSERT(m_programFactory != nullptr, "ProgramFactory creation failed.");
 
         m_samplerManager = MakeUnique<VkSamplerManager>();
@@ -351,10 +353,10 @@ namespace MobileGL::MG_Backend::DirectVulkan {
 
         m_uniformDescriptorBinder = MakeUnique<UniformDescriptorBinder>();
         MOBILEGL_ASSERT(m_uniformDescriptorBinder != nullptr, "UniformDescriptorBinder creation failed.");
-        succeeded = m_uniformDescriptorBinder->Initialize(m_device, &m_bufferManager,
-                                                   m_physicalDevice.properties.limits.minUniformBufferOffsetAlignment,
-                                                   m_config.MaxFramesInFlight, 16, 64,
-                                                   m_textureManager.get(), m_samplerManager.get());
+        succeeded = m_uniformDescriptorBinder->Initialize(
+            m_device, &m_bufferManager, m_programFactory.get(),
+            m_physicalDevice.properties.limits.minUniformBufferOffsetAlignment, m_config.MaxFramesInFlight,
+            kMaxProgramBindings, kDescriptorSetsPerFrame, m_textureManager.get(), m_samplerManager.get());
         MOBILEGL_ASSERT(succeeded, "UniformDescriptorBinder initialization failed.");
         m_vertexInputStateFactory = MakeUnique<VertexInputStateFactory>(m_config);
         MOBILEGL_ASSERT(m_vertexInputStateFactory != nullptr, "VertexInputStateFactory creation failed.");
@@ -372,7 +374,6 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         VK_VERIFY(vkDeviceWaitIdle(m_device));
 
         m_pipelineFactory.reset();
-        m_programFactory.reset();
         ShutdownBlitResources();
         if (m_samplerManager) {
             m_samplerManager->Shutdown();
@@ -392,6 +393,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             m_uniformDescriptorBinder->Shutdown();
             m_uniformDescriptorBinder.reset();
         }
+        m_programFactory.reset();
 
         ShutdownSwapchain();
         m_renderPassManager.reset();
@@ -669,7 +671,7 @@ void main() {
         PipelineFactory::PipelineCreatePayload payload{
             .programHash = m_programFactory->ComputeHash(*m_blitResources.program, transformFlags),
             .vertexInputHash = 0,
-            .pipelineLayout = m_uniformDescriptorBinder->GetOrCreatePipelineLayout(*m_blitResources.program),
+            .pipelineLayout = m_programFactory->GetOrCreatePipelineLayout(*m_blitResources.program),
             .renderPass = renderPassEntry.renderPass,
             .subpass = 0,
             .topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST,
@@ -707,7 +709,7 @@ void main() {
 
         auto vertexInputHash = m_vertexInputStateFactory->ComputeHash(vao);
         auto& vis = m_vertexInputStateFactory->GetOrCreateVertexInputState(vao);
-        auto pipelineLayout = m_uniformDescriptorBinder->GetOrCreatePipelineLayout(program);
+        auto pipelineLayout = m_programFactory->GetOrCreatePipelineLayout(program);
         auto cullFaceEnabled = MG_State::pGLContext->IsCapabilityEnabled(CapabilityInput::CullFace);
         auto depthTestEnabled = MG_State::pGLContext->IsCapabilityEnabled(CapabilityInput::DepthTest);
         BlendFactor srcRGB = BlendFactor::One;

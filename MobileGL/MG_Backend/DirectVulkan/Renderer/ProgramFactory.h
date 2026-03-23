@@ -11,11 +11,19 @@
 #include "../VkIncludes.h"
 #include "MG_State/GLState/ProgramState/ProgramObject.h"
 #include "MG_State/GLState/ProgramState/ShaderObject.h"
+#include "MG_State/GLState/TextureState/TextureEnum.h"
+
 #include <Includes.h>
 
 namespace MobileGL::MG_Backend::DirectVulkan {
     class ProgramFactory {
     public:
+        enum class DescriptorBindingKind : Uint8 {
+            None = 0,
+            UniformBufferDynamic,
+            CombinedImageSampler
+        };
+
         enum class CompileOptionBit : Uint {
             None = 0,
             PositionYFlip = 1 << 0,
@@ -26,6 +34,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         };
         using CompileOptionFlags = Flags<CompileOptionBit>;
         using HashType = Uint64;
+
         struct VkProgramObject {
             HashType hash = 0;
             Vector<VkPipelineShaderStageCreateInfo> stages;
@@ -70,8 +79,19 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             }
         };
 
-        explicit ProgramFactory(VkDevice device, const VulkanRendererConfig& config)
-            : m_device(device), m_config(config) {
+        struct VkProgramLayout {
+            HashType hash = 0;
+            VkDescriptorSetLayout descriptorSetLayout = VK_NULL_HANDLE;
+            VkPipelineLayout pipelineLayout = VK_NULL_HANDLE;
+            Vector<DescriptorBindingKind> bindingKinds;
+            Vector<Uint32> dynamicBindings;
+            Vector<Int> samplerUniformLocationByBinding;
+            Vector<TextureTarget> samplerTextureTargetByBinding;
+            Int globalUboBinding = -1;
+        };
+
+        explicit ProgramFactory(VkDevice device, const VulkanRendererConfig& config, Uint32 maxBindings = 16)
+            : m_device(device), m_config(config), m_maxBindings(maxBindings) {
             VkProgramObject::s_device = device;
         }
         ~ProgramFactory();
@@ -80,12 +100,24 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         HashType ComputeHash(const MG_State::GLState::ProgramObject& program, CompileOptionFlags flags) const;
         Vector<VkPipelineShaderStageCreateInfo>& GetOrCreatePipelineShaderStages(
             const MG_State::GLState::ProgramObject& program, CompileOptionFlags flags);
+        const VkProgramLayout* GetOrCreateProgramLayout(const MG_State::GLState::ProgramObject& program);
+        VkPipelineLayout GetOrCreatePipelineLayout(const MG_State::GLState::ProgramObject& program);
 
         static VkShaderStageFlagBits ToVkStage(ShaderStage stage);
 
     private:
+        HashType ComputeLayoutHash(const MG_State::GLState::ProgramObject& program) const;
+        static TextureTarget UniformTypeToTextureTarget(GLenum glType);
+        Bool ReflectBindingKinds(const MG_State::GLState::ProgramObject& program,
+                                 Vector<DescriptorBindingKind>& outKinds) const;
+        Bool ReflectSamplerBindings(const MG_State::GLState::ProgramObject& program, VkProgramLayout& layout) const;
+        Bool ReflectGlobalUboBinding(const MG_State::GLState::ProgramObject& program, VkProgramLayout& layout) const;
+        void DestroyLayoutCache();
+
         VkDevice m_device = VK_NULL_HANDLE;
+        Uint32 m_maxBindings = 0;
         UnorderedMap<HashType, VkProgramObject> m_cache;
+        UnorderedMap<HashType, VkProgramLayout> m_layoutCache;
         const VulkanRendererConfig& m_config;
         static inline XXH64_state_t* m_hashState = XXH64_createState();
     };

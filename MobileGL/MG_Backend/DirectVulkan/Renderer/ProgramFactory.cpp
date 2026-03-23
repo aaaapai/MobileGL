@@ -8,6 +8,8 @@
 
 #include "ProgramFactory.h"
 
+#include "MG_Util/ShaderTranspiler/Types.h"
+#include <cstring>
 #include <spirv-tools/libspirv.h>
 #include <spirv-tools/optimizer.hpp>
 #include <source/opt/constants.h>
@@ -321,7 +323,9 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         }
     } // namespace
 
-    ProgramFactory::~ProgramFactory() = default;
+    ProgramFactory::~ProgramFactory() {
+        DestroyLayoutCache();
+    }
 
     VkShaderStageFlagBits ProgramFactory::ToVkStage(ShaderStage stage) {
         switch (stage) {
@@ -353,6 +357,266 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         XXHASH_VERIFY(XXH64_update(m_hashState, &flags, sizeof(CompileOptionFlags)));
         HashType hash = XXH64_digest(m_hashState);
         return hash;
+    }
+
+    ProgramFactory::HashType ProgramFactory::ComputeLayoutHash(const MG_State::GLState::ProgramObject& program) const {
+        XXHASH_VERIFY(XXH64_reset(m_hashState, m_config.CacheVersion));
+        const auto& spirvs = program.GetGeneratedSpirv();
+        for (const auto& spv : spirvs) {
+            XXHASH_VERIFY(XXH64_update(m_hashState, spv.data(), spv.size() * sizeof(Uint)));
+        }
+
+        const Uint32 blockCount = static_cast<Uint32>(program.GetActiveUniformBlocksCount());
+        XXHASH_VERIFY(XXH64_update(m_hashState, &blockCount, sizeof(blockCount)));
+        for (Uint32 i = 0; i < blockCount; ++i) {
+            const Uint32 binding = program.GetUniformBlockBinding(i);
+            XXHASH_VERIFY(XXH64_update(m_hashState, &binding, sizeof(binding)));
+        }
+        return XXH64_digest(m_hashState);
+    }
+
+    TextureTarget ProgramFactory::UniformTypeToTextureTarget(GLenum glType) {
+        switch (glType) {
+        case GL_SAMPLER_1D:
+        case GL_INT_SAMPLER_1D:
+        case GL_UNSIGNED_INT_SAMPLER_1D:
+            return TextureTarget::Texture1D;
+        case GL_SAMPLER_3D:
+        case GL_INT_SAMPLER_3D:
+        case GL_UNSIGNED_INT_SAMPLER_3D:
+            return TextureTarget::Texture3D;
+        case GL_SAMPLER_CUBE:
+        case GL_SAMPLER_CUBE_SHADOW:
+        case GL_INT_SAMPLER_CUBE:
+        case GL_UNSIGNED_INT_SAMPLER_CUBE:
+            return TextureTarget::TextureCubeMap;
+        case GL_SAMPLER_2D_MULTISAMPLE:
+        case GL_INT_SAMPLER_2D_MULTISAMPLE:
+        case GL_UNSIGNED_INT_SAMPLER_2D_MULTISAMPLE:
+            return TextureTarget::Texture2DMultisample;
+        case GL_SAMPLER_BUFFER:
+        case GL_INT_SAMPLER_BUFFER:
+        case GL_UNSIGNED_INT_SAMPLER_BUFFER:
+            return TextureTarget::TextureBuffer;
+        case GL_SAMPLER_1D_ARRAY:
+        case GL_SAMPLER_1D_ARRAY_SHADOW:
+        case GL_INT_SAMPLER_1D_ARRAY:
+        case GL_UNSIGNED_INT_SAMPLER_1D_ARRAY:
+            return TextureTarget::Texture1DArray;
+        case GL_SAMPLER_2D_ARRAY:
+        case GL_SAMPLER_2D_ARRAY_SHADOW:
+        case GL_INT_SAMPLER_2D_ARRAY:
+        case GL_UNSIGNED_INT_SAMPLER_2D_ARRAY:
+            return TextureTarget::Texture2DArray;
+        case GL_SAMPLER_2D_MULTISAMPLE_ARRAY:
+        case GL_INT_SAMPLER_2D_MULTISAMPLE_ARRAY:
+        case GL_UNSIGNED_INT_SAMPLER_2D_MULTISAMPLE_ARRAY:
+            return TextureTarget::Texture2DMultisampleArray;
+        case GL_SAMPLER_2D_RECT:
+        case GL_SAMPLER_2D_RECT_SHADOW:
+        case GL_INT_SAMPLER_2D_RECT:
+        case GL_UNSIGNED_INT_SAMPLER_2D_RECT:
+            return TextureTarget::TextureRectangle;
+        case GL_SAMPLER_2D:
+        case GL_SAMPLER_2D_SHADOW:
+        case GL_INT_SAMPLER_2D:
+        case GL_UNSIGNED_INT_SAMPLER_2D:
+        default:
+            return TextureTarget::Texture2D;
+        }
+    }
+
+    Bool ProgramFactory::ReflectBindingKinds(const MG_State::GLState::ProgramObject& program,
+                                             Vector<DescriptorBindingKind>& outKinds) const {
+        outKinds.assign(m_maxBindings, DescriptorBindingKind::None);
+
+        const auto& spirv = program.GetGeneratedSpirv();
+        for (const auto& module : spirv) {
+            if (module.empty()) {
+                continue;
+            }
+
+            spvc_context context = nullptr;
+            spvc_parsed_ir ir = nullptr;
+            spvc_compiler compiler = nullptr;
+            spvc_resources resources = nullptr;
+
+            if (spvc_context_create(&context) != SPVC_SUCCESS) {
+                return false;
+            }
+
+            const spvc_result parseResult = spvc_context_parse_spirv(context, module.data(), module.size(), &ir);
+            if (parseResult != SPVC_SUCCESS) {
+                spvc_context_destroy(context);
+                continue;
+            }
+
+            const spvc_result compilerResult =
+                spvc_context_create_compiler(context, SPVC_BACKEND_GLSL, ir, SPVC_CAPTURE_MODE_TAKE_OWNERSHIP, &compiler);
+            if (compilerResult != SPVC_SUCCESS) {
+                spvc_context_destroy(context);
+                continue;
+            }
+
+            if (spvc_compiler_create_shader_resources(compiler, &resources) != SPVC_SUCCESS) {
+                spvc_context_destroy(context);
+                continue;
+            }
+
+            const auto applyBindings = [&](spvc_resource_type resourceType, DescriptorBindingKind kind) {
+                const spvc_reflected_resource* list = nullptr;
+                size_t count = 0;
+                if (spvc_resources_get_resource_list_for_type(resources, resourceType, &list, &count) != SPVC_SUCCESS) {
+                    return;
+                }
+                for (size_t i = 0; i < count; ++i) {
+                    const Uint32 binding =
+                        spvc_compiler_get_decoration(compiler, list[i].id, SpvDecorationBinding);
+                    if (binding >= m_maxBindings) {
+                        continue;
+                    }
+                    if (kind == DescriptorBindingKind::CombinedImageSampler) {
+                        outKinds[binding] = DescriptorBindingKind::CombinedImageSampler;
+                    } else if (outKinds[binding] == DescriptorBindingKind::None) {
+                        outKinds[binding] = kind;
+                    }
+                }
+            };
+
+            applyBindings(SPVC_RESOURCE_TYPE_UNIFORM_BUFFER, DescriptorBindingKind::UniformBufferDynamic);
+            applyBindings(SPVC_RESOURCE_TYPE_SAMPLED_IMAGE, DescriptorBindingKind::CombinedImageSampler);
+
+            spvc_context_destroy(context);
+        }
+
+        return true;
+    }
+
+    Bool ProgramFactory::ReflectSamplerBindings(const MG_State::GLState::ProgramObject& program,
+                                                VkProgramLayout& layout) const {
+        layout.samplerUniformLocationByBinding.assign(m_maxBindings, -1);
+        layout.samplerTextureTargetByBinding.assign(m_maxBindings, TextureTarget::Texture2D);
+
+        const auto& spirv = program.GetGeneratedSpirv();
+        for (const auto& module : spirv) {
+            if (module.empty()) {
+                continue;
+            }
+
+            spvc_context context = nullptr;
+            spvc_parsed_ir ir = nullptr;
+            spvc_compiler compiler = nullptr;
+            spvc_resources resources = nullptr;
+
+            if (spvc_context_create(&context) != SPVC_SUCCESS) {
+                return false;
+            }
+            if (spvc_context_parse_spirv(context, module.data(), module.size(), &ir) != SPVC_SUCCESS) {
+                spvc_context_destroy(context);
+                continue;
+            }
+            if (spvc_context_create_compiler(context, SPVC_BACKEND_GLSL, ir, SPVC_CAPTURE_MODE_TAKE_OWNERSHIP,
+                                             &compiler) != SPVC_SUCCESS) {
+                spvc_context_destroy(context);
+                continue;
+            }
+            if (spvc_compiler_create_shader_resources(compiler, &resources) != SPVC_SUCCESS) {
+                spvc_context_destroy(context);
+                continue;
+            }
+
+            const spvc_reflected_resource* list = nullptr;
+            size_t count = 0;
+            if (spvc_resources_get_resource_list_for_type(resources, SPVC_RESOURCE_TYPE_SAMPLED_IMAGE, &list, &count) ==
+                SPVC_SUCCESS) {
+                for (size_t i = 0; i < count; ++i) {
+                    const Uint32 binding =
+                        spvc_compiler_get_decoration(compiler, list[i].id, SpvDecorationBinding);
+                    if (binding >= m_maxBindings) {
+                        continue;
+                    }
+
+                    String uniformName = list[i].name ? list[i].name : "";
+                    Int location = program.GetUniformLocation(uniformName);
+                    if (location < 0) {
+                        const auto arraySuffix = uniformName.find("[0]");
+                        if (arraySuffix != String::npos) {
+                            uniformName = uniformName.substr(0, arraySuffix);
+                            location = program.GetUniformLocation(uniformName);
+                        }
+                    }
+                    if (location < 0) {
+                        continue;
+                    }
+
+                    layout.samplerUniformLocationByBinding[binding] = location;
+                    layout.samplerTextureTargetByBinding[binding] =
+                        UniformTypeToTextureTarget(program.GetUniformType(static_cast<Uint>(location)));
+                }
+            }
+
+            spvc_context_destroy(context);
+        }
+
+        return true;
+    }
+
+    Bool ProgramFactory::ReflectGlobalUboBinding(const MG_State::GLState::ProgramObject& program,
+                                                 VkProgramLayout& layout) const {
+        layout.globalUboBinding = -1;
+
+        const auto& spirv = program.GetGeneratedSpirv();
+        for (const auto& module : spirv) {
+            if (module.empty()) {
+                continue;
+            }
+
+            spvc_context context = nullptr;
+            spvc_parsed_ir ir = nullptr;
+            spvc_compiler compiler = nullptr;
+            spvc_resources resources = nullptr;
+
+            if (spvc_context_create(&context) != SPVC_SUCCESS) {
+                return false;
+            }
+            if (spvc_context_parse_spirv(context, module.data(), module.size(), &ir) != SPVC_SUCCESS) {
+                spvc_context_destroy(context);
+                continue;
+            }
+            if (spvc_context_create_compiler(context, SPVC_BACKEND_GLSL, ir, SPVC_CAPTURE_MODE_TAKE_OWNERSHIP,
+                                             &compiler) != SPVC_SUCCESS) {
+                spvc_context_destroy(context);
+                continue;
+            }
+            if (spvc_compiler_create_shader_resources(compiler, &resources) != SPVC_SUCCESS) {
+                spvc_context_destroy(context);
+                continue;
+            }
+
+            const spvc_reflected_resource* list = nullptr;
+            size_t count = 0;
+            if (spvc_resources_get_resource_list_for_type(resources, SPVC_RESOURCE_TYPE_UNIFORM_BUFFER, &list, &count) ==
+                SPVC_SUCCESS) {
+                for (size_t i = 0; i < count; ++i) {
+                    const char* name = list[i].name ? list[i].name : "";
+                    if (std::strstr(name, MG_Util::ShaderTranspiler::GLOBAL_UBO_NAME) == nullptr) {
+                        continue;
+                    }
+                    const Uint32 binding =
+                        spvc_compiler_get_decoration(compiler, list[i].id, SpvDecorationBinding);
+                    if (binding < m_maxBindings) {
+                        layout.globalUboBinding = static_cast<Int>(binding);
+                    }
+                    break;
+                }
+            }
+
+            spvc_context_destroy(context);
+            if (layout.globalUboBinding >= 0) {
+                break;
+            }
+        }
+        return true;
     }
 
     Vector<VkPipelineShaderStageCreateInfo>& ProgramFactory::GetOrCreatePipelineShaderStages(
@@ -401,5 +665,87 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         }
 
         return entry.stages;
+    }
+
+    const ProgramFactory::VkProgramLayout* ProgramFactory::GetOrCreateProgramLayout(
+        const MG_State::GLState::ProgramObject& program) {
+        const HashType hash = ComputeLayoutHash(program);
+        auto it = m_layoutCache.find(hash);
+        if (it != m_layoutCache.end()) {
+            return &it->second;
+        }
+
+        VkProgramLayout layout{};
+        layout.hash = hash;
+        if (!ReflectBindingKinds(program, layout.bindingKinds)) {
+            MGLOG_E("ProgramFactory::GetOrCreateProgramLayout failed: reflection failed");
+            return nullptr;
+        }
+        if (!ReflectSamplerBindings(program, layout)) {
+            MGLOG_E("ProgramFactory::GetOrCreateProgramLayout failed: sampler reflection failed");
+            return nullptr;
+        }
+        if (!ReflectGlobalUboBinding(program, layout)) {
+            MGLOG_E("ProgramFactory::GetOrCreateProgramLayout failed: global UBO reflection failed");
+            return nullptr;
+        }
+
+        Vector<VkDescriptorSetLayoutBinding> bindings;
+        bindings.reserve(m_maxBindings);
+        for (Uint32 binding = 0; binding < m_maxBindings; ++binding) {
+            const auto kind = layout.bindingKinds[binding];
+            if (kind == DescriptorBindingKind::None) {
+                continue;
+            }
+
+            VkDescriptorSetLayoutBinding layoutBinding{};
+            layoutBinding.binding = binding;
+            layoutBinding.descriptorCount = 1;
+            layoutBinding.stageFlags = VK_SHADER_STAGE_ALL_GRAPHICS;
+            layoutBinding.pImmutableSamplers = nullptr;
+            if (kind == DescriptorBindingKind::UniformBufferDynamic) {
+                layoutBinding.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
+                layout.dynamicBindings.push_back(binding);
+            } else {
+                layoutBinding.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+            }
+            bindings.push_back(layoutBinding);
+        }
+
+        VkDescriptorSetLayoutCreateInfo setLayoutInfo{};
+        setLayoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+        setLayoutInfo.bindingCount = static_cast<Uint32>(bindings.size());
+        setLayoutInfo.pBindings = bindings.data();
+        VK_VERIFY(vkCreateDescriptorSetLayout(m_device, &setLayoutInfo, nullptr, &layout.descriptorSetLayout),
+                  "ProgramFactory::GetOrCreateProgramLayout, vkCreateDescriptorSetLayout");
+
+        VkPipelineLayoutCreateInfo pipelineLayoutInfo{};
+        pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+        pipelineLayoutInfo.setLayoutCount = 1;
+        pipelineLayoutInfo.pSetLayouts = &layout.descriptorSetLayout;
+        VK_VERIFY(vkCreatePipelineLayout(m_device, &pipelineLayoutInfo, nullptr, &layout.pipelineLayout),
+                  "ProgramFactory::GetOrCreateProgramLayout, vkCreatePipelineLayout");
+
+        auto [insertIt, _] = m_layoutCache.emplace(hash, std::move(layout));
+        return &insertIt->second;
+    }
+
+    VkPipelineLayout ProgramFactory::GetOrCreatePipelineLayout(const MG_State::GLState::ProgramObject& program) {
+        const auto* layout = GetOrCreateProgramLayout(program);
+        return layout ? layout->pipelineLayout : VK_NULL_HANDLE;
+    }
+
+    void ProgramFactory::DestroyLayoutCache() {
+        for (auto& [_, layout] : m_layoutCache) {
+            if (layout.pipelineLayout != VK_NULL_HANDLE) {
+                vkDestroyPipelineLayout(m_device, layout.pipelineLayout, nullptr);
+                layout.pipelineLayout = VK_NULL_HANDLE;
+            }
+            if (layout.descriptorSetLayout != VK_NULL_HANDLE) {
+                vkDestroyDescriptorSetLayout(m_device, layout.descriptorSetLayout, nullptr);
+                layout.descriptorSetLayout = VK_NULL_HANDLE;
+            }
+        }
+        m_layoutCache.clear();
     }
 } // namespace MobileGL::MG_Backend::DirectVulkan
