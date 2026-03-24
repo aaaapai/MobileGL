@@ -6,7 +6,7 @@
 // SPDX-License-Identifier: LGPL-3.0-only
 // End of Source File Header
 
-#include "UniformDescriptorBinder.h"
+#include "UniformManager.h"
 
 #include "MG_State/GLState/Core.h"
 #include "MG_State/GLState/ProgramState/ProgramObject.h"
@@ -53,7 +53,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         }
     }
 
-    Bool UniformDescriptorBinder::Initialize(VkDevice device, VkBufferManager* bufferManager,
+    Bool UniformManager::Initialize(VkDevice device, VkBufferManager* bufferManager,
                                              ProgramFactory* programFactory,
                                              VkDeviceSize minUniformBufferOffsetAlignment, Uint32 frameCount,
                                              Uint32 maxBindings, Uint32 setsPerFrame,
@@ -106,7 +106,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         return true;
     }
 
-    void UniformDescriptorBinder::Shutdown() {
+    void UniformManager::Shutdown() {
         for (auto& frame : m_frames) {
             if (m_device != VK_NULL_HANDLE) {
                 for (auto& bucket : frame.descriptorPools) {
@@ -135,7 +135,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         m_samplerManager = nullptr;
     }
 
-    void UniformDescriptorBinder::BeginFrame(Uint32 frameIndex) {
+    void UniformManager::BeginFrame(Uint32 frameIndex) {
         MOBILEGL_ASSERT(frameIndex < m_frames.size(), "UniformDescriptorBinder::BeginFrame invalid frame index");
         auto& frame = m_frames[frameIndex];
         if (frame.peakAllocatedSetsThisFrame > m_peakDescriptorSetsObserved) {
@@ -157,7 +157,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         }
     }
 
-    Bool UniformDescriptorBinder::ResolveSamplerDescriptor(VkCommandBuffer commandBuffer,
+    Bool UniformManager::ResolveSamplerDescriptor(VkCommandBuffer commandBuffer,
                                                            const MG_State::GLState::ProgramObject& program,
                                                            const ProgramFactory::VkProgramLayout& layout,
                                                            Uint32 binding, VkDescriptorImageInfo& outImageInfo) const {
@@ -214,7 +214,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         return outImageInfo.sampler != VK_NULL_HANDLE;
     }
 
-    Bool UniformDescriptorBinder::ResolveSamplerDescriptorOverride(
+    Bool UniformManager::ResolveSamplerDescriptorOverride(
         const SamplerBindingOverride& samplerBindingOverride, VkDescriptorImageInfo& outImageInfo) const {
         MOBILEGL_ASSERT(m_textureManager != nullptr, "ResolveSamplerDescriptorOverride: texture manager is null");
         MOBILEGL_ASSERT(m_samplerManager != nullptr, "ResolveSamplerDescriptorOverride: sampler manager is null");
@@ -235,7 +235,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         return outImageInfo.sampler != VK_NULL_HANDLE;
     }
 
-    Bool UniformDescriptorBinder::ResolveSamplerTexture(const MG_State::GLState::ProgramObject& program,
+    Bool UniformManager::ResolveSamplerTexture(const MG_State::GLState::ProgramObject& program,
                                                         const ProgramFactory::VkProgramLayout& layout, Uint32 binding,
                                                         SharedPtr<MG_State::GLState::ITextureObject>& outTexture) const {
         outTexture.reset();
@@ -259,7 +259,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         return outTexture != nullptr;
     }
 
-    Bool UniformDescriptorBinder::CollectSampledTextures(const MG_State::GLState::ProgramObject& program,
+    Bool UniformManager::CollectSampledTextures(const MG_State::GLState::ProgramObject& program,
                                                          Vector<MG_State::GLState::ITextureObject*>& outTextures) {
         outTextures.clear();
         MOBILEGL_ASSERT(m_programFactory != nullptr, "CollectSampledTextures: program factory is null");
@@ -288,7 +288,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         return true;
     }
 
-    Bool UniformDescriptorBinder::GatherBindingPayloads(const MG_State::GLState::ProgramObject& program,
+    Bool UniformManager::GatherBindingPayloads(const MG_State::GLState::ProgramObject& program,
                                                         Vector<const void*>& outData,
                                                         Vector<VkDeviceSize>& outSizes) const {
         outData.assign(m_maxBindings, nullptr);
@@ -347,7 +347,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         return true;
     }
 
-    Bool UniformDescriptorBinder::CreateDescriptorPool(Uint32 maxSets, VkDescriptorPool& outPool) const {
+    Bool UniformManager::CreateDescriptorPool(Uint32 maxSets, VkDescriptorPool& outPool) const {
         outPool = VK_NULL_HANDLE;
         if (m_device == VK_NULL_HANDLE || maxSets == 0 || m_maxBindings == 0) {
             return false;
@@ -381,7 +381,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         return true;
     }
 
-    Bool UniformDescriptorBinder::GrowFrameDescriptorPool(FrameResources& frame, Uint32 frameIndex) {
+    Bool UniformManager::GrowFrameDescriptorPool(FrameResources& frame, Uint32 frameIndex) {
         if (frame.descriptorPools.empty()) {
             return false;
         }
@@ -406,13 +406,26 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         return true;
     }
 
-    Bool UniformDescriptorBinder::BindProgramUniformBuffers(VkCommandBuffer commandBuffer,
-                                                            const MG_State::GLState::ProgramObject& program,
-                                                            Uint32 frameIndex) {
-        return BindProgramUniformBuffers(commandBuffer, program, frameIndex, nullptr);
+    VkResult UniformManager::AllocateDescriptorSetsFromActivePool(Uint32 frameIndex, const ProgramFactory::VkProgramLayout& layout, VkDescriptorSet& outDescriptorSet) {
+        auto& frame = m_frames[frameIndex];
+        auto& bucket = frame.descriptorPools[frame.activeDescriptorPoolIndex];
+        VkDescriptorSetAllocateInfo allocInfo{};
+        allocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+        allocInfo.descriptorSetCount = 1;
+        allocInfo.pSetLayouts = &layout.descriptorSetLayout;
+
+        allocInfo.descriptorPool = bucket.handle;
+        VkResult result = vkAllocateDescriptorSets(m_device, &allocInfo, &outDescriptorSet);
+        if (result == VK_SUCCESS) {
+            ++bucket.allocatedSets;
+            ++frame.allocatedSetsThisFrame;
+            frame.peakAllocatedSetsThisFrame =
+                std::max(frame.peakAllocatedSetsThisFrame, frame.allocatedSetsThisFrame);
+        }
+        return result;
     }
 
-    Bool UniformDescriptorBinder::BindProgramUniformBuffers(VkCommandBuffer commandBuffer,
+    Bool UniformManager::BindProgramUniformBuffers(VkCommandBuffer commandBuffer,
                                                             const MG_State::GLState::ProgramObject& program,
                                                             Uint32 frameIndex,
                                                             const SamplerBindingOverride* samplerBindingOverride) {
@@ -430,32 +443,14 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             frame.activeDescriptorPoolIndex = 0;
         }
 
-        VkDescriptorSetAllocateInfo allocInfo{};
-        allocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-        allocInfo.descriptorSetCount = 1;
-        allocInfo.pSetLayouts = &layout->descriptorSetLayout;
         VkDescriptorSet descriptorSet = VK_NULL_HANDLE;
-
-        auto allocateFromActivePool = [&](VkResult& outResult) {
-            auto& bucket = frame.descriptorPools[frame.activeDescriptorPoolIndex];
-            allocInfo.descriptorPool = bucket.handle;
-            outResult = vkAllocateDescriptorSets(m_device, &allocInfo, &descriptorSet);
-            if (outResult == VK_SUCCESS) {
-                ++bucket.allocatedSets;
-                ++frame.allocatedSetsThisFrame;
-                frame.peakAllocatedSetsThisFrame =
-                    std::max(frame.peakAllocatedSetsThisFrame, frame.allocatedSetsThisFrame);
-            }
-        };
-
-        VkResult allocResult = VK_SUCCESS;
-        allocateFromActivePool(allocResult);
+        VkResult allocResult = AllocateDescriptorSetsFromActivePool(frameIndex, *layout, descriptorSet);
         if (allocResult == VK_ERROR_OUT_OF_POOL_MEMORY || allocResult == VK_ERROR_FRAGMENTED_POOL) {
             if (!GrowFrameDescriptorPool(frame, frameIndex)) {
                 MGLOG_E("UniformDescriptorBinder::BindProgramUniformBuffers failed: descriptor pool growth failed");
                 return false;
             }
-            allocateFromActivePool(allocResult);
+            allocResult = AllocateDescriptorSetsFromActivePool(frameIndex, *layout, descriptorSet);
         }
         if (allocResult != VK_SUCCESS || descriptorSet == VK_NULL_HANDLE) {
             MGLOG_E("UniformDescriptorBinder::BindProgramUniformBuffers failed: vkAllocateDescriptorSets returned %d",
@@ -470,7 +465,6 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             return false;
         }
 
-        static const Uint8 kFallbackData[16] = {};
         MOBILEGL_ASSERT(m_textureManager != nullptr, "BindProgramUniformBuffers: texture manager is null");
         MOBILEGL_ASSERT(m_samplerManager != nullptr, "BindProgramUniformBuffers: sampler manager is null");
         MOBILEGL_ASSERT(m_bufferManager != nullptr, "BindProgramUniformBuffers: buffer manager is null");
@@ -510,10 +504,6 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                             payload = globalUboData;
                             payloadSize = globalUboSize;
                         }
-                    }
-                    if (payload == nullptr || payloadSize == 0) {
-                        payload = kFallbackData;
-                        payloadSize = sizeof(kFallbackData);
                     }
                 }
 

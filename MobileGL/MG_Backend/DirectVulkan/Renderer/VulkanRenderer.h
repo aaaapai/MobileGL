@@ -12,7 +12,7 @@
 #include "PipelineFactory.h"
 #include "ProgramFactory.h"
 #include "SwapchainObject.h"
-#include "UniformDescriptorBinder.h"
+#include "UniformManager.h"
 #include "VertexInputStateFactory.h"
 #include "VkBufferObject.h"
 #include "VkBufferManager.h"
@@ -180,7 +180,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
 
         UniquePtr<PipelineFactory> m_pipelineFactory;
         UniquePtr<ProgramFactory> m_programFactory;
-        UniquePtr<UniformDescriptorBinder> m_uniformDescriptorBinder;
+        UniquePtr<UniformManager> m_uniformManager;
         UniquePtr<VertexInputStateFactory> m_vertexInputStateFactory;
         UniquePtr<VkClearManager> m_clearManager;
         UniquePtr<VkRenderPassManager> m_renderPassManager;
@@ -206,7 +206,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             const MG_State::GLState::VertexArrayObject& vao,
             const RenderPassEntry& renderPassEntry);
 
-        Bool UploadAndBindVertexStreams(VkCommandBuffer commandBuffer, const MG_State::GLState::VertexArrayObject& vao);
+        Bool UploadAndBindVertexBuffers(VkCommandBuffer commandBuffer, const MG_State::GLState::VertexArrayObject& vao);
         Bool UploadAndBindIndexBuffer(FrameContext::FrameData& frame,
                                      const MG_State::GLState::VertexArrayObject& vao,
                                       const IndexBufferView* pIndexBufferView = nullptr);

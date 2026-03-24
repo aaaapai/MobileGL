@@ -22,7 +22,7 @@ namespace MobileGL::MG_State::GLState {
 }
 
 namespace MobileGL::MG_Backend::DirectVulkan {
-    class UniformDescriptorBinder {
+    class UniformManager {
     public:
         struct SamplerBindingOverride {
             Uint32 binding = 0;
@@ -41,10 +41,8 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         Bool CollectSampledTextures(const MG_State::GLState::ProgramObject& program,
                                     Vector<MG_State::GLState::ITextureObject*>& outTextures);
         Bool BindProgramUniformBuffers(VkCommandBuffer commandBuffer,
-                                       const MG_State::GLState::ProgramObject& program, Uint32 frameIndex);
-        Bool BindProgramUniformBuffers(VkCommandBuffer commandBuffer,
                                        const MG_State::GLState::ProgramObject& program, Uint32 frameIndex,
-                                       const SamplerBindingOverride* samplerBindingOverride);
+                                       const SamplerBindingOverride* samplerBindingOverride = nullptr);
 
     private:
         struct DescriptorPoolBucket {
@@ -72,6 +70,8 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                                    Vector<VkDeviceSize>& outSizes) const;
         Bool CreateDescriptorPool(Uint32 maxSets, VkDescriptorPool& outPool) const;
         Bool GrowFrameDescriptorPool(FrameResources& frame, Uint32 frameIndex);
+        VkResult AllocateDescriptorSetsFromActivePool(
+            Uint32 frameIndex, const ProgramFactory::VkProgramLayout& layout, VkDescriptorSet& outDescriptorSet);
 
         VkDevice m_device = VK_NULL_HANDLE;
         VkBufferManager* m_bufferManager = nullptr;

@@ -351,9 +351,9 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         succeeded = InitializeBlitResources();
         MOBILEGL_ASSERT(succeeded, "Blit pipeline resource initialization failed.");
 
-        m_uniformDescriptorBinder = MakeUnique<UniformDescriptorBinder>();
-        MOBILEGL_ASSERT(m_uniformDescriptorBinder != nullptr, "UniformDescriptorBinder creation failed.");
-        succeeded = m_uniformDescriptorBinder->Initialize(
+        m_uniformManager = MakeUnique<UniformManager>();
+        MOBILEGL_ASSERT(m_uniformManager != nullptr, "UniformDescriptorBinder creation failed.");
+        succeeded = m_uniformManager->Initialize(
             m_device, &m_bufferManager, m_programFactory.get(),
             m_physicalDevice.properties.limits.minUniformBufferOffsetAlignment, m_config.MaxFramesInFlight,
             kMaxProgramBindings, kDescriptorSetsPerFrame, m_textureManager.get(), m_samplerManager.get());
@@ -389,9 +389,9 @@ namespace MobileGL::MG_Backend::DirectVulkan {
 
         m_frameContext.Destroy(m_device, m_commandPool);
 
-        if (m_uniformDescriptorBinder) {
-            m_uniformDescriptorBinder->Shutdown();
-            m_uniformDescriptorBinder.reset();
+        if (m_uniformManager) {
+            m_uniformManager->Shutdown();
+            m_uniformManager.reset();
         }
         m_programFactory.reset();
 
@@ -431,7 +431,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         MGLOG_I("VulkanRenderer shut down completed");
     }
 
-    Bool VulkanRenderer::UploadAndBindVertexStreams(
+    Bool VulkanRenderer::UploadAndBindVertexBuffers(
         VkCommandBuffer commandBuffer, const MG_State::GLState::VertexArrayObject& vao) {
         auto& vertexInputState = m_vertexInputStateFactory->GetOrCreateVertexInputState(vao);
 
@@ -661,7 +661,7 @@ void main() {
     VkPipeline VulkanRenderer::GetOrCreateBlitPipeline(const RenderPassEntry& renderPassEntry) {
         MOBILEGL_ASSERT(m_blitResources.program != nullptr, "GetOrCreateBlitPipeline: blit program is null");
         MOBILEGL_ASSERT(m_programFactory != nullptr, "GetOrCreateBlitPipeline: program factory is null");
-        MOBILEGL_ASSERT(m_uniformDescriptorBinder != nullptr, "GetOrCreateBlitPipeline: descriptor binder is null");
+        MOBILEGL_ASSERT(m_uniformManager != nullptr, "GetOrCreateBlitPipeline: descriptor binder is null");
 
         static const VkPipelineVertexInputStateCreateInfo kEmptyVertexInputState {
             VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO
@@ -760,7 +760,7 @@ void main() {
         // Begin command recording if not yet
         if (!frame.isCommandRecording) {
             m_frameContext.BeginCommandRecording();
-            m_uniformDescriptorBinder->BeginFrame(m_frameContext.GetCurrentFrameIndex());
+            m_uniformManager->BeginFrame(m_frameContext.GetCurrentFrameIndex());
         }
 
         auto* activeRenderPass = VkRenderPassManager::GetActiveRenderPass();
@@ -770,7 +770,7 @@ void main() {
         // without draws in between to give it a chance to materialize such clear.
         // Deal with this situation here.
         Vector<MG_State::GLState::ITextureObject*> sampledTextures;
-        Bool hasSampledTextures = m_uniformDescriptorBinder->CollectSampledTextures(program, sampledTextures);
+        Bool hasSampledTextures = m_uniformManager->CollectSampledTextures(program, sampledTextures);
         MOBILEGL_ASSERT(hasSampledTextures, "%s: CollectSampledTextures failed", __func__);
         MGLOG_D("SetupDraw: program=%u drawFbo=%u sampledTextureCount=%zu activeRenderPass=%s",
                 program.GetExternalIndex(), drawFbo ? drawFbo->GetExternalIndex() : 0u, sampledTextures.size(),
@@ -856,11 +856,11 @@ void main() {
 
         vkCmdBindPipeline(frame.commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
 
-        m_uniformDescriptorBinder->BindProgramUniformBuffers(frame.commandBuffer, program,
+        m_uniformManager->BindProgramUniformBuffers(frame.commandBuffer, program,
                                                                   m_frameContext.GetCurrentFrameIndex());
 
-        auto vtxUploadOk = UploadAndBindVertexStreams(frame.commandBuffer, vao);
-        MOBILEGL_ASSERT(vtxUploadOk, "SetupDraw skipped: failed to upload vertex streams");
+        auto vtxUploadOk = UploadAndBindVertexBuffers(frame.commandBuffer, vao);
+        MOBILEGL_ASSERT(vtxUploadOk, "SetupDraw skipped: failed to upload vertex buffers");
 
         if (aspects & DrawSetupAspect::IndexBuffer) {
             auto idxUploadOk = UploadAndBindIndexBuffer(frame, vao, pIndexBufferView);
@@ -1080,13 +1080,13 @@ void main() {
         writeUniform(m_blitResources.surfaceTransformLocation, &blitUniformData.surfaceTransform,
                      sizeof(blitUniformData.surfaceTransform));
 
-        const auto samplerBindingOverride = UniformDescriptorBinder::SamplerBindingOverride{
+        const auto samplerBindingOverride = UniformManager::SamplerBindingOverride{
             .binding = m_blitResources.samplerBinding,
             .texture = sourceTexture.get(),
             .sampler = (filter == GL_LINEAR ? m_blitResources.linearSampler.get()
                                             : m_blitResources.nearestSampler.get()),
         };
-        const Bool bound = m_uniformDescriptorBinder->BindProgramUniformBuffers(
+        const Bool bound = m_uniformManager->BindProgramUniformBuffers(
             frame.commandBuffer, *m_blitResources.program, m_frameContext.GetCurrentFrameIndex(),
             &samplerBindingOverride);
         MOBILEGL_ASSERT(bound, "TryBlitToDefaultFramebufferWithShader: BindProgramUniformBuffers failed");
@@ -1118,7 +1118,7 @@ void main() {
         auto& frame = m_frameContext.GetCurrent();
         if (!frame.isCommandRecording) {
             m_frameContext.BeginCommandRecording();
-            m_uniformDescriptorBinder->BeginFrame(m_frameContext.GetCurrentFrameIndex());
+            m_uniformManager->BeginFrame(m_frameContext.GetCurrentFrameIndex());
         }
 
         auto* activeRenderPass = VkRenderPassManager::GetActiveRenderPass();
