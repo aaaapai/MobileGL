@@ -59,7 +59,7 @@ namespace MobileGL {
                 UnorderedMap<String, unsigned> plainUniformOffsetsInUBO;
                 UnorderedMap<String, SizeT> plainUniformMemberSizesInBytes;
                 UnorderedMap<String, SpvcType> plainUniformMemberTypes;
-                SizeT uboSize = 0;
+                SizeT globalUboSize = 0;
             };
 
             class SpvcSession {
