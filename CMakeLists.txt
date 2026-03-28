@@ -104,12 +104,20 @@ set(SPIRV_CROSS_ENABLE_CPP     OFF CACHE BOOL "Disable C++ API target" FORCE)
 set(SPIRV_CROSS_CLI            OFF CACHE BOOL "Disable CLI binary" FORCE)
 set(SPIRV_CROSS_STATIC         ON  CACHE BOOL "Prefer static libs" FORCE)
 
+set(SPIRV_REFLECT_EXECUTABLE     OFF CACHE BOOL "Build spirv-reflect executable" FORCE)
+set(SPIRV_REFLECT_STATIC_LIB     ON  CACHE BOOL "Build a SPIRV-Reflect static library" FORCE)
+set(SPIRV_REFLECT_BUILD_TESTS    OFF CACHE BOOL "Build the SPIRV-Reflect test suite" FORCE)
+set(SPIRV_REFLECT_ENABLE_ASSERTS OFF CACHE BOOL  "Enable asserts for debugging" FORCE)
+set(SPIRV_REFLECT_ENABLE_ASAN    OFF CACHE BOOL "Use address sanitization" FORCE)
+set(SPIRV_REFLECT_INSTALL        OFF CACHE BOOL "Whether to install" FORCE)
+
 # add_subdirectory(3rdparty/DiligentCore)
 add_subdirectory(3rdparty/glslang)
 add_subdirectory(3rdparty/SPIRV-Cross)
 add_subdirectory(3rdparty/VulkanMemoryAllocator)
 add_subdirectory(3rdparty/Vulkan-Headers)
 add_subdirectory(3rdparty/Vulkan-Utility-Libraries)
+add_subdirectory(3rdparty/SPIRV-Reflect)
 
 set(XXHASH_BUILD_XXHSUM OFF)
 option(BUILD_SHARED_LIBS OFF)
@@ -270,6 +278,7 @@ set(MOBILEGL_LINK_LIBRARIES
         xxHash::xxhash
         GPUOpen::VulkanMemoryAllocator
         Vulkan::UtilityHeaders
+        spirv-reflect-static
 )
 
 set(MOBILEGL_COMPILE_DEF
