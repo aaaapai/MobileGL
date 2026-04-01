@@ -464,7 +464,7 @@ namespace MobileGL::MG_State::GLState {
             MGLOG_D("ProgramObject %u: GenerateBinary - parsing SPIR-V meta data for module %zu "
                     "(shaderType=%u, wordCount=%zu)",
                     m_externalIndex, i, shaderType, spv.size());
-            SpvcSession session(spv);
+            SpvcSession session(spv, SessionUsageBit::Reflection);
             auto result = session.ParseMetaData();
             if (result < 0) {
                 MGLOG_D("ProgramObject %u: GenerateBinary - SpvcSession::ParseMetaData failed for module %zu, "

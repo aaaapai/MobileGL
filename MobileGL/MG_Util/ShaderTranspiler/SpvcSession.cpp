@@ -286,7 +286,7 @@ namespace MobileGL {
                 for (uint32_t i = 0; i < bindingCount; ++i) {
                     auto* binding = bindings[i];
                     if (binding->descriptor_type != SPV_REFLECT_DESCRIPTOR_TYPE_UNIFORM_BUFFER) continue;
-                    if (strcmp(binding->name, GLOBAL_UBO_NAME) != 0) continue;
+                    if (strcmp(binding->type_description->type_name, GLOBAL_UBO_NAME) != 0) continue;
 
                     auto& block = binding->block;
                     metadata.globalUboSize = block.size;

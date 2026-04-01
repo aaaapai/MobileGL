@@ -153,7 +153,7 @@ TEST_F(ProgramUtilTest, CompileFragmentShaderWithDiscard) {
 
     Vector<SpvcSession> sessions(spirvs.size());
     for (SizeT i = 0; i < spirvs.size(); ++i) {
-        sessions[i] = SpvcSession(spirvs[i]);
+        sessions[i] = SpvcSession(spirvs[i], SessionUsageBit::Transpile);
     }
 
     for (SizeT i = 0; i < spirvs.size(); ++i) {
@@ -278,7 +278,7 @@ TEST_F(ProgramUtilTest, DecompProgram) {
 
     Vector<SpvcSession> sessions(spirvs.size());
     for (SizeT i = 0; i < spirvs.size(); ++i) {
-        sessions[i] = SpvcSession(spirvs[i]);
+        sessions[i] = SpvcSession(spirvs[i], SessionUsageBit::Transpile);
     }
 
     for (SizeT i = 0; i < spirvs.size(); ++i) {
@@ -439,7 +439,7 @@ TEST_F(ProgramUtilTest, CompileAndLinkBlitProgram) {
     auto spirvs = bin_res.value();
     Vector<SpvcSession> sessions(spirvs.size());
     for (SizeT i = 0; i < spirvs.size(); ++i) {
-        sessions[i] = SpvcSession(spirvs[i]);
+        sessions[i] = SpvcSession(spirvs[i], SessionUsageBit::Transpile);
     }
 
     for (SizeT i = 0; i < spirvs.size(); ++i) {

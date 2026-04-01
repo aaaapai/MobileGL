@@ -73,7 +73,7 @@ namespace MobileGL {
                 SpvcSession() {}
 
                 explicit SpvcSession(const Vector<unsigned int>& spirv,
-                                     Flags<SessionUsageBit> usage = SessionUsageBit::Reflection | SessionUsageBit::Transpile);
+                                     Flags<SessionUsageBit> usage);
 
                 SpvcSession(SpvcSession&) = delete;
 

@@ -191,7 +191,7 @@ TEST_F(ProgramTest, CompileAndLink) {
         String source;
         auto& spirvCode = shaderSpirvs[index];
 
-        MG_Util::ShaderTranspiler::SpvcSession spvcSession(spirvCode);
+        MG_Util::ShaderTranspiler::SpvcSession spvcSession(spirvCode, MG_Util::ShaderTranspiler::SessionUsageBit::Transpile);
 
         spvc_compiler_options options;
         spvcSession.CreateOptions(&options);
@@ -926,7 +926,7 @@ TEST_F(ProgramTest, CompileAndLinkWithExplicitVertexIn) {
     char* pSrcVertIn = nullptr;
     const char* needle = "layout(location = 2) in vec2 UV0;";
     for (auto spirv : spirvs) {
-        MG_Util::ShaderTranspiler::SpvcSession spvcSession(spirv);
+        MG_Util::ShaderTranspiler::SpvcSession spvcSession(spirv, MG_Util::ShaderTranspiler::SessionUsageBit::Transpile);
         spvc_compiler_options options;
         spvcSession.CreateOptions(&options);
 
@@ -987,7 +987,7 @@ TEST_F(ProgramTest, CompileAndLinkWithExplicitFragmentOut) {
     char* pSrcfragOut = nullptr;
     const char* needle = "layout(location = 7) out vec4 fragColor;";
     // for (auto spirv: spirvs) {
-    MG_Util::ShaderTranspiler::SpvcSession spvcSession(fragSpirv);
+    MG_Util::ShaderTranspiler::SpvcSession spvcSession(fragSpirv, MG_Util::ShaderTranspiler::SessionUsageBit::Transpile);
     spvc_compiler_options options;
     spvcSession.CreateOptions(&options);
 
@@ -1209,7 +1209,7 @@ TEST_F(ProgramTest, CompileShaderWithSamplerAsVarName) {
     auto programObject = MG_State::pGLContext->GetCurrentProgram();
     auto& spirvs = programObject->GetGeneratedSpirv();
     auto& fragSpirv = spirvs[programObject->GetShaderIndexByStage(ShaderStage::Fragment)];
-    MG_Util::ShaderTranspiler::SpvcSession spvcSession(fragSpirv);
+    MG_Util::ShaderTranspiler::SpvcSession spvcSession(fragSpirv, MG_Util::ShaderTranspiler::SessionUsageBit::Transpile);
     spvc_compiler_options options;
     spvcSession.CreateOptions(&options);
 
