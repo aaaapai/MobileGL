@@ -472,7 +472,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                 if (!m_bufferManager.UploadTransient(BufferKind::Vertex, m_frameContext.GetCurrentFrameIndex(),
                                                      sourceData->data(), static_cast<VkDeviceSize>(sourceSize), 16,
                                                      slice)) {
-                    MGLOG_E("UploadAndBindVertexStreams skipped: failed to upload transient binding %zu", binding);
+                    MOBILEGL_ASSERT(false, "UploadAndBindVertexStreams skipped: failed to upload transient binding %zu", binding);
                     return false;
                 }
                 if (!transientThisFrame) {
@@ -534,7 +534,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             if (!m_bufferManager.UploadTransient(BufferKind::Index, m_frameContext.GetCurrentFrameIndex(),
                                                  indexData->data() + pIndexBufferView->indexByteOffset,
                                                  static_cast<VkDeviceSize>(indexDataSizeBytes), indexSize, slice)) {
-                MGLOG_E("DrawElements skipped: failed to prepare transient index buffer");
+                MOBILEGL_ASSERT(false, "DrawElements skipped: failed to prepare transient index buffer");
                 return false;
             }
             if (!transientThisFrame) {
@@ -667,11 +667,11 @@ void main() {
             VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO
         };
         ProgramFactory::CompileOptionFlags transformFlags = 0;
-        auto& stages = m_programFactory->GetOrCreatePipelineShaderStages(*m_blitResources.program, transformFlags);
+        const auto& programObj = m_programFactory->GetOrCreateProgram(*m_blitResources.program, transformFlags);
         PipelineFactory::PipelineCreatePayload payload{
-            .programHash = m_programFactory->ComputeHash(*m_blitResources.program, transformFlags),
+            .programHash = programObj.hash,
             .vertexInputHash = 0,
-            .pipelineLayout = m_programFactory->GetOrCreatePipelineLayout(*m_blitResources.program),
+            .pipelineLayout = programObj.pipelineLayout,
             .renderPass = renderPassEntry.renderPass,
             .subpass = 0,
             .topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST,
@@ -687,7 +687,7 @@ void main() {
             .dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO,
             .colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
                               VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT,
-            .stages = &stages,
+            .stages = &programObj.stages,
             .vertexInputState = &kEmptyVertexInputState
         };
         return m_pipelineFactory->GetOrCreatePipeline(payload);
@@ -700,16 +700,14 @@ void main() {
             const RenderPassEntry& renderPassEntry) {
         ProgramFactory::CompileOptionFlags transformFlags = GetShaderTransformFlags(m_swapchainObject.GetPreTransform());
         Bool invertClockwise = transformFlags & ProgramFactory::CompileOptionBit::PositionYFlip;
-        auto& stages = m_programFactory->GetOrCreatePipelineShaderStages(program, transformFlags);
-        if (stages.empty()) {
+        const auto& programObj = m_programFactory->GetOrCreateProgram(program, transformFlags);
+        if (programObj.stages.empty()) {
             MGLOG_D("GetOrCreatePipeline skipped: program has no shader stages");
             return VK_NULL_HANDLE;
         }
-        const Uint64 programHash = m_programFactory->ComputeHash(program, transformFlags);
 
         auto vertexInputHash = m_vertexInputStateFactory->ComputeHash(vao);
         auto& vis = m_vertexInputStateFactory->GetOrCreateVertexInputState(vao);
-        auto pipelineLayout = m_programFactory->GetOrCreatePipelineLayout(program);
         auto cullFaceEnabled = MG_State::pGLContext->IsCapabilityEnabled(CapabilityInput::CullFace);
         auto depthTestEnabled = MG_State::pGLContext->IsCapabilityEnabled(CapabilityInput::DepthTest);
         BlendFactor srcRGB = BlendFactor::One;
@@ -720,9 +718,9 @@ void main() {
         auto mask = MG_State::pGLContext->GetColorMask();
 
         PipelineFactory::PipelineCreatePayload payload {
-            .programHash = programHash,
+            .programHash = programObj.hash,
             .vertexInputHash = vertexInputHash,
-            .pipelineLayout = pipelineLayout,
+            .pipelineLayout = programObj.pipelineLayout,
             .renderPass = renderPassEntry.renderPass,
             .subpass = 0,
             .topology = MG_Util::ConvertPrimitiveModeToVkEnum(mode),
@@ -743,7 +741,7 @@ void main() {
                 (mask.g() ? VK_COLOR_COMPONENT_G_BIT : 0u) |
                 (mask.b() ? VK_COLOR_COMPONENT_B_BIT : 0u) |
                 (mask.a() ? VK_COLOR_COMPONENT_A_BIT : 0u) ),
-            .stages = &stages,
+            .stages = &programObj.stages,
             .vertexInputState = &vis.state
         };
         return m_pipelineFactory->GetOrCreatePipeline(payload);
@@ -756,6 +754,8 @@ void main() {
                 MG_State::pGLContext->GetFramebufferBindingSlot(FramebufferTarget::Draw).GetBoundObject();
         const auto& vao = *MG_State::pGLContext->GetBoundVertexArray();
         const auto& program = *MG_State::pGLContext->GetCurrentProgram();
+        ProgramFactory::CompileOptionFlags transformFlags = GetShaderTransformFlags(m_swapchainObject.GetPreTransform());
+        const auto& programObj = m_programFactory->GetOrCreateProgram(program, transformFlags);
 
         // Begin command recording if not yet
         if (!frame.isCommandRecording) {
@@ -770,7 +770,7 @@ void main() {
         // without draws in between to give it a chance to materialize such clear.
         // Deal with this situation here.
         Vector<MG_State::GLState::ITextureObject*> sampledTextures;
-        Bool hasSampledTextures = m_uniformManager->CollectSampledTextures(program, sampledTextures);
+        Bool hasSampledTextures = m_uniformManager->CollectSampledTextures(program, programObj, sampledTextures);
         MOBILEGL_ASSERT(hasSampledTextures, "%s: CollectSampledTextures failed", __func__);
         MGLOG_D("SetupDraw: program=%u drawFbo=%u sampledTextureCount=%zu activeRenderPass=%s",
                 program.GetExternalIndex(), drawFbo ? drawFbo->GetExternalIndex() : 0u, sampledTextures.size(),
@@ -856,7 +856,7 @@ void main() {
 
         vkCmdBindPipeline(frame.commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
 
-        m_uniformManager->BindProgramUniformBuffers(frame.commandBuffer, program,
+        m_uniformManager->BindProgramUniformBuffers(frame.commandBuffer, program, programObj,
                                                                   m_frameContext.GetCurrentFrameIndex());
 
         auto vtxUploadOk = UploadAndBindVertexBuffers(frame.commandBuffer, vao);
@@ -1086,8 +1086,10 @@ void main() {
             .sampler = (filter == GL_LINEAR ? m_blitResources.linearSampler.get()
                                             : m_blitResources.nearestSampler.get()),
         };
+        ProgramFactory::CompileOptionFlags blitTransformFlags = 0;
+        const auto& blitProgramObj = m_programFactory->GetOrCreateProgram(*m_blitResources.program, blitTransformFlags);
         const Bool bound = m_uniformManager->BindProgramUniformBuffers(
-            frame.commandBuffer, *m_blitResources.program, m_frameContext.GetCurrentFrameIndex(),
+            frame.commandBuffer, *m_blitResources.program, blitProgramObj, m_frameContext.GetCurrentFrameIndex(),
             &samplerBindingOverride);
         MOBILEGL_ASSERT(bound, "TryBlitToDefaultFramebufferWithShader: BindProgramUniformBuffers failed");
         vkCmdDraw(frame.commandBuffer, 3, 1, 0, 0);

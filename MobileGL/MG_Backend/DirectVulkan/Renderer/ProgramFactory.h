@@ -39,6 +39,16 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             HashType hash = 0;
             Vector<VkPipelineShaderStageCreateInfo> stages;
             Vector<VkShaderModule> modules;
+
+            // Layout data (previously in separate VkProgramLayout)
+            VkDescriptorSetLayout descriptorSetLayout = VK_NULL_HANDLE;
+            VkPipelineLayout pipelineLayout = VK_NULL_HANDLE;
+            Vector<DescriptorBindingKind> bindingKinds;
+            Vector<Uint32> dynamicBindings;
+            Vector<Int> samplerUniformLocationByBinding;
+            Vector<TextureTarget> samplerTextureTargetByBinding;
+            Int globalUboBinding = -1;
+
             static inline VkDevice s_device = VK_NULL_HANDLE;
 
             VkProgramObject() = default;
@@ -48,76 +58,86 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                 hash = other.hash;
                 stages = std::move(other.stages);
                 modules = std::move(other.modules);
+                descriptorSetLayout = other.descriptorSetLayout;
+                pipelineLayout = other.pipelineLayout;
+                bindingKinds = std::move(other.bindingKinds);
+                dynamicBindings = std::move(other.dynamicBindings);
+                samplerUniformLocationByBinding = std::move(other.samplerUniformLocationByBinding);
+                samplerTextureTargetByBinding = std::move(other.samplerTextureTargetByBinding);
+                globalUboBinding = other.globalUboBinding;
                 other.hash = 0;
+                other.descriptorSetLayout = VK_NULL_HANDLE;
+                other.pipelineLayout = VK_NULL_HANDLE;
+                other.globalUboBinding = -1;
             }
             VkProgramObject& operator=(VkProgramObject&& other) noexcept {
                 if (this == &other) {
                     return *this;
                 }
-                DestroyModules();
-                stages.clear();
+                Destroy();
                 hash = other.hash;
                 stages = std::move(other.stages);
                 modules = std::move(other.modules);
+                descriptorSetLayout = other.descriptorSetLayout;
+                pipelineLayout = other.pipelineLayout;
+                bindingKinds = std::move(other.bindingKinds);
+                dynamicBindings = std::move(other.dynamicBindings);
+                samplerUniformLocationByBinding = std::move(other.samplerUniformLocationByBinding);
+                samplerTextureTargetByBinding = std::move(other.samplerTextureTargetByBinding);
+                globalUboBinding = other.globalUboBinding;
                 other.hash = 0;
+                other.descriptorSetLayout = VK_NULL_HANDLE;
+                other.pipelineLayout = VK_NULL_HANDLE;
+                other.globalUboBinding = -1;
                 return *this;
             }
 
             ~VkProgramObject() {
-                DestroyModules();
-                stages.clear();
+                Destroy();
             }
 
         private:
-            void DestroyModules() {
-                for (auto module : modules) {
-                    if (module != VK_NULL_HANDLE && s_device != VK_NULL_HANDLE) {
-                        vkDestroyShaderModule(s_device, module, nullptr);
+            void Destroy() {
+                if (s_device != VK_NULL_HANDLE) {
+                    if (pipelineLayout != VK_NULL_HANDLE) {
+                        vkDestroyPipelineLayout(s_device, pipelineLayout, nullptr);
+                        pipelineLayout = VK_NULL_HANDLE;
+                    }
+                    if (descriptorSetLayout != VK_NULL_HANDLE) {
+                        vkDestroyDescriptorSetLayout(s_device, descriptorSetLayout, nullptr);
+                        descriptorSetLayout = VK_NULL_HANDLE;
+                    }
+                    for (auto module : modules) {
+                        if (module != VK_NULL_HANDLE) {
+                            vkDestroyShaderModule(s_device, module, nullptr);
+                        }
                     }
                 }
                 modules.clear();
+                stages.clear();
             }
-        };
-
-        struct VkProgramLayout {
-            HashType hash = 0;
-            VkDescriptorSetLayout descriptorSetLayout = VK_NULL_HANDLE;
-            VkPipelineLayout pipelineLayout = VK_NULL_HANDLE;
-            Vector<DescriptorBindingKind> bindingKinds;
-            Vector<Uint32> dynamicBindings;
-            Vector<Int> samplerUniformLocationByBinding;
-            Vector<TextureTarget> samplerTextureTargetByBinding;
-            Int globalUboBinding = -1;
         };
 
         explicit ProgramFactory(VkDevice device, const VulkanRendererConfig& config, Uint32 maxBindings = 16)
             : m_device(device), m_config(config), m_maxBindings(maxBindings) {
             VkProgramObject::s_device = device;
         }
-        ~ProgramFactory();
+        ~ProgramFactory() = default;
         ProgramFactory(const ProgramFactory&) = delete;
 
         HashType ComputeHash(const MG_State::GLState::ProgramObject& program, CompileOptionFlags flags) const;
-        Vector<VkPipelineShaderStageCreateInfo>& GetOrCreatePipelineShaderStages(
+        const VkProgramObject& GetOrCreateProgram(
             const MG_State::GLState::ProgramObject& program, CompileOptionFlags flags);
-        const VkProgramLayout* GetOrCreateProgramLayout(const MG_State::GLState::ProgramObject& program);
-        VkPipelineLayout GetOrCreatePipelineLayout(const MG_State::GLState::ProgramObject& program);
 
         static VkShaderStageFlagBits ToVkStage(ShaderStage stage);
 
     private:
-        HashType ComputeLayoutHash(const MG_State::GLState::ProgramObject& program) const;
         static TextureTarget UniformTypeToTextureTarget(GLenum glType);
-        Bool ReflectBindingKinds(const MG_State::GLState::ProgramObject& program,
-                                 Vector<DescriptorBindingKind>& outKinds) const;
-        Bool ReflectSamplerBindings(const MG_State::GLState::ProgramObject& program, VkProgramLayout& layout) const;
-        Bool ReflectGlobalUboBinding(const MG_State::GLState::ProgramObject& program, VkProgramLayout& layout) const;
-        void DestroyLayoutCache();
+        void ReflectLayout(const MG_State::GLState::ProgramObject& program, VkProgramObject& entry) const;
 
         VkDevice m_device = VK_NULL_HANDLE;
         Uint32 m_maxBindings = 0;
         UnorderedMap<HashType, VkProgramObject> m_cache;
-        UnorderedMap<HashType, VkProgramLayout> m_layoutCache;
         const VulkanRendererConfig& m_config;
         static inline XXH64_state_t* m_hashState = XXH64_createState();
     };

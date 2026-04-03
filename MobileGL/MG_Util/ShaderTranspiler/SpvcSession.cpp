@@ -179,7 +179,14 @@ namespace MobileGL {
                     for (uint32_t i = 0; i < count; ++i) {
                         if (bindings[i]->descriptor_type == SPV_REFLECT_DESCRIPTOR_TYPE_UNIFORM_BUFFER) {
                             InterfaceVariable var;
-                            var.name = bindings[i]->name;
+                            // Use the block/type name (e.g. "MGL_GLOBAL_UBO") rather than
+                            // the variable name, which may be empty or meaningless for UBOs.
+                            // This is consistent with ParseMetaData() which uses type_description->type_name.
+                            if (bindings[i]->type_description && bindings[i]->type_description->type_name) {
+                                var.name = bindings[i]->type_description->type_name;
+                            } else {
+                                var.name = bindings[i]->name;
+                            }
                             var.location = bindings[i]->binding;
                             variables.push_back(var);
                         }

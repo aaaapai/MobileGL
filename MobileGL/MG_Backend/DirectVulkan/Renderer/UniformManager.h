@@ -39,9 +39,12 @@ namespace MobileGL::MG_Backend::DirectVulkan {
 
         void BeginFrame(Uint32 frameIndex);
         Bool CollectSampledTextures(const MG_State::GLState::ProgramObject& program,
+                                    const ProgramFactory::VkProgramObject& programObj,
                                     Vector<MG_State::GLState::ITextureObject*>& outTextures);
         Bool BindProgramUniformBuffers(VkCommandBuffer commandBuffer,
-                                       const MG_State::GLState::ProgramObject& program, Uint32 frameIndex,
+                                       const MG_State::GLState::ProgramObject& program,
+                                       const ProgramFactory::VkProgramObject& programObj,
+                                       Uint32 frameIndex,
                                        const SamplerBindingOverride* samplerBindingOverride = nullptr);
 
     private:
@@ -59,10 +62,10 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         };
 
         Bool ResolveSamplerTexture(const MG_State::GLState::ProgramObject& program,
-                                   const ProgramFactory::VkProgramLayout& layout, Uint32 binding,
+                                   const ProgramFactory::VkProgramObject& programObj, Uint32 binding,
                                    SharedPtr<MG_State::GLState::ITextureObject>& outTexture) const;
         Bool ResolveSamplerDescriptor(VkCommandBuffer commandBuffer, const MG_State::GLState::ProgramObject& program,
-                                      const ProgramFactory::VkProgramLayout& layout, Uint32 binding,
+                                      const ProgramFactory::VkProgramObject& programObj, Uint32 binding,
                                       VkDescriptorImageInfo& outImageInfo) const;
         Bool ResolveSamplerDescriptorOverride(const SamplerBindingOverride& samplerBindingOverride,
                                               VkDescriptorImageInfo& outImageInfo) const;
@@ -71,7 +74,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         Bool CreateDescriptorPool(Uint32 maxSets, VkDescriptorPool& outPool) const;
         Bool GrowFrameDescriptorPool(FrameResources& frame, Uint32 frameIndex);
         VkResult AllocateDescriptorSetsFromActivePool(
-            Uint32 frameIndex, const ProgramFactory::VkProgramLayout& layout, VkDescriptorSet& outDescriptorSet);
+            Uint32 frameIndex, const ProgramFactory::VkProgramObject& programObj, VkDescriptorSet& outDescriptorSet);
 
         VkDevice m_device = VK_NULL_HANDLE;
         VkBufferManager* m_bufferManager = nullptr;

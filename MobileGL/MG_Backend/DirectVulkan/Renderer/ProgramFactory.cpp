@@ -8,6 +8,7 @@
 
 #include "ProgramFactory.h"
 
+#include "MG_Util/ShaderTranspiler/SpvcSession.h"
 #include "MG_Util/ShaderTranspiler/Types.h"
 #include <cstring>
 #include <spirv-tools/libspirv.h>
@@ -23,6 +24,8 @@
 namespace MobileGL::MG_Backend::DirectVulkan {
     namespace {
         using ShaderObject = MG_State::GLState::ShaderObject;
+        using SpvcSession = MG_Util::ShaderTranspiler::SpvcSession;
+        using SessionUsageBit = MG_Util::ShaderTranspiler::SessionUsageBit;
 
         struct PositionTargetInfo {
             Uint32 variableId = 0;
@@ -323,10 +326,6 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         }
     } // namespace
 
-    ProgramFactory::~ProgramFactory() {
-        DestroyLayoutCache();
-    }
-
     VkShaderStageFlagBits ProgramFactory::ToVkStage(ShaderStage stage) {
         switch (stage) {
         case ShaderStage::Vertex:
@@ -355,24 +354,17 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             XXHASH_VERIFY(XXH64_update(m_hashState, spv.data(), spv.size() * sizeof(Uint)));
         }
         XXHASH_VERIFY(XXH64_update(m_hashState, &flags, sizeof(CompileOptionFlags)));
-        HashType hash = XXH64_digest(m_hashState);
-        return hash;
-    }
 
-    ProgramFactory::HashType ProgramFactory::ComputeLayoutHash(const MG_State::GLState::ProgramObject& program) const {
-        XXHASH_VERIFY(XXH64_reset(m_hashState, m_config.CacheVersion));
-        const auto& spirvs = program.GetGeneratedSpirv();
-        for (const auto& spv : spirvs) {
-            XXHASH_VERIFY(XXH64_update(m_hashState, spv.data(), spv.size() * sizeof(Uint)));
-        }
-
+        // Include UBO block bindings in hash so different binding configurations produce different entries
         const Uint32 blockCount = static_cast<Uint32>(program.GetActiveUniformBlocksCount());
         XXHASH_VERIFY(XXH64_update(m_hashState, &blockCount, sizeof(blockCount)));
         for (Uint32 i = 0; i < blockCount; ++i) {
             const Uint32 binding = program.GetUniformBlockBinding(i);
             XXHASH_VERIFY(XXH64_update(m_hashState, &binding, sizeof(binding)));
         }
-        return XXH64_digest(m_hashState);
+
+        HashType hash = XXH64_digest(m_hashState);
+        return hash;
     }
 
     TextureTarget ProgramFactory::UniformTypeToTextureTarget(GLenum glType) {
@@ -426,205 +418,117 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         }
     }
 
-    Bool ProgramFactory::ReflectBindingKinds(const MG_State::GLState::ProgramObject& program,
-                                             Vector<DescriptorBindingKind>& outKinds) const {
-        outKinds.assign(m_maxBindings, DescriptorBindingKind::None);
+    void ProgramFactory::ReflectLayout(const MG_State::GLState::ProgramObject& program,
+                                       VkProgramObject& entry) const {
+        // Initialize layout vectors
+        entry.bindingKinds.assign(m_maxBindings, DescriptorBindingKind::None);
+        entry.samplerUniformLocationByBinding.assign(m_maxBindings, -1);
+        entry.samplerTextureTargetByBinding.assign(m_maxBindings, TextureTarget::Texture2D);
+        entry.globalUboBinding = -1;
+        entry.dynamicBindings.clear();
 
+        // Use SpvcSession (Reflection mode) to reflect all SPIR-V modules in a single pass per module
         const auto& spirv = program.GetGeneratedSpirv();
         for (const auto& module : spirv) {
             if (module.empty()) {
                 continue;
             }
 
-            spvc_context context = nullptr;
-            spvc_parsed_ir ir = nullptr;
-            spvc_compiler compiler = nullptr;
-            spvc_resources resources = nullptr;
+            SpvcSession session(module, SessionUsageBit::Reflection);
 
-            if (spvc_context_create(&context) != SPVC_SUCCESS) {
-                return false;
-            }
-
-            const spvc_result parseResult = spvc_context_parse_spirv(context, module.data(), module.size(), &ir);
-            if (parseResult != SPVC_SUCCESS) {
-                spvc_context_destroy(context);
-                continue;
-            }
-
-            const spvc_result compilerResult =
-                spvc_context_create_compiler(context, SPVC_BACKEND_GLSL, ir, SPVC_CAPTURE_MODE_TAKE_OWNERSHIP, &compiler);
-            if (compilerResult != SPVC_SUCCESS) {
-                spvc_context_destroy(context);
-                continue;
-            }
-
-            if (spvc_compiler_create_shader_resources(compiler, &resources) != SPVC_SUCCESS) {
-                spvc_context_destroy(context);
-                continue;
-            }
-
-            const auto applyBindings = [&](spvc_resource_type resourceType, DescriptorBindingKind kind) {
-                const spvc_reflected_resource* list = nullptr;
-                size_t count = 0;
-                if (spvc_resources_get_resource_list_for_type(resources, resourceType, &list, &count) != SPVC_SUCCESS) {
-                    return;
+            // Reflect uniform buffers
+            auto ubos = session.GetShaderInterface(SPVC_RESOURCE_TYPE_UNIFORM_BUFFER);
+            for (const auto& ubo : ubos) {
+                const Uint32 binding = ubo.location; // GetShaderInterface stores binding in location field
+                if (binding >= m_maxBindings) {
+                    continue;
                 }
-                for (size_t i = 0; i < count; ++i) {
-                    const Uint32 binding =
-                        spvc_compiler_get_decoration(compiler, list[i].id, SpvDecorationBinding);
-                    if (binding >= m_maxBindings) {
-                        continue;
-                    }
-                    if (kind == DescriptorBindingKind::CombinedImageSampler) {
-                        outKinds[binding] = DescriptorBindingKind::CombinedImageSampler;
-                    } else if (outKinds[binding] == DescriptorBindingKind::None) {
-                        outKinds[binding] = kind;
+                if (entry.bindingKinds[binding] == DescriptorBindingKind::None) {
+                    entry.bindingKinds[binding] = DescriptorBindingKind::UniformBufferDynamic;
+                }
+
+                // Check for global UBO
+                if (entry.globalUboBinding < 0 &&
+                    std::strstr(ubo.name.c_str(), MG_Util::ShaderTranspiler::GLOBAL_UBO_NAME) != nullptr) {
+                    entry.globalUboBinding = static_cast<Int>(binding);
+                }
+            }
+
+            // Reflect sampled images
+            auto samplers = session.GetShaderInterface(SPVC_RESOURCE_TYPE_SAMPLED_IMAGE);
+            for (const auto& sampler : samplers) {
+                const Uint32 binding = sampler.location; // GetShaderInterface stores binding in location field
+                if (binding >= m_maxBindings) {
+                    continue;
+                }
+
+                // Sampler always wins over UBO for a binding slot
+                entry.bindingKinds[binding] = DescriptorBindingKind::CombinedImageSampler;
+
+                // Resolve uniform location for this sampler
+                String uniformName = sampler.name;
+                Int location = program.GetUniformLocation(uniformName);
+                if (location < 0) {
+                    const auto arraySuffix = uniformName.find("[0]");
+                    if (arraySuffix != String::npos) {
+                        uniformName = uniformName.substr(0, arraySuffix);
+                        location = program.GetUniformLocation(uniformName);
                     }
                 }
-            };
+                if (location < 0) {
+                    continue;
+                }
 
-            applyBindings(SPVC_RESOURCE_TYPE_UNIFORM_BUFFER, DescriptorBindingKind::UniformBufferDynamic);
-            applyBindings(SPVC_RESOURCE_TYPE_SAMPLED_IMAGE, DescriptorBindingKind::CombinedImageSampler);
-
-            spvc_context_destroy(context);
+                entry.samplerUniformLocationByBinding[binding] = location;
+                entry.samplerTextureTargetByBinding[binding] =
+                    UniformTypeToTextureTarget(program.GetUniformType(static_cast<Uint>(location)));
+            }
         }
 
-        return true;
-    }
-
-    Bool ProgramFactory::ReflectSamplerBindings(const MG_State::GLState::ProgramObject& program,
-                                                VkProgramLayout& layout) const {
-        layout.samplerUniformLocationByBinding.assign(m_maxBindings, -1);
-        layout.samplerTextureTargetByBinding.assign(m_maxBindings, TextureTarget::Texture2D);
-
-        const auto& spirv = program.GetGeneratedSpirv();
-        for (const auto& module : spirv) {
-            if (module.empty()) {
+        // Build Vulkan descriptor set layout and pipeline layout from reflected binding kinds
+        Vector<VkDescriptorSetLayoutBinding> bindings;
+        bindings.reserve(m_maxBindings);
+        for (Uint32 binding = 0; binding < m_maxBindings; ++binding) {
+            const auto kind = entry.bindingKinds[binding];
+            if (kind == DescriptorBindingKind::None) {
                 continue;
             }
 
-            spvc_context context = nullptr;
-            spvc_parsed_ir ir = nullptr;
-            spvc_compiler compiler = nullptr;
-            spvc_resources resources = nullptr;
-
-            if (spvc_context_create(&context) != SPVC_SUCCESS) {
-                return false;
+            VkDescriptorSetLayoutBinding layoutBinding{};
+            layoutBinding.binding = binding;
+            layoutBinding.descriptorCount = 1;
+            layoutBinding.stageFlags = VK_SHADER_STAGE_ALL_GRAPHICS;
+            layoutBinding.pImmutableSamplers = nullptr;
+            if (kind == DescriptorBindingKind::UniformBufferDynamic) {
+                layoutBinding.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
+                entry.dynamicBindings.push_back(binding);
+            } else {
+                layoutBinding.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
             }
-            if (spvc_context_parse_spirv(context, module.data(), module.size(), &ir) != SPVC_SUCCESS) {
-                spvc_context_destroy(context);
-                continue;
-            }
-            if (spvc_context_create_compiler(context, SPVC_BACKEND_GLSL, ir, SPVC_CAPTURE_MODE_TAKE_OWNERSHIP,
-                                             &compiler) != SPVC_SUCCESS) {
-                spvc_context_destroy(context);
-                continue;
-            }
-            if (spvc_compiler_create_shader_resources(compiler, &resources) != SPVC_SUCCESS) {
-                spvc_context_destroy(context);
-                continue;
-            }
-
-            const spvc_reflected_resource* list = nullptr;
-            size_t count = 0;
-            if (spvc_resources_get_resource_list_for_type(resources, SPVC_RESOURCE_TYPE_SAMPLED_IMAGE, &list, &count) ==
-                SPVC_SUCCESS) {
-                for (size_t i = 0; i < count; ++i) {
-                    const Uint32 binding =
-                        spvc_compiler_get_decoration(compiler, list[i].id, SpvDecorationBinding);
-                    if (binding >= m_maxBindings) {
-                        continue;
-                    }
-
-                    String uniformName = list[i].name ? list[i].name : "";
-                    Int location = program.GetUniformLocation(uniformName);
-                    if (location < 0) {
-                        const auto arraySuffix = uniformName.find("[0]");
-                        if (arraySuffix != String::npos) {
-                            uniformName = uniformName.substr(0, arraySuffix);
-                            location = program.GetUniformLocation(uniformName);
-                        }
-                    }
-                    if (location < 0) {
-                        continue;
-                    }
-
-                    layout.samplerUniformLocationByBinding[binding] = location;
-                    layout.samplerTextureTargetByBinding[binding] =
-                        UniformTypeToTextureTarget(program.GetUniformType(static_cast<Uint>(location)));
-                }
-            }
-
-            spvc_context_destroy(context);
+            bindings.push_back(layoutBinding);
         }
 
-        return true;
+        VkDescriptorSetLayoutCreateInfo setLayoutInfo{};
+        setLayoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+        setLayoutInfo.bindingCount = static_cast<Uint32>(bindings.size());
+        setLayoutInfo.pBindings = bindings.data();
+        VK_VERIFY(vkCreateDescriptorSetLayout(m_device, &setLayoutInfo, nullptr, &entry.descriptorSetLayout),
+                  "ProgramFactory::ReflectLayout, vkCreateDescriptorSetLayout");
+
+        VkPipelineLayoutCreateInfo pipelineLayoutInfo{};
+        pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+        pipelineLayoutInfo.setLayoutCount = 1;
+        pipelineLayoutInfo.pSetLayouts = &entry.descriptorSetLayout;
+        VK_VERIFY(vkCreatePipelineLayout(m_device, &pipelineLayoutInfo, nullptr, &entry.pipelineLayout),
+                  "ProgramFactory::ReflectLayout, vkCreatePipelineLayout");
     }
 
-    Bool ProgramFactory::ReflectGlobalUboBinding(const MG_State::GLState::ProgramObject& program,
-                                                 VkProgramLayout& layout) const {
-        layout.globalUboBinding = -1;
-
-        const auto& spirv = program.GetGeneratedSpirv();
-        for (const auto& module : spirv) {
-            if (module.empty()) {
-                continue;
-            }
-
-            spvc_context context = nullptr;
-            spvc_parsed_ir ir = nullptr;
-            spvc_compiler compiler = nullptr;
-            spvc_resources resources = nullptr;
-
-            if (spvc_context_create(&context) != SPVC_SUCCESS) {
-                return false;
-            }
-            if (spvc_context_parse_spirv(context, module.data(), module.size(), &ir) != SPVC_SUCCESS) {
-                spvc_context_destroy(context);
-                continue;
-            }
-            if (spvc_context_create_compiler(context, SPVC_BACKEND_GLSL, ir, SPVC_CAPTURE_MODE_TAKE_OWNERSHIP,
-                                             &compiler) != SPVC_SUCCESS) {
-                spvc_context_destroy(context);
-                continue;
-            }
-            if (spvc_compiler_create_shader_resources(compiler, &resources) != SPVC_SUCCESS) {
-                spvc_context_destroy(context);
-                continue;
-            }
-
-            const spvc_reflected_resource* list = nullptr;
-            size_t count = 0;
-            if (spvc_resources_get_resource_list_for_type(resources, SPVC_RESOURCE_TYPE_UNIFORM_BUFFER, &list, &count) ==
-                SPVC_SUCCESS) {
-                for (size_t i = 0; i < count; ++i) {
-                    const char* name = list[i].name ? list[i].name : "";
-                    if (std::strstr(name, MG_Util::ShaderTranspiler::GLOBAL_UBO_NAME) == nullptr) {
-                        continue;
-                    }
-                    const Uint32 binding =
-                        spvc_compiler_get_decoration(compiler, list[i].id, SpvDecorationBinding);
-                    if (binding < m_maxBindings) {
-                        layout.globalUboBinding = static_cast<Int>(binding);
-                    }
-                    break;
-                }
-            }
-
-            spvc_context_destroy(context);
-            if (layout.globalUboBinding >= 0) {
-                break;
-            }
-        }
-        return true;
-    }
-
-    Vector<VkPipelineShaderStageCreateInfo>& ProgramFactory::GetOrCreatePipelineShaderStages(
+    const ProgramFactory::VkProgramObject& ProgramFactory::GetOrCreateProgram(
         const MG_State::GLState::ProgramObject& program, CompileOptionFlags flags) {
         auto hash = ComputeHash(program, flags);
         auto it = m_cache.find(hash);
         if (it != m_cache.end()) {
-            return it->second.stages;
+            return it->second;
         }
 
         auto& entry = m_cache[hash];
@@ -664,88 +568,9 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             entry.stages.push_back(stage);
         }
 
-        return entry.stages;
-    }
+        // Reflect and create layout as part of the program object
+        ReflectLayout(program, entry);
 
-    const ProgramFactory::VkProgramLayout* ProgramFactory::GetOrCreateProgramLayout(
-        const MG_State::GLState::ProgramObject& program) {
-        const HashType hash = ComputeLayoutHash(program);
-        auto it = m_layoutCache.find(hash);
-        if (it != m_layoutCache.end()) {
-            return &it->second;
-        }
-
-        VkProgramLayout layout{};
-        layout.hash = hash;
-        if (!ReflectBindingKinds(program, layout.bindingKinds)) {
-            MGLOG_E("ProgramFactory::GetOrCreateProgramLayout failed: reflection failed");
-            return nullptr;
-        }
-        if (!ReflectSamplerBindings(program, layout)) {
-            MGLOG_E("ProgramFactory::GetOrCreateProgramLayout failed: sampler reflection failed");
-            return nullptr;
-        }
-        if (!ReflectGlobalUboBinding(program, layout)) {
-            MGLOG_E("ProgramFactory::GetOrCreateProgramLayout failed: global UBO reflection failed");
-            return nullptr;
-        }
-
-        Vector<VkDescriptorSetLayoutBinding> bindings;
-        bindings.reserve(m_maxBindings);
-        for (Uint32 binding = 0; binding < m_maxBindings; ++binding) {
-            const auto kind = layout.bindingKinds[binding];
-            if (kind == DescriptorBindingKind::None) {
-                continue;
-            }
-
-            VkDescriptorSetLayoutBinding layoutBinding{};
-            layoutBinding.binding = binding;
-            layoutBinding.descriptorCount = 1;
-            layoutBinding.stageFlags = VK_SHADER_STAGE_ALL_GRAPHICS;
-            layoutBinding.pImmutableSamplers = nullptr;
-            if (kind == DescriptorBindingKind::UniformBufferDynamic) {
-                layoutBinding.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
-                layout.dynamicBindings.push_back(binding);
-            } else {
-                layoutBinding.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-            }
-            bindings.push_back(layoutBinding);
-        }
-
-        VkDescriptorSetLayoutCreateInfo setLayoutInfo{};
-        setLayoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-        setLayoutInfo.bindingCount = static_cast<Uint32>(bindings.size());
-        setLayoutInfo.pBindings = bindings.data();
-        VK_VERIFY(vkCreateDescriptorSetLayout(m_device, &setLayoutInfo, nullptr, &layout.descriptorSetLayout),
-                  "ProgramFactory::GetOrCreateProgramLayout, vkCreateDescriptorSetLayout");
-
-        VkPipelineLayoutCreateInfo pipelineLayoutInfo{};
-        pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-        pipelineLayoutInfo.setLayoutCount = 1;
-        pipelineLayoutInfo.pSetLayouts = &layout.descriptorSetLayout;
-        VK_VERIFY(vkCreatePipelineLayout(m_device, &pipelineLayoutInfo, nullptr, &layout.pipelineLayout),
-                  "ProgramFactory::GetOrCreateProgramLayout, vkCreatePipelineLayout");
-
-        auto [insertIt, _] = m_layoutCache.emplace(hash, std::move(layout));
-        return &insertIt->second;
-    }
-
-    VkPipelineLayout ProgramFactory::GetOrCreatePipelineLayout(const MG_State::GLState::ProgramObject& program) {
-        const auto* layout = GetOrCreateProgramLayout(program);
-        return layout ? layout->pipelineLayout : VK_NULL_HANDLE;
-    }
-
-    void ProgramFactory::DestroyLayoutCache() {
-        for (auto& [_, layout] : m_layoutCache) {
-            if (layout.pipelineLayout != VK_NULL_HANDLE) {
-                vkDestroyPipelineLayout(m_device, layout.pipelineLayout, nullptr);
-                layout.pipelineLayout = VK_NULL_HANDLE;
-            }
-            if (layout.descriptorSetLayout != VK_NULL_HANDLE) {
-                vkDestroyDescriptorSetLayout(m_device, layout.descriptorSetLayout, nullptr);
-                layout.descriptorSetLayout = VK_NULL_HANDLE;
-            }
-        }
-        m_layoutCache.clear();
+        return entry;
     }
 } // namespace MobileGL::MG_Backend::DirectVulkan
