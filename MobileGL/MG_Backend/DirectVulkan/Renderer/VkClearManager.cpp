@@ -8,6 +8,9 @@
 
 #include "VkClearManager.h"
 
+#include "MG_Util/Converters/MGToStr/FramebufferEnumConverter.h"
+#include "MG_Util/Converters/MGToStr/TextureEnumConverter.h"
+
 namespace MobileGL::MG_Backend::DirectVulkan {
     Bool VkClearManager::Initialize() {
         return true;
@@ -31,6 +34,10 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                     .color = clearPayload.color,
                     .attachmentType = drawbuf
                 }, drawFbo.GetAttachment(drawbuf).GetTexture());
+                MGLOG_D("%s: %s (texture %d) - color = (%.2f, %.2f, %.2f, %.2f)", __func__,
+                    MG_Util::ConvertFramebufferAttachmentTypeToString(drawbuf).c_str(),
+                    drawFbo.GetAttachment(drawbuf).GetTexture()->GetExternalIndex(),
+                    clearPayload.color[0], clearPayload.color[1], clearPayload.color[2], clearPayload.color[3]);
             }
         }
 
@@ -40,6 +47,8 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                 .depth = clearPayload.depth,
                 .attachmentType = FramebufferAttachmentType::Depth,
             }, drawFbo.GetAttachment(FramebufferAttachmentType::Depth).GetTexture());
+            MGLOG_D("%s: Depth (texture %d) - depth = (%.2f)", __func__,
+                drawFbo.GetAttachment(FramebufferAttachmentType::Depth).GetTexture()->GetExternalIndex(), clearPayload.depth);
         }
 
         if (mask & GL_STENCIL_BUFFER_BIT &&
@@ -48,6 +57,8 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                 .stencil = clearPayload.stencil,
                 .attachmentType = FramebufferAttachmentType::Stencil,
             }, drawFbo.GetAttachment(FramebufferAttachmentType::Stencil).GetTexture());
+            MGLOG_D("%s: Stencil (texture %d) - stencil = (%u)", __func__,
+                drawFbo.GetAttachment(FramebufferAttachmentType::Stencil).GetTexture()->GetExternalIndex(), clearPayload.stencil);
         }
     }
 
@@ -68,14 +79,22 @@ namespace MobileGL::MG_Backend::DirectVulkan {
     Bool VkClearManager::GetPendingClear(MG_State::GLState::ITextureObject* texture, ClearAttachmentPayload& outPayload) {
         if (m_aliveObjects.find(texture) == m_aliveObjects.end() ||
             m_pendingClears.find(texture) == m_pendingClears.end()) {
+            MGLOG_D("%s: Failed getting pending clear for texture %d", __func__, texture->GetExternalIndex());
             return false;
         }
 
         outPayload = m_pendingClears[texture];
+        MGLOG_D("%s: Got pending clear for texture %d (%s), clear value: color = (%.2f, %.2f, %.2f, %.2f), depth = (%.2f), stencil = (%u)", __func__,
+            texture->GetExternalIndex(),
+            MG_Util::ConvertTextureInternalFormatToString(texture->GetFormat()).c_str(),
+            outPayload.color[0], outPayload.color[1], outPayload.color[2], outPayload.color[3],
+            outPayload.depth,
+            outPayload.stencil);
         return true;
     }
 
     void VkClearManager::PopPendingClear(MG_State::GLState::ITextureObject* texture) {
+        MGLOG_D("%s: Pop pending clear for texture %d", __func__, texture->GetExternalIndex());
         m_aliveObjects.erase(texture);
         m_pendingClears.erase(texture);
     }

@@ -8,6 +8,9 @@
 
 #include "ProgramFactory.h"
 
+#include "MG_Util/ShaderTranspiler/SpvcSession.h"
+#include "MG_Util/ShaderTranspiler/Types.h"
+#include <cstring>
 #include <spirv-tools/libspirv.h>
 #include <spirv-tools/optimizer.hpp>
 #include <source/opt/constants.h>
@@ -21,6 +24,8 @@
 namespace MobileGL::MG_Backend::DirectVulkan {
     namespace {
         using ShaderObject = MG_State::GLState::ShaderObject;
+        using SpvcSession = MG_Util::ShaderTranspiler::SpvcSession;
+        using SessionUsageBit = MG_Util::ShaderTranspiler::SessionUsageBit;
 
         struct PositionTargetInfo {
             Uint32 variableId = 0;
@@ -321,8 +326,6 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         }
     } // namespace
 
-    ProgramFactory::~ProgramFactory() = default;
-
     VkShaderStageFlagBits ProgramFactory::ToVkStage(ShaderStage stage) {
         switch (stage) {
         case ShaderStage::Vertex:
@@ -351,16 +354,181 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             XXHASH_VERIFY(XXH64_update(m_hashState, spv.data(), spv.size() * sizeof(Uint)));
         }
         XXHASH_VERIFY(XXH64_update(m_hashState, &flags, sizeof(CompileOptionFlags)));
+
+        // Include UBO block bindings in hash so different binding configurations produce different entries
+        const Uint32 blockCount = static_cast<Uint32>(program.GetActiveUniformBlocksCount());
+        XXHASH_VERIFY(XXH64_update(m_hashState, &blockCount, sizeof(blockCount)));
+        for (Uint32 i = 0; i < blockCount; ++i) {
+            const Uint32 binding = program.GetUniformBlockBinding(i);
+            XXHASH_VERIFY(XXH64_update(m_hashState, &binding, sizeof(binding)));
+        }
+
         HashType hash = XXH64_digest(m_hashState);
         return hash;
     }
 
-    Vector<VkPipelineShaderStageCreateInfo>& ProgramFactory::GetOrCreatePipelineShaderStages(
+    TextureTarget ProgramFactory::UniformTypeToTextureTarget(GLenum glType) {
+        switch (glType) {
+        case GL_SAMPLER_1D:
+        case GL_INT_SAMPLER_1D:
+        case GL_UNSIGNED_INT_SAMPLER_1D:
+            return TextureTarget::Texture1D;
+        case GL_SAMPLER_3D:
+        case GL_INT_SAMPLER_3D:
+        case GL_UNSIGNED_INT_SAMPLER_3D:
+            return TextureTarget::Texture3D;
+        case GL_SAMPLER_CUBE:
+        case GL_SAMPLER_CUBE_SHADOW:
+        case GL_INT_SAMPLER_CUBE:
+        case GL_UNSIGNED_INT_SAMPLER_CUBE:
+            return TextureTarget::TextureCubeMap;
+        case GL_SAMPLER_2D_MULTISAMPLE:
+        case GL_INT_SAMPLER_2D_MULTISAMPLE:
+        case GL_UNSIGNED_INT_SAMPLER_2D_MULTISAMPLE:
+            return TextureTarget::Texture2DMultisample;
+        case GL_SAMPLER_BUFFER:
+        case GL_INT_SAMPLER_BUFFER:
+        case GL_UNSIGNED_INT_SAMPLER_BUFFER:
+            return TextureTarget::TextureBuffer;
+        case GL_SAMPLER_1D_ARRAY:
+        case GL_SAMPLER_1D_ARRAY_SHADOW:
+        case GL_INT_SAMPLER_1D_ARRAY:
+        case GL_UNSIGNED_INT_SAMPLER_1D_ARRAY:
+            return TextureTarget::Texture1DArray;
+        case GL_SAMPLER_2D_ARRAY:
+        case GL_SAMPLER_2D_ARRAY_SHADOW:
+        case GL_INT_SAMPLER_2D_ARRAY:
+        case GL_UNSIGNED_INT_SAMPLER_2D_ARRAY:
+            return TextureTarget::Texture2DArray;
+        case GL_SAMPLER_2D_MULTISAMPLE_ARRAY:
+        case GL_INT_SAMPLER_2D_MULTISAMPLE_ARRAY:
+        case GL_UNSIGNED_INT_SAMPLER_2D_MULTISAMPLE_ARRAY:
+            return TextureTarget::Texture2DMultisampleArray;
+        case GL_SAMPLER_2D_RECT:
+        case GL_SAMPLER_2D_RECT_SHADOW:
+        case GL_INT_SAMPLER_2D_RECT:
+        case GL_UNSIGNED_INT_SAMPLER_2D_RECT:
+            return TextureTarget::TextureRectangle;
+        case GL_SAMPLER_2D:
+        case GL_SAMPLER_2D_SHADOW:
+        case GL_INT_SAMPLER_2D:
+        case GL_UNSIGNED_INT_SAMPLER_2D:
+        default:
+            return TextureTarget::Texture2D;
+        }
+    }
+
+    void ProgramFactory::ReflectLayout(const MG_State::GLState::ProgramObject& program,
+                                       VkProgramObject& entry) const {
+        // Initialize layout vectors
+        entry.bindingKinds.assign(m_maxBindings, DescriptorBindingKind::None);
+        entry.samplerUniformLocationByBinding.assign(m_maxBindings, -1);
+        entry.samplerTextureTargetByBinding.assign(m_maxBindings, TextureTarget::Texture2D);
+        entry.globalUboBinding = -1;
+        entry.dynamicBindings.clear();
+
+        // Use SpvcSession (Reflection mode) to reflect all SPIR-V modules in a single pass per module
+        const auto& spirv = program.GetGeneratedSpirv();
+        for (const auto& module : spirv) {
+            if (module.empty()) {
+                continue;
+            }
+
+            SpvcSession session(module, SessionUsageBit::Reflection);
+
+            // Reflect uniform buffers
+            auto ubos = session.GetShaderInterface(SPVC_RESOURCE_TYPE_UNIFORM_BUFFER);
+            for (const auto& ubo : ubos) {
+                const Uint32 binding = ubo.location; // GetShaderInterface stores binding in location field
+                if (binding >= m_maxBindings) {
+                    continue;
+                }
+                if (entry.bindingKinds[binding] == DescriptorBindingKind::None) {
+                    entry.bindingKinds[binding] = DescriptorBindingKind::UniformBufferDynamic;
+                }
+
+                // Check for global UBO
+                if (entry.globalUboBinding < 0 &&
+                    std::strstr(ubo.name.c_str(), MG_Util::ShaderTranspiler::GLOBAL_UBO_NAME) != nullptr) {
+                    entry.globalUboBinding = static_cast<Int>(binding);
+                }
+            }
+
+            // Reflect sampled images
+            auto samplers = session.GetShaderInterface(SPVC_RESOURCE_TYPE_SAMPLED_IMAGE);
+            for (const auto& sampler : samplers) {
+                const Uint32 binding = sampler.location; // GetShaderInterface stores binding in location field
+                if (binding >= m_maxBindings) {
+                    continue;
+                }
+
+                // Sampler always wins over UBO for a binding slot
+                entry.bindingKinds[binding] = DescriptorBindingKind::CombinedImageSampler;
+
+                // Resolve uniform location for this sampler
+                String uniformName = sampler.name;
+                Int location = program.GetUniformLocation(uniformName);
+                if (location < 0) {
+                    const auto arraySuffix = uniformName.find("[0]");
+                    if (arraySuffix != String::npos) {
+                        uniformName = uniformName.substr(0, arraySuffix);
+                        location = program.GetUniformLocation(uniformName);
+                    }
+                }
+                if (location < 0) {
+                    continue;
+                }
+
+                entry.samplerUniformLocationByBinding[binding] = location;
+                entry.samplerTextureTargetByBinding[binding] =
+                    UniformTypeToTextureTarget(program.GetUniformType(static_cast<Uint>(location)));
+            }
+        }
+
+        // Build Vulkan descriptor set layout and pipeline layout from reflected binding kinds
+        Vector<VkDescriptorSetLayoutBinding> bindings;
+        bindings.reserve(m_maxBindings);
+        for (Uint32 binding = 0; binding < m_maxBindings; ++binding) {
+            const auto kind = entry.bindingKinds[binding];
+            if (kind == DescriptorBindingKind::None) {
+                continue;
+            }
+
+            VkDescriptorSetLayoutBinding layoutBinding{};
+            layoutBinding.binding = binding;
+            layoutBinding.descriptorCount = 1;
+            layoutBinding.stageFlags = VK_SHADER_STAGE_ALL_GRAPHICS;
+            layoutBinding.pImmutableSamplers = nullptr;
+            if (kind == DescriptorBindingKind::UniformBufferDynamic) {
+                layoutBinding.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
+                entry.dynamicBindings.push_back(binding);
+            } else {
+                layoutBinding.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+            }
+            bindings.push_back(layoutBinding);
+        }
+
+        VkDescriptorSetLayoutCreateInfo setLayoutInfo{};
+        setLayoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+        setLayoutInfo.bindingCount = static_cast<Uint32>(bindings.size());
+        setLayoutInfo.pBindings = bindings.data();
+        VK_VERIFY(vkCreateDescriptorSetLayout(m_device, &setLayoutInfo, nullptr, &entry.descriptorSetLayout),
+                  "ProgramFactory::ReflectLayout, vkCreateDescriptorSetLayout");
+
+        VkPipelineLayoutCreateInfo pipelineLayoutInfo{};
+        pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+        pipelineLayoutInfo.setLayoutCount = 1;
+        pipelineLayoutInfo.pSetLayouts = &entry.descriptorSetLayout;
+        VK_VERIFY(vkCreatePipelineLayout(m_device, &pipelineLayoutInfo, nullptr, &entry.pipelineLayout),
+                  "ProgramFactory::ReflectLayout, vkCreatePipelineLayout");
+    }
+
+    const ProgramFactory::VkProgramObject& ProgramFactory::GetOrCreateProgram(
         const MG_State::GLState::ProgramObject& program, CompileOptionFlags flags) {
         auto hash = ComputeHash(program, flags);
         auto it = m_cache.find(hash);
         if (it != m_cache.end()) {
-            return it->second.stages;
+            return it->second;
         }
 
         auto& entry = m_cache[hash];
@@ -400,6 +568,9 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             entry.stages.push_back(stage);
         }
 
-        return entry.stages;
+        // Reflect and create layout as part of the program object
+        ReflectLayout(program, entry);
+
+        return entry;
     }
 } // namespace MobileGL::MG_Backend::DirectVulkan

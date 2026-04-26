@@ -8,12 +8,12 @@
 
 #pragma once
 
-#include "VkBufferObject.h"
+#include "ProgramFactory.h"
+#include "VkBufferManager.h"
 #include "VkSamplerManager.h"
 #include "VkTextureManager.h"
 #include "../VkIncludes.h"
 #include <Includes.h>
-#include <vk_mem_alloc.h>
 
 namespace MobileGL::MG_State::GLState {
     class ITextureObject;
@@ -22,35 +22,30 @@ namespace MobileGL::MG_State::GLState {
 }
 
 namespace MobileGL::MG_Backend::DirectVulkan {
-    class UniformDescriptorBinder {
+    class UniformManager {
     public:
-        enum class BindingKind : Uint8 {
-            None = 0,
-            UniformBufferDynamic,
-            CombinedImageSampler
-        };
-
         struct SamplerBindingOverride {
             Uint32 binding = 0;
             MG_State::GLState::ITextureObject* texture = nullptr;
             const MG_State::GLState::SamplerObject* sampler = nullptr;
         };
 
-        Bool Initialize(VkDevice device, VmaAllocator allocator, VkDeviceSize minUniformBufferOffsetAlignment,
-                        Uint32 frameCount, Uint32 maxBindings = 16, Uint32 setsPerFrame = 64,
-                        VkDeviceSize perFrameUploadBytes = 4 * 1024 * 1024,
+        Bool Initialize(VkDevice device, VkBufferManager* bufferManager,
+                        ProgramFactory* programFactory,
+                        VkDeviceSize minUniformBufferOffsetAlignment, Uint32 frameCount,
+                        Uint32 maxBindings = 16, Uint32 setsPerFrame = 64,
                         VkTextureManager* textureManager = nullptr, VkSamplerManager* samplerManager = nullptr);
         void Shutdown();
 
         void BeginFrame(Uint32 frameIndex);
-        VkPipelineLayout GetOrCreatePipelineLayout(const MG_State::GLState::ProgramObject& program);
         Bool CollectSampledTextures(const MG_State::GLState::ProgramObject& program,
+                                    const ProgramFactory::VkProgramObject& programObj,
                                     Vector<MG_State::GLState::ITextureObject*>& outTextures);
         Bool BindProgramUniformBuffers(VkCommandBuffer commandBuffer,
-                                       const MG_State::GLState::ProgramObject& program, Uint32 frameIndex);
-        Bool BindProgramUniformBuffers(VkCommandBuffer commandBuffer,
-                                       const MG_State::GLState::ProgramObject& program, Uint32 frameIndex,
-                                       const SamplerBindingOverride* samplerBindingOverride);
+                                       const MG_State::GLState::ProgramObject& program,
+                                       const ProgramFactory::VkProgramObject& programObj,
+                                       Uint32 frameIndex,
+                                       const SamplerBindingOverride* samplerBindingOverride = nullptr);
 
     private:
         struct DescriptorPoolBucket {
@@ -60,54 +55,33 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         };
 
         struct FrameResources {
-            VkBufferObject uploadBuffer;
             Vector<DescriptorPoolBucket> descriptorPools;
             Uint32 activeDescriptorPoolIndex = 0;
             Uint32 allocatedSetsThisFrame = 0;
             Uint32 peakAllocatedSetsThisFrame = 0;
-            VkDeviceSize writeCursor = 0;
         };
 
-        struct ProgramLayout {
-            Uint64 hash = 0;
-            VkDescriptorSetLayout descriptorSetLayout = VK_NULL_HANDLE;
-            VkPipelineLayout pipelineLayout = VK_NULL_HANDLE;
-            Vector<BindingKind> bindingKinds;
-            Vector<Uint32> dynamicBindings;
-            Vector<Int> samplerUniformLocationByBinding;
-            Vector<TextureTarget> samplerTextureTargetByBinding;
-            Int globalUboBinding = -1;
-        };
-
-        static VkDeviceSize AlignUp(VkDeviceSize value, VkDeviceSize alignment);
-        static Uint64 ComputeProgramHash(const MG_State::GLState::ProgramObject& program);
-        static Bool IsSamplerUniformType(GLenum glType);
-        static TextureTarget UniformTypeToTextureTarget(GLenum glType);
-        Bool ReflectSamplerBindings(const MG_State::GLState::ProgramObject& program, ProgramLayout& layout) const;
-        Bool ReflectGlobalUboBinding(const MG_State::GLState::ProgramObject& program, ProgramLayout& layout) const;
-        Bool ResolveSamplerTexture(const MG_State::GLState::ProgramObject& program, const ProgramLayout& layout,
-                                   Uint32 binding, SharedPtr<MG_State::GLState::ITextureObject>& outTexture) const;
+        Bool ResolveSamplerTexture(const MG_State::GLState::ProgramObject& program,
+                                   const ProgramFactory::VkProgramObject& programObj, Uint32 binding,
+                                   SharedPtr<MG_State::GLState::ITextureObject>& outTexture) const;
         Bool ResolveSamplerDescriptor(VkCommandBuffer commandBuffer, const MG_State::GLState::ProgramObject& program,
-                                      const ProgramLayout& layout, Uint32 binding,
+                                      const ProgramFactory::VkProgramObject& programObj, Uint32 binding,
                                       VkDescriptorImageInfo& outImageInfo) const;
         Bool ResolveSamplerDescriptorOverride(const SamplerBindingOverride& samplerBindingOverride,
                                               VkDescriptorImageInfo& outImageInfo) const;
-        Bool ReflectBindingKinds(const MG_State::GLState::ProgramObject& program, Vector<BindingKind>& outKinds) const;
-        ProgramLayout* GetOrCreateProgramLayout(const MG_State::GLState::ProgramObject& program);
-        Bool AllocateUploadRegion(FrameResources& frame, VkDeviceSize size, VkDeviceSize& outOffset);
         Bool GatherBindingPayloads(const MG_State::GLState::ProgramObject& program, Vector<const void*>& outData,
                                    Vector<VkDeviceSize>& outSizes) const;
         Bool CreateDescriptorPool(Uint32 maxSets, VkDescriptorPool& outPool) const;
         Bool GrowFrameDescriptorPool(FrameResources& frame, Uint32 frameIndex);
-        void DestroyProgramLayouts();
+        VkResult AllocateDescriptorSetsFromActivePool(
+            Uint32 frameIndex, const ProgramFactory::VkProgramObject& programObj, VkDescriptorSet& outDescriptorSet);
 
         VkDevice m_device = VK_NULL_HANDLE;
-        VmaAllocator m_allocator = nullptr;
+        VkBufferManager* m_bufferManager = nullptr;
+        ProgramFactory* m_programFactory = nullptr;
         Vector<FrameResources> m_frames;
-        UnorderedMap<Uint64, ProgramLayout> m_programLayouts;
 
         VkDeviceSize m_minDynamicOffsetAlignment = 1;
-        VkDeviceSize m_perFrameUploadBytes = 0;
         Uint32 m_frameCount = 0;
         Uint32 m_maxBindings = 0;
         Uint32 m_setsPerFrame = 0;

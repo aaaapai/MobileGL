@@ -464,7 +464,7 @@ namespace MobileGL::MG_State::GLState {
             MGLOG_D("ProgramObject %u: GenerateBinary - parsing SPIR-V meta data for module %zu "
                     "(shaderType=%u, wordCount=%zu)",
                     m_externalIndex, i, shaderType, spv.size());
-            SpvcSession session(spv);
+            SpvcSession session(spv, SessionUsageBit::Reflection);
             auto result = session.ParseMetaData();
             if (result < 0) {
                 MGLOG_D("ProgramObject %u: GenerateBinary - SpvcSession::ParseMetaData failed for module %zu, "
@@ -473,16 +473,16 @@ namespace MobileGL::MG_State::GLState {
                         (result == SPVC_ERROR_INVALID_SPIRV ? ". Probably no global UBO?" : ""));
                 m_uniformSizesInBytes.clear();
                 m_uniformOffsets.clear();
-                m_uboScratch.clear();
+                m_globalUboScratch.clear();
                 continue;
             } else {
                 auto& meta = session.GetMetadata();
-                auto size = meta.uboSize;
+                auto size = meta.globalUboSize;
                 MGLOG_D("ProgramObject %u: GenerateBinary - SPIR-V meta: uboSize=%zu plainUniformCount=%zu "
                         "plainUniformOffsets=%zu",
-                        m_externalIndex, meta.uboSize, meta.plainUniformMemberSizesInBytes.size(),
+                        m_externalIndex, meta.globalUboSize, meta.plainUniformMemberSizesInBytes.size(),
                         meta.plainUniformOffsetsInUBO.size());
-                m_uboScratch.resize(size);
+                m_globalUboScratch.resize(size);
                 m_uniformOffsets.resize(m_maxUniformLocation + 1);
                 for (const auto& [name, offset] : meta.plainUniformOffsetsInUBO) {
                     if (m_uniformLocations.find(name) != m_uniformLocations.end()) {

@@ -8,11 +8,20 @@
 
 #pragma once
 
+#include "BufferSlice.h"
 #include "../VkIncludes.h"
 #include <Includes.h>
 #include <vk_mem_alloc.h>
 
 namespace MobileGL::MG_Backend::DirectVulkan {
+    struct VkBufferObjectDesc {
+        VmaAllocator allocator = nullptr;
+        VkDeviceSize size = 0;
+        VkBufferUsageFlags usage = 0;
+        VmaMemoryUsage memoryUsage = VMA_MEMORY_USAGE_AUTO;
+        VmaAllocationCreateFlags allocationFlags = 0;
+    };
+
     class VkBufferObject {
     public:
         VkBufferObject() = default;
@@ -23,20 +32,27 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         VkBufferObject(VkBufferObject&& other) noexcept;
         VkBufferObject& operator=(VkBufferObject&& other) noexcept;
 
+        Bool Create(const VkBufferObjectDesc& desc);
         Bool Create(VmaAllocator allocator, VkDeviceSize size, VkBufferUsageFlags usage,
                     VmaMemoryUsage memoryUsage, VmaAllocationCreateFlags allocationFlags = 0);
         void Destroy();
 
+        void* Map();
+        void Unmap();
         Bool Upload(const void* data, VkDeviceSize size, VkDeviceSize offset = 0);
 
         VkBuffer GetHandle() const { return m_buffer; }
         VkDeviceSize GetSize() const { return m_size; }
+        BufferSlice GetSlice(VkDeviceSize offset = 0, VkDeviceSize size = VK_WHOLE_SIZE) const;
+        void* GetMappedData() const { return m_mappedData; }
+        Bool IsMapped() const { return m_mappedData != nullptr; }
         Bool IsValid() const { return m_allocator != nullptr && m_buffer != VK_NULL_HANDLE && m_allocation != nullptr; }
 
     private:
         VmaAllocator m_allocator = nullptr;
         VkBuffer m_buffer = VK_NULL_HANDLE;
         VmaAllocation m_allocation = nullptr;
+        void* m_mappedData = nullptr;
         VkDeviceSize m_size = 0;
     };
 } // namespace MobileGL::MG_Backend::DirectVulkan

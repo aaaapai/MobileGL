@@ -11,65 +11,201 @@
 namespace MobileGL {
     namespace MG_Util {
         namespace ShaderTranspiler {
-            SpvcSession::SpvcSession(const Vector<unsigned int>& spirv) {
-                const SpvId* p_spirv = spirv.data();
-                size_t word_count = spirv.size();
 
-                spvc_context_create(&context);
-                spvc_context_parse_spirv(context, p_spirv, word_count, &ir);
-                spvc_context_create_compiler(context, SPVC_BACKEND_GLSL, ir, SPVC_CAPTURE_MODE_TAKE_OWNERSHIP,
-                                             &compiler);
-                spvc_compiler_create_shader_resources(compiler, &resources);
+            static spvc_basetype MapReflectToSpvcBasetype(const SpvReflectBlockVariable& member) {
+                if (!member.type_description) return SPVC_BASETYPE_UNKNOWN;
+                auto flags = member.type_description->type_flags;
+                auto width = member.numeric.scalar.width;
+                auto signedness = member.numeric.scalar.signedness;
+                if (flags & SPV_REFLECT_TYPE_FLAG_FLOAT) {
+                    switch (width) {
+                    case 16: return SPVC_BASETYPE_FP16;
+                    case 32: return SPVC_BASETYPE_FP32;
+                    case 64: return SPVC_BASETYPE_FP64;
+                    default: return SPVC_BASETYPE_UNKNOWN;
+                    }
+                } else if (flags & SPV_REFLECT_TYPE_FLAG_INT) {
+                    if (signedness) {
+                        switch (width) {
+                        case 8: return SPVC_BASETYPE_INT8;
+                        case 16: return SPVC_BASETYPE_INT16;
+                        case 32: return SPVC_BASETYPE_INT32;
+                        case 64: return SPVC_BASETYPE_INT64;
+                        default: return SPVC_BASETYPE_UNKNOWN;
+                        }
+                    } else {
+                        switch (width) {
+                        case 8: return SPVC_BASETYPE_UINT8;
+                        case 16: return SPVC_BASETYPE_UINT16;
+                        case 32: return SPVC_BASETYPE_UINT32;
+                        case 64: return SPVC_BASETYPE_UINT64;
+                        default: return SPVC_BASETYPE_UNKNOWN;
+                        }
+                    }
+                } else if (flags & SPV_REFLECT_TYPE_FLAG_BOOL) {
+                    return SPVC_BASETYPE_BOOLEAN;
+                }
+                return SPVC_BASETYPE_UNKNOWN;
+            }
+
+            SpvcSession::SpvcSession(const Vector<unsigned int>& spirv, Flags<SessionUsageBit> usage)
+                : usage(usage) {
+                if (usage & SessionUsageBit::Transpile) {
+                    const SpvId* p_spirv = spirv.data();
+                    size_t word_count = spirv.size();
+
+                    spvc_context_create(&context);
+                    spvc_context_parse_spirv(context, p_spirv, word_count, &ir);
+                    spvc_context_create_compiler(context, SPVC_BACKEND_GLSL, ir, SPVC_CAPTURE_MODE_TAKE_OWNERSHIP,
+                                                 &compiler);
+                    spvc_compiler_create_shader_resources(compiler, &resources);
+                } else if (usage & SessionUsageBit::Reflection) {
+                    SpvReflectResult result = spvReflectCreateShaderModule(
+                        spirv.size() * sizeof(uint32_t), spirv.data(), &reflectModule);
+                    reflectModuleValid = (result == SPV_REFLECT_RESULT_SUCCESS);
+                }
             }
 
             SpvcSession::SpvcSession(SpvcSession&& that) {
+                std::swap(this->usage, that.usage);
                 std::swap(this->context, that.context);
                 std::swap(this->compiler, that.compiler);
                 std::swap(this->ir, that.ir);
                 std::swap(this->compiler_options, that.compiler_options);
                 std::swap(this->resources, that.resources);
+                std::swap(this->reflectModule, that.reflectModule);
+                std::swap(this->reflectModuleValid, that.reflectModuleValid);
             }
 
             SpvcSession& SpvcSession::operator=(SpvcSession&& that) {
+                std::swap(this->usage, that.usage);
                 std::swap(this->context, that.context);
                 std::swap(this->compiler, that.compiler);
                 std::swap(this->ir, that.ir);
                 std::swap(this->compiler_options, that.compiler_options);
                 std::swap(this->resources, that.resources);
+                std::swap(this->reflectModule, that.reflectModule);
+                std::swap(this->reflectModuleValid, that.reflectModuleValid);
                 return *this;
             }
 
             spvc_result SpvcSession::CreateOptions(spvc_compiler_options* options) {
+                if (!(usage & SessionUsageBit::Transpile)) return SPVC_ERROR_INVALID_ARGUMENT;
                 return spvc_compiler_create_compiler_options(compiler, options);
             }
 
             spvc_result SpvcSession::SetOptions(spvc_compiler_options options) {
+                if (!(usage & SessionUsageBit::Transpile)) return SPVC_ERROR_INVALID_ARGUMENT;
                 compiler_options = options;
                 return spvc_compiler_install_compiler_options(compiler, options);
             }
 
             Vector<InterfaceVariable> SpvcSession::GetShaderInterface(spvc_resource_type resource_type) const {
-                const spvc_reflected_resource* list = nullptr;
-                size_t count = 0;
-                spvc_resources_get_resource_list_for_type(resources, resource_type, &list, &count);
+                if (usage & SessionUsageBit::Transpile) {
+                    // SPIRV-Cross path
+                    const spvc_reflected_resource* list = nullptr;
+                    size_t count = 0;
+                    spvc_resources_get_resource_list_for_type(resources, resource_type, &list, &count);
+
+                    Vector<InterfaceVariable> variables;
+                    for (size_t i = 0; i < count; ++i) {
+                        if (spvc_compiler_has_decoration(compiler, list[i].id, SpvDecorationBuiltIn)) {
+                            continue;
+                        }
+
+                        InterfaceVariable var;
+                        var.name = list[i].name;
+                        var.location = spvc_compiler_get_decoration(compiler, list[i].id, SpvDecorationLocation);
+                        variables.push_back(var);
+                    }
+                    std::sort(variables.begin(), variables.end());
+                    return variables;
+                }
+
+                // SPIRV-Reflect path (Reflection only, no Transpile)
+                if (!reflectModuleValid) return {};
 
                 Vector<InterfaceVariable> variables;
-                for (size_t i = 0; i < count; ++i) {
-                    if (spvc_compiler_has_decoration(compiler, list[i].id, SpvDecorationBuiltIn)) {
-                        continue;
+                switch (resource_type) {
+                case SPVC_RESOURCE_TYPE_STAGE_INPUT: {
+                    uint32_t count = 0;
+                    spvReflectEnumerateInputVariables(&reflectModule, &count, nullptr);
+                    Vector<SpvReflectInterfaceVariable*> vars(count);
+                    spvReflectEnumerateInputVariables(&reflectModule, &count, vars.data());
+                    for (uint32_t i = 0; i < count; ++i) {
+                        if (vars[i]->decoration_flags & SPV_REFLECT_DECORATION_BUILT_IN) continue;
+                        InterfaceVariable var;
+                        var.name = vars[i]->name;
+                        var.location = vars[i]->location;
+                        variables.push_back(var);
                     }
-
-                    InterfaceVariable var;
-                    var.name = list[i].name;
-                    var.location = spvc_compiler_get_decoration(compiler, list[i].id, SpvDecorationLocation);
-                    variables.push_back(var);
+                    break;
+                }
+                case SPVC_RESOURCE_TYPE_STAGE_OUTPUT: {
+                    uint32_t count = 0;
+                    spvReflectEnumerateOutputVariables(&reflectModule, &count, nullptr);
+                    Vector<SpvReflectInterfaceVariable*> vars(count);
+                    spvReflectEnumerateOutputVariables(&reflectModule, &count, vars.data());
+                    for (uint32_t i = 0; i < count; ++i) {
+                        if (vars[i]->decoration_flags & SPV_REFLECT_DECORATION_BUILT_IN) continue;
+                        InterfaceVariable var;
+                        var.name = vars[i]->name;
+                        var.location = vars[i]->location;
+                        variables.push_back(var);
+                    }
+                    break;
+                }
+                case SPVC_RESOURCE_TYPE_SAMPLED_IMAGE: {
+                    uint32_t count = 0;
+                    spvReflectEnumerateDescriptorBindings(&reflectModule, &count, nullptr);
+                    Vector<SpvReflectDescriptorBinding*> bindings(count);
+                    spvReflectEnumerateDescriptorBindings(&reflectModule, &count, bindings.data());
+                    for (uint32_t i = 0; i < count; ++i) {
+                        if (bindings[i]->descriptor_type == SPV_REFLECT_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ||
+                            bindings[i]->descriptor_type == SPV_REFLECT_DESCRIPTOR_TYPE_SAMPLED_IMAGE) {
+                            InterfaceVariable var;
+                            var.name = bindings[i]->name;
+                            var.location = bindings[i]->binding;
+                            variables.push_back(var);
+                        }
+                    }
+                    break;
+                }
+                case SPVC_RESOURCE_TYPE_UNIFORM_BUFFER: {
+                    uint32_t count = 0;
+                    spvReflectEnumerateDescriptorBindings(&reflectModule, &count, nullptr);
+                    Vector<SpvReflectDescriptorBinding*> bindings(count);
+                    spvReflectEnumerateDescriptorBindings(&reflectModule, &count, bindings.data());
+                    for (uint32_t i = 0; i < count; ++i) {
+                        if (bindings[i]->descriptor_type == SPV_REFLECT_DESCRIPTOR_TYPE_UNIFORM_BUFFER) {
+                            InterfaceVariable var;
+                            // Use the block/type name (e.g. "MGL_GLOBAL_UBO") rather than
+                            // the variable name, which may be empty or meaningless for UBOs.
+                            // This is consistent with ParseMetaData() which uses type_description->type_name.
+                            if (bindings[i]->type_description && bindings[i]->type_description->type_name) {
+                                var.name = bindings[i]->type_description->type_name;
+                            } else {
+                                var.name = bindings[i]->name;
+                            }
+                            var.location = bindings[i]->binding;
+                            variables.push_back(var);
+                        }
+                    }
+                    break;
+                }
+                case SPVC_RESOURCE_TYPE_GL_PLAIN_UNIFORM:
+                    // GL plain uniforms are a SPIRV-Cross-specific concept.
+                    // In reflection-only mode, not available.
+                    break;
+                default:
+                    break;
                 }
                 std::sort(variables.begin(), variables.end());
                 return variables;
             }
 
             spvc_result SpvcSession::SetVertexAttribLocation(const UnorderedMap<String, Uint>& location) {
-                // TODO: We should assert we're really dealing with vertex shader here
+                if (!(usage & SessionUsageBit::Transpile)) return SPVC_ERROR_INVALID_ARGUMENT;
 
                 SPVC_CHK_INIT
                 const spvc_reflected_resource* list = nullptr;
@@ -80,8 +216,6 @@ namespace MobileGL {
                     auto& resource = list[i];
                     auto it = location.find(resource.name);
                     if (it != location.end()) {
-                        // realize glBindVertexAttribLocation here
-                        // it->second should be the location explicitly requested
                         spvc_compiler_set_decoration(compiler, resource.id, SpvDecorationLocation, it->second);
                     }
                 }
@@ -89,59 +223,99 @@ namespace MobileGL {
             }
 
             spvc_result SpvcSession::Compile(const char** result) {
+                if (!(usage & SessionUsageBit::Transpile)) return SPVC_ERROR_INVALID_ARGUMENT;
                 SPVC_CHK_INIT
                 SPVC_CHK_RESULT(spvc_compiler_compile(compiler, result));
-                // SPVC_CHK_RESULT(ParseMetaData());
                 SPVC_CHK_RETURN
             }
 
             spvc_result SpvcSession::ParseMetaData() {
-                SPVC_CHK_INIT
+                if (usage & SessionUsageBit::Transpile) {
+                    // SPIRV-Cross path
+                    SPVC_CHK_INIT
+
+                    metadata = SpvcMetadata();
+
+                    const spvc_reflected_resource* list = nullptr;
+                    size_t count = 0;
+
+                    SPVC_CHK_RESULT(spvc_resources_get_resource_list_for_type(
+                        resources, SPVC_RESOURCE_TYPE_UNIFORM_BUFFER, &list, &count);)
+                    for (size_t i = 0; i < count; ++i) {
+                        if (spvc_compiler_has_decoration(compiler, list[i].id, SpvDecorationBuiltIn)) {
+                            continue;
+                        }
+
+                        if (strcmp(list[i].name, GLOBAL_UBO_NAME) == 0) {
+                            spvc_type type = spvc_compiler_get_type_handle(compiler, list[i].base_type_id);
+                            spvc_compiler_get_declared_struct_size(compiler, type, &metadata.globalUboSize);
+                            size_t num_members = spvc_type_get_num_member_types(type);
+                            for (size_t j = 0; j < num_members; ++j) {
+                                const char* memberName =
+                                    spvc_compiler_get_member_name(compiler, list[i].base_type_id, j);
+
+                                unsigned memberOffset = 0;
+                                SPVC_CHK_RESULT(
+                                    spvc_compiler_type_struct_member_offset(compiler, type, j, &memberOffset);)
+                                metadata.plainUniformOffsetsInUBO[memberName] = memberOffset;
+                                SizeT memberSize = 0;
+                                SPVC_CHK_RESULT(
+                                    spvc_compiler_get_declared_struct_member_size(compiler, type, j, &memberSize);)
+                                metadata.plainUniformMemberSizesInBytes[memberName] = memberSize;
+
+                                auto memberTypeId = spvc_type_get_member_type(type, j);
+                                spvc_type memberType = spvc_compiler_get_type_handle(compiler, memberTypeId);
+                                spvc_basetype basetype = spvc_type_get_basetype(memberType);
+                                auto vectorSize = spvc_type_get_vector_size(memberType);
+                                auto matCol = spvc_type_get_columns(memberType);
+                                metadata.plainUniformMemberTypes[memberName] = {
+                                    .basetype = basetype,
+                                    .vectorSize = vectorSize,
+                                    .matCol = matCol,
+                                };
+                            }
+                            SPVC_CHK_RETURN
+                        }
+                    }
+                    return SPVC_ERROR_INVALID_SPIRV;
+                }
+
+                // SPIRV-Reflect path (Reflection only)
+                if (!reflectModuleValid) return SPVC_ERROR_INVALID_SPIRV;
 
                 metadata = SpvcMetadata();
 
-                const spvc_reflected_resource* list = nullptr;
-                size_t count = 0;
+                uint32_t bindingCount = 0;
+                spvReflectEnumerateDescriptorBindings(&reflectModule, &bindingCount, nullptr);
+                Vector<SpvReflectDescriptorBinding*> bindings(bindingCount);
+                spvReflectEnumerateDescriptorBindings(&reflectModule, &bindingCount, bindings.data());
 
-                SPVC_CHK_RESULT(spvc_resources_get_resource_list_for_type(resources, SPVC_RESOURCE_TYPE_UNIFORM_BUFFER,
-                                                                          &list, &count);)
-                for (size_t i = 0; i < count; ++i) {
-                    if (spvc_compiler_has_decoration(compiler, list[i].id, SpvDecorationBuiltIn)) {
-                        continue;
+                for (uint32_t i = 0; i < bindingCount; ++i) {
+                    auto* binding = bindings[i];
+                    if (binding->descriptor_type != SPV_REFLECT_DESCRIPTOR_TYPE_UNIFORM_BUFFER) continue;
+                    if (strcmp(binding->type_description->type_name, GLOBAL_UBO_NAME) != 0) continue;
+
+                    auto& block = binding->block;
+                    metadata.globalUboSize = block.size;
+
+                    for (uint32_t j = 0; j < block.member_count; ++j) {
+                        auto& member = block.members[j];
+                        metadata.plainUniformOffsetsInUBO[member.name] = member.offset;
+                        metadata.plainUniformMemberSizesInBytes[member.name] = member.size;
+
+                        Uint32 vectorSize = member.numeric.vector.component_count;
+                        if (vectorSize == 0) vectorSize = 1;
+                        Uint32 matCol = member.numeric.matrix.column_count;
+                        if (matCol == 0) matCol = 1;
+
+                        metadata.plainUniformMemberTypes[member.name] = {
+                            .basetype = MapReflectToSpvcBasetype(member),
+                            .vectorSize = vectorSize,
+                            .matCol = matCol,
+                        };
                     }
-
-                    if (strcmp(list[i].name, GLOBAL_UBO_NAME) == 0) {
-                        spvc_type type = spvc_compiler_get_type_handle(compiler, list[i].base_type_id);
-                        spvc_compiler_get_declared_struct_size(compiler, type, &metadata.uboSize);
-                        size_t num_members = spvc_type_get_num_member_types(type);
-                        for (size_t j = 0; j < num_members; ++j) {
-                            const char* memberName = spvc_compiler_get_member_name(compiler, list[i].base_type_id, j);
-
-                            unsigned memberOffset = 0;
-                            SPVC_CHK_RESULT(spvc_compiler_type_struct_member_offset(compiler, type, j, &memberOffset);)
-                            metadata.plainUniformOffsetsInUBO[memberName] = memberOffset;
-                            SizeT memberSize = 0;
-                            SPVC_CHK_RESULT(
-                                spvc_compiler_get_declared_struct_member_size(compiler, type, j, &memberSize);)
-                            metadata.plainUniformMemberSizesInBytes[memberName] = memberSize;
-
-                            auto memberTypeId = spvc_type_get_member_type(type, j);
-                            spvc_type memberType = spvc_compiler_get_type_handle(compiler, memberTypeId);
-                            spvc_basetype basetype = spvc_type_get_basetype(memberType);
-                            auto vectorSize = spvc_type_get_vector_size(memberType);
-                            auto matCol = spvc_type_get_columns(memberType);
-                            // auto dim = spvc_type_get_num_array_dimensions(type);
-                            metadata.plainUniformMemberTypes[memberName] = {
-                                .basetype = basetype,
-                                .vectorSize = vectorSize,
-                                .matCol = matCol,
-                            };
-                        }
-                        SPVC_CHK_RETURN
-                    }
+                    return SPVC_SUCCESS;
                 }
-                // This means this spv binary does not have
-                // auto-generated UBO in it
                 return SPVC_ERROR_INVALID_SPIRV;
             }
 
@@ -150,11 +324,17 @@ namespace MobileGL {
             }
 
             const char* SpvcSession::GetLastErrorString() const {
-                return spvc_context_get_last_error_string(context);
+                if (context) {
+                    return spvc_context_get_last_error_string(context);
+                }
+                return "";
             }
 
             SpvcSession::~SpvcSession() {
                 spvc_context_destroy(context);
+                if (reflectModuleValid) {
+                    spvReflectDestroyShaderModule(&reflectModule);
+                }
             }
         } // namespace ShaderTranspiler
     } // namespace MG_Util

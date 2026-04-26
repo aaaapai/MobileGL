@@ -1075,7 +1075,8 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 String source;
                 auto& spirvCode = shaderSpirvs[index];
 
-                MG_Util::ShaderTranspiler::SpvcSession spvcSession(spirvCode);
+                MG_Util::ShaderTranspiler::SpvcSession spvcSession(spirvCode,
+                    MG_Util::ShaderTranspiler::SessionUsageBit::Transpile);
 
                 spvc_compiler_options options;
                 spvcSession.CreateOptions(&options);

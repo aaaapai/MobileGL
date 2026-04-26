@@ -85,6 +85,11 @@ namespace MobileGL::MG_State::GLState {
         return m_indexBufferBindingSlot;
     }
 
+    const BindingSlot<BufferObject>& VertexArrayObject::GetIndexBufferBindingSlot() const {
+        return m_indexBufferBindingSlot;
+    }
+
+
     const VertexAttribute& VertexArrayObject::GetAttribute(Uint index) const {
         static VertexAttribute emptyAttr;
         if (index >= MAX_VERTEX_ATTRIBS) return emptyAttr;

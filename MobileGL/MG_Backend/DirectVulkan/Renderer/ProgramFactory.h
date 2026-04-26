@@ -11,11 +11,19 @@
 #include "../VkIncludes.h"
 #include "MG_State/GLState/ProgramState/ProgramObject.h"
 #include "MG_State/GLState/ProgramState/ShaderObject.h"
+#include "MG_State/GLState/TextureState/TextureEnum.h"
+
 #include <Includes.h>
 
 namespace MobileGL::MG_Backend::DirectVulkan {
     class ProgramFactory {
     public:
+        enum class DescriptorBindingKind : Uint8 {
+            None = 0,
+            UniformBufferDynamic,
+            CombinedImageSampler
+        };
+
         enum class CompileOptionBit : Uint {
             None = 0,
             PositionYFlip = 1 << 0,
@@ -26,10 +34,21 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         };
         using CompileOptionFlags = Flags<CompileOptionBit>;
         using HashType = Uint64;
+
         struct VkProgramObject {
             HashType hash = 0;
             Vector<VkPipelineShaderStageCreateInfo> stages;
             Vector<VkShaderModule> modules;
+
+            // Layout data (previously in separate VkProgramLayout)
+            VkDescriptorSetLayout descriptorSetLayout = VK_NULL_HANDLE;
+            VkPipelineLayout pipelineLayout = VK_NULL_HANDLE;
+            Vector<DescriptorBindingKind> bindingKinds;
+            Vector<Uint32> dynamicBindings;
+            Vector<Int> samplerUniformLocationByBinding;
+            Vector<TextureTarget> samplerTextureTargetByBinding;
+            Int globalUboBinding = -1;
+
             static inline VkDevice s_device = VK_NULL_HANDLE;
 
             VkProgramObject() = default;
@@ -39,52 +58,85 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                 hash = other.hash;
                 stages = std::move(other.stages);
                 modules = std::move(other.modules);
+                descriptorSetLayout = other.descriptorSetLayout;
+                pipelineLayout = other.pipelineLayout;
+                bindingKinds = std::move(other.bindingKinds);
+                dynamicBindings = std::move(other.dynamicBindings);
+                samplerUniformLocationByBinding = std::move(other.samplerUniformLocationByBinding);
+                samplerTextureTargetByBinding = std::move(other.samplerTextureTargetByBinding);
+                globalUboBinding = other.globalUboBinding;
                 other.hash = 0;
+                other.descriptorSetLayout = VK_NULL_HANDLE;
+                other.pipelineLayout = VK_NULL_HANDLE;
+                other.globalUboBinding = -1;
             }
             VkProgramObject& operator=(VkProgramObject&& other) noexcept {
                 if (this == &other) {
                     return *this;
                 }
-                DestroyModules();
-                stages.clear();
+                Destroy();
                 hash = other.hash;
                 stages = std::move(other.stages);
                 modules = std::move(other.modules);
+                descriptorSetLayout = other.descriptorSetLayout;
+                pipelineLayout = other.pipelineLayout;
+                bindingKinds = std::move(other.bindingKinds);
+                dynamicBindings = std::move(other.dynamicBindings);
+                samplerUniformLocationByBinding = std::move(other.samplerUniformLocationByBinding);
+                samplerTextureTargetByBinding = std::move(other.samplerTextureTargetByBinding);
+                globalUboBinding = other.globalUboBinding;
                 other.hash = 0;
+                other.descriptorSetLayout = VK_NULL_HANDLE;
+                other.pipelineLayout = VK_NULL_HANDLE;
+                other.globalUboBinding = -1;
                 return *this;
             }
 
             ~VkProgramObject() {
-                DestroyModules();
-                stages.clear();
+                Destroy();
             }
 
         private:
-            void DestroyModules() {
-                for (auto module : modules) {
-                    if (module != VK_NULL_HANDLE && s_device != VK_NULL_HANDLE) {
-                        vkDestroyShaderModule(s_device, module, nullptr);
+            void Destroy() {
+                if (s_device != VK_NULL_HANDLE) {
+                    if (pipelineLayout != VK_NULL_HANDLE) {
+                        vkDestroyPipelineLayout(s_device, pipelineLayout, nullptr);
+                        pipelineLayout = VK_NULL_HANDLE;
+                    }
+                    if (descriptorSetLayout != VK_NULL_HANDLE) {
+                        vkDestroyDescriptorSetLayout(s_device, descriptorSetLayout, nullptr);
+                        descriptorSetLayout = VK_NULL_HANDLE;
+                    }
+                    for (auto module : modules) {
+                        if (module != VK_NULL_HANDLE) {
+                            vkDestroyShaderModule(s_device, module, nullptr);
+                        }
                     }
                 }
                 modules.clear();
+                stages.clear();
             }
         };
 
-        explicit ProgramFactory(VkDevice device, const VulkanRendererConfig& config)
-            : m_device(device), m_config(config) {
+        explicit ProgramFactory(VkDevice device, const VulkanRendererConfig& config, Uint32 maxBindings = 16)
+            : m_device(device), m_config(config), m_maxBindings(maxBindings) {
             VkProgramObject::s_device = device;
         }
-        ~ProgramFactory();
+        ~ProgramFactory() = default;
         ProgramFactory(const ProgramFactory&) = delete;
 
         HashType ComputeHash(const MG_State::GLState::ProgramObject& program, CompileOptionFlags flags) const;
-        Vector<VkPipelineShaderStageCreateInfo>& GetOrCreatePipelineShaderStages(
+        const VkProgramObject& GetOrCreateProgram(
             const MG_State::GLState::ProgramObject& program, CompileOptionFlags flags);
 
         static VkShaderStageFlagBits ToVkStage(ShaderStage stage);
 
     private:
+        static TextureTarget UniformTypeToTextureTarget(GLenum glType);
+        void ReflectLayout(const MG_State::GLState::ProgramObject& program, VkProgramObject& entry) const;
+
         VkDevice m_device = VK_NULL_HANDLE;
+        Uint32 m_maxBindings = 0;
         UnorderedMap<HashType, VkProgramObject> m_cache;
         const VulkanRendererConfig& m_config;
         static inline XXH64_state_t* m_hashState = XXH64_createState();

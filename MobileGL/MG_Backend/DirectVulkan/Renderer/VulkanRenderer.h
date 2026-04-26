@@ -12,9 +12,10 @@
 #include "PipelineFactory.h"
 #include "ProgramFactory.h"
 #include "SwapchainObject.h"
-#include "UniformDescriptorBinder.h"
+#include "UniformManager.h"
 #include "VertexInputStateFactory.h"
 #include "VkBufferObject.h"
+#include "VkBufferManager.h"
 #include "VkClearManager.h"
 #include "VkRenderPassManager.h"
 #include "VkSamplerManager.h"
@@ -34,25 +35,55 @@ namespace MobileGL::MG_State::GLState {
 
 namespace MobileGL::MG_Backend::DirectVulkan {
     enum class DrawSetupAspect: Uint8 {
-        FramebufferObject = 1 << 0,
-        VertexArrayObject = 1 << 1,
-        UniformBuffer     = 1 << 2,
-        VertexBuffer      = 1 << 3,
-        IndexBuffer       = 1 << 4,
-        Viewport          = 1 << 5,
-        Scissor           = 1 << 6,
+        FramebufferObject  = 1 << 0,
+        VertexArrayObject  = 1 << 1,
+        UniformBuffer      = 1 << 2,
+        VertexBuffer       = 1 << 3,
+        IndexBuffer        = 1 << 4,
+        IndirectDrawBuffer = 1 << 5,
+        Viewport           = 1 << 6,
+        Scissor            = 1 << 7,
     };
 
-    struct DrawArrayCmd {
+    struct DrawCmdParam {
+        Uint32 vertexCount = 0;
+        Uint32 instanceCount = 1;
+        Uint32 firstVertex = 0;
+        Uint32 firstInstance = 0;
+    };
+
+    struct DrawIndexedCmdParam {
+        Uint32 indexCount = 0;
+        Uint32 instanceCount = 1;
+        Uint32 firstIndex = 0;
+        Int32 vertexOffset = 0;
+        Int32 firstInstance = 0;
+    };
+
+    struct DrawCmd {
         GLenum mode = GL_TRIANGLES;
-        GLint first = 0;
-        GLsizei count = 0;
+        DrawCmdParam params;
     };
 
-    struct DrawElementCmd: public DrawArrayCmd {
+    struct IndexBufferView {
         GLenum indexType = GL_UNSIGNED_SHORT;
         SizeT indexByteOffset = 0;
-        GLint baseVertex = 0;
+        SizeT indexByteSize = 0;
+    };
+
+    struct DrawIndexedCmd {
+        GLenum mode = GL_TRIANGLES;
+        IndexBufferView indexBufferView;
+
+        DrawIndexedCmdParam params;
+    };
+
+    struct MultiDrawIndexedCmd {
+        GLenum mode = GL_TRIANGLES;
+        IndexBufferView indexBufferView;
+
+        Uint32 drawCount = 0;
+        DrawIndexedCmdParam* pParams = nullptr;
     };
 
     struct QueueFamilyIndices {
@@ -78,7 +109,8 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         void Initialize();
         void Shutdown();
 
-        void SetupDraw(FrameContext::FrameData& frame, GLenum mode, Flags<DrawSetupAspect> aspects);
+        Bool SetupDraw(FrameContext::FrameData& frame, GLenum mode, Flags<DrawSetupAspect> aspects,
+                       const IndexBufferView* pIndexBufferView = nullptr);
         void ClearAttachmentsOnActiveRenderPass(VkCommandBuffer commandBuffer,
                                                 const RenderPassEntry& compatibleRenderPassEntry);
 
@@ -86,9 +118,9 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         void BlitFramebuffer(GLint srcX0, GLint srcY0, GLint srcX1, GLint srcY1,
                              GLint dstX0, GLint dstY0, GLint dstX1, GLint dstY1,
                              GLbitfield mask, GLenum filter);
-        void DrawArrays(const DrawArrayCmd& payload);
-        void DrawElements(const DrawElementCmd& payload);
-        void MultiDrawElements(const Vector<DrawElementCmd>& payloads);
+        void DrawArrays(const DrawCmd& payload);
+        void DrawElements(const DrawIndexedCmd& payload);
+        void MultiDrawElements(const MultiDrawIndexedCmd& payloads);
         void Present();
 
         const PhysicalDevice& GetPhysicalDevice() const;
@@ -131,26 +163,24 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         VkQueue m_graphicsQueue = VK_NULL_HANDLE;
         VkQueue m_presentQueue = VK_NULL_HANDLE;
         Bool m_drawIndirectCountExtensionEnabled = false;
+        Bool m_indexTypeUint8ExtensionEnabled = false;
         using PFNDrawIndexedIndirectCountFunc = void(VKAPI_PTR*)(VkCommandBuffer commandBuffer, VkBuffer buffer,
                                                                  VkDeviceSize offset, VkBuffer countBuffer,
                                                                  VkDeviceSize countBufferOffset, Uint32 maxDrawCount,
                                                                  Uint32 stride);
-        PFNDrawIndexedIndirectCountFunc m_cmdDrawIndexedIndirectCount = nullptr;
+        static inline PFNDrawIndexedIndirectCountFunc s_vkCmdDrawIndexedIndirectCount = nullptr;
 
         VkCommandPool m_commandPool = VK_NULL_HANDLE;
 
-        Vector<VkBufferObject> m_frameVertexUploadBuffers;
-        Vector<VkDeviceSize> m_frameVertexUploadHeads;
-        Vector<VkBufferObject> m_frameIndexUploadBuffers;
-        Vector<VkDeviceSize> m_frameIndexUploadHeads;
-        Vector<Vector<VkBufferObject>> m_deferredBufferReleases;
+        VkBufferManager m_bufferManager;
+        Vector<const MG_State::GLState::BufferObject*> m_transientVertexIndexBuffersThisFrame;
 
         Uint m_imageIndexAcquired = 0;
         FrameContext m_frameContext;
 
         UniquePtr<PipelineFactory> m_pipelineFactory;
         UniquePtr<ProgramFactory> m_programFactory;
-        UniquePtr<UniformDescriptorBinder> m_uniformDescriptorBinder;
+        UniquePtr<UniformManager> m_uniformManager;
         UniquePtr<VertexInputStateFactory> m_vertexInputStateFactory;
         UniquePtr<VkClearManager> m_clearManager;
         UniquePtr<VkRenderPassManager> m_renderPassManager;
@@ -169,7 +199,6 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         void DestroyAllocator();
         void CreateSwapchain();
         void CreateCommandPool();
-        void CreateFrameContexts();
 
         VkPipeline GetOrCreatePipeline(
             GLenum mode,
@@ -177,11 +206,10 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             const MG_State::GLState::VertexArrayObject& vao,
             const RenderPassEntry& renderPassEntry);
 
-        void DeferDestroyBuffer(VkBufferObject& buffer);
-        void CollectDeferredBufferReleases(Uint32 frameIndex);
-        Bool EnsureFrameUploadBufferCapacity(Uint32 frameIndex, Bool isIndexBuffer, VkDeviceSize requiredEndOffset,
-                                             VkDeviceSize minCapacity, VkBufferUsageFlags usage);
-        Bool UploadAndBindVertexStreams(VkCommandBuffer commandBuffer, const MG_State::GLState::VertexArrayObject& vao);
+        Bool UploadAndBindVertexBuffers(VkCommandBuffer commandBuffer, const MG_State::GLState::VertexArrayObject& vao);
+        Bool UploadAndBindIndexBuffer(FrameContext::FrameData& frame,
+                                     const MG_State::GLState::VertexArrayObject& vao,
+                                      const IndexBufferView* pIndexBufferView = nullptr);
         Bool InitializeBlitResources();
         void ShutdownBlitResources();
         Bool TryBlitToDefaultFramebufferWithShader(FrameContext::FrameData& frame,
@@ -216,8 +244,6 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         static Bool GetMoreCapablePhysicalDevice(VkPhysicalDevice newVkDevice, VkSurfaceKHR surface,
                                                  const PhysicalDevice& compareWithDevice,
                                                  PhysicalDevice& outBetterDevice);
-        static Uint64 BuildPendingClearKey(Uint drawFboExternalIndex, Bool targetsDefaultFramebuffer);
-        static constexpr VkDynamicState s_dynamicStates[] = {VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR};
         static constexpr const char* s_validationLayerNames[] = {"VK_LAYER_KHRONOS_validation"};
         static constexpr const char* s_deviceExtensionNames[] = {VK_KHR_SWAPCHAIN_EXTENSION_NAME};
         static Bool CheckValidationLayerSupport();

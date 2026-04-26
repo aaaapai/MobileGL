@@ -148,65 +148,49 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         case DataType::Int16:
             switch (size) {
             case 1:
-                return isInteger ? VK_FORMAT_R16_SINT
-                                 : (normalized ? VK_FORMAT_R16_SNORM : VK_FORMAT_R16_SSCALED);
+                return isInteger ? VK_FORMAT_R16_SINT : VK_FORMAT_R16_SNORM;
             case 2:
-                return isInteger ? VK_FORMAT_R16G16_SINT
-                                 : (normalized ? VK_FORMAT_R16G16_SNORM : VK_FORMAT_R16G16_SSCALED);
+                return isInteger ? VK_FORMAT_R16G16_SINT : VK_FORMAT_R16G16_SNORM;
             case 3:
-                return isInteger ? VK_FORMAT_R16G16B16_SINT
-                                 : (normalized ? VK_FORMAT_R16G16B16_SNORM : VK_FORMAT_R16G16B16_SSCALED);
+                return isInteger ? VK_FORMAT_R16G16B16_SINT : VK_FORMAT_R16G16B16_SNORM;
             case 4:
-                return isInteger ? VK_FORMAT_R16G16B16A16_SINT
-                                 : (normalized ? VK_FORMAT_R16G16B16A16_SNORM : VK_FORMAT_R16G16B16A16_SSCALED);
+                return isInteger ? VK_FORMAT_R16G16B16A16_SINT : VK_FORMAT_R16G16B16A16_SNORM;
             default: return VK_FORMAT_UNDEFINED;
             }
         case DataType::Uint16:
             switch (size) {
             case 1:
-                return isInteger ? VK_FORMAT_R16_UINT
-                                 : (normalized ? VK_FORMAT_R16_UNORM : VK_FORMAT_R16_USCALED);
+                return isInteger ? VK_FORMAT_R16_UINT : VK_FORMAT_R16_UNORM;
             case 2:
-                return isInteger ? VK_FORMAT_R16G16_UINT
-                                 : (normalized ? VK_FORMAT_R16G16_UNORM : VK_FORMAT_R16G16_USCALED);
+                return isInteger ? VK_FORMAT_R16G16_UINT : VK_FORMAT_R16G16_UNORM;
             case 3:
-                return isInteger ? VK_FORMAT_R16G16B16_UINT
-                                 : (normalized ? VK_FORMAT_R16G16B16_UNORM : VK_FORMAT_R16G16B16_USCALED);
+                return isInteger ? VK_FORMAT_R16G16B16_UINT : VK_FORMAT_R16G16B16_UNORM;
             case 4:
-                return isInteger ? VK_FORMAT_R16G16B16A16_UINT
-                                 : (normalized ? VK_FORMAT_R16G16B16A16_UNORM : VK_FORMAT_R16G16B16A16_USCALED);
+                return isInteger ? VK_FORMAT_R16G16B16A16_UINT : VK_FORMAT_R16G16B16A16_UNORM;
             default: return VK_FORMAT_UNDEFINED;
             }
         case DataType::Int8:
             switch (size) {
             case 1:
-                return isInteger ? VK_FORMAT_R8_SINT
-                                 : (normalized ? VK_FORMAT_R8_SNORM : VK_FORMAT_R8_SSCALED);
+                return isInteger ? VK_FORMAT_R8_SINT : VK_FORMAT_R8_SNORM;
             case 2:
-                return isInteger ? VK_FORMAT_R8G8_SINT
-                                 : (normalized ? VK_FORMAT_R8G8_SNORM : VK_FORMAT_R8G8_SSCALED);
+                return isInteger ? VK_FORMAT_R8G8_SINT : VK_FORMAT_R8G8_SNORM;
             case 3:
-                return isInteger ? VK_FORMAT_R8G8B8_SINT
-                                 : (normalized ? VK_FORMAT_R8G8B8_SNORM : VK_FORMAT_R8G8B8_SSCALED);
+                return isInteger ? VK_FORMAT_R8G8B8_SINT : VK_FORMAT_R8G8B8_SNORM;
             case 4:
-                return isInteger ? VK_FORMAT_R8G8B8A8_SINT
-                                 : (normalized ? VK_FORMAT_R8G8B8A8_SNORM : VK_FORMAT_R8G8B8A8_SSCALED);
+                return isInteger ? VK_FORMAT_R8G8B8A8_SINT : VK_FORMAT_R8G8B8A8_SNORM;
             default: return VK_FORMAT_UNDEFINED;
             }
         case DataType::Uint8:
             switch (size) {
             case 1:
-                return isInteger ? VK_FORMAT_R8_UINT
-                                 : (normalized ? VK_FORMAT_R8_UNORM : VK_FORMAT_R8_USCALED);
+                return isInteger ? VK_FORMAT_R8_UINT : VK_FORMAT_R8_UNORM;
             case 2:
-                return isInteger ? VK_FORMAT_R8G8_UINT
-                                 : (normalized ? VK_FORMAT_R8G8_UNORM : VK_FORMAT_R8G8_USCALED);
+                return isInteger ? VK_FORMAT_R8G8_UINT : VK_FORMAT_R8G8_UNORM;
             case 3:
-                return isInteger ? VK_FORMAT_R8G8B8_UINT
-                                 : (normalized ? VK_FORMAT_R8G8B8_UNORM : VK_FORMAT_R8G8B8_USCALED);
+                return isInteger ? VK_FORMAT_R8G8B8_UINT : VK_FORMAT_R8G8B8_UNORM;
             case 4:
-                return isInteger ? VK_FORMAT_R8G8B8A8_UINT
-                                 : (normalized ? VK_FORMAT_R8G8B8A8_UNORM : VK_FORMAT_R8G8B8A8_USCALED);
+                return isInteger ? VK_FORMAT_R8G8B8A8_UINT : VK_FORMAT_R8G8B8A8_UNORM;
             default: return VK_FORMAT_UNDEFINED;
             }
         default:

@@ -191,7 +191,7 @@ TEST_F(ProgramTest, CompileAndLink) {
         String source;
         auto& spirvCode = shaderSpirvs[index];
 
-        MG_Util::ShaderTranspiler::SpvcSession spvcSession(spirvCode);
+        MG_Util::ShaderTranspiler::SpvcSession spvcSession(spirvCode, MG_Util::ShaderTranspiler::SessionUsageBit::Transpile);
 
         spvc_compiler_options options;
         spvcSession.CreateOptions(&options);
@@ -926,7 +926,7 @@ TEST_F(ProgramTest, CompileAndLinkWithExplicitVertexIn) {
     char* pSrcVertIn = nullptr;
     const char* needle = "layout(location = 2) in vec2 UV0;";
     for (auto spirv : spirvs) {
-        MG_Util::ShaderTranspiler::SpvcSession spvcSession(spirv);
+        MG_Util::ShaderTranspiler::SpvcSession spvcSession(spirv, MG_Util::ShaderTranspiler::SessionUsageBit::Transpile);
         spvc_compiler_options options;
         spvcSession.CreateOptions(&options);
 
@@ -987,7 +987,7 @@ TEST_F(ProgramTest, CompileAndLinkWithExplicitFragmentOut) {
     char* pSrcfragOut = nullptr;
     const char* needle = "layout(location = 7) out vec4 fragColor;";
     // for (auto spirv: spirvs) {
-    MG_Util::ShaderTranspiler::SpvcSession spvcSession(fragSpirv);
+    MG_Util::ShaderTranspiler::SpvcSession spvcSession(fragSpirv, MG_Util::ShaderTranspiler::SessionUsageBit::Transpile);
     spvc_compiler_options options;
     spvcSession.CreateOptions(&options);
 
@@ -1063,6 +1063,7 @@ float fog_cylindrical_distance(vec3 pos) {
     return max(distXZ, distY);
 }
 
+uniform float fTime;
 
 layout(std140) uniform Globals {
     ivec3 CameraBlockPos;
@@ -1165,7 +1166,7 @@ vec4 sampleRGSS(sampler2D source, vec2 uv, vec2 pixelSize) {
 
 void main() {
     vec4 color = (UseRgss == 1 ? sampleRGSS(Sampler0, texCoord0, 1.0f / TextureSize) : sampleNearest(Sampler0, texCoord0, 1.0f / TextureSize)) * vertexColor;
-    color = mix(FogColor * vec4(1, 1, 1, color.a), color, ChunkVisibility);
+    color = mix(FogColor * vec4(1, 1, 1, color.a * fTime), color, ChunkVisibility);
 #ifdef ALPHA_CUTOUT
     if (color.a < ALPHA_CUTOUT) {
         discard;
@@ -1207,9 +1208,8 @@ TEST_F(ProgramTest, CompileShaderWithSamplerAsVarName) {
 
     auto programObject = MG_State::pGLContext->GetCurrentProgram();
     auto& spirvs = programObject->GetGeneratedSpirv();
-    auto& fragSpirv = spirvs[0]; // 0 - fragment, 1 - vertex
-    char* pSrcfragOut = nullptr;
-    MG_Util::ShaderTranspiler::SpvcSession spvcSession(fragSpirv);
+    auto& fragSpirv = spirvs[programObject->GetShaderIndexByStage(ShaderStage::Fragment)];
+    MG_Util::ShaderTranspiler::SpvcSession spvcSession(fragSpirv, MG_Util::ShaderTranspiler::SessionUsageBit::Transpile);
     spvc_compiler_options options;
     spvcSession.CreateOptions(&options);
 
@@ -1221,5 +1221,5 @@ TEST_F(ProgramTest, CompileShaderWithSamplerAsVarName) {
 
     const char* result = nullptr;
     spvcSession.Compile(&result);
-    printf("%s\n\n", result);
+    printf("decomp from fragSpirv:\n%s\n\n", result);
 }

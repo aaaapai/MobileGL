@@ -65,9 +65,9 @@ namespace MobileGL::MG_State::GLState {
         }
         GLenum GetAttribType(Uint index) const { return m_attribTypes[index]; }
         const String& GetAttribName(Uint index) const { return m_attribs[index]; }
-        void* MapUBO() { return m_uboScratch.data(); }
-        const void* GetUBOData() const { return m_uboScratch.data(); }
-        Uint GetUBOSize() const { return static_cast<Uint>(m_uboScratch.size()); }
+        void* MapUBO() { return m_globalUboScratch.data(); }
+        const void* GetUBOData() const { return m_globalUboScratch.data(); }
+        Uint GetUBOSize() const { return static_cast<Uint>(m_globalUboScratch.size()); }
 
         void SetUniformSamplerOrImageUnitIndex(Uint location, Int unit) {
             m_uniformSamplerOrImageUnitIndex[location] = unit;
@@ -121,9 +121,6 @@ namespace MobileGL::MG_State::GLState {
 
         Uint GetExternalIndex() const { return m_externalIndex; }
 
-        //                const UnorderedMap<String, Uint>& GetAttribLocationMap() const { return
-        //                m_attribLocation; }
-
     private:
         void DoReflection();
         void GenerateBinary();
@@ -142,8 +139,6 @@ namespace MobileGL::MG_State::GLState {
         UnorderedMap<String, Uint> m_explicitAttribLocations;
         Vector<String> m_attribs;
         Vector<GLenum> m_attribTypes;
-        // For SpvcSession::SetVertexAttribLocation()
-        //                UnorderedMap<String, Uint> m_attribLocation;
 
         // FragData (Frag out)
         UnorderedMap<String, Uint> m_explicitFragDataLocation;
@@ -162,13 +157,15 @@ namespace MobileGL::MG_State::GLState {
         // Let's define UniformBlockIndex == the order at glslang getUniformBlock()
         // aka `i = glGetUniformBlockIndex(prog, "BlockName")` implies:
         // `prog->getUniformBlock(i) == "BlockName"`
+        // These stuff are present for GL semantics, not for backend inspection
+        // These may change after-link (because GL spec decided to have `glUniformBlockBinding`)
         UnorderedMap<String, Uint> m_uniformBlockIndexByName;
         Vector<Int> m_uniformBlockBinding;
 
         // Need to be reflected after linking of SPIR-V binary
         Vector<Uint> m_uniformOffsets;
         Vector<Uint> m_uniformSizesInBytes;
-        Vector<Uint8> m_uboScratch;
+        Vector<Uint8> m_globalUboScratch;
 
         Uint m_activeUniformCount = 0;
         Uint m_maxUniformLocation = 0;
