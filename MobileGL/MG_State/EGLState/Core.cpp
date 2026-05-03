@@ -14,6 +14,19 @@ namespace MobileGL {
             namespace {
                 constexpr EGLint EGL_DISPLAY_MAJOR_VERSION = 1;
                 constexpr EGLint EGL_DISPLAY_MINOR_VERSION = 5;
+
+                template <typename AttrType>
+                Optional<AttrType> ParseAttribValue(const AttrType* attribList, EGLint attrib) {
+                    if (!attribList) {
+                        return Nullopt;
+                    }
+                    for (SizeT i = 0; attribList[i] != EGL_NONE; i += 2) {
+                        if (attribList[i] == static_cast<AttrType>(attrib)) {
+                            return attribList[i + 1];
+                        }
+                    }
+                    return Nullopt;
+                }
             } // namespace
 
             Bool EGLContext::DisplayLookupKey::operator==(const DisplayLookupKey& rhs) const {
@@ -63,30 +76,6 @@ namespace MobileGL {
                     return EGL_OPENGL_API;
                 }
                 return apiIt->second;
-            }
-
-            Optional<EGLint> EGLContext::ParseAttribValue(const EGLint* attribList, EGLint attrib) {
-                if (!attribList) {
-                    return Nullopt;
-                }
-                for (SizeT i = 0; attribList[i] != EGL_NONE; i += 2) {
-                    if (attribList[i] == attrib) {
-                        return attribList[i + 1];
-                    }
-                }
-                return Nullopt;
-            }
-
-            Optional<EGLAttrib> EGLContext::ParseAttribValue(const EGLAttrib* attribList, EGLint attrib) {
-                if (!attribList) {
-                    return Nullopt;
-                }
-                for (SizeT i = 0; attribList[i] != EGL_NONE; i += 2) {
-                    if (attribList[i] == static_cast<EGLAttrib>(attrib)) {
-                        return attribList[i + 1];
-                    }
-                }
-                return Nullopt;
             }
 
             EGLContext::EGLDisplayHandle EGLContext::GetOrCreateDisplay(Uint64 nativeDisplayKey, EGLenum platform) {

@@ -210,8 +210,6 @@ namespace MobileGL {
                     }
                 }
 
-                static Optional<EGLint> ParseAttribValue(const EGLint* attribList, EGLint attrib);
-                static Optional<EGLAttrib> ParseAttribValue(const EGLAttrib* attribList, EGLint attrib);
                 static std::thread::id CurrentThreadKey();
 
                 EGLDisplayHandle GetOrCreateDisplay(Uint64 nativeDisplayKey, EGLenum platform);
