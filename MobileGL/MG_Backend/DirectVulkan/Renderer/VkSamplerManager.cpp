@@ -10,7 +10,37 @@
 
 #include "MG_State/GLState/Core.h"
 
+#include <cmath>
+
 namespace MobileGL::MG_Backend::DirectVulkan {
+    namespace {
+        Bool UsesBorderColor(const MG_State::GLState::SamplerObject& sampler) {
+            return sampler.GetWrapS() == SamplerWrapMode::ClampToBorder ||
+                   sampler.GetWrapT() == SamplerWrapMode::ClampToBorder ||
+                   sampler.GetWrapR() == SamplerWrapMode::ClampToBorder;
+        }
+
+        Bool IsDepthTextureFormat(TextureInternalFormat format) {
+            switch (format) {
+            case TextureInternalFormat::DepthComponent:
+            case TextureInternalFormat::DepthComponent16:
+            case TextureInternalFormat::DepthComponent24:
+            case TextureInternalFormat::DepthComponent32:
+            case TextureInternalFormat::DepthComponent32F:
+            case TextureInternalFormat::Depth24Stencil8:
+            case TextureInternalFormat::Depth32FStencil8:
+            case TextureInternalFormat::DepthStencil:
+                return true;
+            default:
+                return false;
+            }
+        }
+
+        Bool NearlyEqual(Float lhs, Float rhs) {
+            return std::fabs(lhs - rhs) <= 1e-6f;
+        }
+    } // namespace
+
     Bool VkSamplerManager::Initialize(const InitInfo& initInfo) {
         Shutdown();
 
@@ -34,7 +64,8 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         m_config = nullptr;
     }
 
-    Uint64 VkSamplerManager::BuildSamplerKey(const MG_State::GLState::SamplerObject& sampler) const {
+    Uint64 VkSamplerManager::BuildSamplerKey(const MG_State::GLState::SamplerObject& sampler,
+                                             const MG_State::GLState::ITextureObject& texture) const {
         MOBILEGL_ASSERT(m_config != nullptr, "VkSamplerManager::BuildSamplerKey: m_config is null");
         XXHASH_VERIFY(XXH64_reset(m_hashState, m_config->CacheVersion));
 
@@ -58,13 +89,16 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         XXHASH_VERIFY(XXH64_update(m_hashState, &lodBias, sizeof(lodBias)));
         const auto compareMode = sampler.GetCompareMode();
         XXHASH_VERIFY(XXH64_update(m_hashState, &compareMode, sizeof(compareMode)));
-        const auto compareFunc = sampler.GetSamplerCompareFunc();
+        const auto compareFunc = ResolveCompareFunc(sampler, texture);
         XXHASH_VERIFY(XXH64_update(m_hashState, &compareFunc, sizeof(compareFunc)));
+        const auto borderColor = ResolveVkBorderColor(sampler, texture);
+        XXHASH_VERIFY(XXH64_update(m_hashState, &borderColor, sizeof(borderColor)));
         return XXH64_digest(m_hashState);
     }
 
-    VkSampler VkSamplerManager::GetOrCreateSampler(const MG_State::GLState::SamplerObject& sampler) {
-        const Uint64 key = BuildSamplerKey(sampler);
+    VkSampler VkSamplerManager::GetOrCreateSampler(const MG_State::GLState::SamplerObject& sampler,
+                                                   const MG_State::GLState::ITextureObject& texture) {
+        const Uint64 key = BuildSamplerKey(sampler, texture);
         auto it = m_samplers.find(key);
         if (it != m_samplers.end()) {
             return it->second.handle;
@@ -82,10 +116,10 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         samplerInfo.anisotropyEnable = VK_FALSE;
         samplerInfo.maxAnisotropy = 1.0f;
         samplerInfo.compareEnable = sampler.GetCompareMode() == SamplerCompareMode::CompareToTexture ? VK_TRUE : VK_FALSE;
-        samplerInfo.compareOp = ToVkCompareOp(sampler.GetSamplerCompareFunc());
+        samplerInfo.compareOp = ToVkCompareOp(ResolveCompareFunc(sampler, texture));
         samplerInfo.minLod = sampler.GetMinLod();
         samplerInfo.maxLod = sampler.GetMaxLod();
-        samplerInfo.borderColor = VK_BORDER_COLOR_FLOAT_TRANSPARENT_BLACK;
+        samplerInfo.borderColor = ResolveVkBorderColor(sampler, texture);
         samplerInfo.unnormalizedCoordinates = VK_FALSE;
 
         VkSampler vkSampler = VK_NULL_HANDLE;
@@ -152,5 +186,50 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         default:
             return VK_COMPARE_OP_ALWAYS;
         }
+    }
+
+    SamplerCompareFunc VkSamplerManager::ResolveCompareFunc(const MG_State::GLState::SamplerObject& sampler,
+                                                            const MG_State::GLState::ITextureObject& texture) {
+        const auto compareFunc = sampler.GetSamplerCompareFunc();
+        if (sampler.GetCompareMode() == SamplerCompareMode::CompareToTexture &&
+            IsDepthTextureFormat(texture.GetFormat()) && compareFunc == SamplerCompareFunc::Always) {
+            return SamplerCompareFunc::LessEqual;
+        }
+
+        return compareFunc;
+    }
+
+    VkBorderColor VkSamplerManager::ResolveVkBorderColor(const MG_State::GLState::SamplerObject& sampler,
+                                                         const MG_State::GLState::ITextureObject& texture) {
+        if (!UsesBorderColor(sampler)) {
+            return VK_BORDER_COLOR_FLOAT_TRANSPARENT_BLACK;
+        }
+
+        const auto& borderColor = texture.GetBorderColor();
+        const Bool isDepthTexture = IsDepthTextureFormat(texture.GetFormat());
+
+        if (isDepthTexture) {
+            if (NearlyEqual(borderColor.x(), 1.0f)) {
+                return VK_BORDER_COLOR_FLOAT_OPAQUE_WHITE;
+            }
+            if (NearlyEqual(borderColor.x(), 0.0f)) {
+                return VK_BORDER_COLOR_FLOAT_OPAQUE_BLACK;
+            }
+        }
+
+        const Bool rgbZero = NearlyEqual(borderColor.x(), 0.0f) && NearlyEqual(borderColor.y(), 0.0f) &&
+                             NearlyEqual(borderColor.z(), 0.0f);
+        if (rgbZero && NearlyEqual(borderColor.w(), 0.0f)) {
+            return VK_BORDER_COLOR_FLOAT_TRANSPARENT_BLACK;
+        }
+        if (rgbZero && NearlyEqual(borderColor.w(), 1.0f)) {
+            return VK_BORDER_COLOR_FLOAT_OPAQUE_BLACK;
+        }
+        if (NearlyEqual(borderColor.x(), 1.0f) && NearlyEqual(borderColor.y(), 1.0f) &&
+            NearlyEqual(borderColor.z(), 1.0f) && NearlyEqual(borderColor.w(), 1.0f)) {
+            return VK_BORDER_COLOR_FLOAT_OPAQUE_WHITE;
+        }
+
+        return VK_BORDER_COLOR_FLOAT_TRANSPARENT_BLACK;
     }
 } // namespace MobileGL::MG_Backend::DirectVulkan

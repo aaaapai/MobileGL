@@ -33,6 +33,7 @@ public:
         VmaAllocation allocation = nullptr;
         VkImageView fullView = VK_NULL_HANDLE;
         Vector<VkImageView> perMipViews;
+        Vector<VkImageView> perMipSampledViews;
         VkImageLayout layout = VK_IMAGE_LAYOUT_UNDEFINED;
         VkExtent2D extent = {0, 0};
         Uint32 mipLevels = 1;
@@ -49,6 +50,7 @@ public:
             std::swap(this->allocation, that.allocation);
             std::swap(this->fullView, that.fullView);
             std::swap(this->perMipViews, that.perMipViews);
+            std::swap(this->perMipSampledViews, that.perMipSampledViews);
             std::swap(this->layout, that.layout);
             std::swap(this->extent, that.extent);
             std::swap(this->mipLevels, that.mipLevels);
@@ -68,11 +70,17 @@ public:
                     vkDestroyImageView(s_device, attachmentView, nullptr);
                 }
             }
+            for (const auto sampledView : perMipSampledViews) {
+                if (sampledView != VK_NULL_HANDLE) {
+                    vkDestroyImageView(s_device, sampledView, nullptr);
+                }
+            }
             if (image != VK_NULL_HANDLE && allocation != nullptr) {
                 vmaDestroyImage(s_allocator, image, allocation);
             }
             fullView = VK_NULL_HANDLE;
             perMipViews.clear();
+            perMipSampledViews.clear();
             image = VK_NULL_HANDLE;
             allocation = nullptr;
             layout = VK_IMAGE_LAYOUT_UNDEFINED;
@@ -99,6 +107,7 @@ public:
     TextureResource* SyncTextureAndGetDescriptor(
         MG_State::GLState::ITextureObject& texture);
     VkImageView GetOrCreateViewAtMipLevel(MG_State::GLState::ITextureObject& texture, Uint32 mipLevel);
+    VkImageView GetOrCreateSampledViewAtMipLevel(MG_State::GLState::ITextureObject& texture, Uint32 mipLevel);
     void UpdateTrackedImageLayout(MG_State::GLState::ITextureObject* texture, VkImageLayout newLayout);
     Bool TransitionTextureForSampling(VkCommandBuffer commandBuffer, MG_State::GLState::ITextureObject& texture);
 

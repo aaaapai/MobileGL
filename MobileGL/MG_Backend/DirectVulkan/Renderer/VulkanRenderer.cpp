@@ -1036,6 +1036,11 @@ void main() {
                     sourceTexture->GetExternalIndex());
             return false;
         }
+        const VkImageView sourceImageView =
+            m_textureManager->GetOrCreateSampledViewAtMipLevel(*sourceTexture, srcBinding.mipLevel);
+        MOBILEGL_ASSERT(sourceImageView != VK_NULL_HANDLE,
+                        "TryBlitToDefaultFramebufferWithShader: failed to create sampled view for textureId=%d mip=%u",
+                        sourceTexture->GetExternalIndex(), srcBinding.mipLevel);
 
         auto& renderPassEntry = m_renderPassManager->GetOrCreateRenderPass(drawFbo, m_imageIndexAcquired);
         const Bool ok = VkRenderPassManager::BeginRenderPass(frame.commandBuffer, renderPassEntry);
@@ -1107,6 +1112,7 @@ void main() {
             .texture = sourceTexture.get(),
             .sampler = (filter == GL_LINEAR ? m_blitResources.linearSampler.get()
                                             : m_blitResources.nearestSampler.get()),
+            .imageView = sourceImageView,
         };
         ProgramFactory::CompileOptionFlags blitTransformFlags = 0;
         const auto& blitProgramObj = m_programFactory->GetOrCreateProgram(*m_blitResources.program, blitTransformFlags);

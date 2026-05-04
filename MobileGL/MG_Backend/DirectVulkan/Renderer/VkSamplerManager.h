@@ -15,6 +15,7 @@
 
 namespace MobileGL::MG_State::GLState {
 class SamplerObject;
+class ITextureObject;
 }
 
 namespace MobileGL::MG_Backend::DirectVulkan {
@@ -28,7 +29,8 @@ public:
     Bool Initialize(const InitInfo& initInfo);
     void Shutdown();
 
-    VkSampler GetOrCreateSampler(const MG_State::GLState::SamplerObject& sampler);
+    VkSampler GetOrCreateSampler(const MG_State::GLState::SamplerObject& sampler,
+                                 const MG_State::GLState::ITextureObject& texture);
 
 private:
     struct SamplerCacheEntry {
@@ -37,11 +39,16 @@ private:
         Uint16 version = 0;
     };
 
-    Uint64 BuildSamplerKey(const MG_State::GLState::SamplerObject& sampler) const;
+    Uint64 BuildSamplerKey(const MG_State::GLState::SamplerObject& sampler,
+                           const MG_State::GLState::ITextureObject& texture) const;
     static VkFilter ToVkFilter(SamplerFilterMode mode);
     static VkSamplerMipmapMode ToVkMipmapMode(SamplerMipmapMode mode);
     static VkSamplerAddressMode ToVkAddressMode(SamplerWrapMode mode);
     static VkCompareOp ToVkCompareOp(SamplerCompareFunc func);
+    static SamplerCompareFunc ResolveCompareFunc(const MG_State::GLState::SamplerObject& sampler,
+                                                 const MG_State::GLState::ITextureObject& texture);
+    static VkBorderColor ResolveVkBorderColor(const MG_State::GLState::SamplerObject& sampler,
+                                              const MG_State::GLState::ITextureObject& texture);
 
     VkDevice m_device = VK_NULL_HANDLE;
     const VulkanRendererConfig* m_config = nullptr;

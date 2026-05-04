@@ -28,6 +28,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             Uint32 binding = 0;
             MG_State::GLState::ITextureObject* texture = nullptr;
             const MG_State::GLState::SamplerObject* sampler = nullptr;
+            VkImageView imageView = VK_NULL_HANDLE;
         };
 
         Bool Initialize(VkDevice device, VkBufferManager* bufferManager,

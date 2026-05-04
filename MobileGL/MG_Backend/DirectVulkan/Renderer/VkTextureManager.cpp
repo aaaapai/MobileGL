@@ -181,6 +181,34 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         return perMipView;
     }
 
+    VkImageView VkTextureManager::GetOrCreateSampledViewAtMipLevel(MG_State::GLState::ITextureObject& texture,
+                                                                   Uint32 mipLevel) {
+        TextureResource* resource = SyncTextureAndGetDescriptor(texture);
+        if (resource == nullptr || resource->image == VK_NULL_HANDLE || mipLevel >= resource->mipLevels) {
+            return VK_NULL_HANDLE;
+        }
+
+        if (resource->perMipSampledViews.size() != resource->mipLevels) {
+            resource->perMipSampledViews.resize(resource->mipLevels, VK_NULL_HANDLE);
+        }
+
+        VkImageView& perMipSampledView = resource->perMipSampledViews[mipLevel];
+        if (perMipSampledView != VK_NULL_HANDLE) {
+            return perMipSampledView;
+        }
+
+        const VkComponentMapping sampledComponents = ResolveSampledViewComponents(texture);
+        perMipSampledView = CreateImageView(resource->image, resource->format, resource->aspect, mipLevel, 1,
+                                            &sampledComponents);
+        if (perMipSampledView == VK_NULL_HANDLE) {
+            MGLOG_D("%s: CreateImageView failed for textureId=%d mipLevel=%u", __func__, texture.GetExternalIndex(),
+                    mipLevel);
+            return VK_NULL_HANDLE;
+        }
+
+        return perMipSampledView;
+    }
+
     void VkTextureManager::UpdateTrackedImageLayout(MG_State::GLState::ITextureObject* texture, VkImageLayout newLayout) {
         MOBILEGL_ASSERT(texture != nullptr, "UpdateTrackedImageLayout: texture is null");
         auto it = m_textureResources.find(texture);
@@ -366,6 +394,9 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             if (resource.perMipViews.size() != mipLevels) {
                 resource.perMipViews.resize(mipLevels, VK_NULL_HANDLE);
             }
+            if (resource.perMipSampledViews.size() != mipLevels) {
+                resource.perMipSampledViews.resize(mipLevels, VK_NULL_HANDLE);
+            }
             return true;
         }
 
@@ -402,6 +433,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         resource.extent = {static_cast<Uint32>(texelSize.x()), static_cast<Uint32>(texelSize.y())};
         resource.mipLevels = mipLevels;
         resource.perMipViews.assign(mipLevels, VK_NULL_HANDLE);
+        resource.perMipSampledViews.assign(mipLevels, VK_NULL_HANDLE);
         resource.sampledBaseMipLevel = 0;
         resource.sampledLevelCount = mipLevels;
         resource.format = format;
