@@ -635,6 +635,23 @@ void main() {
                         "InitializeBlitResources: missing uSurfaceTransform");
         MOBILEGL_ASSERT(m_blitResources.program->GetUBOSize() > 0,
                         "InitializeBlitResources: blit program global UBO is empty");
+        MOBILEGL_ASSERT(m_programFactory != nullptr, "InitializeBlitResources: program factory is null");
+
+        ProgramFactory::CompileOptionFlags blitTransformFlags = 0;
+        const auto& blitProgramObj = m_programFactory->GetOrCreateProgram(*m_blitResources.program, blitTransformFlags);
+        Bool foundBlitSamplerBinding = false;
+        for (Uint32 binding = 0; binding < blitProgramObj.samplerNameByBinding.size(); ++binding) {
+            if (blitProgramObj.bindingKinds[binding] != ProgramFactory::DescriptorBindingKind::CombinedImageSampler) {
+                continue;
+            }
+            if (blitProgramObj.samplerNameByBinding[binding] == "uSource") {
+                m_blitResources.samplerBinding = binding;
+                foundBlitSamplerBinding = true;
+                break;
+            }
+        }
+        MOBILEGL_ASSERT(foundBlitSamplerBinding,
+                        "InitializeBlitResources: failed to resolve reflected binding for uSource");
 
         auto createSampler = [](Uint externalIndex, SamplerFilterMode filter) {
             auto sampler = MakeShared<MG_State::GLState::SamplerObject>(externalIndex);
@@ -650,7 +667,6 @@ void main() {
 
         m_blitResources.nearestSampler = createSampler(kHiddenBlitNearestSamplerId, SamplerFilterMode::Nearest);
         m_blitResources.linearSampler = createSampler(kHiddenBlitLinearSamplerId, SamplerFilterMode::Linear);
-        m_blitResources.samplerBinding = 0;
         return true;
     }
 
@@ -673,6 +689,7 @@ void main() {
             .vertexInputHash = 0,
             .pipelineLayout = programObj.pipelineLayout,
             .renderPass = renderPassEntry.renderPass,
+            .colorAttachmentCount = renderPassEntry.colorAttachmentCount,
             .subpass = 0,
             .topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST,
             .cullMode = VK_CULL_MODE_NONE,
@@ -722,6 +739,7 @@ void main() {
             .vertexInputHash = vertexInputHash,
             .pipelineLayout = programObj.pipelineLayout,
             .renderPass = renderPassEntry.renderPass,
+            .colorAttachmentCount = renderPassEntry.colorAttachmentCount,
             .subpass = 0,
             .topology = MG_Util::ConvertPrimitiveModeToVkEnum(mode),
             .cullMode = cullFaceEnabled
@@ -856,8 +874,12 @@ void main() {
 
         vkCmdBindPipeline(frame.commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
 
-        m_uniformManager->BindProgramUniformBuffers(frame.commandBuffer, program, programObj,
-                                                                  m_frameContext.GetCurrentFrameIndex());
+        const Bool boundUniforms = m_uniformManager->BindProgramUniformBuffers(
+            frame.commandBuffer, program, programObj, m_frameContext.GetCurrentFrameIndex());
+        if (!boundUniforms) {
+            MGLOG_E("SetupDraw skipped: BindProgramUniformBuffers failed");
+            return false;
+        }
 
         auto vtxUploadOk = UploadAndBindVertexBuffers(frame.commandBuffer, vao);
         MOBILEGL_ASSERT(vtxUploadOk, "SetupDraw skipped: failed to upload vertex buffers");

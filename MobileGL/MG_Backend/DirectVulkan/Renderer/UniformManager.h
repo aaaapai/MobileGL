@@ -69,8 +69,9 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                                       VkDescriptorImageInfo& outImageInfo) const;
         Bool ResolveSamplerDescriptorOverride(const SamplerBindingOverride& samplerBindingOverride,
                                               VkDescriptorImageInfo& outImageInfo) const;
-        Bool GatherBindingPayloads(const MG_State::GLState::ProgramObject& program, Vector<const void*>& outData,
-                                   Vector<VkDeviceSize>& outSizes) const;
+        Bool ResolveUniformBufferPayload(const MG_State::GLState::ProgramObject& program,
+                                         const ProgramFactory::VkProgramObject& programObj, Uint32 binding,
+                                         const void*& outData, VkDeviceSize& outSize) const;
         Bool CreateDescriptorPool(Uint32 maxSets, VkDescriptorPool& outPool) const;
         Bool GrowFrameDescriptorPool(FrameResources& frame, Uint32 frameIndex);
         VkResult AllocateDescriptorSetsFromActivePool(

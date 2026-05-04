@@ -200,7 +200,8 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                     auto* texture2d =
                         static_cast<MG_State::GLState::TextureObject2D*>(texture);
                     desc.flags = 0;
-                    desc.format =
+                    desc.format = isDefaultFbo ?
+                        m_swapchainObject.GetSurfaceFormat().format :
                         MG_Util::ConvertTextureInternalFormatToVkEnum(
                             texture2d->GetFormat());
                     desc.samples = VK_SAMPLE_COUNT_1_BIT;
@@ -242,6 +243,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                         textureResources[i] = m_textureManager.SyncTextureAndGetDescriptor(*texture);
                         MOBILEGL_ASSERT(textureResources[i],
                                         "GetOrCreateRenderPass: SyncTextureAndGetDescriptor failed at color attachment %d", i);
+                        desc.format = textureResources[i]->format;
                         trackedColorLayout = textureResources[i]->layout;
                         trackedAttachmentLayouts.emplace_back(TrackedAttachmentLayoutInfo {
                             .target = TrackedAttachmentTarget::Texture,
@@ -300,8 +302,12 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                 trackedDepthLayout = depthTextureResource->layout;
             }
             depthAttachmentDescription.flags = 0;
-            depthAttachmentDescription.format =
+            depthAttachmentDescription.format = isDefaultFbo ?
+                m_swapchainObject.GetDepthStencilFormat() :
                 MG_Util::ConvertTextureInternalFormatToVkEnum(texture.GetFormat());
+            if (!isDefaultFbo) {
+                depthAttachmentDescription.format = depthTextureResource->format;
+            }
             depthAttachmentDescription.samples = VK_SAMPLE_COUNT_1_BIT;
             depthAttachmentDescription.loadOp = clearDepth ?
                 VK_ATTACHMENT_LOAD_OP_CLEAR :
@@ -409,8 +415,16 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             Move(pendingClearAttachments),
             Move(trackedAttachmentLayouts),
             static_cast<Uint32>(attachmentViews.size()),
+            static_cast<Uint32>(colorAttachmentRefs.size()),
             extent,
             1 };
+        MGLOG_D("VkRenderPassManager::GetOrCreateRenderPass: hash=0x%llx compatibilityHash=0x%llx attachmentCount=%u colorAttachmentCount=%u extent=%dx%d",
+                static_cast<unsigned long long>(hash),
+                static_cast<unsigned long long>(compatibilityHash),
+                renderPassEntry.attachmentCount,
+                renderPassEntry.colorAttachmentCount,
+                extent.x(),
+                extent.y());
         auto [insertedIt, _] = m_renderPasses.emplace(hash, Move(renderPassEntry));
         return insertedIt->second;
     }

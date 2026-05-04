@@ -45,6 +45,8 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             VkPipelineLayout pipelineLayout = VK_NULL_HANDLE;
             Vector<DescriptorBindingKind> bindingKinds;
             Vector<Uint32> dynamicBindings;
+            Vector<Int> uniformBlockIndexByBinding;
+            Vector<String> samplerNameByBinding;
             Vector<Int> samplerUniformLocationByBinding;
             Vector<TextureTarget> samplerTextureTargetByBinding;
             Int globalUboBinding = -1;
@@ -62,6 +64,8 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                 pipelineLayout = other.pipelineLayout;
                 bindingKinds = std::move(other.bindingKinds);
                 dynamicBindings = std::move(other.dynamicBindings);
+                uniformBlockIndexByBinding = std::move(other.uniformBlockIndexByBinding);
+                samplerNameByBinding = std::move(other.samplerNameByBinding);
                 samplerUniformLocationByBinding = std::move(other.samplerUniformLocationByBinding);
                 samplerTextureTargetByBinding = std::move(other.samplerTextureTargetByBinding);
                 globalUboBinding = other.globalUboBinding;
@@ -82,6 +86,8 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                 pipelineLayout = other.pipelineLayout;
                 bindingKinds = std::move(other.bindingKinds);
                 dynamicBindings = std::move(other.dynamicBindings);
+                uniformBlockIndexByBinding = std::move(other.uniformBlockIndexByBinding);
+                samplerNameByBinding = std::move(other.samplerNameByBinding);
                 samplerUniformLocationByBinding = std::move(other.samplerUniformLocationByBinding);
                 samplerTextureTargetByBinding = std::move(other.samplerTextureTargetByBinding);
                 globalUboBinding = other.globalUboBinding;
@@ -133,7 +139,8 @@ namespace MobileGL::MG_Backend::DirectVulkan {
 
     private:
         static TextureTarget UniformTypeToTextureTarget(GLenum glType);
-        void ReflectLayout(const MG_State::GLState::ProgramObject& program, VkProgramObject& entry) const;
+        void ReflectLayout(const MG_State::GLState::ProgramObject& program, const Vector<Vector<Uint>>& spirv,
+                           VkProgramObject& entry) const;
 
         VkDevice m_device = VK_NULL_HANDLE;
         Uint32 m_maxBindings = 0;

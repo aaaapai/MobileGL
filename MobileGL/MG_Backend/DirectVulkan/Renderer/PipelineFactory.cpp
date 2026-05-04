@@ -19,6 +19,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         XXHASH_VERIFY(XXH64_update(m_hashState, &payload.vertexInputHash, sizeof(payload.vertexInputHash)));
         XXHASH_VERIFY(XXH64_update(m_hashState, &payload.pipelineLayout, sizeof(payload.pipelineLayout)));
         XXHASH_VERIFY(XXH64_update(m_hashState, &payload.renderPass, sizeof(payload.renderPass)));
+        XXHASH_VERIFY(XXH64_update(m_hashState, &payload.colorAttachmentCount, sizeof(payload.colorAttachmentCount)));
         XXHASH_VERIFY(XXH64_update(m_hashState, &payload.subpass, sizeof(payload.subpass)));
         XXHASH_VERIFY(XXH64_update(m_hashState, &payload.topology, sizeof(payload.topology)));
         XXHASH_VERIFY(XXH64_update(m_hashState, &payload.cullMode, sizeof(payload.cullMode)));
@@ -61,6 +62,14 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         MOBILEGL_ASSERT(payload.vertexInputState != nullptr, "PipelineFactory: vertexInputState is null");
         MOBILEGL_ASSERT(payload.pipelineLayout != VK_NULL_HANDLE, "PipelineFactory: pipelineLayout is null");
         MOBILEGL_ASSERT(payload.renderPass != VK_NULL_HANDLE, "PipelineFactory: renderPass is null");
+        MOBILEGL_ASSERT(payload.colorAttachmentCount <= 32,
+                "PipelineFactory: colorAttachmentCount=%u is unexpectedly large",
+                payload.colorAttachmentCount);
+        MGLOG_D("PipelineFactory::CreatePipeline: programHash=0x%llx vertexInputHash=0x%llx colorAttachmentCount=%u subpass=%u",
+            static_cast<unsigned long long>(payload.programHash),
+            static_cast<unsigned long long>(payload.vertexInputHash),
+            payload.colorAttachmentCount,
+            payload.subpass);
 
         static constexpr VkDynamicState kDynamicStates[] = {
             VK_DYNAMIC_STATE_VIEWPORT,
@@ -95,18 +104,20 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         depthStencil.depthBoundsTestEnable = VK_FALSE;
         depthStencil.stencilTestEnable = VK_FALSE;
 
-        VkPipelineColorBlendAttachmentState colorAttach{};
-        colorAttach.colorWriteMask = payload.colorWriteMask;
-        colorAttach.blendEnable = payload.blendEnable ? VK_TRUE : VK_FALSE;
-        colorAttach.srcColorBlendFactor = payload.srcColorBlendFactor;
-        colorAttach.dstColorBlendFactor = payload.dstColorBlendFactor;
-        colorAttach.colorBlendOp = VK_BLEND_OP_ADD;
-        colorAttach.srcAlphaBlendFactor = payload.srcAlphaBlendFactor;
-        colorAttach.dstAlphaBlendFactor = payload.dstAlphaBlendFactor;
-        colorAttach.alphaBlendOp = VK_BLEND_OP_ADD;
+        VkPipelineColorBlendAttachmentState colorAttachTemplate{};
+        colorAttachTemplate.colorWriteMask = payload.colorWriteMask;
+        colorAttachTemplate.blendEnable = payload.blendEnable ? VK_TRUE : VK_FALSE;
+        colorAttachTemplate.srcColorBlendFactor = payload.srcColorBlendFactor;
+        colorAttachTemplate.dstColorBlendFactor = payload.dstColorBlendFactor;
+        colorAttachTemplate.colorBlendOp = VK_BLEND_OP_ADD;
+        colorAttachTemplate.srcAlphaBlendFactor = payload.srcAlphaBlendFactor;
+        colorAttachTemplate.dstAlphaBlendFactor = payload.dstAlphaBlendFactor;
+        colorAttachTemplate.alphaBlendOp = VK_BLEND_OP_ADD;
+        Vector<VkPipelineColorBlendAttachmentState> colorAttachments(payload.colorAttachmentCount,
+                                         colorAttachTemplate);
         VkPipelineColorBlendStateCreateInfo blend{VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO};
-        blend.attachmentCount = 1;
-        blend.pAttachments = &colorAttach;
+        blend.attachmentCount = payload.colorAttachmentCount;
+        blend.pAttachments = colorAttachments.empty() ? nullptr : colorAttachments.data();
 
         VkGraphicsPipelineCreateInfo gpi{VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO};
         gpi.stageCount = static_cast<Uint32>(payload.stages->size());

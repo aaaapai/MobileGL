@@ -14,6 +14,13 @@
 namespace MobileGL::MG_Backend::DirectVulkan {
     static constexpr VkPipelineStageFlags kGraphicsSampledReadStages = VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT;
 
+    struct TextureFormatInfo {
+        VkFormat format = VK_FORMAT_UNDEFINED;
+        Bool expandRgbToRgba = false;
+        Uint32 componentByteCount = 0;
+        Array<Uint8, 4> alphaBytes = {0, 0, 0, 0};
+    };
+
     static Bool IsValidSampledImageLayout(VkImageLayout layout) {
         switch (layout) {
         case VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL:
@@ -25,6 +32,82 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         default:
             return false;
         }
+    }
+
+    static TextureFormatInfo ResolveTextureFormatInfo(TextureInternalFormat format) {
+        switch (format) {
+        case TextureInternalFormat::RGB:
+        case TextureInternalFormat::RGB8:
+            return {VK_FORMAT_R8G8B8A8_UNORM, true, 1, {0xFF, 0x00, 0x00, 0x00}};
+        case TextureInternalFormat::SRGB8:
+            return {VK_FORMAT_R8G8B8A8_SRGB, true, 1, {0xFF, 0x00, 0x00, 0x00}};
+        case TextureInternalFormat::RGB8Snorm:
+            return {VK_FORMAT_R8G8B8A8_SNORM, true, 1, {0x7F, 0x00, 0x00, 0x00}};
+        case TextureInternalFormat::RGB16:
+            return {VK_FORMAT_R16G16B16A16_UNORM, true, 2, {0xFF, 0xFF, 0x00, 0x00}};
+        case TextureInternalFormat::RGB16Snorm:
+            return {VK_FORMAT_R16G16B16A16_SNORM, true, 2, {0xFF, 0x7F, 0x00, 0x00}};
+        case TextureInternalFormat::RGB16F:
+            return {VK_FORMAT_R16G16B16A16_SFLOAT, true, 2, {0x00, 0x3C, 0x00, 0x00}};
+        case TextureInternalFormat::RGB32F:
+            return {VK_FORMAT_R32G32B32A32_SFLOAT, true, 4, {0x00, 0x00, 0x80, 0x3F}};
+        case TextureInternalFormat::RGB8I:
+            return {VK_FORMAT_R8G8B8A8_SINT, true, 1, {0x01, 0x00, 0x00, 0x00}};
+        case TextureInternalFormat::RGB8UI:
+            return {VK_FORMAT_R8G8B8A8_UINT, true, 1, {0x01, 0x00, 0x00, 0x00}};
+        case TextureInternalFormat::RGB16I:
+            return {VK_FORMAT_R16G16B16A16_SINT, true, 2, {0x01, 0x00, 0x00, 0x00}};
+        case TextureInternalFormat::RGB16UI:
+            return {VK_FORMAT_R16G16B16A16_UINT, true, 2, {0x01, 0x00, 0x00, 0x00}};
+        case TextureInternalFormat::RGB32I:
+            return {VK_FORMAT_R32G32B32A32_SINT, true, 4, {0x01, 0x00, 0x00, 0x00}};
+        case TextureInternalFormat::RGB32UI:
+            return {VK_FORMAT_R32G32B32A32_UINT, true, 4, {0x01, 0x00, 0x00, 0x00}};
+        default:
+            return {MG_Util::ConvertTextureInternalFormatToVkEnum(format), false, 0, {0, 0, 0, 0}};
+        }
+    }
+
+    static Bool ExpandRgbSourceToRgba(const void* source, SizeT sourceByteSize, const IntVec3& texelSize,
+                                      const TextureFormatInfo& formatInfo, Vector<Uint8>& outExpandedData) {
+        MOBILEGL_ASSERT(source != nullptr, "ExpandRgbSourceToRgba: source is null");
+        MOBILEGL_ASSERT(formatInfo.expandRgbToRgba, "ExpandRgbSourceToRgba: format does not require RGB expansion");
+        MOBILEGL_ASSERT(formatInfo.componentByteCount > 0,
+                        "ExpandRgbSourceToRgba: invalid component size for expanded RGB format");
+
+        const SizeT depth = static_cast<SizeT>(std::max(texelSize.z(), 1));
+        const SizeT pixelCount = static_cast<SizeT>(texelSize.x()) * static_cast<SizeT>(texelSize.y()) * depth;
+        MOBILEGL_ASSERT(pixelCount > 0, "ExpandRgbSourceToRgba: invalid texel size (%d, %d, %d)",
+                        texelSize.x(), texelSize.y(), texelSize.z());
+        MOBILEGL_ASSERT(sourceByteSize == pixelCount * formatInfo.componentByteCount * 3,
+                        "ExpandRgbSourceToRgba: unexpected source byte size=%zu for pixelCount=%zu componentBytes=%u",
+                        sourceByteSize, pixelCount, formatInfo.componentByteCount);
+
+        outExpandedData.resize(pixelCount * formatInfo.componentByteCount * 4);
+        const auto* src = static_cast<const Uint8*>(source);
+        auto* dst = outExpandedData.data();
+        const SizeT srcPixelSize = static_cast<SizeT>(formatInfo.componentByteCount) * 3;
+        const SizeT dstPixelSize = static_cast<SizeT>(formatInfo.componentByteCount) * 4;
+        for (SizeT pixel = 0; pixel < pixelCount; ++pixel) {
+            const SizeT srcOffset = pixel * srcPixelSize;
+            const SizeT dstOffset = pixel * dstPixelSize;
+            std::memcpy(dst + dstOffset, src + srcOffset, srcPixelSize);
+            std::memcpy(dst + dstOffset + srcPixelSize, formatInfo.alphaBytes.data(), formatInfo.componentByteCount);
+        }
+        return true;
+    }
+
+    static VkComponentMapping ResolveSampledViewComponents(const MG_State::GLState::ITextureObject& texture) {
+        VkComponentMapping components{
+            VK_COMPONENT_SWIZZLE_R,
+            VK_COMPONENT_SWIZZLE_G,
+            VK_COMPONENT_SWIZZLE_B,
+            VK_COMPONENT_SWIZZLE_A,
+        };
+        if (ResolveTextureFormatInfo(texture.GetFormat()).expandRgbToRgba) {
+            components.a = VK_COMPONENT_SWIZZLE_ONE;
+        }
+        return components;
     }
 
     Bool VkTextureManager::Initialize(const InitInfo& initInfo) {
@@ -256,7 +339,8 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                                                TextureUploadTarget uploadTarget,
                                                const IntVec3 &texelSize, SizeT byteSize, Uint32 mipLevels,
                                                TextureResource &resource) {
-        const VkFormat format = MG_Util::ConvertTextureInternalFormatToVkEnum(texture.GetFormat());
+        const TextureFormatInfo formatInfo = ResolveTextureFormatInfo(texture.GetFormat());
+        const VkFormat format = formatInfo.format;
         if (format == VK_FORMAT_UNDEFINED) {
             MGLOG_D("%s: format == VK_FORMAT_UNDEFINED", __func__);
             return false;
@@ -347,7 +431,9 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             resource.fullView = VK_NULL_HANDLE;
         }
 
-        resource.fullView = CreateImageView(resource.image, resource.format, resource.aspect, baseMipLevel, levelCount);
+        const VkComponentMapping sampledComponents = ResolveSampledViewComponents(texture);
+        resource.fullView = CreateImageView(resource.image, resource.format, resource.aspect, baseMipLevel, levelCount,
+                                            &sampledComponents);
         if (resource.fullView == VK_NULL_HANDLE) {
             return false;
         }
@@ -359,12 +445,17 @@ namespace MobileGL::MG_Backend::DirectVulkan {
     }
 
     VkImageView VkTextureManager::CreateImageView(VkImage image, VkFormat format, VkImageAspectFlags aspect,
-                                                  Uint32 baseMipLevel, Uint32 levelCount) const {
+                                                  Uint32 baseMipLevel, Uint32 levelCount,
+                                                  const VkComponentMapping* components) const {
         VkImageViewCreateInfo viewInfo{};
         viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
         viewInfo.image = image;
         viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
         viewInfo.format = format;
+        viewInfo.components = components != nullptr ?
+            *components :
+            VkComponentMapping{VK_COMPONENT_SWIZZLE_R, VK_COMPONENT_SWIZZLE_G,
+                               VK_COMPONENT_SWIZZLE_B, VK_COMPONENT_SWIZZLE_A};
         viewInfo.subresourceRange.aspectMask = aspect;
         viewInfo.subresourceRange.baseMipLevel = baseMipLevel;
         viewInfo.subresourceRange.levelCount = levelCount;
@@ -381,14 +472,16 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                                         TextureResource &outResource) {
         struct UploadItem {
             Uint32 level = 0;
-            SizeT byteSize = 0;
+            SizeT uploadByteSize = 0;
             IntVec3 texelSize = {0, 0, 0};
             const void* source = nullptr;
+            Vector<Uint8> expandedData;
             VkDeviceSize offset = 0;
         };
 
         Vector<UploadItem> uploadItems;
         uploadItems.reserve(outResource.mipLevels);
+        const TextureFormatInfo formatInfo = ResolveTextureFormatInfo(mipmapTexture.GetFormat());
 
         VkDeviceSize stagingSize = 0;
         for (Uint32 level = 0; level < outResource.mipLevels; ++level) {
@@ -409,8 +502,25 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                 return false;
             }
 
-            uploadItems.push_back({level, byteSize, texelSize, source, stagingSize});
-            stagingSize += static_cast<VkDeviceSize>(byteSize);
+            UploadItem uploadItem{};
+            uploadItem.level = level;
+            uploadItem.texelSize = texelSize;
+            uploadItem.source = source;
+            uploadItem.offset = stagingSize;
+            uploadItem.uploadByteSize = byteSize;
+            if (formatInfo.expandRgbToRgba) {
+                const Bool expanded = ExpandRgbSourceToRgba(source, byteSize, texelSize, formatInfo,
+                                                            uploadItem.expandedData);
+                MOBILEGL_ASSERT(expanded,
+                                "UploadDirtyMipLevels: failed to expand RGB textureId=%d level=%u to RGBA staging data",
+                                mipmapTexture.GetExternalIndex(), level);
+                uploadItem.uploadByteSize = uploadItem.expandedData.size();
+            }
+            uploadItems.push_back(Move(uploadItem));
+            if (!uploadItems.back().expandedData.empty()) {
+                uploadItems.back().source = uploadItems.back().expandedData.data();
+            }
+            stagingSize += static_cast<VkDeviceSize>(uploadItems.back().uploadByteSize);
         }
 
         if (uploadItems.empty()) {
@@ -435,7 +545,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         void* mapped = nullptr;
         VK_VERIFY(vmaMapMemory(m_allocator, stagingAllocation, &mapped), "vmaMapMemory(staging texture)");
         for (const auto& item : uploadItems) {
-            std::memcpy(static_cast<Uint8*>(mapped) + item.offset, item.source, item.byteSize);
+            std::memcpy(static_cast<Uint8*>(mapped) + item.offset, item.source, item.uploadByteSize);
         }
         vmaUnmapMemory(m_allocator, stagingAllocation);
 

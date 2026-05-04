@@ -27,6 +27,21 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         using SpvcSession = MG_Util::ShaderTranspiler::SpvcSession;
         using SessionUsageBit = MG_Util::ShaderTranspiler::SessionUsageBit;
 
+        struct DescriptorKey {
+            ProgramFactory::DescriptorBindingKind kind = ProgramFactory::DescriptorBindingKind::None;
+            String name;
+
+            Bool operator==(const DescriptorKey& other) const {
+                return kind == other.kind && name == other.name;
+            }
+        };
+
+        struct DescriptorKeyHash {
+            SizeT operator()(const DescriptorKey& key) const noexcept {
+                return std::hash<String>{}(key.name) ^ (static_cast<SizeT>(key.kind) << 1);
+            }
+        };
+
         struct PositionTargetInfo {
             Uint32 variableId = 0;
             Uint32 vectorTypeId = 0;
@@ -324,6 +339,193 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             if (hasVertex) return ShaderStage::Vertex;
             return ShaderStage::Unknown;
         }
+
+        ProgramFactory::DescriptorBindingKind ReflectDescriptorTypeToBindingKind(SpvReflectDescriptorType descriptorType) {
+            switch (descriptorType) {
+            case SPV_REFLECT_DESCRIPTOR_TYPE_UNIFORM_BUFFER:
+                return ProgramFactory::DescriptorBindingKind::UniformBufferDynamic;
+            case SPV_REFLECT_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER:
+            case SPV_REFLECT_DESCRIPTOR_TYPE_SAMPLED_IMAGE:
+                return ProgramFactory::DescriptorBindingKind::CombinedImageSampler;
+            default:
+                MOBILEGL_ASSERT(false, "ProgramFactory: unsupported reflected descriptor type %d",
+                                static_cast<Int>(descriptorType));
+                return ProgramFactory::DescriptorBindingKind::None;
+            }
+        }
+
+        String NormalizeDescriptorName(const SpvReflectDescriptorBinding& binding,
+                                       ProgramFactory::DescriptorBindingKind kind) {
+            const char* rawName = binding.name;
+            if (kind == ProgramFactory::DescriptorBindingKind::UniformBufferDynamic &&
+                binding.type_description != nullptr && binding.type_description->type_name != nullptr) {
+                rawName = binding.type_description->type_name;
+            }
+
+            MOBILEGL_ASSERT(rawName != nullptr && rawName[0] != '\0',
+                            "ProgramFactory: descriptor has empty name (spirvId=%u type=%d)", binding.spirv_id,
+                            static_cast<Int>(binding.descriptor_type));
+
+            String name = rawName;
+            if (kind == ProgramFactory::DescriptorBindingKind::CombinedImageSampler) {
+                const auto arraySuffix = name.find("[0]");
+                if (arraySuffix != String::npos) {
+                    name = name.substr(0, arraySuffix);
+                }
+            }
+            return name;
+        }
+
+        Bool RemapDescriptorBindingsForVulkan(const Vector<Vector<Uint>>& inputModules, Uint32 maxBindings,
+                                              Vector<Vector<Uint>>& outputModules) {
+            outputModules = inputModules;
+
+            Vector<SpvReflectShaderModule> reflectModules(outputModules.size());
+            Vector<Bool> reflectModuleValid(outputModules.size(), false);
+            UnorderedMap<DescriptorKey, Uint32, DescriptorKeyHash> assignedBindings;
+            Uint32 nextBinding = 0;
+
+            const auto destroyReflectModules = [&]() {
+                for (SizeT moduleIndex = 0; moduleIndex < reflectModules.size(); ++moduleIndex) {
+                    if (!reflectModuleValid[moduleIndex]) {
+                        continue;
+                    }
+                    spvReflectDestroyShaderModule(&reflectModules[moduleIndex]);
+                    reflectModuleValid[moduleIndex] = false;
+                }
+            };
+
+            for (SizeT moduleIndex = 0; moduleIndex < outputModules.size(); ++moduleIndex) {
+                auto& moduleSpv = outputModules[moduleIndex];
+                if (moduleSpv.empty()) {
+                    continue;
+                }
+
+                const SpvReflectResult createResult =
+                    spvReflectCreateShaderModule(moduleSpv.size() * sizeof(Uint), moduleSpv.data(),
+                                                 &reflectModules[moduleIndex]);
+                MOBILEGL_ASSERT(createResult == SPV_REFLECT_RESULT_SUCCESS,
+                                "ProgramFactory: failed to create reflection module for stage %zu (result=%d)",
+                                moduleIndex, static_cast<Int>(createResult));
+                if (createResult != SPV_REFLECT_RESULT_SUCCESS) {
+                    destroyReflectModules();
+                    return false;
+                }
+                reflectModuleValid[moduleIndex] = true;
+
+                uint32_t bindingCount = 0;
+                SpvReflectResult reflectResult =
+                    spvReflectEnumerateDescriptorBindings(&reflectModules[moduleIndex], &bindingCount, nullptr);
+                MOBILEGL_ASSERT(reflectResult == SPV_REFLECT_RESULT_SUCCESS,
+                                "ProgramFactory: failed to enumerate descriptor bindings for stage %zu (result=%d)",
+                                moduleIndex, static_cast<Int>(reflectResult));
+                if (reflectResult != SPV_REFLECT_RESULT_SUCCESS) {
+                    destroyReflectModules();
+                    return false;
+                }
+
+                Vector<SpvReflectDescriptorBinding*> bindings(bindingCount);
+                if (bindingCount > 0) {
+                    reflectResult = spvReflectEnumerateDescriptorBindings(&reflectModules[moduleIndex], &bindingCount,
+                                                                          bindings.data());
+                    MOBILEGL_ASSERT(
+                        reflectResult == SPV_REFLECT_RESULT_SUCCESS,
+                        "ProgramFactory: failed to fetch descriptor bindings for stage %zu (result=%d)", moduleIndex,
+                        static_cast<Int>(reflectResult));
+                    if (reflectResult != SPV_REFLECT_RESULT_SUCCESS) {
+                        destroyReflectModules();
+                        return false;
+                    }
+                }
+
+                std::sort(bindings.begin(), bindings.end(), [](const auto* lhs, const auto* rhs) {
+                    if (lhs->set != rhs->set) {
+                        return lhs->set < rhs->set;
+                    }
+                    if (lhs->binding != rhs->binding) {
+                        return lhs->binding < rhs->binding;
+                    }
+                    return lhs->spirv_id < rhs->spirv_id;
+                });
+
+                for (auto* binding : bindings) {
+                    MOBILEGL_ASSERT(binding != nullptr, "ProgramFactory: null descriptor binding reflection record");
+                    const auto kind = ReflectDescriptorTypeToBindingKind(binding->descriptor_type);
+                    MOBILEGL_ASSERT(binding->count == 1,
+                                    "ProgramFactory: descriptor arrays are unsupported (name='%s' count=%u)",
+                                    binding->name ? binding->name : "<null>", binding->count);
+
+                    DescriptorKey key{};
+                    key.kind = kind;
+                    key.name = NormalizeDescriptorName(*binding, kind);
+
+                    Uint32 assignedBinding = 0;
+                    const auto it = assignedBindings.find(key);
+                    if (it == assignedBindings.end()) {
+                        MOBILEGL_ASSERT(nextBinding < maxBindings,
+                                        "ProgramFactory: reflected descriptor count exceeded maxBindings (%u >= %u)",
+                                        nextBinding, maxBindings);
+                        assignedBinding = nextBinding;
+                        assignedBindings.emplace(key, assignedBinding);
+                        ++nextBinding;
+                    } else {
+                        assignedBinding = it->second;
+                    }
+
+                    if (binding->binding != assignedBinding || binding->set != 0) {
+                        reflectResult = spvReflectChangeDescriptorBindingNumbers(&reflectModules[moduleIndex], binding,
+                                                                                assignedBinding, 0);
+                        MOBILEGL_ASSERT(reflectResult == SPV_REFLECT_RESULT_SUCCESS,
+                                        "ProgramFactory: failed to remap descriptor '%s' in stage %zu (result=%d)",
+                                        key.name.c_str(), moduleIndex, static_cast<Int>(reflectResult));
+                        if (reflectResult != SPV_REFLECT_RESULT_SUCCESS) {
+                            destroyReflectModules();
+                            return false;
+                        }
+                    }
+                }
+            }
+
+            for (SizeT moduleIndex = 0; moduleIndex < outputModules.size(); ++moduleIndex) {
+                if (!reflectModuleValid[moduleIndex]) {
+                    continue;
+                }
+
+                const Uint32 codeSizeBytes = spvReflectGetCodeSize(&reflectModules[moduleIndex]);
+                MOBILEGL_ASSERT((codeSizeBytes % sizeof(Uint)) == 0,
+                                "ProgramFactory: reflected SPIR-V size is not word aligned for stage %zu",
+                                moduleIndex);
+                const Uint32* code = spvReflectGetCode(&reflectModules[moduleIndex]);
+                MOBILEGL_ASSERT(code != nullptr, "ProgramFactory: reflected SPIR-V code pointer is null for stage %zu",
+                                moduleIndex);
+                outputModules[moduleIndex].assign(code, code + (codeSizeBytes / sizeof(Uint)));
+            }
+
+            destroyReflectModules();
+            return true;
+        }
+
+        TextureTarget ReflectImageTraitsToTextureTarget(const SpvReflectImageTraits& imageTraits) {
+            switch (imageTraits.dim) {
+            case SpvDim1D:
+                return imageTraits.arrayed != 0 ? TextureTarget::Texture1DArray : TextureTarget::Texture1D;
+            case SpvDim2D:
+                if (imageTraits.ms != 0) {
+                    return imageTraits.arrayed != 0 ? TextureTarget::Texture2DMultisampleArray
+                                                    : TextureTarget::Texture2DMultisample;
+                }
+                return imageTraits.arrayed != 0 ? TextureTarget::Texture2DArray : TextureTarget::Texture2D;
+            case SpvDim3D:
+                return TextureTarget::Texture3D;
+            case SpvDimCube:
+                return imageTraits.arrayed != 0 ? TextureTarget::TextureCubeMapArray : TextureTarget::TextureCubeMap;
+            case SpvDimBuffer:
+                return TextureTarget::TextureBuffer;
+            default:
+                MOBILEGL_ASSERT(false, "ProgramFactory: unsupported sampler image dim %d", imageTraits.dim);
+                return TextureTarget::Unknown;
+            }
+        }
     } // namespace
 
     VkShaderStageFlagBits ProgramFactory::ToVkStage(ShaderStage stage) {
@@ -419,70 +621,137 @@ namespace MobileGL::MG_Backend::DirectVulkan {
     }
 
     void ProgramFactory::ReflectLayout(const MG_State::GLState::ProgramObject& program,
-                                       VkProgramObject& entry) const {
+                                       const Vector<Vector<Uint>>& spirv, VkProgramObject& entry) const {
         // Initialize layout vectors
         entry.bindingKinds.assign(m_maxBindings, DescriptorBindingKind::None);
+        entry.uniformBlockIndexByBinding.assign(m_maxBindings, -1);
+        entry.samplerNameByBinding.assign(m_maxBindings, String());
         entry.samplerUniformLocationByBinding.assign(m_maxBindings, -1);
         entry.samplerTextureTargetByBinding.assign(m_maxBindings, TextureTarget::Texture2D);
         entry.globalUboBinding = -1;
         entry.dynamicBindings.clear();
 
         // Use SpvcSession (Reflection mode) to reflect all SPIR-V modules in a single pass per module
-        const auto& spirv = program.GetGeneratedSpirv();
         for (const auto& module : spirv) {
             if (module.empty()) {
                 continue;
             }
 
             SpvcSession session(module, SessionUsageBit::Reflection);
+            SpvReflectShaderModule reflectModule{};
+            const SpvReflectResult createReflectResult =
+                spvReflectCreateShaderModule(module.size() * sizeof(Uint), module.data(), &reflectModule);
+            MOBILEGL_ASSERT(createReflectResult == SPV_REFLECT_RESULT_SUCCESS,
+                            "ProgramFactory::ReflectLayout: failed to create reflection module (result=%d)",
+                            static_cast<Int>(createReflectResult));
 
             // Reflect uniform buffers
             auto ubos = session.GetShaderInterface(SPVC_RESOURCE_TYPE_UNIFORM_BUFFER);
             for (const auto& ubo : ubos) {
                 const Uint32 binding = ubo.location; // GetShaderInterface stores binding in location field
-                if (binding >= m_maxBindings) {
-                    continue;
-                }
-                if (entry.bindingKinds[binding] == DescriptorBindingKind::None) {
-                    entry.bindingKinds[binding] = DescriptorBindingKind::UniformBufferDynamic;
-                }
+                MOBILEGL_ASSERT(binding < m_maxBindings,
+                                "ProgramFactory::ReflectLayout: UBO binding %u exceeds maxBindings=%u for '%s'",
+                                binding, m_maxBindings, ubo.name.c_str());
+
+                MOBILEGL_ASSERT(entry.bindingKinds[binding] == DescriptorBindingKind::None ||
+                                    entry.bindingKinds[binding] == DescriptorBindingKind::UniformBufferDynamic,
+                                "ProgramFactory::ReflectLayout: descriptor binding %u has conflicting kinds for UBO '%s'",
+                                binding, ubo.name.c_str());
+                entry.bindingKinds[binding] = DescriptorBindingKind::UniformBufferDynamic;
 
                 // Check for global UBO
-                if (entry.globalUboBinding < 0 &&
-                    std::strstr(ubo.name.c_str(), MG_Util::ShaderTranspiler::GLOBAL_UBO_NAME) != nullptr) {
+                if (std::strstr(ubo.name.c_str(), MG_Util::ShaderTranspiler::GLOBAL_UBO_NAME) != nullptr) {
+                    MOBILEGL_ASSERT(entry.globalUboBinding < 0 || entry.globalUboBinding == static_cast<Int>(binding),
+                                    "ProgramFactory::ReflectLayout: global UBO binding mismatch (%d vs %u)",
+                                    entry.globalUboBinding, binding);
+                    MOBILEGL_ASSERT(entry.uniformBlockIndexByBinding[binding] < 0,
+                                    "ProgramFactory::ReflectLayout: global UBO shares binding %u with regular UBO index %d",
+                                    binding, entry.uniformBlockIndexByBinding[binding]);
                     entry.globalUboBinding = static_cast<Int>(binding);
+                    continue;
                 }
+
+                const Uint blockIndex = program.GetUniformBlockIndex(ubo.name.c_str());
+                MOBILEGL_ASSERT(blockIndex != 0xFFFFFFFFu,
+                                "ProgramFactory::ReflectLayout: failed to resolve uniform block '%s'", ubo.name.c_str());
+                MOBILEGL_ASSERT(entry.globalUboBinding != static_cast<Int>(binding),
+                                "ProgramFactory::ReflectLayout: regular UBO '%s' collides with global UBO binding %u",
+                                ubo.name.c_str(), binding);
+                MOBILEGL_ASSERT(entry.uniformBlockIndexByBinding[binding] < 0 ||
+                                    entry.uniformBlockIndexByBinding[binding] == static_cast<Int>(blockIndex),
+                                "ProgramFactory::ReflectLayout: descriptor binding %u maps to conflicting UBO blocks (%d vs %u)",
+                                binding, entry.uniformBlockIndexByBinding[binding], blockIndex);
+                entry.uniformBlockIndexByBinding[binding] = static_cast<Int>(blockIndex);
             }
 
             // Reflect sampled images
-            auto samplers = session.GetShaderInterface(SPVC_RESOURCE_TYPE_SAMPLED_IMAGE);
-            for (const auto& sampler : samplers) {
-                const Uint32 binding = sampler.location; // GetShaderInterface stores binding in location field
-                if (binding >= m_maxBindings) {
+            uint32_t reflectedBindingCount = 0;
+            SpvReflectResult reflectResult =
+                spvReflectEnumerateDescriptorBindings(&reflectModule, &reflectedBindingCount, nullptr);
+            MOBILEGL_ASSERT(reflectResult == SPV_REFLECT_RESULT_SUCCESS,
+                            "ProgramFactory::ReflectLayout: failed to enumerate descriptor bindings (result=%d)",
+                            static_cast<Int>(reflectResult));
+
+            Vector<SpvReflectDescriptorBinding*> reflectedBindings(reflectedBindingCount);
+            if (reflectedBindingCount > 0) {
+                reflectResult = spvReflectEnumerateDescriptorBindings(&reflectModule, &reflectedBindingCount,
+                                                                      reflectedBindings.data());
+                MOBILEGL_ASSERT(
+                    reflectResult == SPV_REFLECT_RESULT_SUCCESS,
+                    "ProgramFactory::ReflectLayout: failed to fetch descriptor bindings (result=%d)",
+                    static_cast<Int>(reflectResult));
+            }
+
+            for (const auto* sampler : reflectedBindings) {
+                if (sampler == nullptr) {
+                    continue;
+                }
+                if (sampler->descriptor_type != SPV_REFLECT_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER &&
+                    sampler->descriptor_type != SPV_REFLECT_DESCRIPTOR_TYPE_SAMPLED_IMAGE) {
                     continue;
                 }
 
-                // Sampler always wins over UBO for a binding slot
+                const Uint32 binding = sampler->binding;
+                const String uniformName = NormalizeDescriptorName(*sampler, DescriptorBindingKind::CombinedImageSampler);
+                MOBILEGL_ASSERT(binding < m_maxBindings,
+                                "ProgramFactory::ReflectLayout: sampler binding %u exceeds maxBindings=%u for '%s'",
+                                binding, m_maxBindings, uniformName.c_str());
+
+                MOBILEGL_ASSERT(entry.bindingKinds[binding] == DescriptorBindingKind::None ||
+                                    entry.bindingKinds[binding] == DescriptorBindingKind::CombinedImageSampler,
+                                "ProgramFactory::ReflectLayout: descriptor binding %u has conflicting kinds for sampler '%s'",
+                                binding, uniformName.c_str());
                 entry.bindingKinds[binding] = DescriptorBindingKind::CombinedImageSampler;
 
-                // Resolve uniform location for this sampler
-                String uniformName = sampler.name;
-                Int location = program.GetUniformLocation(uniformName);
-                if (location < 0) {
-                    const auto arraySuffix = uniformName.find("[0]");
-                    if (arraySuffix != String::npos) {
-                        uniformName = uniformName.substr(0, arraySuffix);
-                        location = program.GetUniformLocation(uniformName);
-                    }
-                }
-                if (location < 0) {
-                    continue;
-                }
+                const Int location = program.GetUniformLocation(uniformName);
+                const TextureTarget target =
+                    location >= 0 ? UniformTypeToTextureTarget(program.GetUniformType(static_cast<Uint>(location)))
+                                  : ReflectImageTraitsToTextureTarget(sampler->image);
+                MOBILEGL_ASSERT(target != TextureTarget::Unknown,
+                                "ProgramFactory::ReflectLayout: failed to resolve sampler target for '%s'",
+                                uniformName.c_str());
+                MOBILEGL_ASSERT(entry.samplerUniformLocationByBinding[binding] < 0 || location < 0 ||
+                                    entry.samplerUniformLocationByBinding[binding] == location,
+                                "ProgramFactory::ReflectLayout: sampler binding %u maps to conflicting uniform locations (%d vs %d)",
+                                binding, entry.samplerUniformLocationByBinding[binding], location);
+                MOBILEGL_ASSERT(entry.samplerUniformLocationByBinding[binding] < 0 ||
+                                    entry.samplerTextureTargetByBinding[binding] == target,
+                                "ProgramFactory::ReflectLayout: sampler binding %u maps to conflicting texture targets (%d vs %d)",
+                                binding, static_cast<Int>(entry.samplerTextureTargetByBinding[binding]),
+                                static_cast<Int>(target));
+                MOBILEGL_ASSERT(entry.samplerNameByBinding[binding].empty() ||
+                                    entry.samplerNameByBinding[binding] == uniformName,
+                                "ProgramFactory::ReflectLayout: sampler binding %u maps to conflicting names ('%s' vs '%s')",
+                                binding, entry.samplerNameByBinding[binding].c_str(), uniformName.c_str());
 
-                entry.samplerUniformLocationByBinding[binding] = location;
-                entry.samplerTextureTargetByBinding[binding] =
-                    UniformTypeToTextureTarget(program.GetUniformType(static_cast<Uint>(location)));
+                if (location >= 0) {
+                    entry.samplerUniformLocationByBinding[binding] = location;
+                }
+                entry.samplerNameByBinding[binding] = uniformName;
+                entry.samplerTextureTargetByBinding[binding] = target;
             }
+
+            spvReflectDestroyShaderModule(&reflectModule);
         }
 
         // Build Vulkan descriptor set layout and pipeline layout from reflected binding kinds
@@ -535,6 +804,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         entry.hash = hash;
         auto& shaders = program.GetAttachedShaders();
         auto& spirv = program.GetGeneratedSpirv();
+        Vector<Vector<Uint>> moduleSpirvs(spirv.size());
 
         const ShaderStage fixupStage = PickClipFixupStage(shaders);
 
@@ -542,14 +812,20 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             auto& spv = spirv[i];
             if (spv.empty()) continue;
 
-            Vector<Uint> moduleSpv;
-
             // Apply position fixup if needed
             if (fixupStage != ShaderStage::Unknown && shaders[i] && shaders[i]->GetShaderStage() == fixupStage) {
-                TransformSpirvForVulkanPositionFix(spv, moduleSpv, flags);
+                TransformSpirvForVulkanPositionFix(spv, moduleSpirvs[i], flags);
             } else {
-                moduleSpv = spv;
+                moduleSpirvs[i] = spv;
             }
+        }
+
+        const Bool remapOk = RemapDescriptorBindingsForVulkan(moduleSpirvs, m_maxBindings, moduleSpirvs);
+        MOBILEGL_ASSERT(remapOk, "ProgramFactory::GetOrCreateProgram: descriptor binding remap failed");
+
+        for (SizeT i = 0; i < shaders.size(); ++i) {
+            auto& moduleSpv = moduleSpirvs[i];
+            if (moduleSpv.empty()) continue;
 
             VkShaderModuleCreateInfo smci{VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO};
             smci.codeSize = moduleSpv.size() * sizeof(Uint);
@@ -569,7 +845,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         }
 
         // Reflect and create layout as part of the program object
-        ReflectLayout(program, entry);
+        ReflectLayout(program, moduleSpirvs, entry);
 
         return entry;
     }

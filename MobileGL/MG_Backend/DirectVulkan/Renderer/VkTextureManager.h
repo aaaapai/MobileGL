@@ -119,7 +119,8 @@ private:
                              TextureResource &resource);
     Bool SyncTextureViews(const MG_State::GLState::ITextureObject& texture, TextureResource& resource);
     VkImageView CreateImageView(VkImage image, VkFormat format, VkImageAspectFlags aspect,
-                                Uint32 baseMipLevel, Uint32 levelCount) const;
+                                Uint32 baseMipLevel, Uint32 levelCount,
+                                const VkComponentMapping* components = nullptr) const;
     Bool UploadDirtyMipLevels(MG_State::GLState::TextureObjectMipmap &mipmapTexture,
                       TextureUploadTarget uploadTarget,
                       TextureResource &outResource);

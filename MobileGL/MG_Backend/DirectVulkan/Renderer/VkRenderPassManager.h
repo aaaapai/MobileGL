@@ -46,6 +46,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         Vector<PendingClearAttachmentInfo> pendingClearAttachments;
         Vector<TrackedAttachmentLayoutInfo> trackedAttachmentLayouts;
         Uint32 attachmentCount = 0;
+        Uint32 colorAttachmentCount = 0;
         IntVec2 extent = {0, 0};
         Uint32 subpass = 0;
 
@@ -59,6 +60,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             std::swap(pendingClearAttachments, that.pendingClearAttachments);
             std::swap(trackedAttachmentLayouts, that.trackedAttachmentLayouts);
             std::swap(attachmentCount, that.attachmentCount);
+            std::swap(colorAttachmentCount, that.colorAttachmentCount);
             std::swap(extent, that.extent);
             std::swap(subpass, that.subpass);
         }
@@ -70,6 +72,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             const Vector<PendingClearAttachmentInfo>& pendingClearAttachments,
             const Vector<TrackedAttachmentLayoutInfo>& trackedAttachmentLayouts,
             Uint32 attachmentCount,
+            Uint32 colorAttachmentCount,
             IntVec2 extent, int subpass):
             hash(hash),
             renderPass(renderpass),
@@ -78,6 +81,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             pendingClearAttachments(Move(pendingClearAttachments)),
             trackedAttachmentLayouts(Move(trackedAttachmentLayouts)),
             attachmentCount(attachmentCount),
+            colorAttachmentCount(colorAttachmentCount),
             extent(extent),
             subpass(subpass)
         {}
