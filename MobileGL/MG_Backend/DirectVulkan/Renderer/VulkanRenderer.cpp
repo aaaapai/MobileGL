@@ -107,7 +107,6 @@ namespace MobileGL::MG_Backend::DirectVulkan {
     }
 
     namespace {
-        static constexpr Uint32 kMaxProgramBindings = 16;
         static constexpr Uint32 kDescriptorSetsPerFrame = 64;
         static constexpr Uint kHiddenBlitProgramId = 0xFFFFFFF0u;
         static constexpr Uint kHiddenBlitVertexShaderId = 0xFFFFFFF1u;
@@ -131,6 +130,26 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             Uint32 mipLevelCount = 1;
             const char* label = nullptr;
         };
+
+        static Uint32 ComputeMaxProgramBindings(const VkPhysicalDeviceProperties& properties) {
+            const auto& limits = properties.limits;
+            static constexpr Uint32 kMinProgramBindings = 16;
+            static constexpr Uint32 kMaxProgramBindingsCap = 256;
+            const Uint32 maxCombinedImageSamplers =
+                std::min(limits.maxPerStageDescriptorSamplers, limits.maxDescriptorSetSamplers);
+            const Uint32 maxSampledImages =
+                std::min(limits.maxPerStageDescriptorSampledImages, limits.maxDescriptorSetSampledImages);
+            const Uint32 maxDynamicUniformBuffers =
+                std::min(limits.maxPerStageDescriptorUniformBuffers, limits.maxDescriptorSetUniformBuffersDynamic);
+
+            Uint32 maxBindings = limits.maxPerStageResources;
+            maxBindings = std::min(maxBindings, maxCombinedImageSamplers);
+            maxBindings = std::min(maxBindings, maxSampledImages + maxDynamicUniformBuffers);
+
+            maxBindings = std::max(kMinProgramBindings, maxBindings);
+            maxBindings = std::min(kMaxProgramBindingsCap, maxBindings);
+            return maxBindings;
+        }
 
         static void GetImageTransitionSourceState(VkImageLayout oldLayout, VkPipelineStageFlags& outSrcStageMask,
                                                   VkAccessFlags& outSrcAccessMask) {
@@ -420,11 +439,14 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         succeeded = m_renderPassManager->Initialize();
         MOBILEGL_ASSERT(succeeded, "VkRenderPassManager initialization failed.");
 
+        const Uint32 maxProgramBindings = ComputeMaxProgramBindings(m_physicalDevice.properties);
+        MGLOG_I("DirectVulkan: using %u program descriptor bindings", maxProgramBindings);
+
         RecreateSwapchain();
 
         m_pipelineFactory = MakeUnique<PipelineFactory>(m_device, m_config);
         MOBILEGL_ASSERT(m_pipelineFactory != nullptr, "PipelineFactory creation failed.");
-        m_programFactory = MakeUnique<ProgramFactory>(m_device, m_config, kMaxProgramBindings);
+        m_programFactory = MakeUnique<ProgramFactory>(m_device, m_config, maxProgramBindings);
         MOBILEGL_ASSERT(m_programFactory != nullptr, "ProgramFactory creation failed.");
 
         m_samplerManager = MakeUnique<VkSamplerManager>();
@@ -439,7 +461,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         succeeded = m_uniformManager->Initialize(
             m_device, &m_bufferManager, m_programFactory.get(),
             m_physicalDevice.properties.limits.minUniformBufferOffsetAlignment, m_config.MaxFramesInFlight,
-            kMaxProgramBindings, kDescriptorSetsPerFrame, m_textureManager.get(), m_samplerManager.get());
+            maxProgramBindings, kDescriptorSetsPerFrame, m_textureManager.get(), m_samplerManager.get());
         MOBILEGL_ASSERT(succeeded, "UniformDescriptorBinder initialization failed.");
         m_vertexInputStateFactory = MakeUnique<VertexInputStateFactory>(m_config);
         MOBILEGL_ASSERT(m_vertexInputStateFactory != nullptr, "VertexInputStateFactory creation failed.");
@@ -1653,7 +1675,9 @@ void main() {
     void VulkanRenderer::DrawArrays(const DrawCmd& payload) {
         auto& frame = m_frameContext.GetCurrent();
 
-        SetupDraw(frame, payload.mode, 0);
+        if (!SetupDraw(frame, payload.mode, 0)) {
+            return;
+        }
 
         MOBILEGL_ASSERT(frame.isCommandRecording, "%s: frame recording was not started", __func__);
 
@@ -1669,8 +1693,10 @@ void main() {
     void VulkanRenderer::DrawElements(const DrawIndexedCmd& payload) {
         auto& frame = m_frameContext.GetCurrent();
 
-        SetupDraw(frame, payload.mode, DrawSetupAspect::IndexBuffer,
-                       &payload.indexBufferView);
+        if (!SetupDraw(frame, payload.mode, DrawSetupAspect::IndexBuffer,
+                       &payload.indexBufferView)) {
+            return;
+        }
 
         MOBILEGL_ASSERT(frame.isCommandRecording, "%s: frame recording was not started", __func__);
 
@@ -1687,8 +1713,10 @@ void main() {
     void VulkanRenderer::MultiDrawElements(const MultiDrawIndexedCmd& payload) {
         auto& frame = m_frameContext.GetCurrent();
 
-        SetupDraw(frame, payload.mode, DrawSetupAspect::IndexBuffer,
-                  &payload.indexBufferView);
+        if (!SetupDraw(frame, payload.mode, DrawSetupAspect::IndexBuffer,
+                  &payload.indexBufferView)) {
+            return;
+        }
 
         MOBILEGL_ASSERT(frame.isCommandRecording, "%s: frame recording was not started", __func__);
 
