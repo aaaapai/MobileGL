@@ -1292,14 +1292,22 @@ namespace MobileGL::MG_Impl::GLImpl {
     }
 
     void BindTexture_State(GLenum target, GLuint texture) {
-        // TODO: deal with condition where texture == 0
         MGLOG_D("BindTexture_State called with target: 0x%X, texture: %u", target, texture);
         // ======================= Converting ================================
         TextureTarget textureTarget = MG_Util::ConvertGLEnumToTextureTarget(target);
 
         // ===================== Error Checking ==============================
-        if (!TextureImpl::ValidateTextureName(texture, true)) return;
         if (!TextureImpl::ValidateTextureTarget(textureTarget)) return;
+
+        // Name 0 unbinds the current target from the active texture unit.
+        if (texture == 0) {
+            auto& currentUnit = MG_State::pGLContext->GetTextureUnitObject(MG_State::pGLContext->GetActiveTextureUnit());
+            auto& bindingSlot = currentUnit.GetBindingSlot(textureTarget);
+            bindingSlot.Bind(nullptr);
+            return;
+        }
+
+        if (!TextureImpl::ValidateTextureName(texture, true)) return;
 
         // ======================= Processing ================================
         Bool doesTextureExist = MG_State::pGLContext->ValidateTextureObject(texture);
