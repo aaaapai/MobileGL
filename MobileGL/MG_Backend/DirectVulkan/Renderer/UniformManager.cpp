@@ -180,30 +180,41 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                         "ResolveSamplerDescriptor: sampler binding %u name lookup out of range", binding);
         SharedPtr<MG_State::GLState::ITextureObject> texture;
         const Bool resolvedTexture = ResolveSamplerTexture(program, programObj, binding, texture);
-        MOBILEGL_ASSERT(resolvedTexture,
-                        "ResolveSamplerDescriptor: failed to resolve sampler texture for binding %u ('%s')", binding,
-                        programObj.samplerNameByBinding[binding].c_str());
+        if (!resolvedTexture) {
+            MGLOG_E("ResolveSamplerDescriptor: failed to resolve sampler texture for binding %u ('%s')", binding,
+                programObj.samplerNameByBinding[binding].c_str());
+            return false;
+        }
 
         const Int location = programObj.samplerUniformLocationByBinding[binding];
         const Int unit = ResolveSamplerUnitIndex(program, location, binding);
         auto& textureUnit = MG_State::pGLContext->GetTextureUnitObject(unit);
         const auto samplerOverride = textureUnit.GetSamplerObject();
-        MOBILEGL_ASSERT(texture != nullptr,
-                        "ResolveSamplerDescriptor: sampler binding %u ('%s') resolved null texture (location=%d unit=%d target=%d)",
-                        binding, programObj.samplerNameByBinding[binding].c_str(), location, unit,
-                        static_cast<Int>(programObj.samplerTextureTargetByBinding[binding]));
+        if (texture == nullptr) {
+            MGLOG_E(
+                "ResolveSamplerDescriptor: sampler binding %u ('%s') resolved null texture (location=%d unit=%d target=%d)",
+                binding, programObj.samplerNameByBinding[binding].c_str(), location, unit,
+                static_cast<Int>(programObj.samplerTextureTargetByBinding[binding]));
+            return false;
+        }
 
         const MG_State::GLState::SamplerObject* samplerToUse =
             samplerOverride ? samplerOverride.get() : texture->GetSamplerObject().get();
-        MOBILEGL_ASSERT(samplerToUse != nullptr,
-                        "ResolveSamplerDescriptor: sampler binding %u ('%s') has no sampler object (textureId=%d location=%d unit=%d)",
-                        binding, programObj.samplerNameByBinding[binding].c_str(), texture->GetExternalIndex(), location,
-                        unit);
+        if (samplerToUse == nullptr) {
+            MGLOG_E(
+                "ResolveSamplerDescriptor: sampler binding %u ('%s') has no sampler object (textureId=%d location=%d unit=%d)",
+                binding, programObj.samplerNameByBinding[binding].c_str(), texture->GetExternalIndex(), location,
+                unit);
+            return false;
+        }
         VkTextureManager::TextureResource* resource = m_textureManager->SyncTextureAndGetDescriptor(*texture);
-        MOBILEGL_ASSERT(resource != nullptr,
-                        "ResolveSamplerDescriptor: sampler binding %u ('%s') failed to create/sync texture resource (textureId=%d target=%d location=%d unit=%d)",
-                        binding, programObj.samplerNameByBinding[binding].c_str(), texture->GetExternalIndex(),
-                        static_cast<Int>(texture->GetTarget()), location, unit);
+        if (resource == nullptr) {
+            MGLOG_E(
+                "ResolveSamplerDescriptor: sampler binding %u ('%s') failed to create/sync texture resource (textureId=%d target=%d location=%d unit=%d)",
+                binding, programObj.samplerNameByBinding[binding].c_str(), texture->GetExternalIndex(),
+                static_cast<Int>(texture->GetTarget()), location, unit);
+            return false;
+        }
         if (!IsValidSampledImageLayout(resource->layout)) {
             auto drawFbo = MG_State::pGLContext->GetFramebufferBindingSlot(FramebufferTarget::Draw).GetBoundObject();
             FramebufferAttachmentType attachmentType = FramebufferAttachmentType::None;
@@ -279,9 +290,26 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         auto& textureUnit = MG_State::pGLContext->GetTextureUnitObject(unit);
         const TextureTarget preferredTarget = programObj.samplerTextureTargetByBinding[binding];
         outTexture = textureUnit.GetBindingSlot(preferredTarget).GetBoundObject();
-        MOBILEGL_ASSERT(outTexture != nullptr,
-                        "ResolveSamplerTexture: no texture bound for sampler binding=%u location=%d unit=%d target=%d",
-                        binding, location, unit, static_cast<Int>(preferredTarget));
+
+        if (!outTexture) {
+            for (const auto& bindingSlot : textureUnit.GetAllBindingSlots()) {
+                const auto& fallbackTexture = bindingSlot.GetBoundObject();
+                if (!fallbackTexture) {
+                    continue;
+                }
+                outTexture = fallbackTexture;
+                MGLOG_D(
+                    "ResolveSamplerTexture: falling back to bound textureId=%d for sampler binding=%u location=%d unit=%d target=%d",
+                    outTexture->GetExternalIndex(), binding, location, unit, static_cast<Int>(preferredTarget));
+                break;
+            }
+        }
+
+        if (!outTexture) {
+            MGLOG_E("ResolveSamplerTexture: no texture bound for sampler binding=%u location=%d unit=%d target=%d",
+                    binding, location, unit, static_cast<Int>(preferredTarget));
+            return false;
+        }
         return outTexture != nullptr;
     }
 
