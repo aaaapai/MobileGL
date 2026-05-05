@@ -159,9 +159,11 @@ namespace MobileGL {
                     }
                 }
 
-                // Some shader packs define helpers with built-in GLSL names such as round().
+                // Some shader packs define helpers with built-in GLSL names such as round(), tanh(), or fma().
                 // These may pass OpenGL-style validation but fail when recompiled for Vulkan/SPIR-V generation.
                 RenameBuiltinShadowingFunction(source, "round", "mg_round");
+                RenameBuiltinShadowingFunction(source, "tanh", "mg_tanh");
+                RenameBuiltinShadowingFunction(source, "fma", "mg_fma");
             }
 
         } // namespace ShaderTranspiler
