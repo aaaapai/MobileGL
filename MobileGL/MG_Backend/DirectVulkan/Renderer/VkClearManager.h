@@ -23,12 +23,10 @@ namespace MobileGL::MG_Backend::DirectVulkan {
     };
 
     struct ClearAttachmentPayload {
-        union {
-            FloatVec4 color;
-            Float depth{};
-            Uint32 stencil;
-        };
-        FramebufferAttachmentType attachmentType = FramebufferAttachmentType::Color0;
+        GLbitfield mask = 0;
+        FloatVec4 color = FloatVec4(0.0f, 0.0f, 0.0f, 0.0f);
+        Float depth = 1.0f;
+        Uint32 stencil = 0;
     };
 
     class VkClearManager {

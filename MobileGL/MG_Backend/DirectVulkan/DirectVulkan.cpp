@@ -13,10 +13,29 @@
 namespace MobileGL::MG_Backend::DirectVulkan {
     UniquePtr<VulkanRenderer> pVulkanRenderer = nullptr;
 
-    void ClearBufferfi(GLenum buffer, GLint drawbuffer, GLfloat depth, GLint stencil) {}
-    void ClearBufferfv(GLenum buffer, GLint drawbuffer, const GLfloat* value) {}
-    void ClearBufferuiv(GLenum buffer, GLint drawbuffer, const GLuint* value) {}
-    void ClearBufferiv(GLenum buffer, GLint drawbuffer, const GLint* value) {}
+    void ClearBufferfi(GLenum buffer, GLint drawbuffer, GLfloat depth, GLint stencil) {
+        MOBILEGL_ASSERT(pVulkanRenderer, "DirectVulkan::ClearBufferfi called with null VulkanRenderer");
+        MOBILEGL_ASSERT(MG_State::pGLContext, "DirectVulkan::ClearBufferfi called with null GL context");
+        pVulkanRenderer->ClearBufferfi(buffer, drawbuffer, depth, stencil);
+    }
+
+    void ClearBufferfv(GLenum buffer, GLint drawbuffer, const GLfloat* value) {
+        MOBILEGL_ASSERT(pVulkanRenderer, "DirectVulkan::ClearBufferfv called with null VulkanRenderer");
+        MOBILEGL_ASSERT(MG_State::pGLContext, "DirectVulkan::ClearBufferfv called with null GL context");
+        pVulkanRenderer->ClearBufferfv(buffer, drawbuffer, value);
+    }
+
+    void ClearBufferuiv(GLenum buffer, GLint drawbuffer, const GLuint* value) {
+        MOBILEGL_ASSERT(pVulkanRenderer, "DirectVulkan::ClearBufferuiv called with null VulkanRenderer");
+        MOBILEGL_ASSERT(MG_State::pGLContext, "DirectVulkan::ClearBufferuiv called with null GL context");
+        pVulkanRenderer->ClearBufferuiv(buffer, drawbuffer, value);
+    }
+
+    void ClearBufferiv(GLenum buffer, GLint drawbuffer, const GLint* value) {
+        MOBILEGL_ASSERT(pVulkanRenderer, "DirectVulkan::ClearBufferiv called with null VulkanRenderer");
+        MOBILEGL_ASSERT(MG_State::pGLContext, "DirectVulkan::ClearBufferiv called with null GL context");
+        pVulkanRenderer->ClearBufferiv(buffer, drawbuffer, value);
+    }
 
     void MultiDrawElementsIndirect(GLenum mode, GLenum type, const void* indirect, GLsizei drawcount, GLsizei stride) {}
     void MultiDrawArraysIndirect(GLenum mode, const void* indirect, GLsizei drawcount, GLsizei stride) {}
@@ -36,9 +55,17 @@ namespace MobileGL::MG_Backend::DirectVulkan {
     void DrawArraysInstanced(GLenum mode, GLint first, GLsizei count, GLsizei instancecount) {}
     void DrawArraysIndirect(GLenum mode, const void* indirect) {}
     void CopyTexImage2D(GLenum target, GLint level, GLenum internalformat, GLint x, GLint y, GLsizei width,
-                        GLsizei height, GLint border) {}
+                        GLsizei height, GLint border) {
+        MOBILEGL_ASSERT(pVulkanRenderer, "DirectVulkan::CopyTexImage2D called with null VulkanRenderer");
+        MOBILEGL_ASSERT(MG_State::pGLContext, "DirectVulkan::CopyTexImage2D called with null GL context");
+        pVulkanRenderer->CopyTexSubImage2D(target, level, 0, 0, x, y, width, height);
+    }
     void CopyTexSubImage2D(GLenum target, GLint level, GLint xoffset, GLint yoffset, GLint x, GLint y, GLsizei width,
-                           GLsizei height) {}
+                           GLsizei height) {
+        MOBILEGL_ASSERT(pVulkanRenderer, "DirectVulkan::CopyTexSubImage2D called with null VulkanRenderer");
+        MOBILEGL_ASSERT(MG_State::pGLContext, "DirectVulkan::CopyTexSubImage2D called with null GL context");
+        pVulkanRenderer->CopyTexSubImage2D(target, level, xoffset, yoffset, x, y, width, height);
+    }
     void GenerateMipmap(GLenum target) {}
     void ReadPixels(GLint x, GLint y, GLsizei width, GLsizei height, GLenum format, GLenum type, void* pixels) {}
     void GetTexImage(GLenum target, GLint level, GLenum format, GLenum type, GLvoid* pixels) {}

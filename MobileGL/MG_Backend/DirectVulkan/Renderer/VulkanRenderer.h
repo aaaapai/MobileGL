@@ -115,9 +115,15 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                                                 const RenderPassEntry& compatibleRenderPassEntry);
 
         void Clear(GLbitfield mask);
+        void ClearBufferfi(GLenum buffer, GLint drawbuffer, GLfloat depth, GLint stencil);
+        void ClearBufferfv(GLenum buffer, GLint drawbuffer, const GLfloat* value);
+        void ClearBufferuiv(GLenum buffer, GLint drawbuffer, const GLuint* value);
+        void ClearBufferiv(GLenum buffer, GLint drawbuffer, const GLint* value);
         void BlitFramebuffer(GLint srcX0, GLint srcY0, GLint srcX1, GLint srcY1,
                              GLint dstX0, GLint dstY0, GLint dstX1, GLint dstY1,
                              GLbitfield mask, GLenum filter);
+        void CopyTexSubImage2D(GLenum target, GLint level, GLint xoffset, GLint yoffset,
+                       GLint x, GLint y, GLsizei width, GLsizei height);
         void DrawArrays(const DrawCmd& payload);
         void DrawElements(const DrawIndexedCmd& payload);
         void MultiDrawElements(const MultiDrawIndexedCmd& payloads);
@@ -145,6 +151,8 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             Int surfaceTransformLocation = -1;
             Uint32 samplerBinding = 0;
         };
+
+        void QueueClearBufferPayload(GLenum buffer, GLint drawbuffer, const ClearAttachmentPayload& clearPayload);
 
         NativeWindowType m_window = 0;
         VulkanRendererConfig m_config;
