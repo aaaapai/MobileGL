@@ -541,6 +541,9 @@ namespace MobileGL::MG_Impl::GLImpl {
         } else {
             auto* ttype = programObject.GetUniformTType(location);
             if (ttype->isTexture() || ttype->isImage()) {
+                MGLOG_D("%s: program = %d, opaque uniform location = %d, name = '%s', unit = %d", __func__,
+                        programObject.GetExternalIndex(), location, programObject.GetUniformName(location).c_str(),
+                        static_cast<Int>(*value));
                 programObject.SetUniformSamplerOrImageUnitIndex(location, *value);
             }
         }

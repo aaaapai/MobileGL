@@ -292,20 +292,6 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         outTexture = textureUnit.GetBindingSlot(preferredTarget).GetBoundObject();
 
         if (!outTexture) {
-            for (const auto& bindingSlot : textureUnit.GetAllBindingSlots()) {
-                const auto& fallbackTexture = bindingSlot.GetBoundObject();
-                if (!fallbackTexture) {
-                    continue;
-                }
-                outTexture = fallbackTexture;
-                MGLOG_D(
-                    "ResolveSamplerTexture: falling back to bound textureId=%d for sampler binding=%u location=%d unit=%d target=%d",
-                    outTexture->GetExternalIndex(), binding, location, unit, static_cast<Int>(preferredTarget));
-                break;
-            }
-        }
-
-        if (!outTexture) {
             MGLOG_E("ResolveSamplerTexture: no texture bound for sampler binding=%u location=%d unit=%d target=%d",
                     binding, location, unit, static_cast<Int>(preferredTarget));
             return false;
@@ -592,12 +578,18 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                 } else {
                     hasImage = ResolveSamplerDescriptor(commandBuffer, program, programObj, binding, imageInfo);
                 }
-                MOBILEGL_ASSERT(hasImage,
-                                "UniformDescriptorBinder::BindProgramUniformBuffers failed: sampler binding %u has no valid texture descriptor",
-                                binding);
-                MOBILEGL_ASSERT(imageInfo.sampler != VK_NULL_HANDLE && imageInfo.imageView != VK_NULL_HANDLE,
-                                "UniformDescriptorBinder::BindProgramUniformBuffers failed: sampler binding %u has null sampler or imageView",
-                                binding);
+                if (!hasImage) {
+                    MGLOG_E(
+                        "UniformDescriptorBinder::BindProgramUniformBuffers failed: sampler binding %u has no valid texture descriptor",
+                        binding);
+                    return false;
+                }
+                if (imageInfo.sampler == VK_NULL_HANDLE || imageInfo.imageView == VK_NULL_HANDLE) {
+                    MGLOG_E(
+                        "UniformDescriptorBinder::BindProgramUniformBuffers failed: sampler binding %u has null sampler or imageView",
+                        binding);
+                    return false;
+                }
                 imageInfos.push_back(imageInfo);
                 write.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
                 write.pImageInfo = &imageInfos.back();

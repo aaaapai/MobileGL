@@ -20,6 +20,25 @@
 #include <vulkan/vulkan_core.h>
 
 namespace MobileGL::MG_Backend::DirectVulkan {
+    static VkPipelineColorBlendAttachmentState MakeColorBlendAttachmentState(
+        Bool blendEnable,
+        VkBlendFactor srcColorBlendFactor,
+        VkBlendFactor dstColorBlendFactor,
+        VkBlendFactor srcAlphaBlendFactor,
+        VkBlendFactor dstAlphaBlendFactor,
+        VkColorComponentFlags colorWriteMask) {
+        VkPipelineColorBlendAttachmentState attachment{};
+        attachment.blendEnable = blendEnable ? VK_TRUE : VK_FALSE;
+        attachment.srcColorBlendFactor = srcColorBlendFactor;
+        attachment.dstColorBlendFactor = dstColorBlendFactor;
+        attachment.colorBlendOp = VK_BLEND_OP_ADD;
+        attachment.srcAlphaBlendFactor = srcAlphaBlendFactor;
+        attachment.dstAlphaBlendFactor = dstAlphaBlendFactor;
+        attachment.alphaBlendOp = VK_BLEND_OP_ADD;
+        attachment.colorWriteMask = colorWriteMask;
+        return attachment;
+    }
+
     static Bool ShouldUseTransientVertexIndexBuffer(const MG_State::GLState::BufferObject& bufferObject) {
         switch (bufferObject.GetUsage()) {
         case BufferUsage::StreamDraw:
@@ -802,16 +821,24 @@ void main() {
             .depthTestEnable = false,
             .depthWriteEnable = false,
             .depthCompareOp = VK_COMPARE_OP_ALWAYS,
-            .blendEnable = false,
-            .srcColorBlendFactor = VK_BLEND_FACTOR_ONE,
-            .dstColorBlendFactor = VK_BLEND_FACTOR_ZERO,
-            .srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE,
-            .dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO,
-            .colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
-                              VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT,
             .stages = &programObj.stages,
             .vertexInputState = &kEmptyVertexInputState
         };
+        static constexpr VkColorComponentFlags kColorWriteMask =
+            VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
+            VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+        MOBILEGL_ASSERT(payload.colorAttachmentCount <= PipelineFactory::PipelineCreatePayload::kMaxColorAttachments,
+                        "GetOrCreateBlitPipeline: colorAttachmentCount=%u exceeds payload capacity",
+                        payload.colorAttachmentCount);
+        for (Uint32 i = 0; i < payload.colorAttachmentCount; ++i) {
+            payload.colorBlendAttachments[i] = MakeColorBlendAttachmentState(
+                false,
+                VK_BLEND_FACTOR_ONE,
+                VK_BLEND_FACTOR_ZERO,
+                VK_BLEND_FACTOR_ONE,
+                VK_BLEND_FACTOR_ZERO,
+                kColorWriteMask);
+        }
         return m_pipelineFactory->GetOrCreatePipeline(payload);
     }
 
@@ -832,12 +859,12 @@ void main() {
         auto& vis = m_vertexInputStateFactory->GetOrCreateVertexInputState(vao);
         auto cullFaceEnabled = MG_State::pGLContext->IsCapabilityEnabled(CapabilityInput::CullFace);
         auto depthTestEnabled = MG_State::pGLContext->IsCapabilityEnabled(CapabilityInput::DepthTest);
-        BlendFactor srcRGB = BlendFactor::One;
-        BlendFactor dstRGB = BlendFactor::Zero;
-        BlendFactor srcAlpha = BlendFactor::One;
-        BlendFactor dstAlpha = BlendFactor::Zero;
-        MG_State::pGLContext->GetBlendFunc(srcRGB, dstRGB, srcAlpha, dstAlpha);
         auto mask = MG_State::pGLContext->GetColorMask();
+        const auto colorWriteMask = static_cast<VkColorComponentFlags>(
+            (mask.r() ? VK_COLOR_COMPONENT_R_BIT : 0u) |
+            (mask.g() ? VK_COLOR_COMPONENT_G_BIT : 0u) |
+            (mask.b() ? VK_COLOR_COMPONENT_B_BIT : 0u) |
+            (mask.a() ? VK_COLOR_COMPONENT_A_BIT : 0u));
 
         PipelineFactory::PipelineCreatePayload payload {
             .programHash = programObj.hash,
@@ -854,19 +881,26 @@ void main() {
             .depthTestEnable = depthTestEnabled,
             .depthWriteEnable = depthTestEnabled && MG_State::pGLContext->GetDepthMask(),
             .depthCompareOp = MG_Util::ConvertDepthTestFuncToVkEnum(MG_State::pGLContext->GetDepthFunc()),
-            .blendEnable = MG_State::pGLContext->IsCapabilityEnabled(CapabilityInput::Blend),
-            .srcColorBlendFactor = MG_Util::ConvertBlendFactorToVkEnum(srcRGB),
-            .dstColorBlendFactor = MG_Util::ConvertBlendFactorToVkEnum(dstRGB),
-            .srcAlphaBlendFactor = MG_Util::ConvertBlendFactorToVkEnum(srcAlpha),
-            .dstAlphaBlendFactor = MG_Util::ConvertBlendFactorToVkEnum(dstAlpha),
-            .colorWriteMask = (
-                (mask.r() ? VK_COLOR_COMPONENT_R_BIT : 0u) |
-                (mask.g() ? VK_COLOR_COMPONENT_G_BIT : 0u) |
-                (mask.b() ? VK_COLOR_COMPONENT_B_BIT : 0u) |
-                (mask.a() ? VK_COLOR_COMPONENT_A_BIT : 0u) ),
             .stages = &programObj.stages,
             .vertexInputState = &vis.state
         };
+        MOBILEGL_ASSERT(payload.colorAttachmentCount <= PipelineFactory::PipelineCreatePayload::kMaxColorAttachments,
+                        "GetOrCreatePipeline: colorAttachmentCount=%u exceeds payload capacity",
+                        payload.colorAttachmentCount);
+        for (Uint32 i = 0; i < payload.colorAttachmentCount; ++i) {
+            BlendFactor srcRGB = BlendFactor::One;
+            BlendFactor dstRGB = BlendFactor::Zero;
+            BlendFactor srcAlpha = BlendFactor::One;
+            BlendFactor dstAlpha = BlendFactor::Zero;
+            MG_State::pGLContext->GetBlendFuncIndexed(i, srcRGB, dstRGB, srcAlpha, dstAlpha);
+            payload.colorBlendAttachments[i] = MakeColorBlendAttachmentState(
+                MG_State::pGLContext->IsCapabilityEnabledIndexed(CapabilityInput::Blend, i),
+                MG_Util::ConvertBlendFactorToVkEnum(srcRGB),
+                MG_Util::ConvertBlendFactorToVkEnum(dstRGB),
+                MG_Util::ConvertBlendFactorToVkEnum(srcAlpha),
+                MG_Util::ConvertBlendFactorToVkEnum(dstAlpha),
+                colorWriteMask);
+        }
         return m_pipelineFactory->GetOrCreatePipeline(payload);
     }
 

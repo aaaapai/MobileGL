@@ -1292,7 +1292,8 @@ namespace MobileGL::MG_Impl::GLImpl {
     }
 
     void BindTexture_State(GLenum target, GLuint texture) {
-        MGLOG_D("BindTexture_State called with target: 0x%X, texture: %u", target, texture);
+        const Int activeUnit = MG_State::pGLContext->GetActiveTextureUnit();
+        MGLOG_D("BindTexture_State called with target: 0x%X, texture: %u, unit: %d", target, texture, activeUnit);
         // ======================= Converting ================================
         TextureTarget textureTarget = MG_Util::ConvertGLEnumToTextureTarget(target);
 
@@ -1301,7 +1302,7 @@ namespace MobileGL::MG_Impl::GLImpl {
 
         // Name 0 unbinds the current target from the active texture unit.
         if (texture == 0) {
-            auto& currentUnit = MG_State::pGLContext->GetTextureUnitObject(MG_State::pGLContext->GetActiveTextureUnit());
+            auto& currentUnit = MG_State::pGLContext->GetTextureUnitObject(activeUnit);
             auto& bindingSlot = currentUnit.GetBindingSlot(textureTarget);
             bindingSlot.Bind(nullptr);
             return;
@@ -1339,7 +1340,9 @@ namespace MobileGL::MG_Impl::GLImpl {
         }
 
         // ======================= Processing ================================
-        MG_State::pGLContext->SetActiveTextureUnit((Int)texture - GL_TEXTURE0);
+        const Int unit = (Int)texture - GL_TEXTURE0;
+        MGLOG_D("ActiveTexture_State: unit = %d", unit);
+        MG_State::pGLContext->SetActiveTextureUnit(unit);
     }
 
     void GetTexImage_Backend(GLenum target, GLint level, GLenum format, GLenum type, GLvoid* pixels) {
