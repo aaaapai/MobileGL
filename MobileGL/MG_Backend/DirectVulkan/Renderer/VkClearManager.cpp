@@ -12,6 +12,20 @@
 #include "MG_Util/Converters/MGToStr/TextureEnumConverter.h"
 
 namespace MobileGL::MG_Backend::DirectVulkan {
+    static SharedPtr<MG_State::GLState::ITextureObject> GetClearableAttachmentTexture(
+        const MG_State::GLState::FramebufferObject& drawFbo, FramebufferAttachmentType attachmentType) {
+        if (attachmentType == FramebufferAttachmentType::None) {
+            return nullptr;
+        }
+
+        const auto& attachment = drawFbo.GetAttachment(attachmentType);
+        if (!attachment.IsTexture() || attachment.IsRenderbuffer()) {
+            return nullptr;
+        }
+
+        return attachment.GetTexture();
+    }
+
     Bool VkClearManager::Initialize() {
         return true;
     }
@@ -26,39 +40,47 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             auto& drawbufs = drawFbo.GetDrawBuffers();
             // This should automatically work on default & offscreen FBO
             for (auto drawbuf: drawbufs) {
-                if (drawbuf == FramebufferAttachmentType::None ||
-                    drawFbo.GetAttachment(drawbuf).IsRenderbuffer())
+                auto texture = GetClearableAttachmentTexture(drawFbo, drawbuf);
+                if (!texture) {
                     continue;
+                }
 
                 QueueClear({
                     .mask = GL_COLOR_BUFFER_BIT,
                     .color = clearPayload.color
-                }, drawFbo.GetAttachment(drawbuf).GetTexture());
+                }, texture);
+
                 MGLOG_D("%s: %s (texture %d) - color = (%.2f, %.2f, %.2f, %.2f)", __func__,
                     MG_Util::ConvertFramebufferAttachmentTypeToString(drawbuf).c_str(),
-                    drawFbo.GetAttachment(drawbuf).GetTexture()->GetExternalIndex(),
+                    texture->GetExternalIndex(),
                     clearPayload.color[0], clearPayload.color[1], clearPayload.color[2], clearPayload.color[3]);
             }
         }
 
-        if (mask & GL_DEPTH_BUFFER_BIT &&
-            !drawFbo.GetAttachment(FramebufferAttachmentType::Depth).IsRenderbuffer()) {
-            QueueClear({
-                .mask = GL_DEPTH_BUFFER_BIT,
-                .depth = clearPayload.depth,
-            }, drawFbo.GetAttachment(FramebufferAttachmentType::Depth).GetTexture());
-            MGLOG_D("%s: Depth (texture %d) - depth = (%.2f)", __func__,
-                drawFbo.GetAttachment(FramebufferAttachmentType::Depth).GetTexture()->GetExternalIndex(), clearPayload.depth);
+        if (mask & GL_DEPTH_BUFFER_BIT) {
+            auto texture = GetClearableAttachmentTexture(drawFbo, FramebufferAttachmentType::Depth);
+            if (texture) {
+                QueueClear({
+                    .mask = GL_DEPTH_BUFFER_BIT,
+                    .depth = clearPayload.depth,
+                }, texture);
+
+                MGLOG_D("%s: Depth (texture %d) - depth = (%.2f)", __func__,
+                    texture->GetExternalIndex(), clearPayload.depth);
+            }
         }
 
-        if (mask & GL_STENCIL_BUFFER_BIT &&
-            !drawFbo.GetAttachment(FramebufferAttachmentType::Stencil).IsRenderbuffer()) {
-            QueueClear({
-                .mask = GL_STENCIL_BUFFER_BIT,
-                .stencil = clearPayload.stencil,
-            }, drawFbo.GetAttachment(FramebufferAttachmentType::Stencil).GetTexture());
-            MGLOG_D("%s: Stencil (texture %d) - stencil = (%u)", __func__,
-                drawFbo.GetAttachment(FramebufferAttachmentType::Stencil).GetTexture()->GetExternalIndex(), clearPayload.stencil);
+        if (mask & GL_STENCIL_BUFFER_BIT) {
+            auto texture = GetClearableAttachmentTexture(drawFbo, FramebufferAttachmentType::Stencil);
+            if (texture) {
+                QueueClear({
+                    .mask = GL_STENCIL_BUFFER_BIT,
+                    .stencil = clearPayload.stencil,
+                }, texture);
+
+                MGLOG_D("%s: Stencil (texture %d) - stencil = (%u)", __func__,
+                    texture->GetExternalIndex(), clearPayload.stencil);
+            }
         }
     }
 

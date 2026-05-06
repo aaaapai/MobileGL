@@ -4,7 +4,7 @@ project("MobileGL")
 
 option(MOBILEGL_BUILD_TEST        "Build MobileGL tests"                             ON )
 option(MOBILEGL_BUILD_BENCHMARK   "Build MobileGL benchmarks"                        ON )
-option(MOBILEGL_FORCE_RELEASE_OPT "Enable Release optimization flags in Debug build" ON )
+option(MOBILEGL_FORCE_RELEASE_OPT "Enable Release optimization flags in Debug build" OFF)
 option(MOBILEGL_ENABLE_TRACY      "Enable tracy for profiling"                       OFF)
 
 if (ANDROID)
