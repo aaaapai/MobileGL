@@ -182,6 +182,18 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                     outSrcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
                     outSrcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
                     break;
+                case VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL:
+                    outSrcStageMask = VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT |
+                                      VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;
+                    outSrcAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT |
+                                       VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+                    break;
+                case VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL:
+                case VK_IMAGE_LAYOUT_DEPTH_READ_ONLY_STENCIL_ATTACHMENT_OPTIMAL:
+                case VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_STENCIL_READ_ONLY_OPTIMAL:
+                    outSrcStageMask = VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT;
+                    outSrcAccessMask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT;
+                    break;
                 case VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL:
                     outSrcStageMask = VK_PIPELINE_STAGE_TRANSFER_BIT;
                     outSrcAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
@@ -242,6 +254,34 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                     outDstAccessMask = VK_ACCESS_MEMORY_READ_BIT | VK_ACCESS_MEMORY_WRITE_BIT;
                     break;
             }
+        }
+
+        static VkImageAspectFlags GetSwapchainDepthStencilAspectMask(const SwapchainObject& swapchainObject) {
+            VkImageAspectFlags aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
+            switch (swapchainObject.GetDepthStencilFormat()) {
+                case VK_FORMAT_D24_UNORM_S8_UINT:
+                case VK_FORMAT_D32_SFLOAT_S8_UINT:
+                    aspectMask |= VK_IMAGE_ASPECT_STENCIL_BIT;
+                    break;
+                default:
+                    break;
+            }
+            return aspectMask;
+        }
+
+        static FramebufferAttachmentType ResolveFramebufferCopyAttachmentType(
+            const MG_State::GLState::FramebufferObject& fbo, Bool isReadFramebuffer,
+            VkImageAspectFlags aspectMask) {
+            if ((aspectMask & VK_IMAGE_ASPECT_COLOR_BIT) != 0) {
+                return isReadFramebuffer ? fbo.GetReadBuffer() : fbo.GetDrawBuffers()[0];
+            }
+            if ((aspectMask & VK_IMAGE_ASPECT_DEPTH_BIT) != 0) {
+                return FramebufferAttachmentType::Depth;
+            }
+            if ((aspectMask & VK_IMAGE_ASPECT_STENCIL_BIT) != 0) {
+                return FramebufferAttachmentType::Stencil;
+            }
+            return FramebufferAttachmentType::None;
         }
 
         static Bool ResolveColorBlitBinding(MG_State::GLState::FramebufferObject& fbo, Bool isReadFramebuffer,
@@ -316,8 +356,10 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                         texture.GetExternalIndex());
                 return false;
             }
-            if ((resource->aspect & VK_IMAGE_ASPECT_COLOR_BIT) == 0) {
-                MGLOG_E("CopyTexSubImage2D skipped: destination textureId=%d is not a color image",
+            const VkImageAspectFlags copyAspectMask =
+                resource->aspect & (VK_IMAGE_ASPECT_COLOR_BIT | VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT);
+            if (copyAspectMask == 0) {
+                MGLOG_E("CopyTexSubImage2D skipped: destination textureId=%d uses unsupported aspect mask=0x%x",
                         texture.GetExternalIndex());
                 return false;
             }
@@ -329,13 +371,92 @@ namespace MobileGL::MG_Backend::DirectVulkan {
 
             outBinding.image = resource->image;
             outBinding.trackedLayout = &resource->layout;
-            outBinding.aspectMask = resource->aspect;
+            outBinding.aspectMask = copyAspectMask;
             outBinding.extent = {
                 static_cast<Int>(std::max(1u, resource->extent.width >> mipLevel)),
                 static_cast<Int>(std::max(1u, resource->extent.height >> mipLevel))};
             outBinding.mipLevel = mipLevel;
             outBinding.mipLevelCount = 1;
             outBinding.label = "destination texture";
+            return true;
+        }
+
+        static Bool ResolveTextureCopySourceBinding(MG_State::GLState::FramebufferObject& fbo, Uint32 swapchainImageIndex,
+                                                    SwapchainObject& swapchainObject,
+                                                    VkTextureManager& textureManager,
+                                                    VkImageAspectFlags requiredAspectMask,
+                                                    BlitImageBinding& outBinding) {
+            const Bool isDefaultFbo =
+                (&fbo == MG_Impl::GLImpl::FramebufferImpl::pDefaultFramebufferInfo->defaultFBO.get());
+            const auto attachmentType = ResolveFramebufferCopyAttachmentType(fbo, true, requiredAspectMask);
+            if (attachmentType == FramebufferAttachmentType::None) {
+                MGLOG_E("CopyTexSubImage2D skipped: unsupported source aspect mask=0x%x",
+                        static_cast<Uint32>(requiredAspectMask));
+                return false;
+            }
+
+            outBinding.label = "read";
+            if (isDefaultFbo) {
+                const auto extent = swapchainObject.GetExtent();
+                outBinding.extent = {static_cast<Int>(extent.width), static_cast<Int>(extent.height)};
+                outBinding.mipLevel = 0;
+                outBinding.mipLevelCount = 1;
+                outBinding.trackedLayout = nullptr;
+                if ((requiredAspectMask & VK_IMAGE_ASPECT_COLOR_BIT) != 0) {
+                    outBinding.image = swapchainObject.GetImage(swapchainImageIndex);
+                    outBinding.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+                    return true;
+                }
+
+                const VkImageAspectFlags swapchainAspectMask = GetSwapchainDepthStencilAspectMask(swapchainObject);
+                if ((swapchainAspectMask & requiredAspectMask) != requiredAspectMask) {
+                    MGLOG_E("CopyTexSubImage2D skipped: swapchain depth image missing required aspect mask=0x%x",
+                            static_cast<Uint32>(requiredAspectMask));
+                    return false;
+                }
+
+                outBinding.image = swapchainObject.GetDepthStencilImage(swapchainImageIndex);
+                outBinding.aspectMask = requiredAspectMask;
+                return true;
+            }
+
+            const auto& attachment = fbo.GetAttachment(attachmentType);
+            if (!attachment.IsComplete()) {
+                MGLOG_E("CopyTexSubImage2D skipped: read framebuffer attachment %d is incomplete",
+                        static_cast<Int>(attachmentType));
+                return false;
+            }
+            if (attachment.IsRenderbuffer()) {
+                MGLOG_E("CopyTexSubImage2D skipped: renderbuffer read attachments are not supported yet");
+                return false;
+            }
+            if (!attachment.IsTexture()) {
+                MGLOG_E("CopyTexSubImage2D skipped: unsupported read framebuffer attachment type");
+                return false;
+            }
+
+            auto* texture = attachment.GetTexture().get();
+            MOBILEGL_ASSERT(texture != nullptr, "ResolveTextureCopySourceBinding: source texture attachment is null");
+            auto* resource = textureManager.SyncTextureAndGetDescriptor(*texture);
+            if (resource == nullptr) {
+                MGLOG_E("CopyTexSubImage2D skipped: failed to sync read framebuffer textureId=%d",
+                        texture->GetExternalIndex());
+                return false;
+            }
+            if ((resource->aspect & requiredAspectMask) != requiredAspectMask) {
+                MGLOG_E("CopyTexSubImage2D skipped: read framebuffer textureId=%d aspect mask=0x%x does not satisfy requested mask=0x%x",
+                        texture->GetExternalIndex(), static_cast<Uint32>(resource->aspect),
+                        static_cast<Uint32>(requiredAspectMask));
+                return false;
+            }
+
+            outBinding.image = resource->image;
+            outBinding.trackedLayout = &resource->layout;
+            outBinding.aspectMask = requiredAspectMask;
+            const auto attachmentExtent = attachment.GetSize();
+            outBinding.extent = {attachmentExtent.x(), attachmentExtent.y()};
+            outBinding.mipLevel = static_cast<Uint32>(std::max(attachment.GetTextureLevel(), 0));
+            outBinding.mipLevelCount = 1;
             return true;
         }
 
@@ -1586,14 +1707,6 @@ void main() {
         const Bool readIsDefaultFbo =
             (readFbo == MG_Impl::GLImpl::FramebufferImpl::pDefaultFramebufferInfo->defaultFBO);
 
-        BlitImageBinding srcBinding{};
-        if (!ResolveColorBlitBinding(*readFbo, true, m_imageIndexAcquired, m_swapchainObject, *m_textureManager,
-                                     srcBinding)) {
-            RecordTextureCopyError(__func__, ErrorCode::InvalidOperation,
-                                   "CopyTexSubImage2D requires a complete color read buffer.");
-            return;
-        }
-
         BlitImageBinding dstBinding{};
         if (!ResolveTextureCopyDestinationBinding(*destinationTexture, static_cast<Uint32>(level), *m_textureManager,
                                                   dstBinding)) {
@@ -1602,8 +1715,17 @@ void main() {
             return;
         }
 
+        BlitImageBinding srcBinding{};
+        if (!ResolveTextureCopySourceBinding(*readFbo, m_imageIndexAcquired, m_swapchainObject, *m_textureManager,
+                                             dstBinding.aspectMask, srcBinding)) {
+            RecordTextureCopyError(__func__, ErrorCode::InvalidOperation,
+                                   "CopyTexSubImage2D requires a complete read attachment compatible with the destination texture.");
+            return;
+        }
+
         if (!readIsDefaultFbo) {
-            const auto& sourceAttachment = readFbo->GetAttachment(readFbo->GetReadBuffer());
+            const auto sourceAttachmentType = ResolveFramebufferCopyAttachmentType(*readFbo, true, srcBinding.aspectMask);
+            const auto& sourceAttachment = readFbo->GetAttachment(sourceAttachmentType);
             auto sourceTexture = sourceAttachment.GetTexture();
             MOBILEGL_ASSERT(sourceTexture != nullptr, "CopyTexSubImage2D: source texture attachment is null");
             const Bool clearReady = MaterializePendingClearForTexture(frame.commandBuffer, *sourceTexture);
@@ -1612,8 +1734,11 @@ void main() {
                             sourceTexture->GetExternalIndex());
         }
 
+        const Bool srcUsesSwapchainDepth = readIsDefaultFbo && (srcBinding.aspectMask & VK_IMAGE_ASPECT_COLOR_BIT) == 0;
         const VkImageLayout srcOriginalLayout = readIsDefaultFbo
-            ? m_swapchainObject.GetImageLayout(m_imageIndexAcquired)
+            ? (srcUsesSwapchainDepth
+                ? m_swapchainObject.GetDepthStencilImageLayout(m_imageIndexAcquired)
+                : m_swapchainObject.GetImageLayout(m_imageIndexAcquired))
             : *srcBinding.trackedLayout;
         if (srcOriginalLayout == VK_IMAGE_LAYOUT_UNDEFINED) {
             RecordTextureCopyError(__func__, ErrorCode::InvalidOperation,
@@ -1623,7 +1748,9 @@ void main() {
 
         const VkImageLayout dstOriginalLayout = *dstBinding.trackedLayout;
         const VkImageLayout dstRestoreLayout = dstOriginalLayout == VK_IMAGE_LAYOUT_UNDEFINED
-            ? VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
+            ? ((dstBinding.aspectMask & (VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT)) != 0
+                ? VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL
+                : VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL)
             : dstOriginalLayout;
 
         VkPipelineStageFlags srcStageMask = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
@@ -1637,7 +1764,11 @@ void main() {
                 srcAccessMask, VK_ACCESS_TRANSFER_READ_BIT, srcBinding.aspectMask,
                 srcBinding.mipLevel, srcBinding.mipLevelCount);
             MOBILEGL_ASSERT(ok, "%s: failed to transition swapchain source image", __func__);
-            m_swapchainObject.SetImageLayout(m_imageIndexAcquired, srcTrackedLayout);
+            if (srcUsesSwapchainDepth) {
+                m_swapchainObject.SetDepthStencilImageLayout(m_imageIndexAcquired, srcTrackedLayout);
+            } else {
+                m_swapchainObject.SetImageLayout(m_imageIndexAcquired, srcTrackedLayout);
+            }
         } else {
             Bool ok = VkTextureManager::TransitionImageLayout(
                 frame.commandBuffer, srcBinding.image, *srcBinding.trackedLayout, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
@@ -1678,14 +1809,20 @@ void main() {
         VkAccessFlags srcRestoreAccessMask = 0;
         GetImageTransitionDestinationState(srcOriginalLayout, srcRestoreStageMask, srcRestoreAccessMask);
         if (readIsDefaultFbo) {
-            VkImageLayout srcTrackedLayout = m_swapchainObject.GetImageLayout(m_imageIndexAcquired);
+            VkImageLayout srcTrackedLayout = srcUsesSwapchainDepth
+                ? m_swapchainObject.GetDepthStencilImageLayout(m_imageIndexAcquired)
+                : m_swapchainObject.GetImageLayout(m_imageIndexAcquired);
             Bool ok = VkTextureManager::TransitionImageLayout(
                 frame.commandBuffer, srcBinding.image, srcTrackedLayout, srcOriginalLayout,
                 VK_PIPELINE_STAGE_TRANSFER_BIT, srcRestoreStageMask,
                 VK_ACCESS_TRANSFER_READ_BIT, srcRestoreAccessMask, srcBinding.aspectMask,
                 srcBinding.mipLevel, srcBinding.mipLevelCount);
             MOBILEGL_ASSERT(ok, "%s: failed to restore swapchain source image layout", __func__);
-            m_swapchainObject.SetImageLayout(m_imageIndexAcquired, srcTrackedLayout);
+            if (srcUsesSwapchainDepth) {
+                m_swapchainObject.SetDepthStencilImageLayout(m_imageIndexAcquired, srcTrackedLayout);
+            } else {
+                m_swapchainObject.SetImageLayout(m_imageIndexAcquired, srcTrackedLayout);
+            }
         } else {
             Bool ok = VkTextureManager::TransitionImageLayout(
                 frame.commandBuffer, srcBinding.image, *srcBinding.trackedLayout, srcOriginalLayout,
