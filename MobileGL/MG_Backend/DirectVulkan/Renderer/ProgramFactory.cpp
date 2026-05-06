@@ -717,16 +717,18 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                                 "ProgramFactory::ReflectLayout: sampler binding %u exceeds maxBindings=%u for '%s'",
                                 binding, m_maxBindings, uniformName.c_str());
 
+                const Int location = program.GetUniformLocation(uniformName);
+                if (location < 0) {
+                    continue;
+                }
+
                 MOBILEGL_ASSERT(entry.bindingKinds[binding] == DescriptorBindingKind::None ||
                                     entry.bindingKinds[binding] == DescriptorBindingKind::CombinedImageSampler,
                                 "ProgramFactory::ReflectLayout: descriptor binding %u has conflicting kinds for sampler '%s'",
                                 binding, uniformName.c_str());
                 entry.bindingKinds[binding] = DescriptorBindingKind::CombinedImageSampler;
 
-                const Int location = program.GetUniformLocation(uniformName);
-                const TextureTarget target =
-                    location >= 0 ? UniformTypeToTextureTarget(program.GetUniformType(static_cast<Uint>(location)))
-                                  : ReflectImageTraitsToTextureTarget(sampler->image);
+                const TextureTarget target = UniformTypeToTextureTarget(program.GetUniformType(static_cast<Uint>(location)));
                 MOBILEGL_ASSERT(target != TextureTarget::Unknown,
                                 "ProgramFactory::ReflectLayout: failed to resolve sampler target for '%s'",
                                 uniformName.c_str());

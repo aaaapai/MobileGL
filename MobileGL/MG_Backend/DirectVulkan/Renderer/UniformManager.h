@@ -65,6 +65,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         Bool ResolveSamplerTexture(const MG_State::GLState::ProgramObject& program,
                                    const ProgramFactory::VkProgramObject& programObj, Uint32 binding,
                                    SharedPtr<MG_State::GLState::ITextureObject>& outTexture) const;
+        SharedPtr<MG_State::GLState::ITextureObject> GetOrCreateSamplerFallbackTexture(TextureTarget target) const;
         Bool ResolveSamplerDescriptor(VkCommandBuffer commandBuffer, const MG_State::GLState::ProgramObject& program,
                                       const ProgramFactory::VkProgramObject& programObj, Uint32 binding,
                                       VkDescriptorImageInfo& outImageInfo) const;
@@ -90,6 +91,8 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         Uint32 m_peakDescriptorSetsObserved = 0;
         VkTextureManager* m_textureManager = nullptr;
         VkSamplerManager* m_samplerManager = nullptr;
+        mutable Array<SharedPtr<MG_State::GLState::ITextureObject>,
+                      static_cast<SizeT>(TextureTarget::TextureTargetCount)> m_samplerFallbackTextures{};
     };
 } // namespace MobileGL::MG_Backend::DirectVulkan
 

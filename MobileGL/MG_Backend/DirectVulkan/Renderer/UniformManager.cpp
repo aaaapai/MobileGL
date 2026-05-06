@@ -10,10 +10,38 @@
 
 #include "MG_State/GLState/Core.h"
 #include "MG_State/GLState/ProgramState/ProgramObject.h"
+#include "MG_State/GLState/TextureState/TextureObject2D.h"
 #include "MG_Util/Converters/MGToStr/FramebufferEnumConverter.h"
 #include <limits>
 
 namespace MobileGL::MG_Backend::DirectVulkan {
+    namespace {
+        constexpr Uint kFallbackTextureExternalIndexBase = 0xFFFF0000u;
+
+        SharedPtr<MG_State::GLState::ITextureObject> CreateFallbackTexture2D(Uint externalIndex) {
+            static constexpr Array<Uint8, 4> kBlackPixel = {0, 0, 0, 255};
+
+            auto texture = MakeShared<MG_State::GLState::TextureObject2D>(externalIndex);
+            texture->SetInternalFormat(TextureInternalFormat::RGBA8);
+            texture->AllocateStorage(TextureUploadTarget::Texture2D, 0,
+                                     {.texelSize = {1, 1, 1}, .byteSize = kBlackPixel.size()});
+            texture->UpdateMipmapSubData(TextureUploadTarget::Texture2D, 0,
+                                         {.data = const_cast<Uint8*>(kBlackPixel.data()),
+                                          .size = kBlackPixel.size()});
+            texture->SetBaseLevel(0);
+            texture->SetMaxLevel(0);
+
+            const auto& sampler = texture->GetSamplerObject();
+            MOBILEGL_ASSERT(sampler != nullptr, "CreateFallbackTexture2D: texture sampler is null");
+            sampler->SetWrapS(SamplerWrapMode::ClampToEdge);
+            sampler->SetWrapT(SamplerWrapMode::ClampToEdge);
+            sampler->SetMinFilter(SamplerFilterMode::Nearest);
+            sampler->SetMagFilter(SamplerFilterMode::Nearest);
+            sampler->SetMipmapMode(SamplerMipmapMode::None);
+            return texture;
+        }
+    }
+
     static Bool FindFramebufferAttachmentForTexture(const MG_State::GLState::FramebufferObject& framebuffer,
                                                     const MG_State::GLState::ITextureObject& texture,
                                                     FramebufferAttachmentType& outAttachment, Int& outLevel) {
@@ -145,6 +173,9 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         m_peakDescriptorSetsObserved = 0;
         m_textureManager = nullptr;
         m_samplerManager = nullptr;
+        for (auto& fallbackTexture : m_samplerFallbackTextures) {
+            fallbackTexture.reset();
+        }
     }
 
     void UniformManager::BeginFrame(Uint32 frameIndex) {
@@ -292,11 +323,36 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         outTexture = textureUnit.GetBindingSlot(preferredTarget).GetBoundObject();
 
         if (!outTexture) {
-            MGLOG_E("ResolveSamplerTexture: no texture bound for sampler binding=%u location=%d unit=%d target=%d",
+            outTexture = GetOrCreateSamplerFallbackTexture(preferredTarget);
+        }
+
+        if (!outTexture) {
+            MGLOG_E(
+                "ResolveSamplerTexture: no texture bound and no fallback available for sampler binding=%u location=%d unit=%d target=%d",
                     binding, location, unit, static_cast<Int>(preferredTarget));
             return false;
         }
         return outTexture != nullptr;
+    }
+
+    SharedPtr<MG_State::GLState::ITextureObject>
+    UniformManager::GetOrCreateSamplerFallbackTexture(TextureTarget target) const {
+        const SizeT targetIndex = static_cast<SizeT>(target);
+        MOBILEGL_ASSERT(targetIndex < m_samplerFallbackTextures.size(),
+                        "GetOrCreateSamplerFallbackTexture: invalid texture target %d", static_cast<Int>(target));
+
+        auto& fallbackTexture = m_samplerFallbackTextures[targetIndex];
+        if (fallbackTexture != nullptr) {
+            return fallbackTexture;
+        }
+
+        switch (target) {
+        case TextureTarget::Texture2D:
+            fallbackTexture = CreateFallbackTexture2D(kFallbackTextureExternalIndexBase + static_cast<Uint>(targetIndex));
+            return fallbackTexture;
+        default:
+            return nullptr;
+        }
     }
 
     Bool UniformManager::CollectSampledTextures(const MG_State::GLState::ProgramObject& program,
