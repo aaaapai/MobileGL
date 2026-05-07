@@ -124,6 +124,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                              GLbitfield mask, GLenum filter);
         void CopyTexSubImage2D(GLenum target, GLint level, GLint xoffset, GLint yoffset,
                        GLint x, GLint y, GLsizei width, GLsizei height);
+        void GenerateMipmap(GLenum target);
         void DrawArrays(const DrawCmd& payload);
         void DrawElements(const DrawIndexedCmd& payload);
         void MultiDrawElements(const MultiDrawIndexedCmd& payloads);

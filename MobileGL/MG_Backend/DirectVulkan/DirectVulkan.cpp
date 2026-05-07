@@ -66,7 +66,11 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         MOBILEGL_ASSERT(MG_State::pGLContext, "DirectVulkan::CopyTexSubImage2D called with null GL context");
         pVulkanRenderer->CopyTexSubImage2D(target, level, xoffset, yoffset, x, y, width, height);
     }
-    void GenerateMipmap(GLenum target) {}
+    void GenerateMipmap(GLenum target) {
+        MOBILEGL_ASSERT(pVulkanRenderer, "DirectVulkan::GenerateMipmap called with null VulkanRenderer");
+        MOBILEGL_ASSERT(MG_State::pGLContext, "DirectVulkan::GenerateMipmap called with null GL context");
+        pVulkanRenderer->GenerateMipmap(target);
+    }
     void ReadPixels(GLint x, GLint y, GLsizei width, GLsizei height, GLenum format, GLenum type, void* pixels) {}
     void GetTexImage(GLenum target, GLint level, GLenum format, GLenum type, GLvoid* pixels) {}
 

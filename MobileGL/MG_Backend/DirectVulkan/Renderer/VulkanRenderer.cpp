@@ -14,6 +14,7 @@
 #include "MG_State/GLState/ProgramState/ProgramObject.h"
 #include "MG_State/GLState/ProgramState/ShaderObject.h"
 #include "MG_State/GLState/SamplerState/SamplerObject.h"
+#include "MG_State/GLState/TextureState/TextureObject.h"
 #include "MG_Impl/GLImpl/Framebuffer/GL_Framebuffer.h"
 #include "MG_Util/Converters/GLToMG/TextureEnumConverter.h"
 #include "MG_Util/Converters/MGToVk/RenderStateEnumConverter.h"
@@ -132,6 +133,68 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         static constexpr Uint kHiddenBlitFragmentShaderId = 0xFFFFFFF2u;
         static constexpr Uint kHiddenBlitNearestSamplerId = 0xFFFFFFF3u;
         static constexpr Uint kHiddenBlitLinearSamplerId = 0xFFFFFFF4u;
+
+        static Uint32 ComputeFullMipLevelCount(const IntVec3& baseTexelSize) {
+            Int maxDimension = std::max<Int>(
+                baseTexelSize.x(),
+                std::max<Int>(baseTexelSize.y(), std::max<Int>(baseTexelSize.z(), 1)));
+            Uint32 mipLevelCount = 1;
+            while (maxDimension > 1) {
+                maxDimension = std::max<Int>(maxDimension / 2, 1);
+                ++mipLevelCount;
+            }
+            return mipLevelCount;
+        }
+
+        static IntVec3 ComputeMipTexelSize(const IntVec3& baseTexelSize, Uint32 relativeMipLevel) {
+            const Int width = std::max<Int>(baseTexelSize.x() >> static_cast<Int>(relativeMipLevel), 1);
+            const Int height = std::max<Int>(baseTexelSize.y() >> static_cast<Int>(relativeMipLevel), 1);
+            const Int depth = std::max<Int>(baseTexelSize.z() >> static_cast<Int>(relativeMipLevel), 1);
+            return {width, height, depth};
+        }
+
+        static Bool EnsureGenerateMipmapStorageAllocated(::MobileGL::MG_State::GLState::TextureObjectMipmap& texture,
+                                                         ::MobileGL::TextureUploadTarget uploadTarget,
+                                                         Uint32 baseMipLevel) {
+            const Uint32 existingMipLevelCount = static_cast<Uint32>(texture.GetMipmapLevelCount());
+            if (existingMipLevelCount <= baseMipLevel) {
+                return false;
+            }
+
+            const IntVec3 baseTexelSize = texture.GetMipmapTexelSize(uploadTarget, baseMipLevel);
+            const SizeT baseByteSize = texture.GetMipmapByteSize(uploadTarget, baseMipLevel);
+            if (baseTexelSize.x() <= 0 || baseTexelSize.y() <= 0 || baseTexelSize.z() <= 0 || baseByteSize == 0) {
+                return false;
+            }
+
+            const SizeT baseTexelCount = static_cast<SizeT>(baseTexelSize.x()) * static_cast<SizeT>(baseTexelSize.y()) *
+                                         static_cast<SizeT>(baseTexelSize.z());
+            if (baseTexelCount == 0 || (baseByteSize % baseTexelCount) != 0) {
+                return false;
+            }
+
+            const SizeT bytesPerTexel = baseByteSize / baseTexelCount;
+            const Uint32 requiredMipLevelCount = baseMipLevel + ComputeFullMipLevelCount(baseTexelSize);
+            if (existingMipLevelCount >= requiredMipLevelCount) {
+                return true;
+            }
+
+            for (Uint32 level = existingMipLevelCount; level < requiredMipLevelCount; ++level) {
+                const IntVec3 levelTexelSize = ComputeMipTexelSize(baseTexelSize, level - baseMipLevel);
+                const SizeT levelByteSize = bytesPerTexel * static_cast<SizeT>(levelTexelSize.x()) *
+                                            static_cast<SizeT>(levelTexelSize.y()) *
+                                            static_cast<SizeT>(levelTexelSize.z());
+                texture.AllocateStorage(uploadTarget, level, {levelTexelSize, levelByteSize});
+                texture.MarkStorageDirty(uploadTarget, level, false);
+            }
+            return true;
+        }
+
+        static VkImageLayout ResolveGenerateMipmapFinalLayout(VkImageAspectFlags aspectMask) {
+            return (aspectMask & (VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT)) != 0
+                ? VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL
+                : VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        }
 
         enum class BlitSurfaceTransform : Uint32 {
             Identity = 0,
@@ -1841,6 +1904,181 @@ void main() {
             VK_ACCESS_TRANSFER_WRITE_BIT, dstRestoreAccessMask, dstBinding.aspectMask,
             dstBinding.mipLevel, dstBinding.mipLevelCount);
         MOBILEGL_ASSERT(dstRestored, "%s: failed to restore destination image layout", __func__);
+    }
+
+    void VulkanRenderer::GenerateMipmap(GLenum target) {
+        const auto textureTarget = MG_Util::ConvertGLEnumToTextureTarget(target);
+        const auto uploadTarget = MG_Util::ConvertGLEnumToTextureUploadTarget(target);
+        MOBILEGL_ASSERT(textureTarget == TextureTarget::Texture2D || textureTarget == TextureTarget::Texture3D,
+                        "GenerateMipmap currently only supports GL_TEXTURE_2D and GL_TEXTURE_3D.");
+
+        auto& textureUnit = MG_State::pGLContext->GetTextureUnitObject(MG_State::pGLContext->GetActiveTextureUnit());
+        auto texture = textureUnit.GetBindingSlot(textureTarget).GetBoundObject();
+        MOBILEGL_ASSERT(texture != nullptr, "GenerateMipmap requires a bound texture.");
+        MOBILEGL_ASSERT(texture->IsComplete(), "GenerateMipmap requires a complete texture.");
+
+        auto* mipmapTexture = dynamic_cast<MG_State::GLState::TextureObjectMipmap*>(texture.get());
+        MOBILEGL_ASSERT(mipmapTexture != nullptr, "GenerateMipmap requires a mipmapped texture object.");
+
+        const Uint32 currentMipLevelCount = static_cast<Uint32>(mipmapTexture->GetMipmapLevelCount());
+        MOBILEGL_ASSERT(currentMipLevelCount > 0, "GenerateMipmap requires level 0 storage.");
+
+        const Uint32 baseMipLevel = std::min(static_cast<Uint32>(texture->GetLevelRange().x()), currentMipLevelCount - 1);
+
+        auto& frame = m_frameContext.GetCurrent();
+        if (!frame.isCommandRecording) {
+            m_frameContext.BeginCommandRecording();
+            m_uniformManager->BeginFrame(m_frameContext.GetCurrentFrameIndex());
+        }
+
+        if (VkRenderPassManager::GetActiveRenderPass() != nullptr) {
+            VkRenderPassManager::EndRenderPass(frame.commandBuffer);
+        }
+
+        const Bool clearReady = MaterializePendingClearForTexture(frame.commandBuffer, *texture);
+        MOBILEGL_ASSERT(clearReady,
+                        "GenerateMipmap: failed to materialize pending clear for textureId=%d",
+                        texture->GetExternalIndex());
+
+        auto* resource = m_textureManager->SyncTextureAndGetDescriptor(*texture);
+        MOBILEGL_ASSERT(resource != nullptr && resource->image != VK_NULL_HANDLE,
+                        "GenerateMipmap failed to sync the backend texture.");
+
+        VkFormatProperties formatProperties{};
+        vkGetPhysicalDeviceFormatProperties(m_physicalDevice.handle, resource->format, &formatProperties);
+        const VkFormatFeatureFlags optimalTilingFeatures = formatProperties.optimalTilingFeatures;
+        if ((optimalTilingFeatures & VK_FORMAT_FEATURE_BLIT_SRC_BIT) == 0 ||
+            (optimalTilingFeatures & VK_FORMAT_FEATURE_BLIT_DST_BIT) == 0) {
+            MGLOG_W("GenerateMipmap skipped for textureId=%d because Vulkan format %d does not support blit-based mip generation",
+                texture->GetExternalIndex(), static_cast<Int>(resource->format));
+            return;
+        }
+
+        MOBILEGL_ASSERT(EnsureGenerateMipmapStorageAllocated(*mipmapTexture, uploadTarget, baseMipLevel),
+                "GenerateMipmap could not allocate a full mip chain for this texture.");
+
+        resource = m_textureManager->SyncTextureAndGetDescriptor(*texture);
+        MOBILEGL_ASSERT(resource != nullptr && resource->image != VK_NULL_HANDLE,
+                "GenerateMipmap failed to resync the backend texture after allocating mip storage.");
+        MOBILEGL_ASSERT(resource->layout != VK_IMAGE_LAYOUT_UNDEFINED,
+                "GenerateMipmap requires initialized base-level image data.");
+
+        const IntVec3 storageBaseTexelSize = {
+            static_cast<Int>(resource->extent.width),
+            static_cast<Int>(resource->extent.height),
+            static_cast<Int>(resource->depth),
+        };
+        const IntVec3 baseTexelSize = ComputeMipTexelSize(storageBaseTexelSize, baseMipLevel);
+        const Uint32 requiredMipLevelCount = baseMipLevel + ComputeFullMipLevelCount(baseTexelSize);
+        const Uint32 generateMipLevelCount = std::min(requiredMipLevelCount, resource->mipLevels);
+        if (generateMipLevelCount <= baseMipLevel + 1) {
+            resource->layout = ResolveGenerateMipmapFinalLayout(resource->aspect);
+            return;
+        }
+
+        const VkImageLayout originalLayout = resource->layout;
+        const VkImageLayout finalLayout = ResolveGenerateMipmapFinalLayout(resource->aspect);
+        const VkFilter blitFilter = (optimalTilingFeatures & VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_LINEAR_BIT) != 0
+            ? VK_FILTER_LINEAR
+            : VK_FILTER_NEAREST;
+
+        VkPipelineStageFlags originalSrcStageMask = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
+        VkAccessFlags originalSrcAccessMask = 0;
+        GetImageTransitionSourceState(originalLayout, originalSrcStageMask, originalSrcAccessMask);
+
+        VkPipelineStageFlags finalDstStageMask = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
+        VkAccessFlags finalDstAccessMask = 0;
+        GetImageTransitionDestinationState(finalLayout, finalDstStageMask, finalDstAccessMask);
+
+        if (originalLayout != finalLayout) {
+            if (baseMipLevel > 0) {
+                VkImageLayout lowerMipLayout = originalLayout;
+                const Bool lowerReady = VkTextureManager::TransitionImageLayout(
+                    frame.commandBuffer, resource->image, lowerMipLayout, finalLayout,
+                    originalSrcStageMask, finalDstStageMask,
+                    originalSrcAccessMask, finalDstAccessMask,
+                    resource->aspect, 0, baseMipLevel);
+                MOBILEGL_ASSERT(lowerReady, "%s: failed to transition lower untouched mip levels", __func__);
+            }
+
+            if (generateMipLevelCount < resource->mipLevels) {
+                VkImageLayout upperMipLayout = originalLayout;
+                const Bool upperReady = VkTextureManager::TransitionImageLayout(
+                    frame.commandBuffer, resource->image, upperMipLayout, finalLayout,
+                    originalSrcStageMask, finalDstStageMask,
+                    originalSrcAccessMask, finalDstAccessMask,
+                    resource->aspect, generateMipLevelCount, resource->mipLevels - generateMipLevelCount);
+                MOBILEGL_ASSERT(upperReady, "%s: failed to transition upper untouched mip levels", __func__);
+            }
+        }
+
+        VkImageLayout srcMipLayout = originalLayout;
+        Bool srcReady = VkTextureManager::TransitionImageLayout(
+            frame.commandBuffer, resource->image, srcMipLayout, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+            originalSrcStageMask, VK_PIPELINE_STAGE_TRANSFER_BIT,
+            originalSrcAccessMask, VK_ACCESS_TRANSFER_READ_BIT,
+            resource->aspect, baseMipLevel, 1);
+        MOBILEGL_ASSERT(srcReady, "%s: failed to transition base mip level to transfer source", __func__);
+
+        for (Uint32 level = baseMipLevel + 1; level < generateMipLevelCount; ++level) {
+            VkImageLayout dstMipLayout = originalLayout;
+            Bool dstReady = VkTextureManager::TransitionImageLayout(
+                frame.commandBuffer, resource->image, dstMipLayout, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                originalSrcStageMask, VK_PIPELINE_STAGE_TRANSFER_BIT,
+                originalSrcAccessMask, VK_ACCESS_TRANSFER_WRITE_BIT,
+                resource->aspect, level, 1);
+            MOBILEGL_ASSERT(dstReady, "%s: failed to transition mip level %u to transfer destination", __func__, level);
+
+            const IntVec3 srcTexelSize = ComputeMipTexelSize(storageBaseTexelSize, level - 1);
+            const IntVec3 dstTexelSize = ComputeMipTexelSize(storageBaseTexelSize, level);
+
+            VkImageBlit blitRegion{};
+            blitRegion.srcSubresource.aspectMask = resource->aspect;
+            blitRegion.srcSubresource.mipLevel = level - 1;
+            blitRegion.srcSubresource.baseArrayLayer = 0;
+            blitRegion.srcSubresource.layerCount = 1;
+            blitRegion.srcOffsets[0] = {0, 0, 0};
+            blitRegion.srcOffsets[1] = {srcTexelSize.x(), srcTexelSize.y(), srcTexelSize.z()};
+            blitRegion.dstSubresource.aspectMask = resource->aspect;
+            blitRegion.dstSubresource.mipLevel = level;
+            blitRegion.dstSubresource.baseArrayLayer = 0;
+            blitRegion.dstSubresource.layerCount = 1;
+            blitRegion.dstOffsets[0] = {0, 0, 0};
+            blitRegion.dstOffsets[1] = {dstTexelSize.x(), dstTexelSize.y(), dstTexelSize.z()};
+
+            vkCmdBlitImage(frame.commandBuffer,
+                           resource->image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                           resource->image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                           1, &blitRegion, blitFilter);
+
+            VkImageLayout finishedSrcLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+            Bool srcRestored = VkTextureManager::TransitionImageLayout(
+                frame.commandBuffer, resource->image, finishedSrcLayout, finalLayout,
+                VK_PIPELINE_STAGE_TRANSFER_BIT, finalDstStageMask,
+                VK_ACCESS_TRANSFER_READ_BIT, finalDstAccessMask,
+                resource->aspect, level - 1, 1);
+            MOBILEGL_ASSERT(srcRestored, "%s: failed to transition mip level %u to final layout", __func__, level - 1);
+
+            if (level + 1 < generateMipLevelCount) {
+                VkImageLayout nextSrcLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+                Bool nextSrcReady = VkTextureManager::TransitionImageLayout(
+                    frame.commandBuffer, resource->image, nextSrcLayout, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                    VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
+                    VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_TRANSFER_READ_BIT,
+                    resource->aspect, level, 1);
+                MOBILEGL_ASSERT(nextSrcReady, "%s: failed to prepare mip level %u as next transfer source", __func__, level);
+            } else {
+                VkImageLayout lastMipLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+                Bool lastMipReady = VkTextureManager::TransitionImageLayout(
+                    frame.commandBuffer, resource->image, lastMipLayout, finalLayout,
+                    VK_PIPELINE_STAGE_TRANSFER_BIT, finalDstStageMask,
+                    VK_ACCESS_TRANSFER_WRITE_BIT, finalDstAccessMask,
+                    resource->aspect, level, 1);
+                MOBILEGL_ASSERT(lastMipReady, "%s: failed to transition last mip level to final layout", __func__);
+            }
+        }
+
+        resource->layout = finalLayout;
     }
 
     void VulkanRenderer::DrawArrays(const DrawCmd& payload) {

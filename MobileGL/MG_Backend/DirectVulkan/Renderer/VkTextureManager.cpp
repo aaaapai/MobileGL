@@ -12,6 +12,8 @@
 #include "MG_Util/Converters/MGToStr/TextureEnumConverter.h"
 #include "MG_Util/Converters/MGToVk/TextureEnumConverter.h"
 
+#include <memory>
+
 namespace MobileGL::MG_Backend::DirectVulkan {
     static constexpr VkPipelineStageFlags kGraphicsSampledReadStages = VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT;
 
@@ -41,6 +43,188 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         default:
             return false;
         }
+    }
+
+    static void GetImageTransitionSourceState(VkImageLayout oldLayout,
+                                              VkPipelineStageFlags& outSrcStageMask,
+                                              VkAccessFlags& outSrcAccessMask) {
+        switch (oldLayout) {
+        case VK_IMAGE_LAYOUT_UNDEFINED:
+            outSrcStageMask = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
+            outSrcAccessMask = 0;
+            return;
+        case VK_IMAGE_LAYOUT_GENERAL:
+            outSrcStageMask = VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
+            outSrcAccessMask = VK_ACCESS_MEMORY_READ_BIT | VK_ACCESS_MEMORY_WRITE_BIT;
+            return;
+        case VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL:
+            outSrcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+            outSrcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+            return;
+        case VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL:
+            outSrcStageMask = VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;
+            outSrcAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT |
+                               VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+            return;
+        case VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL:
+        case VK_IMAGE_LAYOUT_DEPTH_READ_ONLY_STENCIL_ATTACHMENT_OPTIMAL:
+        case VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_STENCIL_READ_ONLY_OPTIMAL:
+        case VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL:
+            outSrcStageMask = kGraphicsSampledReadStages;
+            outSrcAccessMask = VK_ACCESS_SHADER_READ_BIT;
+            return;
+        case VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL:
+            outSrcStageMask = VK_PIPELINE_STAGE_TRANSFER_BIT;
+            outSrcAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+            return;
+        case VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL:
+            outSrcStageMask = VK_PIPELINE_STAGE_TRANSFER_BIT;
+            outSrcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+            return;
+        default:
+            MOBILEGL_ASSERT(false, "GetImageTransitionSourceState: unsupported layout=%d", static_cast<Int>(oldLayout));
+            outSrcStageMask = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
+            outSrcAccessMask = 0;
+            return;
+        }
+    }
+
+    static void GetImageTransitionDestinationState(VkImageLayout newLayout,
+                                                   VkPipelineStageFlags& outDstStageMask,
+                                                   VkAccessFlags& outDstAccessMask) {
+        switch (newLayout) {
+        case VK_IMAGE_LAYOUT_GENERAL:
+            outDstStageMask = VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
+            outDstAccessMask = VK_ACCESS_MEMORY_READ_BIT | VK_ACCESS_MEMORY_WRITE_BIT;
+            return;
+        case VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL:
+            outDstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+            outDstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+            return;
+        case VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL:
+            outDstStageMask = VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;
+            outDstAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT |
+                               VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+            return;
+        case VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL:
+        case VK_IMAGE_LAYOUT_DEPTH_READ_ONLY_STENCIL_ATTACHMENT_OPTIMAL:
+        case VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_STENCIL_READ_ONLY_OPTIMAL:
+        case VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL:
+            outDstStageMask = kGraphicsSampledReadStages;
+            outDstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+            return;
+        case VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL:
+            outDstStageMask = VK_PIPELINE_STAGE_TRANSFER_BIT;
+            outDstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+            return;
+        case VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL:
+            outDstStageMask = VK_PIPELINE_STAGE_TRANSFER_BIT;
+            outDstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+            return;
+        default:
+            MOBILEGL_ASSERT(false, "GetImageTransitionDestinationState: unsupported layout=%d", static_cast<Int>(newLayout));
+            outDstStageMask = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
+            outDstAccessMask = 0;
+            return;
+        }
+    }
+
+    static Bool PreserveTextureContentsOnRecreate(VkDevice device,
+                                                  VkCommandPool commandPool,
+                                                  VkQueue graphicsQueue,
+                                                  const VkTextureManager::TextureResource& oldResource,
+                                                  VkTextureManager::TextureResource& newResource) {
+        MOBILEGL_ASSERT(device != VK_NULL_HANDLE, "PreserveTextureContentsOnRecreate: device is null");
+        MOBILEGL_ASSERT(commandPool != VK_NULL_HANDLE, "PreserveTextureContentsOnRecreate: commandPool is null");
+        MOBILEGL_ASSERT(graphicsQueue != VK_NULL_HANDLE, "PreserveTextureContentsOnRecreate: graphicsQueue is null");
+        MOBILEGL_ASSERT(oldResource.image != VK_NULL_HANDLE, "PreserveTextureContentsOnRecreate: old image is null");
+        MOBILEGL_ASSERT(newResource.image != VK_NULL_HANDLE, "PreserveTextureContentsOnRecreate: new image is null");
+
+        const Uint32 preservedMipLevels = std::min(oldResource.mipLevels, newResource.mipLevels);
+        if (preservedMipLevels == 0 || oldResource.layout == VK_IMAGE_LAYOUT_UNDEFINED) {
+            return true;
+        }
+
+        VkCommandBufferAllocateInfo allocInfo{};
+        allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+        allocInfo.commandPool = commandPool;
+        allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+        allocInfo.commandBufferCount = 1;
+
+        VkCommandBuffer commandBuffer = VK_NULL_HANDLE;
+        VK_VERIFY(vkAllocateCommandBuffers(device, &allocInfo, &commandBuffer),
+                  "vkAllocateCommandBuffers(texture preserve)");
+
+        VkCommandBufferBeginInfo beginInfo{};
+        beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+        beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+        VK_VERIFY(vkBeginCommandBuffer(commandBuffer, &beginInfo), "vkBeginCommandBuffer(texture preserve)");
+
+        Bool ok = VkTextureManager::TransitionImageLayout(
+            commandBuffer, newResource.image, newResource.layout, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+            VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
+            0, VK_ACCESS_TRANSFER_WRITE_BIT, newResource.aspect, 0, newResource.mipLevels);
+        MOBILEGL_ASSERT(ok, "PreserveTextureContentsOnRecreate: failed to prepare destination image");
+
+        VkImageLayout srcTrackedLayout = oldResource.layout;
+        VkPipelineStageFlags srcStageMask = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
+        VkAccessFlags srcAccessMask = 0;
+        GetImageTransitionSourceState(srcTrackedLayout, srcStageMask, srcAccessMask);
+        ok = VkTextureManager::TransitionImageLayout(
+            commandBuffer, oldResource.image, srcTrackedLayout, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+            srcStageMask, VK_PIPELINE_STAGE_TRANSFER_BIT,
+            srcAccessMask, VK_ACCESS_TRANSFER_READ_BIT, oldResource.aspect, 0, preservedMipLevels);
+        MOBILEGL_ASSERT(ok, "PreserveTextureContentsOnRecreate: failed to prepare source image");
+
+        Vector<VkImageCopy> copyRegions;
+        copyRegions.reserve(preservedMipLevels);
+        for (Uint32 level = 0; level < preservedMipLevels; ++level) {
+            VkImageCopy copy{};
+            copy.srcSubresource.aspectMask = oldResource.aspect;
+            copy.srcSubresource.mipLevel = level;
+            copy.srcSubresource.baseArrayLayer = 0;
+            copy.srcSubresource.layerCount = oldResource.arrayLayers;
+            copy.dstSubresource.aspectMask = newResource.aspect;
+            copy.dstSubresource.mipLevel = level;
+            copy.dstSubresource.baseArrayLayer = 0;
+            copy.dstSubresource.layerCount = newResource.arrayLayers;
+            copy.extent.width = std::max(oldResource.extent.width >> level, 1u);
+            copy.extent.height = std::max(oldResource.extent.height >> level, 1u);
+            copy.extent.depth = std::max(oldResource.depth >> level, 1u);
+            copyRegions.push_back(copy);
+        }
+
+        vkCmdCopyImage(commandBuffer,
+                       oldResource.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                       newResource.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                       static_cast<Uint32>(copyRegions.size()), copyRegions.data());
+
+        VkPipelineStageFlags dstStageMask = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
+        VkAccessFlags dstAccessMask = 0;
+        GetImageTransitionDestinationState(oldResource.layout, dstStageMask, dstAccessMask);
+        ok = VkTextureManager::TransitionImageLayout(
+            commandBuffer, newResource.image, newResource.layout, oldResource.layout,
+            VK_PIPELINE_STAGE_TRANSFER_BIT, dstStageMask,
+            VK_ACCESS_TRANSFER_WRITE_BIT, dstAccessMask, newResource.aspect, 0, newResource.mipLevels);
+        MOBILEGL_ASSERT(ok, "PreserveTextureContentsOnRecreate: failed to restore destination layout");
+
+        VK_VERIFY(vkEndCommandBuffer(commandBuffer), "vkEndCommandBuffer(texture preserve)");
+
+        VkSubmitInfo submitInfo{};
+        submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+        submitInfo.commandBufferCount = 1;
+        submitInfo.pCommandBuffers = &commandBuffer;
+
+        VkFenceCreateInfo fenceInfo{};
+        fenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+        VkFence fence = VK_NULL_HANDLE;
+        VK_VERIFY(vkCreateFence(device, &fenceInfo, nullptr, &fence), "vkCreateFence(texture preserve)");
+        VK_VERIFY(vkQueueSubmit(graphicsQueue, 1, &submitInfo, fence), "vkQueueSubmit(texture preserve)");
+        VK_VERIFY(vkWaitForFences(device, 1, &fence, VK_TRUE, UINT64_MAX), "vkWaitForFences(texture preserve)");
+
+        vkDestroyFence(device, fence, nullptr);
+        vkFreeCommandBuffers(device, commandPool, 1, &commandBuffer);
+        return true;
     }
 
     static TextureFormatInfo ResolveTextureFormatInfo(TextureInternalFormat format) {
@@ -446,7 +630,23 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             return true;
         }
 
-         resource.Reset();
+        const Bool preserveExistingContent =
+            resource.image != VK_NULL_HANDLE &&
+            resource.format == format &&
+            resource.extent.width == static_cast<Uint32>(texelSize.x()) &&
+            resource.extent.height == static_cast<Uint32>(texelSize.y()) &&
+            resource.depth == shapeInfo.depth &&
+            resource.arrayLayers == shapeInfo.arrayLayers &&
+            resource.viewType == shapeInfo.viewType &&
+            resource.mipLevels < mipLevels &&
+            resource.layout != VK_IMAGE_LAYOUT_UNDEFINED;
+
+        std::unique_ptr<TextureResource> preservedResource;
+        if (preserveExistingContent) {
+            preservedResource = std::make_unique<TextureResource>(Move(resource));
+        } else {
+            resource.Reset();
+        }
 
         auto aspect = GetAspectMaskForFormat(format);
 
@@ -489,6 +689,13 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         resource.aspect = aspect;
         resource.viewType = shapeInfo.viewType;
         resource.syncedTextureParamsVersion = 0;
+
+        if (preservedResource) {
+            const Bool preserved = PreserveTextureContentsOnRecreate(
+                m_device, m_commandPool, m_graphicsQueue, *preservedResource, resource);
+            MOBILEGL_ASSERT(preserved,
+                            "SyncTextureResource: failed to preserve texture contents while growing mip chain");
+        }
         return true;
     }
 
