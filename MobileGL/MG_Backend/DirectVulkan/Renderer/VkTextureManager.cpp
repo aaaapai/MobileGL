@@ -9,6 +9,7 @@
 #include "VkTextureManager.h"
 
 #include "MG_State/GLState/Core.h"
+#include "MG_Util/Converters/MGToStr/TextureEnumConverter.h"
 #include "MG_Util/Converters/MGToVk/TextureEnumConverter.h"
 
 namespace MobileGL::MG_Backend::DirectVulkan {
@@ -19,6 +20,14 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         Bool expandRgbToRgba = false;
         Uint32 componentByteCount = 0;
         Array<Uint8, 4> alphaBytes = {0, 0, 0, 0};
+    };
+
+    struct TextureShapeInfo {
+        VkImageType imageType = VK_IMAGE_TYPE_2D;
+        VkImageViewType viewType = VK_IMAGE_VIEW_TYPE_2D;
+        VkImageCreateFlags imageFlags = 0;
+        Uint32 depth = 1;
+        Uint32 arrayLayers = 1;
     };
 
     static Bool IsValidSampledImageLayout(VkImageLayout layout) {
@@ -110,6 +119,30 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         return components;
     }
 
+    static Bool TryResolveTextureShapeInfo(const MG_State::GLState::ITextureObject& texture,
+                                           TextureUploadTarget uploadTarget, const IntVec3& texelSize,
+                                           TextureShapeInfo& outShape) {
+        switch (uploadTarget) {
+        case TextureUploadTarget::Texture2D:
+        case TextureUploadTarget::ProxyTexture2D:
+        case TextureUploadTarget::TextureRectangle:
+        case TextureUploadTarget::ProxyTextureRectangle:
+            outShape = {};
+            return true;
+        case TextureUploadTarget::Texture3D:
+        case TextureUploadTarget::ProxyTexture3D:
+            MOBILEGL_ASSERT(texelSize.z() > 0,
+                            "TryResolveTextureShapeInfo: invalid 3D texture depth=%d for textureId=%d",
+                            texelSize.z(), texture.GetExternalIndex());
+            outShape.imageType = VK_IMAGE_TYPE_3D;
+            outShape.viewType = VK_IMAGE_VIEW_TYPE_3D;
+            outShape.depth = static_cast<Uint32>(texelSize.z());
+            return true;
+        default:
+            return false;
+        }
+    }
+
     Bool VkTextureManager::Initialize(const InitInfo& initInfo) {
         Shutdown();
 
@@ -172,7 +205,8 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             return perMipView;
         }
 
-        perMipView = CreateImageView(resource->image, resource->format, resource->aspect, mipLevel, 1);
+        perMipView = CreateImageView(resource->image, resource->format, resource->aspect, resource->viewType,
+                                     mipLevel, 1, resource->arrayLayers);
         if (perMipView == VK_NULL_HANDLE) {
             MGLOG_D("%s: CreateImageView failed for textureId=%d mipLevel=%u", __func__, texture.GetExternalIndex(), mipLevel);
             return VK_NULL_HANDLE;
@@ -198,8 +232,8 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         }
 
         const VkComponentMapping sampledComponents = ResolveSampledViewComponents(texture);
-        perMipSampledView = CreateImageView(resource->image, resource->format, resource->aspect, mipLevel, 1,
-                                            &sampledComponents);
+        perMipSampledView = CreateImageView(resource->image, resource->format, resource->aspect, resource->viewType,
+                            mipLevel, 1, resource->arrayLayers, &sampledComponents);
         if (perMipSampledView == VK_NULL_HANDLE) {
             MGLOG_D("%s: CreateImageView failed for textureId=%d mipLevel=%u", __func__, texture.GetExternalIndex(),
                     mipLevel);
@@ -381,7 +415,16 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             MGLOG_D("%s: no mip levels", __func__);
             return false;
         }
-        if (uploadTarget != TextureUploadTarget::Texture2D) {
+        TextureShapeInfo shapeInfo{};
+        const Bool supportedShape = TryResolveTextureShapeInfo(texture, uploadTarget, texelSize, shapeInfo);
+        MOBILEGL_ASSERT(supportedShape,
+                        "SyncTextureResource: unsupported uploadTarget=%s textureTarget=%s textureId=%d size=(%d,%d,%d) "
+                        "mipLevels=%u vkViewType=%d",
+                        MG_Util::ConvertTextureUploadTargetToString(uploadTarget).c_str(),
+                        MG_Util::ConvertTextureTargetToString(texture.GetTarget()).c_str(),
+                        texture.GetExternalIndex(), texelSize.x(), texelSize.y(), texelSize.z(), mipLevels,
+                        static_cast<Int>(MG_Util::ConvertTextureUploadTargetToVkEnum(uploadTarget)));
+        if (!supportedShape) {
             MGLOG_D("%s: not Texture2D, unsupported", __func__);
             return false;
         }
@@ -389,6 +432,9 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         const Bool compatible = resource.image != VK_NULL_HANDLE && resource.format == format &&
                                 resource.extent.width == static_cast<Uint32>(texelSize.x()) &&
                                 resource.extent.height == static_cast<Uint32>(texelSize.y()) &&
+                                resource.depth == shapeInfo.depth &&
+                                resource.arrayLayers == shapeInfo.arrayLayers &&
+                                resource.viewType == shapeInfo.viewType &&
                                 resource.mipLevels == mipLevels;
         if (compatible) {
             if (resource.perMipViews.size() != mipLevels) {
@@ -406,12 +452,13 @@ namespace MobileGL::MG_Backend::DirectVulkan {
 
         VkImageCreateInfo imageInfo{};
         imageInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
-        imageInfo.imageType = VK_IMAGE_TYPE_2D;
+    imageInfo.flags = shapeInfo.imageFlags;
+    imageInfo.imageType = shapeInfo.imageType;
         imageInfo.extent.width = static_cast<Uint32>(texelSize.x());
         imageInfo.extent.height = static_cast<Uint32>(texelSize.y());
-        imageInfo.extent.depth = 1;
+    imageInfo.extent.depth = shapeInfo.depth;
         imageInfo.mipLevels = mipLevels;
-        imageInfo.arrayLayers = 1;
+    imageInfo.arrayLayers = shapeInfo.arrayLayers;
         imageInfo.format = format;
         imageInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
         imageInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
@@ -431,6 +478,8 @@ namespace MobileGL::MG_Backend::DirectVulkan {
 
         resource.layout = VK_IMAGE_LAYOUT_UNDEFINED;
         resource.extent = {static_cast<Uint32>(texelSize.x()), static_cast<Uint32>(texelSize.y())};
+        resource.depth = shapeInfo.depth;
+        resource.arrayLayers = shapeInfo.arrayLayers;
         resource.mipLevels = mipLevels;
         resource.perMipViews.assign(mipLevels, VK_NULL_HANDLE);
         resource.perMipSampledViews.assign(mipLevels, VK_NULL_HANDLE);
@@ -438,6 +487,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         resource.sampledLevelCount = mipLevels;
         resource.format = format;
         resource.aspect = aspect;
+        resource.viewType = shapeInfo.viewType;
         resource.syncedTextureParamsVersion = 0;
         return true;
     }
@@ -464,8 +514,8 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         }
 
         const VkComponentMapping sampledComponents = ResolveSampledViewComponents(texture);
-        resource.fullView = CreateImageView(resource.image, resource.format, resource.aspect, baseMipLevel, levelCount,
-                                            &sampledComponents);
+        resource.fullView = CreateImageView(resource.image, resource.format, resource.aspect, resource.viewType,
+                                            baseMipLevel, levelCount, resource.arrayLayers, &sampledComponents);
         if (resource.fullView == VK_NULL_HANDLE) {
             return false;
         }
@@ -477,12 +527,13 @@ namespace MobileGL::MG_Backend::DirectVulkan {
     }
 
     VkImageView VkTextureManager::CreateImageView(VkImage image, VkFormat format, VkImageAspectFlags aspect,
-                                                  Uint32 baseMipLevel, Uint32 levelCount,
+                                                  VkImageViewType viewType, Uint32 baseMipLevel, Uint32 levelCount,
+                                                  Uint32 layerCount,
                                                   const VkComponentMapping* components) const {
         VkImageViewCreateInfo viewInfo{};
         viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
         viewInfo.image = image;
-        viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
+        viewInfo.viewType = viewType;
         viewInfo.format = format;
         viewInfo.components = components != nullptr ?
             *components :
@@ -492,7 +543,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         viewInfo.subresourceRange.baseMipLevel = baseMipLevel;
         viewInfo.subresourceRange.levelCount = levelCount;
         viewInfo.subresourceRange.baseArrayLayer = 0;
-        viewInfo.subresourceRange.layerCount = 1;
+        viewInfo.subresourceRange.layerCount = layerCount;
 
         VkImageView view = VK_NULL_HANDLE;
         VK_VERIFY(vkCreateImageView(m_device, &viewInfo, nullptr, &view), "vkCreateImageView(texture)");
@@ -618,7 +669,8 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             copy.imageSubresource.baseArrayLayer = 0;
             copy.imageSubresource.layerCount = 1;
             copy.imageOffset = {0, 0, 0};
-            copy.imageExtent = {static_cast<Uint32>(item.texelSize.x()), static_cast<Uint32>(item.texelSize.y()), 1};
+            copy.imageExtent = {static_cast<Uint32>(item.texelSize.x()), static_cast<Uint32>(item.texelSize.y()),
+                                item.texelSize.z() > 0 ? static_cast<Uint32>(item.texelSize.z()) : 1u};
             vkCmdCopyBufferToImage(commandBuffer, stagingBuffer, outResource.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
                                    1, &copy);
         }

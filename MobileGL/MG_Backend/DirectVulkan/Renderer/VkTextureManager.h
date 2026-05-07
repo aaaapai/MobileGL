@@ -36,11 +36,14 @@ public:
         Vector<VkImageView> perMipSampledViews;
         VkImageLayout layout = VK_IMAGE_LAYOUT_UNDEFINED;
         VkExtent2D extent = {0, 0};
+        Uint32 depth = 1;
+        Uint32 arrayLayers = 1;
         Uint32 mipLevels = 1;
         Uint32 sampledBaseMipLevel = 0;
         Uint32 sampledLevelCount = 1;
         VkFormat format = VK_FORMAT_UNDEFINED;
         VkImageAspectFlags aspect = VK_IMAGE_ASPECT_NONE;
+        VkImageViewType viewType = VK_IMAGE_VIEW_TYPE_2D;
         Uint16 syncedTextureParamsVersion = 0;
 
         TextureResource() = default;
@@ -53,11 +56,14 @@ public:
             std::swap(this->perMipSampledViews, that.perMipSampledViews);
             std::swap(this->layout, that.layout);
             std::swap(this->extent, that.extent);
+            std::swap(this->depth, that.depth);
+            std::swap(this->arrayLayers, that.arrayLayers);
             std::swap(this->mipLevels, that.mipLevels);
             std::swap(this->sampledBaseMipLevel, that.sampledBaseMipLevel);
             std::swap(this->sampledLevelCount, that.sampledLevelCount);
             std::swap(this->format, that.format);
             std::swap(this->aspect, that.aspect);
+            std::swap(this->viewType, that.viewType);
             std::swap(this->syncedTextureParamsVersion, that.syncedTextureParamsVersion);
         }
 
@@ -85,11 +91,14 @@ public:
             allocation = nullptr;
             layout = VK_IMAGE_LAYOUT_UNDEFINED;
             extent = {0, 0};
+            depth = 1;
+            arrayLayers = 1;
             mipLevels = 1;
             sampledBaseMipLevel = 0;
             sampledLevelCount = 1;
             format = VK_FORMAT_UNDEFINED;
             aspect = VK_IMAGE_ASPECT_NONE;
+            viewType = VK_IMAGE_VIEW_TYPE_2D;
             syncedTextureParamsVersion = 0;
         }
 
@@ -128,7 +137,8 @@ private:
                              TextureResource &resource);
     Bool SyncTextureViews(const MG_State::GLState::ITextureObject& texture, TextureResource& resource);
     VkImageView CreateImageView(VkImage image, VkFormat format, VkImageAspectFlags aspect,
-                                Uint32 baseMipLevel, Uint32 levelCount,
+                                VkImageViewType viewType, Uint32 baseMipLevel, Uint32 levelCount,
+                                Uint32 layerCount,
                                 const VkComponentMapping* components = nullptr) const;
     Bool UploadDirtyMipLevels(MG_State::GLState::TextureObjectMipmap &mipmapTexture,
                       TextureUploadTarget uploadTarget,
