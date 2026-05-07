@@ -3,9 +3,9 @@ name: Test
 on:
   push:
     branches:
-      - dev
-      - Feat/Backend-Direct-GLES
-      - Feat/Backend-Direct-Vulkan
+      - dev1
+      - Feat/Backend-Direct-GLES1
+      - Feat/Backend-Direct-Vulkan1
 
 jobs:
   test:
