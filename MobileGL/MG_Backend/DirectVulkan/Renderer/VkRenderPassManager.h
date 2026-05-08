@@ -32,6 +32,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
     struct TrackedAttachmentLayoutInfo {
         TrackedAttachmentTarget target = TrackedAttachmentTarget::Texture;
         MG_State::GLState::ITextureObject* texture = nullptr;
+        Uint32 textureMipLevel = 0;
         Uint32 swapchainImageIndex = 0;
         VkImageLayout finalLayout = VK_IMAGE_LAYOUT_UNDEFINED;
     };

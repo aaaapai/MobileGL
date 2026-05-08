@@ -30,6 +30,7 @@ namespace MobileGL {
             case TextureInternalFormat::RG8Snorm:
             case TextureInternalFormat::RG8I:
             case TextureInternalFormat::RG8UI:
+            case TextureInternalFormat::DepthComponent16:
                 return 2;
 
             case TextureInternalFormat::RGB4:
@@ -39,6 +40,7 @@ namespace MobileGL {
             case TextureInternalFormat::SRGB8:
             case TextureInternalFormat::RGB8I:
             case TextureInternalFormat::RGB8UI:
+            case TextureInternalFormat::DepthComponent24:
                 return 3;
 
             case TextureInternalFormat::RGBA2:
@@ -52,6 +54,11 @@ namespace MobileGL {
             case TextureInternalFormat::RGB10A2:
             case TextureInternalFormat::RGB10A2UI:
             case TextureInternalFormat::R32F:
+            case TextureInternalFormat::DepthComponent:
+            case TextureInternalFormat::DepthComponent32:
+            case TextureInternalFormat::DepthComponent32F:
+            case TextureInternalFormat::DepthStencil:
+            case TextureInternalFormat::Depth24Stencil8:
 
             case TextureInternalFormat::RG16:
             case TextureInternalFormat::RG16Snorm:
@@ -83,6 +90,7 @@ namespace MobileGL {
             case TextureInternalFormat::RGBA32F:
             case TextureInternalFormat::RGBA32I:
             case TextureInternalFormat::RGBA32UI:
+            case TextureInternalFormat::Depth32FStencil8:
                 return 16;
 
             case TextureInternalFormat::R11FG11FB10F:
@@ -125,7 +133,13 @@ namespace MobileGL {
         SizeT GetBaseInternalFormatComponentCount(TextureInternalFormat format) {
             switch (format) {
             case TextureInternalFormat::DepthComponent:
+            case TextureInternalFormat::DepthComponent16:
+            case TextureInternalFormat::DepthComponent24:
+            case TextureInternalFormat::DepthComponent32:
+            case TextureInternalFormat::DepthComponent32F:
             case TextureInternalFormat::DepthStencil:
+            case TextureInternalFormat::Depth24Stencil8:
+            case TextureInternalFormat::Depth32FStencil8:
                 // Depth stencil is actually 2 components
                 // tho real formats always gives byte size in whole
                 // so we count this as one here

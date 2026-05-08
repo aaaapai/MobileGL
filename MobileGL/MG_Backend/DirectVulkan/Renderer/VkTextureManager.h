@@ -26,6 +26,7 @@ public:
         VmaAllocator allocator = nullptr;
         VkCommandPool commandPool = VK_NULL_HANDLE;
         VkQueue graphicsQueue = VK_NULL_HANDLE;
+        Uint32 frameCount = 0;
     };
 
     struct TextureResource {
@@ -112,12 +113,17 @@ public:
 
     Bool Initialize(const InitInfo& initInfo);
     void Shutdown();
+    void BeginFrame(Uint32 frameIndex);
 
     TextureResource* SyncTextureAndGetDescriptor(
         MG_State::GLState::ITextureObject& texture);
     VkImageView GetOrCreateViewAtMipLevel(MG_State::GLState::ITextureObject& texture, Uint32 mipLevel);
     VkImageView GetOrCreateSampledViewAtMipLevel(MG_State::GLState::ITextureObject& texture, Uint32 mipLevel);
     void UpdateTrackedImageLayout(MG_State::GLState::ITextureObject* texture, VkImageLayout newLayout);
+    void UpdateTrackedImageLayoutAfterAttachmentWrite(VkCommandBuffer commandBuffer,
+                                                      MG_State::GLState::ITextureObject* texture,
+                                                      Uint32 writtenMipLevel,
+                                                      VkImageLayout newLayout);
     Bool TransitionTextureForSampling(VkCommandBuffer commandBuffer, MG_State::GLState::ITextureObject& texture);
 
     static Bool TransitionImageLayout(VkCommandBuffer commandBuffer, VkImage image, VkImageLayout& trackedLayout,
@@ -152,15 +158,22 @@ private:
     static void ResolveViewMipRange(const MG_State::GLState::ITextureObject& texture, Uint32 mipLevels,
                                     Uint32& outBaseMipLevel, Uint32& outLevelCount);
     static VkImageAspectFlags GetAspectMaskForFormat(VkFormat format);
+    void DeferResourceRelease(TextureResource&& resource);
+    void DeferViewRelease(VkImageView view);
+    void CollectDeferredReleases(Uint32 frameIndex);
+    void DestroyDeferredReleases();
 
     VkDevice m_device = VK_NULL_HANDLE;
     VkPhysicalDevice m_physicalDevice = VK_NULL_HANDLE;
     VmaAllocator m_allocator = nullptr;
     VkCommandPool m_commandPool = VK_NULL_HANDLE;
     VkQueue m_graphicsQueue = VK_NULL_HANDLE;
+    Uint32 m_currentFrameIndex = 0;
 
     Uint8 m_gcCounter = 0;
     UnorderedMap<MG_State::GLState::ITextureObject*, WeakPtr<MG_State::GLState::ITextureObject>> m_aliveObjects;
     UnorderedMap<MG_State::GLState::ITextureObject*, TextureResource> m_textureResources;
+    Vector<Vector<TextureResource>> m_deferredReleases;
+    Vector<Vector<VkImageView>> m_deferredViewReleases;
 };
 } // namespace MobileGL::MG_Backend::DirectVulkan

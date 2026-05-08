@@ -69,6 +69,14 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             if (att.IsTexture()) {
                 const Int textureLevel = att.GetTextureLevel();
                 XXHASH_VERIFY(XXH64_update(m_hashState, &textureLevel, sizeof(textureLevel)));
+
+                Uint64 imageIdentity = 0;
+                auto* texture = att.GetTexture().get();
+                auto* resource = m_textureManager.SyncTextureAndGetDescriptor(*texture);
+                if (resource != nullptr) {
+                    imageIdentity = reinterpret_cast<Uint64>(resource->image);
+                }
+                XXHASH_VERIFY(XXH64_update(m_hashState, &imageIdentity, sizeof(imageIdentity)));
             }
 
             if (includePendingClear && att.IsTexture()) {
@@ -94,9 +102,9 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                         currentLayout = m_swapchainObject.GetDepthStencilImageLayout(swapchainImageIndex);
                     }
                 } else {
-                    auto* resource = m_textureManager.SyncTextureAndGetDescriptor(*texture);
-                    if (resource != nullptr) {
-                        currentLayout = resource->layout;
+                    auto* textureResource = m_textureManager.SyncTextureAndGetDescriptor(*texture);
+                    if (textureResource != nullptr) {
+                        currentLayout = textureResource->layout;
                     }
                 }
                 XXHASH_VERIFY(XXH64_update(m_hashState, &currentLayout, sizeof(currentLayout)));
@@ -259,6 +267,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                         trackedAttachmentLayouts.emplace_back(TrackedAttachmentLayoutInfo {
                             .target = TrackedAttachmentTarget::Texture,
                             .texture = texture,
+                            .textureMipLevel = attachmentMipLevel,
                             .finalLayout = desc.finalLayout,
                         });
                         attachmentViews.emplace_back(m_textureManager.GetOrCreateViewAtMipLevel(*texture, attachmentMipLevel));
@@ -361,6 +370,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                 trackedAttachmentLayouts.emplace_back(TrackedAttachmentLayoutInfo {
                     .target = TrackedAttachmentTarget::Texture,
                     .texture = &texture,
+                    .textureMipLevel = attachmentMipLevel,
                     .finalLayout = depthAttachmentDescription.finalLayout,
                 });
                 textureResources.emplace_back(depthTextureResource);
@@ -504,7 +514,11 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                 switch (trackedAttachment.target) {
                     case TrackedAttachmentTarget::Texture:
                         MOBILEGL_ASSERT(s_textureManager != nullptr, "EndRenderPass: texture manager is null");
-                        s_textureManager->UpdateTrackedImageLayout(trackedAttachment.texture, trackedAttachment.finalLayout);
+                        s_textureManager->UpdateTrackedImageLayoutAfterAttachmentWrite(
+                            commandBuffer,
+                            trackedAttachment.texture,
+                            trackedAttachment.textureMipLevel,
+                            trackedAttachment.finalLayout);
                         break;
                     case TrackedAttachmentTarget::SwapchainColor:
                         MOBILEGL_ASSERT(s_swapchainObject != nullptr, "EndRenderPass: swapchain object is null");
