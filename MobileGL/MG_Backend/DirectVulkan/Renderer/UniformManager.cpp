@@ -10,10 +10,15 @@
 
 #include "MG_State/GLState/Core.h"
 #include "MG_State/GLState/ProgramState/ProgramObject.h"
+#include "MG_State/GLState/TextureState/TextureObject2D.h"
 #include "MG_Util/Converters/MGToStr/FramebufferEnumConverter.h"
 #include <limits>
 
 namespace MobileGL::MG_Backend::DirectVulkan {
+    namespace {
+        constexpr Uint kFallbackTexture2DExternalIndex = 0xFFFFFF00u;
+    }
+
     static Bool FindFramebufferAttachmentForTexture(const MG_State::GLState::FramebufferObject& framebuffer,
                                                     const MG_State::GLState::ITextureObject& texture,
                                                     FramebufferAttachmentType& outAttachment, Int& outLevel) {
@@ -145,6 +150,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         m_peakDescriptorSetsObserved = 0;
         m_textureManager = nullptr;
         m_samplerManager = nullptr;
+        m_fallbackTexture2D.reset();
     }
 
     void UniformManager::BeginFrame(Uint32 frameIndex) {
@@ -190,12 +196,16 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         const Int unit = ResolveSamplerUnitIndex(program, location, binding);
         auto& textureUnit = MG_State::pGLContext->GetTextureUnitObject(unit);
         const auto samplerOverride = textureUnit.GetSamplerObject();
+        const auto preferredTarget = programObj.samplerTextureTargetByBinding[binding];
         if (texture == nullptr) {
-            MGLOG_E(
-                "ResolveSamplerDescriptor: sampler binding %u ('%s') resolved null texture (location=%d unit=%d target=%d)",
+            texture = GetFallbackTexture(preferredTarget);
+            MOBILEGL_ASSERT(texture != nullptr,
+                            "ResolveSamplerDescriptor: no fallback texture available for binding=%u location=%d unit=%d target=%d",
+                            binding, location, unit, static_cast<Int>(preferredTarget));
+            MGLOG_W(
+                "ResolveSamplerDescriptor: using fallback texture for unbound sampler binding=%u ('%s') location=%d unit=%d target=%d",
                 binding, programObj.samplerNameByBinding[binding].c_str(), location, unit,
-                static_cast<Int>(programObj.samplerTextureTargetByBinding[binding]));
-            return false;
+                static_cast<Int>(preferredTarget));
         }
 
         const MG_State::GLState::SamplerObject* samplerToUse =
@@ -291,11 +301,24 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         const TextureTarget preferredTarget = programObj.samplerTextureTargetByBinding[binding];
         outTexture = textureUnit.GetBindingSlot(preferredTarget).GetBoundObject();
 
-        MOBILEGL_ASSERT(outTexture,
-                        "ResolveSamplerTexture: no texture bound for active sampler binding=%u location=%d unit=%d target=%d",
-                        binding, location, unit, static_cast<Int>(preferredTarget));
+        return true;
+    }
 
-        return outTexture != nullptr;
+    SharedPtr<MG_State::GLState::ITextureObject> UniformManager::GetFallbackTexture(TextureTarget target) const {
+        MOBILEGL_ASSERT(target == TextureTarget::Texture2D || target == TextureTarget::TextureRectangle,
+                        "UniformManager::GetFallbackTexture: unsupported fallback target=%d",
+                        static_cast<Int>(target));
+
+        if (m_fallbackTexture2D == nullptr) {
+            auto fallbackTexture = MakeShared<MG_State::GLState::TextureObject2D>(kFallbackTexture2DExternalIndex);
+            fallbackTexture->SetInternalFormat(TextureInternalFormat::RGBA8);
+            fallbackTexture->AllocateStorage(TextureUploadTarget::Texture2D, 0,
+                                             {.texelSize = {1, 1, 1}, .byteSize = 4});
+            fallbackTexture->MarkStorageDirty(TextureUploadTarget::Texture2D, 0, true);
+            m_fallbackTexture2D = fallbackTexture;
+        }
+
+        return m_fallbackTexture2D;
     }
 
     Bool UniformManager::CollectSampledTextures(const MG_State::GLState::ProgramObject& program,

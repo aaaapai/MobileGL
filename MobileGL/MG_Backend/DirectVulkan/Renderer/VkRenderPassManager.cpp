@@ -267,6 +267,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                         trackedAttachmentLayouts.emplace_back(TrackedAttachmentLayoutInfo {
                             .target = TrackedAttachmentTarget::Texture,
                             .texture = texture,
+                            .textureMipLevel = attachmentMipLevel,
                             .finalLayout = desc.finalLayout,
                         });
                         attachmentViews.emplace_back(m_textureManager.GetOrCreateViewAtMipLevel(*texture, attachmentMipLevel));
@@ -369,6 +370,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                 trackedAttachmentLayouts.emplace_back(TrackedAttachmentLayoutInfo {
                     .target = TrackedAttachmentTarget::Texture,
                     .texture = &texture,
+                    .textureMipLevel = attachmentMipLevel,
                     .finalLayout = depthAttachmentDescription.finalLayout,
                 });
                 textureResources.emplace_back(depthTextureResource);
@@ -512,7 +514,11 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                 switch (trackedAttachment.target) {
                     case TrackedAttachmentTarget::Texture:
                         MOBILEGL_ASSERT(s_textureManager != nullptr, "EndRenderPass: texture manager is null");
-                        s_textureManager->UpdateTrackedImageLayout(trackedAttachment.texture, trackedAttachment.finalLayout);
+                        s_textureManager->UpdateTrackedImageLayoutAfterAttachmentWrite(
+                            commandBuffer,
+                            trackedAttachment.texture,
+                            trackedAttachment.textureMipLevel,
+                            trackedAttachment.finalLayout);
                         break;
                     case TrackedAttachmentTarget::SwapchainColor:
                         MOBILEGL_ASSERT(s_swapchainObject != nullptr, "EndRenderPass: swapchain object is null");

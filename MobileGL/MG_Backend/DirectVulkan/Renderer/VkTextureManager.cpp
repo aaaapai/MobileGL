@@ -17,6 +17,17 @@
 namespace MobileGL::MG_Backend::DirectVulkan {
     static constexpr VkPipelineStageFlags kGraphicsSampledReadStages = VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT;
 
+    static Uint32 ComputeFullMipLevelCount(const IntVec3& baseTexelSize) {
+        Int maxDimension = std::max<Int>(baseTexelSize.x(),
+                                         std::max<Int>(baseTexelSize.y(), std::max<Int>(baseTexelSize.z(), 1)));
+        Uint32 mipLevelCount = 1;
+        while (maxDimension > 1) {
+            maxDimension = std::max<Int>(maxDimension / 2, 1);
+            ++mipLevelCount;
+        }
+        return mipLevelCount;
+    }
+
     struct TextureFormatInfo {
         VkFormat format = VK_FORMAT_UNDEFINED;
         Bool expandRgbToRgba = false;
@@ -290,16 +301,34 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         return true;
     }
 
-    static VkComponentMapping ResolveSampledViewComponents(const MG_State::GLState::ITextureObject& texture) {
-        VkComponentMapping components{
-            VK_COMPONENT_SWIZZLE_R,
-            VK_COMPONENT_SWIZZLE_G,
-            VK_COMPONENT_SWIZZLE_B,
-            VK_COMPONENT_SWIZZLE_A,
-        };
-        if (ResolveTextureFormatInfo(texture.GetFormat()).expandRgbToRgba) {
-            components.a = VK_COMPONENT_SWIZZLE_ONE;
+    static VkComponentSwizzle ToVkComponentSwizzle(TextureSwizzleParam swizzle) {
+        switch (swizzle) {
+        case TextureSwizzleParam::Red:
+            return VK_COMPONENT_SWIZZLE_R;
+        case TextureSwizzleParam::Green:
+            return VK_COMPONENT_SWIZZLE_G;
+        case TextureSwizzleParam::Blue:
+            return VK_COMPONENT_SWIZZLE_B;
+        case TextureSwizzleParam::Alpha:
+            return VK_COMPONENT_SWIZZLE_A;
+        case TextureSwizzleParam::Zero:
+            return VK_COMPONENT_SWIZZLE_ZERO;
+        case TextureSwizzleParam::One:
+            return VK_COMPONENT_SWIZZLE_ONE;
+        default:
+            MOBILEGL_ASSERT(false, "ToVkComponentSwizzle: unsupported swizzle=%d", static_cast<Int>(swizzle));
+            return VK_COMPONENT_SWIZZLE_IDENTITY;
         }
+    }
+
+    static VkComponentMapping ResolveSampledViewComponents(const MG_State::GLState::ITextureObject& texture) {
+        const auto& swizzles = texture.GetAllSwizzleParams();
+        VkComponentMapping components{
+            ToVkComponentSwizzle(swizzles.x()),
+            ToVkComponentSwizzle(swizzles.y()),
+            ToVkComponentSwizzle(swizzles.z()),
+            ToVkComponentSwizzle(swizzles.w()),
+        };
         return components;
     }
 
@@ -335,10 +364,17 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         m_allocator = initInfo.allocator;
         m_commandPool = initInfo.commandPool;
         m_graphicsQueue = initInfo.graphicsQueue;
+        m_currentFrameIndex = 0;
+        m_deferredReleases.clear();
+        m_deferredReleases.resize(initInfo.frameCount);
+        m_deferredViewReleases.clear();
+        m_deferredViewReleases.resize(initInfo.frameCount);
 
         MOBILEGL_ASSERT(m_device != VK_NULL_HANDLE && m_physicalDevice != VK_NULL_HANDLE && m_allocator != nullptr &&
                             m_commandPool != VK_NULL_HANDLE && m_graphicsQueue != VK_NULL_HANDLE,
                         "VkTextureManager::Initialize failed: invalid initialization info");
+        MOBILEGL_ASSERT(initInfo.frameCount > 0,
+                        "VkTextureManager::Initialize failed: frameCount must be > 0");
 
         TextureResource::s_device = m_device;
         TextureResource::s_allocator = m_allocator;
@@ -347,6 +383,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
     }
 
     void VkTextureManager::Shutdown() {
+        DestroyDeferredReleases();
         m_textureResources.clear();
 
         m_device = VK_NULL_HANDLE;
@@ -354,6 +391,18 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         m_allocator = nullptr;
         m_commandPool = VK_NULL_HANDLE;
         m_graphicsQueue = VK_NULL_HANDLE;
+        m_currentFrameIndex = 0;
+    }
+
+    void VkTextureManager::BeginFrame(Uint32 frameIndex) {
+        MOBILEGL_ASSERT(frameIndex < m_deferredReleases.size(),
+                        "VkTextureManager::BeginFrame invalid frame index %u (size=%zu)",
+                        frameIndex, m_deferredReleases.size());
+        MOBILEGL_ASSERT(frameIndex < m_deferredViewReleases.size(),
+                        "VkTextureManager::BeginFrame invalid deferred-view frame index %u (size=%zu)",
+                        frameIndex, m_deferredViewReleases.size());
+        m_currentFrameIndex = frameIndex;
+        CollectDeferredReleases(frameIndex);
     }
 
     VkTextureManager::TextureResource* VkTextureManager::SyncTextureAndGetDescriptor(MG_State::GLState::ITextureObject& texture) {
@@ -435,6 +484,60 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         MOBILEGL_ASSERT(it->second.image != VK_NULL_HANDLE,
                         "UpdateTrackedImageLayout: textureId=%d has null image", texture->GetExternalIndex());
         it->second.layout = newLayout;
+    }
+
+    void VkTextureManager::UpdateTrackedImageLayoutAfterAttachmentWrite(VkCommandBuffer commandBuffer,
+                                                                        MG_State::GLState::ITextureObject* texture,
+                                                                        Uint32 writtenMipLevel,
+                                                                        VkImageLayout newLayout) {
+        MOBILEGL_ASSERT(texture != nullptr, "UpdateTrackedImageLayoutAfterAttachmentWrite: texture is null");
+        auto it = m_textureResources.find(texture);
+        MOBILEGL_ASSERT(it != m_textureResources.end(),
+                        "UpdateTrackedImageLayoutAfterAttachmentWrite: textureId=%d has no tracked resource",
+                        texture->GetExternalIndex());
+
+        auto& resource = it->second;
+        MOBILEGL_ASSERT(resource.image != VK_NULL_HANDLE,
+                        "UpdateTrackedImageLayoutAfterAttachmentWrite: textureId=%d has null image",
+                        texture->GetExternalIndex());
+        MOBILEGL_ASSERT(writtenMipLevel < resource.mipLevels,
+                        "UpdateTrackedImageLayoutAfterAttachmentWrite: textureId=%d mipLevel=%u out of range %u",
+                        texture->GetExternalIndex(), writtenMipLevel, resource.mipLevels);
+
+        if (resource.layout != newLayout && resource.mipLevels > 1) {
+            VkPipelineStageFlags srcStageMask = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
+            VkAccessFlags srcAccessMask = 0;
+            GetImageTransitionSourceState(resource.layout, srcStageMask, srcAccessMask);
+
+            VkPipelineStageFlags dstStageMask = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
+            VkAccessFlags dstAccessMask = 0;
+            GetImageTransitionDestinationState(newLayout, dstStageMask, dstAccessMask);
+
+            if (writtenMipLevel > 0) {
+                VkImageLayout lowerMipLayout = resource.layout;
+                const Bool lowerTransitioned = TransitionImageLayout(
+                    commandBuffer, resource.image, lowerMipLayout, newLayout,
+                    srcStageMask, dstStageMask, srcAccessMask, dstAccessMask,
+                    resource.aspect, 0, writtenMipLevel);
+                MOBILEGL_ASSERT(lowerTransitioned,
+                                "UpdateTrackedImageLayoutAfterAttachmentWrite: failed to transition lower mip levels for textureId=%d",
+                                texture->GetExternalIndex());
+            }
+
+            const Uint32 upperBaseMipLevel = writtenMipLevel + 1;
+            if (upperBaseMipLevel < resource.mipLevels) {
+                VkImageLayout upperMipLayout = resource.layout;
+                const Bool upperTransitioned = TransitionImageLayout(
+                    commandBuffer, resource.image, upperMipLayout, newLayout,
+                    srcStageMask, dstStageMask, srcAccessMask, dstAccessMask,
+                    resource.aspect, upperBaseMipLevel, resource.mipLevels - upperBaseMipLevel);
+                MOBILEGL_ASSERT(upperTransitioned,
+                                "UpdateTrackedImageLayoutAfterAttachmentWrite: failed to transition upper mip levels for textureId=%d",
+                                texture->GetExternalIndex());
+            }
+        }
+
+        resource.layout = newLayout;
     }
 
     Bool VkTextureManager::TransitionTextureForSampling(VkCommandBuffer commandBuffer, MG_State::GLState::ITextureObject& texture) {
@@ -599,6 +702,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             MGLOG_D("%s: no mip levels", __func__);
             return false;
         }
+        const Uint32 backingMipLevels = std::max(mipLevels, ComputeFullMipLevelCount(texelSize));
         TextureShapeInfo shapeInfo{};
         const Bool supportedShape = TryResolveTextureShapeInfo(texture, uploadTarget, texelSize, shapeInfo);
         MOBILEGL_ASSERT(supportedShape,
@@ -619,13 +723,13 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                                 resource.depth == shapeInfo.depth &&
                                 resource.arrayLayers == shapeInfo.arrayLayers &&
                                 resource.viewType == shapeInfo.viewType &&
-                                resource.mipLevels == mipLevels;
+                                resource.mipLevels == backingMipLevels;
         if (compatible) {
-            if (resource.perMipViews.size() != mipLevels) {
-                resource.perMipViews.resize(mipLevels, VK_NULL_HANDLE);
+            if (resource.perMipViews.size() != backingMipLevels) {
+                resource.perMipViews.resize(backingMipLevels, VK_NULL_HANDLE);
             }
-            if (resource.perMipSampledViews.size() != mipLevels) {
-                resource.perMipSampledViews.resize(mipLevels, VK_NULL_HANDLE);
+            if (resource.perMipSampledViews.size() != backingMipLevels) {
+                resource.perMipSampledViews.resize(backingMipLevels, VK_NULL_HANDLE);
             }
             return true;
         }
@@ -638,14 +742,14 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             resource.depth == shapeInfo.depth &&
             resource.arrayLayers == shapeInfo.arrayLayers &&
             resource.viewType == shapeInfo.viewType &&
-            resource.mipLevels < mipLevels &&
+            resource.mipLevels < backingMipLevels &&
             resource.layout != VK_IMAGE_LAYOUT_UNDEFINED;
 
         std::unique_ptr<TextureResource> preservedResource;
         if (preserveExistingContent) {
             preservedResource = std::make_unique<TextureResource>(Move(resource));
         } else {
-            resource.Reset();
+            DeferResourceRelease(Move(resource));
         }
 
         auto aspect = GetAspectMaskForFormat(format);
@@ -657,7 +761,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         imageInfo.extent.width = static_cast<Uint32>(texelSize.x());
         imageInfo.extent.height = static_cast<Uint32>(texelSize.y());
     imageInfo.extent.depth = shapeInfo.depth;
-        imageInfo.mipLevels = mipLevels;
+        imageInfo.mipLevels = backingMipLevels;
     imageInfo.arrayLayers = shapeInfo.arrayLayers;
         imageInfo.format = format;
         imageInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
@@ -680,9 +784,9 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         resource.extent = {static_cast<Uint32>(texelSize.x()), static_cast<Uint32>(texelSize.y())};
         resource.depth = shapeInfo.depth;
         resource.arrayLayers = shapeInfo.arrayLayers;
-        resource.mipLevels = mipLevels;
-        resource.perMipViews.assign(mipLevels, VK_NULL_HANDLE);
-        resource.perMipSampledViews.assign(mipLevels, VK_NULL_HANDLE);
+        resource.mipLevels = backingMipLevels;
+        resource.perMipViews.assign(backingMipLevels, VK_NULL_HANDLE);
+        resource.perMipSampledViews.assign(backingMipLevels, VK_NULL_HANDLE);
         resource.sampledBaseMipLevel = 0;
         resource.sampledLevelCount = mipLevels;
         resource.format = format;
@@ -695,8 +799,76 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                 m_device, m_commandPool, m_graphicsQueue, *preservedResource, resource);
             MOBILEGL_ASSERT(preserved,
                             "SyncTextureResource: failed to preserve texture contents while growing mip chain");
+            DeferResourceRelease(Move(*preservedResource));
         }
         return true;
+    }
+
+    void VkTextureManager::DeferResourceRelease(TextureResource&& resource) {
+        if (resource.image == VK_NULL_HANDLE && resource.fullView == VK_NULL_HANDLE &&
+            resource.perMipViews.empty() && resource.perMipSampledViews.empty()) {
+            return;
+        }
+
+        if (m_deferredReleases.empty()) {
+            resource.Reset();
+            return;
+        }
+
+        MOBILEGL_ASSERT(m_currentFrameIndex < m_deferredReleases.size(),
+                        "VkTextureManager::DeferResourceRelease invalid current frame index %u (size=%zu)",
+                        m_currentFrameIndex, m_deferredReleases.size());
+        m_deferredReleases[m_currentFrameIndex].push_back(Move(resource));
+    }
+
+    void VkTextureManager::CollectDeferredReleases(Uint32 frameIndex) {
+        MOBILEGL_ASSERT(frameIndex < m_deferredReleases.size(),
+                        "VkTextureManager::CollectDeferredReleases invalid frame index %u (size=%zu)",
+                        frameIndex, m_deferredReleases.size());
+        m_deferredReleases[frameIndex].clear();
+
+        MOBILEGL_ASSERT(frameIndex < m_deferredViewReleases.size(),
+                        "VkTextureManager::CollectDeferredReleases invalid deferred-view frame index %u (size=%zu)",
+                        frameIndex, m_deferredViewReleases.size());
+        for (const VkImageView view : m_deferredViewReleases[frameIndex]) {
+            if (view != VK_NULL_HANDLE) {
+                vkDestroyImageView(m_device, view, nullptr);
+            }
+        }
+        m_deferredViewReleases[frameIndex].clear();
+    }
+
+    void VkTextureManager::DestroyDeferredReleases() {
+        for (auto& deferredReleases : m_deferredReleases) {
+            deferredReleases.clear();
+        }
+        m_deferredReleases.clear();
+
+        for (auto& deferredViews : m_deferredViewReleases) {
+            for (const VkImageView view : deferredViews) {
+                if (view != VK_NULL_HANDLE) {
+                    vkDestroyImageView(m_device, view, nullptr);
+                }
+            }
+            deferredViews.clear();
+        }
+        m_deferredViewReleases.clear();
+    }
+
+    void VkTextureManager::DeferViewRelease(VkImageView view) {
+        if (view == VK_NULL_HANDLE) {
+            return;
+        }
+
+        if (m_deferredViewReleases.empty()) {
+            vkDestroyImageView(m_device, view, nullptr);
+            return;
+        }
+
+        MOBILEGL_ASSERT(m_currentFrameIndex < m_deferredViewReleases.size(),
+                        "VkTextureManager::DeferViewRelease invalid current frame index %u (size=%zu)",
+                        m_currentFrameIndex, m_deferredViewReleases.size());
+        m_deferredViewReleases[m_currentFrameIndex].push_back(view);
     }
 
     Bool VkTextureManager::SyncTextureViews(const MG_State::GLState::ITextureObject& texture, TextureResource& resource) {
@@ -716,7 +888,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         }
 
         if (resource.fullView != VK_NULL_HANDLE) {
-            vkDestroyImageView(m_device, resource.fullView, nullptr);
+            DeferViewRelease(resource.fullView);
             resource.fullView = VK_NULL_HANDLE;
         }
 
@@ -770,11 +942,16 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         };
 
         Vector<UploadItem> uploadItems;
-        uploadItems.reserve(outResource.mipLevels);
+        const Uint32 definedMipLevels = GetUploadMipLevelCount(mipmapTexture, uploadTarget);
+        MOBILEGL_ASSERT(definedMipLevels <= outResource.mipLevels,
+                        "UploadDirtyMipLevels: defined mip level count %u exceeds backing mip level count %u for textureId=%d",
+                        definedMipLevels, outResource.mipLevels, mipmapTexture.GetExternalIndex());
+
+        uploadItems.reserve(definedMipLevels);
         const TextureFormatInfo formatInfo = ResolveTextureFormatInfo(mipmapTexture.GetFormat());
 
         VkDeviceSize stagingSize = 0;
-        for (Uint32 level = 0; level < outResource.mipLevels; ++level) {
+        for (Uint32 level = 0; level < definedMipLevels; ++level) {
             if (!mipmapTexture.IsStorageDirty(uploadTarget, level)) {
                 continue;
             }
@@ -987,8 +1164,22 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                                                Uint32& outBaseMipLevel, Uint32& outLevelCount) {
         MOBILEGL_ASSERT(mipLevels > 0, "ResolveViewMipRange: mipLevels must be > 0");
 
+        Uint32 definedMipLevels = mipLevels;
+        if (const auto* mipTexture = dynamic_cast<const MG_State::GLState::TextureObjectMipmap*>(&texture)) {
+            const auto& targets = texture.GetUploadTargets();
+            for (const auto target : targets) {
+                const Uint32 uploadMipLevels = GetUploadMipLevelCount(*mipTexture, target);
+                if (uploadMipLevels == 0) {
+                    continue;
+                }
+                definedMipLevels = std::min(mipLevels, uploadMipLevels);
+                break;
+            }
+        }
+        MOBILEGL_ASSERT(definedMipLevels > 0, "ResolveViewMipRange: texture has no defined mip levels");
+
         const auto& levelRange = texture.GetLevelRange();
-        const Uint32 maxAvailableMipLevel = mipLevels - 1;
+        const Uint32 maxAvailableMipLevel = definedMipLevels - 1;
         const Uint32 requestedBaseMipLevel = std::min(static_cast<Uint32>(levelRange.x()), maxAvailableMipLevel);
         Uint32 requestedMaxMipLevel = std::min(static_cast<Uint32>(levelRange.y()), maxAvailableMipLevel);
         if (requestedMaxMipLevel < requestedBaseMipLevel) {
