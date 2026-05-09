@@ -1998,6 +1998,7 @@ void main() {
             return VK_NULL_HANDLE;
         }
 
+#if MOBILEGL_LOG_ACTIVE_LEVEL <= MOBILEGL_LOG_LEVEL_DEBUG
         const auto& limits = m_physicalDevice.properties.limits;
         if (programObj.fragmentInputComponentCount != 0) {
             MOBILEGL_ASSERT(
@@ -2033,6 +2034,7 @@ void main() {
                     static_cast<Int>(programObj.rasterizationProducerStage));
             }
         }
+#endif
 
         auto vertexInputHash = m_vertexInputStateFactory->ComputeHash(vao);
         auto& vis = m_vertexInputStateFactory->GetOrCreateVertexInputState(vao);

@@ -1549,7 +1549,9 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             auto& moduleSpv = moduleSpirvs[i];
             if (moduleSpv.empty()) continue;
 
+#if MOBILEGL_LOG_ACTIVE_LEVEL <= MOBILEGL_LOG_LEVEL_DEBUG
             ValidateTransformedSpirv(moduleSpv, shaders[i]->GetShaderStage(), program.GetExternalIndex());
+#endif
 
             VkShaderModuleCreateInfo smci{VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO};
             smci.codeSize = moduleSpv.size() * sizeof(Uint);
@@ -1569,7 +1571,9 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         }
 
         // Reflect and create layout as part of the program object
+#if MOBILEGL_LOG_ACTIVE_LEVEL <= MOBILEGL_LOG_LEVEL_DEBUG
         ValidateRasterizationStageInterface(shaders, moduleSpirvs, entry, program.GetExternalIndex());
+#endif
         ReflectVertexInputs(shaders, moduleSpirvs, entry);
         ReflectFragmentOutputs(shaders, moduleSpirvs, entry);
         ReflectLayout(program, moduleSpirvs, entry);
