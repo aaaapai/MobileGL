@@ -34,7 +34,7 @@ namespace MobileGL::MG_Impl::GLImpl {
         TextureUploadTarget textureUploadTarget, TextureTarget textureTarget) {
         if (TextureImpl::IsProxyTextureTarget(textureUploadTarget)) {
             auto& textureObject =
-                TextureImpl::pProxyTextureManager->CreateOrReplaceProxyTextureObject(textureUploadTarget);
+                TextureImpl::pProxyTextureManager->GetProxyTextureObject(textureUploadTarget);
             if (!TextureImpl::ValidateTextureObject(textureObject)) return nullTextureObject;
             return textureObject;
         } else {
@@ -554,9 +554,6 @@ namespace MobileGL::MG_Impl::GLImpl {
 
         textureObject->SetInternalFormat(textureInternalFormat);
 
-        // if isProxy, no more pixel transfer needed below
-        if (isProxy) return;
-
         const void* originalPixels = pixels;
 
         // PBO
@@ -670,9 +667,6 @@ namespace MobileGL::MG_Impl::GLImpl {
                 MG_Util::ConvertTextureInternalFormatToString(textureObject->GetFormat()).c_str(),
                 MG_Util::ConvertTextureInternalFormatToString(textureInternalFormat).c_str());
         textureObject->SetInternalFormat(textureInternalFormat);
-
-        // if isProxy, no more pixel transfer needed below
-        if (isProxy) return;
 
         const void* originalPixels = pixels;
 
@@ -797,7 +791,7 @@ namespace MobileGL::MG_Impl::GLImpl {
         auto& bindingSlot = activeUnit.GetBindingSlot(textureTarget);
         Bool isProxy = TextureImpl::IsProxyTextureTarget(textureUploadTarget);
         auto& textureObject =
-            isProxy ? TextureImpl::pProxyTextureManager->CreateOrReplaceProxyTextureObject(textureUploadTarget)
+            isProxy ? TextureImpl::pProxyTextureManager->GetProxyTextureObject(textureUploadTarget)
                     : bindingSlot.GetBoundObject();
 
         if (!TextureImpl::ValidateTextureObject(textureObject)) return;
@@ -875,7 +869,7 @@ namespace MobileGL::MG_Impl::GLImpl {
         auto& bindingSlot = activeUnit.GetBindingSlot(textureTarget);
         Bool isProxy = TextureImpl::IsProxyTextureTarget(textureUploadTarget);
         auto& textureObject =
-            isProxy ? TextureImpl::pProxyTextureManager->CreateOrReplaceProxyTextureObject(textureUploadTarget)
+            isProxy ? TextureImpl::pProxyTextureManager->GetProxyTextureObject(textureUploadTarget)
                     : bindingSlot.GetBoundObject();
 
         if (!TextureImpl::ValidateTextureObject(textureObject)) return;
@@ -967,7 +961,7 @@ namespace MobileGL::MG_Impl::GLImpl {
         auto& bindingSlot = activeUnit.GetBindingSlot(textureTarget);
         Bool isProxy = TextureImpl::IsProxyTextureTarget(textureUploadTarget);
         auto& textureObject =
-            isProxy ? TextureImpl::pProxyTextureManager->CreateOrReplaceProxyTextureObject(textureUploadTarget)
+            isProxy ? TextureImpl::pProxyTextureManager->GetProxyTextureObject(textureUploadTarget)
                     : bindingSlot.GetBoundObject();
 
         if (!TextureImpl::ValidateTextureObject(textureObject)) return;
@@ -1039,6 +1033,7 @@ namespace MobileGL::MG_Impl::GLImpl {
                                                                      "pname is not a valid texture level parameter."));
             return;
         }
+        MGLOG_D("returned %u",*params);
     }
 
     void GetTexLevelParameterfv_State(GLenum target, GLint level, GLenum pname, GLfloat* params) {
@@ -1056,7 +1051,7 @@ namespace MobileGL::MG_Impl::GLImpl {
         auto& bindingSlot = activeUnit.GetBindingSlot(textureTarget);
         Bool isProxy = TextureImpl::IsProxyTextureTarget(textureUploadTarget);
         auto& textureObject =
-            isProxy ? TextureImpl::pProxyTextureManager->CreateOrReplaceProxyTextureObject(textureUploadTarget)
+            isProxy ? TextureImpl::pProxyTextureManager->GetProxyTextureObject(textureUploadTarget)
                     : bindingSlot.GetBoundObject();
 
         if (!TextureImpl::ValidateTextureObject(textureObject)) return;
@@ -1395,7 +1390,7 @@ namespace MobileGL::MG_Impl::GLImpl {
         auto& bindingSlot = activeUnit.GetBindingSlot(textureTarget);
         Bool isProxy = TextureImpl::IsProxyTextureTarget(textureUploadTarget);
         auto& textureObject =
-            isProxy ? TextureImpl::pProxyTextureManager->CreateOrReplaceProxyTextureObject(textureUploadTarget)
+            isProxy ? TextureImpl::pProxyTextureManager->GetProxyTextureObject(textureUploadTarget)
                     : bindingSlot.GetBoundObject();
 
         if (!TextureImpl::ValidateTextureObject(textureObject)) {
