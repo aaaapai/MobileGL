@@ -9,6 +9,7 @@
 #include "ShaderCompiler.h"
 
 #include "SpirvPasses/EliminateFloatEqualsZeroPass.h"
+#include "SpirvPasses/FlattenInterfaceStructPass.h"
 #include "spirv-tools/libspirv.h"
 #include "spirv-tools/optimizer.hpp"
 
@@ -234,6 +235,7 @@ namespace MobileGL {
 
                 Optimizer optimizer(SPV_ENV_VULKAN_1_1);
 
+                optimizer.RegisterPass(FlattenInterfaceStructPass::CreateFlattenInterfaceStructPass());
                 optimizer.RegisterPass(EliminateFloatEqualsZeroPass::CreateEliminateFloatEqualsZeroPass());
 
                 return optimizer.Run(inputBinary.data(), inputBinary.size(), &outputBinary, options);
