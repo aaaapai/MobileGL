@@ -108,8 +108,13 @@ namespace MobileGL {
                 SizeT linedirPos = source.find("#line");
                 while (linedirPos != String::npos) {
                     SizeT newlinePos = source.find('\n', linedirPos);
-                    // + length of "\n"
-                    source = source.replace(linedirPos, newlinePos - linedirPos + 1, "");
+                    if (newlinePos == String::npos) {
+                        source.erase(linedirPos);
+                        break;
+                    }
+
+                    // Preserve a line break so adjacent preprocessor directives do not merge.
+                    source = source.replace(linedirPos, newlinePos - linedirPos + 1, "\n");
                     linedirPos = source.find("#line", linedirPos);
                 }
 

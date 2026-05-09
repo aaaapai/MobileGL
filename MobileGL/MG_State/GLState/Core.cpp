@@ -140,6 +140,48 @@ namespace MobileGL::MG_State {
             return m_vertexArrayState.GetBoundVertexArray();
         }
 
+        void GLContext::SetCurrentVertexAttributeFloat(Uint index, const Array<Float, 4>& value) {
+            MOBILEGL_ASSERT(index < m_currentVertexAttributes.size(),
+                            "SetCurrentVertexAttributeFloat: index %u is out of range", index);
+
+            auto& current = m_currentVertexAttributes[index];
+            current.floatValue = value;
+            for (SizeT component = 0; component < value.size(); ++component) {
+                current.intValue[component] = static_cast<Int32>(value[component]);
+                current.uintValue[component] = static_cast<Uint32>(value[component]);
+            }
+        }
+
+        void GLContext::SetCurrentVertexAttributeInt(Uint index, const Array<Int32, 4>& value) {
+            MOBILEGL_ASSERT(index < m_currentVertexAttributes.size(),
+                            "SetCurrentVertexAttributeInt: index %u is out of range", index);
+
+            auto& current = m_currentVertexAttributes[index];
+            current.intValue = value;
+            for (SizeT component = 0; component < value.size(); ++component) {
+                current.floatValue[component] = static_cast<Float>(value[component]);
+                current.uintValue[component] = static_cast<Uint32>(value[component]);
+            }
+        }
+
+        void GLContext::SetCurrentVertexAttributeUint(Uint index, const Array<Uint32, 4>& value) {
+            MOBILEGL_ASSERT(index < m_currentVertexAttributes.size(),
+                            "SetCurrentVertexAttributeUint: index %u is out of range", index);
+
+            auto& current = m_currentVertexAttributes[index];
+            current.uintValue = value;
+            for (SizeT component = 0; component < value.size(); ++component) {
+                current.floatValue[component] = static_cast<Float>(value[component]);
+                current.intValue[component] = static_cast<Int32>(value[component]);
+            }
+        }
+
+        const CurrentVertexAttributeValue& GLContext::GetCurrentVertexAttribute(Uint index) const {
+            MOBILEGL_ASSERT(index < m_currentVertexAttributes.size(),
+                            "GetCurrentVertexAttribute: index %u is out of range", index);
+            return m_currentVertexAttributes[index];
+        }
+
         // Texture
         void GLContext::GenTextureNames(Uint number, Vector<Uint>& textures) {
             m_textureState.GenerateNames(number, textures);

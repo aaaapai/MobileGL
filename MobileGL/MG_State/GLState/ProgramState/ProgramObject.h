@@ -63,6 +63,48 @@ namespace MobileGL::MG_State::GLState {
             const auto it = std::find(m_attribs.begin(), m_attribs.end(), name);
             return (it == m_attribs.end()) ? -1 : (Int)std::distance(m_attribs.begin(), it);
         }
+        Uint32 GetActiveAttributeLocationMask() const {
+            Uint32 mask = 0;
+            const SizeT count = std::min<SizeT>(m_attribs.size(), 32);
+            for (SizeT index = 0; index < count; ++index) {
+                if (!m_attribs[index].empty()) {
+                    mask |= (1u << index);
+                }
+            }
+            return mask;
+        }
+        Uint32 GetActiveFragmentOutputLocationMask() const {
+            if (!m_program) {
+                return 0;
+            }
+
+            Uint32 mask = 0;
+            const Int outputCount = m_program->getNumPipeOutputs();
+            for (Int index = 0; index < outputCount; ++index) {
+                const Int location = static_cast<Int>(m_program->getPipeOutput(index).layoutLocation());
+                if (location >= 0 && location < 32) {
+                    mask |= (1u << location);
+                }
+            }
+            return mask;
+        }
+        Int GetActiveFragmentOutputCount() const {
+            return m_program ? m_program->getNumPipeOutputs() : 0;
+        }
+        Int GetFragmentOutputLocation(Uint index) const {
+            MOBILEGL_ASSERT(m_program != nullptr, "ProgramObject::GetFragmentOutputLocation: program is null");
+            MOBILEGL_ASSERT(index < static_cast<Uint>(m_program->getNumPipeOutputs()),
+                            "ProgramObject::GetFragmentOutputLocation: index=%u out of range",
+                            index);
+            return static_cast<Int>(m_program->getPipeOutput(static_cast<Int>(index)).layoutLocation());
+        }
+        GLenum GetFragmentOutputType(Uint index) const {
+            MOBILEGL_ASSERT(m_program != nullptr, "ProgramObject::GetFragmentOutputType: program is null");
+            MOBILEGL_ASSERT(index < static_cast<Uint>(m_program->getNumPipeOutputs()),
+                            "ProgramObject::GetFragmentOutputType: index=%u out of range",
+                            index);
+            return m_program->getPipeOutput(static_cast<Int>(index)).glDefineType;
+        }
         GLenum GetAttribType(Uint index) const { return m_attribTypes[index]; }
         const String& GetAttribName(Uint index) const { return m_attribs[index]; }
         void* MapUBO() { return m_globalUboScratch.data(); }

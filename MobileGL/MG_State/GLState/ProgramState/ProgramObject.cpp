@@ -18,6 +18,46 @@ layout(location = 0) out vec4 FragColor;
 void main() {}
 )";
 
+namespace {
+    static int GetVertexInputLocationSpan(GLenum glType) {
+        switch (glType) {
+        case GL_FLOAT_MAT2:
+        case GL_FLOAT_MAT2x3:
+        case GL_FLOAT_MAT2x4:
+            return 2;
+        case GL_FLOAT_MAT3:
+        case GL_FLOAT_MAT3x2:
+        case GL_FLOAT_MAT3x4:
+            return 3;
+        case GL_FLOAT_MAT4:
+        case GL_FLOAT_MAT4x2:
+        case GL_FLOAT_MAT4x3:
+            return 4;
+        default:
+            return 1;
+        }
+    }
+
+    static GLenum GetVertexInputLocationType(GLenum glType) {
+        switch (glType) {
+        case GL_FLOAT_MAT2:
+        case GL_FLOAT_MAT3x2:
+        case GL_FLOAT_MAT4x2:
+            return GL_FLOAT_VEC2;
+        case GL_FLOAT_MAT3:
+        case GL_FLOAT_MAT2x3:
+        case GL_FLOAT_MAT4x3:
+            return GL_FLOAT_VEC3;
+        case GL_FLOAT_MAT4:
+        case GL_FLOAT_MAT2x4:
+        case GL_FLOAT_MAT3x4:
+            return GL_FLOAT_VEC4;
+        default:
+            return glType;
+        }
+    }
+}
+
 namespace MobileGL::MG_State::GLState {
     bool ProgramObject::ShaderIsAttached(const SharedPtr<ShaderObject>& shader) {
         MGLOG_D("ProgramObject %u: ShaderIsAttached check for shader %p", m_externalIndex, shader.get());
@@ -264,7 +304,10 @@ namespace MobileGL::MG_State::GLState {
         Int maxLoc = -1;
         for (int i = 0; i < inCount; ++i) {
             Int loc = (Int)m_program->getPipeInput(i).layoutLocation();
-            if (loc >= 0 && loc != glslang::TQualifier::layoutLocationEnd) maxLoc = std::max(maxLoc, loc);
+            if (loc >= 0 && loc != glslang::TQualifier::layoutLocationEnd) {
+                const Int locationSpan = GetVertexInputLocationSpan(m_program->getPipeInput(i).glDefineType);
+                maxLoc = std::max(maxLoc, loc + locationSpan - 1);
+            }
             MGLOG_D("ProgramObject %u: Reflection - pipe input[%d] name='%s' layoutLocation=%d glType=%u",
                     m_externalIndex, i, m_program->getPipeInput(i).name.c_str(), loc,
                     m_program->getPipeInput(i).glDefineType);
@@ -294,88 +337,27 @@ namespace MobileGL::MG_State::GLState {
             m_attribInNameMaxLength = std::max(m_attribInNameMaxLength, (Int)inVar.name.length());
 
             if (location >= 0 && location < (int)m_attribs.size()) {
-                m_attribs[location] = inVar.name;
-                m_attribTypes[location] = inVar.glDefineType;
-                MGLOG_D("ProgramObject %u: Reflection - got attrib '%s' at explicit location %d", m_externalIndex,
-                        inVar.name.c_str(), location);
-            }
-            // else if (location >= (int)m_attribs.size()) {
-            //     MGLOG_W("ProgramObject %u: ProgramObject::DoReflection - attrib location %d >= attribs.size()
-            //     "
-            //             "(%zu). Ignoring.",
-            //             m_externalIndex, location, m_attribs.size());
-            //     continue;
-            // }
-            // else {
-            //     bool placed = false;
-            //     for (size_t idx = 0; idx < m_attribs.size(); ++idx) {
-            //         if (m_attribs[idx].empty()) {
-            //             m_attribs[idx] = inVar.name;
-            //             m_attribTypes[idx] = inVar.glDefineType;
-            //             placed = true;
-            //             MGLOG_D("ProgramObject %u: Reflection - placed attrib '%s' into free slot %zu",
-            //                     m_externalIndex, inVar.name.c_str(), idx);
-            //             break;
-            //         }
-            //     }
-            //     if (!placed && (int)m_attribs.size() < maxAttribs) {
-            //         m_attribs.push_back(inVar.name);
-            //         m_attribTypes.push_back(inVar.glDefineType);
-            //         placed = true;
-            //         MGLOG_D("ProgramObject %u: Reflection - pushed attrib '%s' to new slot %zu",
-            //                 m_externalIndex, inVar.name.c_str(), m_attribs.size() - 1);
-            //     }
-            //     if (!placed) {
-            //         MGLOG_W("ProgramObject %u: ProgramObject::DoReflection - cannot place attrib '%s' (no
-            //         free "
-            //                 "slot and at max capacity). Ignoring.",
-            //                 m_externalIndex, inVar.name.c_str());
-            //     }
-            // }
-        }
+                const Int locationSpan = GetVertexInputLocationSpan(inVar.glDefineType);
+                const GLenum locationType = GetVertexInputLocationType(inVar.glDefineType);
+                for (Int locationOffset = 0; locationOffset < locationSpan; ++locationOffset) {
+                    const Int expandedLocation = location + locationOffset;
+                    if (expandedLocation < 0 || expandedLocation >= static_cast<Int>(m_attribs.size())) {
+                        break;
+                    }
 
-        // Implement glBindAttribLocation semantics (explicit locations set by user)
-        // for (auto& [name, location] : m_explicitAttribLocations) {
-        //     MGLOG_D("ProgramObject %u: Reflection - explicit attrib location request: name='%s' location=%d",
-        //             m_externalIndex, name.c_str(), location);
-        //     if (location < 0) continue;
-        //     if (location >= (int)m_attribs.size()) {
-        //         if (location >= maxAttribs) {
-        //             MGLOG_W("ProgramObject %u: SetExplicitVertexInLocation: requested location %d >= "
-        //                     "GL_MAX_VERTEX_ATTRIBS (%d). Ignored for attribute '%s'.",
-        //                     m_externalIndex, location, maxAttribs, name.c_str());
-        //             continue;
-        //         }
-        //         m_attribs.resize(location + 1);
-        //         m_attribTypes.resize(location + 1);
-        //         MGLOG_D("ProgramObject %u: Reflection - resized attrib arrays to %zu to accommodate explicit
-        //         "
-        //                 "location %d",
-        //                 m_externalIndex, m_attribs.size(), location);
-        //     }
-        //
-        //     if (m_attribs[location] != name) {
-        //         auto it = std::find(m_attribs.begin(), m_attribs.end(), name);
-        //         if (it == m_attribs.end()) {
-        //             MGLOG_D("ProgramObject %u: Reflection - explicit attrib '%s' not found in current list, "
-        //                     "skipping swap",
-        //                     m_externalIndex, name.c_str());
-        //             continue;
-        //         }
-        //         auto idx = std::distance(m_attribs.begin(), it);
-        //         std::swap(m_attribs[location], m_attribs[idx]);
-        //         std::swap(m_attribTypes[location], m_attribTypes[idx]);
-        //         MGLOG_D("ProgramObject %u: Reflection - swapped attrib '%s' from idx %zu to explicit "
-        //                 "location %d",
-        //                 m_externalIndex, name.c_str(), idx, location);
-        //     }
-        //
-        //     for (SizeT idx = 0; idx < m_attribs.size(); ++idx) {
-        //         m_attribLocation[m_attribs[idx]] = idx;
-        //         MGLOG_D("ProgramObject %u: Reflection - attribLocation['%s'] = %zu", m_externalIndex,
-        //                 m_attribs[idx].c_str(), idx);
-        //     }
-        // }
+                    m_attribs[expandedLocation] = inVar.name;
+                    m_attribTypes[expandedLocation] = locationType;
+                    MGLOG_D(
+                        "ProgramObject %u: Reflection - got attrib '%s' at expanded location %d (baseLocation=%d glType=%u expandedType=%u)",
+                        m_externalIndex,
+                        inVar.name.c_str(),
+                        expandedLocation,
+                        location,
+                        inVar.glDefineType,
+                        static_cast<Uint32>(locationType));
+                }
+            }
+        }
 
         // ---------- UBO ----------
         Int uboCount = m_program->getNumUniformBlocks();
