@@ -18,6 +18,7 @@
 #include "MG_Impl/GLImpl/Framebuffer/GL_Framebuffer.h"
 #include "MG_Util/Converters/GLToMG/TextureEnumConverter.h"
 #include "MG_Util/Converters/MGToVk/RenderStateEnumConverter.h"
+#include "MG_Util/Metrics/TextureMetrics.h"
 #include <vulkan/vulkan_core.h>
 
 namespace MobileGL::MG_Backend::DirectVulkan {
@@ -57,10 +58,409 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         }
     }
 
+    static VkColorComponentFlags GetSupportedColorWriteMaskForComponentCount(SizeT componentCount) {
+        switch (componentCount) {
+        case 1:
+            return VK_COLOR_COMPONENT_R_BIT;
+        case 2:
+            return VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT;
+        case 3:
+            return VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT;
+        case 4:
+            return VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
+                   VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+        default:
+            MOBILEGL_ASSERT(false,
+                            "GetSupportedColorWriteMaskForComponentCount: unsupported componentCount=%zu",
+                            componentCount);
+            return 0;
+        }
+    }
+
+    enum class NumericDomain {
+        Unknown,
+        FloatLike,
+        Sint,
+        Uint,
+    };
+
+    static NumericDomain GetNumericDomainForShaderValueType(GLenum glType) {
+        switch (glType) {
+        case GL_FLOAT:
+        case GL_FLOAT_VEC2:
+        case GL_FLOAT_VEC3:
+        case GL_FLOAT_VEC4:
+            return NumericDomain::FloatLike;
+        case GL_INT:
+        case GL_INT_VEC2:
+        case GL_INT_VEC3:
+        case GL_INT_VEC4:
+            return NumericDomain::Sint;
+        case GL_UNSIGNED_INT:
+        case GL_UNSIGNED_INT_VEC2:
+        case GL_UNSIGNED_INT_VEC3:
+        case GL_UNSIGNED_INT_VEC4:
+            return NumericDomain::Uint;
+        default:
+            return NumericDomain::Unknown;
+        }
+    }
+
+    static SizeT GetComponentCountForShaderValueType(GLenum glType) {
+        switch (glType) {
+        case GL_FLOAT:
+        case GL_INT:
+        case GL_UNSIGNED_INT:
+            return 1;
+        case GL_FLOAT_VEC2:
+        case GL_INT_VEC2:
+        case GL_UNSIGNED_INT_VEC2:
+            return 2;
+        case GL_FLOAT_VEC3:
+        case GL_INT_VEC3:
+        case GL_UNSIGNED_INT_VEC3:
+            return 3;
+        case GL_FLOAT_VEC4:
+        case GL_INT_VEC4:
+        case GL_UNSIGNED_INT_VEC4:
+            return 4;
+        default:
+            return 0;
+        }
+    }
+
+    static NumericDomain GetNumericDomainForVertexFormat(VkFormat format) {
+        switch (format) {
+        case VK_FORMAT_R32_SFLOAT:
+        case VK_FORMAT_R32G32_SFLOAT:
+        case VK_FORMAT_R32G32B32_SFLOAT:
+        case VK_FORMAT_R32G32B32A32_SFLOAT:
+        case VK_FORMAT_R16_SNORM:
+        case VK_FORMAT_R16G16_SNORM:
+        case VK_FORMAT_R16G16B16_SNORM:
+        case VK_FORMAT_R16G16B16A16_SNORM:
+        case VK_FORMAT_R16_UNORM:
+        case VK_FORMAT_R16G16_UNORM:
+        case VK_FORMAT_R16G16B16_UNORM:
+        case VK_FORMAT_R16G16B16A16_UNORM:
+        case VK_FORMAT_R16_SSCALED:
+        case VK_FORMAT_R16G16_SSCALED:
+        case VK_FORMAT_R16G16B16_SSCALED:
+        case VK_FORMAT_R16G16B16A16_SSCALED:
+        case VK_FORMAT_R16_USCALED:
+        case VK_FORMAT_R16G16_USCALED:
+        case VK_FORMAT_R16G16B16_USCALED:
+        case VK_FORMAT_R16G16B16A16_USCALED:
+        case VK_FORMAT_R8_SNORM:
+        case VK_FORMAT_R8G8_SNORM:
+        case VK_FORMAT_R8G8B8_SNORM:
+        case VK_FORMAT_R8G8B8A8_SNORM:
+        case VK_FORMAT_R8_UNORM:
+        case VK_FORMAT_R8G8_UNORM:
+        case VK_FORMAT_R8G8B8_UNORM:
+        case VK_FORMAT_R8G8B8A8_UNORM:
+        case VK_FORMAT_R8_SSCALED:
+        case VK_FORMAT_R8G8_SSCALED:
+        case VK_FORMAT_R8G8B8_SSCALED:
+        case VK_FORMAT_R8G8B8A8_SSCALED:
+        case VK_FORMAT_R8_USCALED:
+        case VK_FORMAT_R8G8_USCALED:
+        case VK_FORMAT_R8G8B8_USCALED:
+        case VK_FORMAT_R8G8B8A8_USCALED:
+            return NumericDomain::FloatLike;
+        case VK_FORMAT_R32_SINT:
+        case VK_FORMAT_R32G32_SINT:
+        case VK_FORMAT_R32G32B32_SINT:
+        case VK_FORMAT_R32G32B32A32_SINT:
+        case VK_FORMAT_R16_SINT:
+        case VK_FORMAT_R16G16_SINT:
+        case VK_FORMAT_R16G16B16_SINT:
+        case VK_FORMAT_R16G16B16A16_SINT:
+        case VK_FORMAT_R8_SINT:
+        case VK_FORMAT_R8G8_SINT:
+        case VK_FORMAT_R8G8B8_SINT:
+        case VK_FORMAT_R8G8B8A8_SINT:
+            return NumericDomain::Sint;
+        case VK_FORMAT_R32_UINT:
+        case VK_FORMAT_R32G32_UINT:
+        case VK_FORMAT_R32G32B32_UINT:
+        case VK_FORMAT_R32G32B32A32_UINT:
+        case VK_FORMAT_R16_UINT:
+        case VK_FORMAT_R16G16_UINT:
+        case VK_FORMAT_R16G16B16_UINT:
+        case VK_FORMAT_R16G16B16A16_UINT:
+        case VK_FORMAT_R8_UINT:
+        case VK_FORMAT_R8G8_UINT:
+        case VK_FORMAT_R8G8B8_UINT:
+        case VK_FORMAT_R8G8B8A8_UINT:
+            return NumericDomain::Uint;
+        default:
+            return NumericDomain::Unknown;
+        }
+    }
+
+    static Bool TryCoerceVertexFormatNumericDomain(VkFormat sourceFormat,
+                                                   NumericDomain targetDomain,
+                                                   VkFormat& outFormat) {
+        const NumericDomain sourceDomain = GetNumericDomainForVertexFormat(sourceFormat);
+        if (sourceDomain == targetDomain || targetDomain == NumericDomain::Unknown) {
+            outFormat = sourceFormat;
+            return true;
+        }
+        if (sourceDomain == NumericDomain::FloatLike || targetDomain == NumericDomain::FloatLike) {
+            return false;
+        }
+
+        switch (sourceFormat) {
+        case VK_FORMAT_R32_SINT:
+            outFormat = targetDomain == NumericDomain::Uint ? VK_FORMAT_R32_UINT : sourceFormat;
+            return true;
+        case VK_FORMAT_R32G32_SINT:
+            outFormat = targetDomain == NumericDomain::Uint ? VK_FORMAT_R32G32_UINT : sourceFormat;
+            return true;
+        case VK_FORMAT_R32G32B32_SINT:
+            outFormat = targetDomain == NumericDomain::Uint ? VK_FORMAT_R32G32B32_UINT : sourceFormat;
+            return true;
+        case VK_FORMAT_R32G32B32A32_SINT:
+            outFormat = targetDomain == NumericDomain::Uint ? VK_FORMAT_R32G32B32A32_UINT : sourceFormat;
+            return true;
+        case VK_FORMAT_R32_UINT:
+            outFormat = targetDomain == NumericDomain::Sint ? VK_FORMAT_R32_SINT : sourceFormat;
+            return true;
+        case VK_FORMAT_R32G32_UINT:
+            outFormat = targetDomain == NumericDomain::Sint ? VK_FORMAT_R32G32_SINT : sourceFormat;
+            return true;
+        case VK_FORMAT_R32G32B32_UINT:
+            outFormat = targetDomain == NumericDomain::Sint ? VK_FORMAT_R32G32B32_SINT : sourceFormat;
+            return true;
+        case VK_FORMAT_R32G32B32A32_UINT:
+            outFormat = targetDomain == NumericDomain::Sint ? VK_FORMAT_R32G32B32A32_SINT : sourceFormat;
+            return true;
+        case VK_FORMAT_R16_SINT:
+            outFormat = targetDomain == NumericDomain::Uint ? VK_FORMAT_R16_UINT : sourceFormat;
+            return true;
+        case VK_FORMAT_R16G16_SINT:
+            outFormat = targetDomain == NumericDomain::Uint ? VK_FORMAT_R16G16_UINT : sourceFormat;
+            return true;
+        case VK_FORMAT_R16G16B16_SINT:
+            outFormat = targetDomain == NumericDomain::Uint ? VK_FORMAT_R16G16B16_UINT : sourceFormat;
+            return true;
+        case VK_FORMAT_R16G16B16A16_SINT:
+            outFormat = targetDomain == NumericDomain::Uint ? VK_FORMAT_R16G16B16A16_UINT : sourceFormat;
+            return true;
+        case VK_FORMAT_R16_UINT:
+            outFormat = targetDomain == NumericDomain::Sint ? VK_FORMAT_R16_SINT : sourceFormat;
+            return true;
+        case VK_FORMAT_R16G16_UINT:
+            outFormat = targetDomain == NumericDomain::Sint ? VK_FORMAT_R16G16_SINT : sourceFormat;
+            return true;
+        case VK_FORMAT_R16G16B16_UINT:
+            outFormat = targetDomain == NumericDomain::Sint ? VK_FORMAT_R16G16B16_SINT : sourceFormat;
+            return true;
+        case VK_FORMAT_R16G16B16A16_UINT:
+            outFormat = targetDomain == NumericDomain::Sint ? VK_FORMAT_R16G16B16A16_SINT : sourceFormat;
+            return true;
+        case VK_FORMAT_R8_SINT:
+            outFormat = targetDomain == NumericDomain::Uint ? VK_FORMAT_R8_UINT : sourceFormat;
+            return true;
+        case VK_FORMAT_R8G8_SINT:
+            outFormat = targetDomain == NumericDomain::Uint ? VK_FORMAT_R8G8_UINT : sourceFormat;
+            return true;
+        case VK_FORMAT_R8G8B8_SINT:
+            outFormat = targetDomain == NumericDomain::Uint ? VK_FORMAT_R8G8B8_UINT : sourceFormat;
+            return true;
+        case VK_FORMAT_R8G8B8A8_SINT:
+            outFormat = targetDomain == NumericDomain::Uint ? VK_FORMAT_R8G8B8A8_UINT : sourceFormat;
+            return true;
+        case VK_FORMAT_R8_UINT:
+            outFormat = targetDomain == NumericDomain::Sint ? VK_FORMAT_R8_SINT : sourceFormat;
+            return true;
+        case VK_FORMAT_R8G8_UINT:
+            outFormat = targetDomain == NumericDomain::Sint ? VK_FORMAT_R8G8_SINT : sourceFormat;
+            return true;
+        case VK_FORMAT_R8G8B8_UINT:
+            outFormat = targetDomain == NumericDomain::Sint ? VK_FORMAT_R8G8B8_SINT : sourceFormat;
+            return true;
+        case VK_FORMAT_R8G8B8A8_UINT:
+            outFormat = targetDomain == NumericDomain::Sint ? VK_FORMAT_R8G8B8A8_SINT : sourceFormat;
+            return true;
+        default:
+            return false;
+        }
+    }
+
+    static NumericDomain GetNumericDomainForTextureInternalFormat(TextureInternalFormat format) {
+        switch (format) {
+        case TextureInternalFormat::R8I:
+        case TextureInternalFormat::R16I:
+        case TextureInternalFormat::R32I:
+        case TextureInternalFormat::RG8I:
+        case TextureInternalFormat::RG16I:
+        case TextureInternalFormat::RG32I:
+        case TextureInternalFormat::RGB8I:
+        case TextureInternalFormat::RGB16I:
+        case TextureInternalFormat::RGB32I:
+        case TextureInternalFormat::RGBA8I:
+        case TextureInternalFormat::RGBA16I:
+        case TextureInternalFormat::RGBA32I:
+            return NumericDomain::Sint;
+        case TextureInternalFormat::R8UI:
+        case TextureInternalFormat::R16UI:
+        case TextureInternalFormat::R32UI:
+        case TextureInternalFormat::RG8UI:
+        case TextureInternalFormat::RG16UI:
+        case TextureInternalFormat::RG32UI:
+        case TextureInternalFormat::RGB8UI:
+        case TextureInternalFormat::RGB16UI:
+        case TextureInternalFormat::RGB32UI:
+        case TextureInternalFormat::RGBA8UI:
+        case TextureInternalFormat::RGBA16UI:
+        case TextureInternalFormat::RGBA32UI:
+        case TextureInternalFormat::RGB10A2UI:
+            return NumericDomain::Uint;
+        case TextureInternalFormat::DepthComponent:
+        case TextureInternalFormat::DepthComponent16:
+        case TextureInternalFormat::DepthComponent24:
+        case TextureInternalFormat::DepthComponent32:
+        case TextureInternalFormat::DepthComponent32F:
+        case TextureInternalFormat::Depth24Stencil8:
+        case TextureInternalFormat::Depth32FStencil8:
+        case TextureInternalFormat::DepthStencil:
+            return NumericDomain::Unknown;
+        default:
+            return NumericDomain::FloatLike;
+        }
+    }
+
     static Bool HasTransientVertexIndexBufferThisFrame(
         const Vector<const MG_State::GLState::BufferObject*>& buffers,
         const MG_State::GLState::BufferObject* buffer) {
         return std::find(buffers.begin(), buffers.end(), buffer) != buffers.end();
+    }
+
+    static Uint32 BuildVertexInputAttributeMask(const Vector<VkVertexInputAttributeDescription>& attributes) {
+        Uint32 attributeMask = 0;
+        for (const auto& attribute : attributes) {
+            if (attribute.location < 32) {
+                attributeMask |= (1u << attribute.location);
+            }
+        }
+        return attributeMask;
+    }
+
+    static Bool TryGetCurrentVertexAttributeFormat(GLenum glType, VkFormat& outFormat) {
+        switch (glType) {
+        case GL_FLOAT:
+            outFormat = VK_FORMAT_R32_SFLOAT;
+            return true;
+        case GL_FLOAT_VEC2:
+            outFormat = VK_FORMAT_R32G32_SFLOAT;
+            return true;
+        case GL_FLOAT_VEC3:
+            outFormat = VK_FORMAT_R32G32B32_SFLOAT;
+            return true;
+        case GL_FLOAT_VEC4:
+            outFormat = VK_FORMAT_R32G32B32A32_SFLOAT;
+            return true;
+        case GL_INT:
+            outFormat = VK_FORMAT_R32_SINT;
+            return true;
+        case GL_INT_VEC2:
+            outFormat = VK_FORMAT_R32G32_SINT;
+            return true;
+        case GL_INT_VEC3:
+            outFormat = VK_FORMAT_R32G32B32_SINT;
+            return true;
+        case GL_INT_VEC4:
+            outFormat = VK_FORMAT_R32G32B32A32_SINT;
+            return true;
+        case GL_UNSIGNED_INT:
+            outFormat = VK_FORMAT_R32_UINT;
+            return true;
+        case GL_UNSIGNED_INT_VEC2:
+            outFormat = VK_FORMAT_R32G32_UINT;
+            return true;
+        case GL_UNSIGNED_INT_VEC3:
+            outFormat = VK_FORMAT_R32G32B32_UINT;
+            return true;
+        case GL_UNSIGNED_INT_VEC4:
+            outFormat = VK_FORMAT_R32G32B32A32_UINT;
+            return true;
+        default:
+            return false;
+        }
+    }
+
+    static Bool TryGetCurrentVertexAttributeUploadPayload(
+        const MG_State::GLState::CurrentVertexAttributeValue& currentValue,
+        GLenum glType,
+        VkFormat& outFormat,
+        const void*& outData,
+        VkDeviceSize& outSize) {
+        switch (glType) {
+        case GL_FLOAT:
+            outFormat = VK_FORMAT_R32_SFLOAT;
+            outData = currentValue.floatValue.data();
+            outSize = sizeof(Float);
+            return true;
+        case GL_FLOAT_VEC2:
+            outFormat = VK_FORMAT_R32G32_SFLOAT;
+            outData = currentValue.floatValue.data();
+            outSize = sizeof(Float) * 2;
+            return true;
+        case GL_FLOAT_VEC3:
+            outFormat = VK_FORMAT_R32G32B32_SFLOAT;
+            outData = currentValue.floatValue.data();
+            outSize = sizeof(Float) * 3;
+            return true;
+        case GL_FLOAT_VEC4:
+            outFormat = VK_FORMAT_R32G32B32A32_SFLOAT;
+            outData = currentValue.floatValue.data();
+            outSize = sizeof(Float) * 4;
+            return true;
+        case GL_INT:
+            outFormat = VK_FORMAT_R32_SINT;
+            outData = currentValue.intValue.data();
+            outSize = sizeof(Int32);
+            return true;
+        case GL_INT_VEC2:
+            outFormat = VK_FORMAT_R32G32_SINT;
+            outData = currentValue.intValue.data();
+            outSize = sizeof(Int32) * 2;
+            return true;
+        case GL_INT_VEC3:
+            outFormat = VK_FORMAT_R32G32B32_SINT;
+            outData = currentValue.intValue.data();
+            outSize = sizeof(Int32) * 3;
+            return true;
+        case GL_INT_VEC4:
+            outFormat = VK_FORMAT_R32G32B32A32_SINT;
+            outData = currentValue.intValue.data();
+            outSize = sizeof(Int32) * 4;
+            return true;
+        case GL_UNSIGNED_INT:
+            outFormat = VK_FORMAT_R32_UINT;
+            outData = currentValue.uintValue.data();
+            outSize = sizeof(Uint32);
+            return true;
+        case GL_UNSIGNED_INT_VEC2:
+            outFormat = VK_FORMAT_R32G32_UINT;
+            outData = currentValue.uintValue.data();
+            outSize = sizeof(Uint32) * 2;
+            return true;
+        case GL_UNSIGNED_INT_VEC3:
+            outFormat = VK_FORMAT_R32G32B32_UINT;
+            outData = currentValue.uintValue.data();
+            outSize = sizeof(Uint32) * 3;
+            return true;
+        case GL_UNSIGNED_INT_VEC4:
+            outFormat = VK_FORMAT_R32G32B32A32_UINT;
+            outData = currentValue.uintValue.data();
+            outSize = sizeof(Uint32) * 4;
+            return true;
+        default:
+            return false;
+        }
     }
 
     static const char* VkImageLayoutToString(VkImageLayout layout) {
@@ -890,8 +1290,14 @@ void main() {
     Bool VulkanRenderer::UploadAndBindVertexBuffers(
         VkCommandBuffer commandBuffer, const MG_State::GLState::VertexArrayObject& vao) {
         auto& vertexInputState = m_vertexInputStateFactory->GetOrCreateVertexInputState(vao);
+        const auto& program = *MG_State::pGLContext->GetCurrentProgram();
+        const auto transformFlags = GetShaderTransformFlags(m_swapchainObject.GetPreTransform());
+        const auto& programObj = m_programFactory->GetOrCreateProgram(program, transformFlags);
+        const Uint32 activeAttribMask = programObj.activeVertexInputLocationMask;
+        const Uint32 vertexInputAttribMask = BuildVertexInputAttributeMask(vertexInputState.attributes);
+        const Uint32 missingAttribMask = activeAttribMask & ~vertexInputAttribMask;
 
-        const auto bindingCount = vertexInputState.bindings.size();
+        const auto bindingCount = vertexInputState.bindings.size() + static_cast<SizeT>(std::popcount(missingAttribMask));
 
         Vector<VkBuffer> vkBuffers(bindingCount, VK_NULL_HANDLE);
         Vector<VkDeviceSize> vkOffsets(bindingCount, 0);
@@ -912,6 +1318,9 @@ void main() {
         };
 
         for (SizeT binding = 0; binding < bindingCount; ++binding) {
+            if (binding >= vertexInputState.bindings.size()) {
+                break;
+            }
             const SizeT bufferKey = vertexInputState.bindingBufferKeys[binding];
             const MG_State::GLState::BufferObject* sourceBuffer = findBufferByKey(bufferKey);
             MOBILEGL_ASSERT(sourceBuffer != nullptr, "UploadAndBindVertexStreams failed to resolve source buffer");
@@ -944,6 +1353,37 @@ void main() {
             }
             vkBuffers[binding] = slice.buffer;
             vkOffsets[binding] = slice.offset;
+        }
+
+        SizeT syntheticBinding = vertexInputState.bindings.size();
+        for (Uint32 location = 0; location < 32; ++location) {
+            if ((missingAttribMask & (1u << location)) == 0) {
+                continue;
+            }
+
+            const auto glType = programObj.vertexInputTypes[location];
+            const auto& currentValue = MG_State::pGLContext->GetCurrentVertexAttribute(location);
+            VkFormat format = VK_FORMAT_UNDEFINED;
+            const void* sourceData = nullptr;
+            VkDeviceSize sourceSize = 0;
+            const Bool supported = TryGetCurrentVertexAttributeUploadPayload(currentValue, glType, format,
+                                                                            sourceData, sourceSize);
+            MOBILEGL_ASSERT(supported,
+                            "DirectVulkan does not support current generic vertex attribute type yet: program=%u location=%u type=0x%x",
+                            program.GetExternalIndex(), location, glType);
+
+            BufferSlice slice{};
+            if (!m_bufferManager.UploadTransient(BufferKind::Vertex, m_frameContext.GetCurrentFrameIndex(),
+                                                 sourceData, sourceSize, 16, slice)) {
+                MOBILEGL_ASSERT(false,
+                                "UploadAndBindVertexStreams skipped: failed to upload current attribute binding for location %u",
+                                location);
+                return false;
+            }
+
+            vkBuffers[syntheticBinding] = slice.buffer;
+            vkOffsets[syntheticBinding] = slice.offset;
+            ++syntheticBinding;
         }
 
         vkCmdBindVertexBuffers(commandBuffer, 0, static_cast<Uint32>(bindingCount), vkBuffers.data(), vkOffsets.data());
@@ -1558,8 +1998,111 @@ void main() {
             return VK_NULL_HANDLE;
         }
 
+        const auto& limits = m_physicalDevice.properties.limits;
+        if (programObj.fragmentInputComponentCount != 0) {
+            MOBILEGL_ASSERT(
+                programObj.fragmentInputComponentCount <= limits.maxFragmentInputComponents,
+                "GetOrCreatePipeline: fragmentInputComponents=%u exceeds device limit=%u program=%u producerStage=%d",
+                programObj.fragmentInputComponentCount,
+                limits.maxFragmentInputComponents,
+                program.GetExternalIndex(),
+                static_cast<Int>(programObj.rasterizationProducerStage));
+        }
+        if (programObj.producerOutputComponentCount != 0) {
+            Uint32 producerOutputLimit = 0;
+            switch (programObj.rasterizationProducerStage) {
+            case ShaderStage::Vertex:
+                producerOutputLimit = limits.maxVertexOutputComponents;
+                break;
+            case ShaderStage::Geometry:
+                producerOutputLimit = limits.maxGeometryOutputComponents;
+                break;
+            case ShaderStage::TessEval:
+                producerOutputLimit = limits.maxTessellationEvaluationOutputComponents;
+                break;
+            default:
+                break;
+            }
+            if (producerOutputLimit != 0) {
+                MOBILEGL_ASSERT(
+                    programObj.producerOutputComponentCount <= producerOutputLimit,
+                    "GetOrCreatePipeline: producerOutputComponents=%u exceeds stage limit=%u program=%u producerStage=%d",
+                    programObj.producerOutputComponentCount,
+                    producerOutputLimit,
+                    program.GetExternalIndex(),
+                    static_cast<Int>(programObj.rasterizationProducerStage));
+            }
+        }
+
         auto vertexInputHash = m_vertexInputStateFactory->ComputeHash(vao);
         auto& vis = m_vertexInputStateFactory->GetOrCreateVertexInputState(vao);
+        const Uint32 vertexInputAttribMask = BuildVertexInputAttributeMask(vis.attributes);
+        const Uint32 activeAttribMask = programObj.activeVertexInputLocationMask;
+        const Uint32 missingAttribMask = activeAttribMask & ~vertexInputAttribMask;
+        Vector<VkVertexInputAttributeDescription> patchedAttributes = vis.attributes;
+        Bool hasPatchedVertexAttributes = false;
+        for (auto& attribute : patchedAttributes) {
+            if (attribute.location >= 32 || (activeAttribMask & (1u << attribute.location)) == 0) {
+                continue;
+            }
+
+            const GLenum shaderInputType = programObj.vertexInputTypes[attribute.location];
+            const NumericDomain shaderInputDomain = GetNumericDomainForShaderValueType(shaderInputType);
+            const NumericDomain vertexInputDomain = GetNumericDomainForVertexFormat(attribute.format);
+            if (shaderInputDomain == NumericDomain::Unknown || vertexInputDomain == NumericDomain::Unknown ||
+                shaderInputDomain == vertexInputDomain) {
+                continue;
+            }
+
+            VkFormat patchedFormat = VK_FORMAT_UNDEFINED;
+            const Bool canPatch = TryCoerceVertexFormatNumericDomain(attribute.format, shaderInputDomain, patchedFormat);
+            MOBILEGL_ASSERT(
+                canPatch,
+                "GetOrCreatePipeline: vertex input location=%u format=%d mismatches shader input type=%u program=%u",
+                attribute.location,
+                static_cast<Int>(attribute.format),
+                static_cast<Uint32>(shaderInputType),
+                program.GetExternalIndex());
+
+            MGLOG_W("GetOrCreatePipeline: patching vertex input location=%u format=%d -> %d to match shader input type=%u for program=%u",
+                    attribute.location,
+                    static_cast<Int>(attribute.format),
+                    static_cast<Int>(patchedFormat),
+                    static_cast<Uint32>(shaderInputType),
+                    program.GetExternalIndex());
+            attribute.format = patchedFormat;
+            hasPatchedVertexAttributes = true;
+        }
+        VertexInputStateBuilder syntheticVertexInputBuilder;
+        const VkPipelineVertexInputStateCreateInfo* pipelineVertexInputState = &vis.state;
+        if (missingAttribMask != 0 || hasPatchedVertexAttributes) {
+            for (const auto& binding : vis.bindings) {
+                syntheticVertexInputBuilder.AddBinding(binding.binding, binding.stride, binding.inputRate);
+            }
+            for (const auto& attribute : patchedAttributes) {
+                syntheticVertexInputBuilder.AddAttribute(attribute.location, attribute.binding, attribute.format,
+                                                         attribute.offset);
+            }
+
+            Uint32 syntheticBinding = static_cast<Uint32>(vis.bindings.size());
+            for (Uint32 location = 0; location < 32; ++location) {
+                if ((missingAttribMask & (1u << location)) == 0) {
+                    continue;
+                }
+
+                VkFormat format = VK_FORMAT_UNDEFINED;
+                const Bool supported = TryGetCurrentVertexAttributeFormat(programObj.vertexInputTypes[location], format);
+                MOBILEGL_ASSERT(supported,
+                                "DirectVulkan does not support current generic vertex attribute type yet: program=%u location=%u type=0x%x activeAttribMask=0x%x vertexInputAttribMask=0x%x",
+                                program.GetExternalIndex(), location, programObj.vertexInputTypes[location],
+                                activeAttribMask, vertexInputAttribMask);
+
+                syntheticVertexInputBuilder.AddBinding(syntheticBinding, 0, VK_VERTEX_INPUT_RATE_VERTEX);
+                syntheticVertexInputBuilder.AddAttribute(location, syntheticBinding, format, 0);
+                ++syntheticBinding;
+            }
+            pipelineVertexInputState = &syntheticVertexInputBuilder.Build();
+        }
         auto cullFaceEnabled = MG_State::pGLContext->IsCapabilityEnabled(CapabilityInput::CullFace);
         auto depthTestEnabled = MG_State::pGLContext->IsCapabilityEnabled(CapabilityInput::DepthTest);
         auto mask = MG_State::pGLContext->GetColorMask();
@@ -1585,24 +2128,164 @@ void main() {
             .depthWriteEnable = depthTestEnabled && MG_State::pGLContext->GetDepthMask(),
             .depthCompareOp = MG_Util::ConvertDepthTestFuncToVkEnum(MG_State::pGLContext->GetDepthFunc()),
             .stages = &programObj.stages,
-            .vertexInputState = &vis.state
+            .vertexInputState = pipelineVertexInputState
         };
+        const Bool hasDepthStencilAttachment = renderPassEntry.hasDepthStencilAttachment;
+        MOBILEGL_ASSERT(
+            hasDepthStencilAttachment || (!payload.depthTestEnable && !payload.depthWriteEnable),
+            "GetOrCreatePipeline: render pass has no depth attachment but depthTestEnable=%d depthWriteEnable=%d program=%u attachmentCount=%u colorAttachmentCount=%u",
+            payload.depthTestEnable ? 1 : 0,
+            payload.depthWriteEnable ? 1 : 0,
+            program.GetExternalIndex(),
+            renderPassEntry.attachmentCount,
+            renderPassEntry.colorAttachmentCount);
+        const Uint32 fragmentOutputMask = programObj.activeFragmentOutputLocationMask;
+        MOBILEGL_ASSERT(
+            (fragmentOutputMask >> payload.colorAttachmentCount) == 0,
+            "GetOrCreatePipeline: fragmentOutputMask=0x%x exceeds colorAttachmentCount=%u for program=%u",
+            fragmentOutputMask,
+            payload.colorAttachmentCount,
+            program.GetExternalIndex());
         MOBILEGL_ASSERT(payload.colorAttachmentCount <= PipelineFactory::PipelineCreatePayload::kMaxColorAttachments,
                         "GetOrCreatePipeline: colorAttachmentCount=%u exceeds payload capacity",
                         payload.colorAttachmentCount);
+        const auto& drawFboBinding =
+            MG_State::pGLContext->GetFramebufferBindingSlot(FramebufferTarget::Draw).GetBoundObject();
+        MOBILEGL_ASSERT(drawFboBinding != nullptr, "GetOrCreatePipeline: draw framebuffer is null");
+        const Bool isDefaultDrawFbo =
+            drawFboBinding.get() == MG_Impl::GLImpl::FramebufferImpl::pDefaultFramebufferInfo->defaultFBO.get();
+        const auto& drawBuffers = drawFboBinding->GetDrawBuffers();
         for (Uint32 i = 0; i < payload.colorAttachmentCount; ++i) {
             BlendFactor srcRGB = BlendFactor::One;
             BlendFactor dstRGB = BlendFactor::Zero;
             BlendFactor srcAlpha = BlendFactor::One;
             BlendFactor dstAlpha = BlendFactor::Zero;
             MG_State::pGLContext->GetBlendFuncIndexed(i, srcRGB, dstRGB, srcAlpha, dstAlpha);
+            const Bool blendEnabled = MG_State::pGLContext->IsCapabilityEnabledIndexed(CapabilityInput::Blend, i);
+            VkColorComponentFlags attachmentColorWriteMask = colorWriteMask;
+            Bool effectiveBlendEnabled = blendEnabled;
+            if (!isDefaultDrawFbo && i < drawBuffers.size()) {
+                const auto drawBuffer = drawBuffers[i];
+                if (drawBuffer == FramebufferAttachmentType::None) {
+                    // GL ignores writes and per-target blend state for GL_NONE draw buffer slots.
+                    attachmentColorWriteMask = 0;
+                    effectiveBlendEnabled = false;
+                }
+                if (drawBuffer != FramebufferAttachmentType::None) {
+                    const auto& attachment = drawFboBinding->GetAttachment(drawBuffer);
+                    if (attachment.IsTexture()) {
+                        auto* texture = attachment.GetTexture().get();
+                        MOBILEGL_ASSERT(texture != nullptr,
+                                        "GetOrCreatePipeline: color attachment %u texture is null",
+                                        i);
+                        const auto* textureResource = m_textureManager->SyncTextureAndGetDescriptor(*texture);
+                        MOBILEGL_ASSERT(textureResource != nullptr,
+                                        "GetOrCreatePipeline: failed to sync color attachment textureId=%d",
+                                        texture->GetExternalIndex());
+                        VkFormatProperties attachmentFormatProperties{};
+                        vkGetPhysicalDeviceFormatProperties(
+                            m_physicalDevice.handle,
+                            textureResource->format,
+                            &attachmentFormatProperties);
+                        MOBILEGL_ASSERT(
+                            (attachmentFormatProperties.optimalTilingFeatures & VK_FORMAT_FEATURE_COLOR_ATTACHMENT_BIT) != 0,
+                            "GetOrCreatePipeline: color attachment %u format=%d textureId=%d lacks VK_FORMAT_FEATURE_COLOR_ATTACHMENT_BIT (program=%u)",
+                            i,
+                            static_cast<Int>(textureResource->format),
+                            texture->GetExternalIndex(),
+                            program.GetExternalIndex());
+                        const SizeT componentCount = MG_Util::GetBaseInternalFormatComponentCount(texture->GetFormat());
+                        const NumericDomain attachmentNumericDomain =
+                            GetNumericDomainForTextureInternalFormat(texture->GetFormat());
+                        for (Uint32 outputLocation = 0;
+                             outputLocation < ProgramFactory::VkProgramObject::kMaxVertexInputLocations;
+                             ++outputLocation) {
+                            if ((programObj.activeFragmentOutputLocationMask & (1u << outputLocation)) == 0 ||
+                                outputLocation != i) {
+                                continue;
+                            }
+
+                            const GLenum fragmentOutputType = programObj.fragmentOutputTypes[outputLocation];
+                            const NumericDomain fragmentOutputDomain =
+                                GetNumericDomainForShaderValueType(fragmentOutputType);
+                            // GL allows fragment outputs with more components than the bound color attachment;
+                            // excess components are discarded during conversion to the attachment format.
+                            MOBILEGL_ASSERT(
+                                attachmentNumericDomain == NumericDomain::Unknown ||
+                                    fragmentOutputDomain == NumericDomain::Unknown ||
+                                    attachmentNumericDomain == fragmentOutputDomain,
+                                "GetOrCreatePipeline: fragment output location=%d type=%u mismatches color attachment %u internalFormat=%d textureId=%d program=%u",
+                                static_cast<Int>(outputLocation),
+                                static_cast<Uint32>(fragmentOutputType),
+                                i,
+                                static_cast<Int>(texture->GetFormat()),
+                                texture->GetExternalIndex(),
+                                program.GetExternalIndex());
+                        }
+                        const VkColorComponentFlags supportedColorWriteMask =
+                            GetSupportedColorWriteMaskForComponentCount(componentCount);
+                        if ((attachmentColorWriteMask & ~supportedColorWriteMask) != 0) {
+                            MGLOG_W(
+                                "GetOrCreatePipeline: clamping colorWriteMask=0x%x to 0x%x on color attachment %u (componentCount=%zu textureId=%d internalFormat=%d program=%u blendEnabled=%d)",
+                                static_cast<Uint32>(attachmentColorWriteMask),
+                                static_cast<Uint32>(attachmentColorWriteMask & supportedColorWriteMask),
+                                i,
+                                componentCount,
+                                texture->GetExternalIndex(),
+                                static_cast<Int>(texture->GetFormat()),
+                                program.GetExternalIndex(),
+                                effectiveBlendEnabled ? 1 : 0);
+                            attachmentColorWriteMask &= supportedColorWriteMask;
+                        }
+                    }
+                }
+            }
+            if (effectiveBlendEnabled) {
+                MOBILEGL_ASSERT(i < drawBuffers.size(),
+                                "GetOrCreatePipeline: color attachment %u is out of draw buffer range %zu",
+                                i, drawBuffers.size());
+
+                VkFormat colorAttachmentFormat = VK_FORMAT_UNDEFINED;
+                Int textureExternalIndex = -1;
+                if (isDefaultDrawFbo) {
+                    colorAttachmentFormat = m_swapchainObject.GetSurfaceFormat().format;
+                } else {
+                    const auto drawBuffer = drawBuffers[i];
+                    MOBILEGL_ASSERT(drawBuffer != FramebufferAttachmentType::None,
+                                    "GetOrCreatePipeline: blend is enabled on draw buffer %u but the attachment is None",
+                                    i);
+                    const auto& attachment = drawFboBinding->GetAttachment(drawBuffer);
+                    MOBILEGL_ASSERT(attachment.IsTexture(),
+                                    "GetOrCreatePipeline: blend validation currently expects texture color attachments only");
+                    auto* texture = attachment.GetTexture().get();
+                    MOBILEGL_ASSERT(texture != nullptr,
+                                    "GetOrCreatePipeline: color attachment %u texture is null",
+                                    i);
+                    textureExternalIndex = texture->GetExternalIndex();
+                    const auto* textureResource = m_textureManager->SyncTextureAndGetDescriptor(*texture);
+                    MOBILEGL_ASSERT(textureResource != nullptr,
+                                    "GetOrCreatePipeline: failed to sync color attachment textureId=%d",
+                                    textureExternalIndex);
+                    colorAttachmentFormat = textureResource->format;
+                }
+
+                VkFormatProperties formatProperties{};
+                vkGetPhysicalDeviceFormatProperties(m_physicalDevice.handle, colorAttachmentFormat, &formatProperties);
+                MOBILEGL_ASSERT(
+                    (formatProperties.optimalTilingFeatures & VK_FORMAT_FEATURE_COLOR_ATTACHMENT_BLEND_BIT) != 0,
+                    "GetOrCreatePipeline: blend is enabled on color attachment %u for format=%d textureId=%d, but the format lacks VK_FORMAT_FEATURE_COLOR_ATTACHMENT_BLEND_BIT (program=%u)",
+                    i,
+                    static_cast<Int>(colorAttachmentFormat),
+                    textureExternalIndex,
+                    program.GetExternalIndex());
+            }
             payload.colorBlendAttachments[i] = MakeColorBlendAttachmentState(
-                MG_State::pGLContext->IsCapabilityEnabledIndexed(CapabilityInput::Blend, i),
+                effectiveBlendEnabled,
                 MG_Util::ConvertBlendFactorToVkEnum(srcRGB),
                 MG_Util::ConvertBlendFactorToVkEnum(dstRGB),
                 MG_Util::ConvertBlendFactorToVkEnum(srcAlpha),
                 MG_Util::ConvertBlendFactorToVkEnum(dstAlpha),
-                colorWriteMask);
+                attachmentColorWriteMask);
         }
         return m_pipelineFactory->GetOrCreatePipeline(payload);
     }

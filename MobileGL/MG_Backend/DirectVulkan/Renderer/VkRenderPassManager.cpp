@@ -170,34 +170,30 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         Bool isDefaultFbo = (&fbo == MG_Impl::GLImpl::FramebufferImpl::pDefaultFramebufferInfo->defaultFBO.get());
         // Color attachment
         auto& drawbufs = fbo.GetDrawBuffers();
-        Int validDrawBufCount = 0;
-        for (Int i = 0; i < drawbufs.size(); ++i) {
-            auto drawbuf = drawbufs[i];
-            if (drawbuf != FramebufferAttachmentType::None)
-                validDrawBufCount = std::max(validDrawBufCount, i + 1);
-        }
+        const Uint32 colorAttachmentSlotCount = static_cast<Uint32>(drawbufs.size());
 
         Int width = 0;
         Int height = 0;
         Vector<VkAttachmentDescription> attachmentDescriptions;
-        attachmentDescriptions.reserve(validDrawBufCount + 1);
-        Vector<VkAttachmentReference> colorAttachmentRefs(validDrawBufCount);
+        attachmentDescriptions.reserve(colorAttachmentSlotCount + 1);
+        // Keep the full GL draw buffer slot span so fragment outputs targeting GL_NONE map to VK_ATTACHMENT_UNUSED.
+        Vector<VkAttachmentReference> colorAttachmentRefs(colorAttachmentSlotCount);
         for (auto& attachmentRef : colorAttachmentRefs) {
             attachmentRef.attachment = VK_ATTACHMENT_UNUSED;
             attachmentRef.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
         }
         Vector<PendingClearAttachmentInfo> pendingClearAttachments;
-        pendingClearAttachments.reserve(validDrawBufCount + 1);
+        pendingClearAttachments.reserve(colorAttachmentSlotCount + 1);
         Vector<TrackedAttachmentLayoutInfo> trackedAttachmentLayouts;
-        trackedAttachmentLayouts.reserve(validDrawBufCount + 1);
+        trackedAttachmentLayouts.reserve(colorAttachmentSlotCount + 1);
         auto& textureResources = RenderPassEntry::s_textureResourcesScratch;
         textureResources.clear();
-        textureResources.reserve(validDrawBufCount + 1);
+        textureResources.reserve(colorAttachmentSlotCount + 1);
         Vector<VkImageView> attachmentViews;
-        attachmentViews.reserve(validDrawBufCount + 1);
+        attachmentViews.reserve(colorAttachmentSlotCount + 1);
         // This should automatically work on default & offscreen FBO
         // assuming default FBO has the right param
-        for (Int i = 0; i < validDrawBufCount; ++i) {
+        for (Uint32 i = 0; i < colorAttachmentSlotCount; ++i) {
             auto drawbuf = drawbufs[i];
             if (drawbuf == FramebufferAttachmentType::None ||
                 fbo.GetAttachment(drawbuf).IsRenderbuffer())
@@ -385,6 +381,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             attachmentDescriptions.emplace_back(depthAttachmentDescription);
             depthAttachmentRef.attachment = depthAttachmentIndex;
         }
+        const Bool hasDepthStencilAttachment = depthAttachmentRef.attachment != VK_ATTACHMENT_UNUSED;
 
         // Subpass
         VkSubpassDescription subpassDesc;
@@ -437,6 +434,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             Move(trackedAttachmentLayouts),
             static_cast<Uint32>(attachmentViews.size()),
             static_cast<Uint32>(colorAttachmentRefs.size()),
+            hasDepthStencilAttachment,
             extent,
             1 };
         MGLOG_D("VkRenderPassManager::GetOrCreateRenderPass: hash=0x%llx compatibilityHash=0x%llx attachmentCount=%u colorAttachmentCount=%u extent=%dx%d",

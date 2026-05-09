@@ -153,6 +153,9 @@ namespace MobileGL {
             case TextureInternalFormat::R16I:
             case TextureInternalFormat::R16UI:
             case TextureInternalFormat::R16F:
+            case TextureInternalFormat::R32F:
+            case TextureInternalFormat::R32I:
+            case TextureInternalFormat::R32UI:
                 return 1;
             case TextureInternalFormat::RG:
             case TextureInternalFormat::RG8:
@@ -173,6 +176,9 @@ namespace MobileGL {
             case TextureInternalFormat::RGB5:
             case TextureInternalFormat::RGB8:
             case TextureInternalFormat::RGB8Snorm:
+            case TextureInternalFormat::RGB10:
+            case TextureInternalFormat::RGB12:
+            case TextureInternalFormat::RGB16:
             case TextureInternalFormat::SRGB8:
             case TextureInternalFormat::RGB8I:
             case TextureInternalFormat::RGB8UI:
@@ -192,6 +198,7 @@ namespace MobileGL {
             case TextureInternalFormat::RGBA8Snorm:
             case TextureInternalFormat::RGBA8I:
             case TextureInternalFormat::RGBA8UI:
+            case TextureInternalFormat::SRGB8Alpha8:
             case TextureInternalFormat::RGBA12:
             case TextureInternalFormat::RGBA16:
             case TextureInternalFormat::RGBA16I:

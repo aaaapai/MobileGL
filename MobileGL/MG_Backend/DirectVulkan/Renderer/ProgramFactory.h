@@ -36,6 +36,8 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         using HashType = Uint64;
 
         struct VkProgramObject {
+            static constexpr Uint32 kMaxVertexInputLocations = 32;
+
             HashType hash = 0;
             Vector<VkPipelineShaderStageCreateInfo> stages;
             Vector<VkShaderModule> modules;
@@ -50,6 +52,13 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             Vector<Int> samplerUniformLocationByBinding;
             Vector<TextureTarget> samplerTextureTargetByBinding;
             Int globalUboBinding = -1;
+            Uint32 activeVertexInputLocationMask = 0;
+            Array<GLenum, kMaxVertexInputLocations> vertexInputTypes{};
+            Uint32 activeFragmentOutputLocationMask = 0;
+            Array<GLenum, kMaxVertexInputLocations> fragmentOutputTypes{};
+            ShaderStage rasterizationProducerStage = ShaderStage::Unknown;
+            Uint32 producerOutputComponentCount = 0;
+            Uint32 fragmentInputComponentCount = 0;
 
             static inline VkDevice s_device = VK_NULL_HANDLE;
 
@@ -69,10 +78,22 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                 samplerUniformLocationByBinding = std::move(other.samplerUniformLocationByBinding);
                 samplerTextureTargetByBinding = std::move(other.samplerTextureTargetByBinding);
                 globalUboBinding = other.globalUboBinding;
+                activeVertexInputLocationMask = other.activeVertexInputLocationMask;
+                vertexInputTypes = other.vertexInputTypes;
+                activeFragmentOutputLocationMask = other.activeFragmentOutputLocationMask;
+                fragmentOutputTypes = other.fragmentOutputTypes;
+                rasterizationProducerStage = other.rasterizationProducerStage;
+                producerOutputComponentCount = other.producerOutputComponentCount;
+                fragmentInputComponentCount = other.fragmentInputComponentCount;
                 other.hash = 0;
                 other.descriptorSetLayout = VK_NULL_HANDLE;
                 other.pipelineLayout = VK_NULL_HANDLE;
                 other.globalUboBinding = -1;
+                other.activeVertexInputLocationMask = 0;
+                other.activeFragmentOutputLocationMask = 0;
+                other.rasterizationProducerStage = ShaderStage::Unknown;
+                other.producerOutputComponentCount = 0;
+                other.fragmentInputComponentCount = 0;
             }
             VkProgramObject& operator=(VkProgramObject&& other) noexcept {
                 if (this == &other) {
@@ -91,10 +112,22 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                 samplerUniformLocationByBinding = std::move(other.samplerUniformLocationByBinding);
                 samplerTextureTargetByBinding = std::move(other.samplerTextureTargetByBinding);
                 globalUboBinding = other.globalUboBinding;
+                activeVertexInputLocationMask = other.activeVertexInputLocationMask;
+                vertexInputTypes = other.vertexInputTypes;
+                activeFragmentOutputLocationMask = other.activeFragmentOutputLocationMask;
+                fragmentOutputTypes = other.fragmentOutputTypes;
+                rasterizationProducerStage = other.rasterizationProducerStage;
+                producerOutputComponentCount = other.producerOutputComponentCount;
+                fragmentInputComponentCount = other.fragmentInputComponentCount;
                 other.hash = 0;
                 other.descriptorSetLayout = VK_NULL_HANDLE;
                 other.pipelineLayout = VK_NULL_HANDLE;
                 other.globalUboBinding = -1;
+                other.activeVertexInputLocationMask = 0;
+                other.activeFragmentOutputLocationMask = 0;
+                other.rasterizationProducerStage = ShaderStage::Unknown;
+                other.producerOutputComponentCount = 0;
+                other.fragmentInputComponentCount = 0;
                 return *this;
             }
 
@@ -139,6 +172,12 @@ namespace MobileGL::MG_Backend::DirectVulkan {
 
     private:
         static TextureTarget UniformTypeToTextureTarget(GLenum glType);
+        void ReflectVertexInputs(const Vector<SharedPtr<MG_State::GLState::ShaderObject>>& shaders,
+                     const Vector<Vector<Uint>>& spirv,
+                     VkProgramObject& entry) const;
+        void ReflectFragmentOutputs(const Vector<SharedPtr<MG_State::GLState::ShaderObject>>& shaders,
+                        const Vector<Vector<Uint>>& spirv,
+                        VkProgramObject& entry) const;
         void ReflectLayout(const MG_State::GLState::ProgramObject& program, const Vector<Vector<Uint>>& spirv,
                            VkProgramObject& entry) const;
 

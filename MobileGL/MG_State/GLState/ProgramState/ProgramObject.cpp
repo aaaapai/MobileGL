@@ -18,6 +18,46 @@ layout(location = 0) out vec4 FragColor;
 void main() {}
 )";
 
+namespace {
+    static int GetVertexInputLocationSpan(GLenum glType) {
+        switch (glType) {
+        case GL_FLOAT_MAT2:
+        case GL_FLOAT_MAT2x3:
+        case GL_FLOAT_MAT2x4:
+            return 2;
+        case GL_FLOAT_MAT3:
+        case GL_FLOAT_MAT3x2:
+        case GL_FLOAT_MAT3x4:
+            return 3;
+        case GL_FLOAT_MAT4:
+        case GL_FLOAT_MAT4x2:
+        case GL_FLOAT_MAT4x3:
+            return 4;
+        default:
+            return 1;
+        }
+    }
+
+    static GLenum GetVertexInputLocationType(GLenum glType) {
+        switch (glType) {
+        case GL_FLOAT_MAT2:
+        case GL_FLOAT_MAT3x2:
+        case GL_FLOAT_MAT4x2:
+            return GL_FLOAT_VEC2;
+        case GL_FLOAT_MAT3:
+        case GL_FLOAT_MAT2x3:
+        case GL_FLOAT_MAT4x3:
+            return GL_FLOAT_VEC3;
+        case GL_FLOAT_MAT4:
+        case GL_FLOAT_MAT2x4:
+        case GL_FLOAT_MAT3x4:
+            return GL_FLOAT_VEC4;
+        default:
+            return glType;
+        }
+    }
+}
+
 namespace MobileGL::MG_State::GLState {
     bool ProgramObject::ShaderIsAttached(const SharedPtr<ShaderObject>& shader) {
         MGLOG_D("ProgramObject %u: ShaderIsAttached check for shader %p", m_externalIndex, shader.get());
@@ -264,7 +304,10 @@ namespace MobileGL::MG_State::GLState {
         Int maxLoc = -1;
         for (int i = 0; i < inCount; ++i) {
             Int loc = (Int)m_program->getPipeInput(i).layoutLocation();
-            if (loc >= 0 && loc != glslang::TQualifier::layoutLocationEnd) maxLoc = std::max(maxLoc, loc);
+            if (loc >= 0 && loc != glslang::TQualifier::layoutLocationEnd) {
+                const Int locationSpan = GetVertexInputLocationSpan(m_program->getPipeInput(i).glDefineType);
+                maxLoc = std::max(maxLoc, loc + locationSpan - 1);
+            }
             MGLOG_D("ProgramObject %u: Reflection - pipe input[%d] name='%s' layoutLocation=%d glType=%u",
                     m_externalIndex, i, m_program->getPipeInput(i).name.c_str(), loc,
                     m_program->getPipeInput(i).glDefineType);
@@ -294,10 +337,25 @@ namespace MobileGL::MG_State::GLState {
             m_attribInNameMaxLength = std::max(m_attribInNameMaxLength, (Int)inVar.name.length());
 
             if (location >= 0 && location < (int)m_attribs.size()) {
-                m_attribs[location] = inVar.name;
-                m_attribTypes[location] = inVar.glDefineType;
-                MGLOG_D("ProgramObject %u: Reflection - got attrib '%s' at explicit location %d", m_externalIndex,
-                        inVar.name.c_str(), location);
+                const Int locationSpan = GetVertexInputLocationSpan(inVar.glDefineType);
+                const GLenum locationType = GetVertexInputLocationType(inVar.glDefineType);
+                for (Int locationOffset = 0; locationOffset < locationSpan; ++locationOffset) {
+                    const Int expandedLocation = location + locationOffset;
+                    if (expandedLocation < 0 || expandedLocation >= static_cast<Int>(m_attribs.size())) {
+                        break;
+                    }
+
+                    m_attribs[expandedLocation] = inVar.name;
+                    m_attribTypes[expandedLocation] = locationType;
+                    MGLOG_D(
+                        "ProgramObject %u: Reflection - got attrib '%s' at expanded location %d (baseLocation=%d glType=%u expandedType=%u)",
+                        m_externalIndex,
+                        inVar.name.c_str(),
+                        expandedLocation,
+                        location,
+                        inVar.glDefineType,
+                        static_cast<Uint32>(locationType));
+                }
             }
             // else if (location >= (int)m_attribs.size()) {
             //     MGLOG_W("ProgramObject %u: ProgramObject::DoReflection - attrib location %d >= attribs.size()

@@ -25,6 +25,12 @@ namespace MobileGL {
         void Init();
 
         namespace GLState {
+            struct CurrentVertexAttributeValue {
+                Array<Float, 4> floatValue{0.f, 0.f, 0.f, 1.f};
+                Array<Int32, 4> intValue{0, 0, 0, 1};
+                Array<Uint32, 4> uintValue{0u, 0u, 0u, 1u};
+            };
+
             class GLContext {
             public:
                 GLContext() = default;
@@ -61,6 +67,10 @@ namespace MobileGL {
                 Bool ValidateVertexArrayName(Uint index) const;
                 Bool ValidateVertexArrayObject(Uint index) const;
                 const SharedPtr<VertexArrayObject>& GetBoundVertexArray();
+                void SetCurrentVertexAttributeFloat(Uint index, const Array<Float, 4>& value);
+                void SetCurrentVertexAttributeInt(Uint index, const Array<Int32, 4>& value);
+                void SetCurrentVertexAttributeUint(Uint index, const Array<Uint32, 4>& value);
+                const CurrentVertexAttributeValue& GetCurrentVertexAttribute(Uint index) const;
 
                 // Texture
                 void GenTextureNames(Uint number, Vector<Uint>& textures);
@@ -152,6 +162,7 @@ namespace MobileGL {
                 ErrorState m_errorState;
                 BufferState m_bufferState;
                 VertexArrayState m_vertexArrayState;
+                Array<CurrentVertexAttributeValue, VertexArrayObject::MAX_VERTEX_ATTRIBS> m_currentVertexAttributes{};
                 TextureState m_textureState;
                 ProgramState m_programState;
                 RenderState m_renderState;
