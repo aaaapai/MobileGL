@@ -21,7 +21,8 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         enum class DescriptorBindingKind : Uint8 {
             None = 0,
             UniformBufferDynamic,
-            CombinedImageSampler
+            CombinedImageSampler,
+            UniformTexelBuffer
         };
 
         enum class CompileOptionBit : Uint {

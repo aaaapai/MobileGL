@@ -80,7 +80,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                                              BufferSlice& outSlice) {
         const VkBufferUsageFlags requiredUsage = GetVkBufferUsage(kind);
         MOBILEGL_ASSERT(requiredUsage != 0,
-                        "VkBufferManager::SyncResidentBuffer only supports resident vertex/index buffers");
+                        "VkBufferManager::SyncResidentBuffer unsupported resident buffer kind");
         MOBILEGL_ASSERT(bufferObject != nullptr, "VkBufferManager::SyncResidentBuffer requires valid buffer object");
         CollectResidentGarbageIfNeeded();
 
@@ -196,6 +196,9 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             // never need to recreate a buffer after it has already been bound.
             return VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT;
         case BufferKind::Uniform:
+            return VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
+        case BufferKind::TextureBuffer:
+            return VK_BUFFER_USAGE_UNIFORM_TEXEL_BUFFER_BIT;
         default:
             return 0;
         }

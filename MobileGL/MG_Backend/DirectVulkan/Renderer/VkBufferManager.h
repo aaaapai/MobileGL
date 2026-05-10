@@ -19,6 +19,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         Vertex,
         Index,
         Uniform,
+        TextureBuffer,
     };
 
     struct VkBufferManagerInitInfo {

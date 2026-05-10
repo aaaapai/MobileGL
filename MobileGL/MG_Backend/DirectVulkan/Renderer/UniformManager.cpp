@@ -11,7 +11,10 @@
 #include "MG_State/GLState/Core.h"
 #include "MG_State/GLState/ProgramState/ProgramObject.h"
 #include "MG_State/GLState/TextureState/TextureObject2D.h"
+#include "MG_State/GLState/TextureState/TextureObjectBuffer.h"
 #include "MG_Util/Converters/MGToStr/FramebufferEnumConverter.h"
+#include "MG_Util/Converters/MGToVk/TextureEnumConverter.h"
+#include "MG_Util/Metrics/TextureMetrics.h"
 #include <limits>
 
 namespace MobileGL::MG_Backend::DirectVulkan {
@@ -126,6 +129,12 @@ namespace MobileGL::MG_Backend::DirectVulkan {
     void UniformManager::Shutdown() {
         for (auto& frame : m_frames) {
             if (m_device != VK_NULL_HANDLE) {
+                for (auto& view : frame.texelBufferViews) {
+                    if (view != VK_NULL_HANDLE) {
+                        vkDestroyBufferView(m_device, view, nullptr);
+                    }
+                }
+                frame.texelBufferViews.clear();
                 for (auto& bucket : frame.descriptorPools) {
                     if (bucket.handle != VK_NULL_HANDLE) {
                         vkDestroyDescriptorPool(m_device, bucket.handle, nullptr);
@@ -156,6 +165,12 @@ namespace MobileGL::MG_Backend::DirectVulkan {
     void UniformManager::BeginFrame(Uint32 frameIndex) {
         MOBILEGL_ASSERT(frameIndex < m_frames.size(), "UniformDescriptorBinder::BeginFrame invalid frame index");
         auto& frame = m_frames[frameIndex];
+        for (auto& view : frame.texelBufferViews) {
+            if (view != VK_NULL_HANDLE) {
+                vkDestroyBufferView(m_device, view, nullptr);
+            }
+        }
+        frame.texelBufferViews.clear();
         if (frame.peakAllocatedSetsThisFrame > m_peakDescriptorSetsObserved) {
             m_peakDescriptorSetsObserved = frame.peakAllocatedSetsThisFrame;
             MGLOG_D(
@@ -304,6 +319,84 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         return true;
     }
 
+    Bool UniformManager::ResolveTexelBufferDescriptor(const MG_State::GLState::ProgramObject& program,
+                                                      const ProgramFactory::VkProgramObject& programObj,
+                                                      Uint32 binding, Uint32 frameIndex,
+                                                      VkBufferView& outBufferView) {
+        outBufferView = VK_NULL_HANDLE;
+        MOBILEGL_ASSERT(m_bufferManager != nullptr, "ResolveTexelBufferDescriptor: buffer manager is null");
+        MOBILEGL_ASSERT(frameIndex < m_frames.size(), "ResolveTexelBufferDescriptor: frame index out of range");
+
+        SharedPtr<MG_State::GLState::ITextureObject> texture;
+        if (!ResolveSamplerTexture(program, programObj, binding, texture) || texture == nullptr) {
+            MGLOG_E("ResolveTexelBufferDescriptor: texture buffer binding %u ('%s') is unbound", binding,
+                    programObj.samplerNameByBinding[binding].c_str());
+            return false;
+        }
+
+        if (texture->GetStorageType() != TextureStorageType::Buffer ||
+            texture->GetTarget() != TextureTarget::TextureBuffer) {
+            MGLOG_E(
+                "ResolveTexelBufferDescriptor: binding %u ('%s') expected texture buffer, got textureId=%u target=%d storage=%d",
+                binding, programObj.samplerNameByBinding[binding].c_str(), texture->GetExternalIndex(),
+                static_cast<Int>(texture->GetTarget()), static_cast<Int>(texture->GetStorageType()));
+            return false;
+        }
+
+        auto* textureBuffer = static_cast<MG_State::GLState::TextureObjectBuffer*>(texture.get());
+        const auto bufferObject = textureBuffer->GetBufferBindingSlot().GetBoundObject();
+        if (bufferObject == nullptr) {
+            MGLOG_E("ResolveTexelBufferDescriptor: texture buffer binding %u ('%s') has no GL buffer bound",
+                    binding, programObj.samplerNameByBinding[binding].c_str());
+            return false;
+        }
+
+        BufferSlice slice{};
+        if (!m_bufferManager->SyncResidentBuffer(BufferKind::TextureBuffer, bufferObject, slice) || !slice.IsValid()) {
+            MGLOG_E("ResolveTexelBufferDescriptor: failed to sync GL buffer %u for texture buffer %u",
+                    bufferObject->GetExternalIndex(), texture->GetExternalIndex());
+            return false;
+        }
+
+        const auto internalFormat = textureBuffer->GetFormat();
+        const VkFormat vkFormat = MG_Util::ConvertTextureInternalFormatToVkEnum(internalFormat);
+        if (vkFormat == VK_FORMAT_UNDEFINED) {
+            MGLOG_E("ResolveTexelBufferDescriptor: unsupported texture buffer internal format %d",
+                    static_cast<Int>(internalFormat));
+            return false;
+        }
+
+        const VkDeviceSize texelSize =
+            static_cast<VkDeviceSize>(MG_Util::GetSizedInternalFormatSizeInBytes(internalFormat));
+        VkDeviceSize viewRange = slice.size;
+        if (texelSize > 0) {
+            viewRange = (viewRange / texelSize) * texelSize;
+        }
+        if (viewRange == 0) {
+            MGLOG_E("ResolveTexelBufferDescriptor: texture buffer %u has empty view range", texture->GetExternalIndex());
+            return false;
+        }
+
+        VkBufferViewCreateInfo viewInfo{};
+        viewInfo.sType = VK_STRUCTURE_TYPE_BUFFER_VIEW_CREATE_INFO;
+        viewInfo.buffer = slice.buffer;
+        viewInfo.format = vkFormat;
+        viewInfo.offset = slice.offset;
+        viewInfo.range = viewRange;
+
+        VkBufferView bufferView = VK_NULL_HANDLE;
+        const VkResult result = vkCreateBufferView(m_device, &viewInfo, nullptr, &bufferView);
+        if (result != VK_SUCCESS || bufferView == VK_NULL_HANDLE) {
+            MGLOG_E("ResolveTexelBufferDescriptor: vkCreateBufferView failed result=%d format=%d range=%zu",
+                    result, static_cast<Int>(vkFormat), static_cast<SizeT>(viewRange));
+            return false;
+        }
+
+        m_frames[frameIndex].texelBufferViews.push_back(bufferView);
+        outBufferView = bufferView;
+        return true;
+    }
+
     SharedPtr<MG_State::GLState::ITextureObject> UniformManager::GetFallbackTexture(TextureTarget target) const {
         MOBILEGL_ASSERT(target == TextureTarget::Texture2D || target == TextureTarget::TextureRectangle,
                         "UniformManager::GetFallbackTexture: unsupported fallback target=%d",
@@ -441,11 +534,13 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         }
 
         const Uint32 descriptorCount = static_cast<Uint32>(descriptorCount64);
-        VkDescriptorPoolSize poolSizes[2]{};
+        VkDescriptorPoolSize poolSizes[3]{};
         poolSizes[0].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
         poolSizes[0].descriptorCount = descriptorCount;
         poolSizes[1].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
         poolSizes[1].descriptorCount = descriptorCount;
+        poolSizes[2].type = VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER;
+        poolSizes[2].descriptorCount = descriptorCount;
 
         VkDescriptorPoolCreateInfo poolInfo{};
         poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
@@ -543,9 +638,11 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         writes.reserve(m_maxBindings);
         Vector<VkDescriptorBufferInfo> bufferInfos;
         Vector<VkDescriptorImageInfo> imageInfos;
+        Vector<VkBufferView> texelBufferViews;
         Vector<Uint32> dynamicOffsets;
         bufferInfos.reserve(m_maxBindings);
         imageInfos.reserve(m_maxBindings);
+        texelBufferViews.reserve(m_maxBindings);
         dynamicOffsets.reserve(programObj.dynamicBindings.size());
 
         const Uint32 bindingCount =
@@ -589,6 +686,20 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                 write.pBufferInfo = &bufferInfos.back();
                 writes.push_back(write);
                 dynamicOffsets.push_back(static_cast<Uint32>(slice.offset));
+            } else if (kind == ProgramFactory::DescriptorBindingKind::UniformTexelBuffer) {
+                VkBufferView bufferView = VK_NULL_HANDLE;
+                if (!ResolveTexelBufferDescriptor(program, programObj, binding, frameIndex, bufferView) ||
+                    bufferView == VK_NULL_HANDLE) {
+                    MGLOG_E(
+                        "UniformDescriptorBinder::BindProgramUniformBuffers failed: texture buffer binding %u has no valid descriptor",
+                        binding);
+                    return false;
+                }
+
+                texelBufferViews.push_back(bufferView);
+                write.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER;
+                write.pTexelBufferView = &texelBufferViews.back();
+                writes.push_back(write);
             } else {
                 VkDescriptorImageInfo imageInfo{};
                 Bool hasImage = false;

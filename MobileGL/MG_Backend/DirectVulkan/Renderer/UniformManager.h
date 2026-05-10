@@ -57,6 +57,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
 
         struct FrameResources {
             Vector<DescriptorPoolBucket> descriptorPools;
+            Vector<VkBufferView> texelBufferViews;
             Uint32 activeDescriptorPoolIndex = 0;
             Uint32 allocatedSetsThisFrame = 0;
             Uint32 peakAllocatedSetsThisFrame = 0;
@@ -71,6 +72,9 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                                       VkDescriptorImageInfo& outImageInfo) const;
         Bool ResolveSamplerDescriptorOverride(const SamplerBindingOverride& samplerBindingOverride,
                                               VkDescriptorImageInfo& outImageInfo) const;
+        Bool ResolveTexelBufferDescriptor(const MG_State::GLState::ProgramObject& program,
+                                          const ProgramFactory::VkProgramObject& programObj, Uint32 binding,
+                                          Uint32 frameIndex, VkBufferView& outBufferView);
         Bool ResolveUniformBufferPayload(const MG_State::GLState::ProgramObject& program,
                                          const ProgramFactory::VkProgramObject& programObj, Uint32 binding,
                                          const void*& outData, VkDeviceSize& outSize) const;

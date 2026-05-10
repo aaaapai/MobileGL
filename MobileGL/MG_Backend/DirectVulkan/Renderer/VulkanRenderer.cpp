@@ -332,12 +332,6 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         }
     }
 
-    static Bool HasTransientVertexIndexBufferThisFrame(
-        const Vector<const MG_State::GLState::BufferObject*>& buffers,
-        const MG_State::GLState::BufferObject* buffer) {
-        return std::find(buffers.begin(), buffers.end(), buffer) != buffers.end();
-    }
-
     static Uint32 BuildVertexInputAttributeMask(const Vector<VkVertexInputAttributeDescription>& attributes) {
         Uint32 attributeMask = 0;
         for (const auto& attribute : attributes) {
@@ -1218,7 +1212,7 @@ void main() {
                   "Initialize, WaitAndAcquireNextImage");
         m_textureManager->BeginFrame(m_frameContext.GetCurrentFrameIndex());
         m_bufferManager.BeginFrame(m_frameContext.GetCurrentFrameIndex());
-        m_transientVertexIndexBuffersThisFrame.clear();
+        m_transientVertexIndexBufferSlicesThisFrame.clear();
 
         MGLOG_D("VulkanRenderer initialized");
     }
@@ -1241,7 +1235,7 @@ void main() {
         }
         m_vertexInputStateFactory.reset();
         m_bufferManager.Shutdown();
-        m_transientVertexIndexBuffersThisFrame.clear();
+        m_transientVertexIndexBufferSlicesThisFrame.clear();
 
         m_frameContext.Destroy(m_device, m_commandPool);
 
@@ -1328,10 +1322,11 @@ void main() {
             MOBILEGL_ASSERT(sourceBufferShared != nullptr,
                             "UploadAndBindVertexStreams failed to resolve shared source buffer");
             BufferSlice slice{};
-            const Bool transientThisFrame =
-                HasTransientVertexIndexBufferThisFrame(m_transientVertexIndexBuffersThisFrame, sourceBufferShared.get());
             const Bool isDirty = (sourceBufferShared->GetChangeBits() & BufferChangeBits::DirtyBit);
-            if (ShouldUseTransientVertexIndexBuffer(*sourceBufferShared) || transientThisFrame || isDirty) {
+            auto cachedTransient = m_transientVertexIndexBufferSlicesThisFrame.find(sourceBufferShared.get());
+            if (cachedTransient != m_transientVertexIndexBufferSlicesThisFrame.end() && !isDirty) {
+                slice = cachedTransient->second;
+            } else if (ShouldUseTransientVertexIndexBuffer(*sourceBufferShared) || isDirty) {
                 const auto sourceData = sourceBufferShared->GetDataReadOnly();
                 const SizeT sourceSize = sourceBufferShared->GetSize();
                 if (!m_bufferManager.UploadTransient(BufferKind::Vertex, m_frameContext.GetCurrentFrameIndex(),
@@ -1340,9 +1335,7 @@ void main() {
                     MOBILEGL_ASSERT(false, "UploadAndBindVertexStreams skipped: failed to upload transient binding %zu", binding);
                     return false;
                 }
-                if (!transientThisFrame) {
-                    m_transientVertexIndexBuffersThisFrame.push_back(sourceBufferShared.get());
-                }
+                m_transientVertexIndexBufferSlicesThisFrame[sourceBufferShared.get()] = slice;
                 m_bufferManager.DowngradeResidentBufferToTransient(sourceBufferShared);
                 sourceBufferShared->ClearDirty();
             } else {
@@ -1421,24 +1414,33 @@ void main() {
         BufferSlice slice{};
         auto indexBufferShared = MG_State::pGLContext->GetBufferObject(indexBuffer->GetExternalIndex());
         MOBILEGL_ASSERT(indexBufferShared != nullptr, "UploadAndBindIndexBuffer failed to resolve shared EBO");
-        const Bool transientThisFrame =
-            HasTransientVertexIndexBufferThisFrame(m_transientVertexIndexBuffersThisFrame, indexBufferShared.get());
         const Bool isDirty = (indexBufferShared->GetChangeBits() & BufferChangeBits::DirtyBit);
-        if (ShouldUseTransientVertexIndexBuffer(*indexBufferShared) || transientThisFrame || isDirty) {
+        auto cachedTransient = m_transientVertexIndexBufferSlicesThisFrame.find(indexBufferShared.get());
+        if (cachedTransient != m_transientVertexIndexBufferSlicesThisFrame.end() && !isDirty) {
+            slice = cachedTransient->second;
+            vkCmdBindIndexBuffer(frame.commandBuffer,
+                                 slice.buffer,
+                                 slice.offset + static_cast<VkDeviceSize>(pIndexBufferView->indexByteOffset),
+                                 vkIndexType);
+            return true;
+        }
+        if (ShouldUseTransientVertexIndexBuffer(*indexBufferShared) || isDirty) {
             const auto indexData = indexBufferShared->GetDataReadOnly();
             MOBILEGL_ASSERT(indexData != nullptr && !indexData->empty(), "DrawElements requires non-empty EBO data");
             if (!m_bufferManager.UploadTransient(BufferKind::Index, m_frameContext.GetCurrentFrameIndex(),
-                                                 indexData->data() + pIndexBufferView->indexByteOffset,
-                                                 static_cast<VkDeviceSize>(indexDataSizeBytes), indexSize, slice)) {
+                                                 indexData->data(),
+                                                 static_cast<VkDeviceSize>(indexBufferShared->GetSize()), indexSize,
+                                                 slice)) {
                 MOBILEGL_ASSERT(false, "DrawElements skipped: failed to prepare transient index buffer");
                 return false;
             }
-            if (!transientThisFrame) {
-                m_transientVertexIndexBuffersThisFrame.push_back(indexBufferShared.get());
-            }
+            m_transientVertexIndexBufferSlicesThisFrame[indexBufferShared.get()] = slice;
             m_bufferManager.DowngradeResidentBufferToTransient(indexBufferShared);
             indexBufferShared->ClearDirty();
-            vkCmdBindIndexBuffer(frame.commandBuffer, slice.buffer, slice.offset, vkIndexType);
+            vkCmdBindIndexBuffer(frame.commandBuffer,
+                                 slice.buffer,
+                                 slice.offset + static_cast<VkDeviceSize>(pIndexBufferView->indexByteOffset),
+                                 vkIndexType);
             return true;
         }
         if (!m_bufferManager.SyncResidentBuffer(BufferKind::Index, indexBufferShared, slice)) {
@@ -3576,7 +3578,7 @@ void main() {
         CollectDeferredDepthMipmapCleanup(m_frameContext.GetCurrentFrameIndex());
         m_textureManager->BeginFrame(m_frameContext.GetCurrentFrameIndex());
         m_bufferManager.BeginFrame(m_frameContext.GetCurrentFrameIndex());
-        m_transientVertexIndexBuffersThisFrame.clear();
+        m_transientVertexIndexBufferSlicesThisFrame.clear();
     }
 
     void VulkanRenderer::CreateInstance() {
@@ -4178,7 +4180,7 @@ void main() {
                 m_textureManager->BeginFrame(m_frameContext.GetCurrentFrameIndex());
             }
             m_bufferManager.BeginFrame(m_frameContext.GetCurrentFrameIndex());
-            m_transientVertexIndexBuffersThisFrame.clear();
+            m_transientVertexIndexBufferSlicesThisFrame.clear();
         }
     }
 
