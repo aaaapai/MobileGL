@@ -207,82 +207,106 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             outFormat = sourceFormat;
             return true;
         }
-        if (sourceDomain == NumericDomain::FloatLike || targetDomain == NumericDomain::FloatLike) {
+        if (sourceDomain == NumericDomain::FloatLike) {
             return false;
         }
 
         switch (sourceFormat) {
         case VK_FORMAT_R32_SINT:
-            outFormat = targetDomain == NumericDomain::Uint ? VK_FORMAT_R32_UINT : sourceFormat;
-            return true;
+            if (targetDomain == NumericDomain::Uint) {
+                outFormat = VK_FORMAT_R32_UINT;
+                return true;
+            }
+            return false;
         case VK_FORMAT_R32G32_SINT:
-            outFormat = targetDomain == NumericDomain::Uint ? VK_FORMAT_R32G32_UINT : sourceFormat;
-            return true;
+            if (targetDomain == NumericDomain::Uint) {
+                outFormat = VK_FORMAT_R32G32_UINT;
+                return true;
+            }
+            return false;
         case VK_FORMAT_R32G32B32_SINT:
-            outFormat = targetDomain == NumericDomain::Uint ? VK_FORMAT_R32G32B32_UINT : sourceFormat;
-            return true;
+            if (targetDomain == NumericDomain::Uint) {
+                outFormat = VK_FORMAT_R32G32B32_UINT;
+                return true;
+            }
+            return false;
         case VK_FORMAT_R32G32B32A32_SINT:
-            outFormat = targetDomain == NumericDomain::Uint ? VK_FORMAT_R32G32B32A32_UINT : sourceFormat;
-            return true;
+            if (targetDomain == NumericDomain::Uint) {
+                outFormat = VK_FORMAT_R32G32B32A32_UINT;
+                return true;
+            }
+            return false;
         case VK_FORMAT_R32_UINT:
-            outFormat = targetDomain == NumericDomain::Sint ? VK_FORMAT_R32_SINT : sourceFormat;
-            return true;
+            if (targetDomain == NumericDomain::Sint) {
+                outFormat = VK_FORMAT_R32_SINT;
+                return true;
+            }
+            return false;
         case VK_FORMAT_R32G32_UINT:
-            outFormat = targetDomain == NumericDomain::Sint ? VK_FORMAT_R32G32_SINT : sourceFormat;
-            return true;
+            if (targetDomain == NumericDomain::Sint) {
+                outFormat = VK_FORMAT_R32G32_SINT;
+                return true;
+            }
+            return false;
         case VK_FORMAT_R32G32B32_UINT:
-            outFormat = targetDomain == NumericDomain::Sint ? VK_FORMAT_R32G32B32_SINT : sourceFormat;
-            return true;
+            if (targetDomain == NumericDomain::Sint) {
+                outFormat = VK_FORMAT_R32G32B32_SINT;
+                return true;
+            }
+            return false;
         case VK_FORMAT_R32G32B32A32_UINT:
-            outFormat = targetDomain == NumericDomain::Sint ? VK_FORMAT_R32G32B32A32_SINT : sourceFormat;
-            return true;
+            if (targetDomain == NumericDomain::Sint) {
+                outFormat = VK_FORMAT_R32G32B32A32_SINT;
+                return true;
+            }
+            return false;
         case VK_FORMAT_R16_SINT:
-            outFormat = targetDomain == NumericDomain::Uint ? VK_FORMAT_R16_UINT : sourceFormat;
+            outFormat = targetDomain == NumericDomain::Uint ? VK_FORMAT_R16_UINT : VK_FORMAT_R16_SSCALED;
             return true;
         case VK_FORMAT_R16G16_SINT:
-            outFormat = targetDomain == NumericDomain::Uint ? VK_FORMAT_R16G16_UINT : sourceFormat;
+            outFormat = targetDomain == NumericDomain::Uint ? VK_FORMAT_R16G16_UINT : VK_FORMAT_R16G16_SSCALED;
             return true;
         case VK_FORMAT_R16G16B16_SINT:
-            outFormat = targetDomain == NumericDomain::Uint ? VK_FORMAT_R16G16B16_UINT : sourceFormat;
+            outFormat = targetDomain == NumericDomain::Uint ? VK_FORMAT_R16G16B16_UINT : VK_FORMAT_R16G16B16_SSCALED;
             return true;
         case VK_FORMAT_R16G16B16A16_SINT:
-            outFormat = targetDomain == NumericDomain::Uint ? VK_FORMAT_R16G16B16A16_UINT : sourceFormat;
+            outFormat = targetDomain == NumericDomain::Uint ? VK_FORMAT_R16G16B16A16_UINT : VK_FORMAT_R16G16B16A16_SSCALED;
             return true;
         case VK_FORMAT_R16_UINT:
-            outFormat = targetDomain == NumericDomain::Sint ? VK_FORMAT_R16_SINT : sourceFormat;
+            outFormat = targetDomain == NumericDomain::Sint ? VK_FORMAT_R16_SINT : VK_FORMAT_R16_USCALED;
             return true;
         case VK_FORMAT_R16G16_UINT:
-            outFormat = targetDomain == NumericDomain::Sint ? VK_FORMAT_R16G16_SINT : sourceFormat;
+            outFormat = targetDomain == NumericDomain::Sint ? VK_FORMAT_R16G16_SINT : VK_FORMAT_R16G16_USCALED;
             return true;
         case VK_FORMAT_R16G16B16_UINT:
-            outFormat = targetDomain == NumericDomain::Sint ? VK_FORMAT_R16G16B16_SINT : sourceFormat;
+            outFormat = targetDomain == NumericDomain::Sint ? VK_FORMAT_R16G16B16_SINT : VK_FORMAT_R16G16B16_USCALED;
             return true;
         case VK_FORMAT_R16G16B16A16_UINT:
-            outFormat = targetDomain == NumericDomain::Sint ? VK_FORMAT_R16G16B16A16_SINT : sourceFormat;
+            outFormat = targetDomain == NumericDomain::Sint ? VK_FORMAT_R16G16B16A16_SINT : VK_FORMAT_R16G16B16A16_USCALED;
             return true;
         case VK_FORMAT_R8_SINT:
-            outFormat = targetDomain == NumericDomain::Uint ? VK_FORMAT_R8_UINT : sourceFormat;
+            outFormat = targetDomain == NumericDomain::Uint ? VK_FORMAT_R8_UINT : VK_FORMAT_R8_SSCALED;
             return true;
         case VK_FORMAT_R8G8_SINT:
-            outFormat = targetDomain == NumericDomain::Uint ? VK_FORMAT_R8G8_UINT : sourceFormat;
+            outFormat = targetDomain == NumericDomain::Uint ? VK_FORMAT_R8G8_UINT : VK_FORMAT_R8G8_SSCALED;
             return true;
         case VK_FORMAT_R8G8B8_SINT:
-            outFormat = targetDomain == NumericDomain::Uint ? VK_FORMAT_R8G8B8_UINT : sourceFormat;
+            outFormat = targetDomain == NumericDomain::Uint ? VK_FORMAT_R8G8B8_UINT : VK_FORMAT_R8G8B8_SSCALED;
             return true;
         case VK_FORMAT_R8G8B8A8_SINT:
-            outFormat = targetDomain == NumericDomain::Uint ? VK_FORMAT_R8G8B8A8_UINT : sourceFormat;
+            outFormat = targetDomain == NumericDomain::Uint ? VK_FORMAT_R8G8B8A8_UINT : VK_FORMAT_R8G8B8A8_SSCALED;
             return true;
         case VK_FORMAT_R8_UINT:
-            outFormat = targetDomain == NumericDomain::Sint ? VK_FORMAT_R8_SINT : sourceFormat;
+            outFormat = targetDomain == NumericDomain::Sint ? VK_FORMAT_R8_SINT : VK_FORMAT_R8_USCALED;
             return true;
         case VK_FORMAT_R8G8_UINT:
-            outFormat = targetDomain == NumericDomain::Sint ? VK_FORMAT_R8G8_SINT : sourceFormat;
+            outFormat = targetDomain == NumericDomain::Sint ? VK_FORMAT_R8G8_SINT : VK_FORMAT_R8G8_USCALED;
             return true;
         case VK_FORMAT_R8G8B8_UINT:
-            outFormat = targetDomain == NumericDomain::Sint ? VK_FORMAT_R8G8B8_SINT : sourceFormat;
+            outFormat = targetDomain == NumericDomain::Sint ? VK_FORMAT_R8G8B8_SINT : VK_FORMAT_R8G8B8_USCALED;
             return true;
         case VK_FORMAT_R8G8B8A8_UINT:
-            outFormat = targetDomain == NumericDomain::Sint ? VK_FORMAT_R8G8B8A8_SINT : sourceFormat;
+            outFormat = targetDomain == NumericDomain::Sint ? VK_FORMAT_R8G8B8A8_SINT : VK_FORMAT_R8G8B8A8_USCALED;
             return true;
         default:
             return false;

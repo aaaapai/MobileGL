@@ -1376,14 +1376,13 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                                 "ProgramFactory::ReflectLayout: UBO binding %u exceeds maxBindings=%u for '%s'",
                                 binding, m_maxBindings, ubo.name.c_str());
 
-                MOBILEGL_ASSERT(entry.bindingKinds[binding] == DescriptorBindingKind::None ||
-                                    entry.bindingKinds[binding] == DescriptorBindingKind::UniformBufferDynamic,
-                                "ProgramFactory::ReflectLayout: descriptor binding %u has conflicting kinds for UBO '%s'",
-                                binding, ubo.name.c_str());
-                entry.bindingKinds[binding] = DescriptorBindingKind::UniformBufferDynamic;
-
                 // Check for global UBO
                 if (std::strstr(ubo.name.c_str(), MG_Util::ShaderTranspiler::GLOBAL_UBO_NAME) != nullptr) {
+                    MOBILEGL_ASSERT(entry.bindingKinds[binding] == DescriptorBindingKind::None ||
+                                        entry.bindingKinds[binding] == DescriptorBindingKind::UniformBufferDynamic,
+                                    "ProgramFactory::ReflectLayout: descriptor binding %u has conflicting kinds for UBO '%s'",
+                                    binding, ubo.name.c_str());
+                    entry.bindingKinds[binding] = DescriptorBindingKind::UniformBufferDynamic;
                     MOBILEGL_ASSERT(entry.globalUboBinding < 0 || entry.globalUboBinding == static_cast<Int>(binding),
                                     "ProgramFactory::ReflectLayout: global UBO binding mismatch (%d vs %u)",
                                     entry.globalUboBinding, binding);
@@ -1395,8 +1394,17 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                 }
 
                 const Uint blockIndex = program.GetUniformBlockIndex(ubo.name.c_str());
-                MOBILEGL_ASSERT(blockIndex != 0xFFFFFFFFu,
-                                "ProgramFactory::ReflectLayout: failed to resolve uniform block '%s'", ubo.name.c_str());
+                if (blockIndex == 0xFFFFFFFFu) {
+                    MGLOG_D("ProgramFactory::ReflectLayout: skipping inactive UBO '%s' at binding %u",
+                            ubo.name.c_str(), binding);
+                    continue;
+                }
+
+                MOBILEGL_ASSERT(entry.bindingKinds[binding] == DescriptorBindingKind::None ||
+                                    entry.bindingKinds[binding] == DescriptorBindingKind::UniformBufferDynamic,
+                                "ProgramFactory::ReflectLayout: descriptor binding %u has conflicting kinds for UBO '%s'",
+                                binding, ubo.name.c_str());
+                entry.bindingKinds[binding] = DescriptorBindingKind::UniformBufferDynamic;
                 MOBILEGL_ASSERT(entry.globalUboBinding != static_cast<Int>(binding),
                                 "ProgramFactory::ReflectLayout: regular UBO '%s' collides with global UBO binding %u",
                                 ubo.name.c_str(), binding);
