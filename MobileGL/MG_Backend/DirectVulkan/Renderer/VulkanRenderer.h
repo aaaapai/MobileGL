@@ -197,8 +197,15 @@ namespace MobileGL::MG_Backend::DirectVulkan {
 
         VkCommandPool m_commandPool = VK_NULL_HANDLE;
 
+        struct TransientBufferSliceCacheEntry {
+            BufferSlice slice;
+            Uint64 changeSerial = 0;
+            SizeT size = 0;
+        };
+
         VkBufferManager m_bufferManager;
-        UnorderedMap<const MG_State::GLState::BufferObject*, BufferSlice> m_transientVertexIndexBufferSlicesThisFrame;
+        UnorderedMap<const MG_State::GLState::BufferObject*, TransientBufferSliceCacheEntry>
+            m_transientVertexIndexBufferSlicesThisFrame;
 
         Uint m_imageIndexAcquired = 0;
         FrameContext m_frameContext;

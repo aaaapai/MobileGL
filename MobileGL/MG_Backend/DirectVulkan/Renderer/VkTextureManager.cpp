@@ -443,6 +443,21 @@ namespace MobileGL::MG_Backend::DirectVulkan {
     VkTextureManager::TextureResource* VkTextureManager::SyncTextureAndGetDescriptor(MG_State::GLState::ITextureObject& texture) {
         MOBILEGL_ASSERT(m_device != VK_NULL_HANDLE, "SyncTextureAndGetDescriptor: m_device == VK_NULL_HANDLE");
 
+        auto aliveIt = m_aliveObjects.find(&texture);
+        if (aliveIt != m_aliveObjects.end() && aliveIt->second.expired()) {
+            auto resourceIt = m_textureResources.find(&texture);
+            if (resourceIt != m_textureResources.end()) {
+                DeferResourceRelease(Move(resourceIt->second));
+                m_textureResources.erase(resourceIt);
+            }
+            m_aliveObjects.erase(aliveIt);
+        }
+
+        const auto& liveTexture = MG_State::pGLContext->GetTextureObject(texture.GetExternalIndex());
+        if (liveTexture && liveTexture.get() == &texture) {
+            m_aliveObjects[&texture] = WeakPtr<MG_State::GLState::ITextureObject>(liveTexture);
+        }
+
         auto it = m_textureResources.find(&texture);
         if (it == m_textureResources.end()) {
             TextureResource initial{};
@@ -668,11 +683,16 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             return 0;
         }
         SizeT count = 0;
-        for (const auto& [raw, weak]: m_aliveObjects) {
-            if (weak.expired()) {
-                count++;
-                m_textureResources.erase(raw);
-                m_aliveObjects.erase(raw);
+        for (auto it = m_aliveObjects.begin(); it != m_aliveObjects.end();) {
+            auto current = it++;
+            if (current->second.expired()) {
+                auto resourceIt = m_textureResources.find(current->first);
+                if (resourceIt != m_textureResources.end()) {
+                    DeferResourceRelease(Move(resourceIt->second));
+                    m_textureResources.erase(resourceIt);
+                }
+                m_aliveObjects.erase(current);
+                ++count;
             }
         }
         return count;

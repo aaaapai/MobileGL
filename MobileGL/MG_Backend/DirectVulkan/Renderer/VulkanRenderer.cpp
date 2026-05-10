@@ -1323,19 +1323,25 @@ void main() {
                             "UploadAndBindVertexStreams failed to resolve shared source buffer");
             BufferSlice slice{};
             const Bool isDirty = (sourceBufferShared->GetChangeBits() & BufferChangeBits::DirtyBit);
+            const Uint64 changeSerial = sourceBufferShared->GetChangeSerial();
+            const SizeT sourceSize = sourceBufferShared->GetSize();
             auto cachedTransient = m_transientVertexIndexBufferSlicesThisFrame.find(sourceBufferShared.get());
-            if (cachedTransient != m_transientVertexIndexBufferSlicesThisFrame.end() && !isDirty) {
-                slice = cachedTransient->second;
+            if (cachedTransient != m_transientVertexIndexBufferSlicesThisFrame.end() && !isDirty &&
+                cachedTransient->second.changeSerial == changeSerial && cachedTransient->second.size == sourceSize) {
+                slice = cachedTransient->second.slice;
             } else if (ShouldUseTransientVertexIndexBuffer(*sourceBufferShared) || isDirty) {
                 const auto sourceData = sourceBufferShared->GetDataReadOnly();
-                const SizeT sourceSize = sourceBufferShared->GetSize();
                 if (!m_bufferManager.UploadTransient(BufferKind::Vertex, m_frameContext.GetCurrentFrameIndex(),
                                                      sourceData->data(), static_cast<VkDeviceSize>(sourceSize), 16,
                                                      slice)) {
                     MOBILEGL_ASSERT(false, "UploadAndBindVertexStreams skipped: failed to upload transient binding %zu", binding);
                     return false;
                 }
-                m_transientVertexIndexBufferSlicesThisFrame[sourceBufferShared.get()] = slice;
+                m_transientVertexIndexBufferSlicesThisFrame[sourceBufferShared.get()] = {
+                    .slice = slice,
+                    .changeSerial = changeSerial,
+                    .size = sourceSize,
+                };
                 m_bufferManager.DowngradeResidentBufferToTransient(sourceBufferShared);
                 sourceBufferShared->ClearDirty();
             } else {
@@ -1415,9 +1421,12 @@ void main() {
         auto indexBufferShared = MG_State::pGLContext->GetBufferObject(indexBuffer->GetExternalIndex());
         MOBILEGL_ASSERT(indexBufferShared != nullptr, "UploadAndBindIndexBuffer failed to resolve shared EBO");
         const Bool isDirty = (indexBufferShared->GetChangeBits() & BufferChangeBits::DirtyBit);
+        const Uint64 changeSerial = indexBufferShared->GetChangeSerial();
+        const SizeT indexBufferSize = indexBufferShared->GetSize();
         auto cachedTransient = m_transientVertexIndexBufferSlicesThisFrame.find(indexBufferShared.get());
-        if (cachedTransient != m_transientVertexIndexBufferSlicesThisFrame.end() && !isDirty) {
-            slice = cachedTransient->second;
+        if (cachedTransient != m_transientVertexIndexBufferSlicesThisFrame.end() && !isDirty &&
+            cachedTransient->second.changeSerial == changeSerial && cachedTransient->second.size == indexBufferSize) {
+            slice = cachedTransient->second.slice;
             vkCmdBindIndexBuffer(frame.commandBuffer,
                                  slice.buffer,
                                  slice.offset + static_cast<VkDeviceSize>(pIndexBufferView->indexByteOffset),
@@ -1429,12 +1438,16 @@ void main() {
             MOBILEGL_ASSERT(indexData != nullptr && !indexData->empty(), "DrawElements requires non-empty EBO data");
             if (!m_bufferManager.UploadTransient(BufferKind::Index, m_frameContext.GetCurrentFrameIndex(),
                                                  indexData->data(),
-                                                 static_cast<VkDeviceSize>(indexBufferShared->GetSize()), indexSize,
+                                                 static_cast<VkDeviceSize>(indexBufferSize), indexSize,
                                                  slice)) {
                 MOBILEGL_ASSERT(false, "DrawElements skipped: failed to prepare transient index buffer");
                 return false;
             }
-            m_transientVertexIndexBufferSlicesThisFrame[indexBufferShared.get()] = slice;
+            m_transientVertexIndexBufferSlicesThisFrame[indexBufferShared.get()] = {
+                .slice = slice,
+                .changeSerial = changeSerial,
+                .size = indexBufferSize,
+            };
             m_bufferManager.DowngradeResidentBufferToTransient(indexBufferShared);
             indexBufferShared->ClearDirty();
             vkCmdBindIndexBuffer(frame.commandBuffer,

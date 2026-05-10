@@ -142,11 +142,12 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         }
 
         SizeT count = 0;
-        for (const auto& [raw, weak]: m_aliveObjects) {
-            if (weak.expired()) {
-                count++;
-                m_pendingClears.erase(raw);
-                m_aliveObjects.erase(raw);
+        for (auto it = m_aliveObjects.begin(); it != m_aliveObjects.end();) {
+            auto current = it++;
+            if (current->second.expired()) {
+                m_pendingClears.erase(current->first);
+                m_aliveObjects.erase(current);
+                ++count;
             }
         }
         return count;

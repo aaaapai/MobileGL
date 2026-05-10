@@ -23,6 +23,7 @@ namespace MobileGL::MG_State::GLState {
         m_dataPtr->resize(size);
         m_change.Bits |= BufferChangeBits::DirtyBit;
         m_change.Bits |= BufferChangeBits::PreferReallocationBit;
+        ++m_changeSerial;
     }
 
     void BufferObject::UploadData(DataPtr data, SizeT atOffset) {
@@ -35,6 +36,7 @@ namespace MobileGL::MG_State::GLState {
         m_change.Bits |= BufferChangeBits::DirtyBit;
         m_change.Bits |= BufferChangeBits::ForbidInvalidationBit;
         m_change.Bits |= BufferChangeBits::ForbidUnsynchronizationBit;
+        ++m_changeSerial;
         // This function may be called by `glBufferData`, but we still set the forbid bits above,
         // because when `PreferReallocationBit` is set, those bits are ignored anyway.
         // The bits can fit the `glBufferSubData` semantics
@@ -54,6 +56,7 @@ namespace MobileGL::MG_State::GLState {
                        m_mappedRange.end - m_mappedRange.start);
                 m_change.DirtyRanges.Add({m_mappedRange.start, m_mappedRange.end});
                 m_change.Bits |= BufferChangeBits::DirtyBit;
+                ++m_changeSerial;
             }
 
             m_stagingData.clear();
@@ -80,6 +83,7 @@ namespace MobileGL::MG_State::GLState {
         Memcpy(m_dataPtr->data() + start, m_stagingData.data() + offset, length);
         m_change.DirtyRanges.Add({start, end});
         m_change.Bits |= BufferChangeBits::DirtyBit;
+        ++m_changeSerial;
     }
 
     void BufferObject::UploadSubData(DataPtr data, SizeT atOffset) {
@@ -93,6 +97,7 @@ namespace MobileGL::MG_State::GLState {
         m_change.Bits |= BufferChangeBits::DirtyBit;
         m_change.Bits |= BufferChangeBits::ForbidInvalidationBit;
         m_change.Bits |= BufferChangeBits::ForbidUnsynchronizationBit;
+        ++m_changeSerial;
     }
 
     void BufferObject::CopyDataFrom(const SharedPtr<BufferObject>& src, SizeT srcOffset, SizeT dstOffset, SizeT size) {
@@ -109,6 +114,7 @@ namespace MobileGL::MG_State::GLState {
         Memcpy(m_dataPtr->data() + dstOffset, srcData, size);
         m_change.DirtyRanges.Add({dstOffset, dstOffset + size});
         m_change.Bits |= BufferChangeBits::DirtyBit;
+        ++m_changeSerial;
     }
 
     void* BufferObject::AcquireMemory(Bool markMapped, Bool read, Bool write) {
@@ -189,6 +195,10 @@ namespace MobileGL::MG_State::GLState {
 
     Flags<BufferChangeBits> BufferObject::GetChangeBits() const {
         return m_change.Bits;
+    }
+
+    Uint64 BufferObject::GetChangeSerial() const {
+        return m_changeSerial;
     }
 
     Bool BufferObject::IsMapped() const {

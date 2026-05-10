@@ -99,6 +99,7 @@ namespace MobileGL {
             Uint GetExternalIndex() const;
             const VecRange1D& GetDirtyRanges() const;
             Flags<BufferChangeBits> GetChangeBits() const;
+            Uint64 GetChangeSerial() const;
 
         private:
             const Uint m_externalIndex = 0;
@@ -108,6 +109,7 @@ namespace MobileGL {
             Bool m_isMapped;
             Flags<BufferMappingAccessBit> m_mappingAccess;
             BufferChange m_change;
+            Uint64 m_changeSerial = 0;
             Range1D m_mappedRange;
             Vector<Uint8> m_stagingData;
             Bool m_ownsStagingData;
