@@ -110,6 +110,7 @@ namespace MobileGL::MG_State::GLState {
         void* MapUBO() { return m_globalUboScratch.data(); }
         const void* GetUBOData() const { return m_globalUboScratch.data(); }
         Uint GetUBOSize() const { return static_cast<Uint>(m_globalUboScratch.size()); }
+        Uint32 GetBackendStateVersion() const { return m_backendStateVersion; }
 
         void SetUniformSamplerOrImageUnitIndex(Uint location, Int unit) {
             m_uniformSamplerOrImageUnitIndex[location] = unit;
@@ -147,7 +148,13 @@ namespace MobileGL::MG_State::GLState {
         }
 
         // Set by glUniformBlockBinding
-        void SetUniformBlockBinding(Uint index, Uint binding) { m_uniformBlockBinding[index] = (Int)binding; }
+        void SetUniformBlockBinding(Uint index, Uint binding) {
+            if (index >= m_uniformBlockBinding.size() || m_uniformBlockBinding[index] == static_cast<Int>(binding)) {
+                return;
+            }
+            m_uniformBlockBinding[index] = static_cast<Int>(binding);
+            ++m_backendStateVersion;
+        }
 
         Uint GetUniformBlockBinding(Uint index) const { return m_uniformBlockBinding[index]; }
 
@@ -219,5 +226,6 @@ namespace MobileGL::MG_State::GLState {
         Bool m_deleteStatus = false;
         Bool m_linkStatus = false;
         Bool m_validateStatus = true;
+        Uint32 m_backendStateVersion = 0;
     };
 } // namespace MobileGL::MG_State::GLState

@@ -21,7 +21,8 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         enum class DescriptorBindingKind : Uint8 {
             None = 0,
             UniformBufferDynamic,
-            CombinedImageSampler
+            CombinedImageSampler,
+            UniformTexelBuffer
         };
 
         enum class CompileOptionBit : Uint {
@@ -171,6 +172,13 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         static VkShaderStageFlagBits ToVkStage(ShaderStage stage);
 
     private:
+        struct ProgramLookupCache {
+            const MG_State::GLState::ProgramObject* program = nullptr;
+            Uint32 backendStateVersion = 0;
+            CompileOptionFlags flags{};
+            HashType hash = 0;
+        };
+
         static TextureTarget UniformTypeToTextureTarget(GLenum glType);
         void ReflectVertexInputs(const Vector<SharedPtr<MG_State::GLState::ShaderObject>>& shaders,
                      const Vector<Vector<Uint>>& spirv,
@@ -185,6 +193,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         Uint32 m_maxBindings = 0;
         UnorderedMap<HashType, VkProgramObject> m_cache;
         const VulkanRendererConfig& m_config;
+        mutable ProgramLookupCache m_lastLookup;
         static inline XXH64_state_t* m_hashState = XXH64_createState();
     };
 } // namespace MobileGL::MG_Backend::DirectVulkan

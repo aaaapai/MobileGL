@@ -197,8 +197,15 @@ namespace MobileGL::MG_Backend::DirectVulkan {
 
         VkCommandPool m_commandPool = VK_NULL_HANDLE;
 
+        struct TransientBufferSliceCacheEntry {
+            BufferSlice slice;
+            Uint64 changeSerial = 0;
+            SizeT size = 0;
+        };
+
         VkBufferManager m_bufferManager;
-        Vector<const MG_State::GLState::BufferObject*> m_transientVertexIndexBuffersThisFrame;
+        UnorderedMap<const MG_State::GLState::BufferObject*, TransientBufferSliceCacheEntry>
+            m_transientVertexIndexBufferSlicesThisFrame;
 
         Uint m_imageIndexAcquired = 0;
         FrameContext m_frameContext;
@@ -230,6 +237,8 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         VkPipeline GetOrCreatePipeline(
             GLenum mode,
             const MG_State::GLState::ProgramObject& program,
+            const ProgramFactory::VkProgramObject& programObj,
+            ProgramFactory::CompileOptionFlags transformFlags,
             const MG_State::GLState::VertexArrayObject& vao,
             const RenderPassEntry& renderPassEntry);
 

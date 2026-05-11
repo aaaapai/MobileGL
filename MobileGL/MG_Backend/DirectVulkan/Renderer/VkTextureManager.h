@@ -130,7 +130,8 @@ public:
                                VkImageLayout newLayout, VkPipelineStageFlags srcStageMask,
                                VkPipelineStageFlags dstStageMask, VkAccessFlags srcAccessMask,
                                VkAccessFlags dstAccessMask, VkImageAspectFlags aspectMask,
-                               Uint32 baseMipLevel = 0, Uint32 levelCount = 1);
+                               Uint32 baseMipLevel = 0, Uint32 levelCount = 1,
+                               Uint32 layerCount = 1);
 
     SizeT CollectGarbage();
 private:

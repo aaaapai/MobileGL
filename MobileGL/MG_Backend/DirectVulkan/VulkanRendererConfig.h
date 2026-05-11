@@ -15,6 +15,10 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         String AppName = "MobileGL-VulkanRenderer";
         MobileGL::Version Version = MG_Config::CoreVersion;
         Uint64 CacheVersion = MG_Config::CacheVersion;
+#if defined(__ANDROID__)
+        Bool EnableValidationLayers = false;
+#else
         Bool EnableValidationLayers = true;
+#endif
     };
 } // namespace MobileGL::MG_Backend::DirectVulkan

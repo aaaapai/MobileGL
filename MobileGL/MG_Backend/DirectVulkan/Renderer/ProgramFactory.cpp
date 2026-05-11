@@ -931,6 +931,8 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             case SPV_REFLECT_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER:
             case SPV_REFLECT_DESCRIPTOR_TYPE_SAMPLED_IMAGE:
                 return ProgramFactory::DescriptorBindingKind::CombinedImageSampler;
+            case SPV_REFLECT_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER:
+                return ProgramFactory::DescriptorBindingKind::UniformTexelBuffer;
             default:
                 MOBILEGL_ASSERT(false, "ProgramFactory: unsupported reflected descriptor type %d",
                                 static_cast<Int>(descriptorType));
@@ -951,7 +953,8 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                             static_cast<Int>(binding.descriptor_type));
 
             String name = rawName;
-            if (kind == ProgramFactory::DescriptorBindingKind::CombinedImageSampler) {
+            if (kind == ProgramFactory::DescriptorBindingKind::CombinedImageSampler ||
+                kind == ProgramFactory::DescriptorBindingKind::UniformTexelBuffer) {
                 const auto arraySuffix = name.find("[0]");
                 if (arraySuffix != String::npos) {
                     name = name.substr(0, arraySuffix);
@@ -1373,14 +1376,13 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                                 "ProgramFactory::ReflectLayout: UBO binding %u exceeds maxBindings=%u for '%s'",
                                 binding, m_maxBindings, ubo.name.c_str());
 
-                MOBILEGL_ASSERT(entry.bindingKinds[binding] == DescriptorBindingKind::None ||
-                                    entry.bindingKinds[binding] == DescriptorBindingKind::UniformBufferDynamic,
-                                "ProgramFactory::ReflectLayout: descriptor binding %u has conflicting kinds for UBO '%s'",
-                                binding, ubo.name.c_str());
-                entry.bindingKinds[binding] = DescriptorBindingKind::UniformBufferDynamic;
-
                 // Check for global UBO
                 if (std::strstr(ubo.name.c_str(), MG_Util::ShaderTranspiler::GLOBAL_UBO_NAME) != nullptr) {
+                    MOBILEGL_ASSERT(entry.bindingKinds[binding] == DescriptorBindingKind::None ||
+                                        entry.bindingKinds[binding] == DescriptorBindingKind::UniformBufferDynamic,
+                                    "ProgramFactory::ReflectLayout: descriptor binding %u has conflicting kinds for UBO '%s'",
+                                    binding, ubo.name.c_str());
+                    entry.bindingKinds[binding] = DescriptorBindingKind::UniformBufferDynamic;
                     MOBILEGL_ASSERT(entry.globalUboBinding < 0 || entry.globalUboBinding == static_cast<Int>(binding),
                                     "ProgramFactory::ReflectLayout: global UBO binding mismatch (%d vs %u)",
                                     entry.globalUboBinding, binding);
@@ -1392,8 +1394,17 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                 }
 
                 const Uint blockIndex = program.GetUniformBlockIndex(ubo.name.c_str());
-                MOBILEGL_ASSERT(blockIndex != 0xFFFFFFFFu,
-                                "ProgramFactory::ReflectLayout: failed to resolve uniform block '%s'", ubo.name.c_str());
+                if (blockIndex == 0xFFFFFFFFu) {
+                    MGLOG_D("ProgramFactory::ReflectLayout: skipping inactive UBO '%s' at binding %u",
+                            ubo.name.c_str(), binding);
+                    continue;
+                }
+
+                MOBILEGL_ASSERT(entry.bindingKinds[binding] == DescriptorBindingKind::None ||
+                                    entry.bindingKinds[binding] == DescriptorBindingKind::UniformBufferDynamic,
+                                "ProgramFactory::ReflectLayout: descriptor binding %u has conflicting kinds for UBO '%s'",
+                                binding, ubo.name.c_str());
+                entry.bindingKinds[binding] = DescriptorBindingKind::UniformBufferDynamic;
                 MOBILEGL_ASSERT(entry.globalUboBinding != static_cast<Int>(binding),
                                 "ProgramFactory::ReflectLayout: regular UBO '%s' collides with global UBO binding %u",
                                 ubo.name.c_str(), binding);
@@ -1404,7 +1415,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                 entry.uniformBlockIndexByBinding[binding] = static_cast<Int>(blockIndex);
             }
 
-            // Reflect sampled images
+            // Reflect sampled images and samplerBuffer uniforms.
             uint32_t reflectedBindingCount = 0;
             SpvReflectResult reflectResult =
                 spvReflectEnumerateDescriptorBindings(&reflectModule, &reflectedBindingCount, nullptr);
@@ -1426,13 +1437,14 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                 if (sampler == nullptr) {
                     continue;
                 }
-                if (sampler->descriptor_type != SPV_REFLECT_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER &&
-                    sampler->descriptor_type != SPV_REFLECT_DESCRIPTOR_TYPE_SAMPLED_IMAGE) {
+                const auto descriptorKind = ReflectDescriptorTypeToBindingKind(sampler->descriptor_type);
+                if (descriptorKind != DescriptorBindingKind::CombinedImageSampler &&
+                    descriptorKind != DescriptorBindingKind::UniformTexelBuffer) {
                     continue;
                 }
 
                 const Uint32 binding = sampler->binding;
-                const String uniformName = NormalizeDescriptorName(*sampler, DescriptorBindingKind::CombinedImageSampler);
+                const String uniformName = NormalizeDescriptorName(*sampler, descriptorKind);
                 MOBILEGL_ASSERT(binding < m_maxBindings,
                                 "ProgramFactory::ReflectLayout: sampler binding %u exceeds maxBindings=%u for '%s'",
                                 binding, m_maxBindings, uniformName.c_str());
@@ -1443,10 +1455,10 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                 }
 
                 MOBILEGL_ASSERT(entry.bindingKinds[binding] == DescriptorBindingKind::None ||
-                                    entry.bindingKinds[binding] == DescriptorBindingKind::CombinedImageSampler,
+                                    entry.bindingKinds[binding] == descriptorKind,
                                 "ProgramFactory::ReflectLayout: descriptor binding %u has conflicting kinds for sampler '%s'",
                                 binding, uniformName.c_str());
-                entry.bindingKinds[binding] = DescriptorBindingKind::CombinedImageSampler;
+                entry.bindingKinds[binding] = descriptorKind;
 
                 const TextureTarget target = UniformTypeToTextureTarget(program.GetUniformType(static_cast<Uint>(location)));
                 MOBILEGL_ASSERT(target != TextureTarget::Unknown,
@@ -1493,6 +1505,8 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             if (kind == DescriptorBindingKind::UniformBufferDynamic) {
                 layoutBinding.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
                 entry.dynamicBindings.push_back(binding);
+            } else if (kind == DescriptorBindingKind::UniformTexelBuffer) {
+                layoutBinding.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER;
             } else {
                 layoutBinding.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
             }
@@ -1516,7 +1530,15 @@ namespace MobileGL::MG_Backend::DirectVulkan {
 
     const ProgramFactory::VkProgramObject& ProgramFactory::GetOrCreateProgram(
         const MG_State::GLState::ProgramObject& program, CompileOptionFlags flags) {
-        auto hash = ComputeHash(program, flags);
+        const Uint32 backendStateVersion = program.GetBackendStateVersion();
+        HashType hash = 0;
+        if (m_lastLookup.program == &program && m_lastLookup.backendStateVersion == backendStateVersion &&
+            m_lastLookup.flags == flags) {
+            hash = m_lastLookup.hash;
+        } else {
+            hash = ComputeHash(program, flags);
+            m_lastLookup = {.program = &program, .backendStateVersion = backendStateVersion, .flags = flags, .hash = hash};
+        }
         auto it = m_cache.find(hash);
         if (it != m_cache.end()) {
             return it->second;

@@ -41,6 +41,11 @@ namespace MobileGL::MG_Backend::DirectVulkan {
     const VertexInputStateFactory::BackendVertexInputState& VertexInputStateFactory::GetOrCreateVertexInputState(
         const MG_State::GLState::VertexArrayObject& vao) {
         const HashType hash = ComputeHash(vao);
+        return GetOrCreateVertexInputState(vao, hash);
+    }
+
+    const VertexInputStateFactory::BackendVertexInputState& VertexInputStateFactory::GetOrCreateVertexInputState(
+        const MG_State::GLState::VertexArrayObject& vao, HashType hash) {
         auto it = m_cache.find(hash);
         if (it != m_cache.end()) {
             return it->second;

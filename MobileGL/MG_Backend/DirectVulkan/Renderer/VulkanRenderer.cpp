@@ -18,6 +18,7 @@
 #include "MG_Impl/GLImpl/Framebuffer/GL_Framebuffer.h"
 #include "MG_Util/Converters/GLToMG/TextureEnumConverter.h"
 #include "MG_Util/Converters/MGToVk/RenderStateEnumConverter.h"
+#include "MG_Util/Converters/MGToVk/TextureEnumConverter.h"
 #include "MG_Util/Metrics/TextureMetrics.h"
 #include <vulkan/vulkan_core.h>
 
@@ -207,82 +208,106 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             outFormat = sourceFormat;
             return true;
         }
-        if (sourceDomain == NumericDomain::FloatLike || targetDomain == NumericDomain::FloatLike) {
+        if (sourceDomain == NumericDomain::FloatLike) {
             return false;
         }
 
         switch (sourceFormat) {
         case VK_FORMAT_R32_SINT:
-            outFormat = targetDomain == NumericDomain::Uint ? VK_FORMAT_R32_UINT : sourceFormat;
-            return true;
+            if (targetDomain == NumericDomain::Uint) {
+                outFormat = VK_FORMAT_R32_UINT;
+                return true;
+            }
+            return false;
         case VK_FORMAT_R32G32_SINT:
-            outFormat = targetDomain == NumericDomain::Uint ? VK_FORMAT_R32G32_UINT : sourceFormat;
-            return true;
+            if (targetDomain == NumericDomain::Uint) {
+                outFormat = VK_FORMAT_R32G32_UINT;
+                return true;
+            }
+            return false;
         case VK_FORMAT_R32G32B32_SINT:
-            outFormat = targetDomain == NumericDomain::Uint ? VK_FORMAT_R32G32B32_UINT : sourceFormat;
-            return true;
+            if (targetDomain == NumericDomain::Uint) {
+                outFormat = VK_FORMAT_R32G32B32_UINT;
+                return true;
+            }
+            return false;
         case VK_FORMAT_R32G32B32A32_SINT:
-            outFormat = targetDomain == NumericDomain::Uint ? VK_FORMAT_R32G32B32A32_UINT : sourceFormat;
-            return true;
+            if (targetDomain == NumericDomain::Uint) {
+                outFormat = VK_FORMAT_R32G32B32A32_UINT;
+                return true;
+            }
+            return false;
         case VK_FORMAT_R32_UINT:
-            outFormat = targetDomain == NumericDomain::Sint ? VK_FORMAT_R32_SINT : sourceFormat;
-            return true;
+            if (targetDomain == NumericDomain::Sint) {
+                outFormat = VK_FORMAT_R32_SINT;
+                return true;
+            }
+            return false;
         case VK_FORMAT_R32G32_UINT:
-            outFormat = targetDomain == NumericDomain::Sint ? VK_FORMAT_R32G32_SINT : sourceFormat;
-            return true;
+            if (targetDomain == NumericDomain::Sint) {
+                outFormat = VK_FORMAT_R32G32_SINT;
+                return true;
+            }
+            return false;
         case VK_FORMAT_R32G32B32_UINT:
-            outFormat = targetDomain == NumericDomain::Sint ? VK_FORMAT_R32G32B32_SINT : sourceFormat;
-            return true;
+            if (targetDomain == NumericDomain::Sint) {
+                outFormat = VK_FORMAT_R32G32B32_SINT;
+                return true;
+            }
+            return false;
         case VK_FORMAT_R32G32B32A32_UINT:
-            outFormat = targetDomain == NumericDomain::Sint ? VK_FORMAT_R32G32B32A32_SINT : sourceFormat;
-            return true;
+            if (targetDomain == NumericDomain::Sint) {
+                outFormat = VK_FORMAT_R32G32B32A32_SINT;
+                return true;
+            }
+            return false;
         case VK_FORMAT_R16_SINT:
-            outFormat = targetDomain == NumericDomain::Uint ? VK_FORMAT_R16_UINT : sourceFormat;
+            outFormat = targetDomain == NumericDomain::Uint ? VK_FORMAT_R16_UINT : VK_FORMAT_R16_SSCALED;
             return true;
         case VK_FORMAT_R16G16_SINT:
-            outFormat = targetDomain == NumericDomain::Uint ? VK_FORMAT_R16G16_UINT : sourceFormat;
+            outFormat = targetDomain == NumericDomain::Uint ? VK_FORMAT_R16G16_UINT : VK_FORMAT_R16G16_SSCALED;
             return true;
         case VK_FORMAT_R16G16B16_SINT:
-            outFormat = targetDomain == NumericDomain::Uint ? VK_FORMAT_R16G16B16_UINT : sourceFormat;
+            outFormat = targetDomain == NumericDomain::Uint ? VK_FORMAT_R16G16B16_UINT : VK_FORMAT_R16G16B16_SSCALED;
             return true;
         case VK_FORMAT_R16G16B16A16_SINT:
-            outFormat = targetDomain == NumericDomain::Uint ? VK_FORMAT_R16G16B16A16_UINT : sourceFormat;
+            outFormat = targetDomain == NumericDomain::Uint ? VK_FORMAT_R16G16B16A16_UINT : VK_FORMAT_R16G16B16A16_SSCALED;
             return true;
         case VK_FORMAT_R16_UINT:
-            outFormat = targetDomain == NumericDomain::Sint ? VK_FORMAT_R16_SINT : sourceFormat;
+            outFormat = targetDomain == NumericDomain::Sint ? VK_FORMAT_R16_SINT : VK_FORMAT_R16_USCALED;
             return true;
         case VK_FORMAT_R16G16_UINT:
-            outFormat = targetDomain == NumericDomain::Sint ? VK_FORMAT_R16G16_SINT : sourceFormat;
+            outFormat = targetDomain == NumericDomain::Sint ? VK_FORMAT_R16G16_SINT : VK_FORMAT_R16G16_USCALED;
             return true;
         case VK_FORMAT_R16G16B16_UINT:
-            outFormat = targetDomain == NumericDomain::Sint ? VK_FORMAT_R16G16B16_SINT : sourceFormat;
+            outFormat = targetDomain == NumericDomain::Sint ? VK_FORMAT_R16G16B16_SINT : VK_FORMAT_R16G16B16_USCALED;
             return true;
         case VK_FORMAT_R16G16B16A16_UINT:
-            outFormat = targetDomain == NumericDomain::Sint ? VK_FORMAT_R16G16B16A16_SINT : sourceFormat;
+            outFormat = targetDomain == NumericDomain::Sint ? VK_FORMAT_R16G16B16A16_SINT : VK_FORMAT_R16G16B16A16_USCALED;
             return true;
         case VK_FORMAT_R8_SINT:
-            outFormat = targetDomain == NumericDomain::Uint ? VK_FORMAT_R8_UINT : sourceFormat;
+            outFormat = targetDomain == NumericDomain::Uint ? VK_FORMAT_R8_UINT : VK_FORMAT_R8_SSCALED;
             return true;
         case VK_FORMAT_R8G8_SINT:
-            outFormat = targetDomain == NumericDomain::Uint ? VK_FORMAT_R8G8_UINT : sourceFormat;
+            outFormat = targetDomain == NumericDomain::Uint ? VK_FORMAT_R8G8_UINT : VK_FORMAT_R8G8_SSCALED;
             return true;
         case VK_FORMAT_R8G8B8_SINT:
-            outFormat = targetDomain == NumericDomain::Uint ? VK_FORMAT_R8G8B8_UINT : sourceFormat;
+            outFormat = targetDomain == NumericDomain::Uint ? VK_FORMAT_R8G8B8_UINT : VK_FORMAT_R8G8B8_SSCALED;
             return true;
         case VK_FORMAT_R8G8B8A8_SINT:
-            outFormat = targetDomain == NumericDomain::Uint ? VK_FORMAT_R8G8B8A8_UINT : sourceFormat;
+            outFormat = targetDomain == NumericDomain::Uint ? VK_FORMAT_R8G8B8A8_UINT : VK_FORMAT_R8G8B8A8_SSCALED;
             return true;
         case VK_FORMAT_R8_UINT:
-            outFormat = targetDomain == NumericDomain::Sint ? VK_FORMAT_R8_SINT : sourceFormat;
+            outFormat = targetDomain == NumericDomain::Sint ? VK_FORMAT_R8_SINT : VK_FORMAT_R8_USCALED;
             return true;
         case VK_FORMAT_R8G8_UINT:
-            outFormat = targetDomain == NumericDomain::Sint ? VK_FORMAT_R8G8_SINT : sourceFormat;
+            outFormat = targetDomain == NumericDomain::Sint ? VK_FORMAT_R8G8_SINT : VK_FORMAT_R8G8_USCALED;
             return true;
         case VK_FORMAT_R8G8B8_UINT:
-            outFormat = targetDomain == NumericDomain::Sint ? VK_FORMAT_R8G8B8_SINT : sourceFormat;
+            outFormat = targetDomain == NumericDomain::Sint ? VK_FORMAT_R8G8B8_SINT : VK_FORMAT_R8G8B8_USCALED;
             return true;
         case VK_FORMAT_R8G8B8A8_UINT:
-            outFormat = targetDomain == NumericDomain::Sint ? VK_FORMAT_R8G8B8A8_SINT : sourceFormat;
+            outFormat = targetDomain == NumericDomain::Sint ? VK_FORMAT_R8G8B8A8_SINT : VK_FORMAT_R8G8B8A8_USCALED;
             return true;
         default:
             return false;
@@ -330,12 +355,6 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         default:
             return NumericDomain::FloatLike;
         }
-    }
-
-    static Bool HasTransientVertexIndexBufferThisFrame(
-        const Vector<const MG_State::GLState::BufferObject*>& buffers,
-        const MG_State::GLState::BufferObject* buffer) {
-        return std::find(buffers.begin(), buffers.end(), buffer) != buffers.end();
     }
 
     static Uint32 BuildVertexInputAttributeMask(const Vector<VkVertexInputAttributeDescription>& attributes) {
@@ -1218,7 +1237,7 @@ void main() {
                   "Initialize, WaitAndAcquireNextImage");
         m_textureManager->BeginFrame(m_frameContext.GetCurrentFrameIndex());
         m_bufferManager.BeginFrame(m_frameContext.GetCurrentFrameIndex());
-        m_transientVertexIndexBuffersThisFrame.clear();
+        m_transientVertexIndexBufferSlicesThisFrame.clear();
 
         MGLOG_D("VulkanRenderer initialized");
     }
@@ -1241,7 +1260,7 @@ void main() {
         }
         m_vertexInputStateFactory.reset();
         m_bufferManager.Shutdown();
-        m_transientVertexIndexBuffersThisFrame.clear();
+        m_transientVertexIndexBufferSlicesThisFrame.clear();
 
         m_frameContext.Destroy(m_device, m_commandPool);
 
@@ -1328,21 +1347,26 @@ void main() {
             MOBILEGL_ASSERT(sourceBufferShared != nullptr,
                             "UploadAndBindVertexStreams failed to resolve shared source buffer");
             BufferSlice slice{};
-            const Bool transientThisFrame =
-                HasTransientVertexIndexBufferThisFrame(m_transientVertexIndexBuffersThisFrame, sourceBufferShared.get());
             const Bool isDirty = (sourceBufferShared->GetChangeBits() & BufferChangeBits::DirtyBit);
-            if (ShouldUseTransientVertexIndexBuffer(*sourceBufferShared) || transientThisFrame || isDirty) {
+            const Uint64 changeSerial = sourceBufferShared->GetChangeSerial();
+            const SizeT sourceSize = sourceBufferShared->GetSize();
+            auto cachedTransient = m_transientVertexIndexBufferSlicesThisFrame.find(sourceBufferShared.get());
+            if (cachedTransient != m_transientVertexIndexBufferSlicesThisFrame.end() && !isDirty &&
+                cachedTransient->second.changeSerial == changeSerial && cachedTransient->second.size == sourceSize) {
+                slice = cachedTransient->second.slice;
+            } else if (ShouldUseTransientVertexIndexBuffer(*sourceBufferShared) || isDirty) {
                 const auto sourceData = sourceBufferShared->GetDataReadOnly();
-                const SizeT sourceSize = sourceBufferShared->GetSize();
                 if (!m_bufferManager.UploadTransient(BufferKind::Vertex, m_frameContext.GetCurrentFrameIndex(),
                                                      sourceData->data(), static_cast<VkDeviceSize>(sourceSize), 16,
                                                      slice)) {
                     MOBILEGL_ASSERT(false, "UploadAndBindVertexStreams skipped: failed to upload transient binding %zu", binding);
                     return false;
                 }
-                if (!transientThisFrame) {
-                    m_transientVertexIndexBuffersThisFrame.push_back(sourceBufferShared.get());
-                }
+                m_transientVertexIndexBufferSlicesThisFrame[sourceBufferShared.get()] = {
+                    .slice = slice,
+                    .changeSerial = changeSerial,
+                    .size = sourceSize,
+                };
                 m_bufferManager.DowngradeResidentBufferToTransient(sourceBufferShared);
                 sourceBufferShared->ClearDirty();
             } else {
@@ -1421,24 +1445,40 @@ void main() {
         BufferSlice slice{};
         auto indexBufferShared = MG_State::pGLContext->GetBufferObject(indexBuffer->GetExternalIndex());
         MOBILEGL_ASSERT(indexBufferShared != nullptr, "UploadAndBindIndexBuffer failed to resolve shared EBO");
-        const Bool transientThisFrame =
-            HasTransientVertexIndexBufferThisFrame(m_transientVertexIndexBuffersThisFrame, indexBufferShared.get());
         const Bool isDirty = (indexBufferShared->GetChangeBits() & BufferChangeBits::DirtyBit);
-        if (ShouldUseTransientVertexIndexBuffer(*indexBufferShared) || transientThisFrame || isDirty) {
+        const Uint64 changeSerial = indexBufferShared->GetChangeSerial();
+        const SizeT indexBufferSize = indexBufferShared->GetSize();
+        auto cachedTransient = m_transientVertexIndexBufferSlicesThisFrame.find(indexBufferShared.get());
+        if (cachedTransient != m_transientVertexIndexBufferSlicesThisFrame.end() && !isDirty &&
+            cachedTransient->second.changeSerial == changeSerial && cachedTransient->second.size == indexBufferSize) {
+            slice = cachedTransient->second.slice;
+            vkCmdBindIndexBuffer(frame.commandBuffer,
+                                 slice.buffer,
+                                 slice.offset + static_cast<VkDeviceSize>(pIndexBufferView->indexByteOffset),
+                                 vkIndexType);
+            return true;
+        }
+        if (ShouldUseTransientVertexIndexBuffer(*indexBufferShared) || isDirty) {
             const auto indexData = indexBufferShared->GetDataReadOnly();
             MOBILEGL_ASSERT(indexData != nullptr && !indexData->empty(), "DrawElements requires non-empty EBO data");
             if (!m_bufferManager.UploadTransient(BufferKind::Index, m_frameContext.GetCurrentFrameIndex(),
-                                                 indexData->data() + pIndexBufferView->indexByteOffset,
-                                                 static_cast<VkDeviceSize>(indexDataSizeBytes), indexSize, slice)) {
+                                                 indexData->data(),
+                                                 static_cast<VkDeviceSize>(indexBufferSize), indexSize,
+                                                 slice)) {
                 MOBILEGL_ASSERT(false, "DrawElements skipped: failed to prepare transient index buffer");
                 return false;
             }
-            if (!transientThisFrame) {
-                m_transientVertexIndexBuffersThisFrame.push_back(indexBufferShared.get());
-            }
+            m_transientVertexIndexBufferSlicesThisFrame[indexBufferShared.get()] = {
+                .slice = slice,
+                .changeSerial = changeSerial,
+                .size = indexBufferSize,
+            };
             m_bufferManager.DowngradeResidentBufferToTransient(indexBufferShared);
             indexBufferShared->ClearDirty();
-            vkCmdBindIndexBuffer(frame.commandBuffer, slice.buffer, slice.offset, vkIndexType);
+            vkCmdBindIndexBuffer(frame.commandBuffer,
+                                 slice.buffer,
+                                 slice.offset + static_cast<VkDeviceSize>(pIndexBufferView->indexByteOffset),
+                                 vkIndexType);
             return true;
         }
         if (!m_bufferManager.SyncResidentBuffer(BufferKind::Index, indexBufferShared, slice)) {
@@ -1988,11 +2028,11 @@ void main() {
     VkPipeline VulkanRenderer::GetOrCreatePipeline(
             GLenum mode,
             const MG_State::GLState::ProgramObject& program,
+            const ProgramFactory::VkProgramObject& programObj,
+            ProgramFactory::CompileOptionFlags transformFlags,
             const MG_State::GLState::VertexArrayObject& vao,
             const RenderPassEntry& renderPassEntry) {
-        ProgramFactory::CompileOptionFlags transformFlags = GetShaderTransformFlags(m_swapchainObject.GetPreTransform());
         Bool invertClockwise = transformFlags & ProgramFactory::CompileOptionBit::PositionYFlip;
-        const auto& programObj = m_programFactory->GetOrCreateProgram(program, transformFlags);
         if (programObj.stages.empty()) {
             MGLOG_D("GetOrCreatePipeline skipped: program has no shader stages");
             return VK_NULL_HANDLE;
@@ -2037,7 +2077,7 @@ void main() {
 #endif
 
         auto vertexInputHash = m_vertexInputStateFactory->ComputeHash(vao);
-        auto& vis = m_vertexInputStateFactory->GetOrCreateVertexInputState(vao);
+        auto& vis = m_vertexInputStateFactory->GetOrCreateVertexInputState(vao, vertexInputHash);
         const Uint32 vertexInputAttribMask = BuildVertexInputAttributeMask(vis.attributes);
         const Uint32 activeAttribMask = programObj.activeVertexInputLocationMask;
         const Uint32 missingAttribMask = activeAttribMask & ~vertexInputAttribMask;
@@ -2180,6 +2220,7 @@ void main() {
                         MOBILEGL_ASSERT(texture != nullptr,
                                         "GetOrCreatePipeline: color attachment %u texture is null",
                                         i);
+#if MOBILEGL_LOG_ACTIVE_LEVEL <= MOBILEGL_LOG_LEVEL_DEBUG
                         const auto* textureResource = m_textureManager->SyncTextureAndGetDescriptor(*texture);
                         MOBILEGL_ASSERT(textureResource != nullptr,
                                         "GetOrCreatePipeline: failed to sync color attachment textureId=%d",
@@ -2196,7 +2237,9 @@ void main() {
                             static_cast<Int>(textureResource->format),
                             texture->GetExternalIndex(),
                             program.GetExternalIndex());
+#endif
                         const SizeT componentCount = MG_Util::GetBaseInternalFormatComponentCount(texture->GetFormat());
+#if MOBILEGL_LOG_ACTIVE_LEVEL <= MOBILEGL_LOG_LEVEL_DEBUG
                         const NumericDomain attachmentNumericDomain =
                             GetNumericDomainForTextureInternalFormat(texture->GetFormat());
                         for (Uint32 outputLocation = 0;
@@ -2224,6 +2267,7 @@ void main() {
                                 texture->GetExternalIndex(),
                                 program.GetExternalIndex());
                         }
+#endif
                         const VkColorComponentFlags supportedColorWriteMask =
                             GetSupportedColorWriteMaskForComponentCount(componentCount);
                         if ((attachmentColorWriteMask & ~supportedColorWriteMask) != 0) {
@@ -2264,13 +2308,10 @@ void main() {
                                     "GetOrCreatePipeline: color attachment %u texture is null",
                                     i);
                     textureExternalIndex = texture->GetExternalIndex();
-                    const auto* textureResource = m_textureManager->SyncTextureAndGetDescriptor(*texture);
-                    MOBILEGL_ASSERT(textureResource != nullptr,
-                                    "GetOrCreatePipeline: failed to sync color attachment textureId=%d",
-                                    textureExternalIndex);
-                    colorAttachmentFormat = textureResource->format;
+                    colorAttachmentFormat = MG_Util::ConvertTextureInternalFormatToVkEnum(texture->GetFormat());
                 }
 
+#if MOBILEGL_LOG_ACTIVE_LEVEL <= MOBILEGL_LOG_LEVEL_DEBUG
                 VkFormatProperties formatProperties{};
                 vkGetPhysicalDeviceFormatProperties(m_physicalDevice.handle, colorAttachmentFormat, &formatProperties);
                 MOBILEGL_ASSERT(
@@ -2280,6 +2321,7 @@ void main() {
                     static_cast<Int>(colorAttachmentFormat),
                     textureExternalIndex,
                     program.GetExternalIndex());
+#endif
             }
             payload.colorBlendAttachments[i] = MakeColorBlendAttachmentState(
                 effectiveBlendEnabled,
@@ -2390,7 +2432,7 @@ void main() {
             renderPassEntry = &m_renderPassManager->GetOrCreateRenderPass(*drawFbo, m_imageIndexAcquired);
         }
 
-        auto pipeline = GetOrCreatePipeline(mode, program, vao, *renderPassEntry);
+        auto pipeline = GetOrCreatePipeline(mode, program, programObj, transformFlags, vao, *renderPassEntry);
         activeRenderPass = VkRenderPassManager::GetActiveRenderPass();
 
         // Begin render pass, and handle clear
@@ -3576,7 +3618,7 @@ void main() {
         CollectDeferredDepthMipmapCleanup(m_frameContext.GetCurrentFrameIndex());
         m_textureManager->BeginFrame(m_frameContext.GetCurrentFrameIndex());
         m_bufferManager.BeginFrame(m_frameContext.GetCurrentFrameIndex());
-        m_transientVertexIndexBuffersThisFrame.clear();
+        m_transientVertexIndexBufferSlicesThisFrame.clear();
     }
 
     void VulkanRenderer::CreateInstance() {
@@ -4178,7 +4220,7 @@ void main() {
                 m_textureManager->BeginFrame(m_frameContext.GetCurrentFrameIndex());
             }
             m_bufferManager.BeginFrame(m_frameContext.GetCurrentFrameIndex());
-            m_transientVertexIndexBuffersThisFrame.clear();
+            m_transientVertexIndexBufferSlicesThisFrame.clear();
         }
     }
 
