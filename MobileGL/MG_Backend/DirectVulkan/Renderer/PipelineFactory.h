@@ -38,8 +38,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             const VkPipelineVertexInputStateCreateInfo* vertexInputState = nullptr;
         };
 
-        explicit PipelineFactory(VkDevice device, const VulkanRendererConfig& config):
-            m_device(device), m_config(config) {}
+        explicit PipelineFactory(VkDevice device, const VulkanRendererConfig& config);
         ~PipelineFactory();
         PipelineFactory(const PipelineFactory&) = delete;
 
@@ -52,6 +51,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
 
         VkDevice m_device = VK_NULL_HANDLE;
         const VulkanRendererConfig& m_config;
+        VkPipelineCache m_pipelineCache = VK_NULL_HANDLE;
         UnorderedMap<HashType, VkPipeline> m_cache;
         static inline XXH64_state_t* m_hashState = XXH64_createState();
     };

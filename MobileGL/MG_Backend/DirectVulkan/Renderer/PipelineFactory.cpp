@@ -9,8 +9,21 @@
 #include "PipelineFactory.h"
 
 namespace MobileGL::MG_Backend::DirectVulkan {
+    PipelineFactory::PipelineFactory(VkDevice device, const VulkanRendererConfig& config):
+        m_device(device), m_config(config) {
+        MOBILEGL_ASSERT(m_device != VK_NULL_HANDLE, "PipelineFactory: device is null");
+
+        VkPipelineCacheCreateInfo pipelineCacheInfo{VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO};
+        VK_VERIFY(vkCreatePipelineCache(m_device, &pipelineCacheInfo, nullptr, &m_pipelineCache),
+                  "vkCreatePipelineCache");
+    }
+
     PipelineFactory::~PipelineFactory() {
         DestroyAll();
+        if (m_pipelineCache != VK_NULL_HANDLE) {
+            vkDestroyPipelineCache(m_device, m_pipelineCache, nullptr);
+            m_pipelineCache = VK_NULL_HANDLE;
+        }
     }
 
     PipelineFactory::HashType PipelineFactory::ComputeHash(const PipelineCreatePayload& payload) const {
@@ -128,7 +141,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         gpi.subpass = payload.subpass;
 
         VkPipeline pipeline = VK_NULL_HANDLE;
-        VK_VERIFY(vkCreateGraphicsPipelines(m_device, VK_NULL_HANDLE, 1, &gpi, nullptr, &pipeline),
+        VK_VERIFY(vkCreateGraphicsPipelines(m_device, m_pipelineCache, 1, &gpi, nullptr, &pipeline),
                   "vkCreateGraphicsPipelines");
         return pipeline;
     }
