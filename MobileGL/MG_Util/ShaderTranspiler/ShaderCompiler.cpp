@@ -144,13 +144,13 @@ namespace MobileGL {
                 tshader = MakeShared<glslang::TShader>(lang);
                 const char* src[] = {sourceStr.data()};
                 tshader->setStrings(src, 1);
-                tshader->setInvertY(false);
+                tshader->setInvertY(true);
                 if (attrib.flags & ShaderCompileBits::CompileForOpenGL) {
                     tshader->setEnvInput(glslang::EShSourceGlsl, lang, glslang::EShClientVulkan, 450);
                     tshader->setEnvClient(glslang::EShClientOpenGL, glslang::EShTargetOpenGL_450);
                     tshader->setEnvTarget(glslang::EShTargetSpv, glslang::EShTargetSpv_1_3);
                 } else {
-                    tshader->setEnvInput(glslang::EShSourceGlsl, lang, glslang::EShClientVulkan, 460);
+                    tshader->setEnvInput(glslang::EShSourceGlsl, lang, glslang::EShClientVulkan, 450);
                     // MobileGL runtime currently creates Vulkan 1.1 instance/device on Android path,
                     // so generated SPIR-V must not exceed SPIR-V 1.3.
                     tshader->setEnvClient(glslang::EShClientVulkan, glslang::EShTargetVulkan_1_1);
