@@ -237,6 +237,8 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         VkPipeline GetOrCreatePipeline(
             GLenum mode,
             const MG_State::GLState::ProgramObject& program,
+            const ProgramFactory::VkProgramObject& programObj,
+            ProgramFactory::CompileOptionFlags transformFlags,
             const MG_State::GLState::VertexArrayObject& vao,
             const RenderPassEntry& renderPassEntry);
 

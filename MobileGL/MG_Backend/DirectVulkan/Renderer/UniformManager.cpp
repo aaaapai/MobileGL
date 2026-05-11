@@ -135,6 +135,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                     }
                 }
                 frame.texelBufferViews.clear();
+                frame.descriptorSetCacheByLayout.clear();
                 for (auto& bucket : frame.descriptorPools) {
                     if (bucket.handle != VK_NULL_HANDLE) {
                         vkDestroyDescriptorPool(m_device, bucket.handle, nullptr);
@@ -180,13 +181,8 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         frame.activeDescriptorPoolIndex = 0;
         frame.allocatedSetsThisFrame = 0;
         frame.peakAllocatedSetsThisFrame = 0;
-        for (auto& bucket : frame.descriptorPools) {
-            bucket.allocatedSets = 0;
-            if (bucket.handle == VK_NULL_HANDLE) {
-                continue;
-            }
-            VK_VERIFY(vkResetDescriptorPool(m_device, bucket.handle, 0),
-                      "UniformDescriptorBinder::BeginFrame, vkResetDescriptorPool");
+        for (auto& cacheEntryPair : frame.descriptorSetCacheByLayout) {
+            cacheEntryPair.second.cursor = 0;
         }
     }
 
@@ -584,7 +580,26 @@ namespace MobileGL::MG_Backend::DirectVulkan {
 
     VkResult UniformManager::AllocateDescriptorSetsFromActivePool(Uint32 frameIndex, const ProgramFactory::VkProgramObject& programObj, VkDescriptorSet& outDescriptorSet) {
         auto& frame = m_frames[frameIndex];
+        if (frame.activeDescriptorPoolIndex >= frame.descriptorPools.size()) {
+            frame.activeDescriptorPoolIndex = 0;
+        }
+        if (frame.descriptorPools[frame.activeDescriptorPoolIndex].allocatedSets >=
+            frame.descriptorPools[frame.activeDescriptorPoolIndex].maxSets) {
+            const auto availableBucket = std::find_if(
+                frame.descriptorPools.begin(), frame.descriptorPools.end(),
+                [](const DescriptorPoolBucket& candidate) { return candidate.allocatedSets < candidate.maxSets; });
+            if (availableBucket == frame.descriptorPools.end()) {
+                outDescriptorSet = VK_NULL_HANDLE;
+                return VK_ERROR_OUT_OF_POOL_MEMORY;
+            }
+            frame.activeDescriptorPoolIndex =
+                static_cast<Uint32>(std::distance(frame.descriptorPools.begin(), availableBucket));
+        }
         auto& bucket = frame.descriptorPools[frame.activeDescriptorPoolIndex];
+        if (bucket.allocatedSets >= bucket.maxSets) {
+            outDescriptorSet = VK_NULL_HANDLE;
+            return VK_ERROR_OUT_OF_POOL_MEMORY;
+        }
         VkDescriptorSetAllocateInfo allocInfo{};
         allocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
         allocInfo.descriptorSetCount = 1;
@@ -594,11 +609,40 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         VkResult result = vkAllocateDescriptorSets(m_device, &allocInfo, &outDescriptorSet);
         if (result == VK_SUCCESS) {
             ++bucket.allocatedSets;
-            ++frame.allocatedSetsThisFrame;
-            frame.peakAllocatedSetsThisFrame =
-                std::max(frame.peakAllocatedSetsThisFrame, frame.allocatedSetsThisFrame);
         }
         return result;
+    }
+
+    VkResult UniformManager::AcquireDescriptorSet(Uint32 frameIndex,
+                                                  const ProgramFactory::VkProgramObject& programObj,
+                                                  VkDescriptorSet& outDescriptorSet) {
+        auto& frame = m_frames[frameIndex];
+        auto& cache = frame.descriptorSetCacheByLayout[programObj.descriptorSetLayout];
+        if (cache.cursor < cache.sets.size()) {
+            outDescriptorSet = cache.sets[cache.cursor++];
+        } else {
+            VkResult allocResult = AllocateDescriptorSetsFromActivePool(frameIndex, programObj, outDescriptorSet);
+            if (allocResult == VK_ERROR_OUT_OF_POOL_MEMORY || allocResult == VK_ERROR_FRAGMENTED_POOL) {
+                if (!GrowFrameDescriptorPool(frame, frameIndex)) {
+                    MGLOG_E("UniformDescriptorBinder::AcquireDescriptorSet failed: descriptor pool growth failed");
+                    return allocResult;
+                }
+                allocResult = AllocateDescriptorSetsFromActivePool(frameIndex, programObj, outDescriptorSet);
+            }
+            if (allocResult != VK_SUCCESS || outDescriptorSet == VK_NULL_HANDLE) {
+                return allocResult;
+            }
+
+            cache.sets.push_back(outDescriptorSet);
+            ++cache.cursor;
+            MGLOG_D("UniformDescriptorBinder: cached descriptor set count for frame=%u grew to %zu", frameIndex,
+                    cache.sets.size());
+        }
+
+        ++frame.allocatedSetsThisFrame;
+        frame.peakAllocatedSetsThisFrame =
+            std::max(frame.peakAllocatedSetsThisFrame, frame.allocatedSetsThisFrame);
+        return VK_SUCCESS;
     }
 
     Bool UniformManager::BindProgramUniformBuffers(VkCommandBuffer commandBuffer,
@@ -616,16 +660,9 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         }
 
         VkDescriptorSet descriptorSet = VK_NULL_HANDLE;
-        VkResult allocResult = AllocateDescriptorSetsFromActivePool(frameIndex, programObj, descriptorSet);
-        if (allocResult == VK_ERROR_OUT_OF_POOL_MEMORY || allocResult == VK_ERROR_FRAGMENTED_POOL) {
-            if (!GrowFrameDescriptorPool(frame, frameIndex)) {
-                MGLOG_E("UniformDescriptorBinder::BindProgramUniformBuffers failed: descriptor pool growth failed");
-                return false;
-            }
-            allocResult = AllocateDescriptorSetsFromActivePool(frameIndex, programObj, descriptorSet);
-        }
+        VkResult allocResult = AcquireDescriptorSet(frameIndex, programObj, descriptorSet);
         if (allocResult != VK_SUCCESS || descriptorSet == VK_NULL_HANDLE) {
-            MGLOG_E("UniformDescriptorBinder::BindProgramUniformBuffers failed: vkAllocateDescriptorSets returned %d",
+            MGLOG_E("UniformDescriptorBinder::BindProgramUniformBuffers failed: descriptor set acquire returned %d",
                     allocResult);
             return false;
         }

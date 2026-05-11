@@ -18,6 +18,7 @@
 #include "MG_Impl/GLImpl/Framebuffer/GL_Framebuffer.h"
 #include "MG_Util/Converters/GLToMG/TextureEnumConverter.h"
 #include "MG_Util/Converters/MGToVk/RenderStateEnumConverter.h"
+#include "MG_Util/Converters/MGToVk/TextureEnumConverter.h"
 #include "MG_Util/Metrics/TextureMetrics.h"
 #include <vulkan/vulkan_core.h>
 
@@ -2027,11 +2028,11 @@ void main() {
     VkPipeline VulkanRenderer::GetOrCreatePipeline(
             GLenum mode,
             const MG_State::GLState::ProgramObject& program,
+            const ProgramFactory::VkProgramObject& programObj,
+            ProgramFactory::CompileOptionFlags transformFlags,
             const MG_State::GLState::VertexArrayObject& vao,
             const RenderPassEntry& renderPassEntry) {
-        ProgramFactory::CompileOptionFlags transformFlags = GetShaderTransformFlags(m_swapchainObject.GetPreTransform());
         Bool invertClockwise = transformFlags & ProgramFactory::CompileOptionBit::PositionYFlip;
-        const auto& programObj = m_programFactory->GetOrCreateProgram(program, transformFlags);
         if (programObj.stages.empty()) {
             MGLOG_D("GetOrCreatePipeline skipped: program has no shader stages");
             return VK_NULL_HANDLE;
@@ -2076,7 +2077,7 @@ void main() {
 #endif
 
         auto vertexInputHash = m_vertexInputStateFactory->ComputeHash(vao);
-        auto& vis = m_vertexInputStateFactory->GetOrCreateVertexInputState(vao);
+        auto& vis = m_vertexInputStateFactory->GetOrCreateVertexInputState(vao, vertexInputHash);
         const Uint32 vertexInputAttribMask = BuildVertexInputAttributeMask(vis.attributes);
         const Uint32 activeAttribMask = programObj.activeVertexInputLocationMask;
         const Uint32 missingAttribMask = activeAttribMask & ~vertexInputAttribMask;
@@ -2219,6 +2220,7 @@ void main() {
                         MOBILEGL_ASSERT(texture != nullptr,
                                         "GetOrCreatePipeline: color attachment %u texture is null",
                                         i);
+#if MOBILEGL_LOG_ACTIVE_LEVEL <= MOBILEGL_LOG_LEVEL_DEBUG
                         const auto* textureResource = m_textureManager->SyncTextureAndGetDescriptor(*texture);
                         MOBILEGL_ASSERT(textureResource != nullptr,
                                         "GetOrCreatePipeline: failed to sync color attachment textureId=%d",
@@ -2235,7 +2237,9 @@ void main() {
                             static_cast<Int>(textureResource->format),
                             texture->GetExternalIndex(),
                             program.GetExternalIndex());
+#endif
                         const SizeT componentCount = MG_Util::GetBaseInternalFormatComponentCount(texture->GetFormat());
+#if MOBILEGL_LOG_ACTIVE_LEVEL <= MOBILEGL_LOG_LEVEL_DEBUG
                         const NumericDomain attachmentNumericDomain =
                             GetNumericDomainForTextureInternalFormat(texture->GetFormat());
                         for (Uint32 outputLocation = 0;
@@ -2263,6 +2267,7 @@ void main() {
                                 texture->GetExternalIndex(),
                                 program.GetExternalIndex());
                         }
+#endif
                         const VkColorComponentFlags supportedColorWriteMask =
                             GetSupportedColorWriteMaskForComponentCount(componentCount);
                         if ((attachmentColorWriteMask & ~supportedColorWriteMask) != 0) {
@@ -2303,13 +2308,10 @@ void main() {
                                     "GetOrCreatePipeline: color attachment %u texture is null",
                                     i);
                     textureExternalIndex = texture->GetExternalIndex();
-                    const auto* textureResource = m_textureManager->SyncTextureAndGetDescriptor(*texture);
-                    MOBILEGL_ASSERT(textureResource != nullptr,
-                                    "GetOrCreatePipeline: failed to sync color attachment textureId=%d",
-                                    textureExternalIndex);
-                    colorAttachmentFormat = textureResource->format;
+                    colorAttachmentFormat = MG_Util::ConvertTextureInternalFormatToVkEnum(texture->GetFormat());
                 }
 
+#if MOBILEGL_LOG_ACTIVE_LEVEL <= MOBILEGL_LOG_LEVEL_DEBUG
                 VkFormatProperties formatProperties{};
                 vkGetPhysicalDeviceFormatProperties(m_physicalDevice.handle, colorAttachmentFormat, &formatProperties);
                 MOBILEGL_ASSERT(
@@ -2319,6 +2321,7 @@ void main() {
                     static_cast<Int>(colorAttachmentFormat),
                     textureExternalIndex,
                     program.GetExternalIndex());
+#endif
             }
             payload.colorBlendAttachments[i] = MakeColorBlendAttachmentState(
                 effectiveBlendEnabled,
@@ -2429,7 +2432,7 @@ void main() {
             renderPassEntry = &m_renderPassManager->GetOrCreateRenderPass(*drawFbo, m_imageIndexAcquired);
         }
 
-        auto pipeline = GetOrCreatePipeline(mode, program, vao, *renderPassEntry);
+        auto pipeline = GetOrCreatePipeline(mode, program, programObj, transformFlags, vao, *renderPassEntry);
         activeRenderPass = VkRenderPassManager::GetActiveRenderPass();
 
         // Begin render pass, and handle clear

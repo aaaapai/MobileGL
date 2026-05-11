@@ -1530,7 +1530,15 @@ namespace MobileGL::MG_Backend::DirectVulkan {
 
     const ProgramFactory::VkProgramObject& ProgramFactory::GetOrCreateProgram(
         const MG_State::GLState::ProgramObject& program, CompileOptionFlags flags) {
-        auto hash = ComputeHash(program, flags);
+        const Uint32 backendStateVersion = program.GetBackendStateVersion();
+        HashType hash = 0;
+        if (m_lastLookup.program == &program && m_lastLookup.backendStateVersion == backendStateVersion &&
+            m_lastLookup.flags == flags) {
+            hash = m_lastLookup.hash;
+        } else {
+            hash = ComputeHash(program, flags);
+            m_lastLookup = {.program = &program, .backendStateVersion = backendStateVersion, .flags = flags, .hash = hash};
+        }
         auto it = m_cache.find(hash);
         if (it != m_cache.end()) {
             return it->second;
