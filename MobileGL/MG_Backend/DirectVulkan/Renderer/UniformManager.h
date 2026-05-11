@@ -55,8 +55,14 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             Uint32 allocatedSets = 0;
         };
 
+        struct DescriptorSetCacheEntry {
+            Vector<VkDescriptorSet> sets;
+            Uint32 cursor = 0;
+        };
+
         struct FrameResources {
             Vector<DescriptorPoolBucket> descriptorPools;
+            UnorderedMap<VkDescriptorSetLayout, DescriptorSetCacheEntry> descriptorSetCacheByLayout;
             Vector<VkBufferView> texelBufferViews;
             Uint32 activeDescriptorPoolIndex = 0;
             Uint32 allocatedSetsThisFrame = 0;
@@ -82,6 +88,9 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         Bool GrowFrameDescriptorPool(FrameResources& frame, Uint32 frameIndex);
         VkResult AllocateDescriptorSetsFromActivePool(
             Uint32 frameIndex, const ProgramFactory::VkProgramObject& programObj, VkDescriptorSet& outDescriptorSet);
+        VkResult AcquireDescriptorSet(Uint32 frameIndex,
+                                      const ProgramFactory::VkProgramObject& programObj,
+                                      VkDescriptorSet& outDescriptorSet);
 
         VkDevice m_device = VK_NULL_HANDLE;
         VkBufferManager* m_bufferManager = nullptr;

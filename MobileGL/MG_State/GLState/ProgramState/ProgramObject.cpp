@@ -133,6 +133,7 @@ namespace MobileGL::MG_State::GLState {
 
     void ProgramObject::Link(Bool addDefaultFSIfMissingForRenderingPipelineProgram) {
         MGLOG_D("ProgramObject %u: Link start, shaders to link: %zu", m_externalIndex, m_shaders.size());
+        ++m_backendStateVersion;
         // Remove detached shaders first
         for (const auto& detachedShader : m_detachedShaders) {
             RemoveShader(detachedShader);
