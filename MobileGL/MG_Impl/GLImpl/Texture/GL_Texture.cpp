@@ -685,8 +685,13 @@ namespace MobileGL::MG_Impl::GLImpl {
         auto textureMipmapObject = static_cast<MG_State::GLState::TextureObjectMipmap*>(textureObject.get());
 
         // Allocate in TextureObject
-        MGLOG_D("%s: Allocating %d bytes at mip %d", __func__, internalBytes, level);
-        textureMipmapObject->AllocateStorage(textureUploadTarget, level, {{width, height, 1}, internalBytes});
+        if (isProxy) {
+            MGLOG_D("%s: isProxy = true, not allocating", __func__);
+        } else {
+            MGLOG_D("%s: Allocating %d bytes at mip %d", __func__, internalBytes, level);
+            textureMipmapObject->AllocateStorage(textureUploadTarget, level,
+                                                 {{width, height, 1}, internalBytes});
+        }
 
         if (!originalPixels) {
             MGLOG_D("%s: No input pixel and no PBO bound, no pixel transfer", __func__);
