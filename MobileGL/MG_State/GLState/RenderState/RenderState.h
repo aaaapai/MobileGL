@@ -31,6 +31,16 @@ namespace MobileGL {
         Unknown = -1
     };
 
+    enum class BlendEquation {
+        Add,
+        Subtract,
+        ReverseSubtract,
+        Min,
+        Max,
+        BlendEquationCount,
+        Unknown = -1
+    };
+
     enum class DepthTestFunc {
         Never,
         Less,
@@ -134,6 +144,8 @@ namespace MobileGL {
         BlendFactor DstFactorRGB = BlendFactor::Zero;
         BlendFactor SrcFactorAlpha = BlendFactor::One;
         BlendFactor DstFactorAlpha = BlendFactor::Zero;
+        BlendEquation ColorEquation = BlendEquation::Add;
+        BlendEquation AlphaEquation = BlendEquation::Add;
     };
 
     struct RenderStateParameters {
@@ -192,6 +204,10 @@ namespace MobileGL {
                                          BlendFactor dstAlpha);
                 void GetBlendFuncIndexed(Uint index, BlendFactor& srcRGB, BlendFactor& dstRGB, BlendFactor& srcAlpha,
                                          BlendFactor& dstAlpha) const;
+                void SetBlendEquation(BlendEquation color, BlendEquation alpha);
+                void GetBlendEquation(BlendEquation& color, BlendEquation& alpha) const;
+                void SetBlendEquationIndexed(Uint index, BlendEquation color, BlendEquation alpha);
+                void GetBlendEquationIndexed(Uint index, BlendEquation& color, BlendEquation& alpha) const;
 
                 // Depth
                 void SetDepthFunc(DepthTestFunc func);

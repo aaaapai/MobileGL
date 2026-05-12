@@ -103,5 +103,22 @@ namespace MobileGL {
                 return VK_BLEND_FACTOR_ONE;
             }
         }
+
+        VkBlendOp ConvertBlendEquationToVkEnum(BlendEquation v) {
+            switch (v) {
+            case BlendEquation::Add:
+                return VK_BLEND_OP_ADD;
+            case BlendEquation::Subtract:
+                return VK_BLEND_OP_SUBTRACT;
+            case BlendEquation::ReverseSubtract:
+                return VK_BLEND_OP_REVERSE_SUBTRACT;
+            case BlendEquation::Min:
+                return VK_BLEND_OP_MIN;
+            case BlendEquation::Max:
+                return VK_BLEND_OP_MAX;
+            default:
+                return VK_BLEND_OP_ADD;
+            }
+        }
     } // namespace MG_Util
 } // namespace MobileGL

@@ -160,31 +160,39 @@ namespace MobileGL::MG_Impl::GLImpl {
         case GL_BLEND_DST_ALPHA: {
             BlendFactor srcRGB, dstRGB, srcAlpha, dstAlpha;
             MG_State::pGLContext->GetBlendFunc(srcRGB, dstRGB, srcAlpha, dstAlpha);
-            *params = static_cast<GLint>(dstAlpha);
+            *params = static_cast<GLint>(MG_Util::ConvertBlendFactorToGLEnum(dstAlpha));
             break;
         }
         case GL_BLEND_DST_RGB: {
             BlendFactor srcRGB, dstRGB, srcAlpha, dstAlpha;
             MG_State::pGLContext->GetBlendFunc(srcRGB, dstRGB, srcAlpha, dstAlpha);
-            *params = static_cast<GLint>(dstRGB);
+            *params = static_cast<GLint>(MG_Util::ConvertBlendFactorToGLEnum(dstRGB));
             break;
         }
-        case GL_BLEND_EQUATION_RGB:
-            *params = 0; // TODO
+        case GL_BLEND_EQUATION_RGB: {
+            BlendEquation colorEquation = BlendEquation::Add;
+            BlendEquation alphaEquation = BlendEquation::Add;
+            MG_State::pGLContext->GetBlendEquation(colorEquation, alphaEquation);
+            *params = static_cast<GLint>(MG_Util::ConvertBlendEquationToGLEnum(colorEquation));
             break;
-        case GL_BLEND_EQUATION_ALPHA:
-            *params = 0; // TODO
+        }
+        case GL_BLEND_EQUATION_ALPHA: {
+            BlendEquation colorEquation = BlendEquation::Add;
+            BlendEquation alphaEquation = BlendEquation::Add;
+            MG_State::pGLContext->GetBlendEquation(colorEquation, alphaEquation);
+            *params = static_cast<GLint>(MG_Util::ConvertBlendEquationToGLEnum(alphaEquation));
             break;
+        }
         case GL_BLEND_SRC_ALPHA: {
             BlendFactor srcRGB, dstRGB, srcAlpha, dstAlpha;
             MG_State::pGLContext->GetBlendFunc(srcRGB, dstRGB, srcAlpha, dstAlpha);
-            *params = static_cast<GLint>(srcAlpha);
+            *params = static_cast<GLint>(MG_Util::ConvertBlendFactorToGLEnum(srcAlpha));
             break;
         }
         case GL_BLEND_SRC_RGB: {
             BlendFactor srcRGB, dstRGB, srcAlpha, dstAlpha;
             MG_State::pGLContext->GetBlendFunc(srcRGB, dstRGB, srcAlpha, dstAlpha);
-            *params = static_cast<GLint>(srcRGB);
+            *params = static_cast<GLint>(MG_Util::ConvertBlendFactorToGLEnum(srcRGB));
             break;
         }
         case GL_COLOR_CLEAR_VALUE:
@@ -251,6 +259,9 @@ namespace MobileGL::MG_Impl::GLImpl {
             break;
         case GL_CULL_FACE:
             *params = MG_State::pGLContext->IsCapabilityEnabled(CapabilityInput::CullFace) ? GL_TRUE : GL_FALSE;
+            break;
+        case GL_CULL_FACE_MODE:
+            *params = static_cast<GLint>(MG_Util::ConvertCullFaceModeToGLEnum(MG_State::pGLContext->GetCullFaceMode()));
             break;
         case GL_CURRENT_PROGRAM: {
             const auto& currentProgram = MG_State::pGLContext->GetCurrentProgram();
@@ -591,6 +602,10 @@ namespace MobileGL::MG_Impl::GLImpl {
             break;
         case GL_POINT_SIZE:
             *params = 0; // TODO
+            break;
+        case GL_POLYGON_MODE:
+            params[0] = GL_FILL;
+            params[1] = GL_FILL;
             break;
         case GL_POINT_SIZE_GRANULARITY:
             *params = 0; // TODO

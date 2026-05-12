@@ -46,6 +46,7 @@ namespace MobileGL::MG_Impl::GLImpl {
     void ClampColor(GLenum target, GLenum clamp);
     void BlendFuncSeparate(GLenum sfactorRGB, GLenum dfactorRGB, GLenum sfactorAlpha, GLenum dfactorAlpha);
     void BlendEquation(GLenum mode);
+    void BlendEquationSeparate(GLenum modeRGB, GLenum modeAlpha);
     void BlendColor(GLfloat red, GLfloat green, GLfloat blue, GLfloat alpha);
     void ClearStencil(GLint s);
     void ClearDepth(GLclampd depth);

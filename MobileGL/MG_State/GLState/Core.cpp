@@ -313,6 +313,22 @@ namespace MobileGL::MG_State {
             m_renderState.GetBlendFuncIndexed(index, srcRGB, dstRGB, srcAlpha, dstAlpha);
         }
 
+        void GLContext::SetBlendEquation(BlendEquation color, BlendEquation alpha) {
+            m_renderState.SetBlendEquation(color, alpha);
+        }
+
+        void GLContext::GetBlendEquation(BlendEquation& color, BlendEquation& alpha) const {
+            m_renderState.GetBlendEquation(color, alpha);
+        }
+
+        void GLContext::SetBlendEquationIndexed(Uint index, BlendEquation color, BlendEquation alpha) {
+            m_renderState.SetBlendEquationIndexed(index, color, alpha);
+        }
+
+        void GLContext::GetBlendEquationIndexed(Uint index, BlendEquation& color, BlendEquation& alpha) const {
+            m_renderState.GetBlendEquationIndexed(index, color, alpha);
+        }
+
         void GLContext::SetDepthFunc(DepthTestFunc func) {
             m_renderState.SetDepthFunc(func);
         }

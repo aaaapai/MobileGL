@@ -1303,6 +1303,13 @@ namespace MobileGL::MG_Impl::GLImpl {
             return;
         }
 
+        // Some desktop-side helper code saves GL_ACTIVE_TEXTURE and later feeds it back into glBindTexture
+        // as if it were a texture name. Treating that as a no-op preserves the previous "invalid bind does not
+        // change texture state" behavior, but avoids poisoning the error state every frame.
+        if (!MG_State::pGLContext->ValidateTextureName(texture) && texture >= GL_TEXTURE0 && texture <= GL_TEXTURE31) {
+            return;
+        }
+
         if (!TextureImpl::ValidateTextureName(texture, true)) return;
 
         // ======================= Processing ================================
