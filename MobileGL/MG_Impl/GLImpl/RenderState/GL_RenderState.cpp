@@ -14,6 +14,19 @@
 #include <MG_Util/Converters/MGToStr/RenderStateEnumConverter.h>
 
 namespace MobileGL::MG_Impl::GLImpl {
+    static Bool TryConvertBlendEquation(GLenum mode, const char* functionName,
+                                        ::MobileGL::BlendEquation& outEquation) {
+        outEquation = MG_Util::ConvertGLEnumToBlendEquation(mode);
+        if (outEquation != ::MobileGL::BlendEquation::Unknown) return true;
+
+        MG_State::pGLContext->RecordError(
+            ErrorCode::InvalidEnum,
+            MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", functionName,
+                                         "Blend equation enum " + MG_Util::ConvertGLEnumToString(mode) +
+                                             " is not supported."));
+        return false;
+    }
+
     void Viewport_State(GLint x, GLint y, GLsizei width, GLsizei height) {
         if (width < 0 || height < 0) {
             MG_State::pGLContext->RecordError(ErrorCode::InvalidValue,
@@ -249,7 +262,19 @@ namespace MobileGL::MG_Impl::GLImpl {
     }
 
     void BlendEquation_State(GLenum mode) {
-        // TODO: implement
+        ::MobileGL::BlendEquation blendEquation = ::MobileGL::BlendEquation::Unknown;
+        if (!TryConvertBlendEquation(mode, "BlendEquation_State", blendEquation)) return;
+        MG_State::pGLContext->SetBlendEquation(blendEquation, blendEquation);
+    }
+
+    void BlendEquationSeparate_State(GLenum modeRGB, GLenum modeAlpha) {
+        ::MobileGL::BlendEquation colorEquation = ::MobileGL::BlendEquation::Unknown;
+        if (!TryConvertBlendEquation(modeRGB, "BlendEquationSeparate_State", colorEquation)) return;
+
+        ::MobileGL::BlendEquation alphaEquation = ::MobileGL::BlendEquation::Unknown;
+        if (!TryConvertBlendEquation(modeAlpha, "BlendEquationSeparate_State", alphaEquation)) return;
+
+        MG_State::pGLContext->SetBlendEquation(colorEquation, alphaEquation);
     }
 
     void BlendColor_State(GLfloat red, GLfloat green, GLfloat blue, GLfloat alpha) {
@@ -453,6 +478,10 @@ namespace MobileGL::MG_Impl::GLImpl {
 
     void BlendEquation(GLenum mode) {
         BlendEquation_State(mode);
+    }
+
+    void BlendEquationSeparate(GLenum modeRGB, GLenum modeAlpha) {
+        BlendEquationSeparate_State(modeRGB, modeAlpha);
     }
 
     void BlendColor(GLfloat red, GLfloat green, GLfloat blue, GLfloat alpha) {

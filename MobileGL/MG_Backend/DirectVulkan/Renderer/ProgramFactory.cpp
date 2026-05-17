@@ -13,6 +13,7 @@
 #include <cstring>
 #include <spirv-tools/libspirv.h>
 #include <spirv-tools/optimizer.hpp>
+#include <source/opt/build_module.h>
 #include <source/opt/constants.h>
 #include <source/opt/instruction.h>
 #include <source/opt/ir_builder.h>
@@ -290,12 +291,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             return occupiedSlotCount;
         }
 
-        void ValidateTransformedSpirv(const Vector<Uint>& spirv, ShaderStage shaderStage, Uint programExternalIndex) {
-            if (spirv.empty()) {
-                return;
-            }
-
-            spv_const_binary_t binary = {spirv.data(), spirv.size()};
+        spv_target_env GetSpirvTargetEnv(const Vector<Uint>& spirv) {
             spv_target_env targetEnv = SPV_ENV_VULKAN_1_0;
             if (spirv.size() > 1) {
                 const Uint32 versionWord = spirv[1];
@@ -311,6 +307,53 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                     targetEnv = SPV_ENV_VULKAN_1_1;
                 }
             }
+            return targetEnv;
+        }
+
+        Bool IsInterfaceVariableStaticallyUsed(const Vector<Uint>& spirv, Uint32 spirvId) {
+            if (spirv.empty() || spirvId == 0) {
+                return false;
+            }
+
+            auto context = spvtools::BuildModule(
+                GetSpirvTargetEnv(spirv),
+                [](spv_message_level_t, const char*, const spv_position_t&, const char*) {},
+                spirv.data(),
+                spirv.size());
+            if (!context) {
+                return true;
+            }
+
+            auto* variable = context->get_def_use_mgr()->GetDef(spirvId);
+            if (variable == nullptr) {
+                return false;
+            }
+
+            Bool used = false;
+            context->get_def_use_mgr()->ForEachUser(variable, [&used](spvtools::opt::Instruction* user) {
+                switch (user->opcode()) {
+                case spv::Op::OpName:
+                case spv::Op::OpMemberName:
+                case spv::Op::OpDecorate:
+                case spv::Op::OpMemberDecorate:
+                case spv::Op::OpDecorateId:
+                case spv::Op::OpEntryPoint:
+                    return;
+                default:
+                    used = true;
+                    return;
+                }
+            });
+            return used;
+        }
+
+        void ValidateTransformedSpirv(const Vector<Uint>& spirv, ShaderStage shaderStage, Uint programExternalIndex) {
+            if (spirv.empty()) {
+                return;
+            }
+
+            spv_const_binary_t binary = {spirv.data(), spirv.size()};
+            const spv_target_env targetEnv = GetSpirvTargetEnv(spirv);
 
             spv_context context = spvContextCreate(targetEnv);
             MOBILEGL_ASSERT(context != nullptr,
@@ -587,6 +630,9 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                     StageInterfaceCursor stageCursor{};
                     for (auto* variable : variables) {
                         if (variable == nullptr) {
+                            continue;
+                        }
+                        if (reflectInputs && !IsInterfaceVariableStaticallyUsed(module, variable->spirv_id)) {
                             continue;
                         }
                         ReflectStageInterfaceVariable(*variable, reflectInputs, outSummary, programExternalIndex,

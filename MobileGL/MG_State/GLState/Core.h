@@ -111,6 +111,10 @@ namespace MobileGL {
                                          BlendFactor dstAlpha);
                 void GetBlendFuncIndexed(Uint index, BlendFactor& srcRGB, BlendFactor& dstRGB, BlendFactor& srcAlpha,
                                          BlendFactor& dstAlpha) const;
+                void SetBlendEquation(BlendEquation color, BlendEquation alpha);
+                void GetBlendEquation(BlendEquation& color, BlendEquation& alpha) const;
+                void SetBlendEquationIndexed(Uint index, BlendEquation color, BlendEquation alpha);
+                void GetBlendEquationIndexed(Uint index, BlendEquation& color, BlendEquation& alpha) const;
                 void SetDepthFunc(DepthTestFunc func);
                 DepthTestFunc GetDepthFunc() const;
                 void SetDepthMask(Bool flag);

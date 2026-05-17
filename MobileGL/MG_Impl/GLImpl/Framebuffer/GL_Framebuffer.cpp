@@ -67,7 +67,86 @@ namespace MobileGL::MG_Impl::GLImpl {
     }
 
     void GetFramebufferAttachmentParameteriv_State(GLenum target, GLenum attachment, GLenum pname, GLint* params) {
-        // TODO: implement
+        if (params == nullptr) return;
+        if (target == GL_FRAMEBUFFER) {
+            target = GL_DRAW_FRAMEBUFFER;
+        }
+
+        FramebufferTarget framebufferTarget = MG_Util::ConvertGLEnumToFramebufferTarget(target);
+        if (!FramebufferImpl::ValidateFramebufferTarget(framebufferTarget)) return;
+
+        const Bool depthStencilAlias = attachment == GL_DEPTH_STENCIL_ATTACHMENT;
+        FramebufferAttachmentType attachmentType = depthStencilAlias
+            ? FramebufferAttachmentType::Depth
+            : MG_Util::ConvertGLEnumToFramebufferAttachmentType(attachment);
+        if (!FramebufferImpl::ValidateFramebufferAttachmentType(attachmentType)) return;
+
+        auto& bindingSlot = MG_State::pGLContext->GetFramebufferBindingSlot(framebufferTarget);
+        auto& framebufferObject = bindingSlot.GetBoundObject();
+        if (!framebufferObject) {
+            MG_State::pGLContext->RecordError(
+                ErrorCode::InvalidOperation,
+                MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", "GetFramebufferAttachmentParameteriv_State",
+                                             "Framebuffer target is bound to no framebuffer object."));
+            return;
+        }
+
+        const auto* attachmentObject = [&]() -> const MG_State::GLState::FramebufferAttachmentObject* {
+            if (!depthStencilAlias) {
+                return &framebufferObject->GetAttachment(attachmentType);
+            }
+
+            const auto& depthAttachment = framebufferObject->GetAttachment(FramebufferAttachmentType::Depth);
+            if (depthAttachment.IsValid() && !depthAttachment.IsEmpty()) return &depthAttachment;
+
+            const auto& stencilAttachment = framebufferObject->GetAttachment(FramebufferAttachmentType::Stencil);
+            if (stencilAttachment.IsValid() && !stencilAttachment.IsEmpty()) return &stencilAttachment;
+
+            return nullptr;
+        }();
+
+        switch (pname) {
+        case GL_FRAMEBUFFER_ATTACHMENT_OBJECT_TYPE:
+            if (attachmentObject == nullptr || attachmentObject->IsEmpty() || !attachmentObject->IsValid()) {
+                *params = GL_NONE;
+            } else if (attachmentObject->IsTexture()) {
+                *params = GL_TEXTURE;
+            } else if (attachmentObject->IsRenderbuffer()) {
+                *params = GL_RENDERBUFFER;
+            } else {
+                *params = GL_NONE;
+            }
+            break;
+        case GL_FRAMEBUFFER_ATTACHMENT_OBJECT_NAME:
+            if (attachmentObject == nullptr || attachmentObject->IsEmpty() || !attachmentObject->IsValid()) {
+                *params = 0;
+            } else if (attachmentObject->IsTexture()) {
+                const auto& textureObject = attachmentObject->GetTexture();
+                *params = textureObject ? static_cast<GLint>(textureObject->GetExternalIndex()) : 0;
+            } else if (attachmentObject->IsRenderbuffer()) {
+                const auto& renderbufferObject = attachmentObject->GetRenderbuffer();
+                *params = renderbufferObject ? static_cast<GLint>(renderbufferObject->GetExternalIndex()) : 0;
+            } else {
+                *params = 0;
+            }
+            break;
+        case GL_FRAMEBUFFER_ATTACHMENT_TEXTURE_LEVEL:
+            *params = (attachmentObject != nullptr && attachmentObject->IsTexture() && attachmentObject->IsValid())
+                ? static_cast<GLint>(attachmentObject->GetTextureLevel())
+                : 0;
+            break;
+        case GL_FRAMEBUFFER_ATTACHMENT_TEXTURE_CUBE_MAP_FACE:
+        case GL_FRAMEBUFFER_ATTACHMENT_TEXTURE_LAYER:
+            *params = 0;
+            break;
+        default:
+            MG_State::pGLContext->RecordError(
+                ErrorCode::InvalidEnum,
+                MakeUnique<GenericErrorInfo>(
+                    "MG_Impl/GLImpl", "GetFramebufferAttachmentParameteriv_State",
+                    std::format("pname {} is not an accepted value.", MG_Util::ConvertGLEnumToString(pname))));
+            return;
+        }
     }
 
     void GenRenderbuffers_State(GLsizei n, GLuint* renderbuffers) {
@@ -111,6 +190,7 @@ namespace MobileGL::MG_Impl::GLImpl {
         if (attachment == GL_DEPTH_STENCIL_ATTACHMENT) {
             FramebufferTexture2D_State(target, GL_DEPTH_ATTACHMENT, textarget, texture, level);
             FramebufferTexture2D_State(target, GL_STENCIL_ATTACHMENT, textarget, texture, level);
+            return;
         }
 
         FramebufferAttachmentType attachmentType = MG_Util::ConvertGLEnumToFramebufferAttachmentType(attachment);

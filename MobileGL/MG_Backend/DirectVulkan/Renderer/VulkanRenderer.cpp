@@ -27,17 +27,19 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         Bool blendEnable,
         VkBlendFactor srcColorBlendFactor,
         VkBlendFactor dstColorBlendFactor,
+        VkBlendOp colorBlendOp,
         VkBlendFactor srcAlphaBlendFactor,
         VkBlendFactor dstAlphaBlendFactor,
+        VkBlendOp alphaBlendOp,
         VkColorComponentFlags colorWriteMask) {
         VkPipelineColorBlendAttachmentState attachment{};
         attachment.blendEnable = blendEnable ? VK_TRUE : VK_FALSE;
         attachment.srcColorBlendFactor = srcColorBlendFactor;
         attachment.dstColorBlendFactor = dstColorBlendFactor;
-        attachment.colorBlendOp = VK_BLEND_OP_ADD;
+        attachment.colorBlendOp = colorBlendOp;
         attachment.srcAlphaBlendFactor = srcAlphaBlendFactor;
         attachment.dstAlphaBlendFactor = dstAlphaBlendFactor;
-        attachment.alphaBlendOp = VK_BLEND_OP_ADD;
+        attachment.alphaBlendOp = alphaBlendOp;
         attachment.colorWriteMask = colorWriteMask;
         return attachment;
     }
@@ -1720,8 +1722,10 @@ void main() {
                 false,
                 VK_BLEND_FACTOR_ONE,
                 VK_BLEND_FACTOR_ZERO,
+                VK_BLEND_OP_ADD,
                 VK_BLEND_FACTOR_ONE,
                 VK_BLEND_FACTOR_ZERO,
+                VK_BLEND_OP_ADD,
                 kColorWriteMask);
         }
         return m_pipelineFactory->GetOrCreatePipeline(payload);
@@ -2173,14 +2177,15 @@ void main() {
             .vertexInputState = pipelineVertexInputState
         };
         const Bool hasDepthStencilAttachment = renderPassEntry.hasDepthStencilAttachment;
-        MOBILEGL_ASSERT(
-            hasDepthStencilAttachment || (!payload.depthTestEnable && !payload.depthWriteEnable),
-            "GetOrCreatePipeline: render pass has no depth attachment but depthTestEnable=%d depthWriteEnable=%d program=%u attachmentCount=%u colorAttachmentCount=%u",
-            payload.depthTestEnable ? 1 : 0,
-            payload.depthWriteEnable ? 1 : 0,
-            program.GetExternalIndex(),
-            renderPassEntry.attachmentCount,
-            renderPassEntry.colorAttachmentCount);
+        if (!hasDepthStencilAttachment && (payload.depthTestEnable || payload.depthWriteEnable)) {
+            MGLOG_D("GetOrCreatePipeline: disabling depth test/write for program=%u because render pass has no depth attachment (attachmentCount=%u colorAttachmentCount=%u)",
+                    program.GetExternalIndex(),
+                    renderPassEntry.attachmentCount,
+                    renderPassEntry.colorAttachmentCount);
+            payload.depthTestEnable = false;
+            payload.depthWriteEnable = false;
+            payload.depthCompareOp = VK_COMPARE_OP_ALWAYS;
+        }
         const Uint32 fragmentOutputMask = programObj.activeFragmentOutputLocationMask;
         MOBILEGL_ASSERT(
             (fragmentOutputMask >> payload.colorAttachmentCount) == 0,
@@ -2197,92 +2202,109 @@ void main() {
         const Bool isDefaultDrawFbo =
             drawFboBinding.get() == MG_Impl::GLImpl::FramebufferImpl::pDefaultFramebufferInfo->defaultFBO.get();
         const auto& drawBuffers = drawFboBinding->GetDrawBuffers();
+        auto resolveCompleteColorAttachmentTexture = [&](Uint32 drawBufferIndex) -> MG_State::GLState::ITextureObject* {
+            if (isDefaultDrawFbo || drawBufferIndex >= drawBuffers.size()) {
+                return nullptr;
+            }
+
+            const auto drawBuffer = drawBuffers[drawBufferIndex];
+            if (drawBuffer == FramebufferAttachmentType::None) {
+                return nullptr;
+            }
+
+            const auto& attachment = drawFboBinding->GetAttachment(drawBuffer);
+            if (!attachment.IsTexture() || !attachment.IsComplete()) {
+                return nullptr;
+            }
+
+            return attachment.GetTexture().get();
+        };
         for (Uint32 i = 0; i < payload.colorAttachmentCount; ++i) {
             BlendFactor srcRGB = BlendFactor::One;
             BlendFactor dstRGB = BlendFactor::Zero;
             BlendFactor srcAlpha = BlendFactor::One;
             BlendFactor dstAlpha = BlendFactor::Zero;
+            BlendEquation colorEquation = BlendEquation::Add;
+            BlendEquation alphaEquation = BlendEquation::Add;
             MG_State::pGLContext->GetBlendFuncIndexed(i, srcRGB, dstRGB, srcAlpha, dstAlpha);
+            MG_State::pGLContext->GetBlendEquationIndexed(i, colorEquation, alphaEquation);
             const Bool blendEnabled = MG_State::pGLContext->IsCapabilityEnabledIndexed(CapabilityInput::Blend, i);
             VkColorComponentFlags attachmentColorWriteMask = colorWriteMask;
             Bool effectiveBlendEnabled = blendEnabled;
+            MG_State::GLState::ITextureObject* colorAttachmentTexture = nullptr;
             if (!isDefaultDrawFbo && i < drawBuffers.size()) {
                 const auto drawBuffer = drawBuffers[i];
-                if (drawBuffer == FramebufferAttachmentType::None) {
+                colorAttachmentTexture = resolveCompleteColorAttachmentTexture(i);
+                if (drawBuffer == FramebufferAttachmentType::None || colorAttachmentTexture == nullptr) {
                     // GL ignores writes and per-target blend state for GL_NONE draw buffer slots.
+                    // Depth-only or otherwise unattached draw buffers should also discard color writes.
                     attachmentColorWriteMask = 0;
                     effectiveBlendEnabled = false;
                 }
-                if (drawBuffer != FramebufferAttachmentType::None) {
-                    const auto& attachment = drawFboBinding->GetAttachment(drawBuffer);
-                    if (attachment.IsTexture()) {
-                        auto* texture = attachment.GetTexture().get();
-                        MOBILEGL_ASSERT(texture != nullptr,
-                                        "GetOrCreatePipeline: color attachment %u texture is null",
-                                        i);
+                if (colorAttachmentTexture != nullptr) {
+                    auto* texture = colorAttachmentTexture;
 #if MOBILEGL_LOG_ACTIVE_LEVEL <= MOBILEGL_LOG_LEVEL_DEBUG
-                        const auto* textureResource = m_textureManager->SyncTextureAndGetDescriptor(*texture);
-                        MOBILEGL_ASSERT(textureResource != nullptr,
-                                        "GetOrCreatePipeline: failed to sync color attachment textureId=%d",
-                                        texture->GetExternalIndex());
-                        VkFormatProperties attachmentFormatProperties{};
-                        vkGetPhysicalDeviceFormatProperties(
-                            m_physicalDevice.handle,
-                            textureResource->format,
-                            &attachmentFormatProperties);
+                    const auto* textureResource = m_textureManager->SyncTextureAndGetDescriptor(*texture);
+                    MOBILEGL_ASSERT(textureResource != nullptr,
+                                    "GetOrCreatePipeline: failed to sync color attachment textureId=%d",
+                                    texture->GetExternalIndex());
+                    VkFormatProperties attachmentFormatProperties{};
+                    vkGetPhysicalDeviceFormatProperties(
+                        m_physicalDevice.handle,
+                        textureResource->format,
+                        &attachmentFormatProperties);
+                    MOBILEGL_ASSERT(
+                        (attachmentFormatProperties.optimalTilingFeatures & VK_FORMAT_FEATURE_COLOR_ATTACHMENT_BIT) != 0,
+                        "GetOrCreatePipeline: color attachment %u format=%d textureId=%d lacks VK_FORMAT_FEATURE_COLOR_ATTACHMENT_BIT (program=%u)",
+                        i,
+                        static_cast<Int>(textureResource->format),
+                        texture->GetExternalIndex(),
+                        program.GetExternalIndex());
+#endif
+                    const SizeT componentCount = MG_Util::GetBaseInternalFormatComponentCount(texture->GetFormat());
+#if MOBILEGL_LOG_ACTIVE_LEVEL <= MOBILEGL_LOG_LEVEL_DEBUG
+                    const NumericDomain attachmentNumericDomain =
+                        GetNumericDomainForTextureInternalFormat(texture->GetFormat());
+                    for (Uint32 outputLocation = 0;
+                         outputLocation < ProgramFactory::VkProgramObject::kMaxVertexInputLocations;
+                         ++outputLocation) {
+                        if ((programObj.activeFragmentOutputLocationMask & (1u << outputLocation)) == 0 ||
+                            outputLocation != i) {
+                            continue;
+                        }
+
+                        const GLenum fragmentOutputType = programObj.fragmentOutputTypes[outputLocation];
+                        const NumericDomain fragmentOutputDomain =
+                            GetNumericDomainForShaderValueType(fragmentOutputType);
+                        // GL allows fragment outputs with more components than the bound color attachment;
+                        // excess components are discarded during conversion to the attachment format.
                         MOBILEGL_ASSERT(
-                            (attachmentFormatProperties.optimalTilingFeatures & VK_FORMAT_FEATURE_COLOR_ATTACHMENT_BIT) != 0,
-                            "GetOrCreatePipeline: color attachment %u format=%d textureId=%d lacks VK_FORMAT_FEATURE_COLOR_ATTACHMENT_BIT (program=%u)",
+                            attachmentNumericDomain == NumericDomain::Unknown ||
+                                fragmentOutputDomain == NumericDomain::Unknown ||
+                                attachmentNumericDomain == fragmentOutputDomain,
+                            "GetOrCreatePipeline: fragment output location=%d type=%u mismatches color attachment %u internalFormat=%d textureId=%d program=%u",
+                            static_cast<Int>(outputLocation),
+                            static_cast<Uint32>(fragmentOutputType),
                             i,
-                            static_cast<Int>(textureResource->format),
+                            static_cast<Int>(texture->GetFormat()),
                             texture->GetExternalIndex(),
                             program.GetExternalIndex());
+                    }
 #endif
-                        const SizeT componentCount = MG_Util::GetBaseInternalFormatComponentCount(texture->GetFormat());
-#if MOBILEGL_LOG_ACTIVE_LEVEL <= MOBILEGL_LOG_LEVEL_DEBUG
-                        const NumericDomain attachmentNumericDomain =
-                            GetNumericDomainForTextureInternalFormat(texture->GetFormat());
-                        for (Uint32 outputLocation = 0;
-                             outputLocation < ProgramFactory::VkProgramObject::kMaxVertexInputLocations;
-                             ++outputLocation) {
-                            if ((programObj.activeFragmentOutputLocationMask & (1u << outputLocation)) == 0 ||
-                                outputLocation != i) {
-                                continue;
-                            }
-
-                            const GLenum fragmentOutputType = programObj.fragmentOutputTypes[outputLocation];
-                            const NumericDomain fragmentOutputDomain =
-                                GetNumericDomainForShaderValueType(fragmentOutputType);
-                            // GL allows fragment outputs with more components than the bound color attachment;
-                            // excess components are discarded during conversion to the attachment format.
-                            MOBILEGL_ASSERT(
-                                attachmentNumericDomain == NumericDomain::Unknown ||
-                                    fragmentOutputDomain == NumericDomain::Unknown ||
-                                    attachmentNumericDomain == fragmentOutputDomain,
-                                "GetOrCreatePipeline: fragment output location=%d type=%u mismatches color attachment %u internalFormat=%d textureId=%d program=%u",
-                                static_cast<Int>(outputLocation),
-                                static_cast<Uint32>(fragmentOutputType),
-                                i,
-                                static_cast<Int>(texture->GetFormat()),
-                                texture->GetExternalIndex(),
-                                program.GetExternalIndex());
-                        }
-#endif
-                        const VkColorComponentFlags supportedColorWriteMask =
-                            GetSupportedColorWriteMaskForComponentCount(componentCount);
-                        if ((attachmentColorWriteMask & ~supportedColorWriteMask) != 0) {
-                            MGLOG_W(
-                                "GetOrCreatePipeline: clamping colorWriteMask=0x%x to 0x%x on color attachment %u (componentCount=%zu textureId=%d internalFormat=%d program=%u blendEnabled=%d)",
-                                static_cast<Uint32>(attachmentColorWriteMask),
-                                static_cast<Uint32>(attachmentColorWriteMask & supportedColorWriteMask),
-                                i,
-                                componentCount,
-                                texture->GetExternalIndex(),
-                                static_cast<Int>(texture->GetFormat()),
-                                program.GetExternalIndex(),
-                                effectiveBlendEnabled ? 1 : 0);
-                            attachmentColorWriteMask &= supportedColorWriteMask;
-                        }
+                    const VkColorComponentFlags supportedColorWriteMask =
+                        GetSupportedColorWriteMaskForComponentCount(componentCount);
+                    if ((attachmentColorWriteMask & ~supportedColorWriteMask) != 0) {
+                        MGLOG_W(
+                            "GetOrCreatePipeline: clamping colorWriteMask=0x%x to 0x%x on color attachment %u (componentCount=%zu textureId=%d internalFormat=%d program=%u blendEnabled=%d)",
+                            static_cast<Uint32>(attachmentColorWriteMask),
+                            static_cast<Uint32>(attachmentColorWriteMask & supportedColorWriteMask),
+                            i,
+                            componentCount,
+                            texture->GetExternalIndex(),
+                            static_cast<Int>(texture->GetFormat()),
+                            program.GetExternalIndex(),
+                            effectiveBlendEnabled ? 1 : 0);
+                        attachmentColorWriteMask &= supportedColorWriteMask;
                     }
                 }
             }
@@ -2296,16 +2318,9 @@ void main() {
                 if (isDefaultDrawFbo) {
                     colorAttachmentFormat = m_swapchainObject.GetSurfaceFormat().format;
                 } else {
-                    const auto drawBuffer = drawBuffers[i];
-                    MOBILEGL_ASSERT(drawBuffer != FramebufferAttachmentType::None,
-                                    "GetOrCreatePipeline: blend is enabled on draw buffer %u but the attachment is None",
-                                    i);
-                    const auto& attachment = drawFboBinding->GetAttachment(drawBuffer);
-                    MOBILEGL_ASSERT(attachment.IsTexture(),
-                                    "GetOrCreatePipeline: blend validation currently expects texture color attachments only");
-                    auto* texture = attachment.GetTexture().get();
+                    auto* texture = colorAttachmentTexture;
                     MOBILEGL_ASSERT(texture != nullptr,
-                                    "GetOrCreatePipeline: color attachment %u texture is null",
+                                    "GetOrCreatePipeline: blend is enabled on draw buffer %u but no complete texture attachment is bound",
                                     i);
                     textureExternalIndex = texture->GetExternalIndex();
                     colorAttachmentFormat = MG_Util::ConvertTextureInternalFormatToVkEnum(texture->GetFormat());
@@ -2327,8 +2342,10 @@ void main() {
                 effectiveBlendEnabled,
                 MG_Util::ConvertBlendFactorToVkEnum(srcRGB),
                 MG_Util::ConvertBlendFactorToVkEnum(dstRGB),
+                MG_Util::ConvertBlendEquationToVkEnum(colorEquation),
                 MG_Util::ConvertBlendFactorToVkEnum(srcAlpha),
                 MG_Util::ConvertBlendFactorToVkEnum(dstAlpha),
+                MG_Util::ConvertBlendEquationToVkEnum(alphaEquation),
                 attachmentColorWriteMask);
         }
         return m_pipelineFactory->GetOrCreatePipeline(payload);
@@ -2430,6 +2447,14 @@ void main() {
             VkRenderPassManager::EndRenderPass(frame.commandBuffer);
             activeRenderPass = nullptr;
             renderPassEntry = &m_renderPassManager->GetOrCreateRenderPass(*drawFbo, m_imageIndexAcquired);
+        }
+        if (renderPassEntry->attachmentCount == 0 || renderPassEntry->extent.x() <= 0 || renderPassEntry->extent.y() <= 0) {
+            MGLOG_D("SetupDraw skipped: drawFbo=%u resolved to an empty render pass (attachmentCount=%u extent=%dx%d)",
+                    drawFbo->GetExternalIndex(),
+                    renderPassEntry->attachmentCount,
+                    renderPassEntry->extent.x(),
+                    renderPassEntry->extent.y());
+            return false;
         }
 
         auto pipeline = GetOrCreatePipeline(mode, program, programObj, transformFlags, vao, *renderPassEntry);

@@ -46,6 +46,23 @@ namespace MobileGL {
             }
         }
 
+        GLenum ConvertBlendEquationToGLEnum(BlendEquation v) {
+            switch (v) {
+            case BlendEquation::Add:
+                return GL_FUNC_ADD;
+            case BlendEquation::Subtract:
+                return GL_FUNC_SUBTRACT;
+            case BlendEquation::ReverseSubtract:
+                return GL_FUNC_REVERSE_SUBTRACT;
+            case BlendEquation::Min:
+                return GL_MIN;
+            case BlendEquation::Max:
+                return GL_MAX;
+            default:
+                return GL_UNKNOWN_MGL;
+            }
+        }
+
         GLenum ConvertDepthTestFuncToGLEnum(DepthTestFunc v) {
             switch (v) {
             case DepthTestFunc::Never:

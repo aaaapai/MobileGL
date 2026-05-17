@@ -685,8 +685,13 @@ namespace MobileGL::MG_Impl::GLImpl {
         auto textureMipmapObject = static_cast<MG_State::GLState::TextureObjectMipmap*>(textureObject.get());
 
         // Allocate in TextureObject
-        MGLOG_D("%s: Allocating %d bytes at mip %d", __func__, internalBytes, level);
-        textureMipmapObject->AllocateStorage(textureUploadTarget, level, {{width, height, 1}, internalBytes});
+        if (isProxy) {
+            MGLOG_D("%s: isProxy = true, not allocating", __func__);
+        } else {
+            MGLOG_D("%s: Allocating %d bytes at mip %d", __func__, internalBytes, level);
+            textureMipmapObject->AllocateStorage(textureUploadTarget, level,
+                                                 {{width, height, 1}, internalBytes});
+        }
 
         if (!originalPixels) {
             MGLOG_D("%s: No input pixel and no PBO bound, no pixel transfer", __func__);
@@ -1300,6 +1305,13 @@ namespace MobileGL::MG_Impl::GLImpl {
             auto& currentUnit = MG_State::pGLContext->GetTextureUnitObject(activeUnit);
             auto& bindingSlot = currentUnit.GetBindingSlot(textureTarget);
             bindingSlot.Bind(nullptr);
+            return;
+        }
+
+        // Some desktop-side helper code saves GL_ACTIVE_TEXTURE and later feeds it back into glBindTexture
+        // as if it were a texture name. Treating that as a no-op preserves the previous "invalid bind does not
+        // change texture state" behavior, but avoids poisoning the error state every frame.
+        if (!MG_State::pGLContext->ValidateTextureName(texture) && texture >= GL_TEXTURE0 && texture <= GL_TEXTURE31) {
             return;
         }
 

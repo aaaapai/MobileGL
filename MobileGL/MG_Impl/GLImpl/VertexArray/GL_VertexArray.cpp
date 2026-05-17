@@ -156,21 +156,8 @@ namespace MobileGL::MG_Impl::GLImpl {
     }
 
     GLboolean IsVertexArray_State(GLuint array) {
-        if (array == 0) {
-            MG_State::pGLContext->RecordError(ErrorCode::InvalidValue,
-                                              MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", "IsVertexArray_State",
-                                                                           "Vertex array name 0 is not supported."));
-            return GL_FALSE;
-        }
-        if (!VertexArrayImpl::ValidateVertexArrayName(array)) return GL_FALSE;
-        if (!MG_State::pGLContext->ValidateVertexArrayObject(array)) {
-            MG_State::pGLContext->RecordError(
-                ErrorCode::InvalidOperation,
-                MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", "IsVertexArray_State",
-                                             std::format("Vertex array object {} does not exist.", array)));
-            return GL_FALSE;
-        }
-        return GL_TRUE;
+        if (array == 0) return GL_FALSE;
+        return MG_State::pGLContext->ValidateVertexArrayObject(array) ? GL_TRUE : GL_FALSE;
     }
 
     void VertexAttribDivisor_State(GLuint index, GLuint divisor) {

@@ -10,9 +10,49 @@
 
 #include "MG_Impl/GLImpl/Framebuffer/GL_Framebuffer.h"
 #include "MG_State/GLState/TextureState/TextureObject2D.h"
+#include "MG_Util/Converters/MGToStr/FramebufferEnumConverter.h"
 #include "MG_Util/Converters/MGToVk/TextureEnumConverter.h"
 
 namespace MobileGL::MG_Backend::DirectVulkan {
+    static MG_State::GLState::ITextureObject* ResolveCompleteColorAttachmentTexture(
+        const MG_State::GLState::FramebufferObject& fbo,
+        FramebufferAttachmentType attachmentType,
+        Uint32 drawBufferIndex) {
+        if (attachmentType == FramebufferAttachmentType::None) {
+            return nullptr;
+        }
+
+        const auto& attachment = fbo.GetAttachment(attachmentType);
+        if (!attachment.IsTexture()) {
+            if (attachment.IsEmpty()) {
+                MGLOG_D("GetOrCreateRenderPass: draw buffer slot %u (%s) on FBO %u has no bound color attachment; using VK_ATTACHMENT_UNUSED",
+                        drawBufferIndex,
+                        MG_Util::ConvertFramebufferAttachmentTypeToString(attachmentType).c_str(),
+                        fbo.GetExternalIndex());
+            }
+            return nullptr;
+        }
+
+        if (!attachment.IsComplete()) {
+            MGLOG_W("GetOrCreateRenderPass: draw buffer slot %u (%s) on FBO %u has an incomplete texture attachment; using VK_ATTACHMENT_UNUSED",
+                    drawBufferIndex,
+                    MG_Util::ConvertFramebufferAttachmentTypeToString(attachmentType).c_str(),
+                    fbo.GetExternalIndex());
+            return nullptr;
+        }
+
+        auto* texture = attachment.GetTexture().get();
+        if (texture == nullptr) {
+            MGLOG_W("GetOrCreateRenderPass: draw buffer slot %u (%s) on FBO %u resolved to a null texture; using VK_ATTACHMENT_UNUSED",
+                    drawBufferIndex,
+                    MG_Util::ConvertFramebufferAttachmentTypeToString(attachmentType).c_str(),
+                    fbo.GetExternalIndex());
+            return nullptr;
+        }
+
+        return texture;
+    }
+
     VkRenderPassManager::VkRenderPassManager(VkDevice device,
         const VulkanRendererConfig& config, VkClearManager& clearManager, VkTextureManager& textureManager,
         SwapchainObject& swapchainObject):
@@ -195,12 +235,11 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         // assuming default FBO has the right param
         for (Uint32 i = 0; i < colorAttachmentSlotCount; ++i) {
             auto drawbuf = drawbufs[i];
-            if (drawbuf == FramebufferAttachmentType::None ||
-                fbo.GetAttachment(drawbuf).IsRenderbuffer())
+            auto* texture = ResolveCompleteColorAttachmentTexture(fbo, drawbuf, i);
+            if (texture == nullptr)
                 continue;
 
             auto& att = fbo.GetAttachment(drawbuf);
-            auto* texture = att.GetTexture().get();
             const Uint32 attachmentMipLevel = static_cast<Uint32>(std::max(att.GetTextureLevel(), 0));
             const auto textureTarget = texture->GetTarget();
             const Uint32 attachmentIndex = static_cast<Uint32>(attachmentDescriptions.size());

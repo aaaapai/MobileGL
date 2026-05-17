@@ -502,7 +502,7 @@ namespace MobileGL::MG_Impl::GLImpl {
     }
 
     GLboolean IsBuffer_State(GLuint buffer) {
-        if (!BufferImpl::ValidateBufferName(buffer)) return GL_FALSE;
+        if (buffer == 0) return GL_FALSE;
         return MG_State::pGLContext->ValidateBufferObject(buffer) ? GL_TRUE : GL_FALSE;
     }
 
