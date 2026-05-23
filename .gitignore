@@ -19,3 +19,6 @@ MobileGL/MG_Test/build
 .idea
 MobileGL/MG*/build*
 MobileGL/MG*/cmake-build*
+/android-plugin/.gradle
+/android-plugin/build
+/android-plugin/app/build

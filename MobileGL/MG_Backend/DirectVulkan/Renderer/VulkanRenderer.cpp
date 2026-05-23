@@ -1096,6 +1096,33 @@ void main() {
                     return BlitSurfaceTransform::Identity;
             }
         }
+
+        static Bool RequiresShaderBlitToDefaultFramebuffer(VkSurfaceTransformFlagBitsKHR preTransform) {
+            switch (preTransform) {
+                case VK_SURFACE_TRANSFORM_ROTATE_90_BIT_KHR:
+                case VK_SURFACE_TRANSFORM_ROTATE_270_BIT_KHR:
+                    return true;
+                default:
+                    return false;
+            }
+        }
+
+        static void ApplyNativeBlitDefaultFramebufferTransform(VkSurfaceTransformFlagBitsKHR preTransform,
+                                                               const BlitImageBinding& dstBinding,
+                                                               VkImageBlit& blitRegion) {
+            switch (preTransform) {
+                case VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR:
+                    blitRegion.dstOffsets[0].y = dstBinding.extent.y() - blitRegion.dstOffsets[0].y;
+                    blitRegion.dstOffsets[1].y = dstBinding.extent.y() - blitRegion.dstOffsets[1].y;
+                    break;
+                case VK_SURFACE_TRANSFORM_ROTATE_180_BIT_KHR:
+                    blitRegion.dstOffsets[0].x = dstBinding.extent.x() - blitRegion.dstOffsets[0].x;
+                    blitRegion.dstOffsets[1].x = dstBinding.extent.x() - blitRegion.dstOffsets[1].x;
+                    break;
+                default:
+                    break;
+            }
+        }
     } // namespace
 
     VkBool32 VulkanRenderer::DebugCallback(VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity,
@@ -2911,7 +2938,8 @@ void main() {
             (readFbo == MG_Impl::GLImpl::FramebufferImpl::pDefaultFramebufferInfo->defaultFBO);
         const Bool drawIsDefaultFbo =
             (drawFbo == MG_Impl::GLImpl::FramebufferImpl::pDefaultFramebufferInfo->defaultFBO);
-        if (drawIsDefaultFbo && m_swapchainObject.GetPreTransform() != VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR) {
+        if (isColorBlit && drawIsDefaultFbo &&
+            RequiresShaderBlitToDefaultFramebuffer(m_swapchainObject.GetPreTransform())) {
             if (TryBlitToDefaultFramebufferWithShader(frame, *readFbo, *drawFbo,
                                                       srcX0, srcY0, srcX1, srcY1,
                                                       dstX0, dstY0, dstX1, dstY1, filter)) {
@@ -3157,6 +3185,9 @@ void main() {
         blitRegion.dstSubresource.layerCount = 1;
         blitRegion.dstOffsets[0] = {dstX0, dstY0, 0};
         blitRegion.dstOffsets[1] = {dstX1, dstY1, 1};
+        if (drawIsDefaultFbo) {
+            ApplyNativeBlitDefaultFramebufferTransform(m_swapchainObject.GetPreTransform(), dstBinding, blitRegion);
+        }
 
         vkCmdBlitImage(frame.commandBuffer,
                        srcBinding.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
