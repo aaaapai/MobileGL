@@ -1,0 +1,53 @@
+plugins {
+    id 'com.android.application'
+}
+
+def mobileGlEnv = [
+        LIBGL_ES             : '3',
+        POJAV_RENDERER       : 'opengles3',
+        MOBILEGL_BACKEND_TYPE: 'DirectGLES',
+]
+
+def mobileGlEnvString = mobileGlEnv.collect { key, value -> "${key}=${value}" }.join(':')
+
+android {
+    namespace 'top.mobilegl.plugin'
+    compileSdk 34
+    ndkVersion '27.3.13750724'
+
+    defaultConfig {
+        applicationId 'top.mobilegl.plugin'
+        minSdk 26
+        targetSdk 34
+        versionCode 1
+        versionName 'dev'
+
+        ndk {
+            abiFilters 'arm64-v8a'
+        }
+
+        manifestPlaceholders = [
+                des     : 'MobileGL',
+                renderer: 'MobileGL:libMobileGL.so:/libMobileGL.so',
+                boatEnv : mobileGlEnvString,
+                pojavEnv: mobileGlEnvString,
+        ]
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+        }
+    }
+
+    packaging {
+        jniLibs {
+            useLegacyPackaging true
+            excludes += ['**/libSPIRV-Tools-shared.so']
+        }
+    }
+}
+
+dependencies {
+    implementation project(':MobileGL')
+}

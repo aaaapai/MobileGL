@@ -1,0 +1,11 @@
+plugins {
+    id 'com.android.application' version '8.6.0' apply false
+    id 'com.android.library' version '8.6.0' apply false
+}
+
+subprojects { subproject ->
+    subproject.plugins.withId('com.android.library') {
+        subproject.android.defaultConfig.ndk.abiFilters.clear()
+        subproject.android.defaultConfig.ndk.abiFilters.add('arm64-v8a')
+    }
+}
