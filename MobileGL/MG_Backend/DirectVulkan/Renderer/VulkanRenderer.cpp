@@ -2911,14 +2911,16 @@ void main() {
             (readFbo == MG_Impl::GLImpl::FramebufferImpl::pDefaultFramebufferInfo->defaultFBO);
         const Bool drawIsDefaultFbo =
             (drawFbo == MG_Impl::GLImpl::FramebufferImpl::pDefaultFramebufferInfo->defaultFBO);
-        if (drawIsDefaultFbo && m_swapchainObject.GetPreTransform() != VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR) {
+        if (isColorBlit && drawIsDefaultFbo) {
             if (TryBlitToDefaultFramebufferWithShader(frame, *readFbo, *drawFbo,
                                                       srcX0, srcY0, srcX1, srcY1,
                                                       dstX0, dstY0, dstX1, dstY1, filter)) {
                 return;
             }
-            MGLOG_E("BlitFramebuffer skipped: rotated blit to default framebuffer requires a texture-backed source framebuffer");
-            return;
+            if (m_swapchainObject.GetPreTransform() != VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR) {
+                MGLOG_E("BlitFramebuffer skipped: transformed blit to default framebuffer requires a texture-backed source framebuffer");
+                return;
+            }
         }
 
         if (isDepthBlit) {
