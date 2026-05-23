@@ -5,7 +5,7 @@ plugins {
 def mobileGlEnv = [
         LIBGL_ES             : '3',
         POJAV_RENDERER       : 'opengles3',
-        MOBILEGL_BACKEND_TYPE: 'DirectGLES',
+        MOBILEGL_BACKEND_TYPE: 'DirectVulkan',
 ]
 
 def mobileGlEnvString = mobileGlEnv.collect { key, value -> "${key}=${value}" }.join(':')
