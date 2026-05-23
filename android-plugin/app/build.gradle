@@ -9,6 +9,14 @@ def mobileGlEnv = [
 ]
 
 def mobileGlEnvString = mobileGlEnv.collect { key, value -> "${key}=${value}" }.join(':')
+def signingStoreFile = file('../keystore.jks')
+def signingStorePassword = System.getenv('SIGNING_STORE_PASSWORD')
+def signingKeyAlias = System.getenv('SIGNING_KEY_ALIAS')
+def signingKeyPassword = System.getenv('SIGNING_KEY_PASSWORD')
+def releaseSigningReady = signingStoreFile.exists()
+        && signingStorePassword
+        && signingKeyAlias
+        && signingKeyPassword
 
 android {
     namespace 'top.mobilegl.plugin'
@@ -34,9 +42,23 @@ android {
         ]
     }
 
+    if (releaseSigningReady) {
+        signingConfigs {
+            release {
+                storeFile signingStoreFile
+                storePassword signingStorePassword
+                keyAlias signingKeyAlias
+                keyPassword signingKeyPassword
+            }
+        }
+    }
+
     buildTypes {
         release {
             minifyEnabled false
+            if (releaseSigningReady) {
+                signingConfig signingConfigs.release
+            }
         }
     }
 
