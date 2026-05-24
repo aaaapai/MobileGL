@@ -80,6 +80,13 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         }
     }
 
+    static Float ResolveColorClearAlpha(const MG_State::GLState::ITextureObject* texture, Float requestedAlpha) {
+        if (texture != nullptr && MG_Util::GetBaseInternalFormatComponentCount(texture->GetFormat()) == 3) {
+            return 1.0f;
+        }
+        return requestedAlpha;
+    }
+
     enum class NumericDomain {
         Unknown,
         FloatLike,
@@ -2701,6 +2708,7 @@ void main() {
         VkAccessFlags srcAccessMask = 0;
         GetImageTransitionSourceState(resource->layout, srcStageMask, srcAccessMask);
 
+        VkImageLayout clearLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
         Bool ok = VkTextureManager::TransitionImageLayout(
             commandBuffer, resource->image, resource->layout, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
             srcStageMask, VK_PIPELINE_STAGE_TRANSFER_BIT, srcAccessMask, VK_ACCESS_TRANSFER_WRITE_BIT,
@@ -2722,7 +2730,7 @@ void main() {
             clearValue.float32[0] = clearPayload.color.x();
             clearValue.float32[1] = clearPayload.color.y();
             clearValue.float32[2] = clearPayload.color.z();
-            clearValue.float32[3] = clearPayload.color.w();
+            clearValue.float32[3] = ResolveColorClearAlpha(&texture, clearPayload.color.w());
             vkCmdClearColorImage(commandBuffer, resource->image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
                                  &clearValue, 1, &subresourceRange);
         } else {
@@ -2748,12 +2756,13 @@ void main() {
         }
 
         ok = VkTextureManager::TransitionImageLayout(
-            commandBuffer, resource->image, resource->layout, sampledLayout,
+            commandBuffer, resource->image, clearLayout, sampledLayout,
             VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT,
             VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT, resource->aspect, 0, resource->mipLevels);
         MOBILEGL_ASSERT(ok,
                         "MaterializePendingClearForTexture: failed to transition textureId=%d to sampled layout",
                         texture.GetExternalIndex());
+        resource->layout = sampledLayout;
 
         m_clearManager->PopPendingClear(&texture);
         MGLOG_D("MaterializePendingClearForTexture: textureId=%d pending clear materialized",
@@ -4324,7 +4333,7 @@ void main() {
                         clearPayload.color.x(),
                         clearPayload.color.y(),
                         clearPayload.color.z(),
-                        clearPayload.color.w()
+                        ResolveColorClearAlpha(pending.texture, clearPayload.color.w())
                 };
             } else {
                 if ((clearPayload.mask & GL_DEPTH_BUFFER_BIT) != 0) {
