@@ -11,6 +11,9 @@
 
 namespace MobileGL::MG_Impl::GLImpl {
     /* @INSERTION_POINT:FUNCTION_DECLARATION@ */
+    void BlendEquationi(GLuint buf, GLenum mode);
+    void BlendEquationSeparatei(GLuint buf, GLenum modeRGB, GLenum modeAlpha);
+    void BlendFunci(GLuint buf, GLenum src, GLenum dst);
     void BlendFuncSeparatei(GLuint buf, GLenum srcRGB, GLenum dstRGB, GLenum srcAlpha, GLenum dstAlpha);
     void Disablei(GLenum target, GLuint index);
     void Enablei(GLenum target, GLuint index);

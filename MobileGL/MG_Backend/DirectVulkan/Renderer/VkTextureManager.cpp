@@ -336,13 +336,22 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         }
     }
 
-    static VkComponentMapping ResolveSampledViewComponents(const MG_State::GLState::ITextureObject& texture) {
+    static VkComponentSwizzle ToVkSampledComponentSwizzle(TextureSwizzleParam swizzle, Bool alphaIsImplicitOne) {
+        if (alphaIsImplicitOne && swizzle == TextureSwizzleParam::Alpha) {
+            return VK_COMPONENT_SWIZZLE_ONE;
+        }
+        return ToVkComponentSwizzle(swizzle);
+    }
+
+    static VkComponentMapping ResolveSampledViewComponents(const MG_State::GLState::ITextureObject& texture,
+                                                           const TextureFormatInfo& formatInfo) {
         const auto& swizzles = texture.GetAllSwizzleParams();
+        const Bool alphaIsImplicitOne = formatInfo.expandRgbToRgba;
         VkComponentMapping components{
-            ToVkComponentSwizzle(swizzles.x()),
-            ToVkComponentSwizzle(swizzles.y()),
-            ToVkComponentSwizzle(swizzles.z()),
-            ToVkComponentSwizzle(swizzles.w()),
+            ToVkSampledComponentSwizzle(swizzles.x(), alphaIsImplicitOne),
+            ToVkSampledComponentSwizzle(swizzles.y(), alphaIsImplicitOne),
+            ToVkSampledComponentSwizzle(swizzles.z(), alphaIsImplicitOne),
+            ToVkSampledComponentSwizzle(swizzles.w(), alphaIsImplicitOne),
         };
         return components;
     }
@@ -514,7 +523,8 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             return perMipSampledView;
         }
 
-        const VkComponentMapping sampledComponents = ResolveSampledViewComponents(texture);
+        const TextureFormatInfo formatInfo = ResolveTextureFormatInfo(texture.GetFormat());
+        const VkComponentMapping sampledComponents = ResolveSampledViewComponents(texture, formatInfo);
         perMipSampledView = CreateImageView(resource->image, resource->format, resource->aspect, resource->viewType,
                             mipLevel, 1, resource->arrayLayers, &sampledComponents);
         if (perMipSampledView == VK_NULL_HANDLE) {
@@ -962,7 +972,8 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             resource.fullView = VK_NULL_HANDLE;
         }
 
-        const VkComponentMapping sampledComponents = ResolveSampledViewComponents(texture);
+        const TextureFormatInfo formatInfo = ResolveTextureFormatInfo(texture.GetFormat());
+        const VkComponentMapping sampledComponents = ResolveSampledViewComponents(texture, formatInfo);
         resource.fullView = CreateImageView(resource.image, resource.format, resource.aspect, resource.viewType,
                                             baseMipLevel, levelCount, resource.arrayLayers, &sampledComponents);
         if (resource.fullView == VK_NULL_HANDLE) {
@@ -1143,8 +1154,9 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                                    1, &copy);
         }
 
+        VkImageLayout uploadLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
         ok = TransitionImageLayout(commandBuffer, outResource.image,
-                                        outResource.layout,
+                                        uploadLayout,
                                         VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
                                         VK_PIPELINE_STAGE_TRANSFER_BIT,
                                         kGraphicsSampledReadStages,
