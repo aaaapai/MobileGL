@@ -2350,7 +2350,11 @@ void main() {
                                     "GetOrCreatePipeline: blend is enabled on draw buffer %u but no complete texture attachment is bound",
                                     i);
                     textureExternalIndex = texture->GetExternalIndex();
-                    colorAttachmentFormat = MG_Util::ConvertTextureInternalFormatToVkEnum(texture->GetFormat());
+                    auto* textureResource = m_textureManager->SyncTextureAndGetDescriptor(*texture);
+                    MOBILEGL_ASSERT(textureResource != nullptr,
+                                    "GetOrCreatePipeline: failed to sync blend color attachment textureId=%d",
+                                    texture->GetExternalIndex());
+                    colorAttachmentFormat = textureResource->format;
                 }
 
 #if MOBILEGL_LOG_ACTIVE_LEVEL <= MOBILEGL_LOG_LEVEL_DEBUG
