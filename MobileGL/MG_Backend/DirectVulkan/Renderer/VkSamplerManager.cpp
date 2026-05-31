@@ -10,6 +10,7 @@
 
 #include "MG_State/GLState/Core.h"
 
+#include <algorithm>
 #include <cmath>
 
 namespace MobileGL::MG_Backend::DirectVulkan {
@@ -38,6 +39,17 @@ namespace MobileGL::MG_Backend::DirectVulkan {
 
         Bool NearlyEqual(Float lhs, Float rhs) {
             return std::fabs(lhs - rhs) <= 1e-6f;
+        }
+
+        Float ResolveEffectiveMaxLod(const MG_State::GLState::SamplerObject& sampler) {
+            if (sampler.GetMipmapMode() == SamplerMipmapMode::None) {
+                return 0.0f;
+            }
+            return sampler.GetMaxLod();
+        }
+
+        Float ResolveEffectiveMinLod(const MG_State::GLState::SamplerObject& sampler, Float effectiveMaxLod) {
+            return std::min(sampler.GetMinLod(), effectiveMaxLod);
         }
     } // namespace
 
@@ -81,9 +93,9 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         XXHASH_VERIFY(XXH64_update(m_hashState, &wrapT, sizeof(wrapT)));
         const auto wrapR = sampler.GetWrapR();
         XXHASH_VERIFY(XXH64_update(m_hashState, &wrapR, sizeof(wrapR)));
-        const auto minLod = sampler.GetMinLod();
+        const auto maxLod = ResolveEffectiveMaxLod(sampler);
+        const auto minLod = ResolveEffectiveMinLod(sampler, maxLod);
         XXHASH_VERIFY(XXH64_update(m_hashState, &minLod, sizeof(minLod)));
-        const auto maxLod = sampler.GetMaxLod();
         XXHASH_VERIFY(XXH64_update(m_hashState, &maxLod, sizeof(maxLod)));
         const auto lodBias = sampler.GetLodBias();
         XXHASH_VERIFY(XXH64_update(m_hashState, &lodBias, sizeof(lodBias)));
@@ -117,8 +129,8 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         samplerInfo.maxAnisotropy = 1.0f;
         samplerInfo.compareEnable = sampler.GetCompareMode() == SamplerCompareMode::CompareToTexture ? VK_TRUE : VK_FALSE;
         samplerInfo.compareOp = ToVkCompareOp(ResolveCompareFunc(sampler, texture));
-        samplerInfo.minLod = sampler.GetMinLod();
-        samplerInfo.maxLod = sampler.GetMaxLod();
+        samplerInfo.maxLod = ResolveEffectiveMaxLod(sampler);
+        samplerInfo.minLod = ResolveEffectiveMinLod(sampler, samplerInfo.maxLod);
         samplerInfo.borderColor = ResolveVkBorderColor(sampler, texture);
         samplerInfo.unnormalizedCoordinates = VK_FALSE;
 
