@@ -2,6 +2,17 @@ cmake_minimum_required(VERSION 3.22.1)
 
 project("MobileGL")
 
+set(CMAKE_C_STANDARD 23)
+set(CMAKE_CXX_STANDARD 23)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_ANDROID_LD "lld")
+set(CMAKE_BUILD_TYPE Release)
+set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+option(MOBILEGL_FORCE_RELEASE_OPT "Enable Release optimization flags in Debug build" ON)
+set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -O3 -pipe -integrated-as -mllvm -polly -mllvm -polly-vectorizer=stripmine -mllvm -polly-invariant-load-hoisting -mllvm -polly-run-inliner -mllvm -polly-run-dce -mllvm -polly-invariant-load-hoisting -flto -mllvm -polly-run-inliner -mllvm -polly-run-dce -fdata-sections -ffunction-sections -mllvm -polly-detect-keep-going -mllvm -polly-ast-use-context -march=armv8-a+simd -fvisibility=hidden -Wall -Wextra -ferror-limit=0 -Wno-return-type -Wno-unused-parameter -Wno-c++98-compat -Wno-c++98-compat-pedantic -DGLM_FORCE_INTRINSICS -Wno-unicode-whitespace -Wno-format -Wno-unused-function -fmerge-all-constants -D_FILE_OFFSET_BITS=64 -D__USE_BSD -D_ALLBSD_SOURCE -mllvm -inlinehint-threshold=100000 -D_GNU_SOURCE -U__USE_GNU")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O3 -pipe -integrated-as -mllvm -polly -mllvm -polly-vectorizer=stripmine -mllvm -polly-invariant-load-hoisting -mllvm -polly-run-inliner -mllvm -polly-run-dce -mllvm -polly-invariant-load-hoisting -flto -mllvm -polly-run-inliner -mllvm -polly-run-dce -fdata-sections -ffunction-sections -mllvm -polly-detect-keep-going -mllvm -polly-ast-use-context -march=armv8-a+simd -fvisibility=hidden -Wall -Wextra -ferror-limit=0 -Wno-return-type -Wno-unused-parameter -Wno-c++98-compat -Wno-c++98-compat-pedantic -DGLM_FORCE_INTRINSICS -Wno-unicode-whitespace -Wno-format -Wno-unused-function -Wno-vla-cxx-extension -frtti -fmerge-all-constants -D_FILE_OFFSET_BITS=64 -D__USE_BSD -D_ALLBSD_SOURCE -mllvm -inlinehint-threshold=100000 -D_GNU_SOURCE -U__USE_GNU")
+set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -fuse-ld=lld -flto -O3 -Wl,--strip-all -fvisibility=hidden -Wl,-O3 -Wl,--gc-sections -Wl,--as-needed -static-libstdc++ -Wl,--exclude-libs,ALL -Wl,--lto-O3")
+
 option(MOBILEGL_BUILD_TEST        "Build MobileGL tests"                             ON )
 option(MOBILEGL_BUILD_BENCHMARK   "Build MobileGL benchmarks"                        ON )
 option(MOBILEGL_FORCE_RELEASE_OPT "Enable Release optimization flags in Debug build" OFF)
@@ -10,45 +21,6 @@ option(MOBILEGL_ENABLE_TRACY      "Enable tracy for profiling"                  
 if (ANDROID)
     set(MOBILEGL_BUILD_TEST       OFF CACHE BOOL "Build MobileGL tests"      FORCE)
     set(MOBILEGL_BUILD_BENCHMARK  OFF CACHE BOOL "Build MobileGL benchmarks" FORCE)
-endif()
-
-if (NOT CMAKE_BUILD_TYPE STREQUAL "Debug" OR MOBILEGL_FORCE_RELEASE_OPT)
-    # Check if ThinLTO or LTO is suppported
-    include(CheckIPOSupported)
-    include(CheckCCompilerFlag)
-    include(CheckCXXCompilerFlag)
-
-    check_ipo_supported(RESULT LTOSupported OUTPUT LTOError)
-
-    check_c_compiler_flag("-flto" HAS_LTO_C)
-    check_cxx_compiler_flag("-flto" HAS_LTO_CXX)
-
-    if (LTOSupported OR (HAS_LTO_C AND HAS_LTO_CXX))
-        # Check ThinLTO
-        check_c_compiler_flag("-flto=thin" HAS_THINLTO_C)
-        check_cxx_compiler_flag("-flto=thin" HAS_THINLTO_CXX)
-        if (HAS_THINLTO_C AND HAS_THINLTO_CXX)
-            message(STATUS "ThinLTO supported, using -flto=thin")
-
-            add_compile_options(-flto=thin)
-            add_link_options(-flto=thin)
-        else()
-            # ThinLTO is not supported
-            message(STATUS "ThinLTO not available, fallback to CMAKE IPO")
-            set(CMAKE_INTERPROCEDURAL_OPTIMIZATION TRUE)
-        endif()
-    else()
-        message(STATUS "IPO not supported: ${LTOError}")
-    endif()
-
-    if (CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang" AND NOT MATCHES "AppleClang")
-        add_compile_options(-O3 -ffunction-sections -fdata-sections)
-        add_link_options(-Wl,--gc-sections)
-    elseif (CMAKE_CXX_COMPILER_ID MATCHES "MSVC")
-#        add_compile_options(/O2)
-    else ()
-        add_compile_options(-O2)
-    endif()
 endif()
 
 if (CMAKE_CXX_COMPILER_ID MATCHES "MSVC")
