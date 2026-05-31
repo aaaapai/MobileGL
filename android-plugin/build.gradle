@@ -5,7 +5,14 @@ plugins {
 
 subprojects { subproject ->
     subproject.plugins.withId('com.android.library') {
-        subproject.android.defaultConfig.ndk.abiFilters.clear()
-        subproject.android.defaultConfig.ndk.abiFilters.add('arm64-v8a')
+        subproject.android {
+            defaultConfig {
+                externalNativeBuild {
+                    cmake {
+                        cppFlags '-DMOBILEGL_LOG_ACTIVE_LEVEL=MOBILEGL_LOG_LEVEL_INFO'
+                    }
+                }
+            }
+        }
     }
 }

@@ -12,8 +12,16 @@
 #include "MG_State/GLState/TextureState/TextureObject2D.h"
 #include "MG_Util/Converters/MGToStr/FramebufferEnumConverter.h"
 #include "MG_Util/Converters/MGToVk/TextureEnumConverter.h"
+#include "MG_Util/Metrics/TextureMetrics.h"
 
 namespace MobileGL::MG_Backend::DirectVulkan {
+    static Float ResolveColorClearAlpha(const MG_State::GLState::ITextureObject* texture, Float requestedAlpha) {
+        if (texture != nullptr && MG_Util::GetBaseInternalFormatComponentCount(texture->GetFormat()) == 3) {
+            return 1.0f;
+        }
+        return requestedAlpha;
+    }
+
     static MG_State::GLState::ITextureObject* ResolveCompleteColorAttachmentTexture(
         const MG_State::GLState::FramebufferObject& fbo,
         FramebufferAttachmentType attachmentType,
@@ -516,7 +524,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                     clearPayload.color.x(),
                     clearPayload.color.y(),
                     clearPayload.color.z(),
-                    clearPayload.color.w()
+                    ResolveColorClearAlpha(pending.texture, clearPayload.color.w())
                 };
             }
             if ((clearPayload.mask & GL_DEPTH_BUFFER_BIT) != 0) {

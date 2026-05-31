@@ -2,13 +2,13 @@ plugins {
     id 'com.android.application'
 }
 
-def mobileGlEnv = [
-        LIBGL_ES             : '3',
-        POJAV_RENDERER       : 'opengles3',
-        MOBILEGL_BACKEND_TYPE: 'DirectVulkan',
-]
-
-def mobileGlEnvString = mobileGlEnv.collect { key, value -> "${key}=${value}" }.join(':')
+def mobileGlEnvString = { backendType ->
+    [
+            LIBGL_ES             : '3',
+            POJAV_RENDERER       : 'opengles3',
+            MOBILEGL_BACKEND_TYPE: backendType,
+    ].collect { key, value -> "${key}=${value}" }.join(':')
+}
 def signingStoreFile = file('../keystore.jks')
 def signingStorePassword = System.getenv('SIGNING_STORE_PASSWORD')
 def signingKeyAlias = System.getenv('SIGNING_KEY_ALIAS')
@@ -24,7 +24,6 @@ android {
     ndkVersion '27.3.13750724'
 
     defaultConfig {
-        applicationId 'top.mobilegl.plugin'
         minSdk 26
         targetSdk 34
         versionCode 1
@@ -33,13 +32,35 @@ android {
         ndk {
             abiFilters 'arm64-v8a'
         }
+    }
 
-        manifestPlaceholders = [
-                des     : 'MobileGL',
-                renderer: 'MobileGL:libMobileGL.so:/libMobileGL.so',
-                boatEnv : mobileGlEnvString,
-                pojavEnv: mobileGlEnvString,
-        ]
+    flavorDimensions 'backend'
+
+    productFlavors {
+        espryt {
+            dimension 'backend'
+            applicationId 'top.mobilegl.plugin.espryt'
+            def env = mobileGlEnvString('DirectGLES')
+            manifestPlaceholders = [
+                    appLabel: 'MobileGL Espryt',
+                    des     : 'MobileGL Espryt',
+                    renderer: 'MobileGL Espryt:libMobileGL.so:/libMobileGL.so',
+                    boatEnv : env,
+                    pojavEnv: env,
+            ]
+        }
+        magma {
+            dimension 'backend'
+            applicationId 'top.mobilegl.plugin.magma'
+            def env = mobileGlEnvString('DirectVulkan')
+            manifestPlaceholders = [
+                    appLabel: 'MobileGL Magma',
+                    des     : 'MobileGL Magma',
+                    renderer: 'MobileGL Magma:libMobileGL.so:/libMobileGL.so',
+                    boatEnv : env,
+                    pojavEnv: env,
+            ]
+        }
     }
 
     if (releaseSigningReady) {
@@ -67,6 +88,12 @@ android {
             useLegacyPackaging true
             excludes += ['**/libSPIRV-Tools-shared.so']
         }
+    }
+}
+
+android.applicationVariants.configureEach { variant ->
+    variant.outputs.configureEach {
+        outputFileName = "MobileGL-${variant.flavorName.capitalize()}-${variant.buildType.name}.apk"
     }
 }
 

@@ -308,7 +308,43 @@ namespace MobileGL::MG_Impl::GLImpl {
         BlendFactor dstRGBM = MG_Util::ConvertGLEnumToBlendFactor(dstRGB);
         BlendFactor srcAlphaM = MG_Util::ConvertGLEnumToBlendFactor(srcAlpha);
         BlendFactor dstAlphaM = MG_Util::ConvertGLEnumToBlendFactor(dstAlpha);
+        if (srcRGBM == BlendFactor::Unknown || dstRGBM == BlendFactor::Unknown ||
+            srcAlphaM == BlendFactor::Unknown || dstAlphaM == BlendFactor::Unknown) {
+            MG_State::pGLContext->RecordError(
+                ErrorCode::InvalidEnum,
+                MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", "BlendFuncSeparatei_State",
+                                             "One of the indexed blend factor enums is not supported."));
+            return;
+        }
         MG_State::pGLContext->SetBlendFuncIndexed(buf, srcRGBM, dstRGBM, srcAlphaM, dstAlphaM);
+    }
+
+    void BlendFunci_State(GLuint buf, GLenum src, GLenum dst) {
+        BlendFuncSeparatei_State(buf, src, dst, src, dst);
+    }
+
+    void BlendEquationSeparatei_State(GLuint buf, GLenum modeRGB, GLenum modeAlpha) {
+        if (buf >= MG_State::GLState::FramebufferObject::MAX_DRAW_BUFFERS) {
+            MG_State::pGLContext->RecordError(
+                ErrorCode::InvalidValue,
+                MakeUnique<GenericErrorInfo>(
+                    "MG_Impl/GLImpl", "BlendEquationSeparatei_State",
+                    "Buffer index " + std::to_string(buf) + " is out of range. Max supported is " +
+                        std::to_string(MG_State::GLState::FramebufferObject::MAX_DRAW_BUFFERS - 1) + "."));
+            return;
+        }
+
+        ::MobileGL::BlendEquation colorEquation = ::MobileGL::BlendEquation::Unknown;
+        if (!TryConvertBlendEquation(modeRGB, "BlendEquationSeparatei_State", colorEquation)) return;
+
+        ::MobileGL::BlendEquation alphaEquation = ::MobileGL::BlendEquation::Unknown;
+        if (!TryConvertBlendEquation(modeAlpha, "BlendEquationSeparatei_State", alphaEquation)) return;
+
+        MG_State::pGLContext->SetBlendEquationIndexed(buf, colorEquation, alphaEquation);
+    }
+
+    void BlendEquationi_State(GLuint buf, GLenum mode) {
+        BlendEquationSeparatei_State(buf, mode, mode);
     }
 
     void Disablei_State(GLenum target, GLuint index) {
@@ -340,6 +376,18 @@ namespace MobileGL::MG_Impl::GLImpl {
     }
 
     /* @INSERTION_POINT:FUNCTION_IMPLEMENTATION@ */
+    void BlendEquationi(GLuint buf, GLenum mode) {
+        BlendEquationi_State(buf, mode);
+    }
+
+    void BlendEquationSeparatei(GLuint buf, GLenum modeRGB, GLenum modeAlpha) {
+        BlendEquationSeparatei_State(buf, modeRGB, modeAlpha);
+    }
+
+    void BlendFunci(GLuint buf, GLenum src, GLenum dst) {
+        BlendFunci_State(buf, src, dst);
+    }
+
     void BlendFuncSeparatei(GLuint buf, GLenum srcRGB, GLenum dstRGB, GLenum srcAlpha, GLenum dstAlpha) {
         BlendFuncSeparatei_State(buf, srcRGB, dstRGB, srcAlpha, dstAlpha);
     }
