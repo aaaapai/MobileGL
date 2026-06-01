@@ -386,6 +386,8 @@ namespace MobileGL::MG_State::GLState {
         MGLOG_D("ProgramObject %u: GenerateBinary - start", m_externalIndex);
         Vector<SharedPtr<glslang::TShader>> shaders(m_shaders.size());
         Vector<GLenum> shaderTypes(m_shaders.size());
+
+        // 1. Compile shaders
         for (SizeT i = 0; i < m_shaders.size(); i++) {
             auto shaderType = MG_Util::ConvertShaderStageToGLEnum(m_shaders[i]->GetShaderStage());
             shaderTypes[i] = shaderType;
@@ -409,6 +411,7 @@ namespace MobileGL::MG_State::GLState {
                     shaders[i].get());
         }
 
+        // 2. Do actual linking
         ProgramAttrib attrib{.shaders = Move(shaders),
                              .explicitVertexInLocations = m_explicitAttribLocations,
                              .explicitFragmentOutLocations = m_explicitFragDataLocation};
@@ -435,11 +438,13 @@ namespace MobileGL::MG_State::GLState {
         MGLOG_D("ProgramObject %u: GenerateBinary - generated %zu SPIR-V modules", m_externalIndex,
                 m_generatedSpirv.size());
 
+        // 3. Linked SPIR-V generated, sanitize and optimize it
         for (auto& spv : m_generatedSpirv) {
             auto success = ShaderCompiler::SanitizeAndOptimizeBinary(spv, spv);
             MOBILEGL_ASSERT(success, "SanitizeBinary failed");
         }
 
+        // 4. Do reflection (find global UBO etc.)
         for (SizeT i = 0; i < m_generatedSpirv.size(); i++) {
             auto& spv = m_generatedSpirv[i];
 
