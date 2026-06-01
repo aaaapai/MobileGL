@@ -224,6 +224,39 @@ namespace MobileGL {
                     allSpirv.push_back(spirv);
                 }
 
+                // Do cross-stage SPIR-V optimization (LTO) here
+                if (allSpirv.size() >= 2) {
+                    // Let's assume we only have VS/FS linkage to deal with for now...
+                    MOBILEGL_ASSERT(allSpirv.size() == 2, "More than 2 stages found, unhandled situation.");
+                    MOBILEGL_ASSERT(
+                            (attrib.shaderTypes[0] == GL_VERTEX_SHADER || attrib.shaderTypes[0] == GL_FRAGMENT_SHADER) &&
+                            (attrib.shaderTypes[1] == GL_VERTEX_SHADER || attrib.shaderTypes[1] == GL_FRAGMENT_SHADER),
+                            "Unhandled stage found, unable to optimize");
+                    static std::unordered_set<uint32_t> live_locs; live_locs.clear();
+                    static std::unordered_set<uint32_t> live_builtins; live_builtins.clear();
+                    int vsIdx = (attrib.shaderTypes[0] == GL_VERTEX_SHADER) ? 0 : 1;
+                    int fsIdx = (vsIdx == 0) ? 1 : 0;
+                    auto& vsSpirv = allSpirv[vsIdx];
+                    auto& fsSpirv = allSpirv[fsIdx];
+
+                    spvtools::OptimizerOptions options;
+
+                    spvtools::Optimizer frag_opt(SPV_ENV_VULKAN_1_1);
+                    frag_opt.RegisterPass(spvtools::CreateAggressiveDCEPass());
+                    frag_opt.RegisterPass(spvtools::CreateEliminateDeadInputComponentsPass());
+                    frag_opt.RegisterPass(spvtools::CreateAggressiveDCEPass());
+                    frag_opt.RegisterPass(spvtools::CreateAnalyzeLiveInputPass(&live_locs, &live_builtins));
+                    frag_opt.Run(fsSpirv.data(), fsSpirv.size(), &fsSpirv, options);
+
+                    spvtools::Optimizer vert_opt(SPV_ENV_VULKAN_1_1);
+                    vert_opt.RegisterPass(spvtools::CreateEliminateDeadOutputStoresPass(&live_locs, &live_builtins));
+                    vert_opt.RegisterPass(spvtools::CreateAggressiveDCEPass());
+                    vert_opt.RegisterPass(spvtools::CreateEliminateDeadOutputComponentsPass());
+                    vert_opt.RegisterPass(spvtools::CreateAggressiveDCEPass());
+                    vert_opt.Run(vsSpirv.data(), vsSpirv.size(), &vsSpirv, options);
+                    MGLOG_D("Optimized vs size: %lu, fs size: %lu, vsIdx = %d, fsIdx = %d", vsSpirv.size(), fsSpirv.size(), vsIdx, fsIdx);
+                }
+
                 return allSpirv;
             }
 
