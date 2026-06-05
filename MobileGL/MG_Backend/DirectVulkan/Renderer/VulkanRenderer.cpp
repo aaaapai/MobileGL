@@ -1282,6 +1282,7 @@ void main() {
         VK_VERIFY(vkDeviceWaitIdle(m_device));
 
         DestroyDeferredDepthMipmapCleanup();
+        DestroyComputePipelines();
 
         m_pipelineFactory.reset();
         ShutdownBlitResources();
@@ -2047,7 +2048,7 @@ void main() {
             };
             const Bool bound = m_uniformManager->BindProgramUniformBuffers(
                 frame.commandBuffer, *m_depthMipmapResources.program, programObj,
-                m_frameContext.GetCurrentFrameIndex(), &samplerBindingOverride);
+                m_frameContext.GetCurrentFrameIndex(), VK_PIPELINE_BIND_POINT_GRAPHICS, &samplerBindingOverride);
             MOBILEGL_ASSERT(bound, "GenerateDepthMipmapWithShader: BindProgramUniformBuffers failed");
             vkCmdDraw(frame.commandBuffer, 3, 1, 0, 0);
             vkCmdEndRenderPass(frame.commandBuffer);
@@ -2548,6 +2549,73 @@ void main() {
         return true;
     }
 
+    void VulkanRenderer::DispatchCompute(GLuint numGroupsX, GLuint numGroupsY, GLuint numGroupsZ) {
+        m_textureManager->CollectGarbage();
+        auto& frame = m_frameContext.GetCurrent();
+        const auto& program = *MG_State::pGLContext->GetCurrentProgram();
+        ProgramFactory::CompileOptionFlags transformFlags = 0;
+        const auto& programObj = m_programFactory->GetOrCreateProgram(program, transformFlags);
+
+        if (!frame.isCommandRecording) {
+            m_frameContext.BeginCommandRecording();
+            m_uniformManager->BeginFrame(m_frameContext.GetCurrentFrameIndex());
+        }
+
+        if (VkRenderPassManager::GetActiveRenderPass() != nullptr) {
+            VkRenderPassManager::EndRenderPass(frame.commandBuffer);
+        }
+
+        const VkPipeline pipeline = GetOrCreateComputePipeline(programObj);
+        if (pipeline == VK_NULL_HANDLE) {
+            MGLOG_E("DispatchCompute skipped: compute pipeline creation failed for program=%u",
+                    program.GetExternalIndex());
+            return;
+        }
+
+        vkCmdBindPipeline(frame.commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, pipeline);
+        const Bool boundUniforms = m_uniformManager->BindProgramUniformBuffers(
+            frame.commandBuffer, program, programObj, m_frameContext.GetCurrentFrameIndex(),
+            VK_PIPELINE_BIND_POINT_COMPUTE);
+        if (!boundUniforms) {
+            MGLOG_E("DispatchCompute skipped: BindProgramUniformBuffers failed");
+            return;
+        }
+
+        MGLOG_D("DirectVulkan: glDispatchCompute(%u, %u, %u)", numGroupsX, numGroupsY, numGroupsZ);
+        vkCmdDispatch(frame.commandBuffer, numGroupsX, numGroupsY, numGroupsZ);
+    }
+
+    void VulkanRenderer::MemoryBarrier(GLbitfield barriers) {
+        auto& frame = m_frameContext.GetCurrent();
+        if (!frame.isCommandRecording) {
+            m_frameContext.BeginCommandRecording();
+            m_uniformManager->BeginFrame(m_frameContext.GetCurrentFrameIndex());
+        }
+        if (VkRenderPassManager::GetActiveRenderPass() != nullptr) {
+            VkRenderPassManager::EndRenderPass(frame.commandBuffer);
+        }
+
+        VkMemoryBarrier memoryBarrier{};
+        memoryBarrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER;
+        memoryBarrier.srcAccessMask =
+            VK_ACCESS_SHADER_WRITE_BIT | VK_ACCESS_SHADER_READ_BIT |
+            VK_ACCESS_TRANSFER_WRITE_BIT | VK_ACCESS_TRANSFER_READ_BIT |
+            VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT |
+            VK_ACCESS_HOST_WRITE_BIT | VK_ACCESS_MEMORY_WRITE_BIT;
+        memoryBarrier.dstAccessMask =
+            VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT |
+            VK_ACCESS_TRANSFER_READ_BIT | VK_ACCESS_TRANSFER_WRITE_BIT |
+            VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT |
+            VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT |
+            VK_ACCESS_VERTEX_ATTRIBUTE_READ_BIT | VK_ACCESS_INDEX_READ_BIT |
+            VK_ACCESS_UNIFORM_READ_BIT | VK_ACCESS_MEMORY_READ_BIT | VK_ACCESS_MEMORY_WRITE_BIT;
+
+        MGLOG_D("DirectVulkan: glMemoryBarrier(0x%x)", static_cast<Uint32>(barriers));
+        vkCmdPipelineBarrier(frame.commandBuffer, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,
+                             VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, 0,
+                             1, &memoryBarrier, 0, nullptr, 0, nullptr);
+    }
+
     void VulkanRenderer::Clear(GLbitfield mask) {
         m_clearManager->CollectGarbage();
         auto* fbo = MG_State::pGLContext->GetFramebufferBindingSlot(FramebufferTarget::Draw).GetBoundObject().get();
@@ -2898,7 +2966,7 @@ void main() {
         const auto& blitProgramObj = m_programFactory->GetOrCreateProgram(*m_blitResources.program, blitTransformFlags);
         const Bool bound = m_uniformManager->BindProgramUniformBuffers(
             frame.commandBuffer, *m_blitResources.program, blitProgramObj, m_frameContext.GetCurrentFrameIndex(),
-            &samplerBindingOverride);
+            VK_PIPELINE_BIND_POINT_GRAPHICS, &samplerBindingOverride);
         MOBILEGL_ASSERT(bound, "TryBlitToDefaultFramebufferWithShader: BindProgramUniformBuffers failed");
         vkCmdDraw(frame.commandBuffer, 3, 1, 0, 0);
         return true;
@@ -4278,6 +4346,7 @@ void main() {
         if (m_pipelineFactory) {
             m_pipelineFactory->DestroyAll();
         }
+        DestroyComputePipelines();
         if (m_frameContext.GetFrameCount() > 0) {
             m_frameContext.GetCurrent().isCommandRecording = false;
             m_frameContext.GetCurrent().hasCommandBufferRecorded = false;
@@ -4352,5 +4421,45 @@ void main() {
             vkCmdClearAttachments(commandBuffer, 1, &clearAttachment, 1, &clearRect);
             m_clearManager->PopPendingClear(pending.texture);
         }
+    }
+
+    void VulkanRenderer::DestroyComputePipelines() {
+        if (m_device != VK_NULL_HANDLE) {
+            for (const auto& [hash, pipeline] : m_computePipelines) {
+                (void)hash;
+                if (pipeline != VK_NULL_HANDLE) {
+                    vkDestroyPipeline(m_device, pipeline, nullptr);
+                }
+            }
+        }
+        m_computePipelines.clear();
+    }
+
+    VkPipeline VulkanRenderer::GetOrCreateComputePipeline(const ProgramFactory::VkProgramObject& programObj) {
+        const auto it = m_computePipelines.find(programObj.hash);
+        if (it != m_computePipelines.end()) {
+            return it->second;
+        }
+
+        const auto stageIt = std::find_if(programObj.stages.begin(), programObj.stages.end(),
+            [](const VkPipelineShaderStageCreateInfo& stage) {
+                return stage.stage == VK_SHADER_STAGE_COMPUTE_BIT;
+            });
+        MOBILEGL_ASSERT(stageIt != programObj.stages.end(),
+                        "GetOrCreateComputePipeline: program has no compute stage");
+        if (stageIt == programObj.stages.end()) {
+            return VK_NULL_HANDLE;
+        }
+
+        VkComputePipelineCreateInfo pipelineInfo{};
+        pipelineInfo.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
+        pipelineInfo.stage = *stageIt;
+        pipelineInfo.layout = programObj.pipelineLayout;
+
+        VkPipeline pipeline = VK_NULL_HANDLE;
+        VK_VERIFY(vkCreateComputePipelines(m_device, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &pipeline),
+                  "GetOrCreateComputePipeline, vkCreateComputePipelines");
+        m_computePipelines.emplace(programObj.hash, pipeline);
+        return pipeline;
     }
 } // namespace MobileGL::MG_Backend::DirectVulkan

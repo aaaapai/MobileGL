@@ -1428,6 +1428,16 @@ namespace MobileGL::MG_Backend::DirectGLES {
         }
     }
 
+    void GetProgramiv(GLuint program, GLenum pname, GLint* params) {
+        if (!params) return;
+        GLuint backendProgramId = GetBackendProgramId(program);
+        if (!backendProgramId) {
+            params[0] = 0;
+            return;
+        }
+        g_GLESFuncs.glGetProgramiv(backendProgramId, pname, params);
+    }
+
     void GetProgramInterfaceiv(GLuint program, GLenum programInterface, GLenum pname, GLint* params) {
         GLuint backendProgramId = GetBackendProgramId(program);
         if (!backendProgramId) return;

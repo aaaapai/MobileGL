@@ -64,6 +64,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
                           GLenum format);
     void GetIntegeri_v(GLenum target, GLuint index, GLint* data);
     void GetInteger64i_v(GLenum target, GLuint index, GLint64* data);
+    void GetProgramiv(GLuint program, GLenum pname, GLint* params);
     void GetProgramInterfaceiv(GLuint program, GLenum programInterface, GLenum pname, GLint* params);
     GLuint GetProgramResourceIndex(GLuint program, GLenum programInterface, const GLchar* name);
     void GetProgramResourceName(GLuint program, GLenum programInterface, GLuint index, GLsizei bufSize,

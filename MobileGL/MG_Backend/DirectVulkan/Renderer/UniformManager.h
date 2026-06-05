@@ -46,6 +46,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                                        const MG_State::GLState::ProgramObject& program,
                                        const ProgramFactory::VkProgramObject& programObj,
                                        Uint32 frameIndex,
+                                       VkPipelineBindPoint bindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS,
                                        const SamplerBindingOverride* samplerBindingOverride = nullptr);
 
     private:
@@ -81,6 +82,13 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         Bool ResolveTexelBufferDescriptor(const MG_State::GLState::ProgramObject& program,
                                           const ProgramFactory::VkProgramObject& programObj, Uint32 binding,
                                           Uint32 frameIndex, VkBufferView& outBufferView);
+        Bool ResolveStorageBufferDescriptor(const MG_State::GLState::ProgramObject& program,
+                                            const ProgramFactory::VkProgramObject& programObj, Uint32 binding,
+                                            VkDescriptorBufferInfo& outBufferInfo) const;
+        Bool ResolveStorageImageDescriptor(VkCommandBuffer commandBuffer,
+                                           const MG_State::GLState::ProgramObject& program,
+                                           const ProgramFactory::VkProgramObject& programObj, Uint32 binding,
+                                           VkDescriptorImageInfo& outImageInfo) const;
         Bool ResolveUniformBufferPayload(const MG_State::GLState::ProgramObject& program,
                                          const ProgramFactory::VkProgramObject& programObj, Uint32 binding,
                                          const void*& outData, VkDeviceSize& outSize) const;

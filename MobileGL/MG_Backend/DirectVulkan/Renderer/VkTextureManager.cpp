@@ -650,6 +650,30 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         return ok;
     }
 
+    Bool VkTextureManager::TransitionTextureForStorageImage(VkCommandBuffer commandBuffer,
+                                                            MG_State::GLState::ITextureObject& texture) {
+        TextureResource* resource = SyncTextureAndGetDescriptor(texture);
+        if (resource == nullptr) {
+            return false;
+        }
+        if (resource->layout == VK_IMAGE_LAYOUT_GENERAL) {
+            return true;
+        }
+
+        VkPipelineStageFlags srcStageMask = VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
+        VkAccessFlags srcAccessMask = VK_ACCESS_MEMORY_WRITE_BIT | VK_ACCESS_MEMORY_READ_BIT;
+        GetImageTransitionSourceState(resource->layout, srcStageMask, srcAccessMask);
+
+        const Bool ok = TransitionImageLayout(commandBuffer, resource->image, resource->layout,
+                                              VK_IMAGE_LAYOUT_GENERAL, srcStageMask,
+                                              VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, srcAccessMask,
+                                              VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT,
+                                              resource->aspect, 0, resource->mipLevels, resource->arrayLayers);
+        MOBILEGL_ASSERT(ok, "TransitionTextureForStorageImage: transition failed for textureId=%d",
+                        texture.GetExternalIndex());
+        return ok;
+    }
+
     Bool VkTextureManager::TransitionImageLayout(VkCommandBuffer commandBuffer, VkImage image,
                                                  VkImageLayout& trackedLayout, VkImageLayout newLayout,
                                                  VkPipelineStageFlags srcStageMask, VkPipelineStageFlags dstStageMask,
@@ -846,8 +870,14 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         imageInfo.format = format;
         imageInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
         imageInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+        VkFormatProperties formatProperties{};
+        vkGetPhysicalDeviceFormatProperties(m_physicalDevice, format, &formatProperties);
+        const Bool supportsStorageImage =
+            (aspect & VK_IMAGE_ASPECT_COLOR_BIT) != 0 &&
+            (formatProperties.optimalTilingFeatures & VK_FORMAT_FEATURE_STORAGE_IMAGE_BIT) != 0;
         imageInfo.usage =
             VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT |
+            (supportsStorageImage ? VK_IMAGE_USAGE_STORAGE_BIT : 0) |
             ((aspect & VK_IMAGE_ASPECT_COLOR_BIT) ?
                 VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT : 0) |
             ((aspect & VK_IMAGE_ASPECT_DEPTH_BIT || aspect & VK_IMAGE_ASPECT_STENCIL_BIT) ?

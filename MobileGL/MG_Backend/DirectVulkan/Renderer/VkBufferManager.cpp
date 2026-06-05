@@ -199,6 +199,8 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             return VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
         case BufferKind::TextureBuffer:
             return VK_BUFFER_USAGE_UNIFORM_TEXEL_BUFFER_BIT;
+        case BufferKind::ShaderStorage:
+            return VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
         default:
             return 0;
         }

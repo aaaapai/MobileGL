@@ -125,6 +125,8 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         void CopyTexSubImage2D(GLenum target, GLint level, GLint xoffset, GLint yoffset,
                        GLint x, GLint y, GLsizei width, GLsizei height);
         void GenerateMipmap(GLenum target);
+        void DispatchCompute(GLuint numGroupsX, GLuint numGroupsY, GLuint numGroupsZ);
+        void MemoryBarrier(GLbitfield barriers);
         void DrawArrays(const DrawCmd& payload);
         void DrawElements(const DrawIndexedCmd& payload);
         void MultiDrawElements(const MultiDrawIndexedCmd& payloads);
@@ -211,6 +213,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         FrameContext m_frameContext;
 
         UniquePtr<PipelineFactory> m_pipelineFactory;
+        UnorderedMap<ProgramFactory::HashType, VkPipeline> m_computePipelines;
         UniquePtr<ProgramFactory> m_programFactory;
         UniquePtr<UniformManager> m_uniformManager;
         UniquePtr<VertexInputStateFactory> m_vertexInputStateFactory;
@@ -241,6 +244,8 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             ProgramFactory::CompileOptionFlags transformFlags,
             const MG_State::GLState::VertexArrayObject& vao,
             const RenderPassEntry& renderPassEntry);
+        VkPipeline GetOrCreateComputePipeline(const ProgramFactory::VkProgramObject& programObj);
+        void DestroyComputePipelines();
 
         Bool UploadAndBindVertexBuffers(VkCommandBuffer commandBuffer, const MG_State::GLState::VertexArrayObject& vao);
         Bool UploadAndBindIndexBuffer(FrameContext::FrameData& frame,

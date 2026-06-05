@@ -8,6 +8,7 @@
 
 #include "ProgramFactory.h"
 
+#include "MG_Backend/DirectVulkan/DirectVulkanResourceState.h"
 #include "MG_Util/ShaderTranspiler/SpvcSession.h"
 #include "MG_Util/ShaderTranspiler/Types.h"
 #include <cstring>
@@ -979,6 +980,10 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                 return ProgramFactory::DescriptorBindingKind::CombinedImageSampler;
             case SPV_REFLECT_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER:
                 return ProgramFactory::DescriptorBindingKind::UniformTexelBuffer;
+            case SPV_REFLECT_DESCRIPTOR_TYPE_STORAGE_BUFFER:
+                return ProgramFactory::DescriptorBindingKind::StorageBuffer;
+            case SPV_REFLECT_DESCRIPTOR_TYPE_STORAGE_IMAGE:
+                return ProgramFactory::DescriptorBindingKind::StorageImage;
             default:
                 MOBILEGL_ASSERT(false, "ProgramFactory: unsupported reflected descriptor type %d",
                                 static_cast<Int>(descriptorType));
@@ -1000,7 +1005,8 @@ namespace MobileGL::MG_Backend::DirectVulkan {
 
             String name = rawName;
             if (kind == ProgramFactory::DescriptorBindingKind::CombinedImageSampler ||
-                kind == ProgramFactory::DescriptorBindingKind::UniformTexelBuffer) {
+                kind == ProgramFactory::DescriptorBindingKind::UniformTexelBuffer ||
+                kind == ProgramFactory::DescriptorBindingKind::StorageImage) {
                 const auto arraySuffix = name.find("[0]");
                 if (arraySuffix != String::npos) {
                     name = name.substr(0, arraySuffix);
@@ -1207,47 +1213,77 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         case GL_SAMPLER_1D:
         case GL_INT_SAMPLER_1D:
         case GL_UNSIGNED_INT_SAMPLER_1D:
+        case GL_IMAGE_1D:
+        case GL_INT_IMAGE_1D:
+        case GL_UNSIGNED_INT_IMAGE_1D:
             return TextureTarget::Texture1D;
         case GL_SAMPLER_3D:
         case GL_INT_SAMPLER_3D:
         case GL_UNSIGNED_INT_SAMPLER_3D:
+        case GL_IMAGE_3D:
+        case GL_INT_IMAGE_3D:
+        case GL_UNSIGNED_INT_IMAGE_3D:
             return TextureTarget::Texture3D;
         case GL_SAMPLER_CUBE:
         case GL_SAMPLER_CUBE_SHADOW:
         case GL_INT_SAMPLER_CUBE:
         case GL_UNSIGNED_INT_SAMPLER_CUBE:
+        case GL_IMAGE_CUBE:
+        case GL_INT_IMAGE_CUBE:
+        case GL_UNSIGNED_INT_IMAGE_CUBE:
             return TextureTarget::TextureCubeMap;
         case GL_SAMPLER_2D_MULTISAMPLE:
         case GL_INT_SAMPLER_2D_MULTISAMPLE:
         case GL_UNSIGNED_INT_SAMPLER_2D_MULTISAMPLE:
+        case GL_IMAGE_2D_MULTISAMPLE:
+        case GL_INT_IMAGE_2D_MULTISAMPLE:
+        case GL_UNSIGNED_INT_IMAGE_2D_MULTISAMPLE:
             return TextureTarget::Texture2DMultisample;
         case GL_SAMPLER_BUFFER:
         case GL_INT_SAMPLER_BUFFER:
         case GL_UNSIGNED_INT_SAMPLER_BUFFER:
+        case GL_IMAGE_BUFFER:
+        case GL_INT_IMAGE_BUFFER:
+        case GL_UNSIGNED_INT_IMAGE_BUFFER:
             return TextureTarget::TextureBuffer;
         case GL_SAMPLER_1D_ARRAY:
         case GL_SAMPLER_1D_ARRAY_SHADOW:
         case GL_INT_SAMPLER_1D_ARRAY:
         case GL_UNSIGNED_INT_SAMPLER_1D_ARRAY:
+        case GL_IMAGE_1D_ARRAY:
+        case GL_INT_IMAGE_1D_ARRAY:
+        case GL_UNSIGNED_INT_IMAGE_1D_ARRAY:
             return TextureTarget::Texture1DArray;
         case GL_SAMPLER_2D_ARRAY:
         case GL_SAMPLER_2D_ARRAY_SHADOW:
         case GL_INT_SAMPLER_2D_ARRAY:
         case GL_UNSIGNED_INT_SAMPLER_2D_ARRAY:
+        case GL_IMAGE_2D_ARRAY:
+        case GL_INT_IMAGE_2D_ARRAY:
+        case GL_UNSIGNED_INT_IMAGE_2D_ARRAY:
             return TextureTarget::Texture2DArray;
         case GL_SAMPLER_2D_MULTISAMPLE_ARRAY:
         case GL_INT_SAMPLER_2D_MULTISAMPLE_ARRAY:
         case GL_UNSIGNED_INT_SAMPLER_2D_MULTISAMPLE_ARRAY:
+        case GL_IMAGE_2D_MULTISAMPLE_ARRAY:
+        case GL_INT_IMAGE_2D_MULTISAMPLE_ARRAY:
+        case GL_UNSIGNED_INT_IMAGE_2D_MULTISAMPLE_ARRAY:
             return TextureTarget::Texture2DMultisampleArray;
         case GL_SAMPLER_2D_RECT:
         case GL_SAMPLER_2D_RECT_SHADOW:
         case GL_INT_SAMPLER_2D_RECT:
         case GL_UNSIGNED_INT_SAMPLER_2D_RECT:
+        case GL_IMAGE_2D_RECT:
+        case GL_INT_IMAGE_2D_RECT:
+        case GL_UNSIGNED_INT_IMAGE_2D_RECT:
             return TextureTarget::TextureRectangle;
         case GL_SAMPLER_2D:
         case GL_SAMPLER_2D_SHADOW:
         case GL_INT_SAMPLER_2D:
         case GL_UNSIGNED_INT_SAMPLER_2D:
+        case GL_IMAGE_2D:
+        case GL_INT_IMAGE_2D:
+        case GL_UNSIGNED_INT_IMAGE_2D:
         default:
             return TextureTarget::Texture2D;
         }
@@ -1397,6 +1433,8 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         entry.samplerNameByBinding.assign(m_maxBindings, String());
         entry.samplerUniformLocationByBinding.assign(m_maxBindings, -1);
         entry.samplerTextureTargetByBinding.assign(m_maxBindings, TextureTarget::Texture2D);
+        entry.storageBlockNameByBinding.assign(m_maxBindings, String());
+        entry.storageBlockIndexByBinding.assign(m_maxBindings, -1);
         entry.globalUboBinding = -1;
         entry.dynamicBindings.clear();
 
@@ -1461,7 +1499,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                 entry.uniformBlockIndexByBinding[binding] = static_cast<Int>(blockIndex);
             }
 
-            // Reflect sampled images and samplerBuffer uniforms.
+            // Reflect sampled images, storage images, samplerBuffer uniforms, and SSBOs.
             uint32_t reflectedBindingCount = 0;
             SpvReflectResult reflectResult =
                 spvReflectEnumerateDescriptorBindings(&reflectModule, &reflectedBindingCount, nullptr);
@@ -1485,7 +1523,9 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                 }
                 const auto descriptorKind = ReflectDescriptorTypeToBindingKind(sampler->descriptor_type);
                 if (descriptorKind != DescriptorBindingKind::CombinedImageSampler &&
-                    descriptorKind != DescriptorBindingKind::UniformTexelBuffer) {
+                    descriptorKind != DescriptorBindingKind::UniformTexelBuffer &&
+                    descriptorKind != DescriptorBindingKind::StorageImage &&
+                    descriptorKind != DescriptorBindingKind::StorageBuffer) {
                     continue;
                 }
 
@@ -1495,33 +1535,47 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                                 "ProgramFactory::ReflectLayout: sampler binding %u exceeds maxBindings=%u for '%s'",
                                 binding, m_maxBindings, uniformName.c_str());
 
-                const Int location = program.GetUniformLocation(uniformName);
-                if (location < 0) {
-                    continue;
-                }
-
                 MOBILEGL_ASSERT(entry.bindingKinds[binding] == DescriptorBindingKind::None ||
                                     entry.bindingKinds[binding] == descriptorKind,
-                                "ProgramFactory::ReflectLayout: descriptor binding %u has conflicting kinds for sampler '%s'",
+                                "ProgramFactory::ReflectLayout: descriptor binding %u has conflicting kinds for resource '%s'",
                                 binding, uniformName.c_str());
                 entry.bindingKinds[binding] = descriptorKind;
 
+                if (descriptorKind == DescriptorBindingKind::StorageBuffer) {
+                    const GLuint blockIndex = GetShaderStorageBlockIndex(program, uniformName);
+                    if (blockIndex == GL_INVALID_INDEX) {
+                        MGLOG_D("ProgramFactory::ReflectLayout: skipping inactive SSBO '%s' at binding %u",
+                                uniformName.c_str(), binding);
+                        entry.bindingKinds[binding] = DescriptorBindingKind::None;
+                        continue;
+                    }
+                    entry.storageBlockNameByBinding[binding] = uniformName;
+                    entry.storageBlockIndexByBinding[binding] = static_cast<Int>(blockIndex);
+                    continue;
+                }
+
+                const Int location = program.GetUniformLocation(uniformName);
+                if (location < 0) {
+                    entry.bindingKinds[binding] = DescriptorBindingKind::None;
+                    continue;
+                }
+
                 const TextureTarget target = UniformTypeToTextureTarget(program.GetUniformType(static_cast<Uint>(location)));
                 MOBILEGL_ASSERT(target != TextureTarget::Unknown,
-                                "ProgramFactory::ReflectLayout: failed to resolve sampler target for '%s'",
+                                "ProgramFactory::ReflectLayout: failed to resolve texture target for '%s'",
                                 uniformName.c_str());
                 MOBILEGL_ASSERT(entry.samplerUniformLocationByBinding[binding] < 0 || location < 0 ||
                                     entry.samplerUniformLocationByBinding[binding] == location,
-                                "ProgramFactory::ReflectLayout: sampler binding %u maps to conflicting uniform locations (%d vs %d)",
+                                "ProgramFactory::ReflectLayout: texture binding %u maps to conflicting uniform locations (%d vs %d)",
                                 binding, entry.samplerUniformLocationByBinding[binding], location);
                 MOBILEGL_ASSERT(entry.samplerUniformLocationByBinding[binding] < 0 ||
                                     entry.samplerTextureTargetByBinding[binding] == target,
-                                "ProgramFactory::ReflectLayout: sampler binding %u maps to conflicting texture targets (%d vs %d)",
+                                "ProgramFactory::ReflectLayout: texture binding %u maps to conflicting texture targets (%d vs %d)",
                                 binding, static_cast<Int>(entry.samplerTextureTargetByBinding[binding]),
                                 static_cast<Int>(target));
                 MOBILEGL_ASSERT(entry.samplerNameByBinding[binding].empty() ||
                                     entry.samplerNameByBinding[binding] == uniformName,
-                                "ProgramFactory::ReflectLayout: sampler binding %u maps to conflicting names ('%s' vs '%s')",
+                                "ProgramFactory::ReflectLayout: texture binding %u maps to conflicting names ('%s' vs '%s')",
                                 binding, entry.samplerNameByBinding[binding].c_str(), uniformName.c_str());
 
                 if (location >= 0) {
@@ -1546,13 +1600,17 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             VkDescriptorSetLayoutBinding layoutBinding{};
             layoutBinding.binding = binding;
             layoutBinding.descriptorCount = 1;
-            layoutBinding.stageFlags = VK_SHADER_STAGE_ALL_GRAPHICS;
+            layoutBinding.stageFlags = VK_SHADER_STAGE_ALL;
             layoutBinding.pImmutableSamplers = nullptr;
             if (kind == DescriptorBindingKind::UniformBufferDynamic) {
                 layoutBinding.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
                 entry.dynamicBindings.push_back(binding);
             } else if (kind == DescriptorBindingKind::UniformTexelBuffer) {
                 layoutBinding.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER;
+            } else if (kind == DescriptorBindingKind::StorageBuffer) {
+                layoutBinding.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+            } else if (kind == DescriptorBindingKind::StorageImage) {
+                layoutBinding.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
             } else {
                 layoutBinding.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
             }

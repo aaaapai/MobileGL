@@ -125,6 +125,7 @@ public:
                                                       Uint32 writtenMipLevel,
                                                       VkImageLayout newLayout);
     Bool TransitionTextureForSampling(VkCommandBuffer commandBuffer, MG_State::GLState::ITextureObject& texture);
+    Bool TransitionTextureForStorageImage(VkCommandBuffer commandBuffer, MG_State::GLState::ITextureObject& texture);
 
     static Bool TransitionImageLayout(VkCommandBuffer commandBuffer, VkImage image, VkImageLayout& trackedLayout,
                                VkImageLayout newLayout, VkPipelineStageFlags srcStageMask,

@@ -304,7 +304,23 @@ namespace MobileGL::MG_Impl::GLImpl {
             *params = programObject->GetActiveUniformBlocksMaxNameLength();
             MGLOG_D("%s: %s = %d", __func__, MG_Util::ConvertGLEnumToString(pname).c_str(), *params);
             break;
-        case GL_COMPUTE_WORK_GROUP_SIZE: // GL >= 4.3
+        case GL_COMPUTE_WORK_GROUP_SIZE: { // GL >= 4.3
+            auto getProgramiv = MG_Backend::gBackendFunctionsTable.GL.GetProgramiv;
+            if (!getProgramiv) {
+                params[0] = 1;
+                params[1] = 1;
+                params[2] = 1;
+                MG_State::pGLContext->RecordError(
+                    ErrorCode::InvalidOperation,
+                    MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", __func__,
+                                                 "Backend does not support program integer queries."));
+                return;
+            }
+            getProgramiv(program, pname, params);
+            MGLOG_D("%s: %s = (%d, %d, %d)", __func__,
+                    MG_Util::ConvertGLEnumToString(pname).c_str(), params[0], params[1], params[2]);
+            break;
+        }
 
         case GL_PROGRAM_BINARY_LENGTH:
 

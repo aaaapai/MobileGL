@@ -22,7 +22,9 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             None = 0,
             UniformBufferDynamic,
             CombinedImageSampler,
-            UniformTexelBuffer
+            UniformTexelBuffer,
+            StorageBuffer,
+            StorageImage
         };
 
         enum class CompileOptionBit : Uint {
@@ -52,6 +54,8 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             Vector<String> samplerNameByBinding;
             Vector<Int> samplerUniformLocationByBinding;
             Vector<TextureTarget> samplerTextureTargetByBinding;
+            Vector<String> storageBlockNameByBinding;
+            Vector<Int> storageBlockIndexByBinding;
             Int globalUboBinding = -1;
             Uint32 activeVertexInputLocationMask = 0;
             Array<GLenum, kMaxVertexInputLocations> vertexInputTypes{};
@@ -78,6 +82,8 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                 samplerNameByBinding = std::move(other.samplerNameByBinding);
                 samplerUniformLocationByBinding = std::move(other.samplerUniformLocationByBinding);
                 samplerTextureTargetByBinding = std::move(other.samplerTextureTargetByBinding);
+                storageBlockNameByBinding = std::move(other.storageBlockNameByBinding);
+                storageBlockIndexByBinding = std::move(other.storageBlockIndexByBinding);
                 globalUboBinding = other.globalUboBinding;
                 activeVertexInputLocationMask = other.activeVertexInputLocationMask;
                 vertexInputTypes = other.vertexInputTypes;
@@ -112,6 +118,8 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                 samplerNameByBinding = std::move(other.samplerNameByBinding);
                 samplerUniformLocationByBinding = std::move(other.samplerUniformLocationByBinding);
                 samplerTextureTargetByBinding = std::move(other.samplerTextureTargetByBinding);
+                storageBlockNameByBinding = std::move(other.storageBlockNameByBinding);
+                storageBlockIndexByBinding = std::move(other.storageBlockIndexByBinding);
                 globalUboBinding = other.globalUboBinding;
                 activeVertexInputLocationMask = other.activeVertexInputLocationMask;
                 vertexInputTypes = other.vertexInputTypes;

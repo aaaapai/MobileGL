@@ -8,6 +8,7 @@
 
 #include "UniformManager.h"
 
+#include "MG_Backend/DirectVulkan/DirectVulkanResourceState.h"
 #include "MG_State/GLState/Core.h"
 #include "MG_State/GLState/ProgramState/ProgramObject.h"
 #include "MG_State/GLState/TextureState/TextureObject2D.h"
@@ -393,6 +394,113 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         return true;
     }
 
+    Bool UniformManager::ResolveStorageBufferDescriptor(const MG_State::GLState::ProgramObject& program,
+                                                        const ProgramFactory::VkProgramObject& programObj,
+                                                        Uint32 binding,
+                                                        VkDescriptorBufferInfo& outBufferInfo) const {
+        outBufferInfo = {};
+        MOBILEGL_ASSERT(m_bufferManager != nullptr, "ResolveStorageBufferDescriptor: buffer manager is null");
+        MOBILEGL_ASSERT(MG_State::pGLContext != nullptr, "ResolveStorageBufferDescriptor: GL context is null");
+        MOBILEGL_ASSERT(binding < programObj.storageBlockIndexByBinding.size(),
+                        "ResolveStorageBufferDescriptor: binding %u out of range", binding);
+
+        const Int blockIndex = programObj.storageBlockIndexByBinding[binding];
+        MOBILEGL_ASSERT(blockIndex >= 0, "ResolveStorageBufferDescriptor: no SSBO block mapped to binding %u",
+                        binding);
+        const GLuint frontendBinding =
+            GetShaderStorageBlockBinding(program, static_cast<GLuint>(blockIndex));
+        const Uint32 bindingPointCount =
+            static_cast<Uint32>(MG_State::pGLContext->GetBufferBindingPointCount(BufferTarget::ShaderStorage));
+        MOBILEGL_ASSERT(frontendBinding < bindingPointCount,
+                        "ResolveStorageBufferDescriptor: frontend SSBO binding %u out of range for block '%s'",
+                        frontendBinding, programObj.storageBlockNameByBinding[binding].c_str());
+
+        auto& bindingPoint = MG_State::pGLContext->GetBufferBindingPoint(BufferTarget::ShaderStorage, frontendBinding);
+        const auto bufferObject = bindingPoint.GetBoundObject();
+        if (bufferObject == nullptr) {
+            MGLOG_E("ResolveStorageBufferDescriptor: no SSBO bound at frontend binding %u for block '%s'",
+                    frontendBinding, programObj.storageBlockNameByBinding[binding].c_str());
+            return false;
+        }
+
+        BufferSlice slice{};
+        if (!m_bufferManager->SyncResidentBuffer(BufferKind::ShaderStorage, bufferObject, slice) || !slice.IsValid()) {
+            MGLOG_E("ResolveStorageBufferDescriptor: failed to sync GL buffer %u for block '%s'",
+                    bufferObject->GetExternalIndex(), programObj.storageBlockNameByBinding[binding].c_str());
+            return false;
+        }
+
+        const auto range = bindingPoint.GetRange();
+        const VkDeviceSize bufferSize = static_cast<VkDeviceSize>(bufferObject->GetSize());
+        VkDeviceSize rangeStart = static_cast<VkDeviceSize>(std::min(range.start, bufferObject->GetSize()));
+        VkDeviceSize rangeEnd = static_cast<VkDeviceSize>(std::min(range.end, bufferObject->GetSize()));
+        if (rangeEnd <= rangeStart) {
+            rangeStart = 0;
+            rangeEnd = bufferSize;
+        }
+        if (rangeEnd <= rangeStart) {
+            MGLOG_E("ResolveStorageBufferDescriptor: empty SSBO range for block '%s'",
+                    programObj.storageBlockNameByBinding[binding].c_str());
+            return false;
+        }
+
+        outBufferInfo.buffer = slice.buffer;
+        outBufferInfo.offset = slice.offset + rangeStart;
+        outBufferInfo.range = rangeEnd - rangeStart;
+        return true;
+    }
+
+    Bool UniformManager::ResolveStorageImageDescriptor(VkCommandBuffer commandBuffer,
+                                                       const MG_State::GLState::ProgramObject& program,
+                                                       const ProgramFactory::VkProgramObject& programObj,
+                                                       Uint32 binding,
+                                                       VkDescriptorImageInfo& outImageInfo) const {
+        outImageInfo = {};
+        MOBILEGL_ASSERT(m_textureManager != nullptr, "ResolveStorageImageDescriptor: texture manager is null");
+        MOBILEGL_ASSERT(MG_State::pGLContext != nullptr, "ResolveStorageImageDescriptor: GL context is null");
+        MOBILEGL_ASSERT(binding < programObj.samplerUniformLocationByBinding.size(),
+                        "ResolveStorageImageDescriptor: binding %u out of range", binding);
+
+        const Int location = programObj.samplerUniformLocationByBinding[binding];
+        if (location < 0) {
+            MGLOG_E("ResolveStorageImageDescriptor: storage image binding %u has no uniform location", binding);
+            return false;
+        }
+        const Int imageUnit = program.GetUniformSamplerOrImageUnitIndex(static_cast<Uint>(location));
+        if (imageUnit < 0 || imageUnit >= MG_State::GLState::TextureState::MAX_TEXTURE_IMAGE_UNITS) {
+            MGLOG_E("ResolveStorageImageDescriptor: image unit %d out of range for binding %u",
+                    imageUnit, binding);
+            return false;
+        }
+
+        auto& imageBinding = MG_State::pGLContext->GetImageTextureBinding(imageUnit);
+        if (imageBinding.Texture == nullptr) {
+            MGLOG_E("ResolveStorageImageDescriptor: image unit %d is unbound for binding %u", imageUnit, binding);
+            return false;
+        }
+
+        const Bool ready = m_textureManager->TransitionTextureForStorageImage(commandBuffer, *imageBinding.Texture);
+        if (!ready) {
+            MGLOG_E("ResolveStorageImageDescriptor: failed to transition textureId=%d for image unit %d",
+                    imageBinding.Texture->GetExternalIndex(), imageUnit);
+            return false;
+        }
+        auto* resource = m_textureManager->SyncTextureAndGetDescriptor(*imageBinding.Texture);
+        if (resource == nullptr) {
+            return false;
+        }
+
+        const Uint32 mipLevel = static_cast<Uint32>(std::max<GLint>(0, imageBinding.Level));
+        VkImageView view = m_textureManager->GetOrCreateViewAtMipLevel(*imageBinding.Texture, mipLevel);
+        if (view == VK_NULL_HANDLE) {
+            view = resource->fullView;
+        }
+        outImageInfo.sampler = VK_NULL_HANDLE;
+        outImageInfo.imageView = view;
+        outImageInfo.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+        return outImageInfo.imageView != VK_NULL_HANDLE;
+    }
+
     SharedPtr<MG_State::GLState::ITextureObject> UniformManager::GetFallbackTexture(TextureTarget target) const {
         MOBILEGL_ASSERT(target == TextureTarget::Texture2D || target == TextureTarget::TextureRectangle,
                         "UniformManager::GetFallbackTexture: unsupported fallback target=%d",
@@ -530,13 +638,17 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         }
 
         const Uint32 descriptorCount = static_cast<Uint32>(descriptorCount64);
-        VkDescriptorPoolSize poolSizes[3]{};
+        VkDescriptorPoolSize poolSizes[5]{};
         poolSizes[0].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
         poolSizes[0].descriptorCount = descriptorCount;
         poolSizes[1].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
         poolSizes[1].descriptorCount = descriptorCount;
         poolSizes[2].type = VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER;
         poolSizes[2].descriptorCount = descriptorCount;
+        poolSizes[3].type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+        poolSizes[3].descriptorCount = descriptorCount;
+        poolSizes[4].type = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+        poolSizes[4].descriptorCount = descriptorCount;
 
         VkDescriptorPoolCreateInfo poolInfo{};
         poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
@@ -649,6 +761,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                                                              const MG_State::GLState::ProgramObject& program,
                                                              const ProgramFactory::VkProgramObject& programObj,
                                                              Uint32 frameIndex,
+                                                             VkPipelineBindPoint bindPoint,
                                                              const SamplerBindingOverride* samplerBindingOverride) {
         auto& frame = m_frames[frameIndex];
         if (frame.descriptorPools.empty()) {
@@ -737,6 +850,31 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                 write.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER;
                 write.pTexelBufferView = &texelBufferViews.back();
                 writes.push_back(write);
+            } else if (kind == ProgramFactory::DescriptorBindingKind::StorageBuffer) {
+                VkDescriptorBufferInfo bufferInfo{};
+                if (!ResolveStorageBufferDescriptor(program, programObj, binding, bufferInfo)) {
+                    MGLOG_E(
+                        "UniformDescriptorBinder::BindProgramUniformBuffers failed: storage buffer binding %u has no valid descriptor",
+                        binding);
+                    return false;
+                }
+
+                bufferInfos.push_back(bufferInfo);
+                write.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+                write.pBufferInfo = &bufferInfos.back();
+                writes.push_back(write);
+            } else if (kind == ProgramFactory::DescriptorBindingKind::StorageImage) {
+                VkDescriptorImageInfo imageInfo{};
+                if (!ResolveStorageImageDescriptor(commandBuffer, program, programObj, binding, imageInfo)) {
+                    MGLOG_E(
+                        "UniformDescriptorBinder::BindProgramUniformBuffers failed: storage image binding %u has no valid descriptor",
+                        binding);
+                    return false;
+                }
+                imageInfos.push_back(imageInfo);
+                write.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+                write.pImageInfo = &imageInfos.back();
+                writes.push_back(write);
             } else {
                 VkDescriptorImageInfo imageInfo{};
                 Bool hasImage = false;
@@ -771,7 +909,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             vkUpdateDescriptorSets(m_device, static_cast<Uint32>(writes.size()), writes.data(), 0, nullptr);
         }
 
-        vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, programObj.pipelineLayout, 0, 1,
+        vkCmdBindDescriptorSets(commandBuffer, bindPoint, programObj.pipelineLayout, 0, 1,
                                 &descriptorSet, static_cast<Uint32>(dynamicOffsets.size()), dynamicOffsets.data());
         return true;
     }
