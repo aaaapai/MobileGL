@@ -120,6 +120,42 @@ namespace MobileGL::MG_Impl::GLImpl {
         return (const GLubyte*)extStrings[index].c_str();
     }
 
+    void GetIntegeri_v(GLenum target, GLuint index, GLint* data) {
+        if (!data) {
+            MG_State::pGLContext->RecordError(
+                ErrorCode::InvalidValue,
+                MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", __func__, "data pointer cannot be null"));
+            return;
+        }
+        auto getIntegeri = MG_Backend::gBackendFunctionsTable.GL.GetIntegeri_v;
+        if (!getIntegeri) {
+            *data = 0;
+            MG_State::pGLContext->RecordError(
+                ErrorCode::InvalidOperation,
+                MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", __func__, "Backend does not support indexed integer queries."));
+            return;
+        }
+        getIntegeri(target, index, data);
+    }
+
+    void GetInteger64i_v(GLenum target, GLuint index, GLint64* data) {
+        if (!data) {
+            MG_State::pGLContext->RecordError(
+                ErrorCode::InvalidValue,
+                MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", __func__, "data pointer cannot be null"));
+            return;
+        }
+        auto getInteger64i = MG_Backend::gBackendFunctionsTable.GL.GetInteger64i_v;
+        if (!getInteger64i) {
+            *data = 0;
+            MG_State::pGLContext->RecordError(
+                ErrorCode::InvalidOperation,
+                MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", __func__, "Backend does not support indexed integer queries."));
+            return;
+        }
+        getInteger64i(target, index, data);
+    }
+
     void GetIntegerv(GLenum pname, GLint* params) {
         MGLOG_D("glGetIntegerv, pname: %s", MG_Util::ConvertGLEnumToString(pname).c_str());
         if (!params) {
@@ -213,41 +249,47 @@ namespace MobileGL::MG_Impl::GLImpl {
             *params = 0; // TODO
             break;
         case GL_MAX_COMPUTE_SHADER_STORAGE_BLOCKS:
-            *params = 0; // TODO
+            *params = 16; // TODO: use backend value
             break;
         case GL_MAX_COMBINED_SHADER_STORAGE_BLOCKS:
-            *params = 0; // TODO
+            *params = 96; // TODO: use backend value
             break;
         case GL_MAX_COMPUTE_UNIFORM_BLOCKS:
-            *params = 0; // TODO
+            *params = 14; // TODO: use backend value
             break;
         case GL_MAX_COMPUTE_TEXTURE_IMAGE_UNITS:
-            *params = 0; // TODO
+            *params = MG_State::GLState::TextureState::MAX_TEXTURE_IMAGE_UNITS; // TODO: use backend value
             break;
         case GL_MAX_COMPUTE_UNIFORM_COMPONENTS:
-            *params = 0; // TODO
+            *params = 1024 * 4; // TODO: use backend value
             break;
         case GL_MAX_COMPUTE_ATOMIC_COUNTERS:
-            *params = 0; // TODO
+            *params = 8; // TODO: use backend value
             break;
         case GL_MAX_COMPUTE_ATOMIC_COUNTER_BUFFERS:
-            *params = 0; // TODO
+            *params = 8; // TODO: use backend value
             break;
         case GL_MAX_COMBINED_COMPUTE_UNIFORM_COMPONENTS:
-            *params = 0; // TODO
+            *params = 1024 * 228; // TODO: use backend value
             break;
         case GL_MAX_COMPUTE_WORK_GROUP_INVOCATIONS:
-            *params = 0; // TODO
+            *params = 1024; // TODO: use backend value
             break;
         case GL_MAX_COMPUTE_WORK_GROUP_COUNT:
-            *params = 0; // TODO
+            GetIntegeri_v(GL_MAX_COMPUTE_WORK_GROUP_COUNT, 0, &params[0]);
+            GetIntegeri_v(GL_MAX_COMPUTE_WORK_GROUP_COUNT, 1, &params[1]);
+            GetIntegeri_v(GL_MAX_COMPUTE_WORK_GROUP_COUNT, 2, &params[2]);
             break;
         case GL_MAX_COMPUTE_WORK_GROUP_SIZE:
-            *params = 0; // TODO
+            GetIntegeri_v(GL_MAX_COMPUTE_WORK_GROUP_SIZE, 0, &params[0]);
+            GetIntegeri_v(GL_MAX_COMPUTE_WORK_GROUP_SIZE, 1, &params[1]);
+            GetIntegeri_v(GL_MAX_COMPUTE_WORK_GROUP_SIZE, 2, &params[2]);
             break;
-        case GL_DISPATCH_INDIRECT_BUFFER_BINDING:
-            *params = 0; // TODO
+        case GL_DISPATCH_INDIRECT_BUFFER_BINDING: {
+            auto& obj = MG_State::pGLContext->GetBufferBindingSlot(BufferTarget::DispatchIndirect).GetBoundObject();
+            *params = obj ? static_cast<GLint>(obj->GetExternalIndex()) : 0;
             break;
+        }
         case GL_MAX_DEBUG_GROUP_STACK_DEPTH:
             *params = 0; // TODO
             break;
@@ -436,6 +478,22 @@ namespace MobileGL::MG_Impl::GLImpl {
             break;
         case GL_MAX_GEOMETRY_UNIFORM_COMPONENTS:
             *params = 1024 * 4; // TODO
+            break;
+        case GL_MAX_IMAGE_UNITS:
+            *params = MG_State::GLState::TextureState::MAX_TEXTURE_IMAGE_UNITS; // TODO: use backend value
+            break;
+        case GL_MAX_COMBINED_IMAGE_UNITS_AND_FRAGMENT_OUTPUTS:
+            *params = MG_State::GLState::TextureState::MAX_TEXTURE_IMAGE_UNITS +
+                      MG_State::GLState::FramebufferObject::MAX_DRAW_BUFFERS;
+            break;
+        case GL_MAX_COMBINED_IMAGE_UNIFORMS:
+            *params = MG_State::GLState::TextureState::MAX_TEXTURE_IMAGE_UNITS; // TODO: use backend value
+            break;
+        case GL_MAX_IMAGE_SAMPLES:
+            *params = 0; // multisampled image load/store is not exposed by the DirectGLES frontend
+            break;
+        case GL_MAX_COMPUTE_IMAGE_UNIFORMS:
+            *params = MG_State::GLState::TextureState::MAX_TEXTURE_IMAGE_UNITS; // TODO: use backend value
             break;
         case GL_MAX_INTEGER_SAMPLES:
             *params = 16; // TODO
@@ -674,11 +732,13 @@ namespace MobileGL::MG_Impl::GLImpl {
         case GL_SHADER_COMPILER:
             *params = 0; // TODO
             break;
-        case GL_SHADER_STORAGE_BUFFER_BINDING:
-            *params = 0; // TODO
+        case GL_SHADER_STORAGE_BUFFER_BINDING: {
+            auto& obj = MG_State::pGLContext->GetBufferBindingSlot(BufferTarget::ShaderStorage).GetBoundObject();
+            *params = obj ? static_cast<GLint>(obj->GetExternalIndex()) : 0;
             break;
+        }
         case GL_SHADER_STORAGE_BUFFER_OFFSET_ALIGNMENT:
-            *params = 0; // TODO
+            *params = 256; // TODO: use backend value
             break;
         case GL_SHADER_STORAGE_BUFFER_START:
             *params = 0; // TODO

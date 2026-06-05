@@ -203,6 +203,14 @@ namespace MobileGL::MG_State {
             return m_textureState.GetUnitObject(unit);
         }
 
+        ImageTextureBinding& GLContext::GetImageTextureBinding(Int unit) {
+            return m_textureState.GetImageTextureBinding(unit);
+        }
+
+        const ImageTextureBinding& GLContext::GetImageTextureBinding(Int unit) const {
+            return m_textureState.GetImageTextureBinding(unit);
+        }
+
         Bool GLContext::ValidateTextureName(Uint index) const {
             return m_textureState.ValidateName(index);
         }

@@ -13,6 +13,7 @@
 #include <MG_Util/Converters/GLToMG/ProgramEnumConverter.h>
 #include <MG_Util/Converters/MGToGL/ProgramEnumConverter.h>
 #include <MG_Util/Converters/SPIRVCrossToGL/SpvcTypeConverter.h>
+#include <MG_Backend/BackendObjects.h>
 
 namespace MobileGL::MG_Impl::GLImpl {
     static bool CheckShaderNameValidity(Uint shader) {
@@ -1166,6 +1167,112 @@ namespace MobileGL::MG_Impl::GLImpl {
 
     GLint GetFragDataLocation(GLuint program, const char* name) {
         return GetFragDataLocation_State(program, name);
+    }
+
+    void GetProgramInterfaceiv(GLuint program, GLenum programInterface, GLenum pname, GLint* params) {
+        auto& programObject = TryToGetProgramObject(program);
+        if (!programObject || !programObject->GetLinkStatus()) return;
+        auto getProgramInterfaceiv = MG_Backend::gBackendFunctionsTable.GL.GetProgramInterfaceiv;
+        if (!getProgramInterfaceiv) {
+            MG_State::pGLContext->RecordError(
+                ErrorCode::InvalidOperation,
+                MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", __func__,
+                                             "Backend does not support program interface queries."));
+            return;
+        }
+        getProgramInterfaceiv(program, programInterface, pname, params);
+    }
+
+    GLuint GetProgramResourceIndex(GLuint program, GLenum programInterface, const GLchar* name) {
+        auto& programObject = TryToGetProgramObject(program);
+        if (!programObject || !programObject->GetLinkStatus()) return GL_INVALID_INDEX;
+        auto getProgramResourceIndex = MG_Backend::gBackendFunctionsTable.GL.GetProgramResourceIndex;
+        if (!getProgramResourceIndex) {
+            MG_State::pGLContext->RecordError(
+                ErrorCode::InvalidOperation,
+                MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", __func__,
+                                             "Backend does not support program interface queries."));
+            return GL_INVALID_INDEX;
+        }
+        return getProgramResourceIndex(program, programInterface, name);
+    }
+
+    void GetProgramResourceName(GLuint program, GLenum programInterface, GLuint index, GLsizei bufSize,
+                                GLsizei* length, GLchar* name) {
+        auto& programObject = TryToGetProgramObject(program);
+        if (!programObject || !programObject->GetLinkStatus()) return;
+        if (bufSize < 0) {
+            MG_State::pGLContext->RecordError(
+                ErrorCode::InvalidValue,
+                MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", __func__, "bufSize must be non-negative."));
+            return;
+        }
+        auto getProgramResourceName = MG_Backend::gBackendFunctionsTable.GL.GetProgramResourceName;
+        if (!getProgramResourceName) {
+            MG_State::pGLContext->RecordError(
+                ErrorCode::InvalidOperation,
+                MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", __func__,
+                                             "Backend does not support program interface queries."));
+            return;
+        }
+        getProgramResourceName(program, programInterface, index, bufSize, length, name);
+    }
+
+    void GetProgramResourceiv(GLuint program, GLenum programInterface, GLuint index, GLsizei propCount,
+                              const GLenum* props, GLsizei bufSize, GLsizei* length, GLint* params) {
+        auto& programObject = TryToGetProgramObject(program);
+        if (!programObject || !programObject->GetLinkStatus()) return;
+        if (propCount < 0 || bufSize < 0) {
+            MG_State::pGLContext->RecordError(
+                ErrorCode::InvalidValue,
+                MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", __func__, "propCount and bufSize must be non-negative."));
+            return;
+        }
+        auto getProgramResourceiv = MG_Backend::gBackendFunctionsTable.GL.GetProgramResourceiv;
+        if (!getProgramResourceiv) {
+            MG_State::pGLContext->RecordError(
+                ErrorCode::InvalidOperation,
+                MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", __func__,
+                                             "Backend does not support program interface queries."));
+            return;
+        }
+        getProgramResourceiv(program, programInterface, index, propCount, props, bufSize, length, params);
+    }
+
+    GLint GetProgramResourceLocation(GLuint program, GLenum programInterface, const GLchar* name) {
+        auto& programObject = TryToGetProgramObject(program);
+        if (!programObject || !programObject->GetLinkStatus()) return -1;
+        auto getProgramResourceLocation = MG_Backend::gBackendFunctionsTable.GL.GetProgramResourceLocation;
+        if (!getProgramResourceLocation) {
+            MG_State::pGLContext->RecordError(
+                ErrorCode::InvalidOperation,
+                MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", __func__,
+                                             "Backend does not support program interface queries."));
+            return -1;
+        }
+        return getProgramResourceLocation(program, programInterface, name);
+    }
+
+    GLint GetProgramResourceLocationIndex(GLuint program, GLenum programInterface, const GLchar* name) {
+        auto& programObject = TryToGetProgramObject(program);
+        if (!programObject || !programObject->GetLinkStatus()) return -1;
+        auto getProgramResourceLocationIndex = MG_Backend::gBackendFunctionsTable.GL.GetProgramResourceLocationIndex;
+        if (!getProgramResourceLocationIndex) return -1;
+        return getProgramResourceLocationIndex(program, programInterface, name);
+    }
+
+    void ShaderStorageBlockBinding(GLuint program, GLuint storageBlockIndex, GLuint storageBlockBinding) {
+        auto& programObject = TryToGetProgramObject(program);
+        if (!programObject || !programObject->GetLinkStatus()) return;
+        auto shaderStorageBlockBinding = MG_Backend::gBackendFunctionsTable.GL.ShaderStorageBlockBinding;
+        if (!shaderStorageBlockBinding) {
+            MG_State::pGLContext->RecordError(
+                ErrorCode::InvalidOperation,
+                MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", __func__,
+                                             "Backend does not support shader storage block binding."));
+            return;
+        }
+        shaderStorageBlockBinding(program, storageBlockIndex, storageBlockBinding);
     }
 
     void ValidateProgram(GLuint program) {

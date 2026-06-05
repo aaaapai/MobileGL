@@ -105,6 +105,59 @@ namespace MobileGL::MG_Backend::DirectGLES {
             backendObj->SyncToBackend(bufferObject);
         }
 
+        void SyncBufferBindingPoints(BufferTarget target, GLenum glTarget) {
+#ifdef TRACY_ENABLE
+            ZoneScopedC(TRACY_ZONECOLOR_BACKEND);
+#endif
+            auto bindingPointCnt = MG_State::pGLContext->GetBufferBindingPointCount(target);
+            for (SizeT i = 0; i < bindingPointCnt; ++i) {
+                auto& point = MG_State::pGLContext->GetBufferBindingPoint(target, i);
+                auto& obj = point.GetBoundObject();
+                if (!obj) {
+                    g_GLESFuncs.glBindBufferBase(glTarget, static_cast<GLuint>(i), 0);
+                    continue;
+                }
+
+                CreateAndSyncBufferObject(obj);
+                const auto& backendBufferIt = g_backendBufferObjects.find(obj.get());
+                if (backendBufferIt == g_backendBufferObjects.end()) {
+                    MGLOG_E("No backend buffer found for %s binding point %zu.",
+                            MG_Util::ConvertGLEnumToString(glTarget).c_str(), i);
+                    continue;
+                }
+
+                const auto& range = point.GetRange();
+                auto backendBufferId = backendBufferIt->second->GetBackendBufferId();
+                if (range.start == 0 && range.end >= obj->GetSize()) {
+                    g_GLESFuncs.glBindBufferBase(glTarget, static_cast<GLuint>(i), backendBufferId);
+                } else {
+                    const auto start = std::min(range.start, obj->GetSize());
+                    const auto end = std::min(range.end, obj->GetSize());
+                    g_GLESFuncs.glBindBufferRange(glTarget, static_cast<GLuint>(i), backendBufferId,
+                                                 static_cast<GLintptr>(start), static_cast<GLsizeiptr>(end - start));
+                }
+            }
+        }
+
+        void SyncBoundBuffer(BufferTarget target, GLenum glTarget) {
+#ifdef TRACY_ENABLE
+            ZoneScopedC(TRACY_ZONECOLOR_BACKEND);
+#endif
+            auto& bufferObject = MG_State::pGLContext->GetBufferBindingSlot(target).GetBoundObject();
+            if (!bufferObject) {
+                g_GLESFuncs.glBindBuffer(glTarget, 0);
+                return;
+            }
+
+            CreateAndSyncBufferObject(bufferObject);
+            const auto& backendBufferIt = g_backendBufferObjects.find(bufferObject.get());
+            if (backendBufferIt == g_backendBufferObjects.end()) {
+                MGLOG_E("No backend buffer found for %s.", MG_Util::ConvertGLEnumToString(glTarget).c_str());
+                return;
+            }
+            backendBufferIt->second->Bind(glTarget);
+        }
+
         void SyncNeccessaryBuffers(Bool includeIBO = false, Bool includeIndirectBuffer = false) {
 #ifdef TRACY_ENABLE
             ZoneScopedC(TRACY_ZONECOLOR_BACKEND);
@@ -112,7 +165,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
             g_backendBufferObjects.CollectGarbageIfNeeded();
 
             // All buffers we need are:
-            //   1.VBO 2.IBO (if needed) 3.UBO 4.IndirectBuffer (if needed) 5.SSBO (TODO)
+            //   1.VBO 2.IBO (if needed) 3.UBO 4.IndirectBuffer (if needed)
             // PBO is not needed since it should be handled in frontend
 
             const auto& currentVAOObject = MG_State::pGLContext->GetBoundVertexArray();
@@ -147,14 +200,18 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 }
             }
 
-            // UBO
-            auto uboBindingPointCnt = MG_State::pGLContext->GetBufferBindingPointCount(BufferTarget::Uniform);
-            for (SizeT i = 0; i < uboBindingPointCnt; ++i) {
-                auto& point = MG_State::pGLContext->GetBufferBindingPoint(BufferTarget::Uniform, i);
-                auto& obj = point.GetBoundObject();
-                if (obj) {
-                    CreateAndSyncBufferObject(obj);
-                }
+            SyncBufferBindingPoints(BufferTarget::Uniform, GL_UNIFORM_BUFFER);
+        }
+
+        void SyncComputeBuffers(Bool includeDispatchIndirectBuffer) {
+#ifdef TRACY_ENABLE
+            ZoneScopedC(TRACY_ZONECOLOR_BACKEND);
+#endif
+            g_backendBufferObjects.CollectGarbageIfNeeded();
+            SyncBufferBindingPoints(BufferTarget::Uniform, GL_UNIFORM_BUFFER);
+            SyncBufferBindingPoints(BufferTarget::ShaderStorage, GL_SHADER_STORAGE_BUFFER);
+            if (includeDispatchIndirectBuffer) {
+                SyncBoundBuffer(BufferTarget::DispatchIndirect, GL_DISPATCH_INDIRECT_BUFFER);
             }
         }
     } // namespace BufferImpl
@@ -232,6 +289,31 @@ namespace MobileGL::MG_Backend::DirectGLES {
                         SyncTextureObjectToBackend(textureObject);
                     }
                 }
+            }
+        }
+
+        void SyncImageTextureBinding(Uint unit) {
+#ifdef TRACY_ENABLE
+            ZoneScopedC(TRACY_ZONECOLOR_BACKEND);
+#endif
+            auto& imageBinding = MG_State::pGLContext->GetImageTextureBinding(static_cast<Int>(unit));
+            if (!imageBinding.Texture) {
+                g_GLESFuncs.glBindImageTexture(unit, 0, 0, GL_FALSE, 0, GL_READ_ONLY, GL_RGBA8);
+                return;
+            }
+
+            auto& backendTexture = SyncTextureObjectToBackend(imageBinding.Texture);
+            g_GLESFuncs.glBindImageTexture(unit, backendTexture->GetBackendTextureId(), imageBinding.Level,
+                                           imageBinding.Layered, imageBinding.Layer, imageBinding.Access,
+                                           imageBinding.Format);
+        }
+
+        void SyncImageTextureBindings() {
+#ifdef TRACY_ENABLE
+            ZoneScopedC(TRACY_ZONECOLOR_BACKEND);
+#endif
+            for (Uint unit = 0; unit < MG_State::GLState::TextureState::MAX_TEXTURE_IMAGE_UNITS; ++unit) {
+                SyncImageTextureBinding(unit);
             }
         }
     } // namespace TextureImpl
@@ -588,6 +670,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
             if (backendProgramIt != PrgramImpl::g_backendProgramObjects.end()) {
                 backendProgramIt->second->Use();
                 auto backendProgramId = backendProgramIt->second->GetBackendProgramId();
+
                 // Global UBO
                 if (currentProgram->GetUBOSize() > 0) {
 #ifdef TRACY_ENABLE
@@ -600,11 +683,15 @@ namespace MobileGL::MG_Backend::DirectGLES {
 
                     Uint blockIndex = g_GLESFuncs.glGetUniformBlockIndex(backendProgramId,
                                                                          MG_Util::ShaderTranspiler::GLOBAL_UBO_NAME);
+                    if (blockIndex == GL_INVALID_INDEX) {
+                        MGLOG_W("Program %u has frontend global UBO storage, but backend has no %s block.",
+                                currentProgram->GetExternalIndex(), MG_Util::ShaderTranspiler::GLOBAL_UBO_NAME);
+                    } else {
+                        g_GLESFuncs.glUniformBlockBinding(backendProgramId, blockIndex, 0);
 
-                    g_GLESFuncs.glUniformBlockBinding(backendProgramId, blockIndex, 0);
-
-                    g_GLESFuncs.glBindBufferBase(GL_UNIFORM_BUFFER, 0,
-                                                 backendProgramIt->second->GetBackendGlobalUBOId());
+                        g_GLESFuncs.glBindBufferBase(GL_UNIFORM_BUFFER, 0,
+                                                     backendProgramIt->second->GetBackendGlobalUBOId());
+                    }
                 }
 
                 {
@@ -655,10 +742,11 @@ namespace MobileGL::MG_Backend::DirectGLES {
 #endif
                     // Sampler unit binding
                     auto maxUniformLoc = currentProgram->GetMaxUniformLocation();
-                    for (int loc = 0; loc < maxUniformLoc; ++loc) {
+                    for (Uint loc = 0; loc <= maxUniformLoc; ++loc) {
+                        auto& name = currentProgram->GetUniformName(loc);
+                        if (name.empty()) continue;
                         auto unit = currentProgram->GetUniformSamplerOrImageUnitIndex(loc);
                         if (unit == -1) continue;
-                        auto& name = currentProgram->GetUniformName(loc);
                         auto locAtBackend = g_GLESFuncs.glGetUniformLocation(
                             backendProgramIt->second->GetBackendProgramId(), name.c_str());
                         g_GLESFuncs.glUniform1i(locAtBackend, unit);
@@ -685,6 +773,55 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 MGLOG_E("No backend program found (maybe not synced) for current program, cannot use program.");
             }
         }
+    }
+
+    void PrepareForCompute(Bool includeDispatchIndirectBuffer) {
+#ifdef TRACY_ENABLE
+        ZoneScopedC(TRACY_ZONECOLOR_BACKEND);
+#endif
+        BufferImpl::SyncComputeBuffers(includeDispatchIndirectBuffer);
+        TextureImpl::SyncNeccessaryTextures();
+        TextureImpl::SyncImageTextureBindings();
+        PrgramImpl::SyncCurrentProgram();
+
+        const auto& currentProgram = MG_State::pGLContext->GetCurrentProgram();
+        if (!currentProgram || !currentProgram->GetLinkStatus()) {
+            g_GLESFuncs.glUseProgram(0);
+            return;
+        }
+
+        const auto& backendProgramIt = PrgramImpl::g_backendProgramObjects.find(currentProgram.get());
+        if (backendProgramIt != PrgramImpl::g_backendProgramObjects.end()) {
+            backendProgramIt->second->Use();
+        } else {
+            g_GLESFuncs.glUseProgram(0);
+            MGLOG_E("No backend program found (maybe not synced) for current compute program.");
+        }
+    }
+
+    GLuint GetBackendProgramId(GLuint program) {
+        if (!MG_State::pGLContext->ValidateProgramName(program)) {
+            MGLOG_E("Invalid frontend program object: %u", program);
+            return 0;
+        }
+
+        auto& programObject = MG_State::pGLContext->GetProgramObject(program);
+        if (!programObject) {
+            MGLOG_E("Program object %u is null.", program);
+            return 0;
+        }
+
+        const auto& backendProgramIt = PrgramImpl::g_backendProgramObjects.find(programObject.get());
+        Bool exist = (backendProgramIt != PrgramImpl::g_backendProgramObjects.end());
+        auto& backendObj =
+            exist ? backendProgramIt->second : PrgramImpl::g_backendProgramObjects.GetOrCreate(programObject);
+        if (!exist) {
+            backendObj = MakeShared<PrgramImpl::BackendProgramObjectImpl>();
+        }
+        if (!backendObj->GetBackendProgramId()) {
+            backendObj->SyncToBackend(programObject);
+        }
+        return backendObj->GetBackendProgramId();
     }
 
     void Clear(GLbitfield mask) {
@@ -1130,6 +1267,211 @@ namespace MobileGL::MG_Backend::DirectGLES {
 
     const GLubyte* GetString(GLenum name) {
         return g_GLESFuncs.glGetString(name);
+    }
+
+    void DispatchCompute(GLuint numGroupsX, GLuint numGroupsY, GLuint numGroupsZ) {
+#if MOBILEGL_LOG_ACTIVE_LEVEL <= MOBILEGL_LOG_LEVEL_DEBUG && MOBILEGL_ENABLE_SCOPE_MARKER
+        DebugImpl::OpenGLScopeMarker marker(__func__);
+#endif
+        PrepareForCompute(false);
+        g_GLESFuncs.glDispatchCompute(numGroupsX, numGroupsY, numGroupsZ);
+    }
+
+    void DispatchComputeIndirect(GLintptr indirect) {
+#if MOBILEGL_LOG_ACTIVE_LEVEL <= MOBILEGL_LOG_LEVEL_DEBUG && MOBILEGL_ENABLE_SCOPE_MARKER
+        DebugImpl::OpenGLScopeMarker marker(__func__);
+#endif
+        PrepareForCompute(true);
+        g_GLESFuncs.glDispatchComputeIndirect(indirect);
+    }
+
+    void MemoryBarrier(GLbitfield barriers) {
+        g_GLESFuncs.glMemoryBarrier(barriers);
+    }
+
+    void MemoryBarrierByRegion(GLbitfield barriers) {
+        g_GLESFuncs.glMemoryBarrierByRegion(barriers);
+    }
+
+    void BindImageTexture(GLuint unit, GLuint texture, GLint level, GLboolean layered, GLint layer, GLenum access,
+                          GLenum format) {
+        (void)texture;
+        (void)level;
+        (void)layered;
+        (void)layer;
+        (void)access;
+        (void)format;
+        TextureImpl::SyncImageTextureBinding(unit);
+    }
+
+    void GetIntegeri_v(GLenum target, GLuint index, GLint* data) {
+        if (!data) return;
+
+        switch (target) {
+        case GL_SHADER_STORAGE_BUFFER_BINDING: {
+            auto& point = MG_State::pGLContext->GetBufferBindingPoint(BufferTarget::ShaderStorage, index);
+            auto& obj = point.GetBoundObject();
+            *data = obj ? static_cast<GLint>(obj->GetExternalIndex()) : 0;
+            return;
+        }
+        case GL_SHADER_STORAGE_BUFFER_START: {
+            auto& point = MG_State::pGLContext->GetBufferBindingPoint(BufferTarget::ShaderStorage, index);
+            *data = static_cast<GLint>(point.GetRange().start);
+            return;
+        }
+        case GL_SHADER_STORAGE_BUFFER_SIZE: {
+            auto& point = MG_State::pGLContext->GetBufferBindingPoint(BufferTarget::ShaderStorage, index);
+            auto& obj = point.GetBoundObject();
+            if (!obj) {
+                *data = 0;
+                return;
+            }
+            const auto& range = point.GetRange();
+            const auto start = std::min(range.start, obj->GetSize());
+            const auto end = std::min(range.end, obj->GetSize());
+            *data = static_cast<GLint>(end - start);
+            return;
+        }
+        case GL_IMAGE_BINDING_NAME: {
+            if (index >= MG_State::GLState::TextureState::MAX_TEXTURE_IMAGE_UNITS) {
+                *data = 0;
+                return;
+            }
+            auto& imageBinding = MG_State::pGLContext->GetImageTextureBinding(static_cast<Int>(index));
+            *data = imageBinding.Texture ? static_cast<GLint>(imageBinding.Texture->GetExternalIndex()) : 0;
+            return;
+        }
+        case GL_IMAGE_BINDING_LEVEL: {
+            if (index >= MG_State::GLState::TextureState::MAX_TEXTURE_IMAGE_UNITS) {
+                *data = 0;
+                return;
+            }
+            auto& imageBinding = MG_State::pGLContext->GetImageTextureBinding(static_cast<Int>(index));
+            *data = imageBinding.Level;
+            return;
+        }
+        case GL_IMAGE_BINDING_LAYERED: {
+            if (index >= MG_State::GLState::TextureState::MAX_TEXTURE_IMAGE_UNITS) {
+                *data = 0;
+                return;
+            }
+            auto& imageBinding = MG_State::pGLContext->GetImageTextureBinding(static_cast<Int>(index));
+            *data = imageBinding.Layered;
+            return;
+        }
+        case GL_IMAGE_BINDING_LAYER: {
+            if (index >= MG_State::GLState::TextureState::MAX_TEXTURE_IMAGE_UNITS) {
+                *data = 0;
+                return;
+            }
+            auto& imageBinding = MG_State::pGLContext->GetImageTextureBinding(static_cast<Int>(index));
+            *data = imageBinding.Layer;
+            return;
+        }
+        case GL_IMAGE_BINDING_ACCESS: {
+            if (index >= MG_State::GLState::TextureState::MAX_TEXTURE_IMAGE_UNITS) {
+                *data = 0;
+                return;
+            }
+            auto& imageBinding = MG_State::pGLContext->GetImageTextureBinding(static_cast<Int>(index));
+            *data = static_cast<GLint>(imageBinding.Access);
+            return;
+        }
+        case GL_IMAGE_BINDING_FORMAT: {
+            if (index >= MG_State::GLState::TextureState::MAX_TEXTURE_IMAGE_UNITS) {
+                *data = 0;
+                return;
+            }
+            auto& imageBinding = MG_State::pGLContext->GetImageTextureBinding(static_cast<Int>(index));
+            *data = static_cast<GLint>(imageBinding.Format);
+            return;
+        }
+        default:
+            if (g_GLESFuncs.glGetIntegeri_v) {
+                g_GLESFuncs.glGetIntegeri_v(target, index, data);
+            } else {
+                *data = 0;
+            }
+            return;
+        }
+    }
+
+    void GetInteger64i_v(GLenum target, GLuint index, GLint64* data) {
+        if (!data) return;
+
+        switch (target) {
+        case GL_SHADER_STORAGE_BUFFER_START: {
+            auto& point = MG_State::pGLContext->GetBufferBindingPoint(BufferTarget::ShaderStorage, index);
+            *data = static_cast<GLint64>(point.GetRange().start);
+            return;
+        }
+        case GL_SHADER_STORAGE_BUFFER_SIZE: {
+            auto& point = MG_State::pGLContext->GetBufferBindingPoint(BufferTarget::ShaderStorage, index);
+            auto& obj = point.GetBoundObject();
+            if (!obj) {
+                *data = 0;
+                return;
+            }
+            const auto& range = point.GetRange();
+            const auto start = std::min(range.start, obj->GetSize());
+            const auto end = std::min(range.end, obj->GetSize());
+            *data = static_cast<GLint64>(end - start);
+            return;
+        }
+        default:
+            if (g_GLESFuncs.glGetInteger64i_v) {
+                g_GLESFuncs.glGetInteger64i_v(target, index, data);
+            } else {
+                *data = 0;
+            }
+            return;
+        }
+    }
+
+    void GetProgramInterfaceiv(GLuint program, GLenum programInterface, GLenum pname, GLint* params) {
+        GLuint backendProgramId = GetBackendProgramId(program);
+        if (!backendProgramId) return;
+        g_GLESFuncs.glGetProgramInterfaceiv(backendProgramId, programInterface, pname, params);
+    }
+
+    GLuint GetProgramResourceIndex(GLuint program, GLenum programInterface, const GLchar* name) {
+        GLuint backendProgramId = GetBackendProgramId(program);
+        if (!backendProgramId) return GL_INVALID_INDEX;
+        return g_GLESFuncs.glGetProgramResourceIndex(backendProgramId, programInterface, name);
+    }
+
+    void GetProgramResourceName(GLuint program, GLenum programInterface, GLuint index, GLsizei bufSize,
+                                GLsizei* length, GLchar* name) {
+        GLuint backendProgramId = GetBackendProgramId(program);
+        if (!backendProgramId) return;
+        g_GLESFuncs.glGetProgramResourceName(backendProgramId, programInterface, index, bufSize, length, name);
+    }
+
+    void GetProgramResourceiv(GLuint program, GLenum programInterface, GLuint index, GLsizei propCount,
+                              const GLenum* props, GLsizei bufSize, GLsizei* length, GLint* params) {
+        GLuint backendProgramId = GetBackendProgramId(program);
+        if (!backendProgramId) return;
+        g_GLESFuncs.glGetProgramResourceiv(backendProgramId, programInterface, index, propCount, props, bufSize,
+                                           length, params);
+    }
+
+    GLint GetProgramResourceLocation(GLuint program, GLenum programInterface, const GLchar* name) {
+        GLuint backendProgramId = GetBackendProgramId(program);
+        if (!backendProgramId) return -1;
+        return g_GLESFuncs.glGetProgramResourceLocation(backendProgramId, programInterface, name);
+    }
+
+    GLint GetProgramResourceLocationIndex(GLuint program, GLenum programInterface, const GLchar* name) {
+        (void)program;
+        (void)programInterface;
+        (void)name;
+        return -1;
+    }
+
+    void ShaderStorageBlockBinding(GLuint program, GLuint storageBlockIndex, GLuint storageBlockBinding) {
+        GLuint backendProgramId = GetBackendProgramId(program);
+        if (!backendProgramId) return;
+        g_GLESFuncs.glShaderStorageBlockBinding(backendProgramId, storageBlockIndex, storageBlockBinding);
     }
 
     void ClearBufferfi(GLenum buffer, GLint drawbuffer, GLfloat depth, GLint stencil) {

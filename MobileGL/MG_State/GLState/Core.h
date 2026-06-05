@@ -78,6 +78,8 @@ namespace MobileGL {
                 const SharedPtr<ITextureObject>& CreateTextureObject(Uint index, TextureTarget target);
                 void MarkTextureObjectForDeletion(Uint index);
                 TextureUnit& GetTextureUnitObject(Int unit);
+                ImageTextureBinding& GetImageTextureBinding(Int unit);
+                const ImageTextureBinding& GetImageTextureBinding(Int unit) const;
                 Bool ValidateTextureName(Uint index) const;
                 Bool ValidateTextureObject(Uint index) const;
                 Int GetActiveTextureUnit() const;

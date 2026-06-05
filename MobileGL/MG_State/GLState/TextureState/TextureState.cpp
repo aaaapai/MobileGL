@@ -97,6 +97,11 @@ namespace MobileGL::MG_State::GLState {
                         }
                     }
                 }
+                for (auto& imageBinding : m_imageTextureBindings) {
+                    if (imageBinding.Texture == it->second) {
+                        imageBinding.Bind(nullptr, 0, GL_FALSE, 0, GL_READ_ONLY, GL_RGBA8);
+                    }
+                }
                 m_textureObjects.erase(it);
             }
             m_indexGenerator.Delete(index);
@@ -107,6 +112,18 @@ namespace MobileGL::MG_State::GLState {
         MOBILEGL_ASSERT(unit >= 0 && unit < MAX_TEXTURE_IMAGE_UNITS, "Texture unit is out of range: %d > %d", unit,
                         MAX_TEXTURE_IMAGE_UNITS - 1);
         return m_textureUnits[unit];
+    }
+
+    ImageTextureBinding& TextureState::GetImageTextureBinding(Int unit) {
+        MOBILEGL_ASSERT(unit >= 0 && unit < MAX_TEXTURE_IMAGE_UNITS, "Image unit is out of range: %d > %d", unit,
+                        MAX_TEXTURE_IMAGE_UNITS - 1);
+        return m_imageTextureBindings[unit];
+    }
+
+    const ImageTextureBinding& TextureState::GetImageTextureBinding(Int unit) const {
+        MOBILEGL_ASSERT(unit >= 0 && unit < MAX_TEXTURE_IMAGE_UNITS, "Image unit is out of range: %d > %d", unit,
+                        MAX_TEXTURE_IMAGE_UNITS - 1);
+        return m_imageTextureBindings[unit];
     }
 
     Int TextureState::GetActiveTextureUnit() const {

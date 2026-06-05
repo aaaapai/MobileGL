@@ -119,7 +119,9 @@ namespace MobileGL::MG_Backend::DirectGLES {
                     .TargetGLVersion = {3, 3, 0},                      // Target OpenGL Version
                     .TargetGLSLVersion = {4, 6, 0},                    // Target Shading Language Version
                     .Extensions = {V_OpenGL30, V_OpenGL31, V_OpenGL32, // OpenGL Extensions
-                                   V_OpenGL33, E_GL_ARB_draw_buffers_blend},
+                                   V_OpenGL33, E_GL_ARB_draw_buffers_blend, E_GL_ARB_compute_shader,
+                                   E_GL_ARB_shader_storage_buffer_object, E_GL_ARB_shader_image_load_store,
+                                   E_GL_ARB_program_interface_query},
                     .IsCompatibilityProfile = false // Is Compatibility Profile
                 },
             .StaticBackendCapability = {.AllowVSOnlyPrograms = false} // Backend Capability
@@ -164,6 +166,20 @@ namespace MobileGL::MG_Backend::DirectGLES {
             funcsTable.GL.DrawArraysInstanced = DrawArraysInstanced;
             funcsTable.GL.DrawElementsIndirect = DrawElementsIndirect;
             funcsTable.GL.DrawArraysIndirect = DrawArraysIndirect;
+            funcsTable.GL.DispatchCompute = DispatchCompute;
+            funcsTable.GL.DispatchComputeIndirect = DispatchComputeIndirect;
+            funcsTable.GL.MemoryBarrier = MemoryBarrier;
+            funcsTable.GL.MemoryBarrierByRegion = MemoryBarrierByRegion;
+            funcsTable.GL.BindImageTexture = BindImageTexture;
+            funcsTable.GL.GetIntegeri_v = GetIntegeri_v;
+            funcsTable.GL.GetInteger64i_v = GetInteger64i_v;
+            funcsTable.GL.GetProgramInterfaceiv = GetProgramInterfaceiv;
+            funcsTable.GL.GetProgramResourceIndex = GetProgramResourceIndex;
+            funcsTable.GL.GetProgramResourceName = GetProgramResourceName;
+            funcsTable.GL.GetProgramResourceiv = GetProgramResourceiv;
+            funcsTable.GL.GetProgramResourceLocation = GetProgramResourceLocation;
+            funcsTable.GL.GetProgramResourceLocationIndex = GetProgramResourceLocationIndex;
+            funcsTable.GL.ShaderStorageBlockBinding = ShaderStorageBlockBinding;
             funcsTable.GL.Clear = Clear;
             funcsTable.GL.ClearBufferfi = ClearBufferfi;
             funcsTable.GL.ClearBufferfv = ClearBufferfv;

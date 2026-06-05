@@ -1471,6 +1471,58 @@ namespace MobileGL::MG_Impl::GLImpl {
     }
 
     /* @INSERTION_POINT:FUNCTION_IMPLEMENTATION@ */
+    void BindImageTexture(GLuint unit, GLuint texture, GLint level, GLboolean layered, GLint layer, GLenum access,
+                          GLenum format) {
+        if (unit >= MG_State::GLState::TextureState::MAX_TEXTURE_IMAGE_UNITS) {
+            MG_State::pGLContext->RecordError(
+                ErrorCode::InvalidValue,
+                MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", __func__, "Image texture unit is out of range."));
+            return;
+        }
+        if (level < 0) {
+            MG_State::pGLContext->RecordError(
+                ErrorCode::InvalidValue,
+                MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", __func__, "Texture level must be non-negative."));
+            return;
+        }
+        if (layer < 0 && layered == GL_FALSE) {
+            MG_State::pGLContext->RecordError(
+                ErrorCode::InvalidValue,
+                MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", __func__, "Texture layer must be non-negative."));
+            return;
+        }
+        if (access != GL_READ_ONLY && access != GL_WRITE_ONLY && access != GL_READ_WRITE) {
+            MG_State::pGLContext->RecordError(
+                ErrorCode::InvalidEnum,
+                MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", __func__, "Invalid image texture access."));
+            return;
+        }
+
+        SharedPtr<MG_State::GLState::ITextureObject> textureObject;
+        if (texture != 0) {
+            if (!MG_State::pGLContext->ValidateTextureObject(texture)) {
+                MG_State::pGLContext->RecordError(
+                    ErrorCode::InvalidValue,
+                    MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", __func__, "Texture name is not a texture object."));
+                return;
+            }
+            textureObject = MG_State::pGLContext->GetTextureObject(texture);
+        }
+
+        MG_State::pGLContext->GetImageTextureBinding(static_cast<Int>(unit))
+            .Bind(textureObject, level, layered, layer, access, format);
+
+        auto bindImageTexture = MG_Backend::gBackendFunctionsTable.GL.BindImageTexture;
+        if (!bindImageTexture) {
+            MG_State::pGLContext->RecordError(
+                ErrorCode::InvalidOperation,
+                MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", __func__,
+                                             "Backend does not support image texture binding."));
+            return;
+        }
+        bindImageTexture(unit, texture, level, layered, layer, access, format);
+    }
+
     void GenerateMipmap(GLenum target) {
         GenerateMipmap_Backend(target);
     }

@@ -63,5 +63,14 @@ namespace MobileGL::MG_Impl::GLImpl {
                                    GLchar* uniformBlockName);
     void BindFragDataLocation(GLuint program, GLuint colorNumber, const char* name);
     GLint GetFragDataLocation(GLuint program, const char* name);
+    void GetProgramInterfaceiv(GLuint program, GLenum programInterface, GLenum pname, GLint* params);
+    GLuint GetProgramResourceIndex(GLuint program, GLenum programInterface, const GLchar* name);
+    void GetProgramResourceName(GLuint program, GLenum programInterface, GLuint index, GLsizei bufSize,
+                                GLsizei* length, GLchar* name);
+    void GetProgramResourceiv(GLuint program, GLenum programInterface, GLuint index, GLsizei propCount,
+                              const GLenum* props, GLsizei bufSize, GLsizei* length, GLint* params);
+    GLint GetProgramResourceLocation(GLuint program, GLenum programInterface, const GLchar* name);
+    GLint GetProgramResourceLocationIndex(GLuint program, GLenum programInterface, const GLchar* name);
+    void ShaderStorageBlockBinding(GLuint program, GLuint storageBlockIndex, GLuint storageBlockBinding);
     void ValidateProgram(GLuint program);
 } // namespace MobileGL::MG_Impl::GLImpl

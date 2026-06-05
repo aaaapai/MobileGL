@@ -311,6 +311,7 @@ namespace MobileGL::MG_Util::BackendLoader {
             INIT_GLES_FUNC(glFramebufferParameteri)
             INIT_GLES_FUNC(glGetFramebufferParameteriv)
             INIT_GLES_FUNC(glGetProgramInterfaceiv)
+            INIT_GLES_FUNC(glShaderStorageBlockBinding)
             INIT_GLES_FUNC(glGetProgramResourceIndex)
             INIT_GLES_FUNC(glGetProgramResourceName)
             INIT_GLES_FUNC(glGetProgramResourceiv)
