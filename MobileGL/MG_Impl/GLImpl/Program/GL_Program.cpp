@@ -596,6 +596,36 @@ namespace MobileGL::MG_Impl::GLImpl {
         }
     }
 
+    template <GLsizei ItemCount, typename T>
+    void ProgramUniformv_State(GLuint program, GLint location, GLsizei count, T* value) {
+        if (location == -1) return;
+
+        auto& programObject = TryToGetProgramObject(program);
+        if (!programObject) return;
+
+        if (!programObject->GetLinkStatus()) {
+            MG_State::pGLContext->RecordError(
+                ErrorCode::InvalidOperation,
+                MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", __func__,
+                                             "program " + std::to_string(program) + " is not linked."));
+            return;
+        }
+
+        if (location > programObject->GetMaxUniformLocation() || location < -1) {
+            MG_State::pGLContext->RecordError(
+                ErrorCode::InvalidOperation,
+                MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", __func__,
+                                             "location " + std::to_string(location) +
+                                                 " is an invalid uniform location for program " +
+                                                 std::to_string(program) + "."));
+            return;
+        }
+
+        for (GLint offset = 0; offset < count; offset++) {
+            Uniform_State<ItemCount>(*programObject, location + offset, value + offset * ItemCount);
+        }
+    }
+
     // Helper function to transpose a 2x2 matrix
     void TransposeMatrix2x2(const GLfloat* input, GLfloat* output) {
         // Input matrix is in column-major order (OpenGL default)
@@ -810,6 +840,118 @@ namespace MobileGL::MG_Impl::GLImpl {
                 Uniform_State<16>(*programObject, location + i, transposedMatrix);
             } else {
                 // No transpose needed, directly copy the matrix data
+                Uniform_State<16>(*programObject, location + i, value + i * 16);
+            }
+        }
+    }
+
+    void ProgramUniformMatrix2fv_State(GLuint program, GLint location, GLsizei count, GLboolean transpose,
+                                       const GLfloat* value) {
+        if (location == -1) return;
+
+        auto& programObject = TryToGetProgramObject(program);
+        if (!programObject) return;
+
+        if (!programObject->GetLinkStatus()) {
+            MG_State::pGLContext->RecordError(
+                ErrorCode::InvalidOperation,
+                MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", __func__,
+                                             "program " + std::to_string(program) + " is not linked."));
+            return;
+        }
+
+        if (location > programObject->GetMaxUniformLocation() || location < -1) {
+            MG_State::pGLContext->RecordError(
+                ErrorCode::InvalidOperation,
+                MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", __func__,
+                                             "location " + std::to_string(location) +
+                                                 " is an invalid uniform location for program " +
+                                                 std::to_string(program) + "."));
+            return;
+        }
+
+        for (GLint i = 0; i < count; i++) {
+            if (transpose == GL_TRUE) {
+                GLfloat transposedMatrix[4];
+                TransposeMatrix2x2(value + i * 4, transposedMatrix);
+                Uniform_State<4>(*programObject, location + i, transposedMatrix);
+            } else {
+                Uniform_State<4>(*programObject, location + i, value + i * 4);
+            }
+        }
+    }
+
+    void ProgramUniformMatrix3fv_State(GLuint program, GLint location, GLsizei count, GLboolean transpose,
+                                       const GLfloat* value) {
+        if (location == -1) return;
+
+        auto& programObject = TryToGetProgramObject(program);
+        if (!programObject) return;
+
+        if (!programObject->GetLinkStatus()) {
+            MG_State::pGLContext->RecordError(
+                ErrorCode::InvalidOperation,
+                MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", __func__,
+                                             "program " + std::to_string(program) + " is not linked."));
+            return;
+        }
+
+        if (location > programObject->GetMaxUniformLocation() || location < -1) {
+            MG_State::pGLContext->RecordError(
+                ErrorCode::InvalidOperation,
+                MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", __func__,
+                                             "location " + std::to_string(location) +
+                                                 " is an invalid uniform location for program " +
+                                                 std::to_string(program) + "."));
+            return;
+        }
+
+        for (GLint i = 0; i < count; i++) {
+            if (transpose == GL_TRUE) {
+                GLfloat transposedMatrix[9];
+                TransposeMatrix3x3(value + i * 9, transposedMatrix);
+                for (int row = 0; row < 3; ++row) {
+                    Uniform_State<3>(*programObject, location + i, transposedMatrix + row * 3, row * 4 * sizeof(float));
+                }
+            } else {
+                for (int row = 0; row < 3; ++row) {
+                    Uniform_State<3>(*programObject, location + i, value + i * 9 + row * 3, row * 4 * sizeof(float));
+                }
+            }
+        }
+    }
+
+    void ProgramUniformMatrix4fv_State(GLuint program, GLint location, GLsizei count, GLboolean transpose,
+                                       const GLfloat* value) {
+        if (location == -1) return;
+
+        auto& programObject = TryToGetProgramObject(program);
+        if (!programObject) return;
+
+        if (!programObject->GetLinkStatus()) {
+            MG_State::pGLContext->RecordError(
+                ErrorCode::InvalidOperation,
+                MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", __func__,
+                                             "program " + std::to_string(program) + " is not linked."));
+            return;
+        }
+
+        if (location > programObject->GetMaxUniformLocation() || location < -1) {
+            MG_State::pGLContext->RecordError(
+                ErrorCode::InvalidOperation,
+                MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", __func__,
+                                             "location " + std::to_string(location) +
+                                                 " is an invalid uniform location for program " +
+                                                 std::to_string(program) + "."));
+            return;
+        }
+
+        for (GLint i = 0; i < count; i++) {
+            if (transpose == GL_TRUE) {
+                GLfloat transposedMatrix[16];
+                TransposeMatrix4x4(value + i * 16, transposedMatrix);
+                Uniform_State<16>(*programObject, location + i, transposedMatrix);
+            } else {
                 Uniform_State<16>(*programObject, location + i, value + i * 16);
             }
         }
@@ -1158,6 +1300,126 @@ namespace MobileGL::MG_Impl::GLImpl {
 
     void UniformMatrix4fv(GLint location, GLsizei count, GLboolean transpose, const GLfloat* value) {
         UniformMatrix4fv_State(location, count, transpose, value);
+    }
+
+    void ProgramUniform1f(GLuint program, GLint location, GLfloat v0) {
+        ProgramUniform1fv(program, location, 1, &v0);
+    }
+
+    void ProgramUniform2f(GLuint program, GLint location, GLfloat v0, GLfloat v1) {
+        GLfloat v[] = {v0, v1};
+        ProgramUniform2fv(program, location, 1, v);
+    }
+
+    void ProgramUniform3f(GLuint program, GLint location, GLfloat v0, GLfloat v1, GLfloat v2) {
+        GLfloat v[] = {v0, v1, v2};
+        ProgramUniform3fv(program, location, 1, v);
+    }
+
+    void ProgramUniform4f(GLuint program, GLint location, GLfloat v0, GLfloat v1, GLfloat v2, GLfloat v3) {
+        GLfloat v[] = {v0, v1, v2, v3};
+        ProgramUniform4fv(program, location, 1, v);
+    }
+
+    void ProgramUniform1i(GLuint program, GLint location, GLint v0) {
+        ProgramUniform1iv(program, location, 1, &v0);
+    }
+
+    void ProgramUniform2i(GLuint program, GLint location, GLint v0, GLint v1) {
+        GLint v[] = {v0, v1};
+        ProgramUniform2iv(program, location, 1, v);
+    }
+
+    void ProgramUniform3i(GLuint program, GLint location, GLint v0, GLint v1, GLint v2) {
+        GLint v[] = {v0, v1, v2};
+        ProgramUniform3iv(program, location, 1, v);
+    }
+
+    void ProgramUniform4i(GLuint program, GLint location, GLint v0, GLint v1, GLint v2, GLint v3) {
+        GLint v[] = {v0, v1, v2, v3};
+        ProgramUniform4iv(program, location, 1, v);
+    }
+
+    void ProgramUniform1ui(GLuint program, GLint location, GLuint v0) {
+        ProgramUniform1uiv(program, location, 1, &v0);
+    }
+
+    void ProgramUniform2ui(GLuint program, GLint location, GLuint v0, GLuint v1) {
+        GLuint v[] = {v0, v1};
+        ProgramUniform2uiv(program, location, 1, v);
+    }
+
+    void ProgramUniform3ui(GLuint program, GLint location, GLuint v0, GLuint v1, GLuint v2) {
+        GLuint v[] = {v0, v1, v2};
+        ProgramUniform3uiv(program, location, 1, v);
+    }
+
+    void ProgramUniform4ui(GLuint program, GLint location, GLuint v0, GLuint v1, GLuint v2, GLuint v3) {
+        GLuint v[] = {v0, v1, v2, v3};
+        ProgramUniform4uiv(program, location, 1, v);
+    }
+
+    void ProgramUniform1fv(GLuint program, GLint location, GLsizei count, const GLfloat* value) {
+        ProgramUniformv_State<1>(program, location, count, value);
+    }
+
+    void ProgramUniform2fv(GLuint program, GLint location, GLsizei count, const GLfloat* value) {
+        ProgramUniformv_State<2>(program, location, count, value);
+    }
+
+    void ProgramUniform3fv(GLuint program, GLint location, GLsizei count, const GLfloat* value) {
+        ProgramUniformv_State<3>(program, location, count, value);
+    }
+
+    void ProgramUniform4fv(GLuint program, GLint location, GLsizei count, const GLfloat* value) {
+        ProgramUniformv_State<4>(program, location, count, value);
+    }
+
+    void ProgramUniform1iv(GLuint program, GLint location, GLsizei count, const GLint* value) {
+        ProgramUniformv_State<1>(program, location, count, value);
+    }
+
+    void ProgramUniform2iv(GLuint program, GLint location, GLsizei count, const GLint* value) {
+        ProgramUniformv_State<2>(program, location, count, value);
+    }
+
+    void ProgramUniform3iv(GLuint program, GLint location, GLsizei count, const GLint* value) {
+        ProgramUniformv_State<3>(program, location, count, value);
+    }
+
+    void ProgramUniform4iv(GLuint program, GLint location, GLsizei count, const GLint* value) {
+        ProgramUniformv_State<4>(program, location, count, value);
+    }
+
+    void ProgramUniform1uiv(GLuint program, GLint location, GLsizei count, const GLuint* value) {
+        ProgramUniformv_State<1>(program, location, count, value);
+    }
+
+    void ProgramUniform2uiv(GLuint program, GLint location, GLsizei count, const GLuint* value) {
+        ProgramUniformv_State<2>(program, location, count, value);
+    }
+
+    void ProgramUniform3uiv(GLuint program, GLint location, GLsizei count, const GLuint* value) {
+        ProgramUniformv_State<3>(program, location, count, value);
+    }
+
+    void ProgramUniform4uiv(GLuint program, GLint location, GLsizei count, const GLuint* value) {
+        ProgramUniformv_State<4>(program, location, count, value);
+    }
+
+    void ProgramUniformMatrix2fv(GLuint program, GLint location, GLsizei count, GLboolean transpose,
+                                 const GLfloat* value) {
+        ProgramUniformMatrix2fv_State(program, location, count, transpose, value);
+    }
+
+    void ProgramUniformMatrix3fv(GLuint program, GLint location, GLsizei count, GLboolean transpose,
+                                 const GLfloat* value) {
+        ProgramUniformMatrix3fv_State(program, location, count, transpose, value);
+    }
+
+    void ProgramUniformMatrix4fv(GLuint program, GLint location, GLsizei count, GLboolean transpose,
+                                 const GLfloat* value) {
+        ProgramUniformMatrix4fv_State(program, location, count, transpose, value);
     }
 
     GLuint GetUniformBlockIndex(GLuint program, const GLchar* uniformBlockName) {
