@@ -137,6 +137,17 @@ namespace MobileGL {
             }
         }
 
+        FrontFaceMode ConvertGLEnumToFrontFaceMode(GLenum v) {
+            switch (v) {
+            case GL_CCW:
+                return FrontFaceMode::CounterClockwise;
+            case GL_CW:
+                return FrontFaceMode::Clockwise;
+            default:
+                return FrontFaceMode::Unknown;
+            }
+        }
+
         CapabilityInput ConvertGLEnumToCapabilityInput(GLenum v) {
             switch (v) {
             case GL_BLEND:

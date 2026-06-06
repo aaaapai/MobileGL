@@ -305,6 +305,9 @@ namespace MobileGL::MG_Impl::GLImpl {
         case GL_CULL_FACE_MODE:
             *params = static_cast<GLint>(MG_Util::ConvertCullFaceModeToGLEnum(MG_State::pGLContext->GetCullFaceMode()));
             break;
+        case GL_FRONT_FACE:
+            *params = static_cast<GLint>(MG_Util::ConvertFrontFaceModeToGLEnum(MG_State::pGLContext->GetFrontFaceMode()));
+            break;
         case GL_CURRENT_PROGRAM: {
             const auto& currentProgram = MG_State::pGLContext->GetCurrentProgram();
             *params = currentProgram ? (GLint)currentProgram->GetExternalIndex() : 0;

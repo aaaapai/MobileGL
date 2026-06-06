@@ -530,6 +530,10 @@ namespace MobileGL::MG_Backend::DirectGLES {
                     const CullFaceMode& cfm = parameters.CullFaceModeSetting;
                     g_GLESFuncs.glCullFace(MG_Util::ConvertCullFaceModeToGLEnum(cfm));
                 }
+                if (parameters.FrontFaceModeSetting != g_syncedRenderStateParameters.FrontFaceModeSetting) {
+                    const FrontFaceMode& ffm = parameters.FrontFaceModeSetting;
+                    g_GLESFuncs.glFrontFace(MG_Util::ConvertFrontFaceModeToGLEnum(ffm));
+                }
             }
 
             { // Scissor box

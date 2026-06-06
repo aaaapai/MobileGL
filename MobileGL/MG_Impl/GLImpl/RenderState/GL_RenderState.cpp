@@ -154,7 +154,18 @@ namespace MobileGL::MG_Impl::GLImpl {
     }
 
     void FrontFace_State(GLenum mode) {
-        // TODO: implement
+        FrontFaceMode frontFaceMode = MG_Util::ConvertGLEnumToFrontFaceMode(mode);
+        if (frontFaceMode == FrontFaceMode::Unknown) {
+            MG_State::pGLContext->RecordError(
+                ErrorCode::InvalidEnum,
+                MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", "FrontFace_State",
+                                             "Front face mode enum " +
+                                                 MG_Util::ConvertFrontFaceModeToString(frontFaceMode) + "(" +
+                                                 MG_Util::ConvertGLEnumToString(mode) + ") is not supported."));
+            return;
+        }
+
+        MG_State::pGLContext->SetFrontFaceMode(frontFaceMode);
     }
 
     void Enable_State(GLenum cap) {

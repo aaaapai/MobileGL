@@ -349,6 +349,17 @@ namespace MobileGL {
                 return m_parameters.CullFaceModeSetting;
             }
 
+            void RenderState::SetFrontFaceMode(FrontFaceMode mode) {
+                if (m_parameters.FrontFaceModeSetting == mode) return;
+
+                m_parameters.FrontFaceModeSetting = mode;
+                ++m_version;
+            }
+
+            FrontFaceMode RenderState::GetFrontFaceMode() const {
+                return m_parameters.FrontFaceModeSetting;
+            }
+
             // --------------------- Scissor ---------------------
             void RenderState::SetScissorBox(IntVec4 box) {
                 if (m_parameters.ScissorBox == box) return;

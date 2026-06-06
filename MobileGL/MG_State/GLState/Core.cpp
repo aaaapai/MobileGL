@@ -405,6 +405,14 @@ namespace MobileGL::MG_State {
             return m_renderState.GetCullFaceMode();
         }
 
+        void GLContext::SetFrontFaceMode(FrontFaceMode mode) {
+            m_renderState.SetFrontFaceMode(mode);
+        }
+
+        FrontFaceMode GLContext::GetFrontFaceMode() const {
+            return m_renderState.GetFrontFaceMode();
+        }
+
         void GLContext::SetScissorBox(IntVec4 box) {
             m_renderState.SetScissorBox(box);
         }

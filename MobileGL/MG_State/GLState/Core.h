@@ -134,6 +134,8 @@ namespace MobileGL {
                 PixelStoreParameters GetPixelStoreParameters(Bool isUnpack) const;
                 void SetCullFaceMode(CullFaceMode mode);
                 CullFaceMode GetCullFaceMode() const;
+                void SetFrontFaceMode(FrontFaceMode mode);
+                FrontFaceMode GetFrontFaceMode() const;
                 void SetScissorBox(IntVec4 box);      // x, y, width, height
                 const IntVec4& GetScissorBox() const; // x, y, width, height
 

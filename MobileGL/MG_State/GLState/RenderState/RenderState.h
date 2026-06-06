@@ -87,6 +87,13 @@ namespace MobileGL {
         Unknown = -1
     };
 
+    enum class FrontFaceMode {
+        CounterClockwise,
+        Clockwise,
+        FrontFaceModeCount,
+        Unknown = -1
+    };
+
     enum class CapabilityInput {
         Blend,
         ClipDistance0,
@@ -171,6 +178,7 @@ namespace MobileGL {
         // Cull Face
         Bool CullFaceEnabled = false;
         CullFaceMode CullFaceModeSetting = CullFaceMode::Back;
+        FrontFaceMode FrontFaceModeSetting = FrontFaceMode::CounterClockwise;
 
         // Scissor
         Bool ScissorTestEnabled = false;
@@ -235,6 +243,8 @@ namespace MobileGL {
                 // Cull Face
                 void SetCullFaceMode(CullFaceMode mode);
                 CullFaceMode GetCullFaceMode() const;
+                void SetFrontFaceMode(FrontFaceMode mode);
+                FrontFaceMode GetFrontFaceMode() const;
 
                 // Scissor
                 void SetScissorBox(IntVec4 box);      // x, y, width, height
