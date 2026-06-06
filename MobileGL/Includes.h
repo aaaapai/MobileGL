@@ -32,6 +32,7 @@
 #include <thread>
 #include <vector>
 #include <cassert>
+#include <climits>
 #include <cstdarg>
 #include <cstring>
 #include <numeric>
