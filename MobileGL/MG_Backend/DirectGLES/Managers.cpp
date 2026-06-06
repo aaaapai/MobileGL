@@ -1104,6 +1104,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
 
                 source = RemoveLayoutBinding(source);
                 source = ProcessOutColorLocations(source);
+                source = ForceFlatIntegerVaryings(source, glShaderType);
                 source = ForceSupporterOutput(source);
 
                 // Patch for Photon compiler precision issue

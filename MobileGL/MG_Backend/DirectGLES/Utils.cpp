@@ -101,6 +101,37 @@ namespace MobileGL::MG_Backend::DirectGLES {
             return result;
         }
 
+        String ForceFlatIntegerVaryings(const String& glslCode, GLenum shaderType) {
+#ifdef TRACY_ENABLE
+            ZoneScopedC(TRACY_ZONECOLOR_BACKEND);
+#endif
+            String result = glslCode;
+            const String integerType = R"((?:(?:lowp|mediump|highp)\s+)?(?:u?int|[iu]vec[234])\b)";
+
+            auto addFlatQualifier = [&result, &integerType](const String& qualifier) {
+                const std::regex pattern("(layout\\s*\\([^)]*\\)\\s*)(?!(?:flat|smooth|noperspective)\\s)(" +
+                                         qualifier + "\\s+" + integerType + ")");
+                result = std::regex_replace(result, pattern, "$1flat $2");
+            };
+
+            switch (shaderType) {
+            case GL_VERTEX_SHADER:
+                addFlatQualifier("out");
+                break;
+            case GL_GEOMETRY_SHADER:
+                addFlatQualifier("in");
+                addFlatQualifier("out");
+                break;
+            case GL_FRAGMENT_SHADER:
+                addFlatQualifier("in");
+                break;
+            default:
+                break;
+            }
+
+            return result;
+        }
+
         String RemoveLayoutBinding(const String& glslCode) {
 #ifdef TRACY_ENABLE
             ZoneScopedC(TRACY_ZONECOLOR_BACKEND);
