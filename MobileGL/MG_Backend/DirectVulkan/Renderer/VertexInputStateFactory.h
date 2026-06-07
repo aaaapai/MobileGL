@@ -24,6 +24,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             Vector<VkVertexInputBindingDescription> bindings;
             Vector<VkVertexInputAttributeDescription> attributes;
             Vector<SizeT> bindingBufferKeys;
+            Vector<SizeT> bindingBaseOffsets;
             VkPipelineVertexInputStateCreateInfo state{
                 VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO
             };

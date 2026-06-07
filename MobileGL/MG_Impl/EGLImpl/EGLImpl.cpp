@@ -244,7 +244,13 @@ namespace MobileGL::MG_Impl::EGLImpl {
         if (!state) {
             return EGL_FALSE;
         }
-        return state->TerminateDisplay(dpy) ? EGL_TRUE : EGL_FALSE;
+        if (!state->TerminateDisplay(dpy)) {
+            return EGL_FALSE;
+        }
+        if (auto* backendObject = MG_Backend::pActiveBackendObject.get()) {
+            backendObject->ReleaseEGLResources();
+        }
+        return EGL_TRUE;
     }
 
     EGLBoolean ReleaseThread() {

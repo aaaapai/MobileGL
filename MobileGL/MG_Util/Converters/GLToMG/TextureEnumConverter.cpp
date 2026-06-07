@@ -48,6 +48,7 @@ namespace MobileGL {
 
         TextureInputFormat ConvertGLEnumToTextureInputFormat(GLenum format) {
             switch (format) {
+            case GL_ALPHA:
             case GL_RED:
                 return TextureInputFormat::Red;
             case GL_RG:
@@ -225,6 +226,7 @@ namespace MobileGL {
                 return TextureInternalFormat::DepthComponent;
             case GL_DEPTH_STENCIL:
                 return TextureInternalFormat::DepthStencil;
+            case GL_ALPHA:
             case GL_RED:
                 return TextureInternalFormat::Red;
             case GL_RG:

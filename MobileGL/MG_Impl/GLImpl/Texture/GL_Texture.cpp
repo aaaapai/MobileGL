@@ -29,6 +29,7 @@
 
 namespace MobileGL::MG_Impl::GLImpl {
     static SharedPtr<MG_State::GLState::ITextureObject> nullTextureObject;
+    static UnorderedMap<Uint, Bool> g_autoGenerateMipmapByTextureId;
 
     const SharedPtr<MG_State::GLState::ITextureObject>& GetTextureObjectByTarget(
         TextureUploadTarget textureUploadTarget, TextureTarget textureTarget) {
@@ -48,6 +49,18 @@ namespace MobileGL::MG_Impl::GLImpl {
 
     void GenerateMipmap_Backend(GLenum target) {
         MG_Backend::gBackendFunctionsTable.GL.GenerateMipmap(target);
+    }
+
+    void MaybeAutoGenerateMipmap(GLenum target, const SharedPtr<MG_State::GLState::ITextureObject>& textureObject,
+                                 Bool isProxy, GLint level) {
+        if (isProxy || level != 0 || !textureObject) {
+            return;
+        }
+        const auto it = g_autoGenerateMipmapByTextureId.find(textureObject->GetExternalIndex());
+        if (it == g_autoGenerateMipmapByTextureId.end() || !it->second) {
+            return;
+        }
+        GenerateMipmap_Backend(target);
     }
 
     void TexSubImage3D_State(GLenum target, GLint level, GLint xoffset, GLint yoffset, GLint zoffset, GLsizei width,
@@ -169,6 +182,7 @@ namespace MobileGL::MG_Impl::GLImpl {
 
         MGLOG_D("%s: mark mip %d as dirty", __func__, level);
         textureMipmapObject->MarkStorageDirty(textureUploadTarget, level, true);
+        MaybeAutoGenerateMipmap(target, textureObject, false, level);
     }
 
     void TexSubImage1D_State(GLenum target, GLint level, GLint xoffset, GLsizei width, GLenum format, GLenum type,
@@ -239,6 +253,9 @@ namespace MobileGL::MG_Impl::GLImpl {
             break;
         case GL_TEXTURE_LOD_BIAS:
             textureObject->GetSamplerObject()->SetLodBias(param);
+            break;
+        case GL_GENERATE_MIPMAP:
+            g_autoGenerateMipmapByTextureId[textureObject->GetExternalIndex()] = (param != 0.0f);
             break;
         case GL_TEXTURE_SWIZZLE_RGBA:
             // Not supported in this function
@@ -313,6 +330,9 @@ namespace MobileGL::MG_Impl::GLImpl {
             break;
         case GL_TEXTURE_LOD_BIAS:
             textureObject->GetSamplerObject()->SetLodBias((GLfloat)param);
+            break;
+        case GL_GENERATE_MIPMAP:
+            g_autoGenerateMipmapByTextureId[textureObject->GetExternalIndex()] = (param != GL_FALSE);
             break;
         case GL_TEXTURE_SWIZZLE_RGBA:
             // Not supported in this function
@@ -546,6 +566,10 @@ namespace MobileGL::MG_Impl::GLImpl {
         if (!TextureImpl::ValidateTextureObject(textureObject)) return;
 
         // ======================= Processing ================================
+        if (internalformat == GL_ALPHA || format == GL_ALPHA) {
+            textureObject->SetSwizzleParamRGBA({TextureSwizzleParam::Zero, TextureSwizzleParam::Zero,
+                                                TextureSwizzleParam::Zero, TextureSwizzleParam::Red});
+        }
 
         SizeT imageSize = 0;
         const SizeT inputBpp = MG_Util::GetInputBytesPerPixel(textureInputFormat, texturePixelDataType);
@@ -655,6 +679,10 @@ namespace MobileGL::MG_Impl::GLImpl {
         if (!TextureImpl::ValidateTextureObject(textureObject)) return;
 
         // ======================= Processing ================================
+        if (internalformat == GL_ALPHA || format == GL_ALPHA) {
+            textureObject->SetSwizzleParamRGBA({TextureSwizzleParam::Zero, TextureSwizzleParam::Zero,
+                                                TextureSwizzleParam::Zero, TextureSwizzleParam::Red});
+        }
 
         SizeT imageSize = 0;
         const SizeT inputBpp = MG_Util::GetInputBytesPerPixel(textureInputFormat, texturePixelDataType);
@@ -719,6 +747,7 @@ namespace MobileGL::MG_Impl::GLImpl {
 
         MGLOG_D("%s: mark mip %d as dirty", __func__, level);
         textureMipmapObject->MarkStorageDirty(textureUploadTarget, level, true);
+        MaybeAutoGenerateMipmap(target, textureObject, isProxy, level);
     }
 
     void TexImage1D_State(GLenum target, GLint level, GLint internalFormat, GLsizei width, GLint border, GLenum format,

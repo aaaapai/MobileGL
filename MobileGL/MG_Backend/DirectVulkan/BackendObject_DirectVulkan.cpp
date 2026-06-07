@@ -66,8 +66,8 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             MGLOG_E("DirectVulkan backend not initialized");
             return false;
         }
-        if (handle.Backend != WindowBackend::Android || !handle.Handle) {
-            MGLOG_E("DirectVulkan backend only supports Android native windows");
+        if (!handle.Handle || (handle.Backend != WindowBackend::Android && handle.Backend != WindowBackend::X11)) {
+            MGLOG_E("DirectVulkan backend only supports Android and X11 native windows");
             return false;
         }
 
@@ -106,6 +106,12 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         return BackendObject::SwapEGLBuffers(dpy, draw);
     }
 
+    void BackendObject_DirectVulkan::ReleaseEGLResources() {
+        const std::lock_guard<std::recursive_mutex> lock(m_eglStateMutex);
+        pVulkanRenderer.reset();
+        BackendObject::ReleaseEGLResources();
+    }
+
     const RendererInfo& BackendObject_DirectVulkan::GetRendererInfo() const {
         static RendererInfo RendererInfo = {
             .RendererName = "Magma",          // Renderer Name
@@ -118,7 +124,8 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                     .Extensions = {V_OpenGL30, V_OpenGL31, V_OpenGL32, // OpenGL Extensions
                                    V_OpenGL33, E_GL_ARB_draw_buffers_blend, E_GL_ARB_compute_shader,
                                    E_GL_ARB_shader_storage_buffer_object, E_GL_ARB_shader_image_load_store,
-                                   E_GL_ARB_program_interface_query},
+                                   E_GL_ARB_program_interface_query, E_GL_ARB_framebuffer_object,
+                                   E_GL_EXT_framebuffer_object, E_GL_ARB_depth_texture},
                     .IsCompatibilityProfile = false // Is Compatibility Profile
                 },
             .StaticBackendCapability = {.AllowVSOnlyPrograms = false} // Backend Capability

@@ -113,6 +113,12 @@ namespace MobileGL::MG_Backend::DirectGLES {
         return BackendObject::SwapEGLBuffers(dpy, draw);
     }
 
+    void BackendObject_DirectGLES::ReleaseEGLResources() {
+        const std::lock_guard<std::recursive_mutex> lock(m_eglStateMutex);
+        DestroyEGLContext();
+        BackendObject::ReleaseEGLResources();
+    }
+
     const RendererInfo& BackendObject_DirectGLES::GetRendererInfo() const {
         static RendererInfo RendererInfo = {
             .RendererName = "Espryt",            // Renderer Name

@@ -164,6 +164,14 @@ namespace MobileGL::MG_Backend {
         return true;
     }
 
+    void BackendObject::ReleaseEGLResources() {
+        const std::lock_guard<std::recursive_mutex> lock(m_eglStateMutex);
+        ResetEGLRuntimeState();
+        m_eglDisplay = EGL_NO_DISPLAY;
+        m_eglDisplayInitialized = false;
+        m_windowHandle = {};
+    }
+
     void BackendObject::SetWindowHandle(const WindowHandle& handle) {
         const std::lock_guard<std::recursive_mutex> lock(m_eglStateMutex);
         m_windowHandle = handle;

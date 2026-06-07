@@ -1331,6 +1331,22 @@ void main() {
             m_surface = VK_NULL_HANDLE;
         }
 
+#if defined(VK_USE_PLATFORM_XLIB_KHR)
+        if (m_platformDisplay != nullptr) {
+            using XCloseDisplayFn = int (*)(Display*);
+            auto* closeDisplay = reinterpret_cast<XCloseDisplayFn>(m_platformCloseDisplay);
+            if (closeDisplay) {
+                closeDisplay(static_cast<Display*>(m_platformDisplay));
+            }
+            m_platformDisplay = nullptr;
+        }
+        m_platformCloseDisplay = nullptr;
+        if (m_platformLibrary != nullptr) {
+            dlclose(m_platformLibrary);
+            m_platformLibrary = nullptr;
+        }
+#endif
+
         if (m_debugMessenger != VK_NULL_HANDLE) {
             DestroyDebugMessenger();
             m_debugMessenger = VK_NULL_HANDLE;
@@ -1413,7 +1429,12 @@ void main() {
                 }
             }
             vkBuffers[binding] = slice.buffer;
-            vkOffsets[binding] = slice.offset;
+            const SizeT baseOffset =
+                binding < vertexInputState.bindingBaseOffsets.size() ? vertexInputState.bindingBaseOffsets[binding] : 0;
+            MOBILEGL_ASSERT(baseOffset <= sourceSize,
+                            "UploadAndBindVertexStreams skipped: binding %zu base offset %zu exceeds buffer size %zu",
+                            binding, baseOffset, sourceSize);
+            vkOffsets[binding] = slice.offset + static_cast<VkDeviceSize>(baseOffset);
         }
 
         SizeT syntheticBinding = vertexInputState.bindings.size();
@@ -3515,8 +3536,15 @@ void main() {
         resource = m_textureManager->SyncTextureAndGetDescriptor(*texture);
         MOBILEGL_ASSERT(resource != nullptr && resource->image != VK_NULL_HANDLE,
                 "GenerateMipmap failed to resync the backend texture after allocating mip storage.");
-        MOBILEGL_ASSERT(resource->layout != VK_IMAGE_LAYOUT_UNDEFINED,
-                "GenerateMipmap requires initialized base-level image data.");
+        if (resource->layout == VK_IMAGE_LAYOUT_UNDEFINED) {
+            const VkImageLayout finalLayout = ResolveGenerateMipmapFinalLayout(resource->aspect);
+            Bool transitioned = VkTextureManager::TransitionImageLayout(
+                frame.commandBuffer, resource->image, resource->layout, finalLayout,
+                VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+                0, VK_ACCESS_SHADER_READ_BIT, resource->aspect, 0, resource->mipLevels, resource->arrayLayers);
+            MOBILEGL_ASSERT(transitioned, "GenerateMipmap: failed to transition uninitialized mip chain");
+            return;
+        }
 
         const IntVec3 storageBaseTexelSize = {
             static_cast<Int>(resource->extent.width),
@@ -3801,6 +3829,8 @@ void main() {
                                     VK_KHR_WIN32_SURFACE_EXTENSION_NAME
 #elif defined VK_USE_PLATFORM_METAL_EXT
                                     VK_EXT_METAL_SURFACE_EXTENSION_NAME
+#elif defined VK_USE_PLATFORM_XLIB_KHR
+                                    VK_KHR_XLIB_SURFACE_EXTENSION_NAME
 #else
 #warning "VulkanContext::CreateInstance: VK_KHR_*_surface extension not defined on this platform"
 #endif
@@ -4195,6 +4225,31 @@ void main() {
         VkMetalSurfaceCreateInfoEXT sci{VK_STRUCTURE_TYPE_METAL_SURFACE_CREATE_INFO_EXT};
         sci.pLayer = reinterpret_cast<const void*>(m_window);
         VK_VERIFY(vkCreateMetalSurfaceEXT(m_instance, &sci, nullptr, &m_surface), "vkCreateMetalSurfaceEXT failed");
+#elif defined VK_USE_PLATFORM_XLIB_KHR
+        MOBILEGL_ASSERT(m_window, "X11 Window is null");
+
+        void* x11Lib = dlopen("libX11.so.6", RTLD_LOCAL | RTLD_NOW);
+        if (!x11Lib) {
+            x11Lib = dlopen("libX11.so", RTLD_LOCAL | RTLD_NOW);
+        }
+        MOBILEGL_ASSERT(x11Lib != nullptr, "Failed to open libX11 while creating Vulkan Xlib surface");
+        using XOpenDisplayFn = Display* (*)(const char*);
+        using XCloseDisplayFn = int (*)(Display*);
+        auto* xOpenDisplay = reinterpret_cast<XOpenDisplayFn>(dlsym(x11Lib, "XOpenDisplay"));
+        auto* xCloseDisplay = reinterpret_cast<XCloseDisplayFn>(dlsym(x11Lib, "XCloseDisplay"));
+        MOBILEGL_ASSERT(xOpenDisplay != nullptr && xCloseDisplay != nullptr,
+                        "Failed to resolve XOpenDisplay/XCloseDisplay while creating Vulkan Xlib surface");
+
+        auto* display = xOpenDisplay(std::getenv("DISPLAY"));
+        MOBILEGL_ASSERT(display != nullptr, "XOpenDisplay failed while creating Vulkan Xlib surface");
+        m_platformDisplay = display;
+        m_platformLibrary = x11Lib;
+        m_platformCloseDisplay = reinterpret_cast<void*>(xCloseDisplay);
+
+        VkXlibSurfaceCreateInfoKHR sci{VK_STRUCTURE_TYPE_XLIB_SURFACE_CREATE_INFO_KHR};
+        sci.dpy = display;
+        sci.window = static_cast<Window>(m_window);
+        VK_VERIFY(vkCreateXlibSurfaceKHR(m_instance, &sci, nullptr, &m_surface), "vkCreateXlibSurfaceKHR failed");
 #else
         // #warning "VulkanRenderer::Initialize called on a platform which is not supported yet"
         MGLOG_W("VulkanRenderer::Initialize called on a platform which is not supported yet"); // TODO: support more

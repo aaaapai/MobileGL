@@ -1943,7 +1943,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
         }
 
         using XOpenDisplayFn = Display* (*)(const char*);
-        using XGetWindowAttributesFn = Status (*)(Display*, Window, XWindowAttributes*);
+        using XGetWindowAttributesFn = int (*)(Display*, Window, XWindowAttributes*);
         using XVisualIDFromVisualFn = unsigned long (*)(Visual*);
         using XCloseDisplayFn = int (*)(Display*);
 

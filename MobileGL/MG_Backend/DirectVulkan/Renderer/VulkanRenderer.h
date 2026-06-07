@@ -174,6 +174,9 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         void QueueClearBufferPayload(GLenum buffer, GLint drawbuffer, const ClearAttachmentPayload& clearPayload);
 
         NativeWindowType m_window = 0;
+        void* m_platformDisplay = nullptr;
+        void* m_platformLibrary = nullptr;
+        void* m_platformCloseDisplay = nullptr;
         VulkanRendererConfig m_config;
 
         // Vulkan objects
