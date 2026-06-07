@@ -33,6 +33,7 @@
 #include <vector>
 #include <cassert>
 #include <climits>
+#include <cstdlib>
 #include <cstdarg>
 #include <cstring>
 #include <numeric>

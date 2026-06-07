@@ -213,7 +213,7 @@ namespace MobileGL {
                 static std::thread::id CurrentThreadKey();
 
                 EGLDisplayHandle GetOrCreateDisplay(Uint64 nativeDisplayKey, EGLenum platform);
-                EGLConfigHandle CreateDefaultConfig(EGLDisplayHandle display);
+                EGLConfigHandle CreateDefaultConfig(EGLDisplayHandle display, EGLint configId, EGLint stencilSize);
 
                 DisplayObject* TryGetDisplay(EGLDisplayHandle display);
                 const DisplayObject* TryGetDisplay(EGLDisplayHandle display) const;

@@ -78,23 +78,27 @@ namespace MobileGL::MG_Backend::DirectGLES {
             return false;
         }
 
-        if (handle.Backend != WindowBackend::Android || !handle.Handle) {
-            MGLOG_E("DirectGLES backend only supports Android native windows");
+        if ((handle.Backend != WindowBackend::Android && handle.Backend != WindowBackend::X11) || !handle.Handle) {
+            MGLOG_E("DirectGLES backend only supports Android and X11 native windows");
             return false;
         }
 
-        const Bool sameHandle =
-            m_eglWindowSurfaceInitialized && m_windowHandle.Backend == handle.Backend && m_windowHandle.Handle == handle.Handle;
+        const Bool sameHandle = m_eglSurfaceInitialized && m_eglSurfaceKind == SurfaceKind::Window &&
+                                m_windowHandle.Backend == handle.Backend && m_windowHandle.Handle == handle.Handle;
         if (sameHandle) {
             return true;
         }
 
-        if (m_eglWindowSurfaceInitialized) {
+        if (m_eglSurfaceInitialized) {
             DestroyEGLContext();
             ResetEGLRuntimeState();
         }
 
         return BackendObject::CreateEGLWindowSurface(handle);
+    }
+
+    Bool BackendObject_DirectGLES::InitPbufferSurface(EGLint width, EGLint height) {
+        return DirectGLES::InitPbufferSurface(width, height);
     }
 
     Bool BackendObject_DirectGLES::MakeEGLCurrent(EGLDisplay dpy, EGLSurface draw, EGLSurface read, EGLContext ctx) {
@@ -121,7 +125,8 @@ namespace MobileGL::MG_Backend::DirectGLES {
                     .Extensions = {V_OpenGL30, V_OpenGL31, V_OpenGL32, // OpenGL Extensions
                                    V_OpenGL33, E_GL_ARB_draw_buffers_blend, E_GL_ARB_compute_shader,
                                    E_GL_ARB_shader_storage_buffer_object, E_GL_ARB_shader_image_load_store,
-                                   E_GL_ARB_program_interface_query},
+                                   E_GL_ARB_program_interface_query, E_GL_ARB_framebuffer_object,
+                                   E_GL_EXT_framebuffer_object},
                     .IsCompatibilityProfile = false // Is Compatibility Profile
                 },
             .StaticBackendCapability = {.AllowVSOnlyPrograms = false} // Backend Capability

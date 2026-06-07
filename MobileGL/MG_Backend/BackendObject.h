@@ -94,6 +94,7 @@ namespace MobileGL {
 
         enum class WindowBackend {
             Android,
+            X11,
             // TODO: X11, Wayland, Windows, macOS, etc.
             WindowBackendCount,
             Unknown = -1
@@ -114,6 +115,7 @@ namespace MobileGL {
 
             virtual Bool InitializeEGLDisplay(EGLDisplay dpy, EGLint* major, EGLint* minor);
             virtual Bool CreateEGLWindowSurface(const WindowHandle& handle);
+            virtual Bool CreateEGLPbufferSurface(EGLint width, EGLint height);
             virtual Bool MakeEGLCurrent(EGLDisplay dpy, EGLSurface draw, EGLSurface read, EGLContext ctx);
             virtual Bool SwapEGLBuffers(EGLDisplay dpy, EGLSurface draw);
 
@@ -126,14 +128,22 @@ namespace MobileGL {
             virtual BackendType GetBackendType() const = 0;
 
         protected:
+            enum class SurfaceKind {
+                None,
+                Window,
+                Pbuffer
+            };
+
             void ResetEGLRuntimeState();
+            virtual Bool InitPbufferSurface(EGLint width, EGLint height);
 
             mutable std::recursive_mutex m_eglStateMutex;
             WindowHandle m_windowHandle;
             EGLDisplay m_eglDisplay = EGL_NO_DISPLAY;
             Bool m_eglDisplayInitialized = false;
-            Bool m_eglWindowSurfaceInitialized = false;
+            Bool m_eglSurfaceInitialized = false;
             Bool m_backendCapabilitiesInitialized = false;
+            SurfaceKind m_eglSurfaceKind = SurfaceKind::None;
             UnorderedMap<std::thread::id, Bool> m_eglCurrentThreads;
         };
     } // namespace MG_Backend

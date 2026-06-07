@@ -17,42 +17,40 @@
 #include "../Framebuffer/GL_Framebuffer.h"
 #include "../VertexArray/GL_VertexArray.h"
 
-#define DECLARE_GL_FUNCTION_STUB_HEAD(type,name,...)                        \
-MOBILEGL_GL_API type gl##name(__VA_ARGS__) {
+#define DECLARE_GL_FUNCTION_STUB_HEAD(type, name, ...) MOBILEGL_GL_API type gl##name(__VA_ARGS__) {
 
-#define DECLARE_GL_FUNCTION_STUB_END(type,name,...)                         \
-    MGLOG_W("Stub function: %s(...)", __FUNCTION__);                        \
-    return (type)1;                                                         \
-}
+#define DECLARE_GL_FUNCTION_STUB_END(type, name, ...)                                                                  \
+    MGLOG_W("Stub function: %s(...)", __FUNCTION__);                                                                   \
+    return (type)1;                                                                                                    \
+    }
 
-#define DECLARE_GL_FUNCTION_STUB_END_NO_RETURN(type,name,...)               \
-    MGLOG_W("Stub function: %s(...)", __FUNCTION__);                        \
-}
+#define DECLARE_GL_FUNCTION_STUB_END_NO_RETURN(type, name, ...)                                                        \
+    MGLOG_W("Stub function: %s(...)", __FUNCTION__);                                                                   \
+    }
 
-#define DECLARE_GL_FUNCTION_HEAD(type,name,...)                             \
-MOBILEGL_GL_API type gl##name(__VA_ARGS__) {
+#define DECLARE_GL_FUNCTION_HEAD(type, name, ...) MOBILEGL_GL_API type gl##name(__VA_ARGS__) {
 
 #ifdef TRACY_ENABLE
-    #define DECLARE_GL_FUNCTION_END(type,name,...)                              \
-        ZoneScopedC(TRACY_ZONECOLOR_ENTRY);                                     \
-        MGLOG_D("Implementing function: %s(...)", __FUNCTION__);                \
-        return MobileGL::MG_Impl::GLImpl::name(__VA_ARGS__);                    \
+#define DECLARE_GL_FUNCTION_END(type, name, ...)                                                                       \
+    ZoneScopedC(TRACY_ZONECOLOR_ENTRY);                                                                                \
+    MGLOG_D("Implementing function: %s(...)", __FUNCTION__);                                                           \
+    return MobileGL::MG_Impl::GLImpl::name(__VA_ARGS__);                                                               \
     }
 
-    #define DECLARE_GL_FUNCTION_END_NO_RETURN(type,name,...)                    \
-        ZoneScopedC(TRACY_ZONECOLOR_ENTRY);                                     \
-        MGLOG_D("Implementing function: %s(...)", __FUNCTION__);                \
-        MobileGL::MG_Impl::GLImpl::name(__VA_ARGS__);                           \
+#define DECLARE_GL_FUNCTION_END_NO_RETURN(type, name, ...)                                                             \
+    ZoneScopedC(TRACY_ZONECOLOR_ENTRY);                                                                                \
+    MGLOG_D("Implementing function: %s(...)", __FUNCTION__);                                                           \
+    MobileGL::MG_Impl::GLImpl::name(__VA_ARGS__);                                                                      \
     }
 #else
-    #define DECLARE_GL_FUNCTION_END(type,name,...)                              \
-        MGLOG_D("Implementing function: %s(...)", __FUNCTION__);                \
-        return MobileGL::MG_Impl::GLImpl::name(__VA_ARGS__);                    \
+#define DECLARE_GL_FUNCTION_END(type, name, ...)                                                                       \
+    MGLOG_D("Implementing function: %s(...)", __FUNCTION__);                                                           \
+    return MobileGL::MG_Impl::GLImpl::name(__VA_ARGS__);                                                               \
     }
 
-    #define DECLARE_GL_FUNCTION_END_NO_RETURN(type,name,...)                    \
-        MGLOG_D("Implementing function: %s(...)", __FUNCTION__);                \
-        MobileGL::MG_Impl::GLImpl::name(__VA_ARGS__);                           \
+#define DECLARE_GL_FUNCTION_END_NO_RETURN(type, name, ...)                                                             \
+    MGLOG_D("Implementing function: %s(...)", __FUNCTION__);                                                           \
+    MobileGL::MG_Impl::GLImpl::name(__VA_ARGS__);                                                                      \
     }
 #endif
 
@@ -2880,6 +2878,69 @@ MOBILEGL_GL_API void glGetFramebufferParameterivEXT(GLenum target, GLenum pname,
     glGetFramebufferParameteriv(target, pname, params);
 }
 
+MOBILEGL_GL_API void glBindFramebufferEXT(GLenum target, GLuint framebuffer) {
+    glBindFramebuffer(target, framebuffer);
+}
+
+MOBILEGL_GL_API void glBindRenderbufferEXT(GLenum target, GLuint renderbuffer) {
+    glBindRenderbuffer(target, renderbuffer);
+}
+
+MOBILEGL_GL_API GLenum glCheckFramebufferStatusEXT(GLenum target) {
+    return glCheckFramebufferStatus(target);
+}
+
+MOBILEGL_GL_API void glDeleteFramebuffersEXT(GLsizei n, const GLuint* framebuffers) {
+    glDeleteFramebuffers(n, framebuffers);
+}
+
+MOBILEGL_GL_API void glDeleteRenderbuffersEXT(GLsizei n, const GLuint* renderbuffers) {
+    glDeleteRenderbuffers(n, renderbuffers);
+}
+
+MOBILEGL_GL_API void glFramebufferRenderbufferEXT(GLenum target, GLenum attachment, GLenum renderbuffertarget,
+                                                  GLuint renderbuffer) {
+    glFramebufferRenderbuffer(target, attachment, renderbuffertarget, renderbuffer);
+}
+
+MOBILEGL_GL_API void glFramebufferTexture2DEXT(GLenum target, GLenum attachment, GLenum textarget, GLuint texture,
+                                               GLint level) {
+    glFramebufferTexture2D(target, attachment, textarget, texture, level);
+}
+
+MOBILEGL_GL_API void glGenFramebuffersEXT(GLsizei n, GLuint* framebuffers) {
+    glGenFramebuffers(n, framebuffers);
+}
+
+MOBILEGL_GL_API void glGenRenderbuffersEXT(GLsizei n, GLuint* renderbuffers) {
+    glGenRenderbuffers(n, renderbuffers);
+}
+
+MOBILEGL_GL_API void glGenerateMipmapEXT(GLenum target) {
+    glGenerateMipmap(target);
+}
+
+MOBILEGL_GL_API void glGetFramebufferAttachmentParameterivEXT(GLenum target, GLenum attachment, GLenum pname,
+                                                              GLint* params) {
+    glGetFramebufferAttachmentParameteriv(target, attachment, pname, params);
+}
+
+MOBILEGL_GL_API void glGetRenderbufferParameterivEXT(GLenum target, GLenum pname, GLint* params) {
+    glGetRenderbufferParameteriv(target, pname, params);
+}
+
+MOBILEGL_GL_API GLboolean glIsFramebufferEXT(GLuint framebuffer) {
+    return glIsFramebuffer(framebuffer);
+}
+
+MOBILEGL_GL_API GLboolean glIsRenderbufferEXT(GLuint renderbuffer) {
+    return glIsRenderbuffer(renderbuffer);
+}
+
+MOBILEGL_GL_API void glRenderbufferStorageEXT(GLenum target, GLenum internalformat, GLsizei width, GLsizei height) {
+    glRenderbufferStorage(target, internalformat, width, height);
+}
+
 MOBILEGL_GL_API GLenum glGetGraphicsResetStatusARB(void) {
     return glGetGraphicsResetStatus();
 }
@@ -3025,48 +3086,48 @@ MOBILEGL_GL_API void glProgramUniform4uivEXT(GLuint program, GLint location, GLs
     glProgramUniform4uiv(program, location, count, value);
 }
 
-MOBILEGL_GL_API void glProgramUniformMatrix2fvEXT(GLuint program, GLint location, GLsizei count,
-                                                  GLboolean transpose, const GLfloat* value) {
+MOBILEGL_GL_API void glProgramUniformMatrix2fvEXT(GLuint program, GLint location, GLsizei count, GLboolean transpose,
+                                                  const GLfloat* value) {
     glProgramUniformMatrix2fv(program, location, count, transpose, value);
 }
 
-MOBILEGL_GL_API void glProgramUniformMatrix2x3fvEXT(GLuint program, GLint location, GLsizei count,
-                                                    GLboolean transpose, const GLfloat* value) {
+MOBILEGL_GL_API void glProgramUniformMatrix2x3fvEXT(GLuint program, GLint location, GLsizei count, GLboolean transpose,
+                                                    const GLfloat* value) {
     glProgramUniformMatrix2x3fv(program, location, count, transpose, value);
 }
 
-MOBILEGL_GL_API void glProgramUniformMatrix2x4fvEXT(GLuint program, GLint location, GLsizei count,
-                                                    GLboolean transpose, const GLfloat* value) {
+MOBILEGL_GL_API void glProgramUniformMatrix2x4fvEXT(GLuint program, GLint location, GLsizei count, GLboolean transpose,
+                                                    const GLfloat* value) {
     glProgramUniformMatrix2x4fv(program, location, count, transpose, value);
 }
 
-MOBILEGL_GL_API void glProgramUniformMatrix3fvEXT(GLuint program, GLint location, GLsizei count,
-                                                  GLboolean transpose, const GLfloat* value) {
+MOBILEGL_GL_API void glProgramUniformMatrix3fvEXT(GLuint program, GLint location, GLsizei count, GLboolean transpose,
+                                                  const GLfloat* value) {
     glProgramUniformMatrix3fv(program, location, count, transpose, value);
 }
 
-MOBILEGL_GL_API void glProgramUniformMatrix3x2fvEXT(GLuint program, GLint location, GLsizei count,
-                                                    GLboolean transpose, const GLfloat* value) {
+MOBILEGL_GL_API void glProgramUniformMatrix3x2fvEXT(GLuint program, GLint location, GLsizei count, GLboolean transpose,
+                                                    const GLfloat* value) {
     glProgramUniformMatrix3x2fv(program, location, count, transpose, value);
 }
 
-MOBILEGL_GL_API void glProgramUniformMatrix3x4fvEXT(GLuint program, GLint location, GLsizei count,
-                                                    GLboolean transpose, const GLfloat* value) {
+MOBILEGL_GL_API void glProgramUniformMatrix3x4fvEXT(GLuint program, GLint location, GLsizei count, GLboolean transpose,
+                                                    const GLfloat* value) {
     glProgramUniformMatrix3x4fv(program, location, count, transpose, value);
 }
 
-MOBILEGL_GL_API void glProgramUniformMatrix4fvEXT(GLuint program, GLint location, GLsizei count,
-                                                  GLboolean transpose, const GLfloat* value) {
+MOBILEGL_GL_API void glProgramUniformMatrix4fvEXT(GLuint program, GLint location, GLsizei count, GLboolean transpose,
+                                                  const GLfloat* value) {
     glProgramUniformMatrix4fv(program, location, count, transpose, value);
 }
 
-MOBILEGL_GL_API void glProgramUniformMatrix4x2fvEXT(GLuint program, GLint location, GLsizei count,
-                                                    GLboolean transpose, const GLfloat* value) {
+MOBILEGL_GL_API void glProgramUniformMatrix4x2fvEXT(GLuint program, GLint location, GLsizei count, GLboolean transpose,
+                                                    const GLfloat* value) {
     glProgramUniformMatrix4x2fv(program, location, count, transpose, value);
 }
 
-MOBILEGL_GL_API void glProgramUniformMatrix4x3fvEXT(GLuint program, GLint location, GLsizei count,
-                                                    GLboolean transpose, const GLfloat* value) {
+MOBILEGL_GL_API void glProgramUniformMatrix4x3fvEXT(GLuint program, GLint location, GLsizei count, GLboolean transpose,
+                                                    const GLfloat* value) {
     glProgramUniformMatrix4x3fv(program, location, count, transpose, value);
 }
 

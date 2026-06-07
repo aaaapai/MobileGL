@@ -134,7 +134,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
                     const auto start = std::min(range.start, obj->GetSize());
                     const auto end = std::min(range.end, obj->GetSize());
                     g_GLESFuncs.glBindBufferRange(glTarget, static_cast<GLuint>(i), backendBufferId,
-                                                 static_cast<GLintptr>(start), static_cast<GLsizeiptr>(end - start));
+                                                  static_cast<GLintptr>(start), static_cast<GLsizeiptr>(end - start));
                 }
             }
         }
@@ -1454,8 +1454,8 @@ namespace MobileGL::MG_Backend::DirectGLES {
         return g_GLESFuncs.glGetProgramResourceIndex(backendProgramId, programInterface, name);
     }
 
-    void GetProgramResourceName(GLuint program, GLenum programInterface, GLuint index, GLsizei bufSize,
-                                GLsizei* length, GLchar* name) {
+    void GetProgramResourceName(GLuint program, GLenum programInterface, GLuint index, GLsizei bufSize, GLsizei* length,
+                                GLchar* name) {
         GLuint backendProgramId = GetBackendProgramId(program);
         if (!backendProgramId) return;
         g_GLESFuncs.glGetProgramResourceName(backendProgramId, programInterface, index, bufSize, length, name);
@@ -1465,8 +1465,8 @@ namespace MobileGL::MG_Backend::DirectGLES {
                               const GLenum* props, GLsizei bufSize, GLsizei* length, GLint* params) {
         GLuint backendProgramId = GetBackendProgramId(program);
         if (!backendProgramId) return;
-        g_GLESFuncs.glGetProgramResourceiv(backendProgramId, programInterface, index, propCount, props, bufSize,
-                                           length, params);
+        g_GLESFuncs.glGetProgramResourceiv(backendProgramId, programInterface, index, propCount, props, bufSize, length,
+                                           params);
     }
 
     GLint GetProgramResourceLocation(GLuint program, GLenum programInterface, const GLchar* name) {
@@ -1858,9 +1858,117 @@ namespace MobileGL::MG_Backend::DirectGLES {
     static EGLContext g_Context = EGL_NO_CONTEXT;
     static EGLSurface g_Surface = EGL_NO_SURFACE;
     static EGLConfig g_Config = nullptr;
-    Bool InitWindowSurface(NativeWindowType window) {
-        // TODO: handle custom EGL paramters
-        if (!window) return false;
+
+    static EGLint QueryDefaultX11VisualId() {
+#if defined(__linux__) && !defined(__ANDROID__)
+        const char* displayName = std::getenv("DISPLAY");
+        if (!displayName) {
+            return 0;
+        }
+
+        void* x11Lib = dlopen("libX11.so.6", RTLD_LOCAL | RTLD_NOW);
+        if (!x11Lib) {
+            x11Lib = dlopen("libX11.so", RTLD_LOCAL | RTLD_NOW);
+        }
+        if (!x11Lib) {
+            return 0;
+        }
+
+        using XOpenDisplayFn = void* (*)(const char*);
+        using XDefaultScreenFn = int (*)(void*);
+        using XDefaultVisualFn = void* (*)(void*, int);
+        using XVisualIDFromVisualFn = unsigned long (*)(void*);
+        using XCloseDisplayFn = int (*)(void*);
+
+        auto* xOpenDisplay = reinterpret_cast<XOpenDisplayFn>(dlsym(x11Lib, "XOpenDisplay"));
+        auto* xDefaultScreen = reinterpret_cast<XDefaultScreenFn>(dlsym(x11Lib, "XDefaultScreen"));
+        auto* xDefaultVisual = reinterpret_cast<XDefaultVisualFn>(dlsym(x11Lib, "XDefaultVisual"));
+        auto* xVisualIDFromVisual = reinterpret_cast<XVisualIDFromVisualFn>(dlsym(x11Lib, "XVisualIDFromVisual"));
+        auto* xCloseDisplay = reinterpret_cast<XCloseDisplayFn>(dlsym(x11Lib, "XCloseDisplay"));
+        if (!xOpenDisplay || !xDefaultScreen || !xDefaultVisual || !xVisualIDFromVisual || !xCloseDisplay) {
+            dlclose(x11Lib);
+            return 0;
+        }
+
+        void* display = xOpenDisplay(displayName);
+        if (!display) {
+            dlclose(x11Lib);
+            return 0;
+        }
+        const int screen = xDefaultScreen(display);
+        void* visual = xDefaultVisual(display, screen);
+        const auto visualId = visual ? static_cast<EGLint>(xVisualIDFromVisual(visual)) : 0;
+        xCloseDisplay(display);
+        dlclose(x11Lib);
+        return visualId;
+#else
+        return 0;
+#endif
+    }
+
+    static Bool GetConfigAttrib(EGLConfig config, EGLint attr, EGLint& value) {
+        return g_EGLFuncs.eglGetConfigAttrib && g_EGLFuncs.eglGetConfigAttrib(g_Display, config, attr, &value);
+    }
+
+    static Bool ConfigSupports(EGLConfig config, EGLint surfaceBit) {
+        EGLint surfaceType = 0;
+        EGLint renderableType = 0;
+        if (!GetConfigAttrib(config, EGL_SURFACE_TYPE, surfaceType)) {
+            return false;
+        }
+        if (!GetConfigAttrib(config, EGL_RENDERABLE_TYPE, renderableType)) {
+            return false;
+        }
+        return (surfaceType & surfaceBit) && (renderableType & EGL_OPENGL_ES3_BIT);
+    }
+
+    static Bool ChooseConfigForSurface(EGLint surfaceBit, EGLConfig& outConfig) {
+        const EGLint configAttribs[] = {EGL_SURFACE_TYPE, surfaceBit, EGL_RENDERABLE_TYPE, EGL_OPENGL_ES3_BIT,
+                                        EGL_RED_SIZE,     8,          EGL_GREEN_SIZE,      8,
+                                        EGL_BLUE_SIZE,    8,          EGL_ALPHA_SIZE,      8,
+                                        EGL_DEPTH_SIZE,   24,         EGL_STENCIL_SIZE,    8,
+                                        EGL_NONE};
+
+        EGLint numConfigs = 0;
+        if (!g_EGLFuncs.eglChooseConfig(g_Display, configAttribs, nullptr, 0, &numConfigs) || numConfigs == 0) {
+            return false;
+        }
+
+        Vector<EGLConfig> configs(static_cast<SizeT>(numConfigs));
+        if (!g_EGLFuncs.eglChooseConfig(g_Display, configAttribs, configs.data(), numConfigs, &numConfigs) ||
+            numConfigs == 0) {
+            return false;
+        }
+        configs.resize(static_cast<SizeT>(numConfigs));
+
+        if (surfaceBit == EGL_WINDOW_BIT) {
+            const EGLint defaultVisualId = QueryDefaultX11VisualId();
+            if (defaultVisualId != 0) {
+                for (const auto config : configs) {
+                    EGLint nativeVisualId = 0;
+                    if (ConfigSupports(config, surfaceBit) &&
+                        GetConfigAttrib(config, EGL_NATIVE_VISUAL_ID, nativeVisualId) &&
+                        nativeVisualId == defaultVisualId) {
+                        outConfig = config;
+                        return true;
+                    }
+                }
+            }
+        }
+
+        for (const auto config : configs) {
+            if (ConfigSupports(config, surfaceBit)) {
+                outConfig = config;
+                return true;
+            }
+        }
+
+        outConfig = configs.front();
+        return true;
+    }
+
+    static Bool InitDisplayAndContext(EGLint surfaceBit) {
+        DestroyEGLContext();
 
         g_Display = g_EGLFuncs.eglGetDisplay(EGL_DEFAULT_DISPLAY);
         if (g_Display == EGL_NO_DISPLAY) return false;
@@ -1868,32 +1976,18 @@ namespace MobileGL::MG_Backend::DirectGLES {
         if (!g_EGLFuncs.eglInitialize(g_Display, nullptr, nullptr)) return false;
         g_EGLFuncs.eglBindAPI(EGL_OPENGL_ES_API);
 
-        const EGLint configAttribs[] = {EGL_SURFACE_TYPE,
-                                        EGL_WINDOW_BIT,
-                                        EGL_RENDERABLE_TYPE,
-                                        EGL_OPENGL_ES3_BIT,
-                                        EGL_RED_SIZE,
-                                        8,
-                                        EGL_GREEN_SIZE,
-                                        8,
-                                        EGL_BLUE_SIZE,
-                                        8,
-                                        EGL_ALPHA_SIZE,
-                                        8,
-                                        EGL_DEPTH_SIZE,
-                                        24,
-                                        EGL_STENCIL_SIZE,
-                                        8,
-                                        EGL_NONE};
-
-        EGLint numConfigs = 0;
-        if (!g_EGLFuncs.eglChooseConfig(g_Display, configAttribs, &g_Config, 1, &numConfigs) || numConfigs == 0)
-            return false;
+        if (!ChooseConfigForSurface(surfaceBit, g_Config)) return false;
 
         const EGLint contextAttribs[] = {EGL_CONTEXT_CLIENT_VERSION, 3, EGL_NONE};
 
         g_Context = g_EGLFuncs.eglCreateContext(g_Display, g_Config, EGL_NO_CONTEXT, contextAttribs);
-        if (g_Context == EGL_NO_CONTEXT) return false;
+        return g_Context != EGL_NO_CONTEXT;
+    }
+
+    Bool InitWindowSurface(NativeWindowType window) {
+        if (!window) return false;
+
+        if (!InitDisplayAndContext(EGL_WINDOW_BIT)) return false;
 
         g_Surface = g_EGLFuncs.eglCreateWindowSurface(g_Display, g_Config, window, nullptr);
         if (g_Surface == EGL_NO_SURFACE) return false;
@@ -1902,6 +1996,21 @@ namespace MobileGL::MG_Backend::DirectGLES {
 
         MGLOG_D("EGL context created successfully: display=%p, surface=%p, context=%p. window=%p", g_Display, g_Surface,
                 g_Context, window);
+        return true;
+    }
+
+    Bool InitPbufferSurface(EGLint width, EGLint height) {
+        if (width <= 0 || height <= 0) return false;
+        if (!InitDisplayAndContext(EGL_PBUFFER_BIT)) return false;
+
+        const EGLint surfaceAttribs[] = {EGL_WIDTH, width, EGL_HEIGHT, height, EGL_NONE};
+        g_Surface = g_EGLFuncs.eglCreatePbufferSurface(g_Display, g_Config, surfaceAttribs);
+        if (g_Surface == EGL_NO_SURFACE) return false;
+
+        if (!g_EGLFuncs.eglMakeCurrent(g_Display, g_Surface, g_Surface, g_Context)) return false;
+
+        MGLOG_D("EGL pbuffer context created successfully: display=%p, surface=%p, context=%p. size=%dx%d", g_Display,
+                g_Surface, g_Context, width, height);
         return true;
     }
 

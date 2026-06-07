@@ -53,7 +53,8 @@ namespace MobileGL::MG_Backend {
             return false;
         }
 
-        if (m_eglWindowSurfaceInitialized && m_windowHandle.Backend == handle.Backend && m_windowHandle.Handle == handle.Handle) {
+        if (m_eglSurfaceInitialized && m_eglSurfaceKind == SurfaceKind::Window &&
+            m_windowHandle.Backend == handle.Backend && m_windowHandle.Handle == handle.Handle) {
             return true;
         }
 
@@ -63,7 +64,35 @@ namespace MobileGL::MG_Backend {
             return false;
         }
 
-        m_eglWindowSurfaceInitialized = true;
+        m_eglSurfaceInitialized = true;
+        m_eglSurfaceKind = SurfaceKind::Window;
+        m_eglCurrentThreads.clear();
+        m_backendCapabilitiesInitialized = false;
+        return true;
+    }
+
+    Bool BackendObject::CreateEGLPbufferSurface(EGLint width, EGLint height) {
+        const std::lock_guard<std::recursive_mutex> lock(m_eglStateMutex);
+        if (!m_eglDisplayInitialized) {
+            MGLOG_E("CreateEGLPbufferSurface failed: EGL display is not initialized");
+            return false;
+        }
+        if (width <= 0 || height <= 0) {
+            MGLOG_E("CreateEGLPbufferSurface failed: invalid size %dx%d", width, height);
+            return false;
+        }
+
+        if (m_eglSurfaceInitialized && m_eglSurfaceKind == SurfaceKind::Pbuffer) {
+            return true;
+        }
+
+        if (!InitPbufferSurface(width, height)) {
+            MGLOG_E("CreateEGLPbufferSurface failed: backend InitPbufferSurface failed");
+            return false;
+        }
+
+        m_eglSurfaceInitialized = true;
+        m_eglSurfaceKind = SurfaceKind::Pbuffer;
         m_eglCurrentThreads.clear();
         m_backendCapabilitiesInitialized = false;
         return true;
@@ -81,8 +110,8 @@ namespace MobileGL::MG_Backend {
             MGLOG_E("MakeEGLCurrent failed: EGL display mismatch or not initialized");
             return false;
         }
-        if (!m_eglWindowSurfaceInitialized) {
-            MGLOG_E("MakeEGLCurrent failed: EGL window surface is not initialized");
+        if (!m_eglSurfaceInitialized) {
+            MGLOG_E("MakeEGLCurrent failed: EGL surface is not initialized");
             return false;
         }
         if (draw == EGL_NO_SURFACE || read == EGL_NO_SURFACE || ctx == EGL_NO_CONTEXT) {
@@ -104,8 +133,9 @@ namespace MobileGL::MG_Backend {
 
     void BackendObject::ResetEGLRuntimeState() {
         const std::lock_guard<std::recursive_mutex> lock(m_eglStateMutex);
-        m_eglWindowSurfaceInitialized = false;
+        m_eglSurfaceInitialized = false;
         m_backendCapabilitiesInitialized = false;
+        m_eglSurfaceKind = SurfaceKind::None;
         m_eglCurrentThreads.clear();
     }
 
@@ -119,7 +149,7 @@ namespace MobileGL::MG_Backend {
             MGLOG_E("SwapEGLBuffers failed: no current context attached");
             return false;
         }
-        if (!m_eglWindowSurfaceInitialized || draw == EGL_NO_SURFACE) {
+        if (!m_eglSurfaceInitialized || draw == EGL_NO_SURFACE) {
             MGLOG_E("SwapEGLBuffers failed: invalid draw surface");
             return false;
         }
@@ -137,5 +167,11 @@ namespace MobileGL::MG_Backend {
     void BackendObject::SetWindowHandle(const WindowHandle& handle) {
         const std::lock_guard<std::recursive_mutex> lock(m_eglStateMutex);
         m_windowHandle = handle;
+    }
+
+    Bool BackendObject::InitPbufferSurface(EGLint width, EGLint height) {
+        (void)width;
+        (void)height;
+        return false;
     }
 } // namespace MobileGL::MG_Backend
