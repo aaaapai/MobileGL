@@ -54,10 +54,12 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         VertexInputStateBuilder builder;
         Vector<SizeT> bindingBufferKeys;
         Vector<SizeT> bindingBaseOffsets;
+        Vector<Uint32> bindingAttributeLocations;
+        Vector<Bool> bindingUsesClientMemory;
 
         for (Uint32 location = 0; location < MG_State::GLState::VertexArrayObject::MAX_VERTEX_ATTRIBS; ++location) {
             const auto& attr = vao.GetAttribute(location);
-            if (!attr.Enabled || !attr.Buffer) {
+            if (!attr.Enabled) {
                 continue;
             }
 
@@ -84,7 +86,9 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             const SizeT bufferKey = reinterpret_cast<SizeT>(attr.Buffer.get());
             const Uint32 binding = static_cast<Uint32>(bindingBufferKeys.size());
             bindingBufferKeys.push_back(bufferKey);
-            bindingBaseOffsets.push_back(attr.Offset);
+            bindingBaseOffsets.push_back(attr.Buffer ? attr.Offset : 0);
+            bindingAttributeLocations.push_back(location);
+            bindingUsesClientMemory.push_back(attr.Buffer == nullptr);
             builder.AddBinding(binding, stride, inputRate);
             builder.AddAttribute(location, binding, vkFormat, 0);
         }
@@ -97,6 +101,8 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         entry.attributes = builder.GetAttributes();
         entry.bindingBufferKeys = std::move(bindingBufferKeys);
         entry.bindingBaseOffsets = std::move(bindingBaseOffsets);
+        entry.bindingAttributeLocations = std::move(bindingAttributeLocations);
+        entry.bindingUsesClientMemory = std::move(bindingUsesClientMemory);
         entry.state = state;
         entry.state.pVertexBindingDescriptions = entry.bindings.empty() ? nullptr : entry.bindings.data();
         entry.state.pVertexAttributeDescriptions = entry.attributes.empty() ? nullptr : entry.attributes.data();

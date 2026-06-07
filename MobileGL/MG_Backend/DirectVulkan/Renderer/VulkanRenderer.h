@@ -110,6 +110,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         void Shutdown();
 
         Bool SetupDraw(FrameContext::FrameData& frame, GLenum mode, Flags<DrawSetupAspect> aspects,
+                       const DrawCmdParam& drawParams,
                        const IndexBufferView* pIndexBufferView = nullptr);
         void ClearAttachmentsOnActiveRenderPass(VkCommandBuffer commandBuffer,
                                                 const RenderPassEntry& compatibleRenderPassEntry);
@@ -250,7 +251,8 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         VkPipeline GetOrCreateComputePipeline(const ProgramFactory::VkProgramObject& programObj);
         void DestroyComputePipelines();
 
-        Bool UploadAndBindVertexBuffers(VkCommandBuffer commandBuffer, const MG_State::GLState::VertexArrayObject& vao);
+        Bool UploadAndBindVertexBuffers(VkCommandBuffer commandBuffer, const MG_State::GLState::VertexArrayObject& vao,
+                                        const DrawCmdParam& drawParams);
         Bool UploadAndBindIndexBuffer(FrameContext::FrameData& frame,
                                      const MG_State::GLState::VertexArrayObject& vao,
                                       const IndexBufferView* pIndexBufferView = nullptr);

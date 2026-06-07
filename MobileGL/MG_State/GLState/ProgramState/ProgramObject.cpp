@@ -449,6 +449,9 @@ namespace MobileGL::MG_State::GLState {
         }
 
         // 4. Do reflection (find global UBO etc.)
+        m_uniformSizesInBytes.clear();
+        m_uniformOffsets.clear();
+        m_globalUboScratch.clear();
         for (SizeT i = 0; i < m_generatedSpirv.size(); i++) {
             auto& spv = m_generatedSpirv[i];
 
@@ -463,9 +466,6 @@ namespace MobileGL::MG_State::GLState {
                         "err = %d%s",
                         m_externalIndex, i, result,
                         (result == SPVC_ERROR_INVALID_SPIRV ? ". Probably no global UBO?" : ""));
-                m_uniformSizesInBytes.clear();
-                m_uniformOffsets.clear();
-                m_globalUboScratch.clear();
                 continue;
             } else {
                 auto& meta = session.GetMetadata();
@@ -474,6 +474,9 @@ namespace MobileGL::MG_State::GLState {
                         "plainUniformOffsets=%zu",
                         m_externalIndex, meta.globalUboSize, meta.plainUniformMemberSizesInBytes.size(),
                         meta.plainUniformOffsetsInUBO.size());
+                if (size == 0) {
+                    continue;
+                }
                 m_globalUboScratch.resize(size);
                 m_uniformOffsets.resize(m_maxUniformLocation + 1);
                 for (const auto& [name, offset] : meta.plainUniformOffsetsInUBO) {

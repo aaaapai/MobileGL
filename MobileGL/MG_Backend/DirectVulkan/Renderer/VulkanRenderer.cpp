@@ -1130,6 +1130,11 @@ void main() {
                     break;
             }
         }
+
+        static Bool PresentStatsEnabled() {
+            const char* value = std::getenv("MOBILEGL_PRESENT_STATS");
+            return value != nullptr && value[0] == '1' && value[1] == '\0';
+        }
     } // namespace
 
     VkBool32 VulkanRenderer::DebugCallback(VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity,
@@ -1360,7 +1365,7 @@ void main() {
     }
 
     Bool VulkanRenderer::UploadAndBindVertexBuffers(
-        VkCommandBuffer commandBuffer, const MG_State::GLState::VertexArrayObject& vao) {
+        VkCommandBuffer commandBuffer, const MG_State::GLState::VertexArrayObject& vao, const DrawCmdParam& drawParams) {
         auto& vertexInputState = m_vertexInputStateFactory->GetOrCreateVertexInputState(vao);
         const auto& program = *MG_State::pGLContext->GetCurrentProgram();
         const auto transformFlags = GetShaderTransformFlags(m_swapchainObject.GetPreTransform());
@@ -1393,6 +1398,43 @@ void main() {
             if (binding >= vertexInputState.bindings.size()) {
                 break;
             }
+            const Bool usesClientMemory = binding < vertexInputState.bindingUsesClientMemory.size() &&
+                                          vertexInputState.bindingUsesClientMemory[binding];
+            if (usesClientMemory) {
+                const Uint32 location = binding < vertexInputState.bindingAttributeLocations.size()
+                                            ? vertexInputState.bindingAttributeLocations[binding]
+                                            : static_cast<Uint32>(MG_State::GLState::VertexArrayObject::MAX_VERTEX_ATTRIBS);
+                MOBILEGL_ASSERT(location < MG_State::GLState::VertexArrayObject::MAX_VERTEX_ATTRIBS,
+                                "UploadAndBindVertexStreams failed to resolve client attribute location");
+
+                const auto& attr = vao.GetAttribute(location);
+                const SizeT componentSize = VertexInputStateFactory::GetComponentSize(attr.Type);
+                const SizeT elementSize = componentSize * static_cast<SizeT>(attr.Size);
+                const SizeT stride = attr.Stride > 0 ? static_cast<SizeT>(attr.Stride) : elementSize;
+                const auto* clientData = reinterpret_cast<const Uint8*>(attr.Offset);
+                if (!clientData || componentSize == 0 || elementSize == 0 || stride == 0) {
+                    MGLOG_E("UploadAndBindVertexStreams skipped: invalid client vertex attribute at location %u", location);
+                    return false;
+                }
+
+                const Uint32 lastVertex = drawParams.vertexCount > 0
+                                              ? drawParams.firstVertex + drawParams.vertexCount - 1
+                                              : drawParams.firstVertex;
+                const SizeT uploadSize = static_cast<SizeT>(lastVertex) * stride + elementSize;
+                BufferSlice slice{};
+                if (!m_bufferManager.UploadTransient(BufferKind::Vertex, m_frameContext.GetCurrentFrameIndex(),
+                                                     clientData, static_cast<VkDeviceSize>(uploadSize), 16, slice)) {
+                    MOBILEGL_ASSERT(false,
+                                    "UploadAndBindVertexStreams skipped: failed to upload client attribute binding %zu",
+                                    binding);
+                    return false;
+                }
+
+                vkBuffers[binding] = slice.buffer;
+                vkOffsets[binding] = slice.offset;
+                continue;
+            }
+
             const SizeT bufferKey = vertexInputState.bindingBufferKeys[binding];
             const MG_State::GLState::BufferObject* sourceBuffer = findBufferByKey(bufferKey);
             MOBILEGL_ASSERT(sourceBuffer != nullptr, "UploadAndBindVertexStreams failed to resolve source buffer");
@@ -2412,6 +2454,7 @@ void main() {
     }
 
     Bool VulkanRenderer::SetupDraw(FrameContext::FrameData& frame, GLenum mode, Flags<DrawSetupAspect> aspects,
+                                   const DrawCmdParam& drawParams,
                                    const IndexBufferView* pIndexBufferView) {
         m_textureManager->CollectGarbage();
         const auto& drawFbo =
@@ -2539,7 +2582,7 @@ void main() {
             return false;
         }
 
-        auto vtxUploadOk = UploadAndBindVertexBuffers(frame.commandBuffer, vao);
+        auto vtxUploadOk = UploadAndBindVertexBuffers(frame.commandBuffer, vao, drawParams);
         MOBILEGL_ASSERT(vtxUploadOk, "SetupDraw skipped: failed to upload vertex buffers");
 
         if (aspects & DrawSetupAspect::IndexBuffer) {
@@ -3228,6 +3271,11 @@ void main() {
         VkImageLayout dstLayout = drawIsDefaultFbo
             ? m_swapchainObject.GetImageLayout(m_imageIndexAcquired)
             : *dstBinding.trackedLayout;
+        const VkImageLayout srcOriginalLayout = srcLayout;
+        const VkImageLayout dstOriginalLayout = dstLayout;
+        const VkImageLayout dstRestoreLayout = dstOriginalLayout == VK_IMAGE_LAYOUT_UNDEFINED
+            ? VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL
+            : dstOriginalLayout;
 
         if (readIsDefaultFbo && srcLayout == VK_IMAGE_LAYOUT_UNDEFINED) {
             MGLOG_E("BlitFramebuffer skipped: swapchain source image layout is undefined");
@@ -3295,6 +3343,36 @@ void main() {
                        srcBinding.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
                        dstBinding.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
                        1, &blitRegion, filter == GL_LINEAR ? VK_FILTER_LINEAR : VK_FILTER_NEAREST);
+
+        VkPipelineStageFlags srcRestoreStageMask = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
+        VkAccessFlags srcRestoreAccessMask = 0;
+        GetImageTransitionDestinationState(srcOriginalLayout, srcRestoreStageMask, srcRestoreAccessMask);
+        if (readIsDefaultFbo) {
+            VkImageLayout srcTrackedLayout = m_swapchainObject.GetImageLayout(m_imageIndexAcquired);
+            Bool ok = VkTextureManager::TransitionImageLayout(
+                frame.commandBuffer, srcBinding.image, srcTrackedLayout, srcOriginalLayout,
+                VK_PIPELINE_STAGE_TRANSFER_BIT, srcRestoreStageMask,
+                VK_ACCESS_TRANSFER_READ_BIT, srcRestoreAccessMask, srcBinding.aspectMask);
+            MOBILEGL_ASSERT(ok, "%s: failed to restore swapchain source image layout", __func__);
+            m_swapchainObject.SetImageLayout(m_imageIndexAcquired, srcTrackedLayout);
+        } else {
+            Bool ok = VkTextureManager::TransitionImageLayout(
+                frame.commandBuffer, srcBinding.image, *srcBinding.trackedLayout, srcOriginalLayout,
+                VK_PIPELINE_STAGE_TRANSFER_BIT, srcRestoreStageMask,
+                VK_ACCESS_TRANSFER_READ_BIT, srcRestoreAccessMask, srcBinding.aspectMask, 0, srcBinding.mipLevelCount);
+            MOBILEGL_ASSERT(ok, "%s: failed to restore source image layout", __func__);
+        }
+
+        if (!drawIsDefaultFbo) {
+            VkPipelineStageFlags dstRestoreStageMask = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
+            VkAccessFlags dstRestoreAccessMask = 0;
+            GetImageTransitionDestinationState(dstRestoreLayout, dstRestoreStageMask, dstRestoreAccessMask);
+            Bool ok = VkTextureManager::TransitionImageLayout(
+                frame.commandBuffer, dstBinding.image, *dstBinding.trackedLayout, dstRestoreLayout,
+                VK_PIPELINE_STAGE_TRANSFER_BIT, dstRestoreStageMask,
+                VK_ACCESS_TRANSFER_WRITE_BIT, dstRestoreAccessMask, dstBinding.aspectMask, 0, dstBinding.mipLevelCount);
+            MOBILEGL_ASSERT(ok, "%s: failed to restore destination image layout", __func__);
+        }
     }
 
     void VulkanRenderer::CopyTexSubImage2D(GLenum target, GLint level, GLint xoffset, GLint yoffset,
@@ -3678,7 +3756,7 @@ void main() {
     void VulkanRenderer::DrawArrays(const DrawCmd& payload) {
         auto& frame = m_frameContext.GetCurrent();
 
-        if (!SetupDraw(frame, payload.mode, 0)) {
+        if (!SetupDraw(frame, payload.mode, 0, payload.params)) {
             return;
         }
 
@@ -3696,7 +3774,15 @@ void main() {
     void VulkanRenderer::DrawElements(const DrawIndexedCmd& payload) {
         auto& frame = m_frameContext.GetCurrent();
 
-        if (!SetupDraw(frame, payload.mode, DrawSetupAspect::IndexBuffer,
+        DrawCmdParam vertexRange{};
+        vertexRange.vertexCount = payload.params.indexCount + (payload.params.vertexOffset > 0
+                                                                   ? static_cast<Uint32>(payload.params.vertexOffset)
+                                                                   : 0);
+        vertexRange.instanceCount = payload.params.instanceCount;
+        vertexRange.firstVertex = 0;
+        vertexRange.firstInstance = static_cast<Uint32>(payload.params.firstInstance);
+
+        if (!SetupDraw(frame, payload.mode, DrawSetupAspect::IndexBuffer, vertexRange,
                        &payload.indexBufferView)) {
             return;
         }
@@ -3716,7 +3802,15 @@ void main() {
     void VulkanRenderer::MultiDrawElements(const MultiDrawIndexedCmd& payload) {
         auto& frame = m_frameContext.GetCurrent();
 
-        if (!SetupDraw(frame, payload.mode, DrawSetupAspect::IndexBuffer,
+        DrawCmdParam vertexRange{};
+        for (Uint32 idraw = 0; idraw < payload.drawCount; ++idraw) {
+            vertexRange.vertexCount = std::max(vertexRange.vertexCount, payload.pParams[idraw].indexCount);
+            vertexRange.instanceCount = std::max(vertexRange.instanceCount, payload.pParams[idraw].instanceCount);
+            vertexRange.firstInstance = std::max(vertexRange.firstInstance,
+                                                 static_cast<Uint32>(payload.pParams[idraw].firstInstance));
+        }
+
+        if (!SetupDraw(frame, payload.mode, DrawSetupAspect::IndexBuffer, vertexRange,
                   &payload.indexBufferView)) {
             return;
         }
@@ -3742,6 +3836,59 @@ void main() {
         auto* activeRenderPass = VkRenderPassManager::GetActiveRenderPass();
         if (activeRenderPass)
             VkRenderPassManager::EndRenderPass(frame.commandBuffer);
+
+        VkBufferObject presentStatsReadback;
+        VkDeviceSize presentStatsReadbackSize = 0;
+        const VkExtent2D presentStatsExtent = m_swapchainObject.GetExtent();
+        const Bool collectPresentStats = PresentStatsEnabled() && frame.isCommandRecording &&
+                                         presentStatsExtent.width > 0 && presentStatsExtent.height > 0;
+        if (collectPresentStats) {
+            presentStatsReadbackSize = static_cast<VkDeviceSize>(presentStatsExtent.width) *
+                                       static_cast<VkDeviceSize>(presentStatsExtent.height) * 4;
+            const Bool readbackCreated = presentStatsReadback.Create({
+                .allocator = m_allocator,
+                .size = presentStatsReadbackSize,
+                .usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+                .memoryUsage = VMA_MEMORY_USAGE_AUTO,
+                .allocationFlags = VMA_ALLOCATION_CREATE_HOST_ACCESS_RANDOM_BIT,
+            });
+            MOBILEGL_ASSERT(readbackCreated, "Present stats: failed to create readback buffer");
+
+            VkImageLayout statsOriginalLayout = m_swapchainObject.GetImageLayout(m_imageIndexAcquired);
+            Bool toTransferSrc = VkTextureManager::TransitionImageLayout(
+                frame.commandBuffer, m_swapchainObject.GetImage(m_imageIndexAcquired),
+                statsOriginalLayout, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
+                VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_TRANSFER_WRITE_BIT,
+                VK_ACCESS_TRANSFER_READ_BIT, VK_IMAGE_ASPECT_COLOR_BIT);
+            MOBILEGL_ASSERT(toTransferSrc, "Present stats: failed to transition swapchain for readback");
+
+            VkBufferImageCopy copyRegion{};
+            copyRegion.bufferOffset = 0;
+            copyRegion.bufferRowLength = 0;
+            copyRegion.bufferImageHeight = 0;
+            copyRegion.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+            copyRegion.imageSubresource.mipLevel = 0;
+            copyRegion.imageSubresource.baseArrayLayer = 0;
+            copyRegion.imageSubresource.layerCount = 1;
+            copyRegion.imageOffset = {0, 0, 0};
+            copyRegion.imageExtent = {presentStatsExtent.width, presentStatsExtent.height, 1};
+            vkCmdCopyImageToBuffer(frame.commandBuffer,
+                                   m_swapchainObject.GetImage(m_imageIndexAcquired),
+                                   VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                                   presentStatsReadback.GetHandle(),
+                                   1,
+                                   &copyRegion);
+
+            Bool restoreLayout = VkTextureManager::TransitionImageLayout(
+                frame.commandBuffer, m_swapchainObject.GetImage(m_imageIndexAcquired),
+                statsOriginalLayout, m_swapchainObject.GetImageLayout(m_imageIndexAcquired),
+                VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT,
+                VK_ACCESS_TRANSFER_READ_BIT,
+                VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_TRANSFER_WRITE_BIT,
+                VK_IMAGE_ASPECT_COLOR_BIT);
+            MOBILEGL_ASSERT(restoreLayout, "Present stats: failed to restore swapchain layout after readback");
+        }
         if (frame.isCommandRecording) {
             m_frameContext.EndCommandRecording();
             frame.hasCommandBufferRecorded = true;
@@ -3755,6 +3902,29 @@ void main() {
         // 1) Submit current frame work.
         auto submitPacket = m_frameContext.GetSubmitInfo(shouldSubmitCommandBuffer, m_imageIndexAcquired);
         VK_VERIFY(vkQueueSubmit(m_graphicsQueue, 1, &submitPacket.submitInfo, frame.imageInFlightFence));
+        if (collectPresentStats) {
+            VK_VERIFY(vkWaitForFences(m_device, 1, &frame.imageInFlightFence, VK_TRUE, UINT64_MAX),
+                      "Present stats, vkWaitForFences");
+            const auto* pixels = static_cast<const Uint8*>(presentStatsReadback.Map());
+            MOBILEGL_ASSERT(pixels != nullptr, "Present stats: failed to map readback buffer");
+            SizeT nonBlack = 0;
+            SizeT nonTransparent = 0;
+            const SizeT pixelCount = static_cast<SizeT>(presentStatsExtent.width) *
+                                     static_cast<SizeT>(presentStatsExtent.height);
+            for (SizeT i = 0; i < pixelCount; ++i) {
+                const Uint8* p = pixels + i * 4;
+                if (p[0] != 0 || p[1] != 0 || p[2] != 0) {
+                    ++nonBlack;
+                }
+                if (p[3] != 0) {
+                    ++nonTransparent;
+                }
+            }
+            std::fprintf(stderr,
+                         "MOBILEGL_PRESENT_STATS nonBlack=%zu/%zu alpha=%zu/%zu size=%ux%u\n",
+                         nonBlack, pixelCount, nonTransparent, pixelCount,
+                         presentStatsExtent.width, presentStatsExtent.height);
+        }
         frame.isCommandRecording = false;
         frame.hasCommandBufferRecorded = false;
         m_swapchainObject.SetImageLayout(m_imageIndexAcquired, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);

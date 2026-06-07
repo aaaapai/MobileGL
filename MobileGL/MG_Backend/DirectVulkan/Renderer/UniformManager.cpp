@@ -558,8 +558,11 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         if (programObj.globalUboBinding == static_cast<Int>(binding)) {
             outData = program.GetUBOData();
             outSize = static_cast<VkDeviceSize>(program.GetUBOSize());
-            MOBILEGL_ASSERT(outData != nullptr, "ResolveUniformBufferPayload: global UBO data is null");
-            MOBILEGL_ASSERT(outSize > 0, "ResolveUniformBufferPayload: global UBO size is zero");
+            static const Array<Uint8, 16> emptyGlobalUbo{};
+            if (outData == nullptr || outSize == 0) {
+                outData = emptyGlobalUbo.data();
+                outSize = static_cast<VkDeviceSize>(emptyGlobalUbo.size());
+            }
             return outData != nullptr && outSize > 0;
         }
 
