@@ -22,6 +22,9 @@
 #include <MG_Util/Converters/MGToStr/TextureEnumConverter.h>
 #include <MG_Util/Converters/MGToGL/RenderStateEnumConverter.h>
 #include <MG_Util/Texture/PixelStoreProcessor.h>
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
 #if defined(__linux__) && !defined(__ANDROID__) && __has_include(<X11/Xlib.h>)
 #pragma push_macro("Bool")
 #pragma push_macro("None")
@@ -34,6 +37,8 @@ namespace MobileGL::MG_Backend::DirectGLES {
     MG_External::EGLFunctionsTable g_EGLFuncs;
     MG_External::GLESFunctionsTable g_GLESFuncs;
     MG_External::GLESCapabilities g_GLESCapabilities;
+
+    static Bool QueryCurrentSurfaceSize(Int& outWidth, Int& outHeight);
 
     enum class DrawSyncBit : Uint32 {
         None = 0,
@@ -375,19 +380,30 @@ namespace MobileGL::MG_Backend::DirectGLES {
 
     namespace RenderStateImpl {
         static Uint16 g_syncedRenderStateVersion = 0;
+        static Bool g_hasSyncedRenderState = false;
         static RenderStateParameters g_syncedRenderStateParameters;
+        static IntVec4 g_syncedBackendViewport = IntVec4(-1, -1, -1, -1);
         void SyncRenderState() {
 #ifdef TRACY_ENABLE
             ZoneScopedC(TRACY_ZONECOLOR_BACKEND);
 #endif
             Uint16 currentRenderStateVersion = MG_State::pGLContext->GetRenderStateParametersVersion();
-            if (currentRenderStateVersion == g_syncedRenderStateVersion) return;
+            if (g_hasSyncedRenderState && currentRenderStateVersion == g_syncedRenderStateVersion) return;
 
             const auto& parameters = MG_State::pGLContext->GetRenderStateParameters();
 
-            if (parameters.Viewport != g_syncedRenderStateParameters.Viewport) {
-                g_GLESFuncs.glViewport(parameters.Viewport.x(), parameters.Viewport.y(), parameters.Viewport.z(),
-                                       parameters.Viewport.w());
+            IntVec4 backendViewport = parameters.Viewport;
+            if (backendViewport.z() <= 0 || backendViewport.w() <= 0) {
+                Int surfaceWidth = 0;
+                Int surfaceHeight = 0;
+                if (QueryCurrentSurfaceSize(surfaceWidth, surfaceHeight)) {
+                    backendViewport = IntVec4(0, 0, surfaceWidth, surfaceHeight);
+                }
+            }
+            if (backendViewport != g_syncedBackendViewport) {
+                g_GLESFuncs.glViewport(backendViewport.x(), backendViewport.y(), backendViewport.z(),
+                                       backendViewport.w());
+                g_syncedBackendViewport = backendViewport;
             }
 
 #define SYNC_CAPABILITY(cap_mg, cap_gl)                                                                                \
@@ -552,6 +568,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
 
             g_syncedRenderStateVersion = currentRenderStateVersion;
             g_syncedRenderStateParameters = parameters;
+            g_hasSyncedRenderState = true;
         }
     } // namespace RenderStateImpl
 
@@ -1873,6 +1890,73 @@ namespace MobileGL::MG_Backend::DirectGLES {
     static EGLSurface g_Surface = EGL_NO_SURFACE;
     static EGLConfig g_Config = nullptr;
 
+    static Bool QueryCurrentSurfaceSize(Int& outWidth, Int& outHeight) {
+        outWidth = 0;
+        outHeight = 0;
+        if (!g_EGLFuncs.eglQuerySurface || g_Display == EGL_NO_DISPLAY || g_Surface == EGL_NO_SURFACE) {
+            return false;
+        }
+
+        EGLint width = 0;
+        EGLint height = 0;
+        if (!g_EGLFuncs.eglQuerySurface(g_Display, g_Surface, EGL_WIDTH, &width) ||
+            !g_EGLFuncs.eglQuerySurface(g_Display, g_Surface, EGL_HEIGHT, &height) ||
+            width <= 0 || height <= 0) {
+            return false;
+        }
+
+        outWidth = static_cast<Int>(width);
+        outHeight = static_cast<Int>(height);
+        return true;
+    }
+
+    static Bool PresentStatsEnabled() {
+        static const Bool enabled = [] {
+            const char* value = std::getenv("MOBILEGL_GLES_PRESENT_STATS");
+            return value != nullptr && value[0] != '\0' && std::strcmp(value, "0") != 0;
+        }();
+        return enabled;
+    }
+
+    static void DumpDefaultFramebufferStats() {
+        if (!PresentStatsEnabled() || !g_GLESFuncs.glReadPixels || !g_EGLFuncs.eglQuerySurface ||
+            g_Display == EGL_NO_DISPLAY || g_Surface == EGL_NO_SURFACE) {
+            return;
+        }
+
+        Int width = 0;
+        Int height = 0;
+        if (!QueryCurrentSurfaceSize(width, height)) {
+            return;
+        }
+
+        GLint viewport[4] = {0, 0, 0, 0};
+        g_GLESFuncs.glGetIntegerv(GL_VIEWPORT, viewport);
+        GLint previousReadFramebuffer = 0;
+        g_GLESFuncs.glGetIntegerv(GL_READ_FRAMEBUFFER_BINDING, &previousReadFramebuffer);
+        g_GLESFuncs.glBindFramebuffer(GL_READ_FRAMEBUFFER, 0);
+
+        Vector<Uint8> pixels(static_cast<SizeT>(width) * static_cast<SizeT>(height) * 4);
+        g_GLESFuncs.glReadPixels(0, 0, width, height, GL_RGBA, GL_UNSIGNED_BYTE, pixels.data());
+
+        SizeT nonBlack = 0;
+        SizeT nonZeroAlpha = 0;
+        for (SizeT offset = 0; offset + 3 < pixels.size(); offset += 4) {
+            if (pixels[offset] != 0 || pixels[offset + 1] != 0 || pixels[offset + 2] != 0) {
+                ++nonBlack;
+            }
+            if (pixels[offset + 3] != 0) {
+                ++nonZeroAlpha;
+            }
+        }
+
+        g_GLESFuncs.glBindFramebuffer(GL_READ_FRAMEBUFFER, static_cast<GLuint>(previousReadFramebuffer));
+        std::fprintf(stderr,
+                     "MOBILEGL_GLES_PRESENT_STATS nonBlack=%zu/%zu alpha=%zu/%zu size=%dx%d viewport=%d,%d,%d,%d\n",
+                     nonBlack, pixels.size() / 4, nonZeroAlpha, pixels.size() / 4, width, height,
+                     viewport[0], viewport[1], viewport[2], viewport[3]);
+    }
+
 #if defined(__linux__) && !defined(__ANDROID__)
     static void* OpenX11Lib() {
         void* x11Lib = dlopen("libX11.so.6", RTLD_LOCAL | RTLD_NOW);
@@ -2092,6 +2176,10 @@ namespace MobileGL::MG_Backend::DirectGLES {
 
     void Present() {
         if (g_Display != EGL_NO_DISPLAY && g_Surface != EGL_NO_SURFACE) {
+            DumpDefaultFramebufferStats();
+            if (g_GLESFuncs.glFlush) {
+                g_GLESFuncs.glFlush();
+            }
             g_EGLFuncs.eglSwapBuffers(g_Display, g_Surface);
         }
     }

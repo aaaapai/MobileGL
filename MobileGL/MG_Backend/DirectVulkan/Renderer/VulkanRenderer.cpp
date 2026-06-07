@@ -20,6 +20,9 @@
 #include "MG_Util/Converters/MGToVk/RenderStateEnumConverter.h"
 #include "MG_Util/Converters/MGToVk/TextureEnumConverter.h"
 #include "MG_Util/Metrics/TextureMetrics.h"
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
 #include <vulkan/vulkan_core.h>
 
 namespace MobileGL::MG_Backend::DirectVulkan {
@@ -374,6 +377,94 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             }
         }
         return attributeMask;
+    }
+
+    static Bool ShouldDumpVertexInputStats() {
+        static const Bool enabled = [] {
+            const char* value = std::getenv("MOBILEGL_VERTEX_INPUT_STATS");
+            return value != nullptr && value[0] != '\0' && std::strcmp(value, "0") != 0;
+        }();
+        return enabled;
+    }
+
+    static const char* PresentDumpPath() {
+        const char* value = std::getenv("MOBILEGL_PRESENT_DUMP_PATH");
+        return value != nullptr && value[0] != '\0' ? value : nullptr;
+    }
+
+    static void DumpVertexInputStats(Uint32 location, const MG_State::GLState::VertexAttribute& attr,
+                                     Uint32 firstVertex, Uint32 vertexCount) {
+        if (!ShouldDumpVertexInputStats() || attr.Type != DataType::Float32 || attr.Size <= 0 || attr.Size > 4) {
+            return;
+        }
+
+        const SizeT componentSize = sizeof(float);
+        const SizeT elementSize = componentSize * static_cast<SizeT>(attr.Size);
+        const SizeT stride = attr.Stride > 0 ? static_cast<SizeT>(attr.Stride) : elementSize;
+        const Uint8* base = nullptr;
+        SizeT available = 0;
+        if (attr.Buffer) {
+            const auto& data = attr.Buffer->GetDataReadOnly();
+            if (!data || attr.Offset >= data->size()) {
+                return;
+            }
+            base = data->data() + attr.Offset;
+            available = data->size() - attr.Offset;
+        } else {
+            base = reinterpret_cast<const Uint8*>(attr.Offset);
+            available = static_cast<SizeT>(firstVertex + vertexCount) * stride;
+        }
+        if (base == nullptr || vertexCount == 0 || available < elementSize) {
+            return;
+        }
+
+        float minValues[4] = {0.0f, 0.0f, 0.0f, 0.0f};
+        float maxValues[4] = {0.0f, 0.0f, 0.0f, 0.0f};
+        Bool initialized = false;
+        SizeT sampled = 0;
+        const Uint32 maxSamples = std::min<Uint32>(vertexCount, 256);
+        for (Uint32 sample = 0; sample < maxSamples; ++sample) {
+            const SizeT offset = static_cast<SizeT>(firstVertex + sample) * stride;
+            if (offset + elementSize > available) {
+                break;
+            }
+
+            const auto* values = reinterpret_cast<const float*>(base + offset);
+            for (Int component = 0; component < attr.Size; ++component) {
+                if (!initialized) {
+                    minValues[component] = values[component];
+                    maxValues[component] = values[component];
+                } else {
+                    minValues[component] = std::min(minValues[component], values[component]);
+                    maxValues[component] = std::max(maxValues[component], values[component]);
+                }
+            }
+            initialized = true;
+            ++sampled;
+        }
+
+        if (!initialized) {
+            return;
+        }
+
+        std::fprintf(stderr,
+                     "MOBILEGL_VERTEX_INPUT_STATS loc=%u buffer=%u size=%d stride=%zu first=%u count=%u sampled=%zu "
+                     "min=(%.3f,%.3f,%.3f,%.3f) max=(%.3f,%.3f,%.3f,%.3f)\n",
+                     location,
+                     attr.Buffer ? attr.Buffer->GetExternalIndex() : 0u,
+                     attr.Size,
+                     stride,
+                     firstVertex,
+                     vertexCount,
+                     sampled,
+                     minValues[0],
+                     minValues[1],
+                     minValues[2],
+                     minValues[3],
+                     maxValues[0],
+                     maxValues[1],
+                     maxValues[2],
+                     maxValues[3]);
     }
 
     static Bool TryGetCurrentVertexAttributeFormat(GLenum glType, VkFormat& outFormat) {
@@ -1398,12 +1489,17 @@ void main() {
             if (binding >= vertexInputState.bindings.size()) {
                 break;
             }
+            const Uint32 bindingLocation = binding < vertexInputState.bindingAttributeLocations.size()
+                                               ? vertexInputState.bindingAttributeLocations[binding]
+                                               : static_cast<Uint32>(MG_State::GLState::VertexArrayObject::MAX_VERTEX_ATTRIBS);
+            if (bindingLocation < MG_State::GLState::VertexArrayObject::MAX_VERTEX_ATTRIBS) {
+                DumpVertexInputStats(bindingLocation, vao.GetAttribute(bindingLocation),
+                                     drawParams.firstVertex, drawParams.vertexCount);
+            }
             const Bool usesClientMemory = binding < vertexInputState.bindingUsesClientMemory.size() &&
                                           vertexInputState.bindingUsesClientMemory[binding];
             if (usesClientMemory) {
-                const Uint32 location = binding < vertexInputState.bindingAttributeLocations.size()
-                                            ? vertexInputState.bindingAttributeLocations[binding]
-                                            : static_cast<Uint32>(MG_State::GLState::VertexArrayObject::MAX_VERTEX_ATTRIBS);
+                const Uint32 location = bindingLocation;
                 MOBILEGL_ASSERT(location < MG_State::GLState::VertexArrayObject::MAX_VERTEX_ATTRIBS,
                                 "UploadAndBindVertexStreams failed to resolve client attribute location");
 
@@ -3840,7 +3936,8 @@ void main() {
         VkBufferObject presentStatsReadback;
         VkDeviceSize presentStatsReadbackSize = 0;
         const VkExtent2D presentStatsExtent = m_swapchainObject.GetExtent();
-        const Bool collectPresentStats = PresentStatsEnabled() && frame.isCommandRecording &&
+        const char* presentDumpPath = PresentDumpPath();
+        const Bool collectPresentStats = (PresentStatsEnabled() || presentDumpPath != nullptr) && frame.isCommandRecording &&
                                          presentStatsExtent.width > 0 && presentStatsExtent.height > 0;
         if (collectPresentStats) {
             presentStatsReadbackSize = static_cast<VkDeviceSize>(presentStatsExtent.width) *
@@ -3909,6 +4006,7 @@ void main() {
             MOBILEGL_ASSERT(pixels != nullptr, "Present stats: failed to map readback buffer");
             SizeT nonBlack = 0;
             SizeT nonTransparent = 0;
+            SizeT colored = 0;
             const SizeT pixelCount = static_cast<SizeT>(presentStatsExtent.width) *
                                      static_cast<SizeT>(presentStatsExtent.height);
             for (SizeT i = 0; i < pixelCount; ++i) {
@@ -3916,14 +4014,33 @@ void main() {
                 if (p[0] != 0 || p[1] != 0 || p[2] != 0) {
                     ++nonBlack;
                 }
+                const Uint8 minRgb = std::min(p[0], std::min(p[1], p[2]));
+                const Uint8 maxRgb = std::max(p[0], std::max(p[1], p[2]));
+                if (maxRgb - minRgb > 24) {
+                    ++colored;
+                }
                 if (p[3] != 0) {
                     ++nonTransparent;
                 }
             }
-            std::fprintf(stderr,
-                         "MOBILEGL_PRESENT_STATS nonBlack=%zu/%zu alpha=%zu/%zu size=%ux%u\n",
-                         nonBlack, pixelCount, nonTransparent, pixelCount,
-                         presentStatsExtent.width, presentStatsExtent.height);
+            if (PresentStatsEnabled()) {
+                std::fprintf(stderr,
+                             "MOBILEGL_PRESENT_STATS nonBlack=%zu/%zu colored=%zu/%zu alpha=%zu/%zu size=%ux%u\n",
+                             nonBlack, pixelCount, colored, pixelCount, nonTransparent, pixelCount,
+                             presentStatsExtent.width, presentStatsExtent.height);
+            }
+            if (presentDumpPath != nullptr) {
+                FILE* dump = std::fopen(presentDumpPath, "wb");
+                if (dump != nullptr) {
+                    std::fprintf(dump, "P6\n%u %u\n255\n", presentStatsExtent.width, presentStatsExtent.height);
+                    for (SizeT i = 0; i < pixelCount; ++i) {
+                        const Uint8* p = pixels + i * 4;
+                        const Uint8 rgb[3] = {p[0], p[1], p[2]};
+                        std::fwrite(rgb, 1, sizeof(rgb), dump);
+                    }
+                    std::fclose(dump);
+                }
+            }
         }
         frame.isCommandRecording = false;
         frame.hasCommandBufferRecorded = false;

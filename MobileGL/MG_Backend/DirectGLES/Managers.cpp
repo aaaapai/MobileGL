@@ -27,6 +27,17 @@
 namespace MobileGL::MG_Backend::DirectGLES {
     constexpr Bool PREFER_MAP_BUFFER_RANGE_FOR_BUFFER_SYNC = true;
 
+    static Uint ResolveBackendEsslVersion() {
+        const auto& version = g_GLESCapabilities.GLESVersion;
+        if (version.Major > 3 || (version.Major == 3 && version.Minor >= 2)) {
+            return 320;
+        }
+        if (version.Major == 3 && version.Minor >= 1) {
+            return 310;
+        }
+        return 300;
+    }
+
     namespace BufferImpl {
         BackendBufferObject::BackendBufferObject() {
 #ifdef TRACY_ENABLE
@@ -1181,8 +1192,8 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 spvc_compiler_options options;
                 spvcSession.CreateOptions(&options);
 
-                // TODO: check ESSL version supported by backend driver
-                spvc_compiler_options_set_uint(options, SPVC_COMPILER_OPTION_GLSL_VERSION, 320);
+                spvc_compiler_options_set_uint(options, SPVC_COMPILER_OPTION_GLSL_VERSION,
+                                               ResolveBackendEsslVersion());
                 spvc_compiler_options_set_bool(options, SPVC_COMPILER_OPTION_GLSL_ES, SPVC_TRUE);
                 spvc_compiler_options_set_bool(options, SPVC_COMPILER_OPTION_GLSL_VULKAN_SEMANTICS, SPVC_FALSE);
 

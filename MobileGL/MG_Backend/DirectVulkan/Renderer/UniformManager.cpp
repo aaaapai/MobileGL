@@ -16,6 +16,9 @@
 #include "MG_Util/Converters/MGToStr/FramebufferEnumConverter.h"
 #include "MG_Util/Converters/MGToVk/TextureEnumConverter.h"
 #include "MG_Util/Metrics/TextureMetrics.h"
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
 #include <limits>
 
 namespace MobileGL::MG_Backend::DirectVulkan {
@@ -72,6 +75,14 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                         "ResolveSamplerUnitIndex: invalid texture unit for binding %u location %d (unit=%d)", binding,
                         location, uniformUnit);
         return uniformUnit >= 0 ? uniformUnit : 0;
+    }
+
+    static Bool ShouldDumpDescriptorStats() {
+        static const Bool enabled = [] {
+            const char* value = std::getenv("MOBILEGL_DESCRIPTOR_STATS");
+            return value != nullptr && value[0] != '\0' && std::strcmp(value, "0") != 0;
+        }();
+        return enabled;
     }
 
     Bool UniformManager::Initialize(VkDevice device, VkBufferManager* bufferManager,
@@ -262,6 +273,21 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             .imageView = resource->fullView,
             .imageLayout = resource->layout,
         };
+        if (ShouldDumpDescriptorStats()) {
+            std::fprintf(stderr,
+                         "MOBILEGL_DESCRIPTOR_STATS program=%u binding=%u name=%s location=%d unit=%d "
+                         "texture=%u target=%d sampler=%p imageView=%p layout=%d\n",
+                         program.GetExternalIndex(),
+                         binding,
+                         programObj.samplerNameByBinding[binding].c_str(),
+                         location,
+                         unit,
+                         texture->GetExternalIndex(),
+                         static_cast<Int>(texture->GetTarget()),
+                         reinterpret_cast<void*>(outImageInfo.sampler),
+                         reinterpret_cast<void*>(outImageInfo.imageView),
+                         static_cast<Int>(outImageInfo.imageLayout));
+        }
         return outImageInfo.sampler != VK_NULL_HANDLE;
     }
 
