@@ -863,6 +863,13 @@ namespace MobileGL::MG_Backend::DirectGLES {
 #endif
         DrawSyncBit syncBit = DrawSyncBit::None;
         PrepareForDraw(syncBit);
+        const auto& currentVAO = MG_State::pGLContext->GetBoundVertexArray();
+        if (currentVAO) {
+            const auto& backendVAOIt = VertexArrayImpl::g_backendVertexArrayObjects.find(currentVAO.get());
+            if (backendVAOIt != VertexArrayImpl::g_backendVertexArrayObjects.end()) {
+                backendVAOIt->second->SyncClientSideAttributesForDrawArrays(currentVAO, first, count);
+            }
+        }
         g_GLESFuncs.glDrawArrays(mode, first, count);
     }
 

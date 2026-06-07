@@ -194,16 +194,53 @@ namespace MobileGL::MG_Backend::DirectGLES {
     } // namespace BufferImpl
 
     namespace VertexArrayImpl {
+        namespace {
+            SizeT GetDataTypeSize(DataType type) {
+                switch (type) {
+                case DataType::Int8:
+                case DataType::Uint8:
+                    return 1;
+                case DataType::Int16:
+                case DataType::Uint16:
+                case DataType::Float16:
+                    return 2;
+                case DataType::Int32:
+                case DataType::Uint32:
+                case DataType::Float32:
+                case DataType::Fixed32:
+                    return 4;
+                case DataType::Float64:
+                    return 8;
+                default:
+                    return 0;
+                }
+            }
+        } // namespace
+
         BackendVertexArrayObject::BackendVertexArrayObject() {
 #ifdef TRACY_ENABLE
             ZoneScopedC(TRACY_ZONECOLOR_BACKEND);
 #endif
+            m_clientAttributeBufferIds.fill(0);
             g_GLESFuncs.glGenVertexArrays(1, &m_backendVAOId);
             if (m_backendVAOId == 0) {
                 MGLOG_E("Failed to generate vertex array object.");
                 MGLOG_E("ES glGetError(): %s", MG_Util::ConvertGLEnumToString(g_GLESFuncs.glGetError()).c_str());
             } else {
                 MGLOG_D("Generated vertex array object with ID: %u.", m_backendVAOId);
+            }
+        }
+
+        BackendVertexArrayObject::~BackendVertexArrayObject() {
+            if (m_backendVAOId != 0) {
+                g_GLESFuncs.glDeleteVertexArrays(1, &m_backendVAOId);
+                m_backendVAOId = 0;
+            }
+            for (auto& bufferId : m_clientAttributeBufferIds) {
+                if (bufferId != 0) {
+                    g_GLESFuncs.glDeleteBuffers(1, &bufferId);
+                    bufferId = 0;
+                }
             }
         }
 
@@ -310,6 +347,58 @@ namespace MobileGL::MG_Backend::DirectGLES {
             }
 
             m_syncedAttributeVersions = allAttributeVersions;
+        }
+
+        void BackendVertexArrayObject::SyncClientSideAttributesForDrawArrays(
+            const SharedPtr<MG_State::GLState::VertexArrayObject>& stateVAOObject, GLint first, GLsizei count) {
+            if (!stateVAOObject || count <= 0 || first < 0) {
+                return;
+            }
+
+            Bind();
+
+            const auto& allAttributes = stateVAOObject->GetAllAttributes();
+            for (Uint attribIndex = 0; attribIndex < allAttributes.size(); ++attribIndex) {
+                const auto& attrib = allAttributes[attribIndex];
+                if (!attrib.Enabled || attrib.Buffer) {
+                    continue;
+                }
+
+                const auto* clientData = reinterpret_cast<const Uint8*>(attrib.Offset);
+                const SizeT componentSize = GetDataTypeSize(attrib.Type);
+                if (!clientData || componentSize == 0 || attrib.Size <= 0) {
+                    continue;
+                }
+
+                const SizeT elementSize = componentSize * static_cast<SizeT>(attrib.Size);
+                const SizeT stride = attrib.Stride > 0 ? static_cast<SizeT>(attrib.Stride) : elementSize;
+                const SizeT uploadSize = static_cast<SizeT>(first + count - 1) * stride + elementSize;
+
+                auto& bufferId = m_clientAttributeBufferIds[attribIndex];
+                if (bufferId == 0) {
+                    g_GLESFuncs.glGenBuffers(1, &bufferId);
+                    if (bufferId == 0) {
+                        MGLOG_E("Failed to create client-side vertex attribute upload buffer.");
+                        continue;
+                    }
+                }
+
+                g_GLESFuncs.glBindBuffer(GL_ARRAY_BUFFER, bufferId);
+                g_GLESFuncs.glBufferData(GL_ARRAY_BUFFER, static_cast<GLsizeiptr>(uploadSize), clientData,
+                                         GL_STREAM_DRAW);
+
+                if (!attrib.IsInteger) {
+                    g_GLESFuncs.glVertexAttribPointer(
+                        attribIndex, attrib.Size, MG_Util::ConvertDataTypeToGLEnum(attrib.Type),
+                        attrib.Normalized ? GL_TRUE : GL_FALSE, static_cast<GLsizei>(stride), nullptr);
+                } else {
+                    g_GLESFuncs.glVertexAttribIPointer(attribIndex, attrib.Size,
+                                                       MG_Util::ConvertDataTypeToGLEnum(attrib.Type),
+                                                       static_cast<GLsizei>(stride), nullptr);
+                }
+            }
+
+            BufferImpl::g_boundVertexBufferObject = nullptr;
         }
 
         StateBackendObjectRegistry<MG_State::GLState::VertexArrayObject, BackendVertexArrayObject>

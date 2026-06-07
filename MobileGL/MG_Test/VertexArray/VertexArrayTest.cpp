@@ -363,6 +363,24 @@ TEST_F(GeneralVertexArrayTest, General_ElementArrayBufferBindingIsVaoLocalAndZer
     EXPECT_EQ(GetError(), GL_NO_ERROR);
 }
 
+TEST_F(GeneralVertexArrayTest, General_ClientSideVertexAttribPointerIsAccepted) {
+    GLuint vao = CreateVAO();
+    BindBuffer(GL_ARRAY_BUFFER, 0);
+
+    float vertices[] = {0.0f, 0.0f, 1.0f, 1.0f};
+    VertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 0, vertices);
+    EnableVertexAttribArray(0);
+
+    auto vaoObj = MG_State::pGLContext->GetVertexArrayObject(vao);
+    ASSERT_NE(vaoObj, nullptr);
+
+    const auto& attr = vaoObj->GetAttribute(0);
+    EXPECT_TRUE(attr.Enabled);
+    EXPECT_EQ(attr.Buffer, nullptr);
+    EXPECT_EQ(attr.Offset, reinterpret_cast<SizeT>(vertices));
+    EXPECT_EQ(GetError(), GL_NO_ERROR);
+}
+
 TEST_F(GeneralVertexArrayTest, General_IntegerAttributes) {
     GLuint vao = CreateVAO();
     GLuint vbo = CreateVBO(GL_ARRAY_BUFFER, 128);

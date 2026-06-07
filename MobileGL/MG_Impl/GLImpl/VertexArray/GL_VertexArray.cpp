@@ -60,12 +60,6 @@ namespace MobileGL::MG_Impl::GLImpl {
 
         auto& vboSlot = MG_State::pGLContext->GetBufferBindingSlot(BufferTarget::Vertex);
         auto& vbo = vboSlot.GetBoundObject();
-        if (!vbo) {
-            MG_State::pGLContext->RecordError(
-                ErrorCode::InvalidOperation, MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", "VertexAttribPointer_State",
-                                                                          "No buffer is bound to GL_ARRAY_BUFFER."));
-            return;
-        }
 
         auto offset = reinterpret_cast<SizeT>(pointer);
 
@@ -91,12 +85,6 @@ namespace MobileGL::MG_Impl::GLImpl {
 
         auto& vboSlot = MG_State::pGLContext->GetBufferBindingSlot(BufferTarget::Vertex);
         auto& vbo = vboSlot.GetBoundObject();
-        if (!vbo) {
-            MG_State::pGLContext->RecordError(
-                ErrorCode::InvalidOperation, MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", "VertexAttribPointer_State",
-                                                                          "No buffer is bound to GL_ARRAY_BUFFER."));
-            return;
-        }
 
         SizeT offset = reinterpret_cast<SizeT>(pointer);
 
