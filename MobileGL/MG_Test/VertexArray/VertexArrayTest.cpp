@@ -318,6 +318,51 @@ TEST_F(GeneralVertexArrayTest, General_IndexBufferBinding) {
     EXPECT_EQ(GetError(), GL_NO_ERROR);
 }
 
+TEST_F(GeneralVertexArrayTest, General_ElementArrayBufferBindingIsVaoLocalAndZeroUnbinds) {
+    GLuint vao1 = CreateVAO();
+
+    GLuint ebo1;
+    GenBuffers(1, &ebo1);
+    BindBuffer(GL_ELEMENT_ARRAY_BUFFER, ebo1);
+
+    GLint binding = -1;
+    GetIntegerv(GL_ELEMENT_ARRAY_BUFFER_BINDING, &binding);
+    EXPECT_EQ(binding, static_cast<GLint>(ebo1));
+
+    auto vaoObj1 = MG_State::pGLContext->GetVertexArrayObject(vao1);
+    ASSERT_NE(vaoObj1, nullptr);
+    EXPECT_EQ(vaoObj1->GetIndexBufferBindingSlot().GetBoundObject(), MG_State::pGLContext->GetBufferObject(ebo1));
+
+    GLuint vao2 = CreateVAO();
+    auto vaoObj2 = MG_State::pGLContext->GetVertexArrayObject(vao2);
+    ASSERT_NE(vaoObj2, nullptr);
+    GetIntegerv(GL_ELEMENT_ARRAY_BUFFER_BINDING, &binding);
+    EXPECT_EQ(binding, 0);
+    EXPECT_EQ(vaoObj2->GetIndexBufferBindingSlot().GetBoundObject(), nullptr);
+
+    BindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
+    EXPECT_EQ(GetError(), GL_NO_ERROR);
+    EXPECT_EQ(MG_State::pGLContext->GetBufferObject(0), nullptr);
+    EXPECT_EQ(IsBuffer(0), GL_FALSE);
+
+    BindVertexArray(vao1);
+    GetIntegerv(GL_ELEMENT_ARRAY_BUFFER_BINDING, &binding);
+    EXPECT_EQ(binding, static_cast<GLint>(ebo1));
+
+    BindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
+    GetIntegerv(GL_ELEMENT_ARRAY_BUFFER_BINDING, &binding);
+    EXPECT_EQ(binding, 0);
+    EXPECT_EQ(vaoObj1->GetIndexBufferBindingSlot().GetBoundObject(), nullptr);
+    EXPECT_EQ(MG_State::pGLContext->GetBufferObject(0), nullptr);
+    EXPECT_EQ(IsBuffer(0), GL_FALSE);
+
+    DeleteVertexArrays(1, &vao1);
+    DeleteVertexArrays(1, &vao2);
+    DeleteBuffers(1, &ebo1);
+
+    EXPECT_EQ(GetError(), GL_NO_ERROR);
+}
+
 TEST_F(GeneralVertexArrayTest, General_IntegerAttributes) {
     GLuint vao = CreateVAO();
     GLuint vbo = CreateVBO(GL_ARRAY_BUFFER, 128);

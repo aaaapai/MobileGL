@@ -69,13 +69,15 @@ namespace MobileGL::MG_Impl::GLImpl {
     }
 
     void CopyStr(GLsizei bufSize, GLsizei* length, GLchar* dst, const char* src, GLsizei srcLength) {
+        if (bufSize <= 0) {
+            if (length) *length = 0;
+            return;
+        }
+
         auto sz = std::min(bufSize - 1, srcLength);
-        if (length) *length = sz;
-
-        if (bufSize == 0) return;
-
         Memcpy(dst, src, sz);
         dst[sz] = '\0';
+        if (length) *length = sz;
     }
 
     void AttachShader_State(GLuint program, GLuint shader) {
@@ -317,8 +319,8 @@ namespace MobileGL::MG_Impl::GLImpl {
                 return;
             }
             getProgramiv(program, pname, params);
-            MGLOG_D("%s: %s = (%d, %d, %d)", __func__,
-                    MG_Util::ConvertGLEnumToString(pname).c_str(), params[0], params[1], params[2]);
+            MGLOG_D("%s: %s = (%d, %d, %d)", __func__, MG_Util::ConvertGLEnumToString(pname).c_str(), params[0],
+                    params[1], params[2]);
             break;
         }
 
@@ -363,10 +365,10 @@ namespace MobileGL::MG_Impl::GLImpl {
             *params = shaderObject->GetCompileStatus();
             break;
         case GL_INFO_LOG_LENGTH:
-            *params = (GLint)shaderObject->GetInfoLog().length();
+            *params = shaderObject->GetInfoLog().empty() ? 0 : (GLint)shaderObject->GetInfoLog().length() + 1;
             break;
         case GL_SHADER_SOURCE_LENGTH:
-            *params = (GLint)shaderObject->GetShaderSource().length();
+            *params = shaderObject->GetShaderSource().empty() ? 0 : (GLint)shaderObject->GetShaderSource().length() + 1;
             break;
         default:
             MG_State::pGLContext->RecordError(
@@ -525,7 +527,10 @@ namespace MobileGL::MG_Impl::GLImpl {
 
         std::string src;
         for (GLsizei i = 0; i < count; i++) {
-            src += (length == nullptr || length[i] <= 0) ? string[i] : std::string(string[i], length[i]);
+            if (!string[i]) {
+                continue;
+            }
+            src += (length && length[i] >= 0) ? std::string(string[i], length[i]) : std::string(string[i]);
         }
         shaderObject->SetShaderSource(Move(src));
     }
@@ -1475,8 +1480,8 @@ namespace MobileGL::MG_Impl::GLImpl {
         return getProgramResourceIndex(program, programInterface, name);
     }
 
-    void GetProgramResourceName(GLuint program, GLenum programInterface, GLuint index, GLsizei bufSize,
-                                GLsizei* length, GLchar* name) {
+    void GetProgramResourceName(GLuint program, GLenum programInterface, GLuint index, GLsizei bufSize, GLsizei* length,
+                                GLchar* name) {
         auto& programObject = TryToGetProgramObject(program);
         if (!programObject || !programObject->GetLinkStatus()) return;
         if (bufSize < 0) {
@@ -1502,8 +1507,8 @@ namespace MobileGL::MG_Impl::GLImpl {
         if (!programObject || !programObject->GetLinkStatus()) return;
         if (propCount < 0 || bufSize < 0) {
             MG_State::pGLContext->RecordError(
-                ErrorCode::InvalidValue,
-                MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", __func__, "propCount and bufSize must be non-negative."));
+                ErrorCode::InvalidValue, MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", __func__,
+                                                                      "propCount and bufSize must be non-negative."));
             return;
         }
         auto getProgramResourceiv = MG_Backend::gBackendFunctionsTable.GL.GetProgramResourceiv;

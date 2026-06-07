@@ -8,6 +8,8 @@
 
 #include <gtest/gtest.h>
 
+#include <string>
+
 #include "Includes.h"
 #include "Init.h"
 #include <MG_Util/Converters/GLToStr/GLEnumConverter.h>
@@ -27,6 +29,56 @@ protected:
 
 TEST_F(ProgramUtilTest, Sanity) {
     ASSERT_TRUE(true);
+}
+
+TEST_F(ProgramUtilTest, PreprocessLegacyVertexShaderModernizesGlmarkStyleSource) {
+    using namespace MG_Util::ShaderTranspiler;
+
+    String source = R"(#define HIGHP_OR_DEFAULT highp
+attribute vec3 position;
+varying vec2 uv;
+uniform HIGHP_OR_DEFAULT mat4 modelViewProjection;
+
+void main() {
+    uv = position.xy;
+    gl_Position = modelViewProjection * vec4(position, 1.0);
+})";
+
+    PreprocessShaderSource(ShaderStage::Vertex, source);
+
+    EXPECT_EQ(source.find("#version 460 core\n"), 0);
+    EXPECT_NE(source.find("in vec3 position;"), String::npos);
+    EXPECT_NE(source.find("out vec2 uv;"), String::npos);
+    EXPECT_EQ(source.find("attribute"), String::npos);
+    EXPECT_EQ(source.find("varying"), String::npos);
+    EXPECT_EQ(source.find("HIGHP_OR_DEFAULT"), String::npos);
+    EXPECT_EQ(source.find("#define"), String::npos);
+}
+
+TEST_F(ProgramUtilTest, PreprocessLegacyFragmentShaderModernizesGlmarkStyleSource) {
+    using namespace MG_Util::ShaderTranspiler;
+
+    String source = R"(#define MEDIUMP_OR_DEFAULT mediump
+varying vec2 uv;
+uniform sampler2D texture0;
+
+void main() {
+    MEDIUMP_OR_DEFAULT vec4 color = texture2D(texture0, uv);
+    gl_FragColor = color;
+})";
+
+    PreprocessShaderSource(ShaderStage::Fragment, source);
+
+    EXPECT_EQ(source.find("#version 460 core\n"), 0);
+    EXPECT_NE(source.find("out vec4 mg_FragColor;\n"), String::npos);
+    EXPECT_NE(source.find("in vec2 uv;"), String::npos);
+    EXPECT_NE(source.find("texture(texture0, uv)"), String::npos);
+    EXPECT_NE(source.find("mg_FragColor = color;"), String::npos);
+    EXPECT_EQ(source.find("gl_FragColor"), String::npos);
+    EXPECT_EQ(source.find("texture2D"), String::npos);
+    EXPECT_EQ(source.find("MEDIUMP_OR_DEFAULT"), String::npos);
+    EXPECT_EQ(source.find("mediump"), String::npos);
+    EXPECT_EQ(source.find("#define"), String::npos);
 }
 
 const char* vs = R"(#version 150

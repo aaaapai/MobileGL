@@ -7,6 +7,9 @@
 // End of Source File Header
 
 #include <gtest/gtest.h>
+#include <cstring>
+#include <vector>
+
 #include "Includes.h"
 #include "Init.h"
 #include "MG_Impl/GLImpl/Program/GL_Program.h"
@@ -111,6 +114,93 @@ TEST_F(ProgramTest, CompileFragment) {
     GLuint fs = CreateShader(GL_FRAGMENT_SHADER);
     ShaderSource(fs, 1, &fsSrc, NULL);
     CompileShader(fs);
+}
+
+TEST_F(ProgramTest, ShaderSourceKeepsOriginalTextAfterCompile) {
+    const char* part0 = R"(#define HIGHP_OR_DEFAULT highp
+attribute vec4 Position;
+varying vec2 uv;
+)";
+    const char* ignored = "this segment should be ignored";
+    const char* part2 = R"(void main() {
+    uv = Position.xy;
+    gl_Position = Position;
+}
+)";
+    const GLchar* parts[] = {part0, ignored, part2};
+    const GLint lengths[] = {static_cast<GLint>(std::strlen(part0)), 0, static_cast<GLint>(std::strlen(part2))};
+    const String expectedSource = String(part0) + part2;
+
+    GLuint vs = CreateShader(GL_VERTEX_SHADER);
+    ShaderSource(vs, 3, parts, lengths);
+
+    GLint sourceLength = 0;
+    GetShaderiv(vs, GL_SHADER_SOURCE_LENGTH, &sourceLength);
+    ASSERT_EQ(sourceLength, static_cast<GLint>(expectedSource.size() + 1));
+
+    std::vector<GLchar> sourceBuffer(static_cast<size_t>(sourceLength));
+    GLsizei written = 0;
+    GetShaderSource(vs, sourceLength, &written, sourceBuffer.data());
+    EXPECT_EQ(written, static_cast<GLsizei>(expectedSource.size()));
+    EXPECT_EQ(String(sourceBuffer.data(), static_cast<size_t>(written)), expectedSource);
+
+    CompileShader(vs);
+    GLint compileStatus = GL_FALSE;
+    GetShaderiv(vs, GL_COMPILE_STATUS, &compileStatus);
+    ASSERT_EQ(compileStatus, GL_TRUE);
+
+    std::fill(sourceBuffer.begin(), sourceBuffer.end(), '\0');
+    written = 0;
+    GetShaderSource(vs, sourceLength, &written, sourceBuffer.data());
+    EXPECT_EQ(written, static_cast<GLsizei>(expectedSource.size()));
+    EXPECT_EQ(String(sourceBuffer.data(), static_cast<size_t>(written)), expectedSource);
+}
+
+TEST_F(ProgramTest, LinkProgramWithLegacyGlmarkStyleShaders) {
+    char infoLog[1024] = "";
+
+    const char* legacyVs = R"(attribute vec4 Position;
+attribute vec2 TexCoord;
+varying vec2 vTexCoord;
+
+void main() {
+    vTexCoord = TexCoord;
+    gl_Position = Position;
+}
+)";
+    const char* legacyFs = R"(varying vec2 vTexCoord;
+uniform sampler2D Texture;
+
+void main() {
+    gl_FragColor = texture2D(Texture, vTexCoord);
+}
+)";
+
+    GLuint vs = CreateShader(GL_VERTEX_SHADER);
+    ShaderSource(vs, 1, &legacyVs, NULL);
+    CompileShader(vs);
+    GLint vsStatus = GL_FALSE;
+    GetShaderiv(vs, GL_COMPILE_STATUS, &vsStatus);
+    GetShaderInfoLog(vs, sizeof(infoLog), nullptr, infoLog);
+    ASSERT_EQ(vsStatus, GL_TRUE) << infoLog;
+
+    GLuint fs = CreateShader(GL_FRAGMENT_SHADER);
+    ShaderSource(fs, 1, &legacyFs, NULL);
+    CompileShader(fs);
+    GLint fsStatus = GL_FALSE;
+    GetShaderiv(fs, GL_COMPILE_STATUS, &fsStatus);
+    GetShaderInfoLog(fs, sizeof(infoLog), nullptr, infoLog);
+    ASSERT_EQ(fsStatus, GL_TRUE) << infoLog;
+
+    GLuint program = CreateProgram();
+    AttachShader(program, vs);
+    AttachShader(program, fs);
+    LinkProgram(program);
+
+    GLint linkStatus = GL_FALSE;
+    GetProgramiv(program, GL_LINK_STATUS, &linkStatus);
+    GetProgramInfoLog(program, sizeof(infoLog), nullptr, infoLog);
+    ASSERT_EQ(linkStatus, GL_TRUE) << infoLog;
 }
 
 TEST_F(ProgramTest, CompileAndLink) {

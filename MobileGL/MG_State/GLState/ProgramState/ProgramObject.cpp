@@ -10,6 +10,7 @@
 #include <MG_Util/Converters/GLToStr/GLEnumConverter.h>
 #include <MG_Util/ShaderTranspiler/Types.h>
 #include <MG_Util/ShaderTranspiler/ShaderCompiler.h>
+#include <MG_Util/ShaderTranspiler/ShaderSourceProcessor.h>
 #include <MG_Util/Converters/MGToGL/ProgramEnumConverter.h>
 #include <MG_Util/Converters/SPIRVCrossToGL/SpvcTypeConverter.h>
 
@@ -389,10 +390,13 @@ namespace MobileGL::MG_State::GLState {
 
         // 1. Compile shaders
         for (SizeT i = 0; i < m_shaders.size(); i++) {
-            auto shaderType = MG_Util::ConvertShaderStageToGLEnum(m_shaders[i]->GetShaderStage());
+            auto shaderStage = m_shaders[i]->GetShaderStage();
+            auto shaderType = MG_Util::ConvertShaderStageToGLEnum(shaderStage);
+            String compileSource = m_shaders[i]->GetShaderSource();
+            PreprocessShaderSource(shaderStage, compileSource);
             shaderTypes[i] = shaderType;
             ShaderAttrib attrib{.shaderType = shaderType,
-                                .sourceStr = m_shaders[i]->GetShaderSource(),
+                                .sourceStr = compileSource,
                                 .flags = 0}; // Will need patched glslang to work
             MGLOG_D("ProgramObject %u: GenerateBinary - compiling shader[%zu] type %u", m_externalIndex, i, shaderType);
             auto res = ShaderCompiler::CompileShader(attrib);
@@ -403,7 +407,7 @@ namespace MobileGL::MG_State::GLState {
                 MGLOG_E("ProgramObject %u: GenerateBinary - CompileShader return code %d, log:\n%s", m_externalIndex,
                         res.error().errc, res.error().log.c_str());
                 MGLOG_E("ProgramObject %u: GenerateBinary - last compiled shader src: \n%s", m_externalIndex,
-                        m_shaders[i]->GetShaderSource().c_str());
+                        compileSource.c_str());
             }
             MOBILEGL_ASSERT(res, "CompileShader failed during binary generation");
             shaders[i] = res.value();

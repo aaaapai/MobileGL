@@ -214,21 +214,22 @@ namespace MobileGL::MG_Backend::DirectGLES {
             g_GLESFuncs.glBindVertexArray(m_backendVAOId);
         }
 
-        inline void BindAttributeBuffer(const MG_State::GLState::VertexAttribute& attrib) {
+        inline Bool BindAttributeBuffer(const MG_State::GLState::VertexAttribute& attrib) {
             const auto& bufferObject = attrib.Buffer;
             if (!bufferObject) {
                 MGLOG_W("Attribute has no bound buffer, skipping.");
-                return;
+                return false;
             }
 
             const auto& backendBufferIt = BufferImpl::g_backendBufferObjects.find(bufferObject.get());
             if (backendBufferIt == BufferImpl::g_backendBufferObjects.end()) {
                 MGLOG_E("No backend buffer found for attribute's buffer, cannot bind attribute.");
-                return;
+                return false;
             }
             const auto& backendBufferObject = backendBufferIt->second;
 
             backendBufferObject->Bind(GL_ARRAY_BUFFER);
+            return true;
         }
 
         void BackendVertexArrayObject::SyncToBackend(
@@ -266,7 +267,9 @@ namespace MobileGL::MG_Backend::DirectGLES {
                                        m_syncedAttributeVersions[attribIndex].BufferVersion;
                 if (!needsSyncFormat && !needsSyncBuffer) continue;
 
-                BindAttributeBuffer(attrib);
+                if (!BindAttributeBuffer(attrib)) {
+                    continue;
+                }
 
                 if (!attrib.IsInteger) {
                     g_GLESFuncs.glVertexAttribPointer(
@@ -286,16 +289,24 @@ namespace MobileGL::MG_Backend::DirectGLES {
             Uint16 currentIndexBufferVersion = stateVAOObject->GetIndexBufferBindingSlot().GetVersion();
             if (currentIndexBufferVersion != m_syncedIndexBufferVersion) {
                 const auto& indexBufferBinding = stateVAOObject->GetIndexBufferBindingSlot().GetBoundObject();
+                Bool indexBufferSynced = false;
                 if (indexBufferBinding) {
                     const auto& backendBufferIt = BufferImpl::g_backendBufferObjects.find(indexBufferBinding.get());
                     if (backendBufferIt != BufferImpl::g_backendBufferObjects.end()) {
                         const auto& backendBufferObject = backendBufferIt->second;
                         backendBufferObject->Bind(GL_ELEMENT_ARRAY_BUFFER);
+                        indexBufferSynced = true;
                     } else {
                         MGLOG_W("No backend buffer found for index buffer binding, cannot bind index buffer.");
                     }
+                } else {
+                    g_GLESFuncs.glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
+                    indexBufferSynced = true;
                 }
-                m_syncedIndexBufferVersion = currentIndexBufferVersion;
+
+                if (indexBufferSynced) {
+                    m_syncedIndexBufferVersion = currentIndexBufferVersion;
+                }
             }
 
             m_syncedAttributeVersions = allAttributeVersions;

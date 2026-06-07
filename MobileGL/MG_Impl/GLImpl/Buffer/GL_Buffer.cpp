@@ -15,6 +15,15 @@
 #include <MG_Util/Converters/MGToGL/BufferEnumConverter.h>
 
 namespace MobileGL::MG_Impl::GLImpl {
+    namespace {
+        auto& GetBufferBindingSlot(BufferTarget target) {
+            if (target == BufferTarget::Index) {
+                return MG_State::pGLContext->GetBoundVertexArray()->GetIndexBufferBindingSlot();
+            }
+            return MG_State::pGLContext->GetBufferBindingSlot(target);
+        }
+    } // namespace
+
     void GetBufferParameteriv_State(GLenum target, GLenum pname, GLint* params) {
         if (!params) {
             MG_State::pGLContext->RecordError(
@@ -26,7 +35,7 @@ namespace MobileGL::MG_Impl::GLImpl {
         BufferTarget bufferTarget = MG_Util::ConvertGLEnumToBufferTarget(target);
         if (!BufferImpl::ValidateBufferTarget(bufferTarget)) return;
 
-        auto& bindingSlot = MG_State::pGLContext->GetBufferBindingSlot(bufferTarget);
+        auto& bindingSlot = GetBufferBindingSlot(bufferTarget);
 
         auto& bufferObject = bindingSlot.GetBoundObject();
         if (!bufferObject) {
@@ -105,7 +114,7 @@ namespace MobileGL::MG_Impl::GLImpl {
         BufferTarget bufferTarget = MG_Util::ConvertGLEnumToBufferTarget(target);
         if (!BufferImpl::ValidateBufferTarget(bufferTarget)) return;
 
-        auto& bindingSlot = MG_State::pGLContext->GetBufferBindingSlot(bufferTarget);
+        auto& bindingSlot = GetBufferBindingSlot(bufferTarget);
 
         auto& bufferObject = bindingSlot.GetBoundObject();
         if (!bufferObject) {
@@ -148,7 +157,7 @@ namespace MobileGL::MG_Impl::GLImpl {
         BufferTarget bufferTarget = MG_Util::ConvertGLEnumToBufferTarget(target);
         if (!BufferImpl::ValidateBufferTarget(bufferTarget)) return GL_FALSE;
 
-        auto& bindingSlot = MG_State::pGLContext->GetBufferBindingSlot(bufferTarget);
+        auto& bindingSlot = GetBufferBindingSlot(bufferTarget);
 
         auto& bufferObject = bindingSlot.GetBoundObject();
         if (!bufferObject) {
@@ -189,7 +198,7 @@ namespace MobileGL::MG_Impl::GLImpl {
         BufferTarget bufferTarget = MG_Util::ConvertGLEnumToBufferTarget(target);
         if (!BufferImpl::ValidateBufferTarget(bufferTarget)) return nullptr;
 
-        auto& bindingSlot = MG_State::pGLContext->GetBufferBindingSlot(bufferTarget);
+        auto& bindingSlot = GetBufferBindingSlot(bufferTarget);
         auto& bufferObject = bindingSlot.GetBoundObject();
         if (!bufferObject) {
             MG_State::pGLContext->RecordError(
@@ -291,7 +300,7 @@ namespace MobileGL::MG_Impl::GLImpl {
 
         BufferTarget bufferTarget = MG_Util::ConvertGLEnumToBufferTarget(target);
         if (!BufferImpl::ValidateBufferTarget(bufferTarget)) return nullptr;
-        auto& bindingSlot = MG_State::pGLContext->GetBufferBindingSlot(bufferTarget);
+        auto& bindingSlot = GetBufferBindingSlot(bufferTarget);
 
         auto& bufferObject = bindingSlot.GetBoundObject();
         if (!bufferObject) {
@@ -335,8 +344,8 @@ namespace MobileGL::MG_Impl::GLImpl {
         if (!BufferImpl::ValidateBufferTarget(readBufferTarget) || !BufferImpl::ValidateBufferTarget(writeBufferTarget))
             return;
 
-        auto& readBindingSlot = MG_State::pGLContext->GetBufferBindingSlot(readBufferTarget);
-        auto& writeBindingSlot = MG_State::pGLContext->GetBufferBindingSlot(writeBufferTarget);
+        auto& readBindingSlot = GetBufferBindingSlot(readBufferTarget);
+        auto& writeBindingSlot = GetBufferBindingSlot(writeBufferTarget);
         auto& readBufferObject = readBindingSlot.GetBoundObject();
         auto& writeBufferObject = writeBindingSlot.GetBoundObject();
 
@@ -401,7 +410,7 @@ namespace MobileGL::MG_Impl::GLImpl {
 
         BufferTarget bufferTarget = MG_Util::ConvertGLEnumToBufferTarget(target);
         if (!BufferImpl::ValidateBufferTarget(bufferTarget)) return;
-        auto& bindingSlot = MG_State::pGLContext->GetBufferBindingSlot(bufferTarget);
+        auto& bindingSlot = GetBufferBindingSlot(bufferTarget);
 
         auto& bufferObject = bindingSlot.GetBoundObject();
         if (!bufferObject) {
@@ -454,7 +463,7 @@ namespace MobileGL::MG_Impl::GLImpl {
 
         BufferTarget bufferTarget = MG_Util::ConvertGLEnumToBufferTarget(target);
         if (!BufferImpl::ValidateBufferTarget(bufferTarget)) return;
-        auto& bindingSlot = MG_State::pGLContext->GetBufferBindingSlot(bufferTarget);
+        auto& bindingSlot = GetBufferBindingSlot(bufferTarget);
 
         auto& bufferObject = bindingSlot.GetBoundObject();
         if (!bufferObject) {
@@ -477,15 +486,18 @@ namespace MobileGL::MG_Impl::GLImpl {
         BufferTarget bufferTarget = MG_Util::ConvertGLEnumToBufferTarget(target);
         if (!BufferImpl::ValidateBufferTarget(bufferTarget)) return;
 
-        Bool doesBufferObjectCreated = MG_State::pGLContext->ValidateBufferObject(buffer);
-        if (!doesBufferObjectCreated) {
-            MG_State::pGLContext->CreateBufferObject(buffer);
+        SharedPtr<MG_State::GLState::BufferObject> bufferObject;
+        if (buffer != 0) {
+            Bool doesBufferObjectCreated = MG_State::pGLContext->ValidateBufferObject(buffer);
+            if (!doesBufferObjectCreated) {
+                MG_State::pGLContext->CreateBufferObject(buffer);
+            }
+            bufferObject = MG_State::pGLContext->GetBufferObject(buffer);
         }
-        auto& bufferObject = MG_State::pGLContext->GetBufferObject(buffer);
 
-        auto& bindingSlot = MG_State::pGLContext->GetBufferBindingSlot(bufferTarget);
+        auto& bindingSlot = GetBufferBindingSlot(bufferTarget);
         bindingSlot.Bind(bufferObject);
-        MGLOG_D("%s: bind buffer object %d -> %s", __func__, bufferObject->GetExternalIndex(),
+        MGLOG_D("%s: bind buffer object %d -> %s", __func__, bufferObject ? bufferObject->GetExternalIndex() : 0,
                 MG_Util::ConvertGLEnumToString(target).c_str());
     }
 
