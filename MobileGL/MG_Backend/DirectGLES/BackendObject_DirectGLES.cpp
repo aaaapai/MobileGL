@@ -120,6 +120,28 @@ namespace MobileGL::MG_Backend::DirectGLES {
         BackendObject::ReleaseEGLResources();
     }
 
+    GLExtension getVersionExtension(int major, int minor) {
+        // 组合版本号：major=4, minor=3 → 43
+        int version = major * 10 + minor;
+
+        switch (version) {
+            case 30: return V_OpenGL30;
+            case 31: return V_OpenGL31;
+            case 32: return V_OpenGL32;
+            case 33: return V_OpenGL33;
+            case 40: return V_OpenGL40;
+            case 41: return V_OpenGL41;
+            case 42: return V_OpenGL42;
+            case 43: return V_OpenGL43;
+            case 44: return V_OpenGL44;
+            case 45: return V_OpenGL45;
+            case 46: return V_OpenGL46;
+            default:
+                MGLOG_E("Unsupported OpenGL version: %d.%d, fallback to 3.3", major, minor);
+                return V_OpenGL33;
+        }
+    }
+
     const RendererInfo& BackendObject_DirectGLES::GetRendererInfo() const {
         const char* envLibGL = std::getenv("LIBGL_GL");
 
