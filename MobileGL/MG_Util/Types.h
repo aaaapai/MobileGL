@@ -8,6 +8,8 @@
 
 #pragma once
 
+#include <absl/container/flat_hash_map.h>
+#include <absl/container/flat_hash_set.h>
 #include <Includes.h>
 #include "GLExtensions.h"
 
@@ -86,8 +88,6 @@ template <
 >
 using UnorderedMap = std::unordered_map<Key, T>;
 #elif UseABSL
-#include <absl/container/flat_hash_map.h>
-#include <absl/container/flat_hash_set.h>
 template <
         typename Key,
         typename T,
