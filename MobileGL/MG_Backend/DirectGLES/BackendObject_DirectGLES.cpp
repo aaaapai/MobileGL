@@ -181,7 +181,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
             .ExtraVendor = Nullopt,              // Extra vendor
             .RendererGLInfo =
                 {
-                    .TargetGLVersion = {3, 3, 0},                      // Target OpenGL Version
+                    .TargetGLVersion = targetVersion,                      // Target OpenGL Version
                     .TargetGLSLVersion = {4, 6, 0},                    // Target Shading Language Version
                     .Extensions = extensions,
                     .IsCompatibilityProfile = false // Is Compatibility Profile
