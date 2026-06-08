@@ -85,6 +85,17 @@ template <
         typename T
 >
 using UnorderedMap = std::unordered_map<Key, T>;
+#elif UseABSL
+#include <absl/container/flat_hash_map.h>
+#include <absl/container/flat_hash_set.h>
+template <
+        typename Key,
+        typename T,
+        class Hash = absl::container_internal::hash_default_hash<Key>,
+        class KeyEqual = absl::container_internal::hash_default_eq<Key>,
+        class Allocator = std::allocator<std::pair<const Key, T>>
+>
+using UnorderedMap = absl::flat_hash_map<Key, T, Hash, KeyEqual, Allocator>;
 #else
 #error The type of UnorderedMap to be used is not defined!
 #endif
