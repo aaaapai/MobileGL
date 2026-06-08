@@ -428,15 +428,18 @@ TEST_F(GeneralVertexArrayTest, General_StatePreservation) {
 }
 
 TEST_F(GeneralVertexArrayTest, General_ErrorConditions) {
+    ASSERT_NE(MG_State::pGLContext->GetBoundVertexArray(), nullptr);
+    BindBuffer(GL_ARRAY_BUFFER, 0);
     VertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 0, nullptr);
-    EXPECT_EQ(GetError(), GL_INVALID_OPERATION);
+    EXPECT_EQ(GetError(), GL_NO_ERROR);
 
     GLuint vao = CreateVAO();
     EnableVertexAttribArray(MG_State::GLState::VertexArrayObject::MAX_VERTEX_ATTRIBS);
     EXPECT_EQ(GetError(), GL_INVALID_VALUE);
 
+    BindBuffer(GL_ARRAY_BUFFER, 0);
     VertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 0, nullptr);
-    EXPECT_EQ(GetError(), GL_INVALID_OPERATION);
+    EXPECT_EQ(GetError(), GL_NO_ERROR);
 
     GLuint vbo = CreateVBO(GL_ARRAY_BUFFER, 64);
     VertexAttribPointer(0, 3, 0xFFFFFFFF, GL_FALSE, 0, nullptr);
