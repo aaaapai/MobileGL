@@ -14,6 +14,19 @@
 #include <MG_Util/Converters/MGToStr/RenderStateEnumConverter.h>
 
 namespace MobileGL::MG_Impl::GLImpl {
+    static Bool TryConvertBlendEquation(GLenum mode, const char* functionName,
+                                        ::MobileGL::BlendEquation& outEquation) {
+        outEquation = MG_Util::ConvertGLEnumToBlendEquation(mode);
+        if (outEquation != ::MobileGL::BlendEquation::Unknown) return true;
+
+        MG_State::pGLContext->RecordError(
+            ErrorCode::InvalidEnum,
+            MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", functionName,
+                                         "Blend equation enum " + MG_Util::ConvertGLEnumToString(mode) +
+                                             " is not supported."));
+        return false;
+    }
+
     void Viewport_State(GLint x, GLint y, GLsizei width, GLsizei height) {
         if (width < 0 || height < 0) {
             MG_State::pGLContext->RecordError(ErrorCode::InvalidValue,
@@ -141,7 +154,18 @@ namespace MobileGL::MG_Impl::GLImpl {
     }
 
     void FrontFace_State(GLenum mode) {
-        // TODO: implement
+        FrontFaceMode frontFaceMode = MG_Util::ConvertGLEnumToFrontFaceMode(mode);
+        if (frontFaceMode == FrontFaceMode::Unknown) {
+            MG_State::pGLContext->RecordError(
+                ErrorCode::InvalidEnum,
+                MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", "FrontFace_State",
+                                             "Front face mode enum " +
+                                                 MG_Util::ConvertFrontFaceModeToString(frontFaceMode) + "(" +
+                                                 MG_Util::ConvertGLEnumToString(mode) + ") is not supported."));
+            return;
+        }
+
+        MG_State::pGLContext->SetFrontFaceMode(frontFaceMode);
     }
 
     void Enable_State(GLenum cap) {
@@ -249,7 +273,19 @@ namespace MobileGL::MG_Impl::GLImpl {
     }
 
     void BlendEquation_State(GLenum mode) {
-        // TODO: implement
+        ::MobileGL::BlendEquation blendEquation = ::MobileGL::BlendEquation::Unknown;
+        if (!TryConvertBlendEquation(mode, "BlendEquation_State", blendEquation)) return;
+        MG_State::pGLContext->SetBlendEquation(blendEquation, blendEquation);
+    }
+
+    void BlendEquationSeparate_State(GLenum modeRGB, GLenum modeAlpha) {
+        ::MobileGL::BlendEquation colorEquation = ::MobileGL::BlendEquation::Unknown;
+        if (!TryConvertBlendEquation(modeRGB, "BlendEquationSeparate_State", colorEquation)) return;
+
+        ::MobileGL::BlendEquation alphaEquation = ::MobileGL::BlendEquation::Unknown;
+        if (!TryConvertBlendEquation(modeAlpha, "BlendEquationSeparate_State", alphaEquation)) return;
+
+        MG_State::pGLContext->SetBlendEquation(colorEquation, alphaEquation);
     }
 
     void BlendColor_State(GLfloat red, GLfloat green, GLfloat blue, GLfloat alpha) {
@@ -285,7 +321,43 @@ namespace MobileGL::MG_Impl::GLImpl {
         BlendFactor dstRGBM = MG_Util::ConvertGLEnumToBlendFactor(dstRGB);
         BlendFactor srcAlphaM = MG_Util::ConvertGLEnumToBlendFactor(srcAlpha);
         BlendFactor dstAlphaM = MG_Util::ConvertGLEnumToBlendFactor(dstAlpha);
+        if (srcRGBM == BlendFactor::Unknown || dstRGBM == BlendFactor::Unknown ||
+            srcAlphaM == BlendFactor::Unknown || dstAlphaM == BlendFactor::Unknown) {
+            MG_State::pGLContext->RecordError(
+                ErrorCode::InvalidEnum,
+                MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", "BlendFuncSeparatei_State",
+                                             "One of the indexed blend factor enums is not supported."));
+            return;
+        }
         MG_State::pGLContext->SetBlendFuncIndexed(buf, srcRGBM, dstRGBM, srcAlphaM, dstAlphaM);
+    }
+
+    void BlendFunci_State(GLuint buf, GLenum src, GLenum dst) {
+        BlendFuncSeparatei_State(buf, src, dst, src, dst);
+    }
+
+    void BlendEquationSeparatei_State(GLuint buf, GLenum modeRGB, GLenum modeAlpha) {
+        if (buf >= MG_State::GLState::FramebufferObject::MAX_DRAW_BUFFERS) {
+            MG_State::pGLContext->RecordError(
+                ErrorCode::InvalidValue,
+                MakeUnique<GenericErrorInfo>(
+                    "MG_Impl/GLImpl", "BlendEquationSeparatei_State",
+                    "Buffer index " + std::to_string(buf) + " is out of range. Max supported is " +
+                        std::to_string(MG_State::GLState::FramebufferObject::MAX_DRAW_BUFFERS - 1) + "."));
+            return;
+        }
+
+        ::MobileGL::BlendEquation colorEquation = ::MobileGL::BlendEquation::Unknown;
+        if (!TryConvertBlendEquation(modeRGB, "BlendEquationSeparatei_State", colorEquation)) return;
+
+        ::MobileGL::BlendEquation alphaEquation = ::MobileGL::BlendEquation::Unknown;
+        if (!TryConvertBlendEquation(modeAlpha, "BlendEquationSeparatei_State", alphaEquation)) return;
+
+        MG_State::pGLContext->SetBlendEquationIndexed(buf, colorEquation, alphaEquation);
+    }
+
+    void BlendEquationi_State(GLuint buf, GLenum mode) {
+        BlendEquationSeparatei_State(buf, mode, mode);
     }
 
     void Disablei_State(GLenum target, GLuint index) {
@@ -317,6 +389,18 @@ namespace MobileGL::MG_Impl::GLImpl {
     }
 
     /* @INSERTION_POINT:FUNCTION_IMPLEMENTATION@ */
+    void BlendEquationi(GLuint buf, GLenum mode) {
+        BlendEquationi_State(buf, mode);
+    }
+
+    void BlendEquationSeparatei(GLuint buf, GLenum modeRGB, GLenum modeAlpha) {
+        BlendEquationSeparatei_State(buf, modeRGB, modeAlpha);
+    }
+
+    void BlendFunci(GLuint buf, GLenum src, GLenum dst) {
+        BlendFunci_State(buf, src, dst);
+    }
+
     void BlendFuncSeparatei(GLuint buf, GLenum srcRGB, GLenum dstRGB, GLenum srcAlpha, GLenum dstAlpha) {
         BlendFuncSeparatei_State(buf, srcRGB, dstRGB, srcAlpha, dstAlpha);
     }
@@ -455,6 +539,10 @@ namespace MobileGL::MG_Impl::GLImpl {
 
     void BlendEquation(GLenum mode) {
         BlendEquation_State(mode);
+    }
+
+    void BlendEquationSeparate(GLenum modeRGB, GLenum modeAlpha) {
+        BlendEquationSeparate_State(modeRGB, modeAlpha);
     }
 
     void BlendColor(GLfloat red, GLfloat green, GLfloat blue, GLfloat alpha) {

@@ -14,6 +14,27 @@
 #include "TextureUnit.h"
 
 namespace MobileGL::MG_State::GLState {
+    struct ImageTextureBinding {
+        SharedPtr<ITextureObject> Texture;
+        GLint Level = 0;
+        GLboolean Layered = GL_FALSE;
+        GLint Layer = 0;
+        GLenum Access = GL_READ_ONLY;
+        GLenum Format = GL_RGBA8;
+        Uint16 Version = 0;
+
+        void Bind(SharedPtr<ITextureObject> texture, GLint level, GLboolean layered, GLint layer, GLenum access,
+                  GLenum format) {
+            Texture = Move(texture);
+            Level = level;
+            Layered = layered;
+            Layer = layer;
+            Access = access;
+            Format = format;
+            ++Version;
+        }
+    };
+
     class TextureState {
     public:
         static constexpr int MAX_TEXTURE_IMAGE_UNITS = 32;
@@ -23,6 +44,8 @@ namespace MobileGL::MG_State::GLState {
         const SharedPtr<ITextureObject>& CreateTextureObject(Uint index, TextureTarget target);
         const SharedPtr<ITextureObject>& GetTextureObject(Uint index);
         TextureUnit& GetUnitObject(Int unit);
+        ImageTextureBinding& GetImageTextureBinding(Int unit);
+        const ImageTextureBinding& GetImageTextureBinding(Int unit) const;
         Int GetActiveTextureUnit() const;
         void SetActiveTextureUnit(Int unit);
         void MarkTextureObjectForDeletion(Uint index);
@@ -32,6 +55,7 @@ namespace MobileGL::MG_State::GLState {
     private:
         Int m_activeTextureUnit = 0;
         Array<TextureUnit, MAX_TEXTURE_IMAGE_UNITS> m_textureUnits;
+        Array<ImageTextureBinding, MAX_TEXTURE_IMAGE_UNITS> m_imageTextureBindings;
         IndexGenerator<Uint> m_indexGenerator;
         UnorderedMap<GLuint, SharedPtr<ITextureObject>> m_textureObjects;
     };

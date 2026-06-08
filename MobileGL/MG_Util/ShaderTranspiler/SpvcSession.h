@@ -8,6 +8,7 @@
 
 #pragma once
 #include <Includes.h>
+#include <spirv_reflect.h>
 #include "Types.h"
 
 #define SPVC_CHK_INIT auto __r = SPVC_SUCCESS;
@@ -55,18 +56,24 @@ namespace MobileGL {
                 }
             };
 
+            enum class SessionUsageBit {
+                Reflection = 1 << 0,
+                Transpile = 1 << 1,
+            };
+
             struct SpvcMetadata {
                 UnorderedMap<String, unsigned> plainUniformOffsetsInUBO;
                 UnorderedMap<String, SizeT> plainUniformMemberSizesInBytes;
                 UnorderedMap<String, SpvcType> plainUniformMemberTypes;
-                SizeT uboSize = 0;
+                SizeT globalUboSize = 0;
             };
 
             class SpvcSession {
             public:
                 SpvcSession() {}
 
-                explicit SpvcSession(const Vector<unsigned int>& spirv);
+                explicit SpvcSession(const Vector<unsigned int>& spirv,
+                                     Flags<SessionUsageBit> usage);
 
                 SpvcSession(SpvcSession&) = delete;
 
@@ -90,11 +97,18 @@ namespace MobileGL {
                 spvc_result ParseMetaData();
 
             private:
+                Flags<SessionUsageBit> usage;
+
+                // SPIRV-Cross state (used when Transpile flag is set)
                 spvc_context context = nullptr;
                 spvc_parsed_ir ir = nullptr;
                 spvc_compiler compiler = nullptr;
                 spvc_compiler_options compiler_options = nullptr;
                 spvc_resources resources = nullptr;
+
+                // SPIRV-Reflect state (used when only Reflection flag is set)
+                SpvReflectShaderModule reflectModule = {};
+                bool reflectModuleValid = false;
 
                 SpvcMetadata metadata;
             };

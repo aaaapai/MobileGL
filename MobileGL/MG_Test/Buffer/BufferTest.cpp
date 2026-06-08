@@ -25,7 +25,8 @@ protected:
 };
 
 TEST_F(BufferTest, Binding) {
-    auto bufferNames = MobileGL::MG_State::pGLContext->GenBufferNames(3);
+    Vector<Uint> bufferNames;
+    MobileGL::MG_State::pGLContext->GenBufferNames(3, bufferNames);
     auto& arraySlot = MobileGL::MG_State::pGLContext->GetBufferBindingSlot(BufferTarget::Vertex);
     auto& indexSlot = MobileGL::MG_State::pGLContext->GetBufferBindingSlot(BufferTarget::Uniform);
 
@@ -49,7 +50,8 @@ TEST_F(BufferTest, PingPong) {
     auto& readSlot = MobileGL::MG_State::pGLContext->GetBufferBindingSlot(BufferTarget::CopyRead);
     auto& writeSlot = MobileGL::MG_State::pGLContext->GetBufferBindingSlot(BufferTarget::CopyWrite);
     {
-        auto bufferNames = MobileGL::MG_State::pGLContext->GenBufferNames(1);
+        Vector<Uint> bufferNames;
+        MobileGL::MG_State::pGLContext->GenBufferNames(1, bufferNames);
         auto bufObj = MobileGL::MG_State::pGLContext->CreateBufferObject(bufferNames[0]);
 
         writeSlot.Bind(bufObj);
@@ -80,7 +82,9 @@ TEST_F(BufferTest, PingPong) {
 
 TEST_F(BufferTest, GenerateManyNames_NoPrematureCreation) {
     const SizeT largeCount = 100000; // generate tons of buffer names
-    auto names = MobileGL::MG_State::pGLContext->GenBufferNames(largeCount);
+
+    Vector<Uint> names;
+    MobileGL::MG_State::pGLContext->GenBufferNames(largeCount, names);
 
     std::vector<SizeT> indices = {0, 600, 5000, 32768, 99999}; // only create a few buffer objects
     for (SizeT idx : indices) {
@@ -104,7 +108,8 @@ TEST_F(BufferTest, GenerateManyNames_NoPrematureCreation) {
 
 TEST_F(BufferTest, AcquireMemory) {
     auto& slot = MobileGL::MG_State::pGLContext->GetBufferBindingSlot(BufferTarget::Uniform);
-    auto bufferNames = MobileGL::MG_State::pGLContext->GenBufferNames(1);
+    Vector<Uint> bufferNames;
+    MobileGL::MG_State::pGLContext->GenBufferNames(1, bufferNames);
     auto bufObj = MobileGL::MG_State::pGLContext->CreateBufferObject(bufferNames[0]);
     slot.Bind(bufObj);
     Vector<Int> initData{10, 20, 30, 40, 50};
@@ -132,7 +137,8 @@ TEST_F(BufferTest, AcquireMemory) {
 
 TEST_F(BufferTest, AcquireMemoryRangeWithoutExplicit) {
     auto& slot = MobileGL::MG_State::pGLContext->GetBufferBindingSlot(BufferTarget::Uniform);
-    auto bufferNames = MobileGL::MG_State::pGLContext->GenBufferNames(1);
+    Vector<Uint> bufferNames;
+    MobileGL::MG_State::pGLContext->GenBufferNames(1, bufferNames);
     auto bufObj = MobileGL::MG_State::pGLContext->CreateBufferObject(bufferNames[0]);
     slot.Bind(bufObj);
     Vector<Int> initData{10, 20, 30, 40, 50};
@@ -160,7 +166,8 @@ TEST_F(BufferTest, AcquireMemoryRangeWithoutExplicit) {
 
 TEST_F(BufferTest, AcquireMemoryRangeWithExplicit) {
     auto& slot = MobileGL::MG_State::pGLContext->GetBufferBindingSlot(BufferTarget::Uniform);
-    auto bufferNames = MobileGL::MG_State::pGLContext->GenBufferNames(1);
+    Vector<Uint> bufferNames;
+    MobileGL::MG_State::pGLContext->GenBufferNames(1, bufferNames);
     auto bufObj = MobileGL::MG_State::pGLContext->CreateBufferObject(bufferNames[0]);
     slot.Bind(bufObj);
 
@@ -208,7 +215,8 @@ TEST_F(BufferTest, CopyBufferSubData) {
     auto& srcSlot = MobileGL::MG_State::pGLContext->GetBufferBindingSlot(BufferTarget::CopyRead);
     auto& dstSlot = MobileGL::MG_State::pGLContext->GetBufferBindingSlot(BufferTarget::CopyWrite);
 
-    auto srcNames = MobileGL::MG_State::pGLContext->GenBufferNames(1);
+    Vector<Uint> srcNames;
+    MobileGL::MG_State::pGLContext->GenBufferNames(1, srcNames);
     auto srcObj = MobileGL::MG_State::pGLContext->CreateBufferObject(srcNames[0]);
     srcSlot.Bind(srcObj);
 
@@ -218,7 +226,8 @@ TEST_F(BufferTest, CopyBufferSubData) {
     DataPtr srcPtr{.data = srcData.data(), .size = srcSize};
     srcObj->UploadData(srcPtr, 0);
 
-    auto dstNames = MobileGL::MG_State::pGLContext->GenBufferNames(1);
+    Vector<Uint> dstNames;
+    MobileGL::MG_State::pGLContext->GenBufferNames(1, dstNames);
     auto dstObj = MobileGL::MG_State::pGLContext->CreateBufferObject(dstNames[0]);
     dstSlot.Bind(dstObj);
 
@@ -249,7 +258,8 @@ TEST_F(BufferTest, CopyBufferSubData) {
 
 TEST_F(BufferTest, WriteWhileMapped) {
     auto& slot = MobileGL::MG_State::pGLContext->GetBufferBindingSlot(BufferTarget::ShaderStorage);
-    auto bufferNames = MobileGL::MG_State::pGLContext->GenBufferNames(1);
+    Vector<Uint> bufferNames;
+    MobileGL::MG_State::pGLContext->GenBufferNames(1, bufferNames);
     auto bufObj = MobileGL::MG_State::pGLContext->CreateBufferObject(bufferNames[0]);
     slot.Bind(bufObj);
 
@@ -280,7 +290,8 @@ TEST_F(BufferTest, WriteWhileMapped) {
 
 TEST_F(BufferTest, PartialUpdate) {
     auto& slot = MobileGL::MG_State::pGLContext->GetBufferBindingSlot(BufferTarget::Vertex);
-    auto bufferNames = MobileGL::MG_State::pGLContext->GenBufferNames(1);
+    Vector<Uint> bufferNames;
+    MobileGL::MG_State::pGLContext->GenBufferNames(1, bufferNames);
     auto bufObj = MobileGL::MG_State::pGLContext->CreateBufferObject(bufferNames[0]);
     slot.Bind(bufObj);
 
@@ -308,7 +319,8 @@ TEST_F(BufferTest, PartialUpdate) {
 }
 
 TEST_F(BufferTest, DeleteBufferObject) {
-    auto bufferNames = MobileGL::MG_State::pGLContext->GenBufferNames(1);
+    Vector<Uint> bufferNames;
+    MobileGL::MG_State::pGLContext->GenBufferNames(1, bufferNames);
     auto& slot = MobileGL::MG_State::pGLContext->GetBufferBindingSlot(BufferTarget::Vertex);
     auto bufObj = MobileGL::MG_State::pGLContext->CreateBufferObject(bufferNames[0]);
     slot.Bind(bufObj);
@@ -322,7 +334,7 @@ using namespace MobileGL::MG_Impl::GLImpl;
 
 class GeneralBufferTest : public ::testing::Test {
 protected:
-    void SetUp() override { MG_State::pGLContext = new MG_State::GLState::GLContext(); }
+    void SetUp() override { MG_State::pGLContext = MakeUnique<MG_State::GLState::GLContext>(); }
 
     GLuint CreateBoundBuffer(GLenum target, GLsizeiptr size, GLenum usage) {
         GLuint buffer;

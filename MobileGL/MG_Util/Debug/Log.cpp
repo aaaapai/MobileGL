@@ -58,8 +58,14 @@ namespace MobileGL {
 
         void InitFile() {
 #if MOBILEGL_LOG_ENABLE_FILE
-            if (!s_logFile && MOBILEGL_LOG_FILE_PATH && *MOBILEGL_LOG_FILE_PATH) {
-                s_logFile = std::fopen(MOBILEGL_LOG_FILE_PATH, "w");
+            if (!s_logFile) {
+                const char* logPath = std::getenv("MOBILEGL_LOG_FILE_PATH");
+                if (!logPath || !*logPath) {
+                    logPath = MOBILEGL_LOG_FILE_PATH;
+                }
+                if (logPath && *logPath) {
+                    s_logFile = std::fopen(logPath, "w");
+                }
             }
 #endif
         }

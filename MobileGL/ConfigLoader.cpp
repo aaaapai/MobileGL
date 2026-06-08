@@ -8,6 +8,10 @@
 
 #include "Config.h"
 
+#ifndef _WIN32
+extern char** environ;
+#endif
+
 namespace MobileGL::MG_ConfigLoader {
     static UniquePtr<UnorderedMap<String, String>> acceptedEnvVariablesMap;
 

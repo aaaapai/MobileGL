@@ -27,6 +27,17 @@
 namespace MobileGL::MG_Backend::DirectGLES {
     constexpr Bool PREFER_MAP_BUFFER_RANGE_FOR_BUFFER_SYNC = true;
 
+    static Uint ResolveBackendEsslVersion() {
+        const auto& version = g_GLESCapabilities.GLESVersion;
+        if (version.Major > 3 || (version.Major == 3 && version.Minor >= 2)) {
+            return 320;
+        }
+        if (version.Major == 3 && version.Minor >= 1) {
+            return 310;
+        }
+        return 300;
+    }
+
     namespace BufferImpl {
         BackendBufferObject::BackendBufferObject() {
 #ifdef TRACY_ENABLE
@@ -194,16 +205,53 @@ namespace MobileGL::MG_Backend::DirectGLES {
     } // namespace BufferImpl
 
     namespace VertexArrayImpl {
+        namespace {
+            SizeT GetDataTypeSize(DataType type) {
+                switch (type) {
+                case DataType::Int8:
+                case DataType::Uint8:
+                    return 1;
+                case DataType::Int16:
+                case DataType::Uint16:
+                case DataType::Float16:
+                    return 2;
+                case DataType::Int32:
+                case DataType::Uint32:
+                case DataType::Float32:
+                case DataType::Fixed32:
+                    return 4;
+                case DataType::Float64:
+                    return 8;
+                default:
+                    return 0;
+                }
+            }
+        } // namespace
+
         BackendVertexArrayObject::BackendVertexArrayObject() {
 #ifdef TRACY_ENABLE
             ZoneScopedC(TRACY_ZONECOLOR_BACKEND);
 #endif
+            m_clientAttributeBufferIds.fill(0);
             g_GLESFuncs.glGenVertexArrays(1, &m_backendVAOId);
             if (m_backendVAOId == 0) {
                 MGLOG_E("Failed to generate vertex array object.");
                 MGLOG_E("ES glGetError(): %s", MG_Util::ConvertGLEnumToString(g_GLESFuncs.glGetError()).c_str());
             } else {
                 MGLOG_D("Generated vertex array object with ID: %u.", m_backendVAOId);
+            }
+        }
+
+        BackendVertexArrayObject::~BackendVertexArrayObject() {
+            if (m_backendVAOId != 0) {
+                g_GLESFuncs.glDeleteVertexArrays(1, &m_backendVAOId);
+                m_backendVAOId = 0;
+            }
+            for (auto& bufferId : m_clientAttributeBufferIds) {
+                if (bufferId != 0) {
+                    g_GLESFuncs.glDeleteBuffers(1, &bufferId);
+                    bufferId = 0;
+                }
             }
         }
 
@@ -214,21 +262,22 @@ namespace MobileGL::MG_Backend::DirectGLES {
             g_GLESFuncs.glBindVertexArray(m_backendVAOId);
         }
 
-        inline void BindAttributeBuffer(const MG_State::GLState::VertexAttribute& attrib) {
+        inline Bool BindAttributeBuffer(const MG_State::GLState::VertexAttribute& attrib) {
             const auto& bufferObject = attrib.Buffer;
             if (!bufferObject) {
                 MGLOG_W("Attribute has no bound buffer, skipping.");
-                return;
+                return false;
             }
 
             const auto& backendBufferIt = BufferImpl::g_backendBufferObjects.find(bufferObject.get());
             if (backendBufferIt == BufferImpl::g_backendBufferObjects.end()) {
                 MGLOG_E("No backend buffer found for attribute's buffer, cannot bind attribute.");
-                return;
+                return false;
             }
             const auto& backendBufferObject = backendBufferIt->second;
 
             backendBufferObject->Bind(GL_ARRAY_BUFFER);
+            return true;
         }
 
         void BackendVertexArrayObject::SyncToBackend(
@@ -266,7 +315,9 @@ namespace MobileGL::MG_Backend::DirectGLES {
                                        m_syncedAttributeVersions[attribIndex].BufferVersion;
                 if (!needsSyncFormat && !needsSyncBuffer) continue;
 
-                BindAttributeBuffer(attrib);
+                if (!BindAttributeBuffer(attrib)) {
+                    continue;
+                }
 
                 if (!attrib.IsInteger) {
                     g_GLESFuncs.glVertexAttribPointer(
@@ -286,19 +337,79 @@ namespace MobileGL::MG_Backend::DirectGLES {
             Uint16 currentIndexBufferVersion = stateVAOObject->GetIndexBufferBindingSlot().GetVersion();
             if (currentIndexBufferVersion != m_syncedIndexBufferVersion) {
                 const auto& indexBufferBinding = stateVAOObject->GetIndexBufferBindingSlot().GetBoundObject();
+                Bool indexBufferSynced = false;
                 if (indexBufferBinding) {
                     const auto& backendBufferIt = BufferImpl::g_backendBufferObjects.find(indexBufferBinding.get());
                     if (backendBufferIt != BufferImpl::g_backendBufferObjects.end()) {
                         const auto& backendBufferObject = backendBufferIt->second;
                         backendBufferObject->Bind(GL_ELEMENT_ARRAY_BUFFER);
+                        indexBufferSynced = true;
                     } else {
                         MGLOG_W("No backend buffer found for index buffer binding, cannot bind index buffer.");
                     }
+                } else {
+                    g_GLESFuncs.glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
+                    indexBufferSynced = true;
                 }
-                m_syncedIndexBufferVersion = currentIndexBufferVersion;
+
+                if (indexBufferSynced) {
+                    m_syncedIndexBufferVersion = currentIndexBufferVersion;
+                }
             }
 
             m_syncedAttributeVersions = allAttributeVersions;
+        }
+
+        void BackendVertexArrayObject::SyncClientSideAttributesForDrawArrays(
+            const SharedPtr<MG_State::GLState::VertexArrayObject>& stateVAOObject, GLint first, GLsizei count) {
+            if (!stateVAOObject || count <= 0 || first < 0) {
+                return;
+            }
+
+            Bind();
+
+            const auto& allAttributes = stateVAOObject->GetAllAttributes();
+            for (Uint attribIndex = 0; attribIndex < allAttributes.size(); ++attribIndex) {
+                const auto& attrib = allAttributes[attribIndex];
+                if (!attrib.Enabled || attrib.Buffer) {
+                    continue;
+                }
+
+                const auto* clientData = reinterpret_cast<const Uint8*>(attrib.Offset);
+                const SizeT componentSize = GetDataTypeSize(attrib.Type);
+                if (!clientData || componentSize == 0 || attrib.Size <= 0) {
+                    continue;
+                }
+
+                const SizeT elementSize = componentSize * static_cast<SizeT>(attrib.Size);
+                const SizeT stride = attrib.Stride > 0 ? static_cast<SizeT>(attrib.Stride) : elementSize;
+                const SizeT uploadSize = static_cast<SizeT>(first + count - 1) * stride + elementSize;
+
+                auto& bufferId = m_clientAttributeBufferIds[attribIndex];
+                if (bufferId == 0) {
+                    g_GLESFuncs.glGenBuffers(1, &bufferId);
+                    if (bufferId == 0) {
+                        MGLOG_E("Failed to create client-side vertex attribute upload buffer.");
+                        continue;
+                    }
+                }
+
+                g_GLESFuncs.glBindBuffer(GL_ARRAY_BUFFER, bufferId);
+                g_GLESFuncs.glBufferData(GL_ARRAY_BUFFER, static_cast<GLsizeiptr>(uploadSize), clientData,
+                                         GL_STREAM_DRAW);
+
+                if (!attrib.IsInteger) {
+                    g_GLESFuncs.glVertexAttribPointer(
+                        attribIndex, attrib.Size, MG_Util::ConvertDataTypeToGLEnum(attrib.Type),
+                        attrib.Normalized ? GL_TRUE : GL_FALSE, static_cast<GLsizei>(stride), nullptr);
+                } else {
+                    g_GLESFuncs.glVertexAttribIPointer(attribIndex, attrib.Size,
+                                                       MG_Util::ConvertDataTypeToGLEnum(attrib.Type),
+                                                       static_cast<GLsizei>(stride), nullptr);
+                }
+            }
+
+            BufferImpl::g_boundVertexBufferObject = nullptr;
         }
 
         StateBackendObjectRegistry<MG_State::GLState::VertexArrayObject, BackendVertexArrayObject>
@@ -1075,13 +1186,14 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 String source;
                 auto& spirvCode = shaderSpirvs[index];
 
-                MG_Util::ShaderTranspiler::SpvcSession spvcSession(spirvCode);
+                MG_Util::ShaderTranspiler::SpvcSession spvcSession(spirvCode,
+                    MG_Util::ShaderTranspiler::SessionUsageBit::Transpile);
 
                 spvc_compiler_options options;
                 spvcSession.CreateOptions(&options);
 
-                // TODO: check ESSL version supported by backend driver
-                spvc_compiler_options_set_uint(options, SPVC_COMPILER_OPTION_GLSL_VERSION, 320);
+                spvc_compiler_options_set_uint(options, SPVC_COMPILER_OPTION_GLSL_VERSION,
+                                               ResolveBackendEsslVersion());
                 spvc_compiler_options_set_bool(options, SPVC_COMPILER_OPTION_GLSL_ES, SPVC_TRUE);
                 spvc_compiler_options_set_bool(options, SPVC_COMPILER_OPTION_GLSL_ENABLE_420PACK_EXTENSION, SPVC_FALSE);
                 //spvc_compiler_options_set_bool(options, SPVC_COMPILER_OPTION_GLSL_VULKAN_SEMANTICS, SPVC_FALSE);
@@ -1104,6 +1216,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
 
                 source = RemoveLayoutBinding(source);
                 source = ProcessOutColorLocations(source);
+                source = ForceFlatIntegerVaryings(source, glShaderType);
                 source = ForceSupporterOutput(source);
 
                 // Patch for Photon compiler precision issue

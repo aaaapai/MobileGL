@@ -120,6 +120,17 @@ namespace MobileGL {
             }
         }
 
+        String ConvertFrontFaceModeToString(FrontFaceMode v) {
+            switch (v) {
+            case FrontFaceMode::CounterClockwise:
+                return "CounterClockwise";
+            case FrontFaceMode::Clockwise:
+                return "Clockwise";
+            default:
+                return "Unknown";
+            }
+        }
+
         String ConvertCapabilityInputToString(CapabilityInput v) {
             switch (v) {
             case CapabilityInput::Blend:

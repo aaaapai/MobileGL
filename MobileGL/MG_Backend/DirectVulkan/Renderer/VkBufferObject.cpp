@@ -13,11 +13,13 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         m_allocator = other.m_allocator;
         m_buffer = other.m_buffer;
         m_allocation = other.m_allocation;
+        m_mappedData = other.m_mappedData;
         m_size = other.m_size;
 
         other.m_allocator = nullptr;
         other.m_buffer = VK_NULL_HANDLE;
         other.m_allocation = nullptr;
+        other.m_mappedData = nullptr;
         other.m_size = 0;
     }
 
@@ -31,17 +33,23 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         m_allocator = other.m_allocator;
         m_buffer = other.m_buffer;
         m_allocation = other.m_allocation;
+        m_mappedData = other.m_mappedData;
         m_size = other.m_size;
 
         other.m_allocator = nullptr;
         other.m_buffer = VK_NULL_HANDLE;
         other.m_allocation = nullptr;
+        other.m_mappedData = nullptr;
         other.m_size = 0;
         return *this;
     }
 
     VkBufferObject::~VkBufferObject() {
         Destroy();
+    }
+
+    Bool VkBufferObject::Create(const VkBufferObjectDesc& desc) {
+        return Create(desc.allocator, desc.size, desc.usage, desc.memoryUsage, desc.allocationFlags);
     }
 
     Bool VkBufferObject::Create(VmaAllocator allocator, VkDeviceSize size, VkBufferUsageFlags usage,
@@ -78,6 +86,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
     }
 
     void VkBufferObject::Destroy() {
+        Unmap();
         if (m_allocator != nullptr && m_buffer != VK_NULL_HANDLE && m_allocation != nullptr) {
             vmaDestroyBuffer(m_allocator, m_buffer, m_allocation);
         }
@@ -85,6 +94,33 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         m_allocation = nullptr;
         m_allocator = nullptr;
         m_size = 0;
+    }
+
+    void* VkBufferObject::Map() {
+        MOBILEGL_ASSERT(IsValid(), "VkBufferObject::Map called on invalid buffer");
+
+        if (m_mappedData != nullptr) {
+            return m_mappedData;
+        }
+
+        const VkResult mapResult = vmaMapMemory(m_allocator, m_allocation, &m_mappedData);
+        if (mapResult != VK_SUCCESS || m_mappedData == nullptr) {
+            MGLOG_E("VkBufferObject::Map failed: vmaMapMemory returned %d", mapResult);
+            m_mappedData = nullptr;
+            return nullptr;
+        }
+
+        return m_mappedData;
+    }
+
+    void VkBufferObject::Unmap() {
+        if (!IsValid() || m_mappedData == nullptr) {
+            m_mappedData = nullptr;
+            return;
+        }
+
+        vmaUnmapMemory(m_allocator, m_allocation);
+        m_mappedData = nullptr;
     }
 
     Bool VkBufferObject::Upload(const void* data, VkDeviceSize size, VkDeviceSize offset) {
@@ -96,15 +132,30 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             return true;
         }
 
-        void* mapped = nullptr;
-        const VkResult mapResult = vmaMapMemory(m_allocator, m_allocation, &mapped);
-        if (mapResult != VK_SUCCESS || mapped == nullptr) {
-            MGLOG_E("VkBufferObject::Upload failed: vmaMapMemory returned %d", mapResult);
+        const Bool wasMapped = IsMapped();
+        void* mapped = wasMapped ? m_mappedData : Map();
+        if (mapped == nullptr) {
+            MGLOG_E("VkBufferObject::Upload failed: unable to map buffer");
             return false;
         }
 
         Memcpy(static_cast<Uint8*>(mapped) + offset, data, static_cast<SizeT>(size));
-        vmaUnmapMemory(m_allocator, m_allocation);
+        if (!wasMapped) {
+            Unmap();
+        }
         return true;
+    }
+
+    BufferSlice VkBufferObject::GetSlice(VkDeviceSize offset, VkDeviceSize size) const {
+        MOBILEGL_ASSERT(offset <= m_size, "VkBufferObject::GetSlice offset out of range");
+        const VkDeviceSize resolvedSize = (size == VK_WHOLE_SIZE) ? (m_size - offset) : size;
+        MOBILEGL_ASSERT(offset + resolvedSize <= m_size, "VkBufferObject::GetSlice range out of bounds");
+
+        BufferSlice slice{};
+        slice.buffer = m_buffer;
+        slice.offset = offset;
+        slice.size = resolvedSize;
+        slice.mapped = (m_mappedData != nullptr) ? static_cast<Uint8*>(m_mappedData) + offset : nullptr;
+        return slice;
     }
 } // namespace MobileGL::MG_Backend::DirectVulkan

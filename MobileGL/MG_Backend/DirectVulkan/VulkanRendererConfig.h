@@ -13,8 +13,12 @@ namespace MobileGL::MG_Backend::DirectVulkan {
     struct VulkanRendererConfig {
         Uint32 MaxFramesInFlight = 2;
         String AppName = "MobileGL-VulkanRenderer";
-        Version Version = MG_Config::CoreVersion;
+        MobileGL::Version Version = MG_Config::CoreVersion;
         Uint64 CacheVersion = MG_Config::CacheVersion;
+#if MOBILEGL_LOG_ACTIVE_LEVEL <= MOBILEGL_LOG_LEVEL_DEBUG
         Bool EnableValidationLayers = true;
+#else
+        Bool EnableValidationLayers = false;
+#endif
     };
 } // namespace MobileGL::MG_Backend::DirectVulkan

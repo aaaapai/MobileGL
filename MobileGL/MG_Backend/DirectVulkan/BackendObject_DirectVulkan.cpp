@@ -66,18 +66,18 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             MGLOG_E("DirectVulkan backend not initialized");
             return false;
         }
-        if (handle.Backend != WindowBackend::Android || !handle.Handle) {
-            MGLOG_E("DirectVulkan backend only supports Android native windows");
+        if (!handle.Handle || (handle.Backend != WindowBackend::Android && handle.Backend != WindowBackend::X11)) {
+            MGLOG_E("DirectVulkan backend only supports Android and X11 native windows");
             return false;
         }
 
-        const Bool sameHandle =
-            m_eglWindowSurfaceInitialized && m_windowHandle.Backend == handle.Backend && m_windowHandle.Handle == handle.Handle;
+        const Bool sameHandle = m_eglSurfaceInitialized && m_eglSurfaceKind == SurfaceKind::Window &&
+                                m_windowHandle.Backend == handle.Backend && m_windowHandle.Handle == handle.Handle;
         if (sameHandle) {
             return true;
         }
 
-        if (m_eglWindowSurfaceInitialized || pVulkanRenderer) {
+        if (m_eglSurfaceInitialized || pVulkanRenderer) {
             pVulkanRenderer.reset();
             ResetEGLRuntimeState();
         }
@@ -106,6 +106,12 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         return BackendObject::SwapEGLBuffers(dpy, draw);
     }
 
+    void BackendObject_DirectVulkan::ReleaseEGLResources() {
+        const std::lock_guard<std::recursive_mutex> lock(m_eglStateMutex);
+        pVulkanRenderer.reset();
+        BackendObject::ReleaseEGLResources();
+    }
+
     const RendererInfo& BackendObject_DirectVulkan::GetRendererInfo() const {
         static RendererInfo RendererInfo = {
             .RendererName = "Magma",          // Renderer Name
@@ -116,7 +122,10 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                     .TargetGLVersion = {3, 3, 0},                      // Target OpenGL Version
                     .TargetGLSLVersion = {4, 6, 0},                    // Target Shading Language Version
                     .Extensions = {V_OpenGL30, V_OpenGL31, V_OpenGL32, // OpenGL Extensions
-                                   V_OpenGL33},
+                                   V_OpenGL33, E_GL_ARB_draw_buffers_blend, E_GL_ARB_compute_shader,
+                                   E_GL_ARB_shader_storage_buffer_object, E_GL_ARB_shader_image_load_store,
+                                   E_GL_ARB_program_interface_query, E_GL_ARB_framebuffer_object,
+                                   E_GL_EXT_framebuffer_object, E_GL_ARB_depth_texture},
                     .IsCompatibilityProfile = false // Is Compatibility Profile
                 },
             .StaticBackendCapability = {.AllowVSOnlyPrograms = false} // Backend Capability
@@ -172,6 +181,21 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             funcsTable.GL.GenerateMipmap = GenerateMipmap;
             funcsTable.GL.ReadPixels = ReadPixels;
             funcsTable.GL.GetTexImage = GetTexImage;
+            funcsTable.GL.DispatchCompute = DispatchCompute;
+            funcsTable.GL.DispatchComputeIndirect = DispatchComputeIndirect;
+            funcsTable.GL.MemoryBarrier = MemoryBarrier;
+            funcsTable.GL.MemoryBarrierByRegion = MemoryBarrierByRegion;
+            funcsTable.GL.BindImageTexture = BindImageTexture;
+            funcsTable.GL.GetIntegeri_v = GetIntegeri_v;
+            funcsTable.GL.GetInteger64i_v = GetInteger64i_v;
+            funcsTable.GL.GetProgramiv = GetProgramiv;
+            funcsTable.GL.GetProgramInterfaceiv = GetProgramInterfaceiv;
+            funcsTable.GL.GetProgramResourceIndex = GetProgramResourceIndex;
+            funcsTable.GL.GetProgramResourceName = GetProgramResourceName;
+            funcsTable.GL.GetProgramResourceiv = GetProgramResourceiv;
+            funcsTable.GL.GetProgramResourceLocation = GetProgramResourceLocation;
+            funcsTable.GL.GetProgramResourceLocationIndex = GetProgramResourceLocationIndex;
+            funcsTable.GL.ShaderStorageBlockBinding = ShaderStorageBlockBinding;
             funcsTableInitialized = true;
         }
         return funcsTable;

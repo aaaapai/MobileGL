@@ -35,6 +35,12 @@ add_executable(
 target_link_libraries(
   SanityTest
   GTest::gtest_main
+  MobileGL_s
+)
+
+target_include_directories(SanityTest PRIVATE
+  ${MGL_ROOT}/include
+  ${MGL_ROOT}/MobileGL
 )
 
 # message(STATUS "glslang_LIBRARIES: ${glslang_LIBRARIES}")

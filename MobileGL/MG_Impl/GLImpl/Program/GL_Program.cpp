@@ -13,6 +13,7 @@
 #include <MG_Util/Converters/GLToMG/ProgramEnumConverter.h>
 #include <MG_Util/Converters/MGToGL/ProgramEnumConverter.h>
 #include <MG_Util/Converters/SPIRVCrossToGL/SpvcTypeConverter.h>
+#include <MG_Backend/BackendObjects.h>
 
 namespace MobileGL::MG_Impl::GLImpl {
     static bool CheckShaderNameValidity(Uint shader) {
@@ -68,13 +69,15 @@ namespace MobileGL::MG_Impl::GLImpl {
     }
 
     void CopyStr(GLsizei bufSize, GLsizei* length, GLchar* dst, const char* src, GLsizei srcLength) {
+        if (bufSize <= 0) {
+            if (length) *length = 0;
+            return;
+        }
+
         auto sz = std::min(bufSize - 1, srcLength);
-        if (length) *length = sz;
-
-        if (bufSize == 0) return;
-
         Memcpy(dst, src, sz);
         dst[sz] = '\0';
+        if (length) *length = sz;
     }
 
     void AttachShader_State(GLuint program, GLuint shader) {
@@ -303,7 +306,23 @@ namespace MobileGL::MG_Impl::GLImpl {
             *params = programObject->GetActiveUniformBlocksMaxNameLength();
             MGLOG_D("%s: %s = %d", __func__, MG_Util::ConvertGLEnumToString(pname).c_str(), *params);
             break;
-        case GL_COMPUTE_WORK_GROUP_SIZE: // GL >= 4.3
+        case GL_COMPUTE_WORK_GROUP_SIZE: { // GL >= 4.3
+            auto getProgramiv = MG_Backend::gBackendFunctionsTable.GL.GetProgramiv;
+            if (!getProgramiv) {
+                params[0] = 1;
+                params[1] = 1;
+                params[2] = 1;
+                MG_State::pGLContext->RecordError(
+                    ErrorCode::InvalidOperation,
+                    MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", __func__,
+                                                 "Backend does not support program integer queries."));
+                return;
+            }
+            getProgramiv(program, pname, params);
+            MGLOG_D("%s: %s = (%d, %d, %d)", __func__, MG_Util::ConvertGLEnumToString(pname).c_str(), params[0],
+                    params[1], params[2]);
+            break;
+        }
 
         case GL_PROGRAM_BINARY_LENGTH:
 
@@ -346,10 +365,10 @@ namespace MobileGL::MG_Impl::GLImpl {
             *params = shaderObject->GetCompileStatus();
             break;
         case GL_INFO_LOG_LENGTH:
-            *params = (GLint)shaderObject->GetInfoLog().length();
+            *params = shaderObject->GetInfoLog().empty() ? 0 : (GLint)shaderObject->GetInfoLog().length() + 1;
             break;
         case GL_SHADER_SOURCE_LENGTH:
-            *params = (GLint)shaderObject->GetShaderSource().length();
+            *params = shaderObject->GetShaderSource().empty() ? 0 : (GLint)shaderObject->GetShaderSource().length() + 1;
             break;
         default:
             MG_State::pGLContext->RecordError(
@@ -462,7 +481,8 @@ namespace MobileGL::MG_Impl::GLImpl {
          * A program object marked for deletion with glDeleteProgram but still in use as part of current
          * rendering state is still considered a program object and glIsProgram will return GL_TRUE.
          */
-        return CheckProgramNameValidity(program);
+        if (program == 0) return GL_FALSE;
+        return MG_State::pGLContext->ValidateProgramName(program) ? GL_TRUE : GL_FALSE;
     }
 
     GLboolean IsShader_State(GLuint shader) {
@@ -470,7 +490,8 @@ namespace MobileGL::MG_Impl::GLImpl {
          * A shader object marked for deletion with glDeleteShader but still attached to a program object is still
          * considered a shader object and glIsShader will return GL_TRUE.
          */
-        return CheckShaderNameValidity(shader);
+        if (shader == 0) return GL_FALSE;
+        return MG_State::pGLContext->ValidateShaderName(shader) ? GL_TRUE : GL_FALSE;
     }
 
     void LinkProgram_State(GLuint program) {
@@ -506,7 +527,10 @@ namespace MobileGL::MG_Impl::GLImpl {
 
         std::string src;
         for (GLsizei i = 0; i < count; i++) {
-            src += (length == nullptr || length[i] <= 0) ? string[i] : std::string(string[i], length[i]);
+            if (!string[i]) {
+                continue;
+            }
+            src += (length && length[i] >= 0) ? std::string(string[i], length[i]) : std::string(string[i]);
         }
         shaderObject->SetShaderSource(Move(src));
     }
@@ -541,6 +565,9 @@ namespace MobileGL::MG_Impl::GLImpl {
         } else {
             auto* ttype = programObject.GetUniformTType(location);
             if (ttype->isTexture() || ttype->isImage()) {
+                MGLOG_D("%s: program = %d, opaque uniform location = %d, name = '%s', unit = %d", __func__,
+                        programObject.GetExternalIndex(), location, programObject.GetUniformName(location).c_str(),
+                        static_cast<Int>(*value));
                 programObject.SetUniformSamplerOrImageUnitIndex(location, *value);
             }
         }
@@ -566,6 +593,36 @@ namespace MobileGL::MG_Impl::GLImpl {
                                                  " is an invalid uniform location for the current program "
                                                  "object and location " +
                                                  std::to_string(location) + " is not equal to -1."));
+            return;
+        }
+
+        for (GLint offset = 0; offset < count; offset++) {
+            Uniform_State<ItemCount>(*programObject, location + offset, value + offset * ItemCount);
+        }
+    }
+
+    template <GLsizei ItemCount, typename T>
+    void ProgramUniformv_State(GLuint program, GLint location, GLsizei count, T* value) {
+        if (location == -1) return;
+
+        auto& programObject = TryToGetProgramObject(program);
+        if (!programObject) return;
+
+        if (!programObject->GetLinkStatus()) {
+            MG_State::pGLContext->RecordError(
+                ErrorCode::InvalidOperation,
+                MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", __func__,
+                                             "program " + std::to_string(program) + " is not linked."));
+            return;
+        }
+
+        if (location > programObject->GetMaxUniformLocation() || location < -1) {
+            MG_State::pGLContext->RecordError(
+                ErrorCode::InvalidOperation,
+                MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", __func__,
+                                             "location " + std::to_string(location) +
+                                                 " is an invalid uniform location for program " +
+                                                 std::to_string(program) + "."));
             return;
         }
 
@@ -788,6 +845,118 @@ namespace MobileGL::MG_Impl::GLImpl {
                 Uniform_State<16>(*programObject, location + i, transposedMatrix);
             } else {
                 // No transpose needed, directly copy the matrix data
+                Uniform_State<16>(*programObject, location + i, value + i * 16);
+            }
+        }
+    }
+
+    void ProgramUniformMatrix2fv_State(GLuint program, GLint location, GLsizei count, GLboolean transpose,
+                                       const GLfloat* value) {
+        if (location == -1) return;
+
+        auto& programObject = TryToGetProgramObject(program);
+        if (!programObject) return;
+
+        if (!programObject->GetLinkStatus()) {
+            MG_State::pGLContext->RecordError(
+                ErrorCode::InvalidOperation,
+                MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", __func__,
+                                             "program " + std::to_string(program) + " is not linked."));
+            return;
+        }
+
+        if (location > programObject->GetMaxUniformLocation() || location < -1) {
+            MG_State::pGLContext->RecordError(
+                ErrorCode::InvalidOperation,
+                MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", __func__,
+                                             "location " + std::to_string(location) +
+                                                 " is an invalid uniform location for program " +
+                                                 std::to_string(program) + "."));
+            return;
+        }
+
+        for (GLint i = 0; i < count; i++) {
+            if (transpose == GL_TRUE) {
+                GLfloat transposedMatrix[4];
+                TransposeMatrix2x2(value + i * 4, transposedMatrix);
+                Uniform_State<4>(*programObject, location + i, transposedMatrix);
+            } else {
+                Uniform_State<4>(*programObject, location + i, value + i * 4);
+            }
+        }
+    }
+
+    void ProgramUniformMatrix3fv_State(GLuint program, GLint location, GLsizei count, GLboolean transpose,
+                                       const GLfloat* value) {
+        if (location == -1) return;
+
+        auto& programObject = TryToGetProgramObject(program);
+        if (!programObject) return;
+
+        if (!programObject->GetLinkStatus()) {
+            MG_State::pGLContext->RecordError(
+                ErrorCode::InvalidOperation,
+                MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", __func__,
+                                             "program " + std::to_string(program) + " is not linked."));
+            return;
+        }
+
+        if (location > programObject->GetMaxUniformLocation() || location < -1) {
+            MG_State::pGLContext->RecordError(
+                ErrorCode::InvalidOperation,
+                MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", __func__,
+                                             "location " + std::to_string(location) +
+                                                 " is an invalid uniform location for program " +
+                                                 std::to_string(program) + "."));
+            return;
+        }
+
+        for (GLint i = 0; i < count; i++) {
+            if (transpose == GL_TRUE) {
+                GLfloat transposedMatrix[9];
+                TransposeMatrix3x3(value + i * 9, transposedMatrix);
+                for (int row = 0; row < 3; ++row) {
+                    Uniform_State<3>(*programObject, location + i, transposedMatrix + row * 3, row * 4 * sizeof(float));
+                }
+            } else {
+                for (int row = 0; row < 3; ++row) {
+                    Uniform_State<3>(*programObject, location + i, value + i * 9 + row * 3, row * 4 * sizeof(float));
+                }
+            }
+        }
+    }
+
+    void ProgramUniformMatrix4fv_State(GLuint program, GLint location, GLsizei count, GLboolean transpose,
+                                       const GLfloat* value) {
+        if (location == -1) return;
+
+        auto& programObject = TryToGetProgramObject(program);
+        if (!programObject) return;
+
+        if (!programObject->GetLinkStatus()) {
+            MG_State::pGLContext->RecordError(
+                ErrorCode::InvalidOperation,
+                MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", __func__,
+                                             "program " + std::to_string(program) + " is not linked."));
+            return;
+        }
+
+        if (location > programObject->GetMaxUniformLocation() || location < -1) {
+            MG_State::pGLContext->RecordError(
+                ErrorCode::InvalidOperation,
+                MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", __func__,
+                                             "location " + std::to_string(location) +
+                                                 " is an invalid uniform location for program " +
+                                                 std::to_string(program) + "."));
+            return;
+        }
+
+        for (GLint i = 0; i < count; i++) {
+            if (transpose == GL_TRUE) {
+                GLfloat transposedMatrix[16];
+                TransposeMatrix4x4(value + i * 16, transposedMatrix);
+                Uniform_State<16>(*programObject, location + i, transposedMatrix);
+            } else {
                 Uniform_State<16>(*programObject, location + i, value + i * 16);
             }
         }
@@ -1138,6 +1307,126 @@ namespace MobileGL::MG_Impl::GLImpl {
         UniformMatrix4fv_State(location, count, transpose, value);
     }
 
+    void ProgramUniform1f(GLuint program, GLint location, GLfloat v0) {
+        ProgramUniform1fv(program, location, 1, &v0);
+    }
+
+    void ProgramUniform2f(GLuint program, GLint location, GLfloat v0, GLfloat v1) {
+        GLfloat v[] = {v0, v1};
+        ProgramUniform2fv(program, location, 1, v);
+    }
+
+    void ProgramUniform3f(GLuint program, GLint location, GLfloat v0, GLfloat v1, GLfloat v2) {
+        GLfloat v[] = {v0, v1, v2};
+        ProgramUniform3fv(program, location, 1, v);
+    }
+
+    void ProgramUniform4f(GLuint program, GLint location, GLfloat v0, GLfloat v1, GLfloat v2, GLfloat v3) {
+        GLfloat v[] = {v0, v1, v2, v3};
+        ProgramUniform4fv(program, location, 1, v);
+    }
+
+    void ProgramUniform1i(GLuint program, GLint location, GLint v0) {
+        ProgramUniform1iv(program, location, 1, &v0);
+    }
+
+    void ProgramUniform2i(GLuint program, GLint location, GLint v0, GLint v1) {
+        GLint v[] = {v0, v1};
+        ProgramUniform2iv(program, location, 1, v);
+    }
+
+    void ProgramUniform3i(GLuint program, GLint location, GLint v0, GLint v1, GLint v2) {
+        GLint v[] = {v0, v1, v2};
+        ProgramUniform3iv(program, location, 1, v);
+    }
+
+    void ProgramUniform4i(GLuint program, GLint location, GLint v0, GLint v1, GLint v2, GLint v3) {
+        GLint v[] = {v0, v1, v2, v3};
+        ProgramUniform4iv(program, location, 1, v);
+    }
+
+    void ProgramUniform1ui(GLuint program, GLint location, GLuint v0) {
+        ProgramUniform1uiv(program, location, 1, &v0);
+    }
+
+    void ProgramUniform2ui(GLuint program, GLint location, GLuint v0, GLuint v1) {
+        GLuint v[] = {v0, v1};
+        ProgramUniform2uiv(program, location, 1, v);
+    }
+
+    void ProgramUniform3ui(GLuint program, GLint location, GLuint v0, GLuint v1, GLuint v2) {
+        GLuint v[] = {v0, v1, v2};
+        ProgramUniform3uiv(program, location, 1, v);
+    }
+
+    void ProgramUniform4ui(GLuint program, GLint location, GLuint v0, GLuint v1, GLuint v2, GLuint v3) {
+        GLuint v[] = {v0, v1, v2, v3};
+        ProgramUniform4uiv(program, location, 1, v);
+    }
+
+    void ProgramUniform1fv(GLuint program, GLint location, GLsizei count, const GLfloat* value) {
+        ProgramUniformv_State<1>(program, location, count, value);
+    }
+
+    void ProgramUniform2fv(GLuint program, GLint location, GLsizei count, const GLfloat* value) {
+        ProgramUniformv_State<2>(program, location, count, value);
+    }
+
+    void ProgramUniform3fv(GLuint program, GLint location, GLsizei count, const GLfloat* value) {
+        ProgramUniformv_State<3>(program, location, count, value);
+    }
+
+    void ProgramUniform4fv(GLuint program, GLint location, GLsizei count, const GLfloat* value) {
+        ProgramUniformv_State<4>(program, location, count, value);
+    }
+
+    void ProgramUniform1iv(GLuint program, GLint location, GLsizei count, const GLint* value) {
+        ProgramUniformv_State<1>(program, location, count, value);
+    }
+
+    void ProgramUniform2iv(GLuint program, GLint location, GLsizei count, const GLint* value) {
+        ProgramUniformv_State<2>(program, location, count, value);
+    }
+
+    void ProgramUniform3iv(GLuint program, GLint location, GLsizei count, const GLint* value) {
+        ProgramUniformv_State<3>(program, location, count, value);
+    }
+
+    void ProgramUniform4iv(GLuint program, GLint location, GLsizei count, const GLint* value) {
+        ProgramUniformv_State<4>(program, location, count, value);
+    }
+
+    void ProgramUniform1uiv(GLuint program, GLint location, GLsizei count, const GLuint* value) {
+        ProgramUniformv_State<1>(program, location, count, value);
+    }
+
+    void ProgramUniform2uiv(GLuint program, GLint location, GLsizei count, const GLuint* value) {
+        ProgramUniformv_State<2>(program, location, count, value);
+    }
+
+    void ProgramUniform3uiv(GLuint program, GLint location, GLsizei count, const GLuint* value) {
+        ProgramUniformv_State<3>(program, location, count, value);
+    }
+
+    void ProgramUniform4uiv(GLuint program, GLint location, GLsizei count, const GLuint* value) {
+        ProgramUniformv_State<4>(program, location, count, value);
+    }
+
+    void ProgramUniformMatrix2fv(GLuint program, GLint location, GLsizei count, GLboolean transpose,
+                                 const GLfloat* value) {
+        ProgramUniformMatrix2fv_State(program, location, count, transpose, value);
+    }
+
+    void ProgramUniformMatrix3fv(GLuint program, GLint location, GLsizei count, GLboolean transpose,
+                                 const GLfloat* value) {
+        ProgramUniformMatrix3fv_State(program, location, count, transpose, value);
+    }
+
+    void ProgramUniformMatrix4fv(GLuint program, GLint location, GLsizei count, GLboolean transpose,
+                                 const GLfloat* value) {
+        ProgramUniformMatrix4fv_State(program, location, count, transpose, value);
+    }
+
     GLuint GetUniformBlockIndex(GLuint program, const GLchar* uniformBlockName) {
         return GetUniformBlockIndex_State(program, uniformBlockName);
     }
@@ -1161,6 +1450,112 @@ namespace MobileGL::MG_Impl::GLImpl {
 
     GLint GetFragDataLocation(GLuint program, const char* name) {
         return GetFragDataLocation_State(program, name);
+    }
+
+    void GetProgramInterfaceiv(GLuint program, GLenum programInterface, GLenum pname, GLint* params) {
+        auto& programObject = TryToGetProgramObject(program);
+        if (!programObject || !programObject->GetLinkStatus()) return;
+        auto getProgramInterfaceiv = MG_Backend::gBackendFunctionsTable.GL.GetProgramInterfaceiv;
+        if (!getProgramInterfaceiv) {
+            MG_State::pGLContext->RecordError(
+                ErrorCode::InvalidOperation,
+                MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", __func__,
+                                             "Backend does not support program interface queries."));
+            return;
+        }
+        getProgramInterfaceiv(program, programInterface, pname, params);
+    }
+
+    GLuint GetProgramResourceIndex(GLuint program, GLenum programInterface, const GLchar* name) {
+        auto& programObject = TryToGetProgramObject(program);
+        if (!programObject || !programObject->GetLinkStatus()) return GL_INVALID_INDEX;
+        auto getProgramResourceIndex = MG_Backend::gBackendFunctionsTable.GL.GetProgramResourceIndex;
+        if (!getProgramResourceIndex) {
+            MG_State::pGLContext->RecordError(
+                ErrorCode::InvalidOperation,
+                MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", __func__,
+                                             "Backend does not support program interface queries."));
+            return GL_INVALID_INDEX;
+        }
+        return getProgramResourceIndex(program, programInterface, name);
+    }
+
+    void GetProgramResourceName(GLuint program, GLenum programInterface, GLuint index, GLsizei bufSize, GLsizei* length,
+                                GLchar* name) {
+        auto& programObject = TryToGetProgramObject(program);
+        if (!programObject || !programObject->GetLinkStatus()) return;
+        if (bufSize < 0) {
+            MG_State::pGLContext->RecordError(
+                ErrorCode::InvalidValue,
+                MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", __func__, "bufSize must be non-negative."));
+            return;
+        }
+        auto getProgramResourceName = MG_Backend::gBackendFunctionsTable.GL.GetProgramResourceName;
+        if (!getProgramResourceName) {
+            MG_State::pGLContext->RecordError(
+                ErrorCode::InvalidOperation,
+                MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", __func__,
+                                             "Backend does not support program interface queries."));
+            return;
+        }
+        getProgramResourceName(program, programInterface, index, bufSize, length, name);
+    }
+
+    void GetProgramResourceiv(GLuint program, GLenum programInterface, GLuint index, GLsizei propCount,
+                              const GLenum* props, GLsizei bufSize, GLsizei* length, GLint* params) {
+        auto& programObject = TryToGetProgramObject(program);
+        if (!programObject || !programObject->GetLinkStatus()) return;
+        if (propCount < 0 || bufSize < 0) {
+            MG_State::pGLContext->RecordError(
+                ErrorCode::InvalidValue, MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", __func__,
+                                                                      "propCount and bufSize must be non-negative."));
+            return;
+        }
+        auto getProgramResourceiv = MG_Backend::gBackendFunctionsTable.GL.GetProgramResourceiv;
+        if (!getProgramResourceiv) {
+            MG_State::pGLContext->RecordError(
+                ErrorCode::InvalidOperation,
+                MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", __func__,
+                                             "Backend does not support program interface queries."));
+            return;
+        }
+        getProgramResourceiv(program, programInterface, index, propCount, props, bufSize, length, params);
+    }
+
+    GLint GetProgramResourceLocation(GLuint program, GLenum programInterface, const GLchar* name) {
+        auto& programObject = TryToGetProgramObject(program);
+        if (!programObject || !programObject->GetLinkStatus()) return -1;
+        auto getProgramResourceLocation = MG_Backend::gBackendFunctionsTable.GL.GetProgramResourceLocation;
+        if (!getProgramResourceLocation) {
+            MG_State::pGLContext->RecordError(
+                ErrorCode::InvalidOperation,
+                MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", __func__,
+                                             "Backend does not support program interface queries."));
+            return -1;
+        }
+        return getProgramResourceLocation(program, programInterface, name);
+    }
+
+    GLint GetProgramResourceLocationIndex(GLuint program, GLenum programInterface, const GLchar* name) {
+        auto& programObject = TryToGetProgramObject(program);
+        if (!programObject || !programObject->GetLinkStatus()) return -1;
+        auto getProgramResourceLocationIndex = MG_Backend::gBackendFunctionsTable.GL.GetProgramResourceLocationIndex;
+        if (!getProgramResourceLocationIndex) return -1;
+        return getProgramResourceLocationIndex(program, programInterface, name);
+    }
+
+    void ShaderStorageBlockBinding(GLuint program, GLuint storageBlockIndex, GLuint storageBlockBinding) {
+        auto& programObject = TryToGetProgramObject(program);
+        if (!programObject || !programObject->GetLinkStatus()) return;
+        auto shaderStorageBlockBinding = MG_Backend::gBackendFunctionsTable.GL.ShaderStorageBlockBinding;
+        if (!shaderStorageBlockBinding) {
+            MG_State::pGLContext->RecordError(
+                ErrorCode::InvalidOperation,
+                MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", __func__,
+                                             "Backend does not support shader storage block binding."));
+            return;
+        }
+        shaderStorageBlockBinding(program, storageBlockIndex, storageBlockBinding);
     }
 
     void ValidateProgram(GLuint program) {

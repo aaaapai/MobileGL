@@ -41,20 +41,25 @@ namespace MobileGL::MG_Backend::DirectVulkan {
     const VertexInputStateFactory::BackendVertexInputState& VertexInputStateFactory::GetOrCreateVertexInputState(
         const MG_State::GLState::VertexArrayObject& vao) {
         const HashType hash = ComputeHash(vao);
+        return GetOrCreateVertexInputState(vao, hash);
+    }
+
+    const VertexInputStateFactory::BackendVertexInputState& VertexInputStateFactory::GetOrCreateVertexInputState(
+        const MG_State::GLState::VertexArrayObject& vao, HashType hash) {
         auto it = m_cache.find(hash);
         if (it != m_cache.end()) {
             return it->second;
         }
 
         VertexInputStateBuilder builder;
-        UnorderedMap<SizeT, Uint32> bindingByBufferKey;
-        UnorderedMap<SizeT, Uint32> strideByBufferKey;
-        UnorderedMap<SizeT, VkVertexInputRate> inputRateByBufferKey;
         Vector<SizeT> bindingBufferKeys;
+        Vector<SizeT> bindingBaseOffsets;
+        Vector<Uint32> bindingAttributeLocations;
+        Vector<Bool> bindingUsesClientMemory;
 
         for (Uint32 location = 0; location < MG_State::GLState::VertexArrayObject::MAX_VERTEX_ATTRIBS; ++location) {
             const auto& attr = vao.GetAttribute(location);
-            if (!attr.Enabled || !attr.Buffer) {
+            if (!attr.Enabled) {
                 continue;
             }
 
@@ -79,29 +84,13 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                 (attr.Divisor == 0) ? VK_VERTEX_INPUT_RATE_VERTEX : VK_VERTEX_INPUT_RATE_INSTANCE;
 
             const SizeT bufferKey = reinterpret_cast<SizeT>(attr.Buffer.get());
-            Uint32 binding = 0;
-            auto itBinding = bindingByBufferKey.find(bufferKey);
-            if (itBinding == bindingByBufferKey.end()) {
-                binding = static_cast<Uint32>(bindingByBufferKey.size());
-                bindingByBufferKey.emplace(bufferKey, binding);
-                strideByBufferKey.emplace(bufferKey, stride);
-                inputRateByBufferKey.emplace(bufferKey, inputRate);
-                bindingBufferKeys.push_back(bufferKey);
-                builder.AddBinding(binding, stride, inputRate);
-            } else {
-                binding = itBinding->second;
-                if (strideByBufferKey[bufferKey] != stride) {
-                    MGLOG_D("Skipping vertex attribute at location %u: stride mismatch (%u vs %u) on same buffer",
-                            location, stride, strideByBufferKey[bufferKey]);
-                    continue;
-                }
-                if (inputRateByBufferKey[bufferKey] != inputRate) {
-                    MGLOG_D("Skipping vertex attribute at location %u: input-rate mismatch on same buffer", location);
-                    continue;
-                }
-            }
-
-            builder.AddAttribute(location, binding, vkFormat, static_cast<Uint32>(attr.Offset));
+            const Uint32 binding = static_cast<Uint32>(bindingBufferKeys.size());
+            bindingBufferKeys.push_back(bufferKey);
+            bindingBaseOffsets.push_back(attr.Buffer ? attr.Offset : 0);
+            bindingAttributeLocations.push_back(location);
+            bindingUsesClientMemory.push_back(attr.Buffer == nullptr);
+            builder.AddBinding(binding, stride, inputRate);
+            builder.AddAttribute(location, binding, vkFormat, 0);
         }
 
         const auto& state = builder.Build();
@@ -111,6 +100,9 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         entry.bindings = builder.GetBindings();
         entry.attributes = builder.GetAttributes();
         entry.bindingBufferKeys = std::move(bindingBufferKeys);
+        entry.bindingBaseOffsets = std::move(bindingBaseOffsets);
+        entry.bindingAttributeLocations = std::move(bindingAttributeLocations);
+        entry.bindingUsesClientMemory = std::move(bindingUsesClientMemory);
         entry.state = state;
         entry.state.pVertexBindingDescriptions = entry.bindings.empty() ? nullptr : entry.bindings.data();
         entry.state.pVertexAttributeDescriptions = entry.attributes.empty() ? nullptr : entry.attributes.data();
@@ -148,8 +140,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         case DataType::Int16:
             switch (size) {
             case 1:
-                return isInteger ? VK_FORMAT_R16_SINT
-                                 : (normalized ? VK_FORMAT_R16_SNORM : VK_FORMAT_R16_SSCALED);
+                return isInteger ? VK_FORMAT_R16_SINT : (normalized ? VK_FORMAT_R16_SNORM : VK_FORMAT_R16_SSCALED);
             case 2:
                 return isInteger ? VK_FORMAT_R16G16_SINT
                                  : (normalized ? VK_FORMAT_R16G16_SNORM : VK_FORMAT_R16G16_SSCALED);
@@ -164,8 +155,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         case DataType::Uint16:
             switch (size) {
             case 1:
-                return isInteger ? VK_FORMAT_R16_UINT
-                                 : (normalized ? VK_FORMAT_R16_UNORM : VK_FORMAT_R16_USCALED);
+                return isInteger ? VK_FORMAT_R16_UINT : (normalized ? VK_FORMAT_R16_UNORM : VK_FORMAT_R16_USCALED);
             case 2:
                 return isInteger ? VK_FORMAT_R16G16_UINT
                                  : (normalized ? VK_FORMAT_R16G16_UNORM : VK_FORMAT_R16G16_USCALED);
@@ -180,8 +170,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         case DataType::Int8:
             switch (size) {
             case 1:
-                return isInteger ? VK_FORMAT_R8_SINT
-                                 : (normalized ? VK_FORMAT_R8_SNORM : VK_FORMAT_R8_SSCALED);
+                return isInteger ? VK_FORMAT_R8_SINT : (normalized ? VK_FORMAT_R8_SNORM : VK_FORMAT_R8_SSCALED);
             case 2:
                 return isInteger ? VK_FORMAT_R8G8_SINT
                                  : (normalized ? VK_FORMAT_R8G8_SNORM : VK_FORMAT_R8G8_SSCALED);
@@ -196,8 +185,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         case DataType::Uint8:
             switch (size) {
             case 1:
-                return isInteger ? VK_FORMAT_R8_UINT
-                                 : (normalized ? VK_FORMAT_R8_UNORM : VK_FORMAT_R8_USCALED);
+                return isInteger ? VK_FORMAT_R8_UINT : (normalized ? VK_FORMAT_R8_UNORM : VK_FORMAT_R8_USCALED);
             case 2:
                 return isInteger ? VK_FORMAT_R8G8_UINT
                                  : (normalized ? VK_FORMAT_R8G8_UNORM : VK_FORMAT_R8G8_USCALED);

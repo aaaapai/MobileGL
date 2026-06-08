@@ -10,6 +10,7 @@
 
 #include "Config.h"
 #include "../VkIncludes.h"
+#include "MG_State/GLState/FramebufferState/FramebufferObject.h"
 #include <Includes.h>
 
 namespace MobileGL::MG_Backend::DirectVulkan {
@@ -18,10 +19,13 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         using HashType = Uint64;
 
         struct PipelineCreatePayload {
+            static constexpr Uint32 kMaxColorAttachments = MG_State::GLState::FramebufferObject::MAX_DRAW_BUFFERS;
+
             HashType programHash = 0;
             HashType vertexInputHash = 0;
             VkPipelineLayout pipelineLayout = VK_NULL_HANDLE;
             VkRenderPass renderPass = VK_NULL_HANDLE;
+            Uint32 colorAttachmentCount = 1;
             Uint32 subpass = 0;
             VkPrimitiveTopology topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
             VkCullModeFlags cullMode = VK_CULL_MODE_BACK_BIT;
@@ -29,20 +33,12 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             Bool depthTestEnable = false;
             Bool depthWriteEnable = false;
             VkCompareOp depthCompareOp = VK_COMPARE_OP_ALWAYS;
-            Bool blendEnable = false;
-            VkBlendFactor srcColorBlendFactor = VK_BLEND_FACTOR_ONE;
-            VkBlendFactor dstColorBlendFactor = VK_BLEND_FACTOR_ZERO;
-            VkBlendFactor srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
-            VkBlendFactor dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO;
-            VkColorComponentFlags colorWriteMask =
-                VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
-                VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+            Array<VkPipelineColorBlendAttachmentState, kMaxColorAttachments> colorBlendAttachments{};
             const Vector<VkPipelineShaderStageCreateInfo>* stages = nullptr;
             const VkPipelineVertexInputStateCreateInfo* vertexInputState = nullptr;
         };
 
-        explicit PipelineFactory(VkDevice device, const VulkanRendererConfig& config):
-            m_device(device), m_config(config) {}
+        explicit PipelineFactory(VkDevice device, const VulkanRendererConfig& config);
         ~PipelineFactory();
         PipelineFactory(const PipelineFactory&) = delete;
 
@@ -55,6 +51,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
 
         VkDevice m_device = VK_NULL_HANDLE;
         const VulkanRendererConfig& m_config;
+        VkPipelineCache m_pipelineCache = VK_NULL_HANDLE;
         UnorderedMap<HashType, VkPipeline> m_cache;
         static inline XXH64_state_t* m_hashState = XXH64_createState();
     };

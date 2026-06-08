@@ -7,20 +7,233 @@
 // End of Source File Header
 
 #include "DirectVulkan.h"
+#include "DirectVulkanResourceState.h"
 #include "MG_State/GLState/Core.h"
 #include "MG_Impl/GLImpl/Framebuffer/GL_Framebuffer.h"
+#include "MG_Util/Miscellany/IndexGenerator.h"
+#include <cstring>
+#include <spirv_reflect.h>
 
 namespace MobileGL::MG_Backend::DirectVulkan {
     UniquePtr<VulkanRenderer> pVulkanRenderer = nullptr;
 
-    void ClearBufferfi(GLenum buffer, GLint drawbuffer, GLfloat depth, GLint stencil) {}
-    void ClearBufferfv(GLenum buffer, GLint drawbuffer, const GLfloat* value) {}
-    void ClearBufferuiv(GLenum buffer, GLint drawbuffer, const GLuint* value) {}
-    void ClearBufferiv(GLenum buffer, GLint drawbuffer, const GLint* value) {}
-    void DrawElementsBaseVertex(GLenum mode, GLsizei count, GLenum type, const GLvoid* indices, GLint basevertex) {}
+    namespace {
+        struct BufferVariableResource {
+            String name;
+            GLuint blockIndex = 0;
+            GLint offset = 0;
+            GLint size = 0;
+        };
 
-    void MultiDrawElementsBaseVertex(GLenum mode, const GLsizei* count, GLenum type, const GLvoid* const* indices,
-                                     GLsizei drawcount, const GLint* basevertex) {}
+        struct StorageBlockResource {
+            String name;
+            GLuint binding = 0;
+            GLint dataSize = 0;
+            Vector<GLuint> activeVariables;
+        };
+
+        struct ProgramResourceCache {
+            Uint32 backendStateVersion = 0;
+            Vector<StorageBlockResource> storageBlocks;
+            Vector<BufferVariableResource> bufferVariables;
+            GLint computeWorkGroupSize[3] = {1, 1, 1};
+        };
+
+        UnorderedMap<GLuint, ProgramResourceCache> g_programResourceCaches;
+
+        String NormalizeDescriptorName(const SpvReflectDescriptorBinding& binding) {
+            const char* rawName = binding.name;
+            if (binding.type_description != nullptr && binding.type_description->type_name != nullptr) {
+                rawName = binding.type_description->type_name;
+            }
+            if (rawName == nullptr) {
+                return {};
+            }
+            String name = rawName;
+            const auto arraySuffix = name.find("[0]");
+            if (arraySuffix != String::npos) {
+                name = name.substr(0, arraySuffix);
+            }
+            return name;
+        }
+
+        void AddBufferVariablesRecursive(const SpvReflectBlockVariable& variable, const String& prefix,
+                                         GLuint blockIndex, Vector<BufferVariableResource>& variables,
+                                         Vector<GLuint>& activeVariables) {
+            for (Uint32 memberIndex = 0; memberIndex < variable.member_count; ++memberIndex) {
+                const auto& member = variable.members[memberIndex];
+                String name = prefix;
+                if (!name.empty()) {
+                    name += ".";
+                }
+                name += member.name ? member.name : "";
+
+                if (member.member_count > 0) {
+                    AddBufferVariablesRecursive(member, name, blockIndex, variables, activeVariables);
+                    continue;
+                }
+
+                BufferVariableResource resource{};
+                resource.name = name;
+                resource.blockIndex = blockIndex;
+                resource.offset = static_cast<GLint>(member.offset);
+                resource.size = static_cast<GLint>(member.size);
+                const GLuint variableIndex = static_cast<GLuint>(variables.size());
+                variables.push_back(resource);
+                activeVariables.push_back(variableIndex);
+            }
+        }
+
+        ProgramResourceCache& GetProgramResourceCache(const MG_State::GLState::ProgramObject& program) {
+            auto& cache = g_programResourceCaches[program.GetExternalIndex()];
+            const Uint32 backendStateVersion = program.GetBackendStateVersion();
+            if (cache.backendStateVersion == backendStateVersion &&
+                (!cache.storageBlocks.empty() || !cache.bufferVariables.empty())) {
+                return cache;
+            }
+
+            cache = {};
+            cache.backendStateVersion = backendStateVersion;
+
+            Vector<SpvReflectShaderModule> modules;
+            Vector<Bool> validModules;
+            const auto& spirvs = program.GetGeneratedSpirv();
+            for (const auto& spirv : spirvs) {
+                if (spirv.empty()) {
+                    continue;
+                }
+                SpvReflectShaderModule module{};
+                const SpvReflectResult result =
+                    spvReflectCreateShaderModule(spirv.size() * sizeof(Uint), spirv.data(), &module);
+                if (result != SPV_REFLECT_RESULT_SUCCESS) {
+                    continue;
+                }
+                modules.push_back(module);
+                validModules.push_back(true);
+            }
+
+            for (auto& module : modules) {
+                for (Uint32 entryIndex = 0; entryIndex < module.entry_point_count; ++entryIndex) {
+                    const auto& entryPoint = module.entry_points[entryIndex];
+                    if ((entryPoint.shader_stage & SPV_REFLECT_SHADER_STAGE_COMPUTE_BIT) == 0) {
+                        continue;
+                    }
+                    cache.computeWorkGroupSize[0] = static_cast<GLint>(std::max<Uint32>(entryPoint.local_size.x, 1));
+                    cache.computeWorkGroupSize[1] = static_cast<GLint>(std::max<Uint32>(entryPoint.local_size.y, 1));
+                    cache.computeWorkGroupSize[2] = static_cast<GLint>(std::max<Uint32>(entryPoint.local_size.z, 1));
+                }
+
+                uint32_t bindingCount = 0;
+                SpvReflectResult result = spvReflectEnumerateDescriptorBindings(&module, &bindingCount, nullptr);
+                if (result != SPV_REFLECT_RESULT_SUCCESS || bindingCount == 0) {
+                    continue;
+                }
+                Vector<SpvReflectDescriptorBinding*> bindings(bindingCount);
+                result = spvReflectEnumerateDescriptorBindings(&module, &bindingCount, bindings.data());
+                if (result != SPV_REFLECT_RESULT_SUCCESS) {
+                    continue;
+                }
+                std::sort(bindings.begin(), bindings.end(), [](const auto* lhs, const auto* rhs) {
+                    const String lhsName = lhs ? NormalizeDescriptorName(*lhs) : String();
+                    const String rhsName = rhs ? NormalizeDescriptorName(*rhs) : String();
+                    if (lhsName != rhsName) return lhsName < rhsName;
+                    return lhs->binding < rhs->binding;
+                });
+                for (const auto* binding : bindings) {
+                    if (binding == nullptr ||
+                        binding->descriptor_type != SPV_REFLECT_DESCRIPTOR_TYPE_STORAGE_BUFFER) {
+                        continue;
+                    }
+                    const String blockName = NormalizeDescriptorName(*binding);
+                    if (blockName.empty()) {
+                        continue;
+                    }
+                    const auto existing = std::find_if(
+                        cache.storageBlocks.begin(), cache.storageBlocks.end(),
+                        [&](const StorageBlockResource& block) { return block.name == blockName; });
+                    if (existing != cache.storageBlocks.end()) {
+                        continue;
+                    }
+
+                    StorageBlockResource block{};
+                    block.name = blockName;
+                    block.dataSize = static_cast<GLint>(binding->block.size);
+                    const GLuint blockIndex = static_cast<GLuint>(cache.storageBlocks.size());
+                    AddBufferVariablesRecursive(binding->block, blockName, blockIndex, cache.bufferVariables,
+                                                block.activeVariables);
+                    cache.storageBlocks.push_back(block);
+                }
+            }
+
+            for (SizeT i = 0; i < modules.size(); ++i) {
+                if (validModules[i]) {
+                    spvReflectDestroyShaderModule(&modules[i]);
+                }
+            }
+            return cache;
+        }
+
+        MG_State::GLState::ProgramObject* TryGetDirectVulkanProgram(GLuint program) {
+            if (!MG_State::pGLContext || !MG_State::pGLContext->ValidateProgramName(program)) {
+                return nullptr;
+            }
+            auto& programObject = MG_State::pGLContext->GetProgramObject(program);
+            return programObject.get();
+        }
+
+        void CopyResourceName(const String& source, GLsizei bufSize, GLsizei* length, GLchar* name) {
+            const GLsizei writtenLength = static_cast<GLsizei>(source.size());
+            if (length) {
+                *length = writtenLength;
+            }
+            if (name && bufSize > 0) {
+                const GLsizei copyLength = std::min<GLsizei>(bufSize - 1, writtenLength);
+                std::memcpy(name, source.data(), static_cast<SizeT>(copyLength));
+                name[copyLength] = '\0';
+            }
+        }
+    } // namespace
+
+    GLuint GetShaderStorageBlockIndex(const MG_State::GLState::ProgramObject& program, const String& name) {
+        auto& cache = GetProgramResourceCache(program);
+        const auto it = std::find_if(cache.storageBlocks.begin(), cache.storageBlocks.end(),
+            [&](const StorageBlockResource& block) { return block.name == name; });
+        return it == cache.storageBlocks.end()
+            ? GL_INVALID_INDEX
+            : static_cast<GLuint>(std::distance(cache.storageBlocks.begin(), it));
+    }
+
+    GLuint GetShaderStorageBlockBinding(const MG_State::GLState::ProgramObject& program, GLuint blockIndex) {
+        auto& cache = GetProgramResourceCache(program);
+        if (blockIndex >= cache.storageBlocks.size()) {
+            return 0;
+        }
+        return cache.storageBlocks[blockIndex].binding;
+    }
+
+    void ClearBufferfi(GLenum buffer, GLint drawbuffer, GLfloat depth, GLint stencil) {
+        MOBILEGL_ASSERT(pVulkanRenderer, "DirectVulkan::ClearBufferfi called with null VulkanRenderer");
+        MOBILEGL_ASSERT(MG_State::pGLContext, "DirectVulkan::ClearBufferfi called with null GL context");
+        pVulkanRenderer->ClearBufferfi(buffer, drawbuffer, depth, stencil);
+    }
+
+    void ClearBufferfv(GLenum buffer, GLint drawbuffer, const GLfloat* value) {
+        MOBILEGL_ASSERT(pVulkanRenderer, "DirectVulkan::ClearBufferfv called with null VulkanRenderer");
+        MOBILEGL_ASSERT(MG_State::pGLContext, "DirectVulkan::ClearBufferfv called with null GL context");
+        pVulkanRenderer->ClearBufferfv(buffer, drawbuffer, value);
+    }
+
+    void ClearBufferuiv(GLenum buffer, GLint drawbuffer, const GLuint* value) {
+        MOBILEGL_ASSERT(pVulkanRenderer, "DirectVulkan::ClearBufferuiv called with null VulkanRenderer");
+        MOBILEGL_ASSERT(MG_State::pGLContext, "DirectVulkan::ClearBufferuiv called with null GL context");
+        pVulkanRenderer->ClearBufferuiv(buffer, drawbuffer, value);
+    }
+
+    void ClearBufferiv(GLenum buffer, GLint drawbuffer, const GLint* value) {
+        MOBILEGL_ASSERT(pVulkanRenderer, "DirectVulkan::ClearBufferiv called with null VulkanRenderer");
+        MOBILEGL_ASSERT(MG_State::pGLContext, "DirectVulkan::ClearBufferiv called with null GL context");
+        pVulkanRenderer->ClearBufferiv(buffer, drawbuffer, value);
+    }
 
     void MultiDrawElementsIndirect(GLenum mode, GLenum type, const void* indirect, GLsizei drawcount, GLsizei stride) {}
     void MultiDrawArraysIndirect(GLenum mode, const void* indirect, GLsizei drawcount, GLsizei stride) {}
@@ -40,39 +253,344 @@ namespace MobileGL::MG_Backend::DirectVulkan {
     void DrawArraysInstanced(GLenum mode, GLint first, GLsizei count, GLsizei instancecount) {}
     void DrawArraysIndirect(GLenum mode, const void* indirect) {}
     void CopyTexImage2D(GLenum target, GLint level, GLenum internalformat, GLint x, GLint y, GLsizei width,
-                        GLsizei height, GLint border) {}
+                        GLsizei height, GLint border) {
+        MOBILEGL_ASSERT(pVulkanRenderer, "DirectVulkan::CopyTexImage2D called with null VulkanRenderer");
+        MOBILEGL_ASSERT(MG_State::pGLContext, "DirectVulkan::CopyTexImage2D called with null GL context");
+        pVulkanRenderer->CopyTexSubImage2D(target, level, 0, 0, x, y, width, height);
+    }
     void CopyTexSubImage2D(GLenum target, GLint level, GLint xoffset, GLint yoffset, GLint x, GLint y, GLsizei width,
-                           GLsizei height) {}
-    void GenerateMipmap(GLenum target) {}
-    void ReadPixels(GLint x, GLint y, GLsizei width, GLsizei height, GLenum format, GLenum type, void* pixels) {}
-    void GetTexImage(GLenum target, GLint level, GLenum format, GLenum type, GLvoid* pixels) {}
+                           GLsizei height) {
+        MOBILEGL_ASSERT(pVulkanRenderer, "DirectVulkan::CopyTexSubImage2D called with null VulkanRenderer");
+        MOBILEGL_ASSERT(MG_State::pGLContext, "DirectVulkan::CopyTexSubImage2D called with null GL context");
+        pVulkanRenderer->CopyTexSubImage2D(target, level, xoffset, yoffset, x, y, width, height);
+    }
+    void GenerateMipmap(GLenum target) {
+        MOBILEGL_ASSERT(pVulkanRenderer, "DirectVulkan::GenerateMipmap called with null VulkanRenderer");
+        MOBILEGL_ASSERT(MG_State::pGLContext, "DirectVulkan::GenerateMipmap called with null GL context");
+        pVulkanRenderer->GenerateMipmap(target);
+    }
 
-    void MultiDrawElements(GLenum mode, const GLsizei* count, GLenum type, const GLvoid* const* indices,
-                           GLsizei drawcount) {
-        MOBILEGL_ASSERT(pVulkanRenderer, "DirectVulkan::MultiDrawElements called with null VulkanRenderer");
-        MOBILEGL_ASSERT(MG_State::pGLContext, "DirectVulkan::MultiDrawElements called with null GL context");
+    void DispatchCompute(GLuint numGroupsX, GLuint numGroupsY, GLuint numGroupsZ) {
+        MOBILEGL_ASSERT(pVulkanRenderer, "DirectVulkan::DispatchCompute called with null VulkanRenderer");
+        MOBILEGL_ASSERT(MG_State::pGLContext, "DirectVulkan::DispatchCompute called with null GL context");
+        pVulkanRenderer->DispatchCompute(numGroupsX, numGroupsY, numGroupsZ);
+    }
 
-        Vector<DrawElementCmd> cmds;
-        cmds.reserve(static_cast<SizeT>(drawcount));
-        for (GLsizei i = 0; i < drawcount; ++i) {
-            if (count[i] == 0) {
-                continue;
+    void DispatchComputeIndirect(GLintptr indirect) {
+        MGLOG_W("DirectVulkan::DispatchComputeIndirect is not implemented yet (offset=%zu)",
+                static_cast<SizeT>(indirect));
+    }
+
+    void MemoryBarrier(GLbitfield barriers) {
+        MOBILEGL_ASSERT(pVulkanRenderer, "DirectVulkan::MemoryBarrier called with null VulkanRenderer");
+        pVulkanRenderer->MemoryBarrier(barriers);
+    }
+
+    void MemoryBarrierByRegion(GLbitfield barriers) {
+        MemoryBarrier(barriers);
+    }
+
+    void BindImageTexture(GLuint unit, GLuint texture, GLint level, GLboolean layered, GLint layer, GLenum access,
+                          GLenum format) {
+        (void)unit;
+        (void)texture;
+        (void)level;
+        (void)layered;
+        (void)layer;
+        (void)access;
+        (void)format;
+    }
+
+    void GetIntegeri_v(GLenum target, GLuint index, GLint* data) {
+        if (!data) return;
+        switch (target) {
+        case GL_MAX_COMPUTE_WORK_GROUP_COUNT:
+            if (!pVulkanRenderer || index >= 3) {
+                *data = 0;
+                return;
             }
-
-            DrawElementCmd payload{};
-            payload.mode = mode;
-            payload.first = 0;
-            payload.count = count[i];
-            payload.indexType = type;
-            payload.indexByteOffset = reinterpret_cast<SizeT>(indices[i]);
-            cmds.push_back(payload);
-        }
-
-        if (cmds.empty()) {
+            *data = static_cast<GLint>(
+                pVulkanRenderer->GetPhysicalDevice().properties.limits.maxComputeWorkGroupCount[index]);
+            return;
+        case GL_MAX_COMPUTE_WORK_GROUP_SIZE:
+            if (!pVulkanRenderer || index >= 3) {
+                *data = 0;
+                return;
+            }
+            *data = static_cast<GLint>(
+                pVulkanRenderer->GetPhysicalDevice().properties.limits.maxComputeWorkGroupSize[index]);
+            return;
+        case GL_SHADER_STORAGE_BUFFER_BINDING: {
+            auto& point = MG_State::pGLContext->GetBufferBindingPoint(BufferTarget::ShaderStorage, index);
+            auto& obj = point.GetBoundObject();
+            *data = obj ? static_cast<GLint>(obj->GetExternalIndex()) : 0;
             return;
         }
-        pVulkanRenderer->MultiDrawElements(cmds);
+        case GL_SHADER_STORAGE_BUFFER_START: {
+            auto& point = MG_State::pGLContext->GetBufferBindingPoint(BufferTarget::ShaderStorage, index);
+            *data = static_cast<GLint>(point.GetRange().start);
+            return;
+        }
+        case GL_SHADER_STORAGE_BUFFER_SIZE: {
+            auto& point = MG_State::pGLContext->GetBufferBindingPoint(BufferTarget::ShaderStorage, index);
+            auto& obj = point.GetBoundObject();
+            if (!obj) {
+                *data = 0;
+                return;
+            }
+            const auto& range = point.GetRange();
+            const auto start = std::min(range.start, obj->GetSize());
+            const auto end = std::min(range.end, obj->GetSize());
+            *data = static_cast<GLint>(end - start);
+            return;
+        }
+        case GL_IMAGE_BINDING_NAME:
+        case GL_IMAGE_BINDING_LEVEL:
+        case GL_IMAGE_BINDING_LAYERED:
+        case GL_IMAGE_BINDING_LAYER:
+        case GL_IMAGE_BINDING_ACCESS:
+        case GL_IMAGE_BINDING_FORMAT: {
+            if (index >= MG_State::GLState::TextureState::MAX_TEXTURE_IMAGE_UNITS) {
+                *data = 0;
+                return;
+            }
+            auto& imageBinding = MG_State::pGLContext->GetImageTextureBinding(static_cast<Int>(index));
+            if (target == GL_IMAGE_BINDING_NAME) {
+                *data = imageBinding.Texture ? static_cast<GLint>(imageBinding.Texture->GetExternalIndex()) : 0;
+            } else if (target == GL_IMAGE_BINDING_LEVEL) {
+                *data = imageBinding.Level;
+            } else if (target == GL_IMAGE_BINDING_LAYERED) {
+                *data = imageBinding.Layered;
+            } else if (target == GL_IMAGE_BINDING_LAYER) {
+                *data = imageBinding.Layer;
+            } else if (target == GL_IMAGE_BINDING_ACCESS) {
+                *data = static_cast<GLint>(imageBinding.Access);
+            } else {
+                *data = static_cast<GLint>(imageBinding.Format);
+            }
+            return;
+        }
+        default:
+            *data = 0;
+            return;
+        }
     }
+
+    void GetInteger64i_v(GLenum target, GLuint index, GLint64* data) {
+        if (!data) return;
+        switch (target) {
+        case GL_SHADER_STORAGE_BUFFER_START: {
+            auto& point = MG_State::pGLContext->GetBufferBindingPoint(BufferTarget::ShaderStorage, index);
+            *data = static_cast<GLint64>(point.GetRange().start);
+            return;
+        }
+        case GL_SHADER_STORAGE_BUFFER_SIZE: {
+            auto& point = MG_State::pGLContext->GetBufferBindingPoint(BufferTarget::ShaderStorage, index);
+            auto& obj = point.GetBoundObject();
+            if (!obj) {
+                *data = 0;
+                return;
+            }
+            const auto& range = point.GetRange();
+            const auto start = std::min(range.start, obj->GetSize());
+            const auto end = std::min(range.end, obj->GetSize());
+            *data = static_cast<GLint64>(end - start);
+            return;
+        }
+        default:
+            *data = 0;
+            return;
+        }
+    }
+
+    void GetProgramiv(GLuint program, GLenum pname, GLint* params) {
+        if (!params) return;
+        auto* programObject = TryGetDirectVulkanProgram(program);
+        if (!programObject) {
+            params[0] = 0;
+            return;
+        }
+        switch (pname) {
+        case GL_COMPUTE_WORK_GROUP_SIZE: {
+            auto& cache = GetProgramResourceCache(*programObject);
+            params[0] = cache.computeWorkGroupSize[0];
+            params[1] = cache.computeWorkGroupSize[1];
+            params[2] = cache.computeWorkGroupSize[2];
+            return;
+        }
+        default:
+            params[0] = 0;
+            return;
+        }
+    }
+
+    void GetProgramInterfaceiv(GLuint program, GLenum programInterface, GLenum pname, GLint* params) {
+        if (!params) return;
+        auto* programObject = TryGetDirectVulkanProgram(program);
+        if (!programObject) return;
+        auto& cache = GetProgramResourceCache(*programObject);
+        if (programInterface == GL_SHADER_STORAGE_BLOCK) {
+            if (pname == GL_ACTIVE_RESOURCES) {
+                *params = static_cast<GLint>(cache.storageBlocks.size());
+            } else if (pname == GL_MAX_NAME_LENGTH) {
+                SizeT maxLength = 0;
+                for (const auto& block : cache.storageBlocks) maxLength = std::max(maxLength, block.name.size() + 1);
+                *params = static_cast<GLint>(maxLength);
+            } else {
+                *params = 0;
+            }
+            return;
+        }
+        if (programInterface == GL_BUFFER_VARIABLE) {
+            if (pname == GL_ACTIVE_RESOURCES) {
+                *params = static_cast<GLint>(cache.bufferVariables.size());
+            } else if (pname == GL_MAX_NAME_LENGTH) {
+                SizeT maxLength = 0;
+                for (const auto& var : cache.bufferVariables) maxLength = std::max(maxLength, var.name.size() + 1);
+                *params = static_cast<GLint>(maxLength);
+            } else {
+                *params = 0;
+            }
+            return;
+        }
+        *params = 0;
+    }
+
+    GLuint GetProgramResourceIndex(GLuint program, GLenum programInterface, const GLchar* name) {
+        if (!name) return GL_INVALID_INDEX;
+        auto* programObject = TryGetDirectVulkanProgram(program);
+        if (!programObject) return GL_INVALID_INDEX;
+        auto& cache = GetProgramResourceCache(*programObject);
+        if (programInterface == GL_SHADER_STORAGE_BLOCK) {
+            return GetShaderStorageBlockIndex(*programObject, name);
+        }
+        if (programInterface == GL_BUFFER_VARIABLE) {
+            const String resourceName = name;
+            const auto it = std::find_if(cache.bufferVariables.begin(), cache.bufferVariables.end(),
+                [&](const BufferVariableResource& var) { return var.name == resourceName; });
+            return it == cache.bufferVariables.end()
+                ? GL_INVALID_INDEX
+                : static_cast<GLuint>(std::distance(cache.bufferVariables.begin(), it));
+        }
+        return GL_INVALID_INDEX;
+    }
+
+    void GetProgramResourceName(GLuint program, GLenum programInterface, GLuint index, GLsizei bufSize,
+                                GLsizei* length, GLchar* name) {
+        auto* programObject = TryGetDirectVulkanProgram(program);
+        if (!programObject) return;
+        auto& cache = GetProgramResourceCache(*programObject);
+        if (programInterface == GL_SHADER_STORAGE_BLOCK && index < cache.storageBlocks.size()) {
+            CopyResourceName(cache.storageBlocks[index].name, bufSize, length, name);
+            return;
+        }
+        if (programInterface == GL_BUFFER_VARIABLE && index < cache.bufferVariables.size()) {
+            CopyResourceName(cache.bufferVariables[index].name, bufSize, length, name);
+            return;
+        }
+        if (length) *length = 0;
+        if (name && bufSize > 0) name[0] = '\0';
+    }
+
+    void GetProgramResourceiv(GLuint program, GLenum programInterface, GLuint index, GLsizei propCount,
+                              const GLenum* props, GLsizei bufSize, GLsizei* length, GLint* params) {
+        auto* programObject = TryGetDirectVulkanProgram(program);
+        if (!programObject || !props || !params || bufSize <= 0) return;
+        auto& cache = GetProgramResourceCache(*programObject);
+        GLsizei written = 0;
+        auto writeValue = [&](GLint value) {
+            if (written < bufSize) {
+                params[written++] = value;
+            }
+        };
+
+        for (GLsizei propIndex = 0; propIndex < propCount; ++propIndex) {
+            const GLenum prop = props[propIndex];
+            if (programInterface == GL_SHADER_STORAGE_BLOCK && index < cache.storageBlocks.size()) {
+                const auto& block = cache.storageBlocks[index];
+                switch (prop) {
+                case GL_NAME_LENGTH:
+                    writeValue(static_cast<GLint>(block.name.size() + 1));
+                    break;
+                case GL_BUFFER_BINDING:
+                    writeValue(static_cast<GLint>(block.binding));
+                    break;
+                case GL_BUFFER_DATA_SIZE:
+                    writeValue(block.dataSize);
+                    break;
+                case GL_NUM_ACTIVE_VARIABLES:
+                    writeValue(static_cast<GLint>(block.activeVariables.size()));
+                    break;
+                case GL_ACTIVE_VARIABLES:
+                    for (const auto variable : block.activeVariables) writeValue(static_cast<GLint>(variable));
+                    break;
+                default:
+                    writeValue(0);
+                    break;
+                }
+            } else if (programInterface == GL_BUFFER_VARIABLE && index < cache.bufferVariables.size()) {
+                const auto& var = cache.bufferVariables[index];
+                switch (prop) {
+                case GL_NAME_LENGTH:
+                    writeValue(static_cast<GLint>(var.name.size() + 1));
+                    break;
+                case GL_TYPE:
+                    writeValue(GL_FLOAT);
+                    break;
+                case GL_ARRAY_SIZE:
+                    writeValue(1);
+                    break;
+                case GL_OFFSET:
+                    writeValue(var.offset);
+                    break;
+                case GL_BLOCK_INDEX:
+                    writeValue(static_cast<GLint>(var.blockIndex));
+                    break;
+                case GL_ARRAY_STRIDE:
+                case GL_MATRIX_STRIDE:
+                case GL_TOP_LEVEL_ARRAY_SIZE:
+                case GL_TOP_LEVEL_ARRAY_STRIDE:
+                case GL_IS_ROW_MAJOR:
+                    writeValue(0);
+                    break;
+                default:
+                    writeValue(0);
+                    break;
+                }
+            } else {
+                writeValue(0);
+            }
+        }
+        if (length) *length = written;
+    }
+
+    GLint GetProgramResourceLocation(GLuint program, GLenum programInterface, const GLchar* name) {
+        auto* programObject = TryGetDirectVulkanProgram(program);
+        if (!programObject || !name) return -1;
+        if (programInterface == GL_UNIFORM) {
+            return programObject->GetUniformLocation(name);
+        }
+        return -1;
+    }
+
+    GLint GetProgramResourceLocationIndex(GLuint program, GLenum programInterface, const GLchar* name) {
+        (void)program;
+        (void)programInterface;
+        (void)name;
+        return -1;
+    }
+
+    void ShaderStorageBlockBinding(GLuint program, GLuint storageBlockIndex, GLuint storageBlockBinding) {
+        auto* programObject = TryGetDirectVulkanProgram(program);
+        if (!programObject) return;
+        auto& cache = GetProgramResourceCache(*programObject);
+        if (storageBlockIndex >= cache.storageBlocks.size()) {
+            return;
+        }
+        cache.storageBlocks[storageBlockIndex].binding = storageBlockBinding;
+    }
+    void ReadPixels(GLint x, GLint y, GLsizei width, GLsizei height, GLenum format, GLenum type, void* pixels) {}
+    void GetTexImage(GLenum target, GLint level, GLenum format, GLenum type, GLvoid* pixels) {}
 
     void Clear(GLbitfield mask) {
         MOBILEGL_ASSERT(pVulkanRenderer, "DirectVulkan::Clear called with null VulkanRenderer");
@@ -80,30 +598,112 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         pVulkanRenderer->Clear(mask);
     }
 
-    void DrawElements(GLenum mode, GLsizei count, GLenum type, const void* indices) {
-        MOBILEGL_ASSERT(pVulkanRenderer, "DirectVulkan::DrawElements called with null VulkanRenderer");
-        MOBILEGL_ASSERT(MG_State::pGLContext, "DirectVulkan::DrawElements called with null GL context");
-
-        DrawElementCmd payload{};
-        payload.mode = mode;
-        payload.first = 0;
-        payload.count = count;
-        payload.indexType = type;
-        payload.indexByteOffset = reinterpret_cast<SizeT>(indices);
-
-        pVulkanRenderer->DrawElements(payload);
-    }
-
     void DrawArrays(GLenum mode, GLint first, GLsizei count) {
         MOBILEGL_ASSERT(pVulkanRenderer, "DirectVulkan::DrawArrays called with null VulkanRenderer");
         MOBILEGL_ASSERT(MG_State::pGLContext, "DirectVulkan::DrawArrays called with null GL context");
 
-        DrawArrayCmd payload{};
+        DrawCmd payload{};
         payload.mode = mode;
-        payload.first = first;
-        payload.count = count;
+        payload.params.firstVertex = first;
+        payload.params.vertexCount = count;
 
         pVulkanRenderer->DrawArrays(payload);
+    }
+
+    void DrawElements(GLenum mode, GLsizei count, GLenum type, const void* indices) {
+        MOBILEGL_ASSERT(pVulkanRenderer, "DirectVulkan::DrawElements called with null VulkanRenderer");
+        MOBILEGL_ASSERT(MG_State::pGLContext, "DirectVulkan::DrawElements called with null GL context");
+
+        DrawIndexedCmd payload{};
+        payload.mode = mode;
+        payload.indexBufferView.indexType = type;
+        payload.indexBufferView.indexByteOffset = reinterpret_cast<SizeT>(indices);
+        payload.indexBufferView.indexByteSize = count * MG_Util::GetGLTypeSize(type);
+        payload.params.indexCount = count;
+        payload.params.instanceCount = 1;
+
+        pVulkanRenderer->DrawElements(payload);
+    }
+
+    void MultiDrawElements(GLenum mode, const GLsizei* count, GLenum type, const GLvoid* const* indices,
+                           GLsizei drawcount) {
+        MOBILEGL_ASSERT(pVulkanRenderer, "DirectVulkan::MultiDrawElements called with null VulkanRenderer");
+        MOBILEGL_ASSERT(MG_State::pGLContext, "DirectVulkan::MultiDrawElements called with null GL context");
+
+        // Vector<DrawElementCmd> cmds;
+        // cmds.reserve(static_cast<SizeT>(drawcount));
+        // for (GLsizei i = 0; i < drawcount; ++i) {
+        //     if (count[i] == 0) {
+        //         continue;
+        //     }
+        //
+        //     DrawElementCmd payload{};
+        //     payload.mode = mode;
+        //     payload.firstVertex = 0;
+        //     payload.indexCount = count[i];
+        //     payload.indexType = type;
+        //     payload.indexByteOffset = reinterpret_cast<SizeT>(indices[i]);
+        //     cmds.push_back(payload);
+        // }
+        //
+        // if (cmds.empty()) {
+        //     return;
+        // }
+        // pVulkanRenderer->MultiDrawElements(cmds);
+    }
+
+    void DrawElementsBaseVertex(GLenum mode, GLsizei count, GLenum type, const GLvoid* indices, GLint basevertex) {
+        MOBILEGL_ASSERT(pVulkanRenderer, "DirectVulkan::DrawElementsBaseVertex called with null VulkanRenderer");
+        MOBILEGL_ASSERT(MG_State::pGLContext, "DirectVulkan::DrawElementsBaseVertex called with null GL context");
+        DrawIndexedCmd payload{};
+        payload.mode = mode;
+        payload.indexBufferView.indexType = type;
+        payload.indexBufferView.indexByteOffset = reinterpret_cast<SizeT>(indices);
+        payload.indexBufferView.indexByteSize = count * MG_Util::GetGLTypeSize(type);
+        payload.params.indexCount = count;
+        payload.params.instanceCount = 1;
+        payload.params.firstIndex = 0;
+        payload.params.vertexOffset = basevertex;
+        payload.params.firstInstance = 0;
+        pVulkanRenderer->DrawElements(payload);
+    }
+
+    void MultiDrawElementsBaseVertex(GLenum mode, const GLsizei* count, GLenum type, const GLvoid* const* indices,
+                                     GLsizei drawcount, const GLint* basevertex) {
+        MOBILEGL_ASSERT(pVulkanRenderer, "DirectVulkan::MultiDrawElements called with null VulkanRenderer");
+        MOBILEGL_ASSERT(MG_State::pGLContext, "DirectVulkan::MultiDrawElements called with null GL context");
+        MultiDrawIndexedCmd payload{};
+        payload.mode = mode;
+        payload.indexBufferView.indexType = type;
+
+        // TODO: allocate draw cmd buf elsewhere
+        static Vector<DrawIndexedCmdParam> params;
+        params.clear();
+        params.resize(drawcount);
+
+        for (GLsizei i = 0; i < drawcount; ++i) {
+            if (count[i] == 0) {
+                continue;
+            }
+
+            // TODO: this index view needs a redesign, now there's a lotta redundant uploads
+
+            payload.indexBufferView.indexByteOffset = 0;
+            payload.indexBufferView.indexByteSize =
+                    std::max(reinterpret_cast<SizeT>(indices[i]) + count[i] * MG_Util::GetGLTypeSize(type),
+                             payload.indexBufferView.indexByteSize);
+
+            auto& param = params[i];
+
+            param.indexCount = count[i];
+            param.instanceCount = 1;
+            param.firstIndex = reinterpret_cast<SizeT>(indices[i]) / MG_Util::GetGLTypeSize(type);
+            param.vertexOffset = basevertex[i];
+            param.firstInstance = 0;
+        }
+        payload.drawCount = drawcount;
+        payload.pParams = params.data();
+        pVulkanRenderer->MultiDrawElements(payload);
     }
 
     void BlitFramebuffer(GLint srcX0, GLint srcY0, GLint srcX1, GLint srcY1, GLint dstX0, GLint dstY0, GLint dstX1,

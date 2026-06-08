@@ -23,6 +23,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
         Bool CreateEGLWindowSurface(const WindowHandle& handle) override;
         Bool MakeEGLCurrent(EGLDisplay dpy, EGLSurface draw, EGLSurface read, EGLContext ctx) override;
         Bool SwapEGLBuffers(EGLDisplay dpy, EGLSurface draw) override;
+        void ReleaseEGLResources() override;
 
         const RendererInfo& GetRendererInfo() const override;
         String GetBackendAPIVersionString() const override;
@@ -35,6 +36,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
 
     private:
         void UpdateDynamicBackendParameters();
+        Bool InitPbufferSurface(EGLint width, EGLint height) override;
 
         Bool m_initialized = false;
         MG_External::EGLFunctionsTable m_EGLFunctions;

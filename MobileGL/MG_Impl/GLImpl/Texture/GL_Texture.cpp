@@ -29,12 +29,13 @@
 
 namespace MobileGL::MG_Impl::GLImpl {
     static SharedPtr<MG_State::GLState::ITextureObject> nullTextureObject;
+    static UnorderedMap<Uint, Bool> g_autoGenerateMipmapByTextureId;
 
     const SharedPtr<MG_State::GLState::ITextureObject>& GetTextureObjectByTarget(
         TextureUploadTarget textureUploadTarget, TextureTarget textureTarget) {
         if (TextureImpl::IsProxyTextureTarget(textureUploadTarget)) {
             auto& textureObject =
-                TextureImpl::pProxyTextureManager->CreateOrReplaceProxyTextureObject(textureUploadTarget);
+                TextureImpl::pProxyTextureManager->GetProxyTextureObject(textureUploadTarget);
             if (!TextureImpl::ValidateTextureObject(textureObject)) return nullTextureObject;
             return textureObject;
         } else {
@@ -48,6 +49,18 @@ namespace MobileGL::MG_Impl::GLImpl {
 
     void GenerateMipmap_Backend(GLenum target) {
         MG_Backend::gBackendFunctionsTable.GL.GenerateMipmap(target);
+    }
+
+    void MaybeAutoGenerateMipmap(GLenum target, const SharedPtr<MG_State::GLState::ITextureObject>& textureObject,
+                                 Bool isProxy, GLint level) {
+        if (isProxy || level != 0 || !textureObject) {
+            return;
+        }
+        const auto it = g_autoGenerateMipmapByTextureId.find(textureObject->GetExternalIndex());
+        if (it == g_autoGenerateMipmapByTextureId.end() || !it->second) {
+            return;
+        }
+        GenerateMipmap_Backend(target);
     }
 
     void TexSubImage3D_State(GLenum target, GLint level, GLint xoffset, GLint yoffset, GLint zoffset, GLsizei width,
@@ -169,6 +182,7 @@ namespace MobileGL::MG_Impl::GLImpl {
 
         MGLOG_D("%s: mark mip %d as dirty", __func__, level);
         textureMipmapObject->MarkStorageDirty(textureUploadTarget, level, true);
+        MaybeAutoGenerateMipmap(target, textureObject, false, level);
     }
 
     void TexSubImage1D_State(GLenum target, GLint level, GLint xoffset, GLsizei width, GLenum format, GLenum type,
@@ -239,6 +253,9 @@ namespace MobileGL::MG_Impl::GLImpl {
             break;
         case GL_TEXTURE_LOD_BIAS:
             textureObject->GetSamplerObject()->SetLodBias(param);
+            break;
+        case GL_GENERATE_MIPMAP:
+            g_autoGenerateMipmapByTextureId[textureObject->GetExternalIndex()] = (param != 0.0f);
             break;
         case GL_TEXTURE_SWIZZLE_RGBA:
             // Not supported in this function
@@ -313,6 +330,9 @@ namespace MobileGL::MG_Impl::GLImpl {
             break;
         case GL_TEXTURE_LOD_BIAS:
             textureObject->GetSamplerObject()->SetLodBias((GLfloat)param);
+            break;
+        case GL_GENERATE_MIPMAP:
+            g_autoGenerateMipmapByTextureId[textureObject->GetExternalIndex()] = (param != GL_FALSE);
             break;
         case GL_TEXTURE_SWIZZLE_RGBA:
             // Not supported in this function
@@ -546,6 +566,10 @@ namespace MobileGL::MG_Impl::GLImpl {
         if (!TextureImpl::ValidateTextureObject(textureObject)) return;
 
         // ======================= Processing ================================
+        if (internalformat == GL_ALPHA || format == GL_ALPHA) {
+            textureObject->SetSwizzleParamRGBA({TextureSwizzleParam::Zero, TextureSwizzleParam::Zero,
+                                                TextureSwizzleParam::Zero, TextureSwizzleParam::Red});
+        }
 
         SizeT imageSize = 0;
         const SizeT inputBpp = MG_Util::GetInputBytesPerPixel(textureInputFormat, texturePixelDataType);
@@ -553,9 +577,6 @@ namespace MobileGL::MG_Impl::GLImpl {
         const SizeT internalBytes = width * height * depth * internalBpp;
 
         textureObject->SetInternalFormat(textureInternalFormat);
-
-        // if isProxy, no more pixel transfer needed below
-        if (isProxy) return;
 
         const void* originalPixels = pixels;
 
@@ -658,6 +679,10 @@ namespace MobileGL::MG_Impl::GLImpl {
         if (!TextureImpl::ValidateTextureObject(textureObject)) return;
 
         // ======================= Processing ================================
+        if (internalformat == GL_ALPHA || format == GL_ALPHA) {
+            textureObject->SetSwizzleParamRGBA({TextureSwizzleParam::Zero, TextureSwizzleParam::Zero,
+                                                TextureSwizzleParam::Zero, TextureSwizzleParam::Red});
+        }
 
         SizeT imageSize = 0;
         const SizeT inputBpp = MG_Util::GetInputBytesPerPixel(textureInputFormat, texturePixelDataType);
@@ -670,9 +695,6 @@ namespace MobileGL::MG_Impl::GLImpl {
                 MG_Util::ConvertTextureInternalFormatToString(textureObject->GetFormat()).c_str(),
                 MG_Util::ConvertTextureInternalFormatToString(textureInternalFormat).c_str());
         textureObject->SetInternalFormat(textureInternalFormat);
-
-        // if isProxy, no more pixel transfer needed below
-        if (isProxy) return;
 
         const void* originalPixels = pixels;
 
@@ -691,8 +713,13 @@ namespace MobileGL::MG_Impl::GLImpl {
         auto textureMipmapObject = static_cast<MG_State::GLState::TextureObjectMipmap*>(textureObject.get());
 
         // Allocate in TextureObject
-        MGLOG_D("%s: Allocating %d bytes at mip %d", __func__, internalBytes, level);
-        textureMipmapObject->AllocateStorage(textureUploadTarget, level, {{width, height, 1}, internalBytes});
+        if (isProxy) {
+            MGLOG_D("%s: isProxy = true, not allocating", __func__);
+        } else {
+            MGLOG_D("%s: Allocating %d bytes at mip %d", __func__, internalBytes, level);
+            textureMipmapObject->AllocateStorage(textureUploadTarget, level,
+                                                 {{width, height, 1}, internalBytes});
+        }
 
         if (!originalPixels) {
             MGLOG_D("%s: No input pixel and no PBO bound, no pixel transfer", __func__);
@@ -720,6 +747,7 @@ namespace MobileGL::MG_Impl::GLImpl {
 
         MGLOG_D("%s: mark mip %d as dirty", __func__, level);
         textureMipmapObject->MarkStorageDirty(textureUploadTarget, level, true);
+        MaybeAutoGenerateMipmap(target, textureObject, isProxy, level);
     }
 
     void TexImage1D_State(GLenum target, GLint level, GLint internalFormat, GLsizei width, GLint border, GLenum format,
@@ -797,7 +825,7 @@ namespace MobileGL::MG_Impl::GLImpl {
         auto& bindingSlot = activeUnit.GetBindingSlot(textureTarget);
         Bool isProxy = TextureImpl::IsProxyTextureTarget(textureUploadTarget);
         auto& textureObject =
-            isProxy ? TextureImpl::pProxyTextureManager->CreateOrReplaceProxyTextureObject(textureUploadTarget)
+            isProxy ? TextureImpl::pProxyTextureManager->GetProxyTextureObject(textureUploadTarget)
                     : bindingSlot.GetBoundObject();
 
         if (!TextureImpl::ValidateTextureObject(textureObject)) return;
@@ -875,7 +903,7 @@ namespace MobileGL::MG_Impl::GLImpl {
         auto& bindingSlot = activeUnit.GetBindingSlot(textureTarget);
         Bool isProxy = TextureImpl::IsProxyTextureTarget(textureUploadTarget);
         auto& textureObject =
-            isProxy ? TextureImpl::pProxyTextureManager->CreateOrReplaceProxyTextureObject(textureUploadTarget)
+            isProxy ? TextureImpl::pProxyTextureManager->GetProxyTextureObject(textureUploadTarget)
                     : bindingSlot.GetBoundObject();
 
         if (!TextureImpl::ValidateTextureObject(textureObject)) return;
@@ -967,7 +995,7 @@ namespace MobileGL::MG_Impl::GLImpl {
         auto& bindingSlot = activeUnit.GetBindingSlot(textureTarget);
         Bool isProxy = TextureImpl::IsProxyTextureTarget(textureUploadTarget);
         auto& textureObject =
-            isProxy ? TextureImpl::pProxyTextureManager->CreateOrReplaceProxyTextureObject(textureUploadTarget)
+            isProxy ? TextureImpl::pProxyTextureManager->GetProxyTextureObject(textureUploadTarget)
                     : bindingSlot.GetBoundObject();
 
         if (!TextureImpl::ValidateTextureObject(textureObject)) return;
@@ -1039,6 +1067,7 @@ namespace MobileGL::MG_Impl::GLImpl {
                                                                      "pname is not a valid texture level parameter."));
             return;
         }
+        MGLOG_D("returned %u",*params);
     }
 
     void GetTexLevelParameterfv_State(GLenum target, GLint level, GLenum pname, GLfloat* params) {
@@ -1056,7 +1085,7 @@ namespace MobileGL::MG_Impl::GLImpl {
         auto& bindingSlot = activeUnit.GetBindingSlot(textureTarget);
         Bool isProxy = TextureImpl::IsProxyTextureTarget(textureUploadTarget);
         auto& textureObject =
-            isProxy ? TextureImpl::pProxyTextureManager->CreateOrReplaceProxyTextureObject(textureUploadTarget)
+            isProxy ? TextureImpl::pProxyTextureManager->GetProxyTextureObject(textureUploadTarget)
                     : bindingSlot.GetBoundObject();
 
         if (!TextureImpl::ValidateTextureObject(textureObject)) return;
@@ -1292,14 +1321,30 @@ namespace MobileGL::MG_Impl::GLImpl {
     }
 
     void BindTexture_State(GLenum target, GLuint texture) {
-        // TODO: deal with condition where texture == 0
-        MGLOG_D("BindTexture_State called with target: 0x%X, texture: %u", target, texture);
+        const Int activeUnit = MG_State::pGLContext->GetActiveTextureUnit();
+        MGLOG_D("BindTexture_State called with target: 0x%X, texture: %u, unit: %d", target, texture, activeUnit);
         // ======================= Converting ================================
         TextureTarget textureTarget = MG_Util::ConvertGLEnumToTextureTarget(target);
 
         // ===================== Error Checking ==============================
-        if (!TextureImpl::ValidateTextureName(texture, true)) return;
         if (!TextureImpl::ValidateTextureTarget(textureTarget)) return;
+
+        // Name 0 unbinds the current target from the active texture unit.
+        if (texture == 0) {
+            auto& currentUnit = MG_State::pGLContext->GetTextureUnitObject(activeUnit);
+            auto& bindingSlot = currentUnit.GetBindingSlot(textureTarget);
+            bindingSlot.Bind(nullptr);
+            return;
+        }
+
+        // Some desktop-side helper code saves GL_ACTIVE_TEXTURE and later feeds it back into glBindTexture
+        // as if it were a texture name. Treating that as a no-op preserves the previous "invalid bind does not
+        // change texture state" behavior, but avoids poisoning the error state every frame.
+        if (!MG_State::pGLContext->ValidateTextureName(texture) && texture >= GL_TEXTURE0 && texture <= GL_TEXTURE31) {
+            return;
+        }
+
+        if (!TextureImpl::ValidateTextureName(texture, true)) return;
 
         // ======================= Processing ================================
         Bool doesTextureExist = MG_State::pGLContext->ValidateTextureObject(texture);
@@ -1331,7 +1376,9 @@ namespace MobileGL::MG_Impl::GLImpl {
         }
 
         // ======================= Processing ================================
-        MG_State::pGLContext->SetActiveTextureUnit((Int)texture - GL_TEXTURE0);
+        const Int unit = (Int)texture - GL_TEXTURE0;
+        MGLOG_D("ActiveTexture_State: unit = %d", unit);
+        MG_State::pGLContext->SetActiveTextureUnit(unit);
     }
 
     void GetTexImage_Backend(GLenum target, GLint level, GLenum format, GLenum type, GLvoid* pixels) {
@@ -1384,7 +1431,7 @@ namespace MobileGL::MG_Impl::GLImpl {
         auto& bindingSlot = activeUnit.GetBindingSlot(textureTarget);
         Bool isProxy = TextureImpl::IsProxyTextureTarget(textureUploadTarget);
         auto& textureObject =
-            isProxy ? TextureImpl::pProxyTextureManager->CreateOrReplaceProxyTextureObject(textureUploadTarget)
+            isProxy ? TextureImpl::pProxyTextureManager->GetProxyTextureObject(textureUploadTarget)
                     : bindingSlot.GetBoundObject();
 
         if (!TextureImpl::ValidateTextureObject(textureObject)) {
@@ -1453,6 +1500,58 @@ namespace MobileGL::MG_Impl::GLImpl {
     }
 
     /* @INSERTION_POINT:FUNCTION_IMPLEMENTATION@ */
+    void BindImageTexture(GLuint unit, GLuint texture, GLint level, GLboolean layered, GLint layer, GLenum access,
+                          GLenum format) {
+        if (unit >= MG_State::GLState::TextureState::MAX_TEXTURE_IMAGE_UNITS) {
+            MG_State::pGLContext->RecordError(
+                ErrorCode::InvalidValue,
+                MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", __func__, "Image texture unit is out of range."));
+            return;
+        }
+        if (level < 0) {
+            MG_State::pGLContext->RecordError(
+                ErrorCode::InvalidValue,
+                MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", __func__, "Texture level must be non-negative."));
+            return;
+        }
+        if (layer < 0 && layered == GL_FALSE) {
+            MG_State::pGLContext->RecordError(
+                ErrorCode::InvalidValue,
+                MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", __func__, "Texture layer must be non-negative."));
+            return;
+        }
+        if (access != GL_READ_ONLY && access != GL_WRITE_ONLY && access != GL_READ_WRITE) {
+            MG_State::pGLContext->RecordError(
+                ErrorCode::InvalidEnum,
+                MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", __func__, "Invalid image texture access."));
+            return;
+        }
+
+        SharedPtr<MG_State::GLState::ITextureObject> textureObject;
+        if (texture != 0) {
+            if (!MG_State::pGLContext->ValidateTextureObject(texture)) {
+                MG_State::pGLContext->RecordError(
+                    ErrorCode::InvalidValue,
+                    MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", __func__, "Texture name is not a texture object."));
+                return;
+            }
+            textureObject = MG_State::pGLContext->GetTextureObject(texture);
+        }
+
+        MG_State::pGLContext->GetImageTextureBinding(static_cast<Int>(unit))
+            .Bind(textureObject, level, layered, layer, access, format);
+
+        auto bindImageTexture = MG_Backend::gBackendFunctionsTable.GL.BindImageTexture;
+        if (!bindImageTexture) {
+            MG_State::pGLContext->RecordError(
+                ErrorCode::InvalidOperation,
+                MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", __func__,
+                                             "Backend does not support image texture binding."));
+            return;
+        }
+        bindImageTexture(unit, texture, level, layered, layer, access, format);
+    }
+
     void GenerateMipmap(GLenum target) {
         GenerateMipmap_Backend(target);
     }

@@ -11,6 +11,8 @@
 
 namespace MobileGL::MG_Impl::GLImpl {
     /* @INSERTION_POINT:FUNCTION_DECLARATION@ */
+    void BindImageTexture(GLuint unit, GLuint texture, GLint level, GLboolean layered, GLint layer, GLenum access,
+                          GLenum format);
     void GenerateMipmap(GLenum target);
     void GetTexImage(GLenum target, GLint level, GLenum format, GLenum type, GLvoid* pixels);
     void TexSubImage3D(GLenum target, GLint level, GLint xoffset, GLint yoffset, GLint zoffset, GLsizei width,

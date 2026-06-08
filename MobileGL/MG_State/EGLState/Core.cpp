@@ -14,6 +14,69 @@ namespace MobileGL {
             namespace {
                 constexpr EGLint EGL_DISPLAY_MAJOR_VERSION = 1;
                 constexpr EGLint EGL_DISPLAY_MINOR_VERSION = 5;
+                constexpr EGLint DEFAULT_MAX_PBUFFER_SIZE = 16384;
+
+                template <typename AttrType>
+                Optional<AttrType> ParseAttribValue(const AttrType* attribList, EGLint attrib) {
+                    if (!attribList) {
+                        return Nullopt;
+                    }
+                    for (SizeT i = 0; attribList[i] != EGL_NONE; i += 2) {
+                        if (attribList[i] == static_cast<AttrType>(attrib)) {
+                            return attribList[i + 1];
+                        }
+                    }
+                    return Nullopt;
+                }
+
+                EGLint QueryDefaultX11VisualId() {
+#if defined(__linux__) && !defined(__ANDROID__)
+                    const char* displayName = std::getenv("DISPLAY");
+                    if (!displayName) {
+                        return 0;
+                    }
+
+                    void* x11Lib = dlopen("libX11.so.6", RTLD_LOCAL | RTLD_NOW);
+                    if (!x11Lib) {
+                        x11Lib = dlopen("libX11.so", RTLD_LOCAL | RTLD_NOW);
+                    }
+                    if (!x11Lib) {
+                        return 0;
+                    }
+
+                    using XOpenDisplayFn = void* (*)(const char*);
+                    using XDefaultScreenFn = int (*)(void*);
+                    using XDefaultVisualFn = void* (*)(void*, int);
+                    using XVisualIDFromVisualFn = unsigned long (*)(void*);
+                    using XCloseDisplayFn = int (*)(void*);
+
+                    auto* xOpenDisplay = reinterpret_cast<XOpenDisplayFn>(dlsym(x11Lib, "XOpenDisplay"));
+                    auto* xDefaultScreen = reinterpret_cast<XDefaultScreenFn>(dlsym(x11Lib, "XDefaultScreen"));
+                    auto* xDefaultVisual = reinterpret_cast<XDefaultVisualFn>(dlsym(x11Lib, "XDefaultVisual"));
+                    auto* xVisualIDFromVisual =
+                        reinterpret_cast<XVisualIDFromVisualFn>(dlsym(x11Lib, "XVisualIDFromVisual"));
+                    auto* xCloseDisplay = reinterpret_cast<XCloseDisplayFn>(dlsym(x11Lib, "XCloseDisplay"));
+                    if (!xOpenDisplay || !xDefaultScreen || !xDefaultVisual || !xVisualIDFromVisual || !xCloseDisplay) {
+                        dlclose(x11Lib);
+                        return 0;
+                    }
+
+                    void* display = xOpenDisplay(displayName);
+                    if (!display) {
+                        dlclose(x11Lib);
+                        return 0;
+                    }
+
+                    const int screen = xDefaultScreen(display);
+                    void* visual = xDefaultVisual(display, screen);
+                    const auto visualId = visual ? static_cast<EGLint>(xVisualIDFromVisual(visual)) : 0;
+                    xCloseDisplay(display);
+                    dlclose(x11Lib);
+                    return visualId;
+#else
+                    return 0;
+#endif
+                }
             } // namespace
 
             Bool EGLContext::DisplayLookupKey::operator==(const DisplayLookupKey& rhs) const {
@@ -65,30 +128,6 @@ namespace MobileGL {
                 return apiIt->second;
             }
 
-            Optional<EGLint> EGLContext::ParseAttribValue(const EGLint* attribList, EGLint attrib) {
-                if (!attribList) {
-                    return Nullopt;
-                }
-                for (SizeT i = 0; attribList[i] != EGL_NONE; i += 2) {
-                    if (attribList[i] == attrib) {
-                        return attribList[i + 1];
-                    }
-                }
-                return Nullopt;
-            }
-
-            Optional<EGLAttrib> EGLContext::ParseAttribValue(const EGLAttrib* attribList, EGLint attrib) {
-                if (!attribList) {
-                    return Nullopt;
-                }
-                for (SizeT i = 0; attribList[i] != EGL_NONE; i += 2) {
-                    if (attribList[i] == static_cast<EGLAttrib>(attrib)) {
-                        return attribList[i + 1];
-                    }
-                }
-                return Nullopt;
-            }
-
             EGLContext::EGLDisplayHandle EGLContext::GetOrCreateDisplay(Uint64 nativeDisplayKey, EGLenum platform) {
                 const DisplayLookupKey key = {
                     .NativeDisplayKey = nativeDisplayKey,
@@ -110,30 +149,31 @@ namespace MobileGL {
                     .SwapInterval = 1,
                 };
 
-                const auto config = CreateDefaultConfig(display);
-                displayObject.Configs.push_back(config);
+                displayObject.Configs.push_back(CreateDefaultConfig(display, 1, 0));
+                displayObject.Configs.push_back(CreateDefaultConfig(display, 2, 8));
 
                 m_displays[display] = displayObject;
                 m_displayLookup[key] = display;
                 return display;
             }
 
-            EGLContext::EGLConfigHandle EGLContext::CreateDefaultConfig(EGLDisplayHandle display) {
+            EGLContext::EGLConfigHandle EGLContext::CreateDefaultConfig(EGLDisplayHandle display, EGLint configId,
+                                                                        EGLint stencilSize) {
                 const auto config = EncodeHandle<EGLConfigHandle>(m_nextConfigHandle++);
                 ConfigObject cfg = {
                     .Display = display,
-                    .ConfigId = 1,
+                    .ConfigId = configId,
                     .RedSize = 8,
                     .GreenSize = 8,
                     .BlueSize = 8,
                     .AlphaSize = 8,
                     .DepthSize = 24,
-                    .StencilSize = 8,
+                    .StencilSize = stencilSize,
                     .SurfaceType = EGL_WINDOW_BIT | EGL_PBUFFER_BIT | EGL_PIXMAP_BIT,
                     .RenderableType = EGL_OPENGL_BIT | EGL_OPENGL_ES2_BIT | EGL_OPENGL_ES3_BIT,
                     .MinSwapInterval = 0,
                     .MaxSwapInterval = 4,
-                    .NativeVisualId = 0,
+                    .NativeVisualId = QueryDefaultX11VisualId(),
                 };
 #if defined(ANDROID) || defined(__ANDROID__)
                 cfg.NativeVisualId = AHARDWAREBUFFER_FORMAT_R8G8B8A8_UNORM;
@@ -305,7 +345,6 @@ namespace MobileGL {
             Bool EGLContext::ChooseConfig(EGLDisplayHandle display, const EGLint* attribList, EGLConfigHandle* configs,
                                           EGLint configSize, EGLint* numConfig) {
                 const std::lock_guard<std::recursive_mutex> lock(m_mutex);
-                (void)attribList;
                 auto* displayObject = TryGetDisplay(display);
                 if (!displayObject) {
                     SetError(EGL_BAD_DISPLAY);
@@ -320,14 +359,84 @@ namespace MobileGL {
                     return false;
                 }
 
-                *numConfig = static_cast<EGLint>(displayObject->Configs.size());
+                Vector<EGLConfigHandle> matchedConfigs;
+                for (const auto config : displayObject->Configs) {
+                    const auto* cfg = TryGetConfig(config);
+                    if (!cfg) {
+                        continue;
+                    }
+
+                    Bool matches = true;
+                    if (attribList) {
+                        for (SizeT i = 0; attribList[i] != EGL_NONE; i += 2) {
+                            const EGLint attr = attribList[i];
+                            const EGLint requested = attribList[i + 1];
+                            if (requested == EGL_DONT_CARE) {
+                                continue;
+                            }
+
+                            switch (attr) {
+                            case EGL_CONFIG_ID:
+                                matches = cfg->ConfigId == requested;
+                                break;
+                            case EGL_RED_SIZE:
+                                matches = cfg->RedSize >= requested;
+                                break;
+                            case EGL_GREEN_SIZE:
+                                matches = cfg->GreenSize >= requested;
+                                break;
+                            case EGL_BLUE_SIZE:
+                                matches = cfg->BlueSize >= requested;
+                                break;
+                            case EGL_ALPHA_SIZE:
+                                matches = cfg->AlphaSize >= requested;
+                                break;
+                            case EGL_BUFFER_SIZE:
+                                matches = (cfg->RedSize + cfg->GreenSize + cfg->BlueSize + cfg->AlphaSize) >= requested;
+                                break;
+                            case EGL_DEPTH_SIZE:
+                                matches = cfg->DepthSize >= requested;
+                                break;
+                            case EGL_STENCIL_SIZE:
+                                matches = cfg->StencilSize >= requested;
+                                break;
+                            case EGL_SURFACE_TYPE:
+                                matches = (cfg->SurfaceType & requested) == requested;
+                                break;
+                            case EGL_RENDERABLE_TYPE:
+                            case EGL_CONFORMANT:
+                                matches = (cfg->RenderableType & requested) == requested;
+                                break;
+                            case EGL_SAMPLE_BUFFERS:
+                            case EGL_SAMPLES:
+                                matches = requested == 0;
+                                break;
+                            case EGL_NATIVE_VISUAL_ID:
+                                matches = cfg->NativeVisualId == requested;
+                                break;
+                            default:
+                                break;
+                            }
+
+                            if (!matches) {
+                                break;
+                            }
+                        }
+                    }
+
+                    if (matches) {
+                        matchedConfigs.push_back(config);
+                    }
+                }
+
+                *numConfig = static_cast<EGLint>(matchedConfigs.size());
                 if (!configs || configSize <= 0) {
                     return true;
                 }
 
-                const SizeT copyCount = std::min(static_cast<SizeT>(configSize), displayObject->Configs.size());
+                const SizeT copyCount = std::min(static_cast<SizeT>(configSize), matchedConfigs.size());
                 for (SizeT i = 0; i < copyCount; ++i) {
-                    configs[i] = displayObject->Configs[i];
+                    configs[i] = matchedConfigs[i];
                 }
                 return true;
             }
@@ -367,8 +476,37 @@ namespace MobileGL {
                 }
 
                 switch (attribute) {
+                case EGL_BUFFER_SIZE:
+                    *value = cfg->RedSize + cfg->GreenSize + cfg->BlueSize + cfg->AlphaSize;
+                    return true;
+                case EGL_ALPHA_MASK_SIZE:
+                    *value = 0;
+                    return true;
+                case EGL_BIND_TO_TEXTURE_RGB:
+                case EGL_BIND_TO_TEXTURE_RGBA:
+                    *value = EGL_FALSE;
+                    return true;
+                case EGL_COLOR_BUFFER_TYPE:
+                    *value = EGL_RGB_BUFFER;
+                    return true;
+                case EGL_CONFIG_CAVEAT:
+                    *value = EGL_NONE;
+                    return true;
                 case EGL_CONFIG_ID:
                     *value = cfg->ConfigId;
+                    return true;
+                case EGL_LEVEL:
+                    *value = 0;
+                    return true;
+                case EGL_LUMINANCE_SIZE:
+                    *value = 0;
+                    return true;
+                case EGL_MAX_PBUFFER_WIDTH:
+                case EGL_MAX_PBUFFER_HEIGHT:
+                    *value = DEFAULT_MAX_PBUFFER_SIZE;
+                    return true;
+                case EGL_MAX_PBUFFER_PIXELS:
+                    *value = DEFAULT_MAX_PBUFFER_SIZE * DEFAULT_MAX_PBUFFER_SIZE;
                     return true;
                 case EGL_RED_SIZE:
                     *value = cfg->RedSize;
@@ -401,8 +539,26 @@ namespace MobileGL {
                 case EGL_MAX_SWAP_INTERVAL:
                     *value = cfg->MaxSwapInterval;
                     return true;
+                case EGL_NATIVE_RENDERABLE:
+                    *value = EGL_TRUE;
+                    return true;
                 case EGL_NATIVE_VISUAL_ID:
                     *value = cfg->NativeVisualId;
+                    return true;
+                case EGL_NATIVE_VISUAL_TYPE:
+                    *value = cfg->NativeVisualId;
+                    return true;
+                case EGL_SAMPLE_BUFFERS:
+                case EGL_SAMPLES:
+                    *value = 0;
+                    return true;
+                case EGL_TRANSPARENT_TYPE:
+                    *value = EGL_NONE;
+                    return true;
+                case EGL_TRANSPARENT_RED_VALUE:
+                case EGL_TRANSPARENT_GREEN_VALUE:
+                case EGL_TRANSPARENT_BLUE_VALUE:
+                    *value = 0;
                     return true;
                 default:
                     const_cast<EGLContext*>(this)->SetError(EGL_BAD_ATTRIBUTE);

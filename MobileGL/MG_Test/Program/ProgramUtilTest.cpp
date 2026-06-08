@@ -8,10 +8,13 @@
 
 #include <gtest/gtest.h>
 
+#include <string>
+
 #include "Includes.h"
 #include "Init.h"
 #include <MG_Util/Converters/GLToStr/GLEnumConverter.h>
 #include <MG_Util/ShaderTranspiler/ShaderCompiler.h>
+#include <MG_Util/ShaderTranspiler/ShaderSourceProcessor.h>
 #include <MG_Util/ShaderTranspiler/Types.h>
 #include <MG_Util/ShaderTranspiler/glslang/UniformTraverser.h>
 
@@ -26,6 +29,56 @@ protected:
 
 TEST_F(ProgramUtilTest, Sanity) {
     ASSERT_TRUE(true);
+}
+
+TEST_F(ProgramUtilTest, PreprocessLegacyVertexShaderModernizesGlmarkStyleSource) {
+    using namespace MG_Util::ShaderTranspiler;
+
+    String source = R"(#define HIGHP_OR_DEFAULT highp
+attribute vec3 position;
+varying vec2 uv;
+uniform HIGHP_OR_DEFAULT mat4 modelViewProjection;
+
+void main() {
+    uv = position.xy;
+    gl_Position = modelViewProjection * vec4(position, 1.0);
+})";
+
+    PreprocessShaderSource(ShaderStage::Vertex, source);
+
+    EXPECT_EQ(source.find("#version 460 core\n"), 0);
+    EXPECT_NE(source.find("in vec3 position;"), String::npos);
+    EXPECT_NE(source.find("out vec2 uv;"), String::npos);
+    EXPECT_EQ(source.find("attribute"), String::npos);
+    EXPECT_EQ(source.find("varying"), String::npos);
+    EXPECT_EQ(source.find("HIGHP_OR_DEFAULT"), String::npos);
+    EXPECT_EQ(source.find("#define"), String::npos);
+}
+
+TEST_F(ProgramUtilTest, PreprocessLegacyFragmentShaderModernizesGlmarkStyleSource) {
+    using namespace MG_Util::ShaderTranspiler;
+
+    String source = R"(#define MEDIUMP_OR_DEFAULT mediump
+varying vec2 uv;
+uniform sampler2D texture0;
+
+void main() {
+    MEDIUMP_OR_DEFAULT vec4 color = texture2D(texture0, uv);
+    gl_FragColor = color;
+})";
+
+    PreprocessShaderSource(ShaderStage::Fragment, source);
+
+    EXPECT_EQ(source.find("#version 460 core\n"), 0);
+    EXPECT_NE(source.find("out vec4 mg_FragColor;\n"), String::npos);
+    EXPECT_NE(source.find("in vec2 uv;"), String::npos);
+    EXPECT_NE(source.find("texture(texture0, uv)"), String::npos);
+    EXPECT_NE(source.find("mg_FragColor = color;"), String::npos);
+    EXPECT_EQ(source.find("gl_FragColor"), String::npos);
+    EXPECT_EQ(source.find("texture2D"), String::npos);
+    EXPECT_EQ(source.find("MEDIUMP_OR_DEFAULT"), String::npos);
+    EXPECT_EQ(source.find("mediump"), String::npos);
+    EXPECT_EQ(source.find("#define"), String::npos);
 }
 
 const char* vs = R"(#version 150
@@ -97,6 +150,66 @@ void main() {
     fragColor = vec4(OutColor, 1.0);
 })";
 
+const char* daily_weather_variation_vs = R"(#version 150
+
+struct DailyWeatherVariation {
+    vec2 clouds_cumulus_coverage;
+    vec2 clouds_altocumulus_coverage;
+    vec2 clouds_cirrus_coverage;
+    float clouds_cumulus_congestus_amount;
+    float clouds_stratus_amount;
+    float fogginess;
+    float aurora_amount;
+    float nlc_amount;
+    mat2x3 aurora_colors;
+};
+
+in vec4 Position;
+out DailyWeatherVariation daily_weather_variation;
+
+DailyWeatherVariation get_daily_weather_variation() {
+    DailyWeatherVariation daily_weather_variation;
+    daily_weather_variation.clouds_cumulus_coverage = vec2(1.0, 2.0);
+    daily_weather_variation.clouds_altocumulus_coverage = vec2(3.0, 4.0);
+    daily_weather_variation.clouds_cirrus_coverage = vec2(5.0, 6.0);
+    daily_weather_variation.clouds_cumulus_congestus_amount = 7.0;
+    daily_weather_variation.clouds_stratus_amount = 8.0;
+    daily_weather_variation.fogginess = 9.0;
+    daily_weather_variation.aurora_amount = 10.0;
+    daily_weather_variation.nlc_amount = 11.0;
+    daily_weather_variation.aurora_colors = mat2x3(vec3(12.0, 13.0, 14.0), vec3(15.0, 16.0, 17.0));
+    return daily_weather_variation;
+}
+
+void main() {
+    gl_Position = Position;
+    daily_weather_variation = get_daily_weather_variation();
+})";
+
+const char* daily_weather_variation_fs = R"(#version 150
+
+struct DailyWeatherVariation {
+    vec2 clouds_cumulus_coverage;
+    vec2 clouds_altocumulus_coverage;
+    vec2 clouds_cirrus_coverage;
+    float clouds_cumulus_congestus_amount;
+    float clouds_stratus_amount;
+    float fogginess;
+    float aurora_amount;
+    float nlc_amount;
+    mat2x3 aurora_colors;
+};
+
+in DailyWeatherVariation daily_weather_variation;
+out vec4 fragColor;
+
+void main() {
+    vec3 aurora = daily_weather_variation.aurora_colors[1];
+    DailyWeatherVariation variation = daily_weather_variation;
+    vec2 coverage = variation.clouds_cumulus_coverage + daily_weather_variation.clouds_altocumulus_coverage;
+    fragColor = vec4(coverage, aurora.x + variation.aurora_amount, 1.0);
+})";
+
 TEST_F(ProgramUtilTest, CompileSimpleFragmentShader) {
     using namespace MG_Util::ShaderTranspiler;
     ShaderAttrib attrib{.shaderType = GL_FRAGMENT_SHADER, .sourceStr = fs};
@@ -153,7 +266,7 @@ TEST_F(ProgramUtilTest, CompileFragmentShaderWithDiscard) {
 
     Vector<SpvcSession> sessions(spirvs.size());
     for (SizeT i = 0; i < spirvs.size(); ++i) {
-        sessions[i] = SpvcSession(spirvs[i]);
+        sessions[i] = SpvcSession(spirvs[i], SessionUsageBit::Transpile);
     }
 
     for (SizeT i = 0; i < spirvs.size(); ++i) {
@@ -278,7 +391,7 @@ TEST_F(ProgramUtilTest, DecompProgram) {
 
     Vector<SpvcSession> sessions(spirvs.size());
     for (SizeT i = 0; i < spirvs.size(); ++i) {
-        sessions[i] = SpvcSession(spirvs[i]);
+        sessions[i] = SpvcSession(spirvs[i], SessionUsageBit::Transpile);
     }
 
     for (SizeT i = 0; i < spirvs.size(); ++i) {
@@ -348,6 +461,110 @@ TEST_F(ProgramUtilTest, DecompProgram) {
     EXPECT_EQ(meta0.plainUniformOffsetsInUBO.size(), meta1.plainUniformOffsetsInUBO.size());
     for (auto& [name, offset] : meta0.plainUniformOffsetsInUBO) {
         EXPECT_EQ(offset, meta1.plainUniformOffsetsInUBO.at(name));
+    }
+}
+
+TEST_F(ProgramUtilTest, FlattenDailyWeatherVariationInterfaceInSpirvPass) {
+    using namespace MG_Util::ShaderTranspiler;
+
+    String vsSource = daily_weather_variation_vs;
+    String fsSource = daily_weather_variation_fs;
+    PreprocessShaderSource(ShaderStage::Vertex, vsSource);
+    PreprocessShaderSource(ShaderStage::Fragment, fsSource);
+
+    ShaderAttrib vsAttrib{.shaderType = GL_VERTEX_SHADER, .sourceStr = vsSource};
+    auto vsRes = ShaderCompiler::CompileShader(vsAttrib);
+    if (!vsRes) {
+        ASSERT_NE(vsRes.error().errc, 0);
+        FAIL() << "errc: " << vsRes.error().errc << "\nlog: " << vsRes.error().log;
+    }
+
+    ShaderAttrib fsAttrib{.shaderType = GL_FRAGMENT_SHADER, .sourceStr = fsSource};
+    auto fsRes = ShaderCompiler::CompileShader(fsAttrib);
+    if (!fsRes) {
+        ASSERT_NE(fsRes.error().errc, 0);
+        FAIL() << "errc: " << fsRes.error().errc << "\nlog: " << fsRes.error().log;
+    }
+
+    ProgramAttrib programAttrib{.shaders = {vsRes.value(), fsRes.value()}};
+    auto programRes = ShaderCompiler::LinkProgram(programAttrib);
+    if (!programRes) {
+        ASSERT_NE(programRes.error().errc, 0);
+        FAIL() << "errc: " << programRes.error().errc << "\nlog: " << programRes.error().log;
+    }
+
+    ProgramBinaryAttrib binaryAttrib{
+        .shaderTypes = {GL_VERTEX_SHADER, GL_FRAGMENT_SHADER},
+        .program = *programRes.value(),
+    };
+    auto binRes = ShaderCompiler::GetSpirvBinaryFromProgram(binaryAttrib);
+    ASSERT_TRUE(binRes.has_value());
+
+    Vector<Vector<uint32_t>> optimizedSpirvs;
+    optimizedSpirvs.reserve(binRes->size());
+    for (const auto& spirv : binRes.value()) {
+        Vector<uint32_t> optimized;
+        ASSERT_TRUE(ShaderCompiler::SanitizeAndOptimizeBinary(spirv, optimized));
+        optimizedSpirvs.push_back(std::move(optimized));
+    }
+
+    Vector<SpvcSession> sessions(optimizedSpirvs.size());
+    for (SizeT i = 0; i < optimizedSpirvs.size(); ++i) {
+        sessions[i] = SpvcSession(optimizedSpirvs[i], SessionUsageBit::Transpile);
+    }
+
+    auto vertexSource = ShaderCompiler::DecompileShader(sessions[0]);
+    auto fragmentSource = ShaderCompiler::DecompileShader(sessions[1]);
+    ASSERT_TRUE(vertexSource.has_value());
+    ASSERT_TRUE(fragmentSource.has_value());
+
+    EXPECT_EQ(vertexSource->find("out DailyWeatherVariation "), std::string::npos);
+    EXPECT_EQ(fragmentSource->find("in DailyWeatherVariation "), std::string::npos);
+    EXPECT_NE(vertexSource->find("daily_weather_variation_clouds_cumulus_coverage"), std::string::npos);
+    EXPECT_NE(vertexSource->find("daily_weather_variation_aurora_colors"), std::string::npos);
+    EXPECT_NE(fragmentSource->find("daily_weather_variation_clouds_altocumulus_coverage"), std::string::npos);
+    EXPECT_NE(fragmentSource->find("daily_weather_variation_aurora_colors"), std::string::npos);
+
+    const struct ExpectedInterface {
+        const char* name;
+        uint32_t location;
+    } expectedInterfaces[] = {
+        {"daily_weather_variation_clouds_cumulus_coverage", 0},
+        {"daily_weather_variation_clouds_altocumulus_coverage", 1},
+        {"daily_weather_variation_clouds_cirrus_coverage", 2},
+        {"daily_weather_variation_clouds_cumulus_congestus_amount", 3},
+        {"daily_weather_variation_clouds_stratus_amount", 4},
+        {"daily_weather_variation_fogginess", 5},
+        {"daily_weather_variation_aurora_amount", 6},
+        {"daily_weather_variation_nlc_amount", 7},
+        {"daily_weather_variation_aurora_colors", 8},
+    };
+
+    const auto vsOutputs = sessions[0].GetShaderInterface(SPVC_RESOURCE_TYPE_STAGE_OUTPUT);
+    const auto fsInputs = sessions[1].GetShaderInterface(SPVC_RESOURCE_TYPE_STAGE_INPUT);
+    ASSERT_EQ(vsOutputs.size(), std::size(expectedInterfaces));
+    ASSERT_EQ(fsInputs.size(), std::size(expectedInterfaces));
+
+    for (const auto& expected : expectedInterfaces) {
+        bool foundVertex = false;
+        for (const auto& output : vsOutputs) {
+            if (output.name == expected.name) {
+                foundVertex = true;
+                EXPECT_EQ(output.location, expected.location);
+                break;
+            }
+        }
+        EXPECT_TRUE(foundVertex) << "missing vertex output: " << expected.name;
+
+        bool foundFragment = false;
+        for (const auto& input : fsInputs) {
+            if (input.name == expected.name) {
+                foundFragment = true;
+                EXPECT_EQ(input.location, expected.location);
+                break;
+            }
+        }
+        EXPECT_TRUE(foundFragment) << "missing fragment input: " << expected.name;
     }
 }
 
@@ -439,7 +656,7 @@ TEST_F(ProgramUtilTest, CompileAndLinkBlitProgram) {
     auto spirvs = bin_res.value();
     Vector<SpvcSession> sessions(spirvs.size());
     for (SizeT i = 0; i < spirvs.size(); ++i) {
-        sessions[i] = SpvcSession(spirvs[i]);
+        sessions[i] = SpvcSession(spirvs[i], SessionUsageBit::Transpile);
     }
 
     for (SizeT i = 0; i < spirvs.size(); ++i) {

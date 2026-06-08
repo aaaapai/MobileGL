@@ -140,6 +140,48 @@ namespace MobileGL::MG_State {
             return m_vertexArrayState.GetBoundVertexArray();
         }
 
+        void GLContext::SetCurrentVertexAttributeFloat(Uint index, const Array<Float, 4>& value) {
+            MOBILEGL_ASSERT(index < m_currentVertexAttributes.size(),
+                            "SetCurrentVertexAttributeFloat: index %u is out of range", index);
+
+            auto& current = m_currentVertexAttributes[index];
+            current.floatValue = value;
+            for (SizeT component = 0; component < value.size(); ++component) {
+                current.intValue[component] = static_cast<Int32>(value[component]);
+                current.uintValue[component] = static_cast<Uint32>(value[component]);
+            }
+        }
+
+        void GLContext::SetCurrentVertexAttributeInt(Uint index, const Array<Int32, 4>& value) {
+            MOBILEGL_ASSERT(index < m_currentVertexAttributes.size(),
+                            "SetCurrentVertexAttributeInt: index %u is out of range", index);
+
+            auto& current = m_currentVertexAttributes[index];
+            current.intValue = value;
+            for (SizeT component = 0; component < value.size(); ++component) {
+                current.floatValue[component] = static_cast<Float>(value[component]);
+                current.uintValue[component] = static_cast<Uint32>(value[component]);
+            }
+        }
+
+        void GLContext::SetCurrentVertexAttributeUint(Uint index, const Array<Uint32, 4>& value) {
+            MOBILEGL_ASSERT(index < m_currentVertexAttributes.size(),
+                            "SetCurrentVertexAttributeUint: index %u is out of range", index);
+
+            auto& current = m_currentVertexAttributes[index];
+            current.uintValue = value;
+            for (SizeT component = 0; component < value.size(); ++component) {
+                current.floatValue[component] = static_cast<Float>(value[component]);
+                current.intValue[component] = static_cast<Int32>(value[component]);
+            }
+        }
+
+        const CurrentVertexAttributeValue& GLContext::GetCurrentVertexAttribute(Uint index) const {
+            MOBILEGL_ASSERT(index < m_currentVertexAttributes.size(),
+                            "GetCurrentVertexAttribute: index %u is out of range", index);
+            return m_currentVertexAttributes[index];
+        }
+
         // Texture
         void GLContext::GenTextureNames(Uint number, Vector<Uint>& textures) {
             m_textureState.GenerateNames(number, textures);
@@ -159,6 +201,14 @@ namespace MobileGL::MG_State {
 
         TextureUnit& GLContext::GetTextureUnitObject(Int unit) {
             return m_textureState.GetUnitObject(unit);
+        }
+
+        ImageTextureBinding& GLContext::GetImageTextureBinding(Int unit) {
+            return m_textureState.GetImageTextureBinding(unit);
+        }
+
+        const ImageTextureBinding& GLContext::GetImageTextureBinding(Int unit) const {
+            return m_textureState.GetImageTextureBinding(unit);
         }
 
         Bool GLContext::ValidateTextureName(Uint index) const {
@@ -271,6 +321,22 @@ namespace MobileGL::MG_State {
             m_renderState.GetBlendFuncIndexed(index, srcRGB, dstRGB, srcAlpha, dstAlpha);
         }
 
+        void GLContext::SetBlendEquation(BlendEquation color, BlendEquation alpha) {
+            m_renderState.SetBlendEquation(color, alpha);
+        }
+
+        void GLContext::GetBlendEquation(BlendEquation& color, BlendEquation& alpha) const {
+            m_renderState.GetBlendEquation(color, alpha);
+        }
+
+        void GLContext::SetBlendEquationIndexed(Uint index, BlendEquation color, BlendEquation alpha) {
+            m_renderState.SetBlendEquationIndexed(index, color, alpha);
+        }
+
+        void GLContext::GetBlendEquationIndexed(Uint index, BlendEquation& color, BlendEquation& alpha) const {
+            m_renderState.GetBlendEquationIndexed(index, color, alpha);
+        }
+
         void GLContext::SetDepthFunc(DepthTestFunc func) {
             m_renderState.SetDepthFunc(func);
         }
@@ -337,6 +403,14 @@ namespace MobileGL::MG_State {
 
         CullFaceMode GLContext::GetCullFaceMode() const {
             return m_renderState.GetCullFaceMode();
+        }
+
+        void GLContext::SetFrontFaceMode(FrontFaceMode mode) {
+            m_renderState.SetFrontFaceMode(mode);
+        }
+
+        FrontFaceMode GLContext::GetFrontFaceMode() const {
+            return m_renderState.GetFrontFaceMode();
         }
 
         void GLContext::SetScissorBox(IntVec4 box) {

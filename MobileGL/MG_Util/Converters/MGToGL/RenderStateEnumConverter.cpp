@@ -46,6 +46,23 @@ namespace MobileGL {
             }
         }
 
+        GLenum ConvertBlendEquationToGLEnum(BlendEquation v) {
+            switch (v) {
+            case BlendEquation::Add:
+                return GL_FUNC_ADD;
+            case BlendEquation::Subtract:
+                return GL_FUNC_SUBTRACT;
+            case BlendEquation::ReverseSubtract:
+                return GL_FUNC_REVERSE_SUBTRACT;
+            case BlendEquation::Min:
+                return GL_MIN;
+            case BlendEquation::Max:
+                return GL_MAX;
+            default:
+                return GL_UNKNOWN_MGL;
+            }
+        }
+
         GLenum ConvertDepthTestFuncToGLEnum(DepthTestFunc v) {
             switch (v) {
             case DepthTestFunc::Never:
@@ -116,6 +133,17 @@ namespace MobileGL {
                 return GL_BACK;
             case CullFaceMode::FrontAndBack:
                 return GL_FRONT_AND_BACK;
+            default:
+                return GL_UNKNOWN_MGL;
+            }
+        }
+
+        GLenum ConvertFrontFaceModeToGLEnum(FrontFaceMode v) {
+            switch (v) {
+            case FrontFaceMode::CounterClockwise:
+                return GL_CCW;
+            case FrontFaceMode::Clockwise:
+                return GL_CW;
             default:
                 return GL_UNKNOWN_MGL;
             }

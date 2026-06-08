@@ -11,6 +11,10 @@
 
 namespace MobileGL::MG_Impl::GLImpl {
     /* @INSERTION_POINT:FUNCTION_DECLARATION@ */
+    void DispatchCompute(GLuint numGroupsX, GLuint numGroupsY, GLuint numGroupsZ);
+    void DispatchComputeIndirect(GLintptr indirect);
+    void MemoryBarrier(GLbitfield barriers);
+    void MemoryBarrierByRegion(GLbitfield barriers);
     void MultiDrawElementsIndirect(GLenum mode, GLenum type, const void* indirect, GLsizei drawcount, GLsizei stride);
     void MultiDrawArraysIndirect(GLenum mode, const void* indirect, GLsizei drawcount, GLsizei stride);
     void DrawRangeElementsBaseVertex(GLenum mode, GLuint start, GLuint end, GLsizei count, GLenum type,

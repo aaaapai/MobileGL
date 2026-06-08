@@ -64,15 +64,24 @@ namespace MobileGL {
             void (*ReadPixels)(GLint x, GLint y, GLsizei width, GLsizei height, GLenum format, GLenum type,
                                void* pixels);
             void (*GetTexImage)(GLenum target, GLint level, GLenum format, GLenum type, GLvoid* pixels);
-
-            void (*ClearNamedBufferSubData)(GLuint buffer, GLenum internalformat, GLintptr offset,
-                             GLsizeiptr size, GLenum format, GLenum type, const void* data);
-
-            void (*ClearBufferData)(GLenum target, GLenum internalformat, GLenum format, GLenum type, const void* data);
-
-            void (*ClearBufferSubData)(GLenum target, GLenum internalformat, GLintptr offset, 
-                        GLsizeiptr size, GLenum format, GLenum type, const void* data);
-
+            void (*DispatchCompute)(GLuint numGroupsX, GLuint numGroupsY, GLuint numGroupsZ);
+            void (*DispatchComputeIndirect)(GLintptr indirect);
+            void (*MemoryBarrier)(GLbitfield barriers);
+            void (*MemoryBarrierByRegion)(GLbitfield barriers);
+            void (*BindImageTexture)(GLuint unit, GLuint texture, GLint level, GLboolean layered, GLint layer,
+                                     GLenum access, GLenum format);
+            void (*GetIntegeri_v)(GLenum target, GLuint index, GLint* data);
+            void (*GetInteger64i_v)(GLenum target, GLuint index, GLint64* data);
+            void (*GetProgramiv)(GLuint program, GLenum pname, GLint* params);
+            void (*GetProgramInterfaceiv)(GLuint program, GLenum programInterface, GLenum pname, GLint* params);
+            GLuint (*GetProgramResourceIndex)(GLuint program, GLenum programInterface, const GLchar* name);
+            void (*GetProgramResourceName)(GLuint program, GLenum programInterface, GLuint index, GLsizei bufSize,
+                                           GLsizei* length, GLchar* name);
+            void (*GetProgramResourceiv)(GLuint program, GLenum programInterface, GLuint index, GLsizei propCount,
+                                         const GLenum* props, GLsizei bufSize, GLsizei* length, GLint* params);
+            GLint (*GetProgramResourceLocation)(GLuint program, GLenum programInterface, const GLchar* name);
+            GLint (*GetProgramResourceLocationIndex)(GLuint program, GLenum programInterface, const GLchar* name);
+            void (*ShaderStorageBlockBinding)(GLuint program, GLuint storageBlockIndex, GLuint storageBlockBinding);
         };
         struct GlobalBackendFunctionsTable {
             GLFunctionsTable GL;
@@ -85,6 +94,7 @@ namespace MobileGL {
 
         enum class WindowBackend {
             Android,
+            X11,
             // TODO: X11, Wayland, Windows, macOS, etc.
             WindowBackendCount,
             Unknown = -1
@@ -105,8 +115,10 @@ namespace MobileGL {
 
             virtual Bool InitializeEGLDisplay(EGLDisplay dpy, EGLint* major, EGLint* minor);
             virtual Bool CreateEGLWindowSurface(const WindowHandle& handle);
+            virtual Bool CreateEGLPbufferSurface(EGLint width, EGLint height);
             virtual Bool MakeEGLCurrent(EGLDisplay dpy, EGLSurface draw, EGLSurface read, EGLContext ctx);
             virtual Bool SwapEGLBuffers(EGLDisplay dpy, EGLSurface draw);
+            virtual void ReleaseEGLResources();
 
             void SetWindowHandle(const WindowHandle& handle);
 
@@ -117,14 +129,22 @@ namespace MobileGL {
             virtual BackendType GetBackendType() const = 0;
 
         protected:
+            enum class SurfaceKind {
+                None,
+                Window,
+                Pbuffer
+            };
+
             void ResetEGLRuntimeState();
+            virtual Bool InitPbufferSurface(EGLint width, EGLint height);
 
             mutable std::recursive_mutex m_eglStateMutex;
             WindowHandle m_windowHandle;
             EGLDisplay m_eglDisplay = EGL_NO_DISPLAY;
             Bool m_eglDisplayInitialized = false;
-            Bool m_eglWindowSurfaceInitialized = false;
+            Bool m_eglSurfaceInitialized = false;
             Bool m_backendCapabilitiesInitialized = false;
+            SurfaceKind m_eglSurfaceKind = SurfaceKind::None;
             UnorderedMap<std::thread::id, Bool> m_eglCurrentThreads;
         };
     } // namespace MG_Backend

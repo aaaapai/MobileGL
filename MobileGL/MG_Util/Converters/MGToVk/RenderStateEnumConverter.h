@@ -16,5 +16,6 @@ namespace MobileGL {
         VkCullModeFlags ConvertCullFaceModeToVkEnum(CullFaceMode value, Bool invertClockwise = false);
         VkCompareOp ConvertDepthTestFuncToVkEnum(DepthTestFunc value);
         VkBlendFactor ConvertBlendFactorToVkEnum(BlendFactor value);
+        VkBlendOp ConvertBlendEquationToVkEnum(BlendEquation value);
     } // namespace MG_Util
 } // namespace MobileGL

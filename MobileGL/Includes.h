@@ -32,6 +32,8 @@
 #include <thread>
 #include <vector>
 #include <cassert>
+#include <climits>
+#include <cstdlib>
 #include <cstdarg>
 #include <cstring>
 #include <numeric>
@@ -108,10 +110,32 @@
 #define VK_USE_PLATFORM_WIN32_KHR
 #elif defined(__APPLE__)
 #define VK_USE_PLATFORM_METAL_EXT
+#elif defined(__linux__)
+#define VK_USE_PLATFORM_XLIB_KHR
+typedef struct _XDisplay Display;
+typedef unsigned long XID;
+typedef XID Window;
+typedef unsigned long VisualID;
 #else
 #warning "VK_USE_PLATFORM_*_KHR not defined for this platform!"
 #endif
+#if defined(VK_USE_PLATFORM_XLIB_KHR)
+#pragma push_macro("Bool")
+#pragma push_macro("None")
+#pragma push_macro("Always")
+#pragma push_macro("Status")
+#pragma push_macro("LSBFirst")
+#pragma push_macro("DestroyAll")
+#endif
 #include <vulkan/vulkan.h>
+#if defined(VK_USE_PLATFORM_XLIB_KHR)
+#pragma pop_macro("DestroyAll")
+#pragma pop_macro("LSBFirst")
+#pragma pop_macro("Status")
+#pragma pop_macro("Always")
+#pragma pop_macro("None")
+#pragma pop_macro("Bool")
+#endif
 
 #ifdef TRACY_ENABLE
 #include <tracy/Tracy.hpp>

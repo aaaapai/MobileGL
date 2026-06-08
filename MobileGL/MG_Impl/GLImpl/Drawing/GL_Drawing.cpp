@@ -156,6 +156,52 @@ namespace MobileGL::MG_Impl::GLImpl {
     }
 
     /* @INSERTION_POINT:FUNCTION_IMPLEMENTATION@ */
+    void DispatchCompute(GLuint numGroupsX, GLuint numGroupsY, GLuint numGroupsZ) {
+        auto dispatchCompute = MG_Backend::gBackendFunctionsTable.GL.DispatchCompute;
+        if (!dispatchCompute) {
+            MG_State::pGLContext->RecordError(
+                ErrorCode::InvalidOperation,
+                MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", __func__, "Backend does not support compute dispatch."));
+            return;
+        }
+        dispatchCompute(numGroupsX, numGroupsY, numGroupsZ);
+    }
+
+    void DispatchComputeIndirect(GLintptr indirect) {
+        auto dispatchComputeIndirect = MG_Backend::gBackendFunctionsTable.GL.DispatchComputeIndirect;
+        if (!dispatchComputeIndirect) {
+            MG_State::pGLContext->RecordError(
+                ErrorCode::InvalidOperation,
+                MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", __func__,
+                                             "Backend does not support indirect compute dispatch."));
+            return;
+        }
+        dispatchComputeIndirect(indirect);
+    }
+
+    void MemoryBarrier(GLbitfield barriers) {
+        auto memoryBarrier = MG_Backend::gBackendFunctionsTable.GL.MemoryBarrier;
+        if (!memoryBarrier) {
+            MG_State::pGLContext->RecordError(
+                ErrorCode::InvalidOperation,
+                MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", __func__, "Backend does not support memory barriers."));
+            return;
+        }
+        memoryBarrier(barriers);
+    }
+
+    void MemoryBarrierByRegion(GLbitfield barriers) {
+        auto memoryBarrierByRegion = MG_Backend::gBackendFunctionsTable.GL.MemoryBarrierByRegion;
+        if (!memoryBarrierByRegion) {
+            MG_State::pGLContext->RecordError(
+                ErrorCode::InvalidOperation,
+                MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", __func__,
+                                             "Backend does not support regional memory barriers."));
+            return;
+        }
+        memoryBarrierByRegion(barriers);
+    }
+
     void MultiDrawElementsIndirect(GLenum mode, GLenum type, const void* indirect, GLsizei drawcount, GLsizei stride) {
         MultiDrawElementsIndirect_Backend(mode, type, indirect, drawcount, stride);
     }

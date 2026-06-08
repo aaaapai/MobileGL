@@ -8,7 +8,24 @@
 
 #include "VkClearManager.h"
 
+#include "MG_Util/Converters/MGToStr/FramebufferEnumConverter.h"
+#include "MG_Util/Converters/MGToStr/TextureEnumConverter.h"
+
 namespace MobileGL::MG_Backend::DirectVulkan {
+    static SharedPtr<MG_State::GLState::ITextureObject> GetClearableAttachmentTexture(
+        const MG_State::GLState::FramebufferObject& drawFbo, FramebufferAttachmentType attachmentType) {
+        if (attachmentType == FramebufferAttachmentType::None) {
+            return nullptr;
+        }
+
+        const auto& attachment = drawFbo.GetAttachment(attachmentType);
+        if (!attachment.IsTexture() || attachment.IsRenderbuffer()) {
+            return nullptr;
+        }
+
+        return attachment.GetTexture();
+    }
+
     Bool VkClearManager::Initialize() {
         return true;
     }
@@ -23,42 +40,71 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             auto& drawbufs = drawFbo.GetDrawBuffers();
             // This should automatically work on default & offscreen FBO
             for (auto drawbuf: drawbufs) {
-                if (drawbuf == FramebufferAttachmentType::None ||
-                    drawFbo.GetAttachment(drawbuf).IsRenderbuffer())
+                auto texture = GetClearableAttachmentTexture(drawFbo, drawbuf);
+                if (!texture) {
                     continue;
+                }
 
                 QueueClear({
-                    .color = clearPayload.color,
-                    .attachmentType = drawbuf
-                }, drawFbo.GetAttachment(drawbuf).GetTexture());
+                    .mask = GL_COLOR_BUFFER_BIT,
+                    .color = clearPayload.color
+                }, texture);
+
+                MGLOG_D("%s: %s (texture %d) - color = (%.2f, %.2f, %.2f, %.2f)", __func__,
+                    MG_Util::ConvertFramebufferAttachmentTypeToString(drawbuf).c_str(),
+                    texture->GetExternalIndex(),
+                    clearPayload.color[0], clearPayload.color[1], clearPayload.color[2], clearPayload.color[3]);
             }
         }
 
-        if (mask & GL_DEPTH_BUFFER_BIT &&
-            !drawFbo.GetAttachment(FramebufferAttachmentType::Depth).IsRenderbuffer()) {
-            QueueClear({
-                .depth = clearPayload.depth,
-                .attachmentType = FramebufferAttachmentType::Depth,
-            }, drawFbo.GetAttachment(FramebufferAttachmentType::Depth).GetTexture());
+        if (mask & GL_DEPTH_BUFFER_BIT) {
+            auto texture = GetClearableAttachmentTexture(drawFbo, FramebufferAttachmentType::Depth);
+            if (texture) {
+                QueueClear({
+                    .mask = GL_DEPTH_BUFFER_BIT,
+                    .depth = clearPayload.depth,
+                }, texture);
+
+                MGLOG_D("%s: Depth (texture %d) - depth = (%.2f)", __func__,
+                    texture->GetExternalIndex(), clearPayload.depth);
+            }
         }
 
-        if (mask & GL_STENCIL_BUFFER_BIT &&
-            !drawFbo.GetAttachment(FramebufferAttachmentType::Stencil).IsRenderbuffer()) {
-            QueueClear({
-                .stencil = clearPayload.stencil,
-                .attachmentType = FramebufferAttachmentType::Stencil,
-            }, drawFbo.GetAttachment(FramebufferAttachmentType::Stencil).GetTexture());
+        if (mask & GL_STENCIL_BUFFER_BIT) {
+            auto texture = GetClearableAttachmentTexture(drawFbo, FramebufferAttachmentType::Stencil);
+            if (texture) {
+                QueueClear({
+                    .mask = GL_STENCIL_BUFFER_BIT,
+                    .stencil = clearPayload.stencil,
+                }, texture);
+
+                MGLOG_D("%s: Stencil (texture %d) - stencil = (%u)", __func__,
+                    texture->GetExternalIndex(), clearPayload.stencil);
+            }
         }
     }
 
     void VkClearManager::QueueClear(const ClearAttachmentPayload& clearPayload,
                                     const SharedPtr<MG_State::GLState::ITextureObject>& texture) {
+        if (clearPayload.mask == 0) {
+            return;
+        }
         WeakPtr<MG_State::GLState::ITextureObject> weakTexturePtr = texture;
         if (weakTexturePtr.expired())
             return;
         auto* pTexture = weakTexturePtr.lock().get();
         m_aliveObjects[pTexture] = weakTexturePtr;
-        m_pendingClears[pTexture] = clearPayload;
+        auto& pending = m_pendingClears[pTexture];
+        pending.mask |= clearPayload.mask;
+        if (clearPayload.mask & GL_COLOR_BUFFER_BIT) {
+            pending.color = clearPayload.color;
+        }
+        if (clearPayload.mask & GL_DEPTH_BUFFER_BIT) {
+            pending.depth = clearPayload.depth;
+        }
+        if (clearPayload.mask & GL_STENCIL_BUFFER_BIT) {
+            pending.stencil = clearPayload.stencil;
+        }
     }
 
     Bool VkClearManager::HasPendingClear(MG_State::GLState::ITextureObject* texture) {
@@ -68,14 +114,23 @@ namespace MobileGL::MG_Backend::DirectVulkan {
     Bool VkClearManager::GetPendingClear(MG_State::GLState::ITextureObject* texture, ClearAttachmentPayload& outPayload) {
         if (m_aliveObjects.find(texture) == m_aliveObjects.end() ||
             m_pendingClears.find(texture) == m_pendingClears.end()) {
+            MGLOG_D("%s: Failed getting pending clear for texture %d", __func__, texture->GetExternalIndex());
             return false;
         }
 
         outPayload = m_pendingClears[texture];
+        MGLOG_D("%s: Got pending clear for texture %d (%s), mask=0x%x clear value: color = (%.2f, %.2f, %.2f, %.2f), depth = (%.2f), stencil = (%u)", __func__,
+            texture->GetExternalIndex(),
+            MG_Util::ConvertTextureInternalFormatToString(texture->GetFormat()).c_str(),
+            static_cast<Uint32>(outPayload.mask),
+            outPayload.color[0], outPayload.color[1], outPayload.color[2], outPayload.color[3],
+            outPayload.depth,
+            outPayload.stencil);
         return true;
     }
 
     void VkClearManager::PopPendingClear(MG_State::GLState::ITextureObject* texture) {
+        MGLOG_D("%s: Pop pending clear for texture %d", __func__, texture->GetExternalIndex());
         m_aliveObjects.erase(texture);
         m_pendingClears.erase(texture);
     }
@@ -87,11 +142,12 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         }
 
         SizeT count = 0;
-        for (const auto& [raw, weak]: m_aliveObjects) {
-            if (weak.expired()) {
-                count++;
-                m_pendingClears.erase(raw);
-                m_aliveObjects.erase(raw);
+        for (auto it = m_aliveObjects.begin(); it != m_aliveObjects.end();) {
+            auto current = it++;
+            if (current->second.expired()) {
+                m_pendingClears.erase(current->first);
+                m_aliveObjects.erase(current);
+                ++count;
             }
         }
         return count;

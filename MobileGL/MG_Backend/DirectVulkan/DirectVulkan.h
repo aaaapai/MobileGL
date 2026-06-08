@@ -49,6 +49,24 @@ namespace MobileGL::MG_Backend::DirectVulkan {
     void CopyTexSubImage2D(GLenum target, GLint level, GLint xoffset, GLint yoffset, GLint x, GLint y, GLsizei width,
                            GLsizei height);
     void GenerateMipmap(GLenum target);
+    void DispatchCompute(GLuint numGroupsX, GLuint numGroupsY, GLuint numGroupsZ);
+    void DispatchComputeIndirect(GLintptr indirect);
+    void MemoryBarrier(GLbitfield barriers);
+    void MemoryBarrierByRegion(GLbitfield barriers);
+    void BindImageTexture(GLuint unit, GLuint texture, GLint level, GLboolean layered, GLint layer, GLenum access,
+                          GLenum format);
+    void GetIntegeri_v(GLenum target, GLuint index, GLint* data);
+    void GetInteger64i_v(GLenum target, GLuint index, GLint64* data);
+    void GetProgramiv(GLuint program, GLenum pname, GLint* params);
+    void GetProgramInterfaceiv(GLuint program, GLenum programInterface, GLenum pname, GLint* params);
+    GLuint GetProgramResourceIndex(GLuint program, GLenum programInterface, const GLchar* name);
+    void GetProgramResourceName(GLuint program, GLenum programInterface, GLuint index, GLsizei bufSize,
+                                GLsizei* length, GLchar* name);
+    void GetProgramResourceiv(GLuint program, GLenum programInterface, GLuint index, GLsizei propCount,
+                              const GLenum* props, GLsizei bufSize, GLsizei* length, GLint* params);
+    GLint GetProgramResourceLocation(GLuint program, GLenum programInterface, const GLchar* name);
+    GLint GetProgramResourceLocationIndex(GLuint program, GLenum programInterface, const GLchar* name);
+    void ShaderStorageBlockBinding(GLuint program, GLuint storageBlockIndex, GLuint storageBlockBinding);
     void ReadPixels(GLint x, GLint y, GLsizei width, GLsizei height, GLenum format, GLenum type, void* pixels);
     void GetTexImage(GLenum target, GLint level, GLenum format, GLenum type, GLvoid* pixels);
     void Present();

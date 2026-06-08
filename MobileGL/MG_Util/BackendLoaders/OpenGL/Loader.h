@@ -447,6 +447,8 @@ namespace MobileGL {
             GL_FUNC_TYPEDEF(void, glGetFramebufferParameteriv, GLenum target, GLenum pname, GLint* params)
             GL_FUNC_TYPEDEF(void, glGetProgramInterfaceiv, GLuint program, GLenum programInterface, GLenum pname,
                             GLint* params)
+            GL_FUNC_TYPEDEF(void, glShaderStorageBlockBinding, GLuint program, GLuint storageBlockIndex,
+                            GLuint storageBlockBinding)
             GL_FUNC_TYPEDEF(GLuint, glGetProgramResourceIndex, GLuint program, GLenum programInterface,
                             const GLchar* name)
             GL_FUNC_TYPEDEF(void, glGetProgramResourceName, GLuint program, GLenum programInterface, GLuint index,
@@ -884,6 +886,7 @@ namespace MobileGL {
             GL_FUNC_DECL(glFramebufferParameteri)
             GL_FUNC_DECL(glGetFramebufferParameteriv)
             GL_FUNC_DECL(glGetProgramInterfaceiv)
+            GL_FUNC_DECL(glShaderStorageBlockBinding)
             GL_FUNC_DECL(glGetProgramResourceIndex)
             GL_FUNC_DECL(glGetProgramResourceName)
             GL_FUNC_DECL(glGetProgramResourceiv)

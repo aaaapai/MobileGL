@@ -9,8 +9,21 @@
 #include "PipelineFactory.h"
 
 namespace MobileGL::MG_Backend::DirectVulkan {
+    PipelineFactory::PipelineFactory(VkDevice device, const VulkanRendererConfig& config):
+        m_device(device), m_config(config) {
+        MOBILEGL_ASSERT(m_device != VK_NULL_HANDLE, "PipelineFactory: device is null");
+
+        VkPipelineCacheCreateInfo pipelineCacheInfo{VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO};
+        VK_VERIFY(vkCreatePipelineCache(m_device, &pipelineCacheInfo, nullptr, &m_pipelineCache),
+                  "vkCreatePipelineCache");
+    }
+
     PipelineFactory::~PipelineFactory() {
         DestroyAll();
+        if (m_pipelineCache != VK_NULL_HANDLE) {
+            vkDestroyPipelineCache(m_device, m_pipelineCache, nullptr);
+            m_pipelineCache = VK_NULL_HANDLE;
+        }
     }
 
     PipelineFactory::HashType PipelineFactory::ComputeHash(const PipelineCreatePayload& payload) const {
@@ -19,6 +32,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         XXHASH_VERIFY(XXH64_update(m_hashState, &payload.vertexInputHash, sizeof(payload.vertexInputHash)));
         XXHASH_VERIFY(XXH64_update(m_hashState, &payload.pipelineLayout, sizeof(payload.pipelineLayout)));
         XXHASH_VERIFY(XXH64_update(m_hashState, &payload.renderPass, sizeof(payload.renderPass)));
+        XXHASH_VERIFY(XXH64_update(m_hashState, &payload.colorAttachmentCount, sizeof(payload.colorAttachmentCount)));
         XXHASH_VERIFY(XXH64_update(m_hashState, &payload.subpass, sizeof(payload.subpass)));
         XXHASH_VERIFY(XXH64_update(m_hashState, &payload.topology, sizeof(payload.topology)));
         XXHASH_VERIFY(XXH64_update(m_hashState, &payload.cullMode, sizeof(payload.cullMode)));
@@ -26,12 +40,12 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         XXHASH_VERIFY(XXH64_update(m_hashState, &payload.depthTestEnable, sizeof(payload.depthTestEnable)));
         XXHASH_VERIFY(XXH64_update(m_hashState, &payload.depthWriteEnable, sizeof(payload.depthWriteEnable)));
         XXHASH_VERIFY(XXH64_update(m_hashState, &payload.depthCompareOp, sizeof(payload.depthCompareOp)));
-        XXHASH_VERIFY(XXH64_update(m_hashState, &payload.blendEnable, sizeof(payload.blendEnable)));
-        XXHASH_VERIFY(XXH64_update(m_hashState, &payload.srcColorBlendFactor, sizeof(payload.srcColorBlendFactor)));
-        XXHASH_VERIFY(XXH64_update(m_hashState, &payload.dstColorBlendFactor, sizeof(payload.dstColorBlendFactor)));
-        XXHASH_VERIFY(XXH64_update(m_hashState, &payload.srcAlphaBlendFactor, sizeof(payload.srcAlphaBlendFactor)));
-        XXHASH_VERIFY(XXH64_update(m_hashState, &payload.dstAlphaBlendFactor, sizeof(payload.dstAlphaBlendFactor)));
-        XXHASH_VERIFY(XXH64_update(m_hashState, &payload.colorWriteMask, sizeof(payload.colorWriteMask)));
+        if (payload.colorAttachmentCount > 0) {
+            XXHASH_VERIFY(XXH64_update(
+                m_hashState,
+                payload.colorBlendAttachments.data(),
+                sizeof(payload.colorBlendAttachments[0]) * payload.colorAttachmentCount));
+        }
         return XXH64_digest(m_hashState);
     }
 
@@ -61,6 +75,14 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         MOBILEGL_ASSERT(payload.vertexInputState != nullptr, "PipelineFactory: vertexInputState is null");
         MOBILEGL_ASSERT(payload.pipelineLayout != VK_NULL_HANDLE, "PipelineFactory: pipelineLayout is null");
         MOBILEGL_ASSERT(payload.renderPass != VK_NULL_HANDLE, "PipelineFactory: renderPass is null");
+        MOBILEGL_ASSERT(payload.colorAttachmentCount <= PipelineCreatePayload::kMaxColorAttachments,
+                "PipelineFactory: colorAttachmentCount=%u is unexpectedly large",
+                payload.colorAttachmentCount);
+        MGLOG_D("PipelineFactory::CreatePipeline: programHash=0x%llx vertexInputHash=0x%llx colorAttachmentCount=%u subpass=%u",
+            static_cast<unsigned long long>(payload.programHash),
+            static_cast<unsigned long long>(payload.vertexInputHash),
+            payload.colorAttachmentCount,
+            payload.subpass);
 
         static constexpr VkDynamicState kDynamicStates[] = {
             VK_DYNAMIC_STATE_VIEWPORT,
@@ -95,18 +117,13 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         depthStencil.depthBoundsTestEnable = VK_FALSE;
         depthStencil.stencilTestEnable = VK_FALSE;
 
-        VkPipelineColorBlendAttachmentState colorAttach{};
-        colorAttach.colorWriteMask = payload.colorWriteMask;
-        colorAttach.blendEnable = payload.blendEnable ? VK_TRUE : VK_FALSE;
-        colorAttach.srcColorBlendFactor = payload.srcColorBlendFactor;
-        colorAttach.dstColorBlendFactor = payload.dstColorBlendFactor;
-        colorAttach.colorBlendOp = VK_BLEND_OP_ADD;
-        colorAttach.srcAlphaBlendFactor = payload.srcAlphaBlendFactor;
-        colorAttach.dstAlphaBlendFactor = payload.dstAlphaBlendFactor;
-        colorAttach.alphaBlendOp = VK_BLEND_OP_ADD;
+        Vector<VkPipelineColorBlendAttachmentState> colorAttachments(payload.colorAttachmentCount);
+        for (Uint32 i = 0; i < payload.colorAttachmentCount; ++i) {
+            colorAttachments[i] = payload.colorBlendAttachments[i];
+        }
         VkPipelineColorBlendStateCreateInfo blend{VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO};
-        blend.attachmentCount = 1;
-        blend.pAttachments = &colorAttach;
+        blend.attachmentCount = payload.colorAttachmentCount;
+        blend.pAttachments = colorAttachments.empty() ? nullptr : colorAttachments.data();
 
         VkGraphicsPipelineCreateInfo gpi{VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO};
         gpi.stageCount = static_cast<Uint32>(payload.stages->size());
@@ -124,7 +141,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         gpi.subpass = payload.subpass;
 
         VkPipeline pipeline = VK_NULL_HANDLE;
-        VK_VERIFY(vkCreateGraphicsPipelines(m_device, VK_NULL_HANDLE, 1, &gpi, nullptr, &pipeline),
+        VK_VERIFY(vkCreateGraphicsPipelines(m_device, m_pipelineCache, 1, &gpi, nullptr, &pipeline),
                   "vkCreateGraphicsPipelines");
         return pipeline;
     }

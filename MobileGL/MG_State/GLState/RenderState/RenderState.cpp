@@ -164,6 +164,48 @@ namespace MobileGL {
                 dstAlpha = m_parameters.BlendStates[index].DstFactorAlpha;
             }
 
+            void RenderState::SetBlendEquation(BlendEquation color, BlendEquation alpha) {
+                Bool stateChanged = false;
+                for (auto& blendState : m_parameters.BlendStates) {
+                    if (blendState.ColorEquation == color && blendState.AlphaEquation == alpha) {
+                        continue;
+                    }
+                    blendState.ColorEquation = color;
+                    blendState.AlphaEquation = alpha;
+                    stateChanged = true;
+                }
+                if (!stateChanged) return;
+                ++m_version;
+            }
+
+            void RenderState::GetBlendEquation(BlendEquation& color, BlendEquation& alpha) const {
+                color = m_parameters.BlendStates[0].ColorEquation;
+                alpha = m_parameters.BlendStates[0].AlphaEquation;
+            }
+
+            void RenderState::SetBlendEquationIndexed(Uint index, BlendEquation color, BlendEquation alpha) {
+                if (index >= MG_State::GLState::FramebufferObject::MAX_DRAW_BUFFERS) {
+                    MOBILEGL_ASSERT(false, "Blend equation index out of range: %d", index);
+                    return;
+                }
+                PerBufferBlendState& blendState = m_parameters.BlendStates[index];
+                if (blendState.ColorEquation == color && blendState.AlphaEquation == alpha) {
+                    return;
+                }
+                blendState.ColorEquation = color;
+                blendState.AlphaEquation = alpha;
+                ++m_version;
+            }
+
+            void RenderState::GetBlendEquationIndexed(Uint index, BlendEquation& color, BlendEquation& alpha) const {
+                if (index >= MG_State::GLState::FramebufferObject::MAX_DRAW_BUFFERS) {
+                    MOBILEGL_ASSERT(false, "Blend equation index out of range: %d", index);
+                    return;
+                }
+                color = m_parameters.BlendStates[index].ColorEquation;
+                alpha = m_parameters.BlendStates[index].AlphaEquation;
+            }
+
             // -------------------- Depth --------------------
             void RenderState::SetDepthFunc(DepthTestFunc func) {
                 if (m_parameters.DepthFunc == func) return;
@@ -305,6 +347,17 @@ namespace MobileGL {
 
             CullFaceMode RenderState::GetCullFaceMode() const {
                 return m_parameters.CullFaceModeSetting;
+            }
+
+            void RenderState::SetFrontFaceMode(FrontFaceMode mode) {
+                if (m_parameters.FrontFaceModeSetting == mode) return;
+
+                m_parameters.FrontFaceModeSetting = mode;
+                ++m_version;
+            }
+
+            FrontFaceMode RenderState::GetFrontFaceMode() const {
+                return m_parameters.FrontFaceModeSetting;
             }
 
             // --------------------- Scissor ---------------------

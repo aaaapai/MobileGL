@@ -16,6 +16,7 @@ namespace MobileGL {
         String ConvertDepthTestFuncToString(DepthTestFunc value);
         String ConvertPixelStoreParamToString(PixelStoreParam value);
         String ConvertCullFaceModeToString(CullFaceMode value);
+        String ConvertFrontFaceModeToString(FrontFaceMode value);
         String ConvertCapabilityInputToString(CapabilityInput value);
     } // namespace MG_Util
 } // namespace MobileGL

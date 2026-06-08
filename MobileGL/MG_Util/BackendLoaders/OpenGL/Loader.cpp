@@ -14,6 +14,7 @@ namespace MobileGL::MG_Util::BackendLoader {
 #if !defined(__WIN32) && !defined(_WIN32) && !defined(__APPLE__)
         static const String LibPathPrefixes[] = {
             "/opt/vc/lib/", "/usr/local/lib/", "/usr/lib/", "/usr/lib/x86_64-linux-gnu/",
+            "/usr/lib64/", "/lib64/",
             "" // We should put this to the end of the list to avoid breaking `LD_LIBRARY_PATH` usage
         };
 
@@ -346,6 +347,7 @@ namespace MobileGL::MG_Util::BackendLoader {
             INIT_GLES_FUNC(glFramebufferParameteri)
             INIT_GLES_FUNC(glGetFramebufferParameteriv)
             INIT_GLES_FUNC(glGetProgramInterfaceiv)
+            INIT_GLES_FUNC(glShaderStorageBlockBinding)
             INIT_GLES_FUNC(glGetProgramResourceIndex)
             INIT_GLES_FUNC(glGetProgramResourceName)
             INIT_GLES_FUNC(glGetProgramResourceiv)

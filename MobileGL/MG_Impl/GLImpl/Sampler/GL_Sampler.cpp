@@ -167,6 +167,7 @@ namespace MobileGL::MG_Impl::GLImpl {
     }
 
     void BindSampler_State(GLuint unit, GLuint sampler) {
+        MGLOG_D("BindSampler_State: unit = %u, sampler = %u", unit, sampler);
         if (unit >= MG_State::GLState::TextureState::MAX_TEXTURE_IMAGE_UNITS) {
             MG_State::pGLContext->RecordError(
                 ErrorCode::InvalidValue,
