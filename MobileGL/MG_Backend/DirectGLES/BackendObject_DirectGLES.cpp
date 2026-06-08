@@ -121,40 +121,38 @@ namespace MobileGL::MG_Backend::DirectGLES {
     }
 
     const RendererInfo& BackendObject_DirectGLES::GetRendererInfo() const {
-        // 检查环境变量
         const char* envLibGL = std::getenv("LIBGL_GL");
-        const char* envlibGL_compute = std::getenv("LIBGL_COMPUTE_SHADER");
-        
-        // 创建基础扩展列表
+
         Vector<GLExtension> extensions = {
-            V_OpenGL30, V_OpenGL31, V_OpenGL32,
-            V_OpenGL33, E_GL_ARB_draw_buffers_blend, E_GL_ARB_shader_image_load_store
-        };
+             V_OpenGL30, V_OpenGL31, V_OpenGL32,
+             V_OpenGL33, E_GL_ARB_draw_buffers_blend, E_GL_ARB_compute_shader,
+                                   E_GL_ARB_shader_storage_buffer_object, E_GL_ARB_shader_image_load_store,
+                                   E_GL_ARB_program_interface_query, E_GL_ARB_framebuffer_object,
+                                   E_GL_EXT_framebuffer_object, E_GL_ARB_depth_texture};
+
         
-        // 根据环境变量添加扩展
-        if (envlibGL_compute != nullptr) {
-            extensions.push_back(E_GL_ARB_compute_shader);
-            MGLOG_I("LIBGL_COMPUTE_SHADER detected, added compute shader support");
-        }
-        
-        // 检查LIBGL_GL环境变量
-        Version targetVersion = {3, 3, 0};  // 默认版本
+        Version targetVersion = {3, 3, 0};
         
         if (envLibGL != nullptr) {
-            std::string libglValue = envLibGL;
-            if (libglValue == "43") {
-                MGLOG_I("LIBGL_GL=43 detected, using OpenGL 4.3 configuration");
-                targetVersion = {4, 3, 0};
-                
-                // 添加OpenGL 4.x扩展
-                extensions.push_back(V_OpenGL40);
-                extensions.push_back(V_OpenGL41);
-                extensions.push_back(V_OpenGL42);
-                extensions.push_back(V_OpenGL43);
-            }
+           std::string verStr = envLibGL;
+           int major = 0, minor = 0;
+           if (sscanf(verStr.c_str(), "%d.%d", &major, &minor) == 2) {
+               // 已经是 "4.3" 格式
+           } else if (sscanf(verStr.c_str(), "%d%d", &major, &minor) == 2) {
+               // "43" -> major=4, minor=3
+           } else {
+               MGLOG_E("Invalid LIBGL_GL format: %s", verStr.c_str());
+           }
+
+           targetVersion = {major, minor, 0};
+
+           // 动态添加从 3.0 到 targetVersion 的所有扩展（或按需添加）
+           // 例如：如果目标是 4.5，添加 4.5、4.4、4.3 ...
+           for (int v = 30; v <= major * 10 + minor; ++v) {
+               extensions.push_back(getVersionExtension(v / 10, v % 10));
+           }
         }
         
-        // 创建并返回RendererInfo
         static RendererInfo RendererInfo = {
             .RendererName = "Espryt",            // Renderer Name
             .BackendName = "Direct (OpenGL ES)", // Backend Name
@@ -163,11 +161,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 {
                     .TargetGLVersion = {3, 3, 0},                      // Target OpenGL Version
                     .TargetGLSLVersion = {4, 6, 0},                    // Target Shading Language Version
-                    .Extensions = {V_OpenGL30, V_OpenGL31, V_OpenGL32, // OpenGL Extensions
-                                   V_OpenGL33, E_GL_ARB_draw_buffers_blend, E_GL_ARB_compute_shader,
-                                   E_GL_ARB_shader_storage_buffer_object, E_GL_ARB_shader_image_load_store,
-                                   E_GL_ARB_program_interface_query, E_GL_ARB_framebuffer_object,
-                                   E_GL_EXT_framebuffer_object, E_GL_ARB_depth_texture},
+                    .Extensions = extensions,
                     .IsCompatibilityProfile = false // Is Compatibility Profile
                 },
             .StaticBackendCapability = {.AllowVSOnlyPrograms = false} // Backend Capability
