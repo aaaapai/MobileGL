@@ -16,6 +16,8 @@
 #include <MG_Util/Converters/GLToStr/GLEnumConverter.h>
 #include <MG_Util/Converters/GLToGlslang/ProgramEnumConverter.h>
 
+#include "../Config/EnvChecker.h"
+
 namespace MobileGL {
     namespace MG_Util {
         namespace ShaderTranspiler {
@@ -146,9 +148,9 @@ namespace MobileGL {
                 tshader->setStrings(src, 1);
                 tshader->setInvertY(true);
                 if (attrib.flags & ShaderCompileBits::CompileForOpenGL) {
-                    tshader->setEnvInput(glslang::EShSourceGlsl, lang, glslang::EShClientVulkan, 450);
+                    tshader->setEnvInput(glslang::EShSourceGlsl, lang, glslang::EShClientOpenGL, 450);
                     tshader->setEnvClient(glslang::EShClientOpenGL, glslang::EShTargetOpenGL_450);
-                    tshader->setEnvTarget(glslang::EShTargetSpv, glslang::EShTargetSpv_1_3);
+                    tshader->setEnvTarget(glslang::EShTargetSpv, glslang::EShTargetSpv_1_5);
                 } else {
                     tshader->setEnvInput(glslang::EShSourceGlsl, lang, glslang::EShClientVulkan, 450);
                     // MobileGL runtime currently creates Vulkan 1.1 instance/device on Android path,
@@ -158,12 +160,31 @@ namespace MobileGL {
                     tshader->setEnvInputVulkanRulesRelaxed(); // using EXT_vulkan_glsl_relaxed for gl_VertexID and
                                                               // gl_InstanceID?
                 }
+
+                EShMessages messages = static_cast<EShMessages>(
+                    EShMsgDefault |
+                    EShMsgRelaxedErrors
+                );
+                
+                std::string preamble = 
+        "#extension GL_ARB_separate_shader_objects : enable\n"
+        "#extension GL_ARB_shading_language_420pack : enable\n"
+        "#extension GL_ARB_explicit_attrib_location : enable\n"
+        "#extension GL_ARB_shader_texture_image_samples : enable\n"
+        "#extension GL_ARB_gpu_shader5 : enable\n"
+        "#extension GL_ARB_texture_cube_map_array : enable\n"
+        "#extension GL_ARB_shader_storage_buffer_object : enable\n"
+        "#extension GL_ARB_shader_image_load_store : enable\n"
+        "#extension GL_ARB_enhanced_layouts : enable\n"
+        "#extension GL_ARB_fragment_coord_conventions : enable\n";
+    
+                tshader->setPreamble(preamble.c_str());
                 tshader->setAutoMapLocations(true);
                 tshader->setAutoMapBindings(true);
                 tshader->setGlobalUniformBlockName(GLOBAL_UBO_NAME);
-                if (!tshader->parse(&GetTBuiltInResourceInstance(), 460, ECoreProfile,
-                                    /*forceDefaultVersionAndProfile: */ false,
-                                    /*forwardCompatible: */ true, EShMsgDefault)) {
+                if (!tshader->parse(&GetTBuiltInResourceInstance(), 460, ECompatibilityProfile,
+                                    /*forceDefaultVersionAndProfile: */ true,
+                                    /*forwardCompatible: */ true, messages)) {
                     ResultInfo r;
                     r.log += "Error: [glslang] Cannot compile " + ConvertGLEnumToString(shaderType) + ":\n" +
                              std::string(tshader->getInfoLog());
@@ -180,10 +201,16 @@ namespace MobileGL {
                     program->addShader(s.get());
                 }
 
-                if (!program->link(EShMsgDefault)) {
+                EShMessages linkMessages = static_cast<EShMessages>(EShMsgDefault | EShMsgDebugInfo);
+                
+                if (!program->link(linkMessages)) {
                     ResultInfo r;
                     r.log = "Error: [glslang] Cannot link the program:\n" + std::string(program->getInfoLog());
-                    r.errc = -3;
+                    
+                        MGLOG_W("glslang linker warnings: %s", program->getInfoDebugLog());
+                        r.log += "\nLinker Warnings:\n" + std::string(program->getInfoDebugLog());
+                    
+                    r.errc = -5;
                     return std::unexpected(r);
                 }
 
@@ -205,7 +232,12 @@ namespace MobileGL {
                 if (!program->mapIO(resolver.get(), ioMapper.get())) {
                     ResultInfo r;
                     r.log = "Error: [glslang] Cannot mapIO:\n" + std::string(program->getInfoLog());
-                    r.errc = -4;
+                    
+                    // 打印 IO 映射警告
+                        MGLOG_W("glslang IO mapping warnings: %s", program->getInfoDebugLog());
+                        r.log += "\nIO Mapping Warnings:\n" + std::string(program->getInfoDebugLog());
+                    
+                    r.errc = -6;
                     return std::unexpected(r);
                 }
 
@@ -214,8 +246,10 @@ namespace MobileGL {
 
             Result<Vector<Vector<unsigned>>> ShaderCompiler::GetSpirvBinaryFromProgram(
                 const ProgramBinaryAttrib& attrib) {
+
                 glslang::SpvOptions spvOptions;
                 spvOptions.disableOptimizer = false;
+                spvOptions.generateDebugInfo = true;
 
                 Vector<Vector<unsigned>> allSpirv;
                 for (auto type : attrib.shaderTypes) {
@@ -229,6 +263,7 @@ namespace MobileGL {
 
             bool ShaderCompiler::SanitizeAndOptimizeBinary(const Vector<Uint32>& inputBinary,
                                                            Vector<uint32_t>& outputBinary) {
+        
                 using namespace spvtools;
                 OptimizerOptions options;
                 options.set_run_validator(false);
@@ -247,6 +282,7 @@ namespace MobileGL {
 
                 spvc_compiler_options_set_uint(options, SPVC_COMPILER_OPTION_GLSL_VERSION, 320);
                 spvc_compiler_options_set_bool(options, SPVC_COMPILER_OPTION_GLSL_ES, SPVC_TRUE);
+                spvc_compiler_options_set_bool(options, SPVC_COMPILER_OPTION_GLSL_ENABLE_420PACK_EXTENSION, SPVC_FALSE);
                 spvc_compiler_options_set_bool(options, SPVC_COMPILER_OPTION_GLSL_VULKAN_SEMANTICS, SPVC_FALSE);
 
                 session.SetOptions(options);

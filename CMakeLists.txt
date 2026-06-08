@@ -12,59 +12,26 @@ if (ANDROID)
     set(MOBILEGL_BUILD_BENCHMARK  OFF CACHE BOOL "Build MobileGL benchmarks" FORCE)
 endif()
 
-if (NOT CMAKE_BUILD_TYPE STREQUAL "Debug" OR MOBILEGL_FORCE_RELEASE_OPT)
-    # Check if ThinLTO or LTO is suppported
-    include(CheckIPOSupported)
-    include(CheckCCompilerFlag)
-    include(CheckCXXCompilerFlag)
-
-    check_ipo_supported(RESULT LTOSupported OUTPUT LTOError)
-
-    check_c_compiler_flag("-flto" HAS_LTO_C)
-    check_cxx_compiler_flag("-flto" HAS_LTO_CXX)
-
-    if (LTOSupported OR (HAS_LTO_C AND HAS_LTO_CXX))
-        # Check ThinLTO
-        check_c_compiler_flag("-flto=thin" HAS_THINLTO_C)
-        check_cxx_compiler_flag("-flto=thin" HAS_THINLTO_CXX)
-        if (HAS_THINLTO_C AND HAS_THINLTO_CXX)
-            message(STATUS "ThinLTO supported, using -flto=thin")
-
-            add_compile_options(-flto=thin)
-            add_link_options(-flto=thin)
-        else()
-            # ThinLTO is not supported
-            message(STATUS "ThinLTO not available, fallback to CMAKE IPO")
-            set(CMAKE_INTERPROCEDURAL_OPTIMIZATION TRUE)
-        endif()
-    else()
-        message(STATUS "IPO not supported: ${LTOError}")
-    endif()
-
-    if (CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang" AND NOT MATCHES "AppleClang")
-        add_compile_options(-O3 -ffunction-sections -fdata-sections)
-        add_link_options(-Wl,--gc-sections)
-    elseif (CMAKE_CXX_COMPILER_ID MATCHES "MSVC")
-#        add_compile_options(/O2)
-    else ()
-        add_compile_options(-O2)
-    endif()
-endif()
-
 if (CMAKE_CXX_COMPILER_ID MATCHES "MSVC")
     add_compile_options(/Zc:preprocessor)
     add_compile_options(/Zc:__cplusplus)
 endif()
 
 enable_language(CXX)
+enable_language(C)
 
+set(CMAKE_C_STANDARD 23)
 set(CMAKE_CXX_STANDARD 23)
-
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
-
-set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
-
+set(CMAKE_ANDROID_LD "lld")
+set(CMAKE_BUILD_TYPE Release)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+option(MOBILEGL_FORCE_RELEASE_OPT "Enable Release optimization flags in Debug build" ON)
+set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -O3 -pipe -integrated-as -mllvm -polly -mllvm -polly-vectorizer=stripmine -mllvm -polly-invariant-load-hoisting -mllvm -polly-run-inliner -mllvm -polly-run-dce -mllvm -polly-invariant-load-hoisting -flto -mllvm -polly-run-inliner -mllvm -polly-run-dce -fno-emulated-tls -fwhole-program-vtables -fdata-sections -ffunction-sections -fmerge-all-constants -mllvm -polly-detect-keep-going -mllvm -polly-ast-use-context -march=armv8-a+simd -fvisibility=hidden -Wall -Wextra -ferror-limit=0 -Wno-return-type -Wno-unused-parameter -Wno-c++98-compat -Wno-c++98-compat-pedantic -DGLM_FORCE_INTRINSICS -Wno-unicode-whitespace -Wno-format -Wno-unused-function -DUseFastSTL -DUseJEMALLOC -pthread")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O3 -pipe -integrated-as -mllvm -polly -mllvm -polly-vectorizer=stripmine -mllvm -polly-invariant-load-hoisting -mllvm -polly-run-inliner -mllvm -polly-run-dce -mllvm -polly-invariant-load-hoisting -flto -mllvm -polly-run-inliner -mllvm -polly-run-dce -fno-emulated-tls -fwhole-program-vtables -fdata-sections -ffunction-sections -fmerge-all-constants -mllvm -polly-detect-keep-going -mllvm -polly-ast-use-context -march=armv8-a+simd -fvisibility=hidden -Wall -Wextra -ferror-limit=0 -Wno-return-type -Wno-unused-parameter -Wno-c++98-compat -Wno-c++98-compat-pedantic -DGLM_FORCE_INTRINSICS -stdlib=libc++ -Wno-unicode-whitespace -Wno-format -Wno-unused-function -Wno-vla-cxx-extension -DUseFastSTL -frtti -DUseJEMALLOC -pthread")
+set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -fuse-ld=lld -flto -O3 -Wl,-plugin-opt=-emulated-tls=0 -Wl,--strip-all -fvisibility=hidden -Wl,-O3 -Wl,--gc-sections -Wl,--as-needed -static-libstdc++")
+
+# set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -Wl,--defsym=malloc=je_malloc -Wl,--defsym=calloc=je_calloc -Wl,--defsym=realloc=je_realloc -Wl,--defsym=free=je_free -Wl,--defsym=posix_memalign=je_posix_memalign -Wl,--defsym=aligned_alloc=je_aligned_alloc -Wl,--defsym=malloc_usable_size=je_malloc_usable_size -Wl,--defsym=mallocx=je_mallocx -Wl,--defsym=rallocx=je_rallocx -Wl,--defsym=xallocx=je_xallocx -Wl,--defsym=sallocx=je_sallocx -Wl,--defsym=dallocx=je_dallocx -Wl,--defsym=sdallocx=je_sdallocx -Wl,--defsym=nallocx=je_nallocx -Wl,--defsym=mallctl=je_mallctl -Wl,--defsym=mallctlnametomib=je_mallctlnametomib -Wl,--defsym=mallctlbymib=je_mallctlbymib -Wl,--defsym=malloc_stats_print=je_malloc_stats_print -L${CMAKE_SOURCE_DIR}/libraries/android/${ANDROID_ABI} -ljemalloc")
 
 if (MSVC)
     set(CMAKE_CXX_FLAGS "/EHsc ${CMAKE_CXX_FLAGS}")
@@ -269,6 +236,10 @@ set(SOURCE_FILES
     MobileGL/MG_State/GLState/SamplerState/SamplerState.cpp
     MobileGL/MG_State/GLState/RenderbufferState/RenderbufferObject.cpp
     MobileGL/MG_State/GLState/RenderbufferState/RenderbufferState.cpp
+
+    MobileGL/MG_Util/Config/cJSON.c
+    MobileGL/MG_Util/Config/config.cpp
+    MobileGL/MG_Util/Config/settings.cpp
 )
 
 set(MOBILEGL_LINK_LIBRARIES
@@ -377,6 +348,10 @@ if (ANDROID)
         android
         log
         vulkan
+        # ${CMAKE_SOURCE_DIR}/libraries/android/${ANDROID_ABI}/libjemalloc.so
+    )
+    target_link_options(${CMAKE_PROJECT_NAME} PRIVATE 
+    "LINKER:--version-script=${CMAKE_SOURCE_DIR}/MobileGL/mgl-version.script"
     )
 endif()
 

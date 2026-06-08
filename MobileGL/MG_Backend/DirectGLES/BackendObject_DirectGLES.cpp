@@ -11,6 +11,7 @@
 #include <MG_Backend/DirectGLES/DirectGLES.h>
 #include <MG_Util/BackendLoaders/OpenGL/Loader.h>
 #include <format>
+#include <cstdlib>
 
 namespace MobileGL::MG_Backend::DirectGLES {
     namespace {
@@ -120,6 +121,40 @@ namespace MobileGL::MG_Backend::DirectGLES {
     }
 
     const RendererInfo& BackendObject_DirectGLES::GetRendererInfo() const {
+        // 检查环境变量
+        const char* envLibGL = std::getenv("LIBGL_GL");
+        const char* envlibGL_compute = std::getenv("LIBGL_COMPUTE_SHADER");
+        
+        // 创建基础扩展列表
+        Vector<GLExtension> extensions = {
+            V_OpenGL30, V_OpenGL31, V_OpenGL32,
+            V_OpenGL33, E_GL_ARB_draw_buffers_blend, E_GL_ARB_shader_image_load_store
+        };
+        
+        // 根据环境变量添加扩展
+        if (envlibGL_compute != nullptr) {
+            extensions.push_back(E_GL_ARB_compute_shader);
+            MGLOG_I("LIBGL_COMPUTE_SHADER detected, added compute shader support");
+        }
+        
+        // 检查LIBGL_GL环境变量
+        Version targetVersion = {3, 3, 0};  // 默认版本
+        
+        if (envLibGL != nullptr) {
+            std::string libglValue = envLibGL;
+            if (libglValue == "43") {
+                MGLOG_I("LIBGL_GL=43 detected, using OpenGL 4.3 configuration");
+                targetVersion = {4, 3, 0};
+                
+                // 添加OpenGL 4.x扩展
+                extensions.push_back(V_OpenGL40);
+                extensions.push_back(V_OpenGL41);
+                extensions.push_back(V_OpenGL42);
+                extensions.push_back(V_OpenGL43);
+            }
+        }
+        
+        // 创建并返回RendererInfo
         static RendererInfo RendererInfo = {
             .RendererName = "Espryt",            // Renderer Name
             .BackendName = "Direct (OpenGL ES)", // Backend Name

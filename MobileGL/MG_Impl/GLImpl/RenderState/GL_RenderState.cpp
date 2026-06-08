@@ -297,6 +297,8 @@ namespace MobileGL::MG_Impl::GLImpl {
     }
 
     void ClearDepth_State(GLclampd depth) {
+        if (depth < 0.0) depth = 0.0;
+        if (depth > 1.0) depth = 1.0;
         MG_State::pGLContext->SetClearDepth(static_cast<Float>(depth));
     }
 

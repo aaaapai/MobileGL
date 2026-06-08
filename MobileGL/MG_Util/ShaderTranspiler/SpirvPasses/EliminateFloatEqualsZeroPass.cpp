@@ -31,7 +31,7 @@ namespace MobileGL {
                 analysis::TypeManager* type_mgr = context()->get_type_mgr();
 
                 // 2. Import `GLSL.std.450` extension ID (for abs() func)
-                uint32_t glsl_std_450_id = context()->get_feature_mgr()->GetExtInstImportId_GLSLstd450();
+                std::uint32_t glsl_std_450_id = context()->get_feature_mgr()->GetExtInstImportId_GLSLstd450();
                 if (glsl_std_450_id == 0) {
                     return Status::SuccessWithoutChange;
                 }
@@ -65,10 +65,10 @@ namespace MobileGL {
 
                             // check if operand is "float 0.0"
                             // OpFOrdEqual ResultType ResultID Operand1 Operand2
-                            uint32_t op1_id = inst.GetSingleWordInOperand(0);
-                            uint32_t op2_id = inst.GetSingleWordInOperand(1);
+                            std::uint32_t op1_id = inst.GetSingleWordInOperand(0);
+                            std::uint32_t op2_id = inst.GetSingleWordInOperand(1);
 
-                            uint32_t var_id = 0;
+                            std::uint32_t var_id = 0;
 
                             auto is_float_zero = [&](uint32_t id) -> bool {
                                 const analysis::Constant* c = const_mgr->FindDeclaredConstant(id);
@@ -91,13 +91,13 @@ namespace MobileGL {
                             MGLOG_D("Found 1 occurrence of `FloatEqualsZero`, patching");
 
                             // 1. Get var type (Float) and result type (Bool)
-                            uint32_t float_type_id = def_use_mgr->GetDef(var_id)->type_id();
-                            uint32_t bool_type_id = inst.type_id();
+                            std::uint32_t float_type_id = def_use_mgr->GetDef(var_id)->type_id();
+                            std::uint32_t bool_type_id = inst.type_id();
 
                             // 2. Create constant ID for `Epsilon`
                             const analysis::Constant* eps_const = const_mgr->GetConstant(
                                 type_mgr->GetType(float_type_id), {*(reinterpret_cast<const uint32_t*>(&K_EPSILON))});
-                            uint32_t eps_id = const_mgr->GetDefiningInstruction(eps_const)->result_id();
+                            std::uint32_t eps_id = const_mgr->GetDefiningInstruction(eps_const)->result_id();
 
                             // 3. Build Abs(x) inst
                             // OpExtInst %float_type %glsl_import Abs %x

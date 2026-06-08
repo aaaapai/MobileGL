@@ -438,6 +438,11 @@ namespace MobileGL::MG_Impl::GLImpl {
     }
 
     GLenum CheckFramebufferStatus_State(GLenum target) {
+
+        if (std::getenv("MGL_CHEAT_CHECKFRAMEBUFFERSTATUS")) {
+                return GL_FRAMEBUFFER_COMPLETE;
+        }
+
         FramebufferTarget framebufferTarget = MG_Util::ConvertGLEnumToFramebufferTarget(target);
         if (!FramebufferImpl::ValidateFramebufferTarget(framebufferTarget)) return GL_FRAMEBUFFER_UNDEFINED;
 
@@ -666,13 +671,13 @@ namespace MobileGL::MG_Impl::GLImpl {
 
             // Check alignment
             const SizeT typeSize = MG_Util::GetTexturePixelDataTypeSize(texturePixelDataType);
-            if (reinterpret_cast<uintptr_t>(pixels) % typeSize != 0) {
+            /*if (reinterpret_cast<uintptr_t>(pixels) % typeSize != 0) {
                 MG_State::pGLContext->RecordError(
                     ErrorCode::InvalidOperation,
                     MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", "ReadPixels_State",
                                                  "Pixel data not aligned for pixel pack buffer"));
                 return;
-            }
+            }*/
         }
 
         // Check multisampling
