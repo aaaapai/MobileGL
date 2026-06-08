@@ -71,8 +71,8 @@ include_directories(${CMAKE_BINARY_DIR}/generated)
 set(ENABLE_RTTI                ON  CACHE BOOL "Enables RTTI (will be took by glslang)" FORCE)
 
 set(ENABLE_GLSLANG_BINARIES    OFF CACHE BOOL "Enable glslangValidator/spirv-remap" FORCE)
-set(ENABLE_SPVREMAPPER         ON CACHE BOOL "Enable SPVRemapper" FORCE)
-set(ENABLE_OPT                 ON  CACHE BOOL "Enable SPIRV-Tools opt usage in glslang" FORCE)
+set(ENABLE_SPVREMAPPER         OFF CACHE BOOL "Enable SPVRemapper" FORCE)
+set(ENABLE_OPT                 OFF  CACHE BOOL "Enable SPIRV-Tools opt usage in glslang" FORCE)
 set(BUILD_EXTERNAL             OFF  CACHE BOOL "Build external deps in External/" FORCE)
 set(ENABLE_GLSLANG_INSTALL     OFF CACHE BOOL "Install glslang targets" FORCE)
 
