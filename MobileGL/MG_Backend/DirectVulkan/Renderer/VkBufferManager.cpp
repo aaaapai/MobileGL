@@ -86,6 +86,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
 
         const auto* bufferData = bufferObject->GetDataReadOnly().get();
         MOBILEGL_ASSERT(bufferData != nullptr, "VkBufferManager::SyncResidentBuffer requires frontend buffer data");
+        bufferObject->MarkPersistentMappedRangeDirty();
 
         const VkDeviceSize bufferSize = static_cast<VkDeviceSize>(bufferObject->GetSize());
         if (bufferSize == 0) {

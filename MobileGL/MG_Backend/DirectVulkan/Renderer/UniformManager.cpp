@@ -615,6 +615,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         MOBILEGL_ASSERT(bufferObject != nullptr,
                         "ResolveUniformBufferPayload: no UBO bound at frontend binding %u for block '%s'",
                         frontendBinding, program.GetUniformBlockName(static_cast<Uint32>(blockIndex)).c_str());
+        bufferObject->MarkPersistentMappedRangeDirty();
 
         const auto bufferData = bufferObject->GetDataReadOnly();
         MOBILEGL_ASSERT(bufferData != nullptr && !bufferData->empty(),

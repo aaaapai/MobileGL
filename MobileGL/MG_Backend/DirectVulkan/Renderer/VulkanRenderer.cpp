@@ -1316,7 +1316,7 @@ void main() {
             .minUploadBytes = 4 * 1024 * 1024,
             .transientMemoryUsage = VMA_MEMORY_USAGE_AUTO,
             .transientAllocationFlags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT,
-            .transientPersistentMapping = false,
+            .transientPersistentMapping = true,
         });
         MOBILEGL_ASSERT(succeeded, "VkBufferManager initialization failed.");
         m_textureManager = MakeUnique<VkTextureManager>();
@@ -1537,6 +1537,7 @@ void main() {
             auto sourceBufferShared = MG_State::pGLContext->GetBufferObject(sourceBuffer->GetExternalIndex());
             MOBILEGL_ASSERT(sourceBufferShared != nullptr,
                             "UploadAndBindVertexStreams failed to resolve shared source buffer");
+            sourceBufferShared->MarkPersistentMappedRangeDirty();
             BufferSlice slice{};
             const Bool isDirty = (sourceBufferShared->GetChangeBits() & BufferChangeBits::DirtyBit);
             const Uint64 changeSerial = sourceBufferShared->GetChangeSerial();
@@ -1641,6 +1642,7 @@ void main() {
         BufferSlice slice{};
         auto indexBufferShared = MG_State::pGLContext->GetBufferObject(indexBuffer->GetExternalIndex());
         MOBILEGL_ASSERT(indexBufferShared != nullptr, "UploadAndBindIndexBuffer failed to resolve shared EBO");
+        indexBufferShared->MarkPersistentMappedRangeDirty();
         const Bool isDirty = (indexBufferShared->GetChangeBits() & BufferChangeBits::DirtyBit);
         const Uint64 changeSerial = indexBufferShared->GetChangeSerial();
         const SizeT indexBufferSize = indexBufferShared->GetSize();

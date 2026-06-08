@@ -166,6 +166,10 @@ namespace MobileGL::MG_Backend::DirectGLES {
             return true;
         }
 
+        inline Bool SupportsWrapR(TextureTarget target) {
+            return target == TextureTarget::Texture3D || target == TextureTarget::TextureCubeMap;
+        }
+
         struct StateTextureBasicInfo { // Used for tracking texture state changes
             TextureInternalFormat internalFormat = TextureInternalFormat::Unknown;
             SizeT width = 0;

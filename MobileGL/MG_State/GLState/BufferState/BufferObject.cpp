@@ -18,11 +18,32 @@ namespace MobileGL::MG_State::GLState {
     }
 
     void BufferObject::Resize(SizeT size) {
+        ReleaseMemory();
         m_size = size;
         m_dataPtr->reserve(std::bit_ceil(size)); // power-of-2 reserve
         m_dataPtr->resize(size);
+        m_isImmutableStorage = false;
+        m_storageFlags = 0;
         m_change.Bits |= BufferChangeBits::DirtyBit;
         m_change.Bits |= BufferChangeBits::PreferReallocationBit;
+        ++m_changeSerial;
+    }
+
+    void BufferObject::AllocateImmutableStorage(SizeT size, const void* data, GLbitfield storageFlags) {
+        ReleaseMemory();
+        m_size = size;
+        m_dataPtr->reserve(std::bit_ceil(size));
+        m_dataPtr->resize(size);
+        if (data) {
+            Memcpy(m_dataPtr->data(), data, size);
+        } else if (size > 0) {
+            Memset(m_dataPtr->data(), 0, size);
+        }
+        m_isImmutableStorage = true;
+        m_storageFlags = storageFlags;
+        m_change.DirtyRanges.clear();
+        m_change.DirtyRanges.Add({0, size});
+        m_change.Bits = BufferChangeBits::DirtyBit | BufferChangeBits::PreferReallocationBit;
         ++m_changeSerial;
     }
 
@@ -30,7 +51,8 @@ namespace MobileGL::MG_State::GLState {
         MOBILEGL_ASSERT(atOffset + data.size <= m_size,
                         "UploadData out of bounds: atOffset (%zu) + data.size (%zu) > m_size (%zu)", atOffset,
                         data.size, m_size);
-        MOBILEGL_ASSERT(!m_isMapped, "Cannot upload data while buffer is mapped.");
+        MOBILEGL_ASSERT(!m_isMapped || (m_mappingAccess & BufferMappingAccessBit::Persistent),
+                        "Cannot upload data while buffer is non-persistently mapped.");
         Memcpy(m_dataPtr->data() + atOffset, data.data, data.size);
         m_change.DirtyRanges.Add({atOffset, atOffset + data.size});
         m_change.Bits |= BufferChangeBits::DirtyBit;
@@ -52,8 +74,10 @@ namespace MobileGL::MG_State::GLState {
 
         if (m_mappingAccess & BufferMappingAccessBit::Write) {                // if we wrote to the buffer
             if (!(m_mappingAccess & BufferMappingAccessBit::FlushExplicit)) { // if we didn't flush explicitly
-                Memcpy(m_dataPtr->data() + m_mappedRange.start, m_stagingData.data(),
-                       m_mappedRange.end - m_mappedRange.start);
+                if (!(m_mappingAccess & BufferMappingAccessBit::Persistent)) {
+                    Memcpy(m_dataPtr->data() + m_mappedRange.start, m_stagingData.data(),
+                           m_mappedRange.end - m_mappedRange.start);
+                }
                 m_change.DirtyRanges.Add({m_mappedRange.start, m_mappedRange.end});
                 m_change.Bits |= BufferChangeBits::DirtyBit;
                 ++m_changeSerial;
@@ -80,14 +104,29 @@ namespace MobileGL::MG_State::GLState {
         MOBILEGL_ASSERT(end <= m_mappedRange.end, "Flush range out of bounds: mappedRange.end (%zu) < end (%zu)",
                         m_mappedRange.end, end);
 
-        Memcpy(m_dataPtr->data() + start, m_stagingData.data() + offset, length);
+        if (!(m_mappingAccess & BufferMappingAccessBit::Persistent)) {
+            Memcpy(m_dataPtr->data() + start, m_stagingData.data() + offset, length);
+        }
         m_change.DirtyRanges.Add({start, end});
         m_change.Bits |= BufferChangeBits::DirtyBit;
         ++m_changeSerial;
     }
 
+    void BufferObject::MarkPersistentMappedRangeDirty() {
+        if (!m_isMapped) return;
+        if (!(m_mappingAccess & BufferMappingAccessBit::Persistent)) return;
+        if (!(m_mappingAccess & BufferMappingAccessBit::Write)) return;
+        if (m_mappingAccess & BufferMappingAccessBit::FlushExplicit) return;
+        if (m_mappedRange.start >= m_mappedRange.end) return;
+
+        m_change.DirtyRanges.Add(m_mappedRange);
+        m_change.Bits |= BufferChangeBits::DirtyBit;
+        ++m_changeSerial;
+    }
+
     void BufferObject::UploadSubData(DataPtr data, SizeT atOffset) {
-        MOBILEGL_ASSERT(!m_isMapped, "Cannot upload sub data while buffer is mapped.");
+        MOBILEGL_ASSERT(!m_isMapped || (m_mappingAccess & BufferMappingAccessBit::Persistent),
+                        "Cannot upload sub data while buffer is non-persistently mapped.");
         MOBILEGL_ASSERT(atOffset + data.size <= m_size,
                         "UploadSubData out of bounds: atOffset (%zu) + data.size (%zu) > m_size (%zu)", atOffset,
                         data.size, m_size);
@@ -101,8 +140,10 @@ namespace MobileGL::MG_State::GLState {
     }
 
     void BufferObject::CopyDataFrom(const SharedPtr<BufferObject>& src, SizeT srcOffset, SizeT dstOffset, SizeT size) {
-        MOBILEGL_ASSERT(!m_isMapped, "Cannot copy data while buffer is mapped.");
-        MOBILEGL_ASSERT(!src->IsMapped(), "Cannot copy data from a buffer that is mapped.");
+        MOBILEGL_ASSERT(!m_isMapped || (m_mappingAccess & BufferMappingAccessBit::Persistent),
+                        "Cannot copy data while destination buffer is non-persistently mapped.");
+        MOBILEGL_ASSERT(!src->IsMapped() || (src->GetMappingAccess() & BufferMappingAccessBit::Persistent),
+                        "Cannot copy data from a buffer that is non-persistently mapped.");
         MOBILEGL_ASSERT(srcOffset + size <= src->GetSize(),
                         "Source buffer copy out of bounds: srcOffset (%zu) + size (%zu) > src->GetSize() (%zu)",
                         srcOffset, size, src->GetSize());
@@ -149,6 +190,19 @@ namespace MobileGL::MG_State::GLState {
         m_mappingAccess = access;
         m_mappedRange = range;
 
+        m_change.Bits |=
+            !(access & BufferMappingAccessBit::InvalidateBuffer || access & BufferMappingAccessBit::InvalidateRange)
+                ? BufferChangeBits::ForbidInvalidationBit
+                : BufferChangeBits::None;
+        m_change.Bits |= !(access & BufferMappingAccessBit::Unsynchronized)
+                             ? BufferChangeBits::ForbidUnsynchronizationBit
+                             : BufferChangeBits::None;
+
+        if (access & BufferMappingAccessBit::Persistent) {
+            m_ownsStagingData = false;
+            return m_dataPtr->data() + range.start;
+        }
+
         if (access & BufferMappingAccessBit::Write) {
             m_stagingData.resize(range.end - range.start);
             m_ownsStagingData = true;
@@ -162,14 +216,6 @@ namespace MobileGL::MG_State::GLState {
             m_ownsStagingData = false;
             return m_dataPtr->data() + range.start;
         }
-
-        m_change.Bits |=
-            !(access & BufferMappingAccessBit::InvalidateBuffer || access & BufferMappingAccessBit::InvalidateRange)
-                ? BufferChangeBits::ForbidInvalidationBit
-                : BufferChangeBits::None;
-        m_change.Bits |= !(access & BufferMappingAccessBit::Unsynchronized)
-                             ? BufferChangeBits::ForbidUnsynchronizationBit
-                             : BufferChangeBits::None;
     }
 
     const SharedPtr<Data>& BufferObject::GetDataReadOnly() const {
@@ -183,6 +229,10 @@ namespace MobileGL::MG_State::GLState {
 
     SizeT BufferObject::GetSize() const {
         return m_size;
+    }
+
+    Bool BufferObject::IsImmutableStorage() const {
+        return m_isImmutableStorage;
     }
 
     BufferUsage BufferObject::GetUsage() const {
@@ -209,8 +259,23 @@ namespace MobileGL::MG_State::GLState {
         return m_isMapped ? m_mappedRange : Range1D{0, 0};
     }
 
+    void* BufferObject::GetMappedPointer() const {
+        if (!m_isMapped) return nullptr;
+        if (m_mappingAccess & BufferMappingAccessBit::Persistent) {
+            return const_cast<Uint8*>(m_dataPtr->data()) + m_mappedRange.start;
+        }
+        if (m_ownsStagingData) {
+            return const_cast<Uint8*>(m_stagingData.data());
+        }
+        return const_cast<Uint8*>(m_dataPtr->data()) + m_mappedRange.start;
+    }
+
     Flags<BufferMappingAccessBit> BufferObject::GetMappingAccess() const {
         return m_isMapped ? m_mappingAccess : BufferMappingAccessBit::Null;
+    }
+
+    GLbitfield BufferObject::GetStorageFlags() const {
+        return m_storageFlags;
     }
 
     Uint BufferObject::GetExternalIndex() const {

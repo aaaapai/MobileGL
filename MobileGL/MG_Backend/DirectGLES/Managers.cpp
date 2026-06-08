@@ -748,7 +748,11 @@ namespace MobileGL::MG_Backend::DirectGLES {
 
             SYNC_TEX_SAMPLER_PARAM_IF_CHANGED(wrapS, GL_TEXTURE_WRAP_S, WrapMode)
             SYNC_TEX_SAMPLER_PARAM_IF_CHANGED(wrapT, GL_TEXTURE_WRAP_T, WrapMode)
-            SYNC_TEX_SAMPLER_PARAM_IF_CHANGED(wrapR, GL_TEXTURE_WRAP_R, WrapMode)
+            if (SupportsWrapR(targetInternal)) {
+                SYNC_TEX_SAMPLER_PARAM_IF_CHANGED(wrapR, GL_TEXTURE_WRAP_R, WrapMode)
+            } else {
+                m_cacheSamplerParameters.wrapR = samplerParams.wrapR;
+            }
             SYNC_TEX_SAMPLER_PARAM_IF_CHANGED(compareFunc, GL_TEXTURE_COMPARE_FUNC, CompareFunc)
             SYNC_TEX_SAMPLER_PARAM_IF_CHANGED(compareMode, GL_TEXTURE_COMPARE_MODE, CompareMode)
             if (m_cacheSamplerParameters.minLod != samplerParams.minLod) {
@@ -1032,6 +1036,9 @@ namespace MobileGL::MG_Backend::DirectGLES {
                             MG_Util::ConvertFramebufferAttachmentTypeToString(frontendType).c_str(),
                             MG_Util::ConvertGLEnumToString(glBackendAttachment).c_str(),
                             m_syncedFrontendAttachmentVersions[i]);
+                    if (!attachmentObject.IsTexture() && !attachmentObject.IsRenderbuffer()) {
+                        continue;
+                    }
                     GLint objectType = GL_NONE;
                     g_GLESFuncs.glGetFramebufferAttachmentParameteriv(
                         glFBOTarget, glBackendAttachment, GL_FRAMEBUFFER_ATTACHMENT_OBJECT_TYPE, &objectType);

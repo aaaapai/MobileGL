@@ -16,68 +16,294 @@
 
 namespace MobileGL::MG_Impl::GLImpl {
     namespace {
+        enum class BufferOp {
+            GetBufferParameteriv,
+            GetBufferParameteri64v,
+            GetBufferPointerv,
+            BufferStorage,
+            NamedBufferStorage,
+            NamedBufferData,
+            NamedBufferSubData,
+            MapBufferRange,
+            MapBuffer,
+            MapNamedBuffer,
+            MapNamedBufferRange,
+            UnmapNamedBuffer,
+            FlushMappedNamedBufferRange,
+            GetNamedBufferParameteriv,
+            GetNamedBufferParameteri64v,
+            GetNamedBufferPointerv,
+        };
+
+        const char* GetBufferOpName(BufferOp op) {
+            switch (op) {
+            case BufferOp::GetBufferParameteriv:
+                return "GetBufferParameteriv";
+            case BufferOp::GetBufferParameteri64v:
+                return "GetBufferParameteri64v";
+            case BufferOp::GetBufferPointerv:
+                return "GetBufferPointerv";
+            case BufferOp::BufferStorage:
+                return "BufferStorage";
+            case BufferOp::NamedBufferStorage:
+                return "NamedBufferStorage";
+            case BufferOp::NamedBufferData:
+                return "NamedBufferData";
+            case BufferOp::NamedBufferSubData:
+                return "NamedBufferSubData";
+            case BufferOp::MapBufferRange:
+                return "MapBufferRange";
+            case BufferOp::MapBuffer:
+                return "MapBuffer";
+            case BufferOp::MapNamedBuffer:
+                return "MapNamedBuffer";
+            case BufferOp::MapNamedBufferRange:
+                return "MapNamedBufferRange";
+            case BufferOp::UnmapNamedBuffer:
+                return "UnmapNamedBuffer";
+            case BufferOp::FlushMappedNamedBufferRange:
+                return "FlushMappedNamedBufferRange";
+            case BufferOp::GetNamedBufferParameteriv:
+                return "GetNamedBufferParameteriv";
+            case BufferOp::GetNamedBufferParameteri64v:
+                return "GetNamedBufferParameteri64v";
+            case BufferOp::GetNamedBufferPointerv:
+                return "GetNamedBufferPointerv";
+            default:
+                return "Buffer";
+            }
+        }
+
         auto& GetBufferBindingSlot(BufferTarget target) {
             if (target == BufferTarget::Index) {
                 return MG_State::pGLContext->GetBoundVertexArray()->GetIndexBufferBindingSlot();
             }
             return MG_State::pGLContext->GetBufferBindingSlot(target);
         }
-    } // namespace
 
-    void GetBufferParameteriv_State(GLenum target, GLenum pname, GLint* params) {
-        if (!params) {
-            MG_State::pGLContext->RecordError(
-                ErrorCode::InvalidValue, MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", "GetBufferParameteriv_State",
-                                                                      "Params pointer cannot be null."));
-            return;
+        SharedPtr<MG_State::GLState::BufferObject> GetBoundBufferObject(GLenum target, BufferOp op) {
+            BufferTarget bufferTarget = MG_Util::ConvertGLEnumToBufferTarget(target);
+            if (!BufferImpl::ValidateBufferTarget(bufferTarget)) return nullptr;
+
+            auto& bindingSlot = GetBufferBindingSlot(bufferTarget);
+            auto& bufferObject = bindingSlot.GetBoundObject();
+            if (!bufferObject) {
+                MG_State::pGLContext->RecordError(
+                    ErrorCode::InvalidOperation,
+                    MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", GetBufferOpName(op),
+                                                 "Buffer target is bound to no buffer object."));
+                return nullptr;
+            }
+            return bufferObject;
         }
 
-        BufferTarget bufferTarget = MG_Util::ConvertGLEnumToBufferTarget(target);
-        if (!BufferImpl::ValidateBufferTarget(bufferTarget)) return;
-
-        auto& bindingSlot = GetBufferBindingSlot(bufferTarget);
-
-        auto& bufferObject = bindingSlot.GetBoundObject();
-        if (!bufferObject) {
-            MG_State::pGLContext->RecordError(
-                ErrorCode::InvalidOperation,
-                MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", "GetBufferParameteriv_State",
-                                             "Buffer target is bound to no buffer object."));
-            return;
+        SharedPtr<MG_State::GLState::BufferObject> GetNamedBufferObject(GLuint buffer, BufferOp op) {
+            if (!BufferImpl::ValidateBufferName(buffer, false)) return nullptr;
+            if (!MG_State::pGLContext->ValidateBufferObject(buffer)) {
+                MG_State::pGLContext->CreateBufferObject(buffer);
+            }
+            auto& bufferObject = MG_State::pGLContext->GetBufferObject(buffer);
+            if (!bufferObject) {
+                MG_State::pGLContext->RecordError(
+                    ErrorCode::InvalidOperation,
+                    MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", GetBufferOpName(op),
+                                                 std::format("Buffer object {} does not exist.", buffer)));
+            }
+            return bufferObject;
         }
 
-        switch (pname) {
-        case GL_BUFFER_SIZE:
-            *params = static_cast<GLint>(bufferObject->GetSize());
-            break;
-        case GL_BUFFER_USAGE:
-            *params = (GLint)MG_Util::ConvertBufferUsageToGLEnum(bufferObject->GetUsage());
-            break;
-        case GL_BUFFER_ACCESS:
-            if (bufferObject->IsMapped()) {
-                auto access = bufferObject->GetMappingAccess();
-                if (access & BufferMappingAccessBit::Read && access & BufferMappingAccessBit::Write) {
-                    *params = GL_READ_WRITE;
-                } else if (access & BufferMappingAccessBit::Read) {
-                    *params = GL_READ_ONLY;
-                } else if (access & BufferMappingAccessBit::Write) {
-                    *params = GL_WRITE_ONLY;
+        Bool ValidateStorageFlags(GLbitfield flags, BufferOp op) {
+            constexpr GLbitfield validFlags = GL_MAP_READ_BIT | GL_MAP_WRITE_BIT | GL_MAP_PERSISTENT_BIT |
+                                              GL_MAP_COHERENT_BIT | GL_DYNAMIC_STORAGE_BIT | GL_CLIENT_STORAGE_BIT;
+            if ((flags & ~validFlags) != 0) {
+                MG_State::pGLContext->RecordError(
+                    ErrorCode::InvalidValue,
+                    MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", GetBufferOpName(op),
+                                                 std::format("Invalid buffer storage flags: 0x{:X}", flags)));
+                return false;
+            }
+
+            if ((flags & GL_MAP_PERSISTENT_BIT) && !(flags & (GL_MAP_READ_BIT | GL_MAP_WRITE_BIT))) {
+                MG_State::pGLContext->RecordError(
+                    ErrorCode::InvalidValue,
+                    MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", GetBufferOpName(op),
+                                                 "GL_MAP_PERSISTENT_BIT requires GL_MAP_READ_BIT or GL_MAP_WRITE_BIT."));
+                return false;
+            }
+
+            if ((flags & GL_MAP_COHERENT_BIT) && !(flags & GL_MAP_PERSISTENT_BIT)) {
+                MG_State::pGLContext->RecordError(
+                    ErrorCode::InvalidValue,
+                    MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", GetBufferOpName(op),
+                                                 "GL_MAP_COHERENT_BIT requires GL_MAP_PERSISTENT_BIT."));
+                return false;
+            }
+            return true;
+        }
+
+        Bool ValidateImmutableMapAccess(const SharedPtr<MG_State::GLState::BufferObject>& bufferObject,
+                                        Flags<BufferMappingAccessBit> accessBits, BufferOp op) {
+            if (!bufferObject->IsImmutableStorage()) {
+                if (accessBits & (BufferMappingAccessBit::Persistent | BufferMappingAccessBit::Coherent)) {
+                    MG_State::pGLContext->RecordError(
+                        ErrorCode::InvalidOperation,
+                        MakeUnique<GenericErrorInfo>(
+                            "MG_Impl/GLImpl", GetBufferOpName(op),
+                            "Persistent or coherent mapping requires immutable buffer storage."));
+                    return false;
+                }
+                return true;
+            }
+
+            const GLbitfield storageFlags = bufferObject->GetStorageFlags();
+            if ((accessBits & BufferMappingAccessBit::Read) && !(storageFlags & GL_MAP_READ_BIT)) {
+                MG_State::pGLContext->RecordError(
+                    ErrorCode::InvalidOperation,
+                    MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", GetBufferOpName(op),
+                                                 "GL_MAP_READ_BIT is not allowed by buffer storage flags."));
+                return false;
+            }
+            if ((accessBits & BufferMappingAccessBit::Write) && !(storageFlags & GL_MAP_WRITE_BIT)) {
+                MG_State::pGLContext->RecordError(
+                    ErrorCode::InvalidOperation,
+                    MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", GetBufferOpName(op),
+                                                 "GL_MAP_WRITE_BIT is not allowed by buffer storage flags."));
+                return false;
+            }
+            if ((accessBits & BufferMappingAccessBit::Persistent) && !(storageFlags & GL_MAP_PERSISTENT_BIT)) {
+                MG_State::pGLContext->RecordError(
+                    ErrorCode::InvalidOperation,
+                    MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", GetBufferOpName(op),
+                                                 "GL_MAP_PERSISTENT_BIT is not allowed by buffer storage flags."));
+                return false;
+            }
+            if ((accessBits & BufferMappingAccessBit::Coherent) && !(storageFlags & GL_MAP_COHERENT_BIT)) {
+                MG_State::pGLContext->RecordError(
+                    ErrorCode::InvalidOperation,
+                    MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", GetBufferOpName(op),
+                                                 "GL_MAP_COHERENT_BIT is not allowed by buffer storage flags."));
+                return false;
+            }
+            return true;
+        }
+
+        void GetBufferParameteriv_Object(const SharedPtr<MG_State::GLState::BufferObject>& bufferObject, GLenum pname,
+                                         GLint* params, BufferOp op) {
+            if (!params) {
+                MG_State::pGLContext->RecordError(
+                    ErrorCode::InvalidValue, MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", GetBufferOpName(op),
+                                                                          "Params pointer cannot be null."));
+                return;
+            }
+
+            switch (pname) {
+            case GL_BUFFER_SIZE:
+                *params = static_cast<GLint>(bufferObject->GetSize());
+                break;
+            case GL_BUFFER_USAGE:
+                *params = (GLint)MG_Util::ConvertBufferUsageToGLEnum(bufferObject->GetUsage());
+                break;
+            case GL_BUFFER_ACCESS:
+                if (bufferObject->IsMapped()) {
+                    auto access = bufferObject->GetMappingAccess();
+                    if (access & BufferMappingAccessBit::Read && access & BufferMappingAccessBit::Write) {
+                        *params = GL_READ_WRITE;
+                    } else if (access & BufferMappingAccessBit::Read) {
+                        *params = GL_READ_ONLY;
+                    } else if (access & BufferMappingAccessBit::Write) {
+                        *params = GL_WRITE_ONLY;
+                    } else {
+                        *params = 0;
+                    }
                 } else {
                     *params = 0;
                 }
-            } else {
-                *params = 0;
+                break;
+            case GL_BUFFER_MAPPED:
+                *params = bufferObject->IsMapped() ? GL_TRUE : GL_FALSE;
+                break;
+            case GL_BUFFER_IMMUTABLE_STORAGE:
+                *params = bufferObject->IsImmutableStorage() ? GL_TRUE : GL_FALSE;
+                break;
+            case GL_BUFFER_STORAGE_FLAGS:
+                *params = static_cast<GLint>(bufferObject->GetStorageFlags());
+                break;
+            case GL_BUFFER_MAP_OFFSET:
+                *params = static_cast<GLint>(bufferObject->GetMappedRange().start);
+                break;
+            case GL_BUFFER_MAP_LENGTH:
+                *params = static_cast<GLint>(bufferObject->GetMappedRange().end - bufferObject->GetMappedRange().start);
+                break;
+            default:
+                MG_State::pGLContext->RecordError(
+                    ErrorCode::InvalidEnum, MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", GetBufferOpName(op),
+                                                                         std::format("Invalid pname enum: 0x{:X}", pname)));
+                break;
             }
-            break;
-        case GL_BUFFER_MAPPED:
-            *params = bufferObject->IsMapped() ? GL_TRUE : GL_FALSE;
-            break;
-        default:
-            MG_State::pGLContext->RecordError(
-                ErrorCode::InvalidEnum, MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", "GetBufferParameteriv_State",
-                                                                     std::format("Invalid pname enum: 0x{:X}", pname)));
-            break;
         }
+
+        void GetBufferParameteri64v_Object(const SharedPtr<MG_State::GLState::BufferObject>& bufferObject, GLenum pname,
+                                           GLint64* params, BufferOp op) {
+            if (!params) {
+                MG_State::pGLContext->RecordError(
+                    ErrorCode::InvalidValue, MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", GetBufferOpName(op),
+                                                                          "Params pointer cannot be null."));
+                return;
+            }
+
+            switch (pname) {
+            case GL_BUFFER_SIZE:
+                *params = static_cast<GLint64>(bufferObject->GetSize());
+                break;
+            case GL_BUFFER_MAP_OFFSET:
+                *params = static_cast<GLint64>(bufferObject->GetMappedRange().start);
+                break;
+            case GL_BUFFER_MAP_LENGTH:
+                *params = static_cast<GLint64>(bufferObject->GetMappedRange().end - bufferObject->GetMappedRange().start);
+                break;
+            default: {
+                GLint value = 0;
+                GetBufferParameteriv_Object(bufferObject, pname, &value, op);
+                *params = static_cast<GLint64>(value);
+                break;
+            }
+            }
+        }
+
+        void GetBufferPointerv_Object(const SharedPtr<MG_State::GLState::BufferObject>& bufferObject, GLenum pname,
+                                      void** params, BufferOp op) {
+            if (!params) {
+                MG_State::pGLContext->RecordError(
+                    ErrorCode::InvalidValue, MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", GetBufferOpName(op),
+                                                                          "Params pointer cannot be null."));
+                return;
+            }
+            if (pname != GL_BUFFER_MAP_POINTER) {
+                MG_State::pGLContext->RecordError(
+                    ErrorCode::InvalidEnum, MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", GetBufferOpName(op),
+                                                                         std::format("Invalid pname enum: 0x{:X}", pname)));
+                return;
+            }
+            *params = bufferObject->GetMappedPointer();
+        }
+    } // namespace
+
+    void GetBufferParameteriv_State(GLenum target, GLenum pname, GLint* params) {
+        auto bufferObject = GetBoundBufferObject(target, BufferOp::GetBufferParameteriv);
+        if (!bufferObject) return;
+        GetBufferParameteriv_Object(bufferObject, pname, params, BufferOp::GetBufferParameteriv);
+    }
+
+    void GetBufferParameteri64v_State(GLenum target, GLenum pname, GLint64* params) {
+        auto bufferObject = GetBoundBufferObject(target, BufferOp::GetBufferParameteri64v);
+        if (!bufferObject) return;
+        GetBufferParameteri64v_Object(bufferObject, pname, params, BufferOp::GetBufferParameteri64v);
+    }
+
+    void GetBufferPointerv_State(GLenum target, GLenum pname, void** params) {
+        auto bufferObject = GetBoundBufferObject(target, BufferOp::GetBufferPointerv);
+        if (!bufferObject) return;
+        GetBufferPointerv_Object(bufferObject, pname, params, BufferOp::GetBufferPointerv);
     }
 
     void DeleteBuffers_State(GLsizei n, const GLuint* buffers) {
@@ -133,10 +359,11 @@ namespace MobileGL::MG_Impl::GLImpl {
             return;
         }
 
-        if (offset + length > bufferObject->GetSize()) {
+        const auto mappedRange = bufferObject->GetMappedRange();
+        if (static_cast<SizeT>(offset) + static_cast<SizeT>(length) > mappedRange.end - mappedRange.start) {
             MG_State::pGLContext->RecordError(
                 ErrorCode::InvalidValue, MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", "FlushMappedBufferRange_State",
-                                                                      "Offset and length exceed buffer size."));
+                                                                      "Offset and length exceed mapped range."));
             return;
         }
 
@@ -250,17 +477,23 @@ namespace MobileGL::MG_Impl::GLImpl {
             }
         }
 
-        const auto storageFlags = BufferMappingAccessBit::Persistent | BufferMappingAccessBit::Coherent;
-        auto requiredFlags = accessBits & storageFlags;
-        if (requiredFlags) {
-            // TODO: check if the buffer data is created by BufferStorage and its flags after its
-            // implementation
+        if ((accessBits & BufferMappingAccessBit::Persistent) && !(accessBits & (BufferMappingAccessBit::Read | BufferMappingAccessBit::Write))) {
             MG_State::pGLContext->RecordError(
                 ErrorCode::InvalidOperation,
                 MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", "MapBufferRange_State",
-                                             "Access flags require matching storage flags in buffer."));
+                                             "GL_MAP_PERSISTENT_BIT requires GL_MAP_READ_BIT or GL_MAP_WRITE_BIT."));
             return nullptr;
         }
+
+        if ((accessBits & BufferMappingAccessBit::Coherent) && !(accessBits & BufferMappingAccessBit::Persistent)) {
+            MG_State::pGLContext->RecordError(
+                ErrorCode::InvalidOperation,
+                MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", "MapBufferRange_State",
+                                             "GL_MAP_COHERENT_BIT requires GL_MAP_PERSISTENT_BIT."));
+            return nullptr;
+        }
+
+        if (!ValidateImmutableMapAccess(bufferObject, accessBits, BufferOp::MapBufferRange)) return nullptr;
 
         if (bufferObject->IsMapped()) {
             const auto invalidateFlags =
@@ -318,6 +551,11 @@ namespace MobileGL::MG_Impl::GLImpl {
                                              "Cannot map a buffer object that is already mapped."));
             return nullptr;
         }
+
+        Flags<BufferMappingAccessBit> accessBits = BufferMappingAccessBit::Null;
+        if (readable) accessBits |= BufferMappingAccessBit::Read;
+        if (writable) accessBits |= BufferMappingAccessBit::Write;
+        if (!ValidateImmutableMapAccess(bufferObject, accessBits, BufferOp::MapBuffer)) return nullptr;
 
         void* result = bufferObject->AcquireMemory(true, readable, writable);
         if (!result) {
@@ -421,18 +659,35 @@ namespace MobileGL::MG_Impl::GLImpl {
             return;
         }
 
-        SizeT bufferSize = bufferObject->GetSize();
-        Range1D mappedRange = bufferObject->GetMappedRange();
-        if ((offset < mappedRange.end) && (offset + size > mappedRange.start)) {
+        if (bufferObject->IsImmutableStorage() && !(bufferObject->GetStorageFlags() & GL_DYNAMIC_STORAGE_BIT)) {
             MG_State::pGLContext->RecordError(
-                ErrorCode::InvalidValue,
-                MakeUnique<GenericErrorInfo>(
-                    "MG_Impl/GLImpl", "BufferSubData_State",
-                    "Offset and size must not overlap with the mapped range of the buffer object."));
+                ErrorCode::InvalidOperation,
+                MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", "BufferSubData_State",
+                                             "Immutable buffer storage was not created with GL_DYNAMIC_STORAGE_BIT."));
             return;
         }
 
+        SizeT bufferSize = bufferObject->GetSize();
+        if (static_cast<SizeT>(offset) + static_cast<SizeT>(size) > bufferSize) {
+            MG_State::pGLContext->RecordError(
+                ErrorCode::InvalidValue,
+                MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", "BufferSubData_State",
+                                             "Offset and size exceed buffer size."));
+            return;
+        }
+
+        Range1D mappedRange = bufferObject->GetMappedRange();
         auto mappingAccess = bufferObject->GetMappingAccess();
+        if (bufferObject->IsMapped() && !(mappingAccess & BufferMappingAccessBit::Persistent) &&
+            (offset < mappedRange.end) && (offset + size > mappedRange.start)) {
+            MG_State::pGLContext->RecordError(
+                ErrorCode::InvalidOperation,
+                MakeUnique<GenericErrorInfo>(
+                    "MG_Impl/GLImpl", "BufferSubData_State",
+                    "Cannot modify a non-persistently mapped buffer object."));
+            return;
+        }
+
         if (bufferObject->IsMapped() && !(mappingAccess & BufferMappingAccessBit::Persistent)) {
             Range1D mappedRange = bufferObject->GetMappedRange();
             if (offset + size >= mappedRange.start) {
@@ -474,11 +729,318 @@ namespace MobileGL::MG_Impl::GLImpl {
             return;
         }
 
+        if (bufferObject->IsImmutableStorage()) {
+            MG_State::pGLContext->RecordError(
+                ErrorCode::InvalidOperation,
+                MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", "BufferData_State",
+                                             "Cannot call glBufferData on immutable buffer storage."));
+            return;
+        }
+
         bufferObject->SetUsage(bufferUsage);
         bufferObject->Resize(size);
         if (data) {
             bufferObject->UploadData({(void*)data, (SizeT)size}, 0);
         }
+    }
+
+    void BufferStorage_State(GLenum target, GLsizeiptr size, const void* data, GLbitfield flags) {
+        if (size <= 0) {
+            MG_State::pGLContext->RecordError(
+                ErrorCode::InvalidValue,
+                MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", "BufferStorage_State", "Size must be positive."));
+            return;
+        }
+        if (!ValidateStorageFlags(flags, BufferOp::BufferStorage)) return;
+
+        auto bufferObject = GetBoundBufferObject(target, BufferOp::BufferStorage);
+        if (!bufferObject) return;
+        if (bufferObject->IsImmutableStorage()) {
+            MG_State::pGLContext->RecordError(
+                ErrorCode::InvalidOperation,
+                MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", "BufferStorage_State",
+                                             "Buffer already has immutable storage."));
+            return;
+        }
+        bufferObject->AllocateImmutableStorage(static_cast<SizeT>(size), data, flags);
+    }
+
+    void NamedBufferStorage_State(GLuint buffer, GLsizeiptr size, const void* data, GLbitfield flags) {
+        if (size <= 0) {
+            MG_State::pGLContext->RecordError(
+                ErrorCode::InvalidValue,
+                MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", "NamedBufferStorage_State", "Size must be positive."));
+            return;
+        }
+        if (!ValidateStorageFlags(flags, BufferOp::NamedBufferStorage)) return;
+
+        auto bufferObject = GetNamedBufferObject(buffer, BufferOp::NamedBufferStorage);
+        if (!bufferObject) return;
+        if (bufferObject->IsImmutableStorage()) {
+            MG_State::pGLContext->RecordError(
+                ErrorCode::InvalidOperation,
+                MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", "NamedBufferStorage_State",
+                                             "Buffer already has immutable storage."));
+            return;
+        }
+        bufferObject->AllocateImmutableStorage(static_cast<SizeT>(size), data, flags);
+    }
+
+    void NamedBufferData_State(GLuint buffer, GLsizeiptr size, const void* data, GLenum usage) {
+        if (size < 0) {
+            MG_State::pGLContext->RecordError(
+                ErrorCode::InvalidValue,
+                MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", "NamedBufferData_State", "Size must be non-negative."));
+            return;
+        }
+
+        BufferUsage bufferUsage = MG_Util::ConvertGLEnumToBufferUsage(usage);
+        if (!BufferImpl::ValidateBufferUsage(bufferUsage)) return;
+
+        auto bufferObject = GetNamedBufferObject(buffer, BufferOp::NamedBufferData);
+        if (!bufferObject) return;
+
+        if (bufferObject->IsImmutableStorage()) {
+            MG_State::pGLContext->RecordError(
+                ErrorCode::InvalidOperation,
+                MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", "NamedBufferData_State",
+                                             "Cannot call glNamedBufferData on immutable buffer storage."));
+            return;
+        }
+
+        bufferObject->SetUsage(bufferUsage);
+        bufferObject->Resize(size);
+        if (data) {
+            bufferObject->UploadData({(void*)data, (SizeT)size}, 0);
+        }
+    }
+
+    void NamedBufferSubData_State(GLuint buffer, GLintptr offset, GLsizeiptr size, const void* data) {
+        if (!data) {
+            MG_State::pGLContext->RecordError(
+                ErrorCode::NoError,
+                MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", "NamedBufferSubData_State",
+                                             "Data pointer cannot be null."));
+            return;
+        }
+        if (size < 0 || offset < 0) {
+            MG_State::pGLContext->RecordError(
+                ErrorCode::InvalidValue,
+                MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", "NamedBufferSubData_State",
+                                             "Offset and size must be non-negative."));
+            return;
+        }
+
+        auto bufferObject = GetNamedBufferObject(buffer, BufferOp::NamedBufferSubData);
+        if (!bufferObject) return;
+
+        if (bufferObject->IsImmutableStorage() && !(bufferObject->GetStorageFlags() & GL_DYNAMIC_STORAGE_BIT)) {
+            MG_State::pGLContext->RecordError(
+                ErrorCode::InvalidOperation,
+                MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", "NamedBufferSubData_State",
+                                             "Immutable buffer storage was not created with GL_DYNAMIC_STORAGE_BIT."));
+            return;
+        }
+        if (static_cast<SizeT>(offset) + static_cast<SizeT>(size) > bufferObject->GetSize()) {
+            MG_State::pGLContext->RecordError(
+                ErrorCode::InvalidValue,
+                MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", "NamedBufferSubData_State",
+                                             "Offset and size exceed buffer size."));
+            return;
+        }
+        const auto mappingAccess = bufferObject->GetMappingAccess();
+        const auto mappedRange = bufferObject->GetMappedRange();
+        if (bufferObject->IsMapped() && !(mappingAccess & BufferMappingAccessBit::Persistent) &&
+            (offset < mappedRange.end) && (offset + size > mappedRange.start)) {
+            MG_State::pGLContext->RecordError(
+                ErrorCode::InvalidOperation,
+                MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", "NamedBufferSubData_State",
+                                             "Cannot modify a non-persistently mapped buffer object."));
+            return;
+        }
+
+        bufferObject->UploadSubData({(void*)data, (SizeT)size}, offset);
+    }
+
+    void* MapNamedBuffer_State(GLuint buffer, GLenum access) {
+        Bool readable = access == GL_READ_ONLY || access == GL_READ_WRITE;
+        Bool writable = access == GL_WRITE_ONLY || access == GL_READ_WRITE;
+        if (access != GL_READ_ONLY && access != GL_WRITE_ONLY && access != GL_READ_WRITE) {
+            MG_State::pGLContext->RecordError(
+                ErrorCode::InvalidEnum,
+                MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", "MapNamedBuffer_State",
+                                             "Access must be one of GL_READ_ONLY, GL_WRITE_ONLY, or GL_READ_WRITE."));
+            return nullptr;
+        }
+
+        auto bufferObject = GetNamedBufferObject(buffer, BufferOp::MapNamedBuffer);
+        if (!bufferObject) return nullptr;
+        if (bufferObject->IsMapped()) {
+            MG_State::pGLContext->RecordError(
+                ErrorCode::InvalidOperation,
+                MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", "MapNamedBuffer_State",
+                                             "Cannot map a buffer object that is already mapped."));
+            return nullptr;
+        }
+
+        Flags<BufferMappingAccessBit> accessBits = BufferMappingAccessBit::Null;
+        if (readable) accessBits |= BufferMappingAccessBit::Read;
+        if (writable) accessBits |= BufferMappingAccessBit::Write;
+        if (!ValidateImmutableMapAccess(bufferObject, accessBits, BufferOp::MapNamedBuffer)) return nullptr;
+
+        return bufferObject->AcquireMemory(true, readable, writable);
+    }
+
+    void* MapNamedBufferRange_State(GLuint buffer, GLintptr offset, GLsizeiptr length, GLbitfield access) {
+        auto bufferObject = GetNamedBufferObject(buffer, BufferOp::MapNamedBufferRange);
+        if (!bufferObject) return nullptr;
+
+        if (length < 0 || offset < 0) {
+            MG_State::pGLContext->RecordError(
+                ErrorCode::InvalidValue,
+                MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", "MapNamedBufferRange_State",
+                                             "Offset and length must be non-negative."));
+            return nullptr;
+        }
+        if (length == 0) {
+            MG_State::pGLContext->RecordError(
+                ErrorCode::InvalidOperation,
+                MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", "MapNamedBufferRange_State",
+                                             "Length must be greater than zero."));
+            return nullptr;
+        }
+        if (static_cast<SizeT>(offset) + static_cast<SizeT>(length) > bufferObject->GetSize()) {
+            MG_State::pGLContext->RecordError(
+                ErrorCode::InvalidValue,
+                MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", "MapNamedBufferRange_State",
+                                             "Offset and length exceed buffer size."));
+            return nullptr;
+        }
+
+        auto accessBits = MG_Util::ConvertGLEnumToBufferMappingAccess(access);
+        if (!BufferImpl::ValidateBufferMappingAccess(accessBits)) return nullptr;
+        if (!(accessBits & (BufferMappingAccessBit::Read | BufferMappingAccessBit::Write))) {
+            MG_State::pGLContext->RecordError(
+                ErrorCode::InvalidOperation,
+                MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", "MapNamedBufferRange_State",
+                                             "At least one of GL_MAP_READ_BIT or GL_MAP_WRITE_BIT must be set."));
+            return nullptr;
+        }
+        if (accessBits & BufferMappingAccessBit::Read) {
+            const auto invalidFlags = BufferMappingAccessBit::InvalidateRange |
+                                      BufferMappingAccessBit::InvalidateBuffer | BufferMappingAccessBit::Unsynchronized;
+            if (accessBits & invalidFlags) {
+                MG_State::pGLContext->RecordError(
+                    ErrorCode::InvalidOperation,
+                    MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", "MapNamedBufferRange_State",
+                                                 "GL_MAP_READ_BIT cannot be combined with invalidation or unsynchronized flags."));
+                return nullptr;
+            }
+        }
+        if ((accessBits & BufferMappingAccessBit::FlushExplicit) && !(accessBits & BufferMappingAccessBit::Write)) {
+            MG_State::pGLContext->RecordError(
+                ErrorCode::InvalidOperation,
+                MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", "MapNamedBufferRange_State",
+                                             "GL_MAP_FLUSH_EXPLICIT_BIT requires GL_MAP_WRITE_BIT."));
+            return nullptr;
+        }
+        if ((accessBits & BufferMappingAccessBit::Persistent) && !(accessBits & (BufferMappingAccessBit::Read | BufferMappingAccessBit::Write))) {
+            MG_State::pGLContext->RecordError(
+                ErrorCode::InvalidOperation,
+                MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", "MapNamedBufferRange_State",
+                                             "GL_MAP_PERSISTENT_BIT requires GL_MAP_READ_BIT or GL_MAP_WRITE_BIT."));
+            return nullptr;
+        }
+        if ((accessBits & BufferMappingAccessBit::Coherent) && !(accessBits & BufferMappingAccessBit::Persistent)) {
+            MG_State::pGLContext->RecordError(
+                ErrorCode::InvalidOperation,
+                MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", "MapNamedBufferRange_State",
+                                             "GL_MAP_COHERENT_BIT requires GL_MAP_PERSISTENT_BIT."));
+            return nullptr;
+        }
+        if (!ValidateImmutableMapAccess(bufferObject, accessBits, BufferOp::MapNamedBufferRange)) return nullptr;
+
+        if (bufferObject->IsMapped()) {
+            const auto invalidateFlags =
+                BufferMappingAccessBit::InvalidateRange | BufferMappingAccessBit::InvalidateBuffer;
+            if (!(accessBits & invalidateFlags)) {
+                MG_State::pGLContext->RecordError(
+                    ErrorCode::InvalidOperation,
+                    MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", "MapNamedBufferRange_State",
+                                                 "Cannot map a buffer object that is already mapped."));
+                return nullptr;
+            }
+        }
+
+        return bufferObject->AcquireMemoryRange({static_cast<SizeT>(offset), static_cast<SizeT>(offset + length)},
+                                                accessBits);
+    }
+
+    GLboolean UnmapNamedBuffer_State(GLuint buffer) {
+        auto bufferObject = GetNamedBufferObject(buffer, BufferOp::UnmapNamedBuffer);
+        if (!bufferObject) return GL_FALSE;
+        if (!bufferObject->IsMapped()) {
+            MG_State::pGLContext->RecordError(
+                ErrorCode::InvalidOperation,
+                MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", "UnmapNamedBuffer_State",
+                                             "Cannot unmap a buffer object that is not mapped."));
+            return GL_FALSE;
+        }
+        bufferObject->ReleaseMemory();
+        return GL_TRUE;
+    }
+
+    void FlushMappedNamedBufferRange_State(GLuint buffer, GLintptr offset, GLsizeiptr length) {
+        auto bufferObject = GetNamedBufferObject(buffer, BufferOp::FlushMappedNamedBufferRange);
+        if (!bufferObject) return;
+        if (length < 0 || offset < 0) {
+            MG_State::pGLContext->RecordError(
+                ErrorCode::InvalidValue,
+                MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", "FlushMappedNamedBufferRange_State",
+                                             "Offset and length must be non-negative."));
+            return;
+        }
+        if (!bufferObject->IsMapped()) {
+            MG_State::pGLContext->RecordError(
+                ErrorCode::InvalidOperation,
+                MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", "FlushMappedNamedBufferRange_State",
+                                             "Cannot flush a buffer object that is not mapped."));
+            return;
+        }
+        const auto mappedRange = bufferObject->GetMappedRange();
+        if (static_cast<SizeT>(offset) + static_cast<SizeT>(length) > mappedRange.end - mappedRange.start) {
+            MG_State::pGLContext->RecordError(
+                ErrorCode::InvalidValue,
+                MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", "FlushMappedNamedBufferRange_State",
+                                             "Offset and length exceed mapped range."));
+            return;
+        }
+        if (!(bufferObject->GetMappingAccess() & BufferMappingAccessBit::FlushExplicit)) {
+            MG_State::pGLContext->RecordError(
+                ErrorCode::InvalidOperation,
+                MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", "FlushMappedNamedBufferRange_State",
+                                             "Cannot flush a buffer object that is not mapped with GL_MAP_FLUSH_EXPLICIT_BIT."));
+            return;
+        }
+        bufferObject->FlushMemoryRange(static_cast<SizeT>(offset), static_cast<SizeT>(length));
+    }
+
+    void GetNamedBufferParameteriv_State(GLuint buffer, GLenum pname, GLint* params) {
+        auto bufferObject = GetNamedBufferObject(buffer, BufferOp::GetNamedBufferParameteriv);
+        if (!bufferObject) return;
+        GetBufferParameteriv_Object(bufferObject, pname, params, BufferOp::GetNamedBufferParameteriv);
+    }
+
+    void GetNamedBufferParameteri64v_State(GLuint buffer, GLenum pname, GLint64* params) {
+        auto bufferObject = GetNamedBufferObject(buffer, BufferOp::GetNamedBufferParameteri64v);
+        if (!bufferObject) return;
+        GetBufferParameteri64v_Object(bufferObject, pname, params, BufferOp::GetNamedBufferParameteri64v);
+    }
+
+    void GetNamedBufferPointerv_State(GLuint buffer, GLenum pname, void** params) {
+        auto bufferObject = GetNamedBufferObject(buffer, BufferOp::GetNamedBufferPointerv);
+        if (!bufferObject) return;
+        GetBufferPointerv_Object(bufferObject, pname, params, BufferOp::GetNamedBufferPointerv);
     }
 
     void BindBuffer_State(GLenum target, GLuint buffer) {
@@ -558,6 +1120,14 @@ namespace MobileGL::MG_Impl::GLImpl {
         GetBufferParameteriv_State(target, pname, params);
     }
 
+    void GetBufferParameteri64v(GLenum target, GLenum pname, GLint64* params) {
+        GetBufferParameteri64v_State(target, pname, params);
+    }
+
+    void GetBufferPointerv(GLenum target, GLenum pname, void** params) {
+        GetBufferPointerv_State(target, pname, params);
+    }
+
     GLboolean IsBuffer(GLuint buffer) {
         return IsBuffer_State(buffer);
     }
@@ -580,6 +1150,50 @@ namespace MobileGL::MG_Impl::GLImpl {
 
     void* MapBuffer(GLenum target, GLenum access) {
         return MapBuffer_State(target, access);
+    }
+
+    void BufferStorage(GLenum target, GLsizeiptr size, const void* data, GLbitfield flags) {
+        BufferStorage_State(target, size, data, flags);
+    }
+
+    void NamedBufferStorage(GLuint buffer, GLsizeiptr size, const void* data, GLbitfield flags) {
+        NamedBufferStorage_State(buffer, size, data, flags);
+    }
+
+    void NamedBufferData(GLuint buffer, GLsizeiptr size, const void* data, GLenum usage) {
+        NamedBufferData_State(buffer, size, data, usage);
+    }
+
+    void NamedBufferSubData(GLuint buffer, GLintptr offset, GLsizeiptr size, const void* data) {
+        NamedBufferSubData_State(buffer, offset, size, data);
+    }
+
+    void* MapNamedBuffer(GLuint buffer, GLenum access) {
+        return MapNamedBuffer_State(buffer, access);
+    }
+
+    void* MapNamedBufferRange(GLuint buffer, GLintptr offset, GLsizeiptr length, GLbitfield access) {
+        return MapNamedBufferRange_State(buffer, offset, length, access);
+    }
+
+    GLboolean UnmapNamedBuffer(GLuint buffer) {
+        return UnmapNamedBuffer_State(buffer);
+    }
+
+    void FlushMappedNamedBufferRange(GLuint buffer, GLintptr offset, GLsizeiptr length) {
+        FlushMappedNamedBufferRange_State(buffer, offset, length);
+    }
+
+    void GetNamedBufferParameteriv(GLuint buffer, GLenum pname, GLint* params) {
+        GetNamedBufferParameteriv_State(buffer, pname, params);
+    }
+
+    void GetNamedBufferParameteri64v(GLuint buffer, GLenum pname, GLint64* params) {
+        GetNamedBufferParameteri64v_State(buffer, pname, params);
+    }
+
+    void GetNamedBufferPointerv(GLuint buffer, GLenum pname, void** params) {
+        GetNamedBufferPointerv_State(buffer, pname, params);
     }
 
     // FIXME: this should be a "backend" function

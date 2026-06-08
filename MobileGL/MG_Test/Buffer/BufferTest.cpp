@@ -477,6 +477,157 @@ TEST_F(GeneralBufferTest, General_MapFlags) {
     EXPECT_EQ(GetError(), GL_NO_ERROR);
 }
 
+TEST_F(GeneralBufferTest, General_BufferStorageQueriesImmutable) {
+    GLuint buffer = 0;
+    GenBuffers(1, &buffer);
+    BindBuffer(GL_ARRAY_BUFFER, buffer);
+
+    const GLint initial[] = {1, 2, 3, 4};
+    constexpr GLbitfield storageFlags = GL_DYNAMIC_STORAGE_BIT | GL_MAP_WRITE_BIT | GL_MAP_PERSISTENT_BIT;
+    BufferStorage(GL_ARRAY_BUFFER, sizeof(initial), initial, storageFlags);
+    EXPECT_EQ(GetError(), GL_NO_ERROR);
+
+    GLint immutable = GL_FALSE;
+    GLint reportedFlags = 0;
+    GetBufferParameteriv(GL_ARRAY_BUFFER, GL_BUFFER_IMMUTABLE_STORAGE, &immutable);
+    GetBufferParameteriv(GL_ARRAY_BUFFER, GL_BUFFER_STORAGE_FLAGS, &reportedFlags);
+    EXPECT_EQ(immutable, GL_TRUE);
+    EXPECT_EQ(reportedFlags, static_cast<GLint>(storageFlags));
+
+    const GLint update = 42;
+    BufferSubData(GL_ARRAY_BUFFER, sizeof(GLint), sizeof(update), &update);
+    EXPECT_EQ(GetError(), GL_NO_ERROR);
+
+    BufferData(GL_ARRAY_BUFFER, sizeof(initial), initial, GL_DYNAMIC_DRAW);
+    EXPECT_EQ(GetError(), GL_INVALID_OPERATION);
+}
+
+TEST_F(GeneralBufferTest, General_PersistentMapRequiresStorageFlags) {
+    GLuint mutableBuffer = CreateBoundBuffer(GL_ARRAY_BUFFER, 64, GL_DYNAMIC_DRAW);
+    (void)mutableBuffer;
+    void* mapped = MapBufferRange(GL_ARRAY_BUFFER, 0, 16, GL_MAP_WRITE_BIT | GL_MAP_PERSISTENT_BIT);
+    EXPECT_EQ(mapped, nullptr);
+    EXPECT_EQ(GetError(), GL_INVALID_OPERATION);
+
+    GLuint storageBuffer = 0;
+    GenBuffers(1, &storageBuffer);
+    BindBuffer(GL_ARRAY_BUFFER, storageBuffer);
+    BufferStorage(GL_ARRAY_BUFFER, 64, nullptr, GL_MAP_WRITE_BIT);
+    EXPECT_EQ(GetError(), GL_NO_ERROR);
+    mapped = MapBufferRange(GL_ARRAY_BUFFER, 0, 16, GL_MAP_WRITE_BIT | GL_MAP_PERSISTENT_BIT);
+    EXPECT_EQ(mapped, nullptr);
+    EXPECT_EQ(GetError(), GL_INVALID_OPERATION);
+
+    GLuint persistentBuffer = 0;
+    GenBuffers(1, &persistentBuffer);
+    BindBuffer(GL_ARRAY_BUFFER, persistentBuffer);
+    BufferStorage(GL_ARRAY_BUFFER, 64, nullptr, GL_MAP_WRITE_BIT | GL_MAP_PERSISTENT_BIT | GL_CLIENT_STORAGE_BIT);
+    EXPECT_EQ(GetError(), GL_NO_ERROR);
+    mapped = MapBufferRange(GL_ARRAY_BUFFER, 0, 16, GL_MAP_WRITE_BIT | GL_MAP_PERSISTENT_BIT);
+    ASSERT_NE(mapped, nullptr);
+    EXPECT_TRUE(UnmapBuffer(GL_ARRAY_BUFFER));
+    EXPECT_EQ(GetError(), GL_NO_ERROR);
+}
+
+TEST_F(GeneralBufferTest, General_PersistentCoherentWriteDirtyWithoutUnmap) {
+    GLuint buffer = 0;
+    GenBuffers(1, &buffer);
+    BindBuffer(GL_ARRAY_BUFFER, buffer);
+
+    GLint initial[] = {10, 20, 30, 40};
+    BufferStorage(GL_ARRAY_BUFFER, sizeof(initial), initial,
+                  GL_MAP_WRITE_BIT | GL_MAP_PERSISTENT_BIT | GL_MAP_COHERENT_BIT);
+    EXPECT_EQ(GetError(), GL_NO_ERROR);
+
+    auto bufferObject = MG_State::pGLContext->GetBufferObject(buffer);
+    ASSERT_NE(bufferObject, nullptr);
+    bufferObject->ClearDirty();
+
+    auto* mapped = static_cast<GLint*>(
+        MapBufferRange(GL_ARRAY_BUFFER, 0, sizeof(initial),
+                       GL_MAP_WRITE_BIT | GL_MAP_PERSISTENT_BIT | GL_MAP_COHERENT_BIT));
+    ASSERT_NE(mapped, nullptr);
+    mapped[2] = 1234;
+
+    bufferObject->MarkPersistentMappedRangeDirty();
+    ASSERT_FALSE(bufferObject->GetDirtyRanges().empty());
+    EXPECT_EQ(bufferObject->GetDirtyRanges()[0].start, 0);
+    EXPECT_EQ(bufferObject->GetDirtyRanges()[0].end, sizeof(initial));
+
+    const auto data = bufferObject->GetDataReadOnly();
+    EXPECT_EQ(reinterpret_cast<const GLint*>(data->data())[2], 1234);
+    EXPECT_TRUE(UnmapBuffer(GL_ARRAY_BUFFER));
+    EXPECT_EQ(GetError(), GL_NO_ERROR);
+}
+
+TEST_F(GeneralBufferTest, General_PersistentExplicitFlushOnlyDirtiesFlushedRange) {
+    GLuint buffer = 0;
+    GenBuffers(1, &buffer);
+    BindBuffer(GL_ARRAY_BUFFER, buffer);
+
+    GLint initial[] = {10, 20, 30, 40};
+    BufferStorage(GL_ARRAY_BUFFER, sizeof(initial), initial, GL_MAP_WRITE_BIT | GL_MAP_PERSISTENT_BIT);
+    EXPECT_EQ(GetError(), GL_NO_ERROR);
+
+    auto bufferObject = MG_State::pGLContext->GetBufferObject(buffer);
+    ASSERT_NE(bufferObject, nullptr);
+    bufferObject->ClearDirty();
+
+    auto* mapped = static_cast<GLint*>(
+        MapBufferRange(GL_ARRAY_BUFFER, 0, sizeof(initial),
+                       GL_MAP_WRITE_BIT | GL_MAP_PERSISTENT_BIT | GL_MAP_FLUSH_EXPLICIT_BIT));
+    ASSERT_NE(mapped, nullptr);
+    mapped[1] = 200;
+    mapped[3] = 400;
+
+    bufferObject->MarkPersistentMappedRangeDirty();
+    EXPECT_TRUE(bufferObject->GetDirtyRanges().empty());
+
+    FlushMappedBufferRange(GL_ARRAY_BUFFER, sizeof(GLint), sizeof(GLint));
+    ASSERT_FALSE(bufferObject->GetDirtyRanges().empty());
+    EXPECT_EQ(bufferObject->GetDirtyRanges()[0].start, sizeof(GLint));
+    EXPECT_EQ(bufferObject->GetDirtyRanges()[0].end, sizeof(GLint) * 2);
+
+    EXPECT_TRUE(UnmapBuffer(GL_ARRAY_BUFFER));
+    EXPECT_EQ(GetError(), GL_NO_ERROR);
+}
+
+TEST_F(GeneralBufferTest, General_NamedBufferStorageMappingWrappers) {
+    GLuint buffer = 0;
+    GenBuffers(1, &buffer);
+
+    GLint initial[] = {1, 2, 3, 4};
+    NamedBufferStorage(buffer, sizeof(initial), initial,
+                       GL_DYNAMIC_STORAGE_BIT | GL_MAP_WRITE_BIT | GL_MAP_PERSISTENT_BIT);
+    EXPECT_EQ(GetError(), GL_NO_ERROR);
+
+    GLint immutable = GL_FALSE;
+    GetNamedBufferParameteriv(buffer, GL_BUFFER_IMMUTABLE_STORAGE, &immutable);
+    EXPECT_EQ(immutable, GL_TRUE);
+
+    auto bufferObject = MG_State::pGLContext->GetBufferObject(buffer);
+    ASSERT_NE(bufferObject, nullptr);
+    bufferObject->ClearDirty();
+
+    auto* mapped = static_cast<GLint*>(
+        MapNamedBufferRange(buffer, 0, sizeof(initial),
+                            GL_MAP_WRITE_BIT | GL_MAP_PERSISTENT_BIT | GL_MAP_FLUSH_EXPLICIT_BIT));
+    ASSERT_NE(mapped, nullptr);
+    mapped[0] = 99;
+
+    void* mapPointer = nullptr;
+    GetNamedBufferPointerv(buffer, GL_BUFFER_MAP_POINTER, &mapPointer);
+    EXPECT_EQ(mapPointer, mapped);
+
+    FlushMappedNamedBufferRange(buffer, 0, sizeof(GLint));
+    ASSERT_FALSE(bufferObject->GetDirtyRanges().empty());
+    EXPECT_EQ(bufferObject->GetDirtyRanges()[0].start, 0);
+    EXPECT_EQ(bufferObject->GetDirtyRanges()[0].end, sizeof(GLint));
+
+    EXPECT_TRUE(UnmapNamedBuffer(buffer));
+    EXPECT_EQ(GetError(), GL_NO_ERROR);
+}
+
 TEST_F(GeneralBufferTest, General_GeneralTest_1) {
     GLuint buffers[3];
     GenBuffers(3, buffers);

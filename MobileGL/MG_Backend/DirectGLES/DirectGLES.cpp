@@ -106,6 +106,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
 
     namespace BufferImpl {
         void CreateAndSyncBufferObject(const SharedPtr<MG_State::GLState::BufferObject>& bufferObject) {
+            bufferObject->MarkPersistentMappedRangeDirty();
             if (!(bufferObject->GetChangeBits() & BufferChangeBits::DirtyBit)) return;
 
             const auto& backendBufferIt = g_backendBufferObjects.find(bufferObject.get());

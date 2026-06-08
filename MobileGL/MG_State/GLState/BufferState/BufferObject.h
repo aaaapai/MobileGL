@@ -80,22 +80,27 @@ namespace MobileGL {
             BufferObject(Uint externalIndex);
 
             void Resize(SizeT size);
+            void AllocateImmutableStorage(SizeT size, const void* data, GLbitfield storageFlags);
             void UploadData(DataPtr data, SizeT atOffset);
             void SetUsage(BufferUsage usage);
             void* AcquireMemory(Bool markMapped, Bool read, Bool write);
             void* AcquireMemoryRange(Range1D range, Flags<BufferMappingAccessBit> access);
             void ReleaseMemory();
             void FlushMemoryRange(SizeT offset, SizeT length);
+            void MarkPersistentMappedRangeDirty();
             void UploadSubData(DataPtr data, SizeT atOffset);
             void CopyDataFrom(const SharedPtr<BufferObject>& src, SizeT srcOffset, SizeT dstOffset, SizeT size);
             void ClearDirty();
 
             Bool IsMapped() const;
+            Bool IsImmutableStorage() const;
             SizeT GetSize() const;
             BufferUsage GetUsage() const;
             Range1D GetMappedRange() const;
+            void* GetMappedPointer() const;
             const SharedPtr<Data>& GetDataReadOnly() const;
             Flags<BufferMappingAccessBit> GetMappingAccess() const;
+            GLbitfield GetStorageFlags() const;
             Uint GetExternalIndex() const;
             const VecRange1D& GetDirtyRanges() const;
             Flags<BufferChangeBits> GetChangeBits() const;
@@ -108,6 +113,8 @@ namespace MobileGL {
             SharedPtr<Data> m_dataPtr;
             Bool m_isMapped;
             Flags<BufferMappingAccessBit> m_mappingAccess;
+            Bool m_isImmutableStorage = false;
+            GLbitfield m_storageFlags = 0;
             BufferChange m_change;
             Uint64 m_changeSerial = 0;
             Range1D m_mappedRange;
