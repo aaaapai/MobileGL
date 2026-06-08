@@ -9,8 +9,8 @@ set(CMAKE_ANDROID_LD "lld")
 set(CMAKE_BUILD_TYPE Release)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 option(MOBILEGL_FORCE_RELEASE_OPT "Enable Release optimization flags in Debug build" ON)
-set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -DUseABSL -O3 -pipe -integrated-as -mllvm -polly -mllvm -polly-vectorizer=stripmine -mllvm -polly-invariant-load-hoisting -mllvm -polly-run-inliner -mllvm -polly-run-dce -mllvm -polly-invariant-load-hoisting -flto -mllvm -polly-run-inliner -mllvm -polly-run-dce -fdata-sections -ffunction-sections -mllvm -polly-detect-keep-going -mllvm -polly-ast-use-context -march=armv8-a+simd -fvisibility=hidden -Wall -Wextra -ferror-limit=0 -Wno-return-type -Wno-unused-parameter -Wno-c++98-compat -Wno-c++98-compat-pedantic -DGLM_FORCE_INTRINSICS -Wno-unicode-whitespace -Wno-format -Wno-unused-function -fmerge-all-constants -D_FILE_OFFSET_BITS=64 -D__USE_BSD -D_ALLBSD_SOURCE -mllvm -inlinehint-threshold=100000 -D_GNU_SOURCE -D__USE_GNU")
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O3 -pipe -integrated-as -mllvm -polly -mllvm -polly-vectorizer=stripmine -mllvm -polly-invariant-load-hoisting -mllvm -polly-run-inliner -mllvm -polly-run-dce -mllvm -polly-invariant-load-hoisting -flto -mllvm -polly-run-inliner -mllvm -polly-run-dce -fdata-sections -ffunction-sections -mllvm -polly-detect-keep-going -mllvm -polly-ast-use-context -march=armv8-a+simd -fvisibility=hidden -Wall -Wextra -ferror-limit=0 -Wno-return-type -Wno-unused-parameter -Wno-c++98-compat -Wno-c++98-compat-pedantic -DGLM_FORCE_INTRINSICS -Wno-unicode-whitespace -Wno-format -Wno-unused-function -Wno-vla-cxx-extension -frtti -fmerge-all-constants -D_FILE_OFFSET_BITS=64 -D__USE_BSD -D_ALLBSD_SOURCE -mllvm -inlinehint-threshold=100000 -DUseABSL -D_GNU_SOURCE -D__USE_GNU")
+set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -DUseABSL -O3 -pipe -integrated-as -mllvm -polly -mllvm -polly-vectorizer=stripmine -mllvm -polly-invariant-load-hoisting -mllvm -polly-run-inliner -mllvm -polly-run-dce -mllvm -polly-invariant-load-hoisting -flto -mllvm -polly-run-inliner -mllvm -polly-run-dce -fdata-sections -ffunction-sections -mllvm -polly-detect-keep-going -mllvm -polly-ast-use-context -march=armv8-a+simd -fvisibility=hidden -Wall -Wextra -ferror-limit=0 -Wno-return-type -Wno-unused-parameter -Wno-c++98-compat -Wno-c++98-compat-pedantic -DGLM_FORCE_INTRINSICS -Wno-unicode-whitespace -Wno-format -Wno-unused-function -fmerge-all-constants -D_FILE_OFFSET_BITS=64 -D__USE_BSD -D_ALLBSD_SOURCE -mllvm -inlinehint-threshold=100000 -D_GNU_SOURCE -U__USE_GNU")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O3 -pipe -integrated-as -mllvm -polly -mllvm -polly-vectorizer=stripmine -mllvm -polly-invariant-load-hoisting -mllvm -polly-run-inliner -mllvm -polly-run-dce -mllvm -polly-invariant-load-hoisting -flto -mllvm -polly-run-inliner -mllvm -polly-run-dce -fdata-sections -ffunction-sections -mllvm -polly-detect-keep-going -mllvm -polly-ast-use-context -march=armv8-a+simd -fvisibility=hidden -Wall -Wextra -ferror-limit=0 -Wno-return-type -Wno-unused-parameter -Wno-c++98-compat -Wno-c++98-compat-pedantic -DGLM_FORCE_INTRINSICS -Wno-unicode-whitespace -Wno-format -Wno-unused-function -Wno-vla-cxx-extension -frtti -fmerge-all-constants -D_FILE_OFFSET_BITS=64 -D__USE_BSD -D_ALLBSD_SOURCE -mllvm -inlinehint-threshold=100000 -DUseABSL -D_GNU_SOURCE -U__USE_GNU")
 set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -fuse-ld=lld -flto -O3 -Wl,--strip-all -fvisibility=hidden -Wl,-O3 -Wl,--gc-sections -Wl,--as-needed -static-libstdc++ -Wl,--exclude-libs,ALL -Wl,--lto-O3")
 include(FetchContent)
 FetchContent_Declare(
@@ -72,8 +72,8 @@ set(ENABLE_RTTI                ON  CACHE BOOL "Enables RTTI (will be took by gls
 
 set(ENABLE_GLSLANG_BINARIES    OFF CACHE BOOL "Enable glslangValidator/spirv-remap" FORCE)
 set(ENABLE_SPVREMAPPER         OFF CACHE BOOL "Enable SPVRemapper" FORCE)
-set(ENABLE_OPT                 OFF  CACHE BOOL "Enable SPIRV-Tools opt usage in glslang" FORCE)
-set(BUILD_EXTERNAL             OFF  CACHE BOOL "Build external deps in External/" FORCE)
+set(ENABLE_OPT                 ON  CACHE BOOL "Enable SPIRV-Tools opt usage in glslang" FORCE)
+set(BUILD_EXTERNAL             ON  CACHE BOOL "Build external deps in External/" FORCE)
 set(ENABLE_GLSLANG_INSTALL     OFF CACHE BOOL "Install glslang targets" FORCE)
 
 set(SPIRV_CROSS_C_API          ON  CACHE BOOL "Enable C API" FORCE)
