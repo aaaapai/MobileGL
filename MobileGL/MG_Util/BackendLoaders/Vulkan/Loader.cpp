@@ -83,6 +83,7 @@ namespace MobileGL::MG_Util::BackendLoader {
         caps.DeviceName = p.deviceName;
         caps.DriverVersionString = DecodeDriverVersion(p.driverVersion);
         caps.UniformBufferOffsetAlignment = static_cast<int>(p.limits.minUniformBufferOffsetAlignment);
+        caps.MaxShaderStorageBlockSize = static_cast<SizeT>(p.limits.maxStorageBufferRange);
 
         return true;
     }
@@ -93,5 +94,6 @@ namespace MobileGL::MG_Util::BackendLoader {
         caps.DeviceName = properties.deviceName;
         caps.DriverVersionString = DecodeDriverVersion(properties.driverVersion);
         caps.UniformBufferOffsetAlignment = static_cast<int>(properties.limits.minUniformBufferOffsetAlignment);
+        caps.MaxShaderStorageBlockSize = static_cast<SizeT>(properties.limits.maxStorageBufferRange);
     }
 } // namespace MobileGL::MG_Util::BackendLoader

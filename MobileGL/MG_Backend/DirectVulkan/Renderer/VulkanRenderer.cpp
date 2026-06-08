@@ -1226,6 +1226,127 @@ void main() {
             const char* value = std::getenv("MOBILEGL_PRESENT_STATS");
             return value != nullptr && value[0] == '1' && value[1] == '\0';
         }
+
+        static Bool IsBgraVkFormat(VkFormat format) {
+            switch (format) {
+                case VK_FORMAT_B8G8R8A8_UNORM:
+                case VK_FORMAT_B8G8R8A8_SNORM:
+                case VK_FORMAT_B8G8R8A8_SRGB:
+                    return true;
+                default:
+                    return false;
+            }
+        }
+
+        static SizeT AlignPixelRow(SizeT rowBytes, Int alignment) {
+            const SizeT resolvedAlignment = static_cast<SizeT>(std::max(alignment, 1));
+            return (rowBytes + resolvedAlignment - 1) & ~(resolvedAlignment - 1);
+        }
+
+        static Int GetReadbackChannelCount(GLenum format) {
+            switch (format) {
+                case GL_RGB:
+                case GL_BGR:
+                    return 3;
+                case GL_RGBA:
+                case GL_BGRA:
+                    return 4;
+                default:
+                    return 0;
+            }
+        }
+
+        static void StoreReadbackPixel(const Uint8* src, Bool srcIsBgra, GLenum dstFormat, Uint8* dst) {
+            const Uint8 r = srcIsBgra ? src[2] : src[0];
+            const Uint8 g = src[1];
+            const Uint8 b = srcIsBgra ? src[0] : src[2];
+            const Uint8 a = src[3];
+
+            switch (dstFormat) {
+                case GL_RGB:
+                    dst[0] = r;
+                    dst[1] = g;
+                    dst[2] = b;
+                    break;
+                case GL_BGR:
+                    dst[0] = b;
+                    dst[1] = g;
+                    dst[2] = r;
+                    break;
+                case GL_RGBA:
+                    dst[0] = r;
+                    dst[1] = g;
+                    dst[2] = b;
+                    dst[3] = a;
+                    break;
+                case GL_BGRA:
+                    dst[0] = b;
+                    dst[1] = g;
+                    dst[2] = r;
+                    dst[3] = a;
+                    break;
+                default:
+                    break;
+            }
+        }
+
+        static Bool PackReadbackToClientOrPbo(const Uint8* srcPixels, VkFormat srcFormat, GLsizei width,
+                                              GLsizei height, GLenum format, GLenum type, void* pixels) {
+            if (width <= 0 || height <= 0) {
+                return true;
+            }
+            if (type != GL_UNSIGNED_BYTE) {
+                MGLOG_E("DirectVulkan readback skipped: unsupported type=0x%x", type);
+                return false;
+            }
+
+            const Int dstChannels = GetReadbackChannelCount(format);
+            if (dstChannels == 0) {
+                MGLOG_E("DirectVulkan readback skipped: unsupported format=0x%x", format);
+                return false;
+            }
+
+            const auto packParams = MG_State::pGLContext->GetPixelStoreParameters(false);
+            const SizeT rowPixels = static_cast<SizeT>(packParams.RowLength > 0 ? packParams.RowLength : width);
+            const SizeT dstRowStride = AlignPixelRow(rowPixels * static_cast<SizeT>(dstChannels),
+                                                     packParams.Alignment);
+            const SizeT dstOffset = static_cast<SizeT>(std::max(packParams.SkipRows, 0)) * dstRowStride +
+                                    static_cast<SizeT>(std::max(packParams.SkipPixels, 0)) *
+                                        static_cast<SizeT>(dstChannels);
+            const SizeT packedSize = dstOffset +
+                                     (static_cast<SizeT>(height - 1) * dstRowStride) +
+                                     (static_cast<SizeT>(width) * static_cast<SizeT>(dstChannels));
+            Vector<Uint8> packed(packedSize, 0);
+
+            const Bool srcIsBgra = IsBgraVkFormat(srcFormat);
+            for (GLsizei row = 0; row < height; ++row) {
+                const Uint8* srcRow = srcPixels + static_cast<SizeT>(row) * static_cast<SizeT>(width) * 4;
+                Uint8* dstRow = packed.data() + dstOffset + static_cast<SizeT>(row) * dstRowStride;
+                for (GLsizei col = 0; col < width; ++col) {
+                    StoreReadbackPixel(srcRow + static_cast<SizeT>(col) * 4,
+                                       srcIsBgra,
+                                       format,
+                                       dstRow + static_cast<SizeT>(col) * static_cast<SizeT>(dstChannels));
+                }
+            }
+
+            const auto& pixelPackBufferObject =
+                MG_State::pGLContext->GetBufferBindingSlot(BufferTarget::PixelPack).GetBoundObject();
+            if (pixelPackBufferObject) {
+                const SizeT pboOffset = reinterpret_cast<SizeT>(pixels);
+                if (pboOffset + packed.size() > pixelPackBufferObject->GetSize()) {
+                    MGLOG_E("DirectVulkan readback skipped: pixel pack buffer is too small");
+                    return false;
+                }
+                pixelPackBufferObject->UploadSubData({packed.data(), packed.size()}, pboOffset);
+                return true;
+            }
+
+            if (pixels != nullptr && !packed.empty()) {
+                Memcpy(pixels, packed.data(), packed.size());
+            }
+            return true;
+        }
     } // namespace
 
     VkBool32 VulkanRenderer::DebugCallback(VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity,
@@ -1607,7 +1728,10 @@ void main() {
             ++syntheticBinding;
         }
 
-        vkCmdBindVertexBuffers(commandBuffer, 0, static_cast<Uint32>(bindingCount), vkBuffers.data(), vkOffsets.data());
+        if (bindingCount > 0) {
+            vkCmdBindVertexBuffers(commandBuffer, 0, static_cast<Uint32>(bindingCount), vkBuffers.data(),
+                                   vkOffsets.data());
+        }
         return true;
     }
 
@@ -2747,6 +2871,55 @@ void main() {
         vkCmdDispatch(frame.commandBuffer, numGroupsX, numGroupsY, numGroupsZ);
     }
 
+    void VulkanRenderer::DispatchComputeIndirect(GLintptr indirect) {
+        m_textureManager->CollectGarbage();
+        auto& frame = m_frameContext.GetCurrent();
+        const auto& program = *MG_State::pGLContext->GetCurrentProgram();
+        ProgramFactory::CompileOptionFlags transformFlags = 0;
+        const auto& programObj = m_programFactory->GetOrCreateProgram(program, transformFlags);
+
+        if (!frame.isCommandRecording) {
+            m_frameContext.BeginCommandRecording();
+            m_uniformManager->BeginFrame(m_frameContext.GetCurrentFrameIndex());
+        }
+
+        if (VkRenderPassManager::GetActiveRenderPass() != nullptr) {
+            VkRenderPassManager::EndRenderPass(frame.commandBuffer);
+        }
+
+        const VkPipeline pipeline = GetOrCreateComputePipeline(programObj);
+        if (pipeline == VK_NULL_HANDLE) {
+            MGLOG_E("DispatchComputeIndirect skipped: compute pipeline creation failed for program=%u",
+                    program.GetExternalIndex());
+            return;
+        }
+
+        vkCmdBindPipeline(frame.commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, pipeline);
+        const Bool boundUniforms = m_uniformManager->BindProgramUniformBuffers(
+            frame.commandBuffer, program, programObj, m_frameContext.GetCurrentFrameIndex(),
+            VK_PIPELINE_BIND_POINT_COMPUTE);
+        if (!boundUniforms) {
+            MGLOG_E("DispatchComputeIndirect skipped: BindProgramUniformBuffers failed");
+            return;
+        }
+
+        auto indirectBuffer = MG_State::pGLContext->GetBufferBindingSlot(BufferTarget::DispatchIndirect).GetBoundObject();
+        if (!indirectBuffer) {
+            MGLOG_E("DispatchComputeIndirect skipped: GL_DISPATCH_INDIRECT_BUFFER is not bound");
+            return;
+        }
+        indirectBuffer->MarkPersistentMappedRangeDirty();
+
+        BufferSlice slice{};
+        if (!m_bufferManager.SyncResidentBuffer(BufferKind::Indirect, indirectBuffer, slice)) {
+            MGLOG_E("DispatchComputeIndirect skipped: failed to sync indirect dispatch buffer");
+            return;
+        }
+
+        MGLOG_D("DirectVulkan: glDispatchComputeIndirect(offset=%zu)", static_cast<SizeT>(indirect));
+        vkCmdDispatchIndirect(frame.commandBuffer, slice.buffer, slice.offset + static_cast<VkDeviceSize>(indirect));
+    }
+
     void VulkanRenderer::MemoryBarrier(GLbitfield barriers) {
         auto& frame = m_frameContext.GetCurrent();
         if (!frame.isCommandRecording) {
@@ -2791,17 +2964,16 @@ void main() {
         m_clearManager->QueueClear(mask, payload, *fbo);
     }
 
-    void VulkanRenderer::QueueClearBufferPayload(GLenum buffer, GLint drawbuffer,
-                                                 const ClearAttachmentPayload& clearPayload) {
+    void VulkanRenderer::QueueClearBufferPayloadForFramebuffer(
+            const MG_State::GLState::FramebufferObject& framebuffer, GLenum buffer, GLint drawbuffer,
+            const ClearAttachmentPayload& clearPayload) {
         m_clearManager->CollectGarbage();
-        auto* fbo = MG_State::pGLContext->GetFramebufferBindingSlot(FramebufferTarget::Draw).GetBoundObject().get();
-        MOBILEGL_ASSERT(fbo, "VulkanRenderer::QueueClearBufferPayload: draw framebuffer not found");
 
         auto queueAttachmentClear = [&](FramebufferAttachmentType attachmentType) {
             if (attachmentType == FramebufferAttachmentType::None) {
                 return;
             }
-            const auto& attachment = fbo->GetAttachment(attachmentType);
+            const auto& attachment = framebuffer.GetAttachment(attachmentType);
             if (!attachment.IsTexture() || attachment.IsRenderbuffer()) {
                 return;
             }
@@ -2819,7 +2991,7 @@ void main() {
                     RecordClearBufferError(__func__, ErrorCode::InvalidValue, "color drawbuffer index is out of range");
                     return;
                 }
-                queueAttachmentClear(fbo->GetDrawBuffers()[drawbuffer]);
+                queueAttachmentClear(framebuffer.GetDrawBuffers()[drawbuffer]);
                 return;
             }
             case GL_DEPTH:
@@ -2850,6 +3022,13 @@ void main() {
         }
     }
 
+    void VulkanRenderer::QueueClearBufferPayload(GLenum buffer, GLint drawbuffer,
+                                                 const ClearAttachmentPayload& clearPayload) {
+        auto* fbo = MG_State::pGLContext->GetFramebufferBindingSlot(FramebufferTarget::Draw).GetBoundObject().get();
+        MOBILEGL_ASSERT(fbo, "VulkanRenderer::QueueClearBufferPayload: draw framebuffer not found");
+        QueueClearBufferPayloadForFramebuffer(*fbo, buffer, drawbuffer, clearPayload);
+    }
+
     void VulkanRenderer::ClearBufferfi(GLenum buffer, GLint drawbuffer, GLfloat depth, GLint stencil) {
         ClearAttachmentPayload payload{};
         payload.mask = GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT;
@@ -2876,6 +3055,41 @@ void main() {
                 break;
         }
         QueueClearBufferPayload(buffer, drawbuffer, payload);
+    }
+
+    void VulkanRenderer::ClearNamedFramebufferfv(
+            const SharedPtr<MG_State::GLState::FramebufferObject>& framebuffer, GLenum buffer, GLint drawbuffer,
+            const GLfloat* value) {
+        if (!framebuffer || value == nullptr) {
+            return;
+        }
+        ClearAttachmentPayload payload{};
+        switch (buffer) {
+            case GL_COLOR:
+                payload.mask = GL_COLOR_BUFFER_BIT;
+                payload.color = FloatVec4(value[0], value[1], value[2], value[3]);
+                break;
+            case GL_DEPTH:
+                payload.mask = GL_DEPTH_BUFFER_BIT;
+                payload.depth = value[0];
+                break;
+            default:
+                break;
+        }
+        QueueClearBufferPayloadForFramebuffer(*framebuffer, buffer, drawbuffer, payload);
+    }
+
+    void VulkanRenderer::ClearNamedFramebufferfi(
+            const SharedPtr<MG_State::GLState::FramebufferObject>& framebuffer, GLenum buffer, GLint drawbuffer,
+            GLfloat depth, GLint stencil) {
+        if (!framebuffer) {
+            return;
+        }
+        ClearAttachmentPayload payload{};
+        payload.mask = GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT;
+        payload.depth = depth;
+        payload.stencil = static_cast<Uint32>(stencil);
+        QueueClearBufferPayloadForFramebuffer(*framebuffer, buffer, drawbuffer, payload);
     }
 
     void VulkanRenderer::ClearBufferuiv(GLenum buffer, GLint drawbuffer, const GLuint* value) {
@@ -3137,6 +3351,16 @@ void main() {
     void VulkanRenderer::BlitFramebuffer(GLint srcX0, GLint srcY0, GLint srcX1, GLint srcY1,
                                          GLint dstX0, GLint dstY0, GLint dstX1, GLint dstY1,
                                          GLbitfield mask, GLenum filter) {
+        auto readFbo = MG_State::pGLContext->GetFramebufferBindingSlot(FramebufferTarget::Read).GetBoundObject();
+        auto drawFbo = MG_State::pGLContext->GetFramebufferBindingSlot(FramebufferTarget::Draw).GetBoundObject();
+        BlitNamedFramebuffer(readFbo, drawFbo, srcX0, srcY0, srcX1, srcY1, dstX0, dstY0, dstX1, dstY1, mask, filter);
+    }
+
+    void VulkanRenderer::BlitNamedFramebuffer(const SharedPtr<MG_State::GLState::FramebufferObject>& readFbo,
+                                              const SharedPtr<MG_State::GLState::FramebufferObject>& drawFbo,
+                                              GLint srcX0, GLint srcY0, GLint srcX1, GLint srcY1,
+                                              GLint dstX0, GLint dstY0, GLint dstX1, GLint dstY1,
+                                              GLbitfield mask, GLenum filter) {
         static constexpr GLbitfield kSupportedBlitMask = GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT;
         if ((mask & ~kSupportedBlitMask) != 0) {
             MGLOG_E("BlitFramebuffer skipped: unsupported mask bits=0x%x", static_cast<Uint32>(mask));
@@ -3161,8 +3385,6 @@ void main() {
             return;
         }
 
-        auto readFbo = MG_State::pGLContext->GetFramebufferBindingSlot(FramebufferTarget::Read).GetBoundObject();
-        auto drawFbo = MG_State::pGLContext->GetFramebufferBindingSlot(FramebufferTarget::Draw).GetBoundObject();
         MOBILEGL_ASSERT(readFbo != nullptr, "VulkanRenderer::BlitFramebuffer: read framebuffer is null");
         MOBILEGL_ASSERT(drawFbo != nullptr, "VulkanRenderer::BlitFramebuffer: draw framebuffer is null");
 
@@ -3461,10 +3683,18 @@ void main() {
             MOBILEGL_ASSERT(ok, "%s: failed to restore source image layout", __func__);
         }
 
-        if (!drawIsDefaultFbo) {
-            VkPipelineStageFlags dstRestoreStageMask = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
-            VkAccessFlags dstRestoreAccessMask = 0;
-            GetImageTransitionDestinationState(dstRestoreLayout, dstRestoreStageMask, dstRestoreAccessMask);
+        VkPipelineStageFlags dstRestoreStageMask = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
+        VkAccessFlags dstRestoreAccessMask = 0;
+        GetImageTransitionDestinationState(dstRestoreLayout, dstRestoreStageMask, dstRestoreAccessMask);
+        if (drawIsDefaultFbo) {
+            VkImageLayout dstTrackedLayout = m_swapchainObject.GetImageLayout(m_imageIndexAcquired);
+            Bool ok = VkTextureManager::TransitionImageLayout(
+                frame.commandBuffer, dstBinding.image, dstTrackedLayout, dstRestoreLayout,
+                VK_PIPELINE_STAGE_TRANSFER_BIT, dstRestoreStageMask,
+                VK_ACCESS_TRANSFER_WRITE_BIT, dstRestoreAccessMask, dstBinding.aspectMask);
+            MOBILEGL_ASSERT(ok, "%s: failed to restore swapchain destination image layout", __func__);
+            m_swapchainObject.SetImageLayout(m_imageIndexAcquired, dstTrackedLayout);
+        } else {
             Bool ok = VkTextureManager::TransitionImageLayout(
                 frame.commandBuffer, dstBinding.image, *dstBinding.trackedLayout, dstRestoreLayout,
                 VK_PIPELINE_STAGE_TRANSFER_BIT, dstRestoreStageMask,
@@ -3653,6 +3883,287 @@ void main() {
             VK_ACCESS_TRANSFER_WRITE_BIT, dstRestoreAccessMask, dstBinding.aspectMask,
             dstBinding.mipLevel, dstBinding.mipLevelCount);
         MOBILEGL_ASSERT(dstRestored, "%s: failed to restore destination image layout", __func__);
+    }
+
+    Bool VulkanRenderer::SubmitReadbackCommandsAndWait(FrameContext::FrameData& frame) {
+        if (frame.isCommandRecording) {
+            m_frameContext.EndCommandRecording();
+        }
+        if (!frame.hasCommandBufferRecorded) {
+            return true;
+        }
+
+        VkPipelineStageFlags waitDstStageMask = VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
+        VkSubmitInfo submitInfo{VK_STRUCTURE_TYPE_SUBMIT_INFO};
+        VkSemaphore waitSemaphore = frame.imageAvailableSemaphore;
+        if (!frame.imageAvailableSemaphoreConsumed) {
+            submitInfo.waitSemaphoreCount = 1;
+            submitInfo.pWaitSemaphores = &waitSemaphore;
+            submitInfo.pWaitDstStageMask = &waitDstStageMask;
+        }
+        submitInfo.commandBufferCount = 1;
+        submitInfo.pCommandBuffers = &frame.commandBuffer;
+
+        VkResult result = vkQueueSubmit(m_graphicsQueue, 1, &submitInfo, frame.imageInFlightFence);
+        if (result != VK_SUCCESS) {
+            MGLOG_E("DirectVulkan readback: vkQueueSubmit returned %d", result);
+            return false;
+        }
+        frame.imageAvailableSemaphoreConsumed = true;
+
+        result = vkWaitForFences(m_device, 1, &frame.imageInFlightFence, VK_TRUE, UINT64_MAX);
+        if (result != VK_SUCCESS) {
+            MGLOG_E("DirectVulkan readback: vkWaitForFences returned %d", result);
+            return false;
+        }
+        result = vkResetFences(m_device, 1, &frame.imageInFlightFence);
+        if (result != VK_SUCCESS) {
+            MGLOG_E("DirectVulkan readback: vkResetFences returned %d", result);
+            return false;
+        }
+
+        frame.hasCommandBufferRecorded = false;
+        frame.isCommandRecording = false;
+        return true;
+    }
+
+    void VulkanRenderer::ReadPixels(GLint x, GLint y, GLsizei width, GLsizei height, GLenum format, GLenum type,
+                                    void* pixels) {
+        if (width <= 0 || height <= 0) {
+            return;
+        }
+
+        auto readFbo = MG_State::pGLContext->GetFramebufferBindingSlot(FramebufferTarget::Read).GetBoundObject();
+        if (readFbo == nullptr) {
+            MGLOG_E("DirectVulkan::ReadPixels skipped: no read framebuffer is bound");
+            return;
+        }
+
+        auto& frame = m_frameContext.GetCurrent();
+        if (!frame.isCommandRecording) {
+            m_frameContext.BeginCommandRecording();
+            m_uniformManager->BeginFrame(m_frameContext.GetCurrentFrameIndex());
+        }
+        if (VkRenderPassManager::GetActiveRenderPass() != nullptr) {
+            VkRenderPassManager::EndRenderPass(frame.commandBuffer);
+        }
+
+        const Bool readIsDefaultFbo =
+            (readFbo == MG_Impl::GLImpl::FramebufferImpl::pDefaultFramebufferInfo->defaultFBO);
+        BlitImageBinding srcBinding{};
+        if (!ResolveColorBlitBinding(*readFbo, true, m_imageIndexAcquired, m_swapchainObject, *m_textureManager,
+                                     srcBinding)) {
+            return;
+        }
+        if (!readIsDefaultFbo) {
+            const auto& sourceAttachment = readFbo->GetAttachment(readFbo->GetReadBuffer());
+            auto sourceTexture = sourceAttachment.GetTexture();
+            if (sourceTexture != nullptr) {
+                const Bool clearReady = MaterializePendingClearForTexture(frame.commandBuffer, *sourceTexture);
+                MOBILEGL_ASSERT(clearReady,
+                                "ReadPixels: failed to materialize pending clear for source textureId=%d",
+                                sourceTexture->GetExternalIndex());
+            }
+        }
+
+        const VkImageLayout srcOriginalLayout = readIsDefaultFbo
+            ? m_swapchainObject.GetImageLayout(m_imageIndexAcquired)
+            : *srcBinding.trackedLayout;
+        if (srcOriginalLayout == VK_IMAGE_LAYOUT_UNDEFINED) {
+            MGLOG_E("DirectVulkan::ReadPixels skipped: source image layout is undefined");
+            return;
+        }
+
+        const VkDeviceSize readbackSize = static_cast<VkDeviceSize>(width) * static_cast<VkDeviceSize>(height) * 4;
+        VkBufferObject readback;
+        if (!readback.Create({
+                .allocator = m_allocator,
+                .size = readbackSize,
+                .usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+                .memoryUsage = VMA_MEMORY_USAGE_AUTO,
+                .allocationFlags = VMA_ALLOCATION_CREATE_HOST_ACCESS_RANDOM_BIT,
+            })) {
+            MGLOG_E("DirectVulkan::ReadPixels skipped: failed to create readback buffer");
+            return;
+        }
+
+        VkPipelineStageFlags srcStageMask = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
+        VkAccessFlags srcAccessMask = 0;
+        GetImageTransitionSourceState(srcOriginalLayout, srcStageMask, srcAccessMask);
+        if (readIsDefaultFbo) {
+            VkImageLayout trackedLayout = srcOriginalLayout;
+            Bool ok = VkTextureManager::TransitionImageLayout(
+                frame.commandBuffer, srcBinding.image, trackedLayout, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                srcStageMask, VK_PIPELINE_STAGE_TRANSFER_BIT,
+                srcAccessMask, VK_ACCESS_TRANSFER_READ_BIT, srcBinding.aspectMask);
+            MOBILEGL_ASSERT(ok, "%s: failed to transition swapchain source image", __func__);
+            m_swapchainObject.SetImageLayout(m_imageIndexAcquired, trackedLayout);
+        } else {
+            Bool ok = VkTextureManager::TransitionImageLayout(
+                frame.commandBuffer, srcBinding.image, *srcBinding.trackedLayout, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                srcStageMask, VK_PIPELINE_STAGE_TRANSFER_BIT,
+                srcAccessMask, VK_ACCESS_TRANSFER_READ_BIT, srcBinding.aspectMask,
+                srcBinding.mipLevel, 1);
+            MOBILEGL_ASSERT(ok, "%s: failed to transition source image", __func__);
+        }
+
+        VkBufferImageCopy copyRegion{};
+        copyRegion.imageSubresource.aspectMask = srcBinding.aspectMask;
+        copyRegion.imageSubresource.mipLevel = srcBinding.mipLevel;
+        copyRegion.imageSubresource.baseArrayLayer = 0;
+        copyRegion.imageSubresource.layerCount = 1;
+        copyRegion.imageOffset = {x, y, 0};
+        copyRegion.imageExtent = {static_cast<Uint32>(width), static_cast<Uint32>(height), 1};
+        vkCmdCopyImageToBuffer(frame.commandBuffer, srcBinding.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                               readback.GetHandle(), 1, &copyRegion);
+
+        VkPipelineStageFlags restoreStageMask = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
+        VkAccessFlags restoreAccessMask = 0;
+        GetImageTransitionDestinationState(srcOriginalLayout, restoreStageMask, restoreAccessMask);
+        if (readIsDefaultFbo) {
+            VkImageLayout trackedLayout = m_swapchainObject.GetImageLayout(m_imageIndexAcquired);
+            Bool ok = VkTextureManager::TransitionImageLayout(
+                frame.commandBuffer, srcBinding.image, trackedLayout, srcOriginalLayout,
+                VK_PIPELINE_STAGE_TRANSFER_BIT, restoreStageMask,
+                VK_ACCESS_TRANSFER_READ_BIT, restoreAccessMask, srcBinding.aspectMask);
+            MOBILEGL_ASSERT(ok, "%s: failed to restore swapchain source image layout", __func__);
+            m_swapchainObject.SetImageLayout(m_imageIndexAcquired, trackedLayout);
+        } else {
+            Bool ok = VkTextureManager::TransitionImageLayout(
+                frame.commandBuffer, srcBinding.image, *srcBinding.trackedLayout, srcOriginalLayout,
+                VK_PIPELINE_STAGE_TRANSFER_BIT, restoreStageMask,
+                VK_ACCESS_TRANSFER_READ_BIT, restoreAccessMask, srcBinding.aspectMask,
+                srcBinding.mipLevel, 1);
+            MOBILEGL_ASSERT(ok, "%s: failed to restore source image layout", __func__);
+        }
+
+        if (!SubmitReadbackCommandsAndWait(frame)) {
+            return;
+        }
+        const auto* mapped = static_cast<const Uint8*>(readback.Map());
+        if (mapped == nullptr) {
+            MGLOG_E("DirectVulkan::ReadPixels skipped: failed to map readback buffer");
+            return;
+        }
+        const VkFormat srcFormat = readIsDefaultFbo ? m_swapchainObject.GetSurfaceFormat().format : VK_FORMAT_R8G8B8A8_UNORM;
+        PackReadbackToClientOrPbo(mapped, srcFormat, width, height, format, type, pixels);
+    }
+
+    void VulkanRenderer::GetTexImage(GLenum target, GLint level, GLenum format, GLenum type, GLvoid* pixels) {
+        const auto textureUploadTarget = MG_Util::ConvertGLEnumToTextureUploadTarget(target);
+        const auto textureTarget = MG_Util::ConvertGLEnumToTextureTarget(target);
+        auto& activeUnit = MG_State::pGLContext->GetTextureUnitObject(MG_State::pGLContext->GetActiveTextureUnit());
+        auto textureObject = activeUnit.GetBindingSlot(textureTarget).GetBoundObject();
+        GetTextureImage(textureObject, textureUploadTarget, level, format, type, -1, pixels);
+    }
+
+    void VulkanRenderer::GetTextureImage(const SharedPtr<MG_State::GLState::ITextureObject>& textureObject,
+                                         TextureUploadTarget textureUploadTarget, GLint level, GLenum format,
+                                         GLenum type, GLsizei bufSize, GLvoid* pixels) {
+        if (textureObject == nullptr || textureObject->GetStorageType() != TextureStorageType::Mipmap) {
+            return;
+        }
+
+        auto* textureMipmapObject = static_cast<MG_State::GLState::TextureObjectMipmap*>(textureObject.get());
+        if (level < 0 || static_cast<Uint>(level) >= textureMipmapObject->GetMipmapLevelCount()) {
+            MGLOG_E("DirectVulkan::GetTexImage skipped: level %d is out of range", level);
+            return;
+        }
+
+        auto* resource = m_textureManager->SyncTextureAndGetDescriptor(*textureObject);
+        if (resource == nullptr || resource->image == VK_NULL_HANDLE) {
+            MGLOG_E("DirectVulkan::GetTexImage skipped: failed to sync textureId=%u",
+                    textureObject->GetExternalIndex());
+            return;
+        }
+        if ((resource->aspect & VK_IMAGE_ASPECT_COLOR_BIT) == 0) {
+            MGLOG_E("DirectVulkan::GetTexImage skipped: only color textures are supported right now");
+            return;
+        }
+
+        auto& frame = m_frameContext.GetCurrent();
+        if (!frame.isCommandRecording) {
+            m_frameContext.BeginCommandRecording();
+            m_uniformManager->BeginFrame(m_frameContext.GetCurrentFrameIndex());
+        }
+        if (VkRenderPassManager::GetActiveRenderPass() != nullptr) {
+            VkRenderPassManager::EndRenderPass(frame.commandBuffer);
+        }
+        const Bool clearReady = MaterializePendingClearForTexture(frame.commandBuffer, *textureObject);
+        MOBILEGL_ASSERT(clearReady,
+                        "GetTexImage: failed to materialize pending clear for textureId=%d",
+                        textureObject->GetExternalIndex());
+
+        const auto texelSize = textureMipmapObject->GetMipmapTexelSize(textureUploadTarget, static_cast<Uint>(level));
+        const GLsizei width = texelSize.x();
+        const GLsizei height = texelSize.y();
+        if (width <= 0 || height <= 0) {
+            return;
+        }
+        if (bufSize >= 0) {
+            const Int dstChannels = GetReadbackChannelCount(format);
+            if (type == GL_UNSIGNED_BYTE && dstChannels > 0) {
+                const SizeT minSize = static_cast<SizeT>(width) * static_cast<SizeT>(height) *
+                                      static_cast<SizeT>(dstChannels);
+                if (static_cast<SizeT>(bufSize) < minSize) {
+                    MGLOG_E("DirectVulkan::GetTextureImage skipped: destination buffer is too small");
+                    return;
+                }
+            }
+        }
+
+        const VkDeviceSize readbackSize = static_cast<VkDeviceSize>(width) * static_cast<VkDeviceSize>(height) * 4;
+        VkBufferObject readback;
+        if (!readback.Create({
+                .allocator = m_allocator,
+                .size = readbackSize,
+                .usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+                .memoryUsage = VMA_MEMORY_USAGE_AUTO,
+                .allocationFlags = VMA_ALLOCATION_CREATE_HOST_ACCESS_RANDOM_BIT,
+            })) {
+            MGLOG_E("DirectVulkan::GetTexImage skipped: failed to create readback buffer");
+            return;
+        }
+
+        const VkImageLayout originalLayout = resource->layout;
+        VkPipelineStageFlags srcStageMask = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
+        VkAccessFlags srcAccessMask = 0;
+        GetImageTransitionSourceState(originalLayout, srcStageMask, srcAccessMask);
+        Bool ok = VkTextureManager::TransitionImageLayout(
+            frame.commandBuffer, resource->image, resource->layout, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+            srcStageMask, VK_PIPELINE_STAGE_TRANSFER_BIT,
+            srcAccessMask, VK_ACCESS_TRANSFER_READ_BIT, resource->aspect,
+            static_cast<Uint32>(level), 1);
+        MOBILEGL_ASSERT(ok, "%s: failed to transition texture image", __func__);
+
+        VkBufferImageCopy copyRegion{};
+        copyRegion.imageSubresource.aspectMask = resource->aspect;
+        copyRegion.imageSubresource.mipLevel = static_cast<Uint32>(level);
+        copyRegion.imageSubresource.baseArrayLayer = 0;
+        copyRegion.imageSubresource.layerCount = 1;
+        copyRegion.imageExtent = {static_cast<Uint32>(width), static_cast<Uint32>(height), 1};
+        vkCmdCopyImageToBuffer(frame.commandBuffer, resource->image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                               readback.GetHandle(), 1, &copyRegion);
+
+        VkPipelineStageFlags restoreStageMask = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
+        VkAccessFlags restoreAccessMask = 0;
+        GetImageTransitionDestinationState(originalLayout, restoreStageMask, restoreAccessMask);
+        ok = VkTextureManager::TransitionImageLayout(
+            frame.commandBuffer, resource->image, resource->layout, originalLayout,
+            VK_PIPELINE_STAGE_TRANSFER_BIT, restoreStageMask,
+            VK_ACCESS_TRANSFER_READ_BIT, restoreAccessMask, resource->aspect,
+            static_cast<Uint32>(level), 1);
+        MOBILEGL_ASSERT(ok, "%s: failed to restore texture image layout", __func__);
+
+        if (!SubmitReadbackCommandsAndWait(frame)) {
+            return;
+        }
+        const auto* mapped = static_cast<const Uint8*>(readback.Map());
+        if (mapped == nullptr) {
+            MGLOG_E("DirectVulkan::GetTextureImage skipped: failed to map readback buffer");
+            return;
+        }
+        PackReadbackToClientOrPbo(mapped, resource->format, width, height, format, type, pixels);
     }
 
     void VulkanRenderer::GenerateMipmap(GLenum target) {
@@ -3924,6 +4435,108 @@ void main() {
                              payload.pParams[idraw].firstIndex,
                              payload.pParams[idraw].vertexOffset,
                              payload.pParams[idraw].firstInstance);
+        }
+    }
+
+    void VulkanRenderer::MultiDrawElementsIndirectCount(GLenum mode, GLenum type, const void* indirect,
+                                                        GLintptr drawcount, GLsizei maxdrawcount, GLsizei stride) {
+        auto& frame = m_frameContext.GetCurrent();
+
+        if (maxdrawcount <= 0) {
+            return;
+        }
+        if (stride == 0) {
+            stride = sizeof(DrawIndexedCmdParam);
+        }
+        if (stride < static_cast<GLsizei>(sizeof(DrawIndexedCmdParam))) {
+            MGLOG_E("MultiDrawElementsIndirectCount skipped: stride %d is smaller than command size %zu",
+                    stride, sizeof(DrawIndexedCmdParam));
+            return;
+        }
+
+        const SizeT indexSize = MG_Util::GetGLTypeSize(type);
+        if (indexSize == 0) {
+            MGLOG_E("MultiDrawElementsIndirectCount skipped: unsupported index type 0x%x", type);
+            return;
+        }
+
+        const auto& vao = *MG_State::pGLContext->GetBoundVertexArray();
+        const auto* indexBuffer = vao.GetIndexBufferBindingSlot().GetBoundObject().get();
+        if (!indexBuffer) {
+            MGLOG_E("MultiDrawElementsIndirectCount skipped: no element array buffer is bound");
+            return;
+        }
+
+        const SizeT commandOffset = reinterpret_cast<SizeT>(indirect);
+        const SizeT commandBytes = commandOffset +
+            static_cast<SizeT>(stride) * static_cast<SizeT>(maxdrawcount - 1) + sizeof(DrawIndexedCmdParam);
+        auto drawBuffer = MG_State::pGLContext->GetBufferBindingSlot(BufferTarget::DrawIndirect).GetBoundObject();
+        if (!drawBuffer || commandBytes > drawBuffer->GetSize()) {
+            MGLOG_E("MultiDrawElementsIndirectCount skipped: invalid GL_DRAW_INDIRECT_BUFFER binding or range");
+            return;
+        }
+
+        auto parameterBuffer = MG_State::pGLContext->GetBufferBindingSlot(BufferTarget::Parameter).GetBoundObject();
+        if (!parameterBuffer || static_cast<SizeT>(drawcount) + sizeof(Uint32) > parameterBuffer->GetSize()) {
+            MGLOG_E("MultiDrawElementsIndirectCount skipped: invalid GL_PARAMETER_BUFFER binding or range");
+            return;
+        }
+
+        DrawCmdParam vertexRange{};
+        vertexRange.vertexCount = static_cast<Uint32>(indexBuffer->GetSize() / indexSize);
+        vertexRange.instanceCount = 1;
+
+        IndexBufferView indexBufferView{};
+        indexBufferView.indexType = type;
+        indexBufferView.indexByteOffset = 0;
+        indexBufferView.indexByteSize = indexBuffer->GetSize();
+
+        if (!SetupDraw(frame, mode, DrawSetupAspect::IndexBuffer | DrawSetupAspect::IndirectDrawBuffer,
+                       vertexRange, &indexBufferView)) {
+            return;
+        }
+
+        drawBuffer->MarkPersistentMappedRangeDirty();
+        parameterBuffer->MarkPersistentMappedRangeDirty();
+
+        BufferSlice drawSlice{};
+        if (!m_bufferManager.SyncResidentBuffer(BufferKind::Indirect, drawBuffer, drawSlice)) {
+            MGLOG_E("MultiDrawElementsIndirectCount skipped: failed to sync draw indirect buffer");
+            return;
+        }
+        BufferSlice parameterSlice{};
+        if (!m_bufferManager.SyncResidentBuffer(BufferKind::Indirect, parameterBuffer, parameterSlice)) {
+            MGLOG_E("MultiDrawElementsIndirectCount skipped: failed to sync parameter buffer");
+            return;
+        }
+
+        MOBILEGL_ASSERT(frame.isCommandRecording, "%s: frame recording was not started", __func__);
+        if (m_drawIndirectCountExtensionEnabled && s_vkCmdDrawIndexedIndirectCount) {
+            MGLOG_D("DirectVulkan: glMultiDrawElementsIndirectCountARB(max=%d stride=%d)", maxdrawcount, stride);
+            s_vkCmdDrawIndexedIndirectCount(frame.commandBuffer,
+                                            drawSlice.buffer,
+                                            drawSlice.offset + static_cast<VkDeviceSize>(commandOffset),
+                                            parameterSlice.buffer,
+                                            parameterSlice.offset + static_cast<VkDeviceSize>(drawcount),
+                                            static_cast<Uint32>(maxdrawcount),
+                                            static_cast<Uint32>(stride));
+            return;
+        }
+
+        const auto parameterData = parameterBuffer->GetDataReadOnly();
+        const auto drawData = drawBuffer->GetDataReadOnly();
+        if (!parameterData || !drawData) {
+            MGLOG_E("MultiDrawElementsIndirectCount skipped: CPU fallback cannot read buffers");
+            return;
+        }
+        Uint32 actualDrawCount = 0;
+        std::memcpy(&actualDrawCount, parameterData->data() + drawcount, sizeof(actualDrawCount));
+        actualDrawCount = std::min<Uint32>(actualDrawCount, static_cast<Uint32>(maxdrawcount));
+        for (Uint32 idraw = 0; idraw < actualDrawCount; ++idraw) {
+            DrawIndexedCmdParam cmd{};
+            std::memcpy(&cmd, drawData->data() + commandOffset + static_cast<SizeT>(idraw) * stride, sizeof(cmd));
+            vkCmdDrawIndexed(frame.commandBuffer, cmd.indexCount, cmd.instanceCount, cmd.firstIndex,
+                             cmd.vertexOffset, cmd.firstInstance);
         }
     }
 
@@ -4354,6 +4967,8 @@ void main() {
         deviceFeatures.independentBlend = supportedDeviceFeatures.independentBlend;
         deviceFeatures.shaderClipDistance = supportedDeviceFeatures.shaderClipDistance;
         deviceFeatures.shaderCullDistance = supportedDeviceFeatures.shaderCullDistance;
+        deviceFeatures.shaderInt64 = supportedDeviceFeatures.shaderInt64;
+        deviceFeatures.drawIndirectFirstInstance = supportedDeviceFeatures.drawIndirectFirstInstance;
 
         VkDeviceCreateInfo deviceCreateInfo{};
         deviceCreateInfo.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
@@ -4418,16 +5033,20 @@ void main() {
 
         deviceCreateInfo.enabledExtensionCount = static_cast<Uint32>(enabledDeviceExtensions.size());
         deviceCreateInfo.ppEnabledExtensionNames = enabledDeviceExtensions.data();
-        MGLOG_I("Device feature support: geometryShader=%s independentBlend=%s shaderClipDistance=%s shaderCullDistance=%s",
+        MGLOG_I("Device feature support: geometryShader=%s independentBlend=%s shaderClipDistance=%s shaderCullDistance=%s shaderInt64=%s drawIndirectFirstInstance=%s",
             supportedDeviceFeatures.geometryShader ? "true" : "false",
             supportedDeviceFeatures.independentBlend ? "true" : "false",
             supportedDeviceFeatures.shaderClipDistance ? "true" : "false",
-            supportedDeviceFeatures.shaderCullDistance ? "true" : "false");
-        MGLOG_I("Device feature enabled: geometryShader=%s independentBlend=%s shaderClipDistance=%s shaderCullDistance=%s",
+            supportedDeviceFeatures.shaderCullDistance ? "true" : "false",
+            supportedDeviceFeatures.shaderInt64 ? "true" : "false",
+            supportedDeviceFeatures.drawIndirectFirstInstance ? "true" : "false");
+        MGLOG_I("Device feature enabled: geometryShader=%s independentBlend=%s shaderClipDistance=%s shaderCullDistance=%s shaderInt64=%s drawIndirectFirstInstance=%s",
             deviceFeatures.geometryShader ? "true" : "false",
             deviceFeatures.independentBlend ? "true" : "false",
             deviceFeatures.shaderClipDistance ? "true" : "false",
-            deviceFeatures.shaderCullDistance ? "true" : "false");
+            deviceFeatures.shaderCullDistance ? "true" : "false",
+            deviceFeatures.shaderInt64 ? "true" : "false",
+            deviceFeatures.drawIndirectFirstInstance ? "true" : "false");
         VK_VERIFY(vkCreateDevice(m_physicalDevice.handle, &deviceCreateInfo, nullptr, &m_device), "vkCreateDevice");
 
         s_vkCmdDrawIndexedIndirectCount = reinterpret_cast<PFNDrawIndexedIndirectCountFunc>(
@@ -4634,6 +5253,8 @@ void main() {
                                                          Vector<const char*>& inOutEnabledExtensions) {
         m_drawIndirectCountExtensionEnabled = EnableOptionalDeviceExtension(availableExtensions, inOutEnabledExtensions,
                                                                             VK_KHR_DRAW_INDIRECT_COUNT_EXTENSION_NAME);
+        EnableOptionalDeviceExtension(availableExtensions, inOutEnabledExtensions,
+                                      VK_KHR_SHADER_DRAW_PARAMETERS_EXTENSION_NAME);
 #ifdef VK_KHR_PORTABILITY_SUBSET_EXTENSION_NAME
         EnableOptionalDeviceExtension(availableExtensions, inOutEnabledExtensions,
                                       VK_KHR_PORTABILITY_SUBSET_EXTENSION_NAME);

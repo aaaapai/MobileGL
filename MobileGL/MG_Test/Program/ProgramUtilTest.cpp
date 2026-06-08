@@ -81,6 +81,28 @@ void main() {
     EXPECT_EQ(source.find("#define"), String::npos);
 }
 
+TEST_F(ProgramUtilTest, PreprocessFragmentShaderInjectsDepthRangeShim) {
+    using namespace MG_Util::ShaderTranspiler;
+
+    String source = R"(#version 460 core
+out float depth;
+
+void main() {
+    depth = gl_DepthRange.diff * 0.5 + gl_DepthRange.near;
+})";
+
+    PreprocessShaderSource(ShaderStage::Fragment, source);
+
+    EXPECT_NE(source.find("struct mg_DepthRangeParameters"), String::npos);
+    EXPECT_NE(source.find("#define gl_DepthRange mg_DepthRange"), String::npos);
+
+    ShaderAttrib attrib{.shaderType = GL_FRAGMENT_SHADER, .sourceStr = source};
+    auto res = ShaderCompiler::CompileShader(attrib);
+    if (!res) {
+        FAIL() << "errc: " << res.error().errc << "\nlog: " << res.error().log << "\nsource:\n" << source;
+    }
+}
+
 const char* vs = R"(#version 150
 
 in vec4 Position;

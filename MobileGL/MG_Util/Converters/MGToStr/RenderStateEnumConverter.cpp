@@ -131,6 +131,17 @@ namespace MobileGL {
             }
         }
 
+        String ConvertProvokingVertexModeToString(ProvokingVertexMode v) {
+            switch (v) {
+            case ProvokingVertexMode::FirstVertex:
+                return "FirstVertex";
+            case ProvokingVertexMode::LastVertex:
+                return "LastVertex";
+            default:
+                return "Unknown";
+            }
+        }
+
         String ConvertCapabilityInputToString(CapabilityInput v) {
             switch (v) {
             case CapabilityInput::Blend:

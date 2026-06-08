@@ -125,7 +125,10 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                                    V_OpenGL33, E_GL_ARB_draw_buffers_blend, E_GL_ARB_compute_shader,
                                    E_GL_ARB_shader_storage_buffer_object, E_GL_ARB_shader_image_load_store,
                                    E_GL_ARB_program_interface_query, E_GL_ARB_framebuffer_object,
-                                   E_GL_EXT_framebuffer_object, E_GL_ARB_depth_texture, E_GL_ARB_buffer_storage},
+                                   E_GL_ARB_multi_draw_indirect, E_GL_ARB_indirect_parameters,
+                                   E_GL_EXT_framebuffer_object, E_GL_ARB_depth_texture, E_GL_ARB_buffer_storage,
+                                   E_GL_ARB_texture_storage, E_GL_ARB_direct_state_access,
+                                   E_GL_ARB_shader_draw_parameters, E_GL_ARB_gpu_shader_int64},
                     .IsCompatibilityProfile = false // Is Compatibility Profile
                 },
             .StaticBackendCapability = {.AllowVSOnlyPrograms = false} // Backend Capability
@@ -160,6 +163,8 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             funcsTable.GL.MultiDrawElementsBaseVertex = MultiDrawElementsBaseVertex;
             funcsTable.GL.MultiDrawElementsIndirect = MultiDrawElementsIndirect;
             funcsTable.GL.MultiDrawArraysIndirect = MultiDrawArraysIndirect;
+            funcsTable.GL.MultiDrawElementsIndirectCount = MultiDrawElementsIndirectCount;
+            funcsTable.GL.MultiDrawArraysIndirectCount = MultiDrawArraysIndirectCount;
             funcsTable.GL.DrawRangeElementsBaseVertex = DrawRangeElementsBaseVertex;
             funcsTable.GL.DrawRangeElements = DrawRangeElements;
             funcsTable.GL.DrawElementsInstancedBaseVertexBaseInstance = DrawElementsInstancedBaseVertexBaseInstance;
@@ -175,12 +180,16 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             funcsTable.GL.ClearBufferfv = ClearBufferfv;
             funcsTable.GL.ClearBufferuiv = ClearBufferuiv;
             funcsTable.GL.ClearBufferiv = ClearBufferiv;
+            funcsTable.GL.ClearNamedFramebufferfv = ClearNamedFramebufferfv;
+            funcsTable.GL.ClearNamedFramebufferfi = ClearNamedFramebufferfi;
             funcsTable.GL.BlitFramebuffer = BlitFramebuffer;
+            funcsTable.GL.BlitNamedFramebuffer = BlitNamedFramebuffer;
             funcsTable.GL.CopyTexImage2D = CopyTexImage2D;
             funcsTable.GL.CopyTexSubImage2D = CopyTexSubImage2D;
             funcsTable.GL.GenerateMipmap = GenerateMipmap;
             funcsTable.GL.ReadPixels = ReadPixels;
             funcsTable.GL.GetTexImage = GetTexImage;
+            funcsTable.GL.GetTextureImage = GetTextureImage;
             funcsTable.GL.DispatchCompute = DispatchCompute;
             funcsTable.GL.DispatchComputeIndirect = DispatchComputeIndirect;
             funcsTable.GL.MemoryBarrier = MemoryBarrier;
@@ -206,6 +215,14 @@ namespace MobileGL::MG_Backend::DirectVulkan {
     }
 
     void BackendObject_DirectVulkan::UpdateDynamicBackendParameters() {
+        static constexpr SizeT kMaxAdvertisedShaderStorageBlockSize = 512ull * 1024ull * 1024ull;
         m_dynamicParameters.UniformBufferOffsetAlignment = m_vulkanCaps.UniformBufferOffsetAlignment;
+        m_dynamicParameters.MaxShaderStorageBlockSize =
+            std::min(m_vulkanCaps.MaxShaderStorageBlockSize, kMaxAdvertisedShaderStorageBlockSize);
+        if (m_dynamicParameters.MaxShaderStorageBlockSize != m_vulkanCaps.MaxShaderStorageBlockSize) {
+            MGLOG_I("DirectVulkan: clamped GL_MAX_SHADER_STORAGE_BLOCK_SIZE from %zu to %zu",
+                    m_vulkanCaps.MaxShaderStorageBlockSize,
+                    m_dynamicParameters.MaxShaderStorageBlockSize);
+        }
     }
 } // namespace MobileGL::MG_Backend::DirectVulkan

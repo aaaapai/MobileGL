@@ -16,7 +16,7 @@ namespace MobileGL::MG_State::GLState {
         ToArray(BufferTarget::Vertex, BufferTarget::Uniform, BufferTarget::CopyRead, BufferTarget::CopyWrite,
                 BufferTarget::PixelPack, BufferTarget::PixelUnpack, BufferTarget::Query, BufferTarget::Texture,
                 BufferTarget::TransformFeedback, BufferTarget::AtomicCounter, BufferTarget::DispatchIndirect,
-                BufferTarget::DrawIndirect, BufferTarget::ShaderStorage);
+                BufferTarget::DrawIndirect, BufferTarget::Parameter, BufferTarget::ShaderStorage);
     constexpr const auto BufferBindPointTargets = ToArray(BufferTarget::Uniform, BufferTarget::TransformFeedback,
                                                           BufferTarget::AtomicCounter, BufferTarget::ShaderStorage);
 

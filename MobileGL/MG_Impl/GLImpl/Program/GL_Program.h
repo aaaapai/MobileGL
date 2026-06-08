@@ -45,6 +45,7 @@ namespace MobileGL::MG_Impl::GLImpl {
     void Uniform2i(GLint location, GLint v0, GLint v1);
     void Uniform3i(GLint location, GLint v0, GLint v1, GLint v2);
     void Uniform4i(GLint location, GLint v0, GLint v1, GLint v2, GLint v3);
+    void Uniform1ui(GLint location, GLuint v0);
     void Uniform1fv(GLint location, GLsizei count, const GLfloat* value);
     void Uniform2fv(GLint location, GLsizei count, const GLfloat* value);
     void Uniform3fv(GLint location, GLsizei count, const GLfloat* value);
@@ -53,6 +54,7 @@ namespace MobileGL::MG_Impl::GLImpl {
     void Uniform2iv(GLint location, GLsizei count, const GLint* value);
     void Uniform3iv(GLint location, GLsizei count, const GLint* value);
     void Uniform4iv(GLint location, GLsizei count, const GLint* value);
+    void Uniform1uiv(GLint location, GLsizei count, const GLuint* value);
     void UniformMatrix2fv(GLint location, GLsizei count, GLboolean transpose, const GLfloat* value);
     void UniformMatrix3fv(GLint location, GLsizei count, GLboolean transpose, const GLfloat* value);
     void UniformMatrix4fv(GLint location, GLsizei count, GLboolean transpose, const GLfloat* value);

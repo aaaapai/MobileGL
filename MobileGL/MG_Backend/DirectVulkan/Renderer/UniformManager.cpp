@@ -202,7 +202,6 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                                                             const MG_State::GLState::ProgramObject& program,
                                                             const ProgramFactory::VkProgramObject& programObj,
                                                             Uint32 binding, VkDescriptorImageInfo& outImageInfo) const {
-        (void)commandBuffer;
         MOBILEGL_ASSERT(m_textureManager != nullptr, "ResolveSamplerDescriptor: texture manager is null");
         MOBILEGL_ASSERT(m_samplerManager != nullptr, "ResolveSamplerDescriptor: sampler manager is null");
         MOBILEGL_ASSERT(binding < programObj.samplerNameByBinding.size(),
@@ -254,23 +253,31 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             Int attachmentLevel = 0;
             if (drawFbo &&
                 FindFramebufferAttachmentForTexture(*drawFbo, *texture, attachmentType, attachmentLevel)) {
-                MOBILEGL_ASSERT(false,
-                                "ResolveSamplerDescriptor: framebuffer feedback loop detected: textureId=%d is bound "
-                                "for sampling at binding=%u, but is also attached to drawFbo=%u as %s (level=%d, "
-                                "trackedLayout=%d)",
-                                texture->GetExternalIndex(), binding, drawFbo->GetExternalIndex(),
-                                MG_Util::ConvertFramebufferAttachmentTypeToString(attachmentType).c_str(),
-                                attachmentLevel, static_cast<Int>(resource->layout));
+                MGLOG_W("ResolveSamplerDescriptor: framebuffer feedback loop detected: textureId=%d is bound "
+                        "for sampling at binding=%u, but is also attached to drawFbo=%u as %s (level=%d, "
+                        "trackedLayout=%d)",
+                        texture->GetExternalIndex(), binding, drawFbo->GetExternalIndex(),
+                        MG_Util::ConvertFramebufferAttachmentTypeToString(attachmentType).c_str(),
+                        attachmentLevel, static_cast<Int>(resource->layout));
             }
 
-            MOBILEGL_ASSERT(false,
+            const Bool readyForSampling = m_textureManager->TransitionTextureForSampling(commandBuffer, *texture);
+            if (!readyForSampling) {
+                MGLOG_E("ResolveSamplerDescriptor: failed to transition textureId=%d for sampler binding=%u",
+                        texture->GetExternalIndex(), binding);
+                return false;
+            }
+            resource = m_textureManager->SyncTextureAndGetDescriptor(*texture);
+            MOBILEGL_ASSERT(resource != nullptr,
+                            "ResolveSamplerDescriptor: failed to resync textureId=%d after sampling transition",
+                            texture->GetExternalIndex());
+            MOBILEGL_ASSERT(IsValidSampledImageLayout(resource->layout),
                             "ResolveSamplerDescriptor: invalid sampled image layout=%d for textureId=%d, binding=%u",
                             static_cast<Int>(resource->layout), texture->GetExternalIndex(), binding);
-            return false;
         }
         outImageInfo = {
             .sampler = m_samplerManager->GetOrCreateSampler(*samplerToUse, *texture),
-            .imageView = resource->fullView,
+            .imageView = resource->sampledView != VK_NULL_HANDLE ? resource->sampledView : resource->fullView,
             .imageLayout = resource->layout,
         };
         if (ShouldDumpDescriptorStats()) {
@@ -316,7 +323,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                                                             *samplerBindingOverride.texture),
             .imageView = samplerBindingOverride.imageView != VK_NULL_HANDLE ?
                 samplerBindingOverride.imageView :
-                resource->fullView,
+                (resource->sampledView != VK_NULL_HANDLE ? resource->sampledView : resource->fullView),
             .imageLayout = resource->layout,
         };
         return outImageInfo.sampler != VK_NULL_HANDLE;

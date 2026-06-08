@@ -16,6 +16,7 @@ namespace MobileGL {
             String DeviceName;
             String DriverVersionString;
             Int UniformBufferOffsetAlignment = 256;
+            SizeT MaxShaderStorageBlockSize = 128 * 1024 * 1024;
         };
     } // namespace MG_External
     namespace MG_Util::BackendLoader {

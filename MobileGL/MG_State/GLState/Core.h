@@ -136,6 +136,8 @@ namespace MobileGL {
                 CullFaceMode GetCullFaceMode() const;
                 void SetFrontFaceMode(FrontFaceMode mode);
                 FrontFaceMode GetFrontFaceMode() const;
+                void SetProvokingVertexMode(ProvokingVertexMode mode);
+                ProvokingVertexMode GetProvokingVertexMode() const;
                 void SetScissorBox(IntVec4 box);      // x, y, width, height
                 const IntVec4& GetScissorBox() const; // x, y, width, height
 

@@ -25,6 +25,7 @@ namespace MobileGL {
         AtomicCounter,
         DispatchIndirect,
         DrawIndirect,
+        Parameter,
         ShaderStorage,
         BufferTargetCount,
         Unknown = -1

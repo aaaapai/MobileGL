@@ -35,6 +35,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             VkFence imageInFlightFence = VK_NULL_HANDLE;
             Bool isCommandRecording = false;
             Bool hasCommandBufferRecorded = false;
+            Bool imageAvailableSemaphoreConsumed = false;
         };
 
         VkResult Initialize(VkDevice device, VkCommandPool commandPool, Uint32 frameCount);

@@ -12,6 +12,8 @@
 
 #include "Includes.h"
 #include "Init.h"
+#include "MG_Backend/DirectVulkan/DirectVulkanResourceState.h"
+#include "MG_Impl/GLImpl/Getter/GL_Getter.h"
 #include "MG_Impl/GLImpl/Program/GL_Program.h"
 #include "MG_State/GLState/Core.h"
 #include "MG_Util/ShaderTranspiler/ShaderCompiler.h"
@@ -203,6 +205,79 @@ void main() {
     ASSERT_EQ(linkStatus, GL_TRUE) << infoLog;
 }
 
+TEST_F(ProgramTest, ImageUniformLayoutBindingInitializesImageUnit) {
+    char infoLog[1024] = "";
+    const char* csSrc = R"(#version 460 core
+layout(local_size_x = 1) in;
+layout(binding = 4, rgba8) uniform writeonly image2D colourTexOut;
+
+void main() {
+    imageStore(colourTexOut, ivec2(0), vec4(1.0));
+}
+)";
+
+    GLuint cs = CreateShader(GL_COMPUTE_SHADER);
+    ShaderSource(cs, 1, &csSrc, nullptr);
+    CompileShader(cs);
+    GLint csStatus = GL_FALSE;
+    GetShaderiv(cs, GL_COMPILE_STATUS, &csStatus);
+    GetShaderInfoLog(cs, sizeof(infoLog), nullptr, infoLog);
+    ASSERT_EQ(csStatus, GL_TRUE) << infoLog;
+
+    GLuint program = CreateProgram();
+    AttachShader(program, cs);
+    LinkProgram(program);
+    GLint linkStatus = GL_FALSE;
+    GetProgramiv(program, GL_LINK_STATUS, &linkStatus);
+    GetProgramInfoLog(program, sizeof(infoLog), nullptr, infoLog);
+    ASSERT_EQ(linkStatus, GL_TRUE) << infoLog;
+
+    const GLint location = GetUniformLocation(program, "colourTexOut");
+    ASSERT_GE(location, 0);
+    auto programObject = MobileGL::MG_State::pGLContext->GetProgramObject(program);
+    ASSERT_NE(programObject, nullptr);
+    EXPECT_EQ(programObject->GetUniformSamplerOrImageUnitIndex(static_cast<Uint>(location)), 4);
+    EXPECT_EQ(GetError(), GL_NO_ERROR);
+}
+
+TEST_F(ProgramTest, DirectVulkanStorageBlockUsesShaderLayoutBinding) {
+    char infoLog[1024] = "";
+    const char* csSrc = R"(#version 460 core
+layout(local_size_x = 1) in;
+layout(std430, binding = 2) buffer requestQueueStruct {
+    uint value;
+} requestQueue;
+
+void main() {
+    requestQueue.value = 1u;
+}
+)";
+
+    GLuint cs = CreateShader(GL_COMPUTE_SHADER);
+    ShaderSource(cs, 1, &csSrc, nullptr);
+    CompileShader(cs);
+    GLint csStatus = GL_FALSE;
+    GetShaderiv(cs, GL_COMPILE_STATUS, &csStatus);
+    GetShaderInfoLog(cs, sizeof(infoLog), nullptr, infoLog);
+    ASSERT_EQ(csStatus, GL_TRUE) << infoLog;
+
+    GLuint program = CreateProgram();
+    AttachShader(program, cs);
+    LinkProgram(program);
+    GLint linkStatus = GL_FALSE;
+    GetProgramiv(program, GL_LINK_STATUS, &linkStatus);
+    GetProgramInfoLog(program, sizeof(infoLog), nullptr, infoLog);
+    ASSERT_EQ(linkStatus, GL_TRUE) << infoLog;
+
+    auto programObject = MobileGL::MG_State::pGLContext->GetProgramObject(program);
+    ASSERT_NE(programObject, nullptr);
+    const GLuint blockIndex =
+        MG_Backend::DirectVulkan::GetShaderStorageBlockIndex(*programObject, "requestQueueStruct");
+    ASSERT_NE(blockIndex, GL_INVALID_INDEX);
+    EXPECT_EQ(MG_Backend::DirectVulkan::GetShaderStorageBlockBinding(*programObject, blockIndex), 2u);
+    EXPECT_EQ(GetError(), GL_NO_ERROR);
+}
+
 TEST_F(ProgramTest, CompileAndLink) {
     char infoLog[1024] = "";
 
@@ -304,6 +379,63 @@ TEST_F(ProgramTest, CompileAndLink) {
         }
         printf("shader dump: \n%s\n", result);
     }
+}
+
+TEST_F(ProgramTest, Uniform1uiStoresUnsignedValue) {
+    char infoLog[1024] = "";
+
+    const char* simpleVs = R"(#version 460
+layout(location = 0) in vec4 Position;
+
+void main() {
+    gl_Position = Position;
+}
+)";
+
+    const char* uintFs = R"(#version 460
+uniform uint NodeQueueIndex;
+
+out vec4 fragColor;
+
+void main() {
+    fragColor = vec4(float(NodeQueueIndex & 255u));
+}
+)";
+
+    GLuint vs = CreateShader(GL_VERTEX_SHADER);
+    ShaderSource(vs, 1, &simpleVs, NULL);
+    CompileShader(vs);
+    GLint vsStatus = GL_FALSE;
+    GetShaderiv(vs, GL_COMPILE_STATUS, &vsStatus);
+    GetShaderInfoLog(vs, 1024, nullptr, infoLog);
+    ASSERT_EQ(vsStatus, GL_TRUE) << infoLog;
+
+    GLuint fs = CreateShader(GL_FRAGMENT_SHADER);
+    ShaderSource(fs, 1, &uintFs, NULL);
+    CompileShader(fs);
+    GLint fsStatus = GL_FALSE;
+    GetShaderiv(fs, GL_COMPILE_STATUS, &fsStatus);
+    GetShaderInfoLog(fs, 1024, nullptr, infoLog);
+    ASSERT_EQ(fsStatus, GL_TRUE) << infoLog;
+
+    GLuint program = CreateProgram();
+    AttachShader(program, vs);
+    AttachShader(program, fs);
+    LinkProgram(program);
+    GLint linkStatus = GL_FALSE;
+    GetProgramiv(program, GL_LINK_STATUS, &linkStatus);
+    ASSERT_EQ(linkStatus, GL_TRUE);
+
+    UseProgram(program);
+    GLint loc = GetUniformLocation(program, "NodeQueueIndex");
+    ASSERT_GE(loc, 0);
+
+    const GLuint expected = 0xF1234567u;
+    Uniform1ui(loc, expected);
+
+    GLint actual = 0;
+    GetUniformiv(program, loc, &actual);
+    EXPECT_EQ(static_cast<GLuint>(actual), expected);
 }
 
 TEST_F(ProgramTest, UniformMatrixFunctions) {

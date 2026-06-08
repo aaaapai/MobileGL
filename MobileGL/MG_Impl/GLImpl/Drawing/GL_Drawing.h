@@ -17,6 +17,10 @@ namespace MobileGL::MG_Impl::GLImpl {
     void MemoryBarrierByRegion(GLbitfield barriers);
     void MultiDrawElementsIndirect(GLenum mode, GLenum type, const void* indirect, GLsizei drawcount, GLsizei stride);
     void MultiDrawArraysIndirect(GLenum mode, const void* indirect, GLsizei drawcount, GLsizei stride);
+    void MultiDrawElementsIndirectCount(GLenum mode, GLenum type, const void* indirect, GLintptr drawcount,
+                                        GLsizei maxdrawcount, GLsizei stride);
+    void MultiDrawArraysIndirectCount(GLenum mode, const void* indirect, GLintptr drawcount,
+                                      GLsizei maxdrawcount, GLsizei stride);
     void DrawRangeElementsBaseVertex(GLenum mode, GLuint start, GLuint end, GLsizei count, GLenum type,
                                      const void* indices, GLint basevertex);
     void DrawRangeElements(GLenum mode, GLuint start, GLuint end, GLsizei count, GLenum type, const void* indices);

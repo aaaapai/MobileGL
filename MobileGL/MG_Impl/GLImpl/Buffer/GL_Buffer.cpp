@@ -21,9 +21,13 @@ namespace MobileGL::MG_Impl::GLImpl {
             GetBufferParameteri64v,
             GetBufferPointerv,
             BufferStorage,
+            CreateBuffers,
             NamedBufferStorage,
             NamedBufferData,
             NamedBufferSubData,
+            CopyNamedBufferSubData,
+            ClearNamedBufferData,
+            ClearNamedBufferSubData,
             MapBufferRange,
             MapBuffer,
             MapNamedBuffer,
@@ -45,12 +49,20 @@ namespace MobileGL::MG_Impl::GLImpl {
                 return "GetBufferPointerv";
             case BufferOp::BufferStorage:
                 return "BufferStorage";
+            case BufferOp::CreateBuffers:
+                return "CreateBuffers";
             case BufferOp::NamedBufferStorage:
                 return "NamedBufferStorage";
             case BufferOp::NamedBufferData:
                 return "NamedBufferData";
             case BufferOp::NamedBufferSubData:
                 return "NamedBufferSubData";
+            case BufferOp::CopyNamedBufferSubData:
+                return "CopyNamedBufferSubData";
+            case BufferOp::ClearNamedBufferData:
+                return "ClearNamedBufferData";
+            case BufferOp::ClearNamedBufferSubData:
+                return "ClearNamedBufferSubData";
             case BufferOp::MapBufferRange:
                 return "MapBufferRange";
             case BufferOp::MapBuffer:
@@ -72,6 +84,90 @@ namespace MobileGL::MG_Impl::GLImpl {
             default:
                 return "Buffer";
             }
+        }
+
+        SharedPtr<MG_State::GLState::BufferObject> GetNamedBufferObject(GLuint buffer, BufferOp op);
+
+        SizeT GetClearPatternSize(GLenum internalformat, GLenum format, GLenum type, BufferOp op) {
+            if (format != GL_RED_INTEGER) {
+                MG_State::pGLContext->RecordError(
+                    ErrorCode::InvalidEnum,
+                    MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", GetBufferOpName(op),
+                                                 "Only GL_RED_INTEGER buffer clears are currently supported."));
+                return 0;
+            }
+
+            if (internalformat == GL_R8UI && type == GL_UNSIGNED_BYTE) return sizeof(GLubyte);
+            if (internalformat == GL_R32UI && type == GL_UNSIGNED_INT) return sizeof(GLuint);
+
+            MG_State::pGLContext->RecordError(
+                ErrorCode::InvalidEnum,
+                MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", GetBufferOpName(op),
+                                             std::format("Unsupported clear format tuple: internalformat=0x{:X}, "
+                                                         "format=0x{:X}, type=0x{:X}",
+                                                         internalformat, format, type)));
+            return 0;
+        }
+
+        Bool ValidateBufferClearRange(const SharedPtr<MG_State::GLState::BufferObject>& bufferObject, GLintptr offset,
+                                      GLsizeiptr size, SizeT patternSize, BufferOp op) {
+            if (offset < 0 || size < 0) {
+                MG_State::pGLContext->RecordError(
+                    ErrorCode::InvalidValue,
+                    MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", GetBufferOpName(op),
+                                                 "Offset and size must be non-negative."));
+                return false;
+            }
+
+            if (patternSize == 0 || (static_cast<SizeT>(offset) % patternSize) != 0 ||
+                (static_cast<SizeT>(size) % patternSize) != 0) {
+                MG_State::pGLContext->RecordError(
+                    ErrorCode::InvalidValue,
+                    MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", GetBufferOpName(op),
+                                                 "Offset and size must be aligned to the clear element size."));
+                return false;
+            }
+
+            if (static_cast<SizeT>(offset) + static_cast<SizeT>(size) > bufferObject->GetSize()) {
+                MG_State::pGLContext->RecordError(
+                    ErrorCode::InvalidValue,
+                    MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", GetBufferOpName(op),
+                                                 "Offset and size exceed buffer size."));
+                return false;
+            }
+
+            if (bufferObject->IsMapped() && !(bufferObject->GetMappingAccess() & BufferMappingAccessBit::Persistent)) {
+                MG_State::pGLContext->RecordError(
+                    ErrorCode::InvalidOperation,
+                    MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", GetBufferOpName(op),
+                                                 "Cannot clear a non-persistently mapped buffer object."));
+                return false;
+            }
+
+            return true;
+        }
+
+        void ClearNamedBufferRange_State(GLuint buffer, GLenum internalformat, GLintptr offset, GLsizeiptr size,
+                                         GLenum format, GLenum type, const void* data, BufferOp op) {
+            const SizeT patternSize = GetClearPatternSize(internalformat, format, type, op);
+            if (patternSize == 0) return;
+
+            auto bufferObject = GetNamedBufferObject(buffer, op);
+            if (!bufferObject) return;
+            if (!ValidateBufferClearRange(bufferObject, offset, size, patternSize, op)) return;
+            if (size == 0) return;
+
+            Vector<Uint8> clearData(static_cast<SizeT>(size));
+            if (data) {
+                const auto* pattern = static_cast<const Uint8*>(data);
+                for (SizeT at = 0; at < clearData.size(); at += patternSize) {
+                    Memcpy(clearData.data() + at, pattern, patternSize);
+                }
+            } else {
+                Memset(clearData.data(), 0, clearData.size());
+            }
+
+            bufferObject->UploadSubData({clearData.data(), clearData.size()}, static_cast<SizeT>(offset));
         }
 
         auto& GetBufferBindingSlot(BufferTarget target) {
@@ -765,6 +861,29 @@ namespace MobileGL::MG_Impl::GLImpl {
         bufferObject->AllocateImmutableStorage(static_cast<SizeT>(size), data, flags);
     }
 
+    void CreateBuffers_State(GLsizei n, GLuint* buffers) {
+        if (n < 0) {
+            MG_State::pGLContext->RecordError(
+                ErrorCode::InvalidValue,
+                MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", "CreateBuffers_State", "Count must be non-negative."));
+            return;
+        }
+        if (n > 0 && !buffers) {
+            MG_State::pGLContext->RecordError(
+                ErrorCode::InvalidValue,
+                MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", "CreateBuffers_State",
+                                             "Buffer output pointer cannot be null."));
+            return;
+        }
+
+        Vector<Uint> bufferNames;
+        MG_State::pGLContext->GenBufferNames(static_cast<SizeT>(n), bufferNames);
+        for (GLsizei i = 0; i < n; ++i) {
+            buffers[i] = bufferNames[i];
+            MG_State::pGLContext->CreateBufferObject(bufferNames[i]);
+        }
+    }
+
     void NamedBufferStorage_State(GLuint buffer, GLsizeiptr size, const void* data, GLbitfield flags) {
         if (size <= 0) {
             MG_State::pGLContext->RecordError(
@@ -860,6 +979,68 @@ namespace MobileGL::MG_Impl::GLImpl {
         }
 
         bufferObject->UploadSubData({(void*)data, (SizeT)size}, offset);
+    }
+
+    void CopyNamedBufferSubData_State(GLuint readBuffer, GLuint writeBuffer, GLintptr readOffset, GLintptr writeOffset,
+                                      GLsizeiptr size) {
+        if (size < 0 || readOffset < 0 || writeOffset < 0) {
+            MG_State::pGLContext->RecordError(
+                ErrorCode::InvalidValue,
+                MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", "CopyNamedBufferSubData_State",
+                                             "Offset and size must be non-negative."));
+            return;
+        }
+
+        auto readBufferObject = GetNamedBufferObject(readBuffer, BufferOp::CopyNamedBufferSubData);
+        auto writeBufferObject = GetNamedBufferObject(writeBuffer, BufferOp::CopyNamedBufferSubData);
+        if (!readBufferObject || !writeBufferObject) return;
+
+        if (static_cast<SizeT>(readOffset) + static_cast<SizeT>(size) > readBufferObject->GetSize() ||
+            static_cast<SizeT>(writeOffset) + static_cast<SizeT>(size) > writeBufferObject->GetSize()) {
+            MG_State::pGLContext->RecordError(
+                ErrorCode::InvalidValue,
+                MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", "CopyNamedBufferSubData_State",
+                                             "Offset and size must be within the bounds of the buffer objects."));
+            return;
+        }
+
+        if (readBufferObject == writeBufferObject) {
+            if ((readOffset <= writeOffset && readOffset + size > writeOffset) ||
+                (writeOffset <= readOffset && writeOffset + size > readOffset)) {
+                MG_State::pGLContext->RecordError(
+                    ErrorCode::InvalidValue,
+                    MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", "CopyNamedBufferSubData_State",
+                                                 "Source and destination ranges overlap."));
+                return;
+            }
+        }
+
+        auto isIllegallyMapped = [](const SharedPtr<MG_State::GLState::BufferObject>& buffer) {
+            return buffer->IsMapped() && !(buffer->GetMappingAccess() & BufferMappingAccessBit::Persistent);
+        };
+        if (isIllegallyMapped(readBufferObject) || isIllegallyMapped(writeBufferObject)) {
+            MG_State::pGLContext->RecordError(
+                ErrorCode::InvalidOperation,
+                MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", "CopyNamedBufferSubData_State",
+                                             "Cannot copy data from/to a non-persistently mapped buffer object."));
+            return;
+        }
+
+        writeBufferObject->CopyDataFrom(readBufferObject, static_cast<SizeT>(readOffset),
+                                        static_cast<SizeT>(writeOffset), static_cast<SizeT>(size));
+    }
+
+    void ClearNamedBufferData_State(GLuint buffer, GLenum internalformat, GLenum format, GLenum type, const void* data) {
+        auto bufferObject = GetNamedBufferObject(buffer, BufferOp::ClearNamedBufferData);
+        if (!bufferObject) return;
+        ClearNamedBufferRange_State(buffer, internalformat, 0, static_cast<GLsizeiptr>(bufferObject->GetSize()), format,
+                                    type, data, BufferOp::ClearNamedBufferData);
+    }
+
+    void ClearNamedBufferSubData_State(GLuint buffer, GLenum internalformat, GLintptr offset, GLsizeiptr size,
+                                       GLenum format, GLenum type, const void* data) {
+        ClearNamedBufferRange_State(buffer, internalformat, offset, size, format, type, data,
+                                    BufferOp::ClearNamedBufferSubData);
     }
 
     void* MapNamedBuffer_State(GLuint buffer, GLenum access) {
@@ -1070,7 +1251,7 @@ namespace MobileGL::MG_Impl::GLImpl {
                 MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", "GenBuffers_State", "n must be non-negative"));
             return;
         }
-        static thread_local Vector<GLuint> bufferNames;
+        Vector<GLuint> bufferNames;
         MG_State::pGLContext->GenBufferNames(n, bufferNames);
         Memcpy(buffers, bufferNames.data(), n * sizeof(GLuint));
     }
@@ -1086,13 +1267,19 @@ namespace MobileGL::MG_Impl::GLImpl {
         BufferTarget bufferTarget = MG_Util::ConvertGLEnumToBufferTarget(target);
         if (!BufferImpl::ValidateBufferBindingPointTarget(bufferTarget)) return;
 
+        auto& point = MG_State::pGLContext->GetBufferBindingPoint(bufferTarget, pointIndex);
+        if (buffer == 0) {
+            point.Bind(nullptr);
+            point.SetRange(Range1D(0, 0));
+            return;
+        }
+
         Bool doesBufferObjectCreated = MG_State::pGLContext->ValidateBufferObject(buffer);
         if (!doesBufferObjectCreated) {
             MG_State::pGLContext->CreateBufferObject(buffer);
         }
         auto& bufferObject = MG_State::pGLContext->GetBufferObject(buffer);
 
-        auto& point = MG_State::pGLContext->GetBufferBindingPoint(bufferTarget, pointIndex);
         point.Bind(bufferObject);
         point.SetRange(Range1D(0, bufferObject->GetSize()));
         MGLOG_D("%s: set range (0, %d)", __func__, bufferObject->GetSize());
@@ -1104,13 +1291,19 @@ namespace MobileGL::MG_Impl::GLImpl {
         BufferTarget bufferTarget = MG_Util::ConvertGLEnumToBufferTarget(target);
         if (!BufferImpl::ValidateBufferBindingPointTarget(bufferTarget)) return;
 
+        auto& point = MG_State::pGLContext->GetBufferBindingPoint(bufferTarget, index);
+        if (buffer == 0) {
+            point.Bind(nullptr);
+            point.SetRange(Range1D(0, 0));
+            return;
+        }
+
         Bool doesBufferObjectCreated = MG_State::pGLContext->ValidateBufferObject(buffer);
         if (!doesBufferObjectCreated) {
             MG_State::pGLContext->CreateBufferObject(buffer);
         }
         auto& bufferObject = MG_State::pGLContext->GetBufferObject(buffer);
 
-        auto& point = MG_State::pGLContext->GetBufferBindingPoint(bufferTarget, index);
         point.Bind(bufferObject);
         point.SetRange(Range1D(offset, offset + size));
     }
@@ -1160,12 +1353,30 @@ namespace MobileGL::MG_Impl::GLImpl {
         NamedBufferStorage_State(buffer, size, data, flags);
     }
 
+    void CreateBuffers(GLsizei n, GLuint* buffers) {
+        CreateBuffers_State(n, buffers);
+    }
+
     void NamedBufferData(GLuint buffer, GLsizeiptr size, const void* data, GLenum usage) {
         NamedBufferData_State(buffer, size, data, usage);
     }
 
     void NamedBufferSubData(GLuint buffer, GLintptr offset, GLsizeiptr size, const void* data) {
         NamedBufferSubData_State(buffer, offset, size, data);
+    }
+
+    void CopyNamedBufferSubData(GLuint readBuffer, GLuint writeBuffer, GLintptr readOffset, GLintptr writeOffset,
+                                GLsizeiptr size) {
+        CopyNamedBufferSubData_State(readBuffer, writeBuffer, readOffset, writeOffset, size);
+    }
+
+    void ClearNamedBufferData(GLuint buffer, GLenum internalformat, GLenum format, GLenum type, const void* data) {
+        ClearNamedBufferData_State(buffer, internalformat, format, type, data);
+    }
+
+    void ClearNamedBufferSubData(GLuint buffer, GLenum internalformat, GLintptr offset, GLsizeiptr size, GLenum format,
+                                 GLenum type, const void* data) {
+        ClearNamedBufferSubData_State(buffer, internalformat, offset, size, format, type, data);
     }
 
     void* MapNamedBuffer(GLuint buffer, GLenum access) {

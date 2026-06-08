@@ -156,6 +156,35 @@ namespace MobileGL::MG_Impl::GLImpl {
         getInteger64i(target, index, data);
     }
 
+    void GetInteger64v(GLenum pname, GLint64* data) {
+        MGLOG_D("glGetInteger64v, pname: %s", MG_Util::ConvertGLEnumToString(pname).c_str());
+        if (!data) {
+            MG_State::pGLContext->RecordError(
+                ErrorCode::InvalidValue,
+                MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", __func__, "data pointer cannot be null"));
+            return;
+        }
+
+        switch (pname) {
+        case GL_MAX_SHADER_STORAGE_BLOCK_SIZE:
+            if (MG_Backend::pActiveBackendObject) {
+                *data = static_cast<GLint64>(
+                    MG_Backend::pActiveBackendObject->GetDynamicParameters().MaxShaderStorageBlockSize);
+            } else {
+                *data = static_cast<GLint64>(MG_Backend::DynamicBackendParameters{}.MaxShaderStorageBlockSize);
+            }
+            return;
+        default:
+            *data = 0;
+            MG_State::pGLContext->RecordError(
+                ErrorCode::InvalidEnum,
+                MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", __func__,
+                                             std::format("Unsupported integer64 pname {}.",
+                                                         MG_Util::ConvertGLEnumToString(pname))));
+            return;
+        }
+    }
+
     void GetIntegerv(GLenum pname, GLint* params) {
         MGLOG_D("glGetIntegerv, pname: %s", MG_Util::ConvertGLEnumToString(pname).c_str());
         if (!params) {
@@ -643,6 +672,11 @@ namespace MobileGL::MG_Impl::GLImpl {
         case GL_PIXEL_UNPACK_BUFFER_BINDING:
             *params = 0; // TODO
             break;
+        case GL_PARAMETER_BUFFER_BINDING_ARB: {
+            auto& obj = MG_State::pGLContext->GetBufferBindingSlot(BufferTarget::Parameter).GetBoundObject();
+            *params = obj ? static_cast<GLint>(obj->GetExternalIndex()) : 0;
+            break;
+        }
         case GL_POINT_FADE_THRESHOLD_SIZE:
             *params = 0; // TODO
             break;
@@ -659,7 +693,8 @@ namespace MobileGL::MG_Impl::GLImpl {
             *params = MG_State::pGLContext->IsCapabilityEnabled(CapabilityInput::ProgramPointSize) ? GL_TRUE : GL_FALSE;
             break;
         case GL_PROVOKING_VERTEX:
-            *params = 0; // TODO
+            *params = static_cast<GLint>(
+                MG_Util::ConvertProvokingVertexModeToGLEnum(MG_State::pGLContext->GetProvokingVertexMode()));
             break;
         case GL_POINT_SIZE:
             *params = 0; // TODO

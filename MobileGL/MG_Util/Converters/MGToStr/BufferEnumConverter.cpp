@@ -38,6 +38,8 @@ namespace MobileGL {
                 return "DispatchIndirect";
             case BufferTarget::DrawIndirect:
                 return "DrawIndirect";
+            case BufferTarget::Parameter:
+                return "Parameter";
             case BufferTarget::ShaderStorage:
                 return "ShaderStorage";
             case BufferTarget::Unknown:

@@ -190,6 +190,18 @@ namespace {
             }
         }
     }
+
+    void InjectDepthRangeBuiltinShim(MobileGL::ShaderStage stage, MobileGL::String& source) {
+        if (stage != MobileGL::ShaderStage::Fragment) return;
+        if (source.find("gl_DepthRange") == MobileGL::String::npos) return;
+        if (source.find("mg_DepthRangeParameters") != MobileGL::String::npos) return;
+
+        constexpr const char* shim =
+            "struct mg_DepthRangeParameters { float near; float far; float diff; };\n"
+            "const mg_DepthRangeParameters mg_DepthRange = mg_DepthRangeParameters(0.0, 1.0, 1.0);\n"
+            "#define gl_DepthRange mg_DepthRange\n";
+        source.insert(FindAfterVersionDirective(source), shim);
+    }
 } // namespace
 
 namespace MobileGL {
@@ -272,6 +284,7 @@ namespace MobileGL {
                 RenameBuiltinShadowingFunction(source, "tanh", "mg_tanh");
                 RenameBuiltinShadowingFunction(source, "fma", "mg_fma");
                 ModernizeLegacyGLSL(stage, source);
+                InjectDepthRangeBuiltinShim(stage, source);
             }
 
         } // namespace ShaderTranspiler

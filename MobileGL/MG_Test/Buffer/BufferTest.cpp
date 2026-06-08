@@ -330,6 +330,127 @@ TEST_F(BufferTest, DeleteBufferObject) {
     ASSERT_FALSE(MobileGL::MG_State::pGLContext->GetBufferObject(bufferNames[0]));
 }
 
+TEST_F(BufferTest, ParameterBufferBindingAndQuery) {
+    Vector<Uint> bufferNames;
+    MobileGL::MG_State::pGLContext->GenBufferNames(1, bufferNames);
+    auto bufObj = MobileGL::MG_State::pGLContext->CreateBufferObject(bufferNames[0]);
+
+    auto& slot = MobileGL::MG_State::pGLContext->GetBufferBindingSlot(BufferTarget::Parameter);
+    slot.Bind(bufObj);
+
+    GLint binding = 0;
+    MobileGL::MG_Impl::GLImpl::GetIntegerv(GL_PARAMETER_BUFFER_BINDING_ARB, &binding);
+    EXPECT_EQ(binding, static_cast<GLint>(bufferNames[0]));
+
+    slot.Bind(nullptr);
+    MobileGL::MG_Impl::GLImpl::GetIntegerv(GL_PARAMETER_BUFFER_BINDING_ARB, &binding);
+    EXPECT_EQ(binding, 0);
+    EXPECT_EQ(MobileGL::MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+}
+
+TEST_F(BufferTest, BindBufferBaseZeroUnbindsBindingPoint) {
+    GLuint buffer = 0;
+    MobileGL::MG_Impl::GLImpl::GenBuffers(1, &buffer);
+    MobileGL::MG_Impl::GLImpl::BindBuffer(GL_SHADER_STORAGE_BUFFER, buffer);
+    MobileGL::MG_Impl::GLImpl::BufferData(GL_SHADER_STORAGE_BUFFER, 16, nullptr, GL_DYNAMIC_DRAW);
+
+    MobileGL::MG_Impl::GLImpl::BindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, buffer);
+    auto& point = MobileGL::MG_State::pGLContext->GetBufferBindingPoint(BufferTarget::ShaderStorage, 2);
+    ASSERT_NE(point.GetBoundObject(), nullptr);
+    EXPECT_EQ(point.GetBoundObject()->GetExternalIndex(), buffer);
+
+    MobileGL::MG_Impl::GLImpl::BindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, 0);
+    EXPECT_EQ(point.GetBoundObject(), nullptr);
+    EXPECT_FALSE(MobileGL::MG_State::pGLContext->ValidateBufferObject(0));
+    EXPECT_EQ(MobileGL::MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+}
+
+TEST_F(BufferTest, BindBufferRangeZeroUnbindsBindingPoint) {
+    GLuint buffer = 0;
+    MobileGL::MG_Impl::GLImpl::GenBuffers(1, &buffer);
+    MobileGL::MG_Impl::GLImpl::BindBuffer(GL_SHADER_STORAGE_BUFFER, buffer);
+    MobileGL::MG_Impl::GLImpl::BufferData(GL_SHADER_STORAGE_BUFFER, 16, nullptr, GL_DYNAMIC_DRAW);
+
+    MobileGL::MG_Impl::GLImpl::BindBufferRange(GL_SHADER_STORAGE_BUFFER, 3, buffer, 4, 8);
+    auto& point = MobileGL::MG_State::pGLContext->GetBufferBindingPoint(BufferTarget::ShaderStorage, 3);
+    ASSERT_NE(point.GetBoundObject(), nullptr);
+    EXPECT_EQ(point.GetRange().start, 4);
+    EXPECT_EQ(point.GetRange().end, 12);
+
+    MobileGL::MG_Impl::GLImpl::BindBufferRange(GL_SHADER_STORAGE_BUFFER, 3, 0, 0, 0);
+    EXPECT_EQ(point.GetBoundObject(), nullptr);
+    EXPECT_FALSE(MobileGL::MG_State::pGLContext->ValidateBufferObject(0));
+    EXPECT_EQ(MobileGL::MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+}
+
+TEST_F(BufferTest, GetInteger64vMaxShaderStorageBlockSize) {
+    GLint64 maxSsboBlockSize = 0;
+    MobileGL::MG_Impl::GLImpl::GetInteger64v(GL_MAX_SHADER_STORAGE_BLOCK_SIZE, &maxSsboBlockSize);
+
+    EXPECT_GT(maxSsboBlockSize, 0);
+    EXPECT_EQ(MobileGL::MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+}
+
+TEST_F(BufferTest, CreateBuffersCreatesObjectsImmediately) {
+    GLuint buffers[2] = {};
+    MobileGL::MG_Impl::GLImpl::CreateBuffers(2, buffers);
+
+    EXPECT_NE(buffers[0], 0u);
+    EXPECT_NE(buffers[1], 0u);
+    EXPECT_TRUE(MobileGL::MG_State::pGLContext->ValidateBufferObject(buffers[0]));
+    EXPECT_TRUE(MobileGL::MG_State::pGLContext->ValidateBufferObject(buffers[1]));
+    EXPECT_EQ(MobileGL::MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+}
+
+TEST_F(BufferTest, CopyNamedBufferSubDataCopiesBetweenDSABuffers) {
+    GLuint buffers[2] = {};
+    MobileGL::MG_Impl::GLImpl::CreateBuffers(2, buffers);
+
+    Vector<Uint8> src{1, 2, 3, 4, 5, 6};
+    Vector<Uint8> dst(src.size(), 0);
+    MobileGL::MG_Impl::GLImpl::NamedBufferData(buffers[0], src.size(), src.data(), GL_STATIC_DRAW);
+    MobileGL::MG_Impl::GLImpl::NamedBufferData(buffers[1], dst.size(), dst.data(), GL_STATIC_DRAW);
+    MobileGL::MG_Impl::GLImpl::CopyNamedBufferSubData(buffers[0], buffers[1], 1, 2, 3);
+
+    Vector<Uint8> actual(dst.size());
+    auto dstObject = MobileGL::MG_State::pGLContext->GetBufferObject(buffers[1]);
+    Memcpy(actual.data(), dstObject->AcquireMemory(false, true, false), actual.size());
+    EXPECT_EQ(actual, (Vector<Uint8>{0, 0, 2, 3, 4, 0}));
+    EXPECT_EQ(MobileGL::MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+}
+
+TEST_F(BufferTest, ClearNamedBufferDataZeroesStorage) {
+    GLuint buffer = 0;
+    MobileGL::MG_Impl::GLImpl::CreateBuffers(1, &buffer);
+
+    Vector<Uint8> initial(8, 0x7F);
+    MobileGL::MG_Impl::GLImpl::NamedBufferData(buffer, initial.size(), initial.data(), GL_STATIC_DRAW);
+    MobileGL::MG_Impl::GLImpl::ClearNamedBufferData(buffer, GL_R8UI, GL_RED_INTEGER, GL_UNSIGNED_BYTE, nullptr);
+
+    Vector<Uint8> actual(initial.size(), 0xFF);
+    auto bufferObject = MobileGL::MG_State::pGLContext->GetBufferObject(buffer);
+    Memcpy(actual.data(), bufferObject->AcquireMemory(false, true, false), actual.size());
+    EXPECT_EQ(actual, Vector<Uint8>(initial.size(), 0));
+    EXPECT_EQ(MobileGL::MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+}
+
+TEST_F(BufferTest, ClearNamedBufferSubDataRepeatsPattern) {
+    GLuint buffer = 0;
+    MobileGL::MG_Impl::GLImpl::CreateBuffers(1, &buffer);
+
+    Vector<Uint32> initial{0, 0, 0, 0, 0};
+    MobileGL::MG_Impl::GLImpl::NamedBufferData(buffer, initial.size() * sizeof(Uint32), initial.data(), GL_STATIC_DRAW);
+    const Uint32 pattern = 0xAABBCCDDu;
+    MobileGL::MG_Impl::GLImpl::ClearNamedBufferSubData(buffer, GL_R32UI, sizeof(Uint32), sizeof(Uint32) * 3,
+                                                       GL_RED_INTEGER, GL_UNSIGNED_INT, &pattern);
+
+    Vector<Uint32> actual(initial.size(), 0);
+    auto bufferObject = MobileGL::MG_State::pGLContext->GetBufferObject(buffer);
+    Memcpy(actual.data(), bufferObject->AcquireMemory(false, true, false), actual.size() * sizeof(Uint32));
+    EXPECT_EQ(actual, (Vector<Uint32>{0, pattern, pattern, pattern, 0}));
+    EXPECT_EQ(MobileGL::MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+}
+
 using namespace MobileGL::MG_Impl::GLImpl;
 
 class GeneralBufferTest : public ::testing::Test {

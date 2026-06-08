@@ -994,16 +994,19 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         String NormalizeDescriptorName(const SpvReflectDescriptorBinding& binding,
                                        ProgramFactory::DescriptorBindingKind kind) {
             const char* rawName = binding.name;
-            if (kind == ProgramFactory::DescriptorBindingKind::UniformBufferDynamic &&
+            if ((kind == ProgramFactory::DescriptorBindingKind::UniformBufferDynamic ||
+                 kind == ProgramFactory::DescriptorBindingKind::StorageBuffer) &&
                 binding.type_description != nullptr && binding.type_description->type_name != nullptr) {
                 rawName = binding.type_description->type_name;
             }
 
-            MOBILEGL_ASSERT(rawName != nullptr && rawName[0] != '\0',
-                            "ProgramFactory: descriptor has empty name (spirvId=%u type=%d)", binding.spirv_id,
-                            static_cast<Int>(binding.descriptor_type));
-
-            String name = rawName;
+            String name = (rawName != nullptr) ? rawName : "";
+            if (name.empty()) {
+                name = std::format("__mg_unnamed_descriptor_set{}_binding{}_id{}", binding.set, binding.binding,
+                                   binding.spirv_id);
+                MGLOG_W("ProgramFactory: descriptor has empty name; using generated name '%s' (type=%d)",
+                        name.c_str(), static_cast<Int>(binding.descriptor_type));
+            }
             if (kind == ProgramFactory::DescriptorBindingKind::CombinedImageSampler ||
                 kind == ProgramFactory::DescriptorBindingKind::UniformTexelBuffer ||
                 kind == ProgramFactory::DescriptorBindingKind::StorageImage) {

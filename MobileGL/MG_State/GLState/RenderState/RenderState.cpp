@@ -360,6 +360,17 @@ namespace MobileGL {
                 return m_parameters.FrontFaceModeSetting;
             }
 
+            void RenderState::SetProvokingVertexMode(ProvokingVertexMode mode) {
+                if (m_parameters.ProvokingVertexModeSetting == mode) return;
+
+                m_parameters.ProvokingVertexModeSetting = mode;
+                ++m_version;
+            }
+
+            ProvokingVertexMode RenderState::GetProvokingVertexMode() const {
+                return m_parameters.ProvokingVertexModeSetting;
+            }
+
             // --------------------- Scissor ---------------------
             void RenderState::SetScissorBox(IntVec4 box) {
                 if (m_parameters.ScissorBox == box) return;

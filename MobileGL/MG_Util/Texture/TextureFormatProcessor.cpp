@@ -178,6 +178,7 @@ namespace MobileGL::MG_Util::TextureFormatProcessor {
                 break;
 
             // Depth Stencil
+            case GL_DEPTH24_STENCIL8:
             case GL_DEPTH32F_STENCIL8:
             case GL_DEPTH_STENCIL:
                 *outFormat = GL_DEPTH_STENCIL;
@@ -332,8 +333,11 @@ namespace MobileGL::MG_Util::TextureFormatProcessor {
 
             // Depth Stencil
             case GL_DEPTH32F_STENCIL8:
-            case GL_DEPTH_STENCIL:
                 *outType = GL_FLOAT_32_UNSIGNED_INT_24_8_REV;
+                break;
+            case GL_DEPTH24_STENCIL8:
+            case GL_DEPTH_STENCIL:
+                *outType = GL_UNSIGNED_INT_24_8;
                 break;
 
             default:

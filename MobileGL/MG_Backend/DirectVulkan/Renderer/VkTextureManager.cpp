@@ -621,7 +621,8 @@ namespace MobileGL::MG_Backend::DirectVulkan {
 
         const TextureFormatInfo formatInfo = ResolveTextureFormatInfo(texture.GetFormat());
         const VkComponentMapping sampledComponents = ResolveSampledViewComponents(texture, formatInfo);
-        perMipSampledView = CreateImageView(resource->image, resource->format, resource->aspect, resource->viewType,
+        const VkImageAspectFlags sampledAspect = ResolveSampledImageViewAspectMask(resource->aspect);
+        perMipSampledView = CreateImageView(resource->image, resource->format, sampledAspect, resource->viewType,
                             mipLevel, 1, resource->arrayLayers, &sampledComponents);
         if (perMipSampledView == VK_NULL_HANDLE) {
             MGLOG_D("%s: CreateImageView failed for textureId=%d mipLevel=%u", __func__, texture.GetExternalIndex(),
@@ -1014,6 +1015,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
 
     void VkTextureManager::DeferResourceRelease(TextureResource&& resource) {
         if (resource.image == VK_NULL_HANDLE && resource.fullView == VK_NULL_HANDLE &&
+            resource.sampledView == VK_NULL_HANDLE &&
             resource.perMipViews.empty() && resource.perMipSampledViews.empty()) {
             return;
         }
@@ -1088,6 +1090,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
 
         const Bool needsRecreate =
             resource.fullView == VK_NULL_HANDLE ||
+            resource.sampledView == VK_NULL_HANDLE ||
             resource.sampledBaseMipLevel != baseMipLevel ||
             resource.sampledLevelCount != levelCount ||
             resource.syncedTextureParamsVersion != texture.GetTextureParamsVersion();
@@ -1099,6 +1102,10 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             DeferViewRelease(resource.fullView);
             resource.fullView = VK_NULL_HANDLE;
         }
+        if (resource.sampledView != VK_NULL_HANDLE) {
+            DeferViewRelease(resource.sampledView);
+            resource.sampledView = VK_NULL_HANDLE;
+        }
         for (auto& sampledView : resource.perMipSampledViews) {
             if (sampledView != VK_NULL_HANDLE) {
                 DeferViewRelease(sampledView);
@@ -1109,8 +1116,14 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         const TextureFormatInfo formatInfo = ResolveTextureFormatInfo(texture.GetFormat());
         const VkComponentMapping sampledComponents = ResolveSampledViewComponents(texture, formatInfo);
         resource.fullView = CreateImageView(resource.image, resource.format, resource.aspect, resource.viewType,
-                                            baseMipLevel, levelCount, resource.arrayLayers, &sampledComponents);
+                                            baseMipLevel, levelCount, resource.arrayLayers);
         if (resource.fullView == VK_NULL_HANDLE) {
+            return false;
+        }
+        const VkImageAspectFlags sampledAspect = ResolveSampledImageViewAspectMask(resource.aspect);
+        resource.sampledView = CreateImageView(resource.image, resource.format, sampledAspect, resource.viewType,
+                                               baseMipLevel, levelCount, resource.arrayLayers, &sampledComponents);
+        if (resource.sampledView == VK_NULL_HANDLE) {
             return false;
         }
 
@@ -1440,5 +1453,18 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         default:
             return VK_IMAGE_ASPECT_COLOR_BIT;
         }
+    }
+
+    VkImageAspectFlags VkTextureManager::ResolveSampledImageViewAspectMask(VkImageAspectFlags imageAspect) {
+        if ((imageAspect & VK_IMAGE_ASPECT_COLOR_BIT) != 0) {
+            return VK_IMAGE_ASPECT_COLOR_BIT;
+        }
+        if ((imageAspect & VK_IMAGE_ASPECT_DEPTH_BIT) != 0) {
+            return VK_IMAGE_ASPECT_DEPTH_BIT;
+        }
+        if ((imageAspect & VK_IMAGE_ASPECT_STENCIL_BIT) != 0) {
+            return VK_IMAGE_ASPECT_STENCIL_BIT;
+        }
+        return imageAspect;
     }
 } // namespace MobileGL::MG_Backend::DirectVulkan
