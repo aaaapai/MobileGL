@@ -365,7 +365,7 @@ namespace MobileGL::MG_Impl::GLImpl {
         const SizeT internalBpp = MG_Util::GetInternalBytesPerPixel(textureInternalFormat, texturePixelDataType);
 
         const SizeT srcRowSize = static_cast<SizeT>(width) * internalBpp;
-        const SizeT srcStride = (srcRowSize + unpackParams.Alignment - 1) & ~(unpackParams.Alignment - 1);
+        const SizeT srcStride = srcRowSize;
         const SizeT destRowSize = static_cast<SizeT>(texelSize.x()) * internalBpp;
 
         if (xoffset + width > static_cast<GLsizei>(texelSize.x()) ||

@@ -14,6 +14,7 @@
 namespace MobileGL::MG_Backend::DirectVulkan {
     class BackendObject_DirectVulkan : public BackendObject {
     public:
+        BackendObject_DirectVulkan();
         ~BackendObject_DirectVulkan() override;
 
         void Initialize() override;
@@ -30,12 +31,15 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         const GlobalBackendFunctionsTable& GetBackendFunctions() const override;
         const DynamicBackendParameters& GetDynamicParameters() const override;
         BackendType GetBackendType() const override;
+        void ApplyVulkanCapabilitiesForTesting(const MG_External::VulkanCapabilities& capabilities);
 
     private:
+        void UpdateAdvertisedExtensions();
         void UpdateDynamicBackendParameters();
 
         Bool m_initialized = false;
         DynamicBackendParameters m_dynamicParameters;
         MG_External::VulkanCapabilities m_vulkanCaps;
+        RendererInfo m_rendererInfo;
     };
 } // namespace MobileGL::MG_Backend::DirectVulkan

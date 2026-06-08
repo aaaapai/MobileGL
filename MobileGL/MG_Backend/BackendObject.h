@@ -113,6 +113,10 @@ namespace MobileGL {
         struct DynamicBackendParameters {
             SizeT UniformBufferOffsetAlignment = 256;
             SizeT MaxShaderStorageBlockSize = 128 * 1024 * 1024;
+            Uint32 SubgroupSize = 0;
+            Uint32 SubgroupSupportedStages = 0;
+            Uint32 SubgroupSupportedFeatures = 0;
+            Bool SubgroupQuadOperationsInAllStages = false;
         };
 
         enum class WindowBackend {

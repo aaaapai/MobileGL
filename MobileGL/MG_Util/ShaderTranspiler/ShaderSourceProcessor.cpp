@@ -8,7 +8,9 @@
 
 #include "ShaderSourceProcessor.h"
 
+#include <algorithm>
 #include <cctype>
+#include <MG_Backend/BackendObjects.h>
 
 namespace {
     using MobileGL::SizeT;
@@ -159,6 +161,106 @@ namespace {
         return lineEnd == MobileGL::String::npos ? source.size() : lineEnd + 1;
     }
 
+    bool IsExtensionAdvertised(MobileGL::GLExtension extension) {
+        const auto& activeBackendObject = MobileGL::MG_Backend::pActiveBackendObject;
+        if (!activeBackendObject) {
+            return true;
+        }
+
+        const auto& extensions = activeBackendObject->GetRendererInfo().RendererGLInfo.Extensions;
+        return std::find(extensions.begin(), extensions.end(), extension) != extensions.end();
+    }
+
+    MobileGL::String TrimDirectiveToken(const MobileGL::String& token) {
+        SizeT start = 0;
+        while (start < token.size() && std::isspace(static_cast<unsigned char>(token[start]))) {
+            start++;
+        }
+
+        SizeT end = token.size();
+        while (end > start && std::isspace(static_cast<unsigned char>(token[end - 1]))) {
+            end--;
+        }
+        return token.substr(start, end - start);
+    }
+
+    void FilterUnsupportedGpuShaderInt64(MobileGL::String& source) {
+        if (IsExtensionAdvertised(MobileGL::E_GL_ARB_gpu_shader_int64)) {
+            return;
+        }
+
+        SizeT lineStart = 0;
+        while (lineStart < source.size()) {
+            SizeT lineEnd = source.find('\n', lineStart);
+            const bool hasLineBreak = lineEnd != MobileGL::String::npos;
+            if (!hasLineBreak) {
+                lineEnd = source.size();
+            }
+
+            const MobileGL::String line = source.substr(lineStart, lineEnd - lineStart);
+            SizeT probe = 0;
+            while (probe < line.size() && std::isspace(static_cast<unsigned char>(line[probe]))) {
+                probe++;
+            }
+
+            if (probe < line.size() && line[probe] == '#') {
+                probe++;
+                while (probe < line.size() && std::isspace(static_cast<unsigned char>(line[probe]))) {
+                    probe++;
+                }
+
+                constexpr const char* extensionToken = "extension";
+                constexpr SizeT extensionLen = 9;
+                const bool hasExtensionDirective =
+                    probe + extensionLen <= line.size() &&
+                    line.compare(probe, extensionLen, extensionToken) == 0 &&
+                    (probe + extensionLen == line.size() || !IsIdentifierChar(line[probe + extensionLen]));
+                if (hasExtensionDirective) {
+                    probe += extensionLen;
+                    while (probe < line.size() && std::isspace(static_cast<unsigned char>(line[probe]))) {
+                        probe++;
+                    }
+
+                    constexpr const char* int64Extension = "GL_ARB_gpu_shader_int64";
+                    constexpr SizeT int64ExtensionLen = 23;
+                    const bool hasInt64Extension =
+                        probe + int64ExtensionLen <= line.size() &&
+                        line.compare(probe, int64ExtensionLen, int64Extension) == 0 &&
+                        (probe + int64ExtensionLen == line.size() ||
+                         !IsIdentifierChar(line[probe + int64ExtensionLen]));
+                    if (hasInt64Extension) {
+                        probe += int64ExtensionLen;
+                        while (probe < line.size() && std::isspace(static_cast<unsigned char>(line[probe]))) {
+                            probe++;
+                        }
+
+                        if (probe < line.size() && line[probe] == ':') {
+                            probe++;
+                            const MobileGL::String behavior = TrimDirectiveToken(line.substr(probe));
+                            const SizeT replaceLen = lineEnd - lineStart + (hasLineBreak ? 1 : 0);
+                            if (behavior == "require") {
+                                const MobileGL::String replacement =
+                                    "#error GL_ARB_gpu_shader_int64 is not advertised by MobileGL\n";
+                                source.replace(lineStart, replaceLen, replacement);
+                                lineStart += replacement.size();
+                            } else if (behavior == "enable" || behavior == "warn") {
+                                source.replace(lineStart, replaceLen, "\n");
+                                lineStart++;
+                            } else {
+                                lineStart = lineEnd + (hasLineBreak ? 1 : 0);
+                            }
+                            continue;
+                        }
+                    }
+                }
+            }
+
+            lineStart = lineEnd + (hasLineBreak ? 1 : 0);
+        }
+
+        ReplaceIdentifier(source, "GL_ARB_gpu_shader_int64", "MG_DISABLED_GL_ARB_gpu_shader_int64");
+    }
+
     void ModernizeLegacyGLSL(MobileGL::ShaderStage stage, MobileGL::String& source) {
         RemoveDefineForIdentifier(source, "HIGHP_OR_DEFAULT");
         RemoveDefineForIdentifier(source, "MEDIUMP_OR_DEFAULT");
@@ -277,6 +379,8 @@ namespace MobileGL {
                         source = replacement;
                     }
                 }
+
+                FilterUnsupportedGpuShaderInt64(source);
 
                 // Some shader packs define helpers with built-in GLSL names such as round(), tanh(), or fma().
                 // These may pass OpenGL-style validation but fail when recompiled for Vulkan/SPIR-V generation.

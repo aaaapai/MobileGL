@@ -21,9 +21,44 @@
 #include <MG_State/GLState/Core.h>
 #include <MG_Backend/DirectVulkan/Renderer/VkRenderPassManager.h>
 #include <MG_Backend/DirectVulkan/Renderer/VkTextureManager.h>
+#include <MG_Backend/DirectVulkan/Renderer/VulkanRenderer.h>
+#include <MG_Util/ShaderTranspiler/ShaderCompiler.h>
+#include <MG_Util/ShaderTranspiler/ShaderSourceProcessor.h>
 #include <MG_Util/Debug/Log.h>
 
 namespace {
+    class DynamicParameterBackend final : public MobileGL::MG_Backend::BackendObject {
+    public:
+        explicit DynamicParameterBackend(MobileGL::MG_Backend::DynamicBackendParameters params):
+            m_params(params) {}
+
+        void Initialize() override {}
+        MobileGL::Bool InitCapabilities() override { return true; }
+        MobileGL::Bool InitWindowSurface() override { return true; }
+        const MobileGL::RendererInfo& GetRendererInfo() const override { return m_info; }
+        MobileGL::String GetBackendAPIVersionString() const override { return "test"; }
+        const MobileGL::MG_Backend::GlobalBackendFunctionsTable& GetBackendFunctions() const override {
+            return m_functions;
+        }
+        const MobileGL::MG_Backend::DynamicBackendParameters& GetDynamicParameters() const override {
+            return m_params;
+        }
+        MobileGL::BackendType GetBackendType() const override { return MobileGL::BackendType::Unknown; }
+
+    private:
+        MobileGL::MG_Backend::DynamicBackendParameters m_params;
+        MobileGL::MG_Backend::GlobalBackendFunctionsTable m_functions{};
+        MobileGL::RendererInfo m_info{
+            .RendererName = "Test",
+            .BackendName = "DynamicParameterBackend",
+            .ExtraVendor = MobileGL::Nullopt,
+            .RendererGLInfo = {.TargetGLVersion = {3, 3, 0},
+                               .TargetGLSLVersion = {4, 6, 0},
+                               .Extensions = {},
+                               .IsCompatibilityProfile = false},
+            .StaticBackendCapability = {.AllowVSOnlyPrograms = false}};
+    };
+
     void SetEnvVar(const char* name, const char* value) {
 #if defined(_WIN32)
         _putenv_s(name, value);
@@ -85,6 +120,137 @@ TEST(DirectVulkanSanity, AdvertisesVoxyRequiredRenderingExtensionsWithoutRaising
               extensions.end());
     EXPECT_NE(std::find(extensions.begin(), extensions.end(), MobileGL::E_GL_ARB_gpu_shader_int64),
               extensions.end());
+}
+
+TEST(DirectVulkanSanity, AdvertisesSubgroupOnlyWhenVulkanReportsUsableSupport) {
+    using namespace MobileGL;
+
+    MG_Backend::DirectVulkan::BackendObject_DirectVulkan backend;
+
+    MG_External::VulkanCapabilities unsupportedCaps;
+    unsupportedCaps.SupportsShaderSubgroup = false;
+    unsupportedCaps.SubgroupSize = 32;
+    unsupportedCaps.SubgroupSupportedStages = VK_SHADER_STAGE_COMPUTE_BIT;
+    unsupportedCaps.SubgroupSupportedOperations = VK_SUBGROUP_FEATURE_BASIC_BIT;
+    backend.ApplyVulkanCapabilitiesForTesting(unsupportedCaps);
+
+    const auto& unsupportedExtensions = backend.GetRendererInfo().RendererGLInfo.Extensions;
+    EXPECT_EQ(std::find(unsupportedExtensions.begin(), unsupportedExtensions.end(), E_GL_KHR_shader_subgroup),
+              unsupportedExtensions.end());
+    EXPECT_EQ(backend.GetDynamicParameters().SubgroupSize, 0u);
+    EXPECT_EQ(backend.GetDynamicParameters().SubgroupSupportedStages, 0u);
+    EXPECT_EQ(backend.GetDynamicParameters().SubgroupSupportedFeatures, 0u);
+
+    MG_External::VulkanCapabilities supportedCaps;
+    supportedCaps.SupportsShaderSubgroup = true;
+    supportedCaps.SubgroupSize = 32;
+    supportedCaps.SubgroupSupportedStages = VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT;
+    supportedCaps.SubgroupSupportedOperations =
+        VK_SUBGROUP_FEATURE_BASIC_BIT | VK_SUBGROUP_FEATURE_ARITHMETIC_BIT | VK_SUBGROUP_FEATURE_QUAD_BIT;
+    supportedCaps.SubgroupQuadOperationsInAllStages = true;
+    backend.ApplyVulkanCapabilitiesForTesting(supportedCaps);
+
+    const auto& supportedExtensions = backend.GetRendererInfo().RendererGLInfo.Extensions;
+    EXPECT_NE(std::find(supportedExtensions.begin(), supportedExtensions.end(), E_GL_KHR_shader_subgroup),
+              supportedExtensions.end());
+    EXPECT_EQ(backend.GetDynamicParameters().SubgroupSize, 32u);
+    EXPECT_EQ(backend.GetDynamicParameters().SubgroupSupportedStages,
+              static_cast<Uint32>(GL_FRAGMENT_SHADER_BIT | GL_COMPUTE_SHADER_BIT));
+    EXPECT_EQ(backend.GetDynamicParameters().SubgroupSupportedFeatures,
+              static_cast<Uint32>(GL_SUBGROUP_FEATURE_BASIC_BIT_KHR |
+                                  GL_SUBGROUP_FEATURE_ARITHMETIC_BIT_KHR |
+                                  GL_SUBGROUP_FEATURE_QUAD_BIT_KHR));
+    EXPECT_TRUE(backend.GetDynamicParameters().SubgroupQuadOperationsInAllStages);
+}
+
+TEST(DirectVulkanSanity, KeepsOptionalGpuShaderInt64BranchForVoxyQuadDecode) {
+    using namespace MobileGL;
+
+    MG_Backend::pActiveBackendObject = MakeUnique<MG_Backend::DirectVulkan::BackendObject_DirectVulkan>();
+    String source = R"(#version 460 core
+#extension GL_ARB_gpu_shader_int64 : enable
+#ifdef GL_ARB_gpu_shader_int64
+uint getLowBits(uint64_t v) {
+    return uint(v & uint64_t(0xffu));
+}
+#else
+#error int64 branch should be enabled for DirectVulkan
+#endif
+void main() {
+    gl_Position = vec4(float(getLowBits(uint64_t(0x2au))));
+}
+)";
+
+    MG_Util::ShaderTranspiler::PreprocessShaderSource(ShaderStage::Vertex, source);
+    EXPECT_NE(source.find("#extension GL_ARB_gpu_shader_int64"), String::npos);
+    EXPECT_NE(source.find("GL_ARB_gpu_shader_int64"), String::npos);
+
+    auto shaderResult = MG_Util::ShaderTranspiler::ShaderCompiler::CompileShader({
+        .shaderType = GL_VERTEX_SHADER,
+        .sourceStr = source,
+        .flags = MG_Util::ShaderTranspiler::ShaderCompileBits::CompileForOpenGL,
+    });
+    EXPECT_TRUE(shaderResult) << (shaderResult ? "" : shaderResult.error().log);
+
+    MG_Backend::pActiveBackendObject.reset();
+}
+
+TEST(GetterSanity, ReportsKhrSubgroupDynamicParameters) {
+    using namespace MobileGL;
+
+    MG_State::pGLContext = MakeUnique<MG_State::GLState::GLContext>();
+
+    MG_Backend::DynamicBackendParameters params;
+    params.SubgroupSize = 32;
+    params.SubgroupSupportedStages = GL_VERTEX_SHADER_BIT | GL_FRAGMENT_SHADER_BIT | GL_COMPUTE_SHADER_BIT;
+    params.SubgroupSupportedFeatures = GL_SUBGROUP_FEATURE_BASIC_BIT_KHR |
+                                       GL_SUBGROUP_FEATURE_ARITHMETIC_BIT_KHR |
+                                       GL_SUBGROUP_FEATURE_CLUSTERED_BIT_KHR |
+                                       GL_SUBGROUP_FEATURE_QUAD_BIT_KHR;
+    params.SubgroupQuadOperationsInAllStages = true;
+    MG_Backend::pActiveBackendObject = MakeUnique<DynamicParameterBackend>(params);
+
+    GLint intValue = 0;
+    MG_Impl::GLImpl::GetIntegerv(GL_SUBGROUP_SIZE_KHR, &intValue);
+    EXPECT_EQ(intValue, 32);
+    MG_Impl::GLImpl::GetIntegerv(GL_SUBGROUP_SUPPORTED_STAGES_KHR, &intValue);
+    EXPECT_EQ(intValue, static_cast<GLint>(params.SubgroupSupportedStages));
+    MG_Impl::GLImpl::GetIntegerv(GL_SUBGROUP_SUPPORTED_FEATURES_KHR, &intValue);
+    EXPECT_EQ(intValue, static_cast<GLint>(params.SubgroupSupportedFeatures));
+    MG_Impl::GLImpl::GetIntegerv(GL_SUBGROUP_QUAD_ALL_STAGES_KHR, &intValue);
+    EXPECT_EQ(intValue, GL_TRUE);
+
+    GLint64 int64Value = 0;
+    MG_Impl::GLImpl::GetInteger64v(GL_SUBGROUP_SUPPORTED_FEATURES_KHR, &int64Value);
+    EXPECT_EQ(int64Value, static_cast<GLint64>(params.SubgroupSupportedFeatures));
+    EXPECT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+
+    MG_Backend::pActiveBackendObject.reset();
+    MG_State::pGLContext.reset();
+}
+
+TEST(DirectVulkanSanity, CommandMemoryBarrierMakesIndirectDrawCommandsVisible) {
+    using namespace MobileGL;
+    using namespace MobileGL::MG_Backend::DirectVulkan;
+
+    const VkMemoryBarrier commandBarrier =
+        VulkanRenderer::BuildMemoryBarrierForGlBarriers(GL_COMMAND_BARRIER_BIT | GL_SHADER_STORAGE_BARRIER_BIT);
+    EXPECT_NE(commandBarrier.dstAccessMask & VK_ACCESS_INDIRECT_COMMAND_READ_BIT, 0u);
+
+    const VkMemoryBarrier storageOnlyBarrier =
+        VulkanRenderer::BuildMemoryBarrierForGlBarriers(GL_SHADER_STORAGE_BARRIER_BIT);
+    EXPECT_EQ(storageOnlyBarrier.dstAccessMask & VK_ACCESS_INDIRECT_COMMAND_READ_BIT, 0u);
+}
+
+TEST(DirectVulkanSanity, DrawIndexedIndirectCommandMatchesGlAndVulkanLayout) {
+    using namespace MobileGL::MG_Backend::DirectVulkan;
+
+    EXPECT_EQ(sizeof(DrawIndexedCmdParam), 20u);
+    EXPECT_EQ(offsetof(DrawIndexedCmdParam, indexCount), 0u);
+    EXPECT_EQ(offsetof(DrawIndexedCmdParam, instanceCount), 4u);
+    EXPECT_EQ(offsetof(DrawIndexedCmdParam, firstIndex), 8u);
+    EXPECT_EQ(offsetof(DrawIndexedCmdParam, vertexOffset), 12u);
+    EXPECT_EQ(offsetof(DrawIndexedCmdParam, firstInstance), 16u);
 }
 
 TEST(DirectVulkanSanity, UndefinedDepthStencilLayoutUsesDontCareForUnclearedAspects) {

@@ -2920,16 +2920,7 @@ void main() {
         vkCmdDispatchIndirect(frame.commandBuffer, slice.buffer, slice.offset + static_cast<VkDeviceSize>(indirect));
     }
 
-    void VulkanRenderer::MemoryBarrier(GLbitfield barriers) {
-        auto& frame = m_frameContext.GetCurrent();
-        if (!frame.isCommandRecording) {
-            m_frameContext.BeginCommandRecording();
-            m_uniformManager->BeginFrame(m_frameContext.GetCurrentFrameIndex());
-        }
-        if (VkRenderPassManager::GetActiveRenderPass() != nullptr) {
-            VkRenderPassManager::EndRenderPass(frame.commandBuffer);
-        }
-
+    VkMemoryBarrier VulkanRenderer::BuildMemoryBarrierForGlBarriers(GLbitfield barriers) {
         VkMemoryBarrier memoryBarrier{};
         memoryBarrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER;
         memoryBarrier.srcAccessMask =
@@ -2944,6 +2935,24 @@ void main() {
             VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT |
             VK_ACCESS_VERTEX_ATTRIBUTE_READ_BIT | VK_ACCESS_INDEX_READ_BIT |
             VK_ACCESS_UNIFORM_READ_BIT | VK_ACCESS_MEMORY_READ_BIT | VK_ACCESS_MEMORY_WRITE_BIT;
+
+        if ((barriers & GL_COMMAND_BARRIER_BIT) != 0) {
+            memoryBarrier.dstAccessMask |= VK_ACCESS_INDIRECT_COMMAND_READ_BIT;
+        }
+        return memoryBarrier;
+    }
+
+    void VulkanRenderer::MemoryBarrier(GLbitfield barriers) {
+        auto& frame = m_frameContext.GetCurrent();
+        if (!frame.isCommandRecording) {
+            m_frameContext.BeginCommandRecording();
+            m_uniformManager->BeginFrame(m_frameContext.GetCurrentFrameIndex());
+        }
+        if (VkRenderPassManager::GetActiveRenderPass() != nullptr) {
+            VkRenderPassManager::EndRenderPass(frame.commandBuffer);
+        }
+
+        VkMemoryBarrier memoryBarrier = BuildMemoryBarrierForGlBarriers(barriers);
 
         MGLOG_D("DirectVulkan: glMemoryBarrier(0x%x)", static_cast<Uint32>(barriers));
         vkCmdPipelineBarrier(frame.commandBuffer, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,
@@ -5329,6 +5338,10 @@ void main() {
 
     const PhysicalDevice& VulkanRenderer::GetPhysicalDevice() const {
         return m_physicalDevice;
+    }
+
+    VkInstance VulkanRenderer::GetInstance() const {
+        return m_instance;
     }
 
     Bool VulkanRenderer::IsDrawIndirectCountExtensionEnabled() const {

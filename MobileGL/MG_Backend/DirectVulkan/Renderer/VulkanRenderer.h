@@ -143,6 +143,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         void DispatchCompute(GLuint numGroupsX, GLuint numGroupsY, GLuint numGroupsZ);
         void DispatchComputeIndirect(GLintptr indirect);
         void MemoryBarrier(GLbitfield barriers);
+        static VkMemoryBarrier BuildMemoryBarrierForGlBarriers(GLbitfield barriers);
         void DrawArrays(const DrawCmd& payload);
         void DrawElements(const DrawIndexedCmd& payload);
         void MultiDrawElements(const MultiDrawIndexedCmd& payloads);
@@ -151,6 +152,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         void Present();
 
         const PhysicalDevice& GetPhysicalDevice() const;
+        VkInstance GetInstance() const;
         Bool IsDrawIndirectCountExtensionEnabled() const;
 
         void RecreateSwapchain();

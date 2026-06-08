@@ -13,6 +13,8 @@
 #include "Includes.h"
 #include "Init.h"
 #include "MG_Backend/DirectVulkan/DirectVulkanResourceState.h"
+#include "MG_Backend/DirectVulkan/BackendObject_DirectVulkan.h"
+#include "MG_Backend/BackendObjects.h"
 #include "MG_Impl/GLImpl/Getter/GL_Getter.h"
 #include "MG_Impl/GLImpl/Program/GL_Program.h"
 #include "MG_State/GLState/Core.h"
@@ -116,6 +118,80 @@ TEST_F(ProgramTest, CompileFragment) {
     GLuint fs = CreateShader(GL_FRAGMENT_SHADER);
     ShaderSource(fs, 1, &fsSrc, NULL);
     CompileShader(fs);
+}
+
+TEST_F(ProgramTest, CompileVoxySubgroupProbeShader) {
+    char infoLog[1024] = "";
+    const char* csSrc = R"(#version 430
+#extension GL_KHR_shader_subgroup_basic : require
+#extension GL_KHR_shader_subgroup_arithmetic : require
+layout(local_size_x=32) in;
+void main() {
+    uint a = subgroupExclusiveAdd(gl_LocalInvocationIndex);
+}
+)";
+
+    GLuint cs = CreateShader(GL_COMPUTE_SHADER);
+    ShaderSource(cs, 1, &csSrc, nullptr);
+    CompileShader(cs);
+
+    GLint compileStatus = GL_FALSE;
+    GetShaderiv(cs, GL_COMPILE_STATUS, &compileStatus);
+    GetShaderInfoLog(cs, sizeof(infoLog), nullptr, infoLog);
+    EXPECT_EQ(compileStatus, GL_TRUE) << infoLog;
+}
+
+TEST_F(ProgramTest, CompileVoxyGpuShaderInt64QuadDecode) {
+    auto previousBackend = Move(MG_Backend::pActiveBackendObject);
+    MG_Backend::pActiveBackendObject = MakeUnique<MG_Backend::DirectVulkan::BackendObject_DirectVulkan>();
+
+    char infoLog[2048] = "";
+    const char* vsSrc = R"(#version 460 core
+#extension GL_ARB_gpu_shader_int64 : enable
+
+#ifdef GL_ARB_gpu_shader_int64
+#define Quad uint64_t
+#define Eu32(data, amountBits, shift) (uint((data)>>(shift))&((1u<<(amountBits))-1))
+
+vec3 extractPos(uint64_t quad) {
+    return vec3(Eu32(quad, 5, 21), Eu32(quad, 5, 16), Eu32(quad, 5, 11));
+}
+
+uint extractStateId(uint64_t quad) {
+    return Eu32(quad, 16, 26);
+}
+
+uint extractBiomeId(uint64_t quad) {
+    return Eu32(quad, 9, 46);
+}
+#else
+#error GL_ARB_gpu_shader_int64 should select Voxy native quad decode path
+#endif
+
+layout(std430, binding = 1) readonly buffer QuadBuffer {
+    Quad quadData[];
+};
+
+layout(location = 0) flat out uvec4 interData;
+
+void main() {
+    uint64_t quad = quadData[uint(gl_VertexID) >> 2];
+    vec3 pos = extractPos(quad);
+    interData = uvec4(extractStateId(quad), extractBiomeId(quad), uint(pos.x), uint(pos.y));
+    gl_Position = vec4(pos * (1.0 / 32.0), 1.0);
+}
+)";
+
+    GLuint vs = CreateShader(GL_VERTEX_SHADER);
+    ShaderSource(vs, 1, &vsSrc, nullptr);
+    CompileShader(vs);
+
+    GLint compileStatus = GL_FALSE;
+    GetShaderiv(vs, GL_COMPILE_STATUS, &compileStatus);
+    GetShaderInfoLog(vs, sizeof(infoLog), nullptr, infoLog);
+    EXPECT_EQ(compileStatus, GL_TRUE) << infoLog;
+
+    MG_Backend::pActiveBackendObject = Move(previousBackend);
 }
 
 TEST_F(ProgramTest, ShaderSourceKeepsOriginalTextAfterCompile) {
