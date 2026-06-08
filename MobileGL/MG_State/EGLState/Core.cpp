@@ -238,7 +238,7 @@ namespace MobileGL {
                 for (auto contextIt = m_contexts.begin(); contextIt != m_contexts.end();) {
                     if (contextIt->second.Display == display) {
                         removedContexts.push_back(contextIt->first);
-                        contextIt = m_contexts.erase(contextIt);
+                        m_contexts.erase(contextIt);
                     } else {
                         ++contextIt;
                     }
@@ -250,7 +250,7 @@ namespace MobileGL {
 
                 for (auto surfaceIt = m_surfaces.begin(); surfaceIt != m_surfaces.end();) {
                     if (surfaceIt->second.Display == display) {
-                        surfaceIt = m_surfaces.erase(surfaceIt);
+                        m_surfaces.erase(surfaceIt);
                     } else {
                         ++surfaceIt;
                     }
@@ -258,7 +258,7 @@ namespace MobileGL {
 
                 for (auto syncIt = m_syncs.begin(); syncIt != m_syncs.end();) {
                     if (syncIt->second.Display == display) {
-                        syncIt = m_syncs.erase(syncIt);
+                        m_syncs.erase(syncIt);
                     } else {
                         ++syncIt;
                     }
@@ -266,7 +266,7 @@ namespace MobileGL {
 
                 for (auto imageIt = m_images.begin(); imageIt != m_images.end();) {
                     if (imageIt->second.Display == display) {
-                        imageIt = m_images.erase(imageIt);
+                        m_images.erase(imageIt);
                     } else {
                         ++imageIt;
                     }
@@ -280,7 +280,7 @@ namespace MobileGL {
                                 m_contextOwners.erase(ownerIt);
                             }
                         }
-                        threadIt = m_threadCurrents.erase(threadIt);
+                        m_threadCurrents.erase(threadIt);
                     } else {
                         ++threadIt;
                     }
@@ -926,7 +926,7 @@ namespace MobileGL {
                                               currentIt->second.DrawSurface == EGL_NO_SURFACE &&
                                               currentIt->second.ReadSurface == EGL_NO_SURFACE;
                     if (emptyCurrent) {
-                        currentIt = m_threadCurrents.erase(currentIt);
+                        m_threadCurrents.erase(currentIt);
                         continue;
                     }
                     ++currentIt;
