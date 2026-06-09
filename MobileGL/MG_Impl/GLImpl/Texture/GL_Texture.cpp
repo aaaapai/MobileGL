@@ -85,6 +85,102 @@ namespace MobileGL::MG_Impl::GLImpl {
                    MG_Util::GetInternalBytesPerPixel(textureInternalFormat,
                                                      MG_Util::ConvertGLEnumToTexturePixelDataType(realType));
         }
+
+        Bool IsMultisampleTextureTarget(TextureTarget target) {
+            return target == TextureTarget::Texture2DMultisample ||
+                   target == TextureTarget::Texture2DMultisampleArray;
+        }
+
+        Int GetMaxSupportedTextureSamples(TextureInternalFormat textureInternalFormat) {
+            if (MG_Backend::pActiveBackendObject == nullptr) {
+                return std::numeric_limits<Int>::max();
+            }
+
+            const auto& dynamicParameters = MG_Backend::pActiveBackendObject->GetDynamicParameters();
+            if (MG_Util::IsDepthFormatInternalFormat(textureInternalFormat) ||
+                MG_Util::IsStencilFormatInternalFormat(textureInternalFormat)) {
+                return std::max(dynamicParameters.MaxDepthTextureSamples, 1);
+            }
+
+            GLenum normalizedInternalFormat = MG_Util::ConvertTextureInternalFormatToGLEnum(textureInternalFormat);
+            GLenum normalizedFormat = GL_RGBA;
+            GLenum normalizedType = GL_UNSIGNED_BYTE;
+            MG_Util::TextureFormatProcessor::NormalizePixelFormat(
+                normalizedInternalFormat, PixelFormatNormalizeOptionBit::None, &normalizedInternalFormat,
+                &normalizedFormat, &normalizedType);
+            const Bool isIntegerFormat = normalizedFormat == GL_RED_INTEGER || normalizedFormat == GL_RG_INTEGER ||
+                                         normalizedFormat == GL_RGB_INTEGER || normalizedFormat == GL_RGBA_INTEGER;
+            return std::max(isIntegerFormat ? dynamicParameters.MaxIntegerSamples
+                                            : dynamicParameters.MaxColorTextureSamples,
+                            1);
+        }
+
+        Bool ValidateTextureMultisampleStorage(TextureTarget textureTarget, GLsizei samples, GLsizei width,
+                                               GLsizei height, GLsizei depth, TextureInternalFormat textureInternalFormat,
+                                               const char* caller) {
+            if (!IsMultisampleTextureTarget(textureTarget)) {
+                MG_State::pGLContext->RecordError(
+                    ErrorCode::InvalidEnum,
+                    MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", caller,
+                                                 "Target is not a multisample texture target."));
+                return false;
+            }
+            if (samples <= 0) {
+                MG_State::pGLContext->RecordError(
+                    ErrorCode::InvalidValue,
+                    MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", caller, "Sample count must be positive."));
+                return false;
+            }
+            if (width < 0 || height < 0 || depth < 0) {
+                MG_State::pGLContext->RecordError(
+                    ErrorCode::InvalidValue,
+                    MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", caller, "Texture size must be non-negative."));
+                return false;
+            }
+            if (textureTarget == TextureTarget::Texture2DMultisample && depth != 1) {
+                MG_State::pGLContext->RecordError(
+                    ErrorCode::InvalidValue,
+                    MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", caller,
+                                                 "2D multisample textures must use depth 1."));
+                return false;
+            }
+            if (textureTarget == TextureTarget::Texture2DMultisampleArray && depth == 0) {
+                MG_State::pGLContext->RecordError(
+                    ErrorCode::InvalidValue,
+                    MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", caller,
+                                                 "2D multisample array textures must have at least one layer."));
+                return false;
+            }
+
+            const Int maxSamples = GetMaxSupportedTextureSamples(textureInternalFormat);
+            if (samples > maxSamples) {
+                MG_State::pGLContext->RecordError(
+                    ErrorCode::InvalidValue,
+                    MakeUnique<GenericErrorInfo>(
+                        "MG_Impl/GLImpl", caller,
+                        std::format("Sample count {} exceeds the supported maximum {} for this texture format.",
+                                    samples, maxSamples)));
+                return false;
+            }
+            return true;
+        }
+
+        void AllocateMultisampleTextureStorage(const SharedPtr<MG_State::GLState::ITextureObject>& textureObject,
+                                               TextureUploadTarget textureUploadTarget,
+                                               TextureInternalFormat textureInternalFormat, GLsizei samples,
+                                               GLsizei width, GLsizei height, GLsizei depth,
+                                               GLboolean fixedsamplelocations) {
+            MOBILEGL_ASSERT(textureObject != nullptr, "AllocateMultisampleTextureStorage requires a texture object");
+            MOBILEGL_ASSERT(textureObject->GetStorageType() == TextureStorageType::Mipmap,
+                            "AllocateMultisampleTextureStorage requires mipmap-backed storage");
+
+            auto* textureMipmapObject = static_cast<MG_State::GLState::TextureObjectMipmap*>(textureObject.get());
+            textureObject->SetInternalFormat(textureInternalFormat);
+            textureObject->SetSamples(samples);
+            textureObject->SetFixedSampleLocations(fixedsamplelocations == GL_TRUE);
+            textureMipmapObject->AllocateStorage(textureUploadTarget, 0, {{width, height, depth}, 0});
+            textureMipmapObject->MarkStorageDirty(textureUploadTarget, 0, false);
+        }
     } // namespace
 
     const SharedPtr<MG_State::GLState::ITextureObject>& GetTextureObjectByName(GLuint texture, const char* caller) {
@@ -814,12 +910,84 @@ namespace MobileGL::MG_Impl::GLImpl {
 
     void TexImage3DMultisample_State(GLenum target, GLsizei samples, GLenum internalformat, GLsizei width,
                                      GLsizei height, GLsizei depth, GLboolean fixedsamplelocations) {
-        // TODO: implement
+        TextureUploadTarget textureUploadTarget = MG_Util::ConvertGLEnumToTextureUploadTarget(target);
+        TextureTarget textureTarget = MG_Util::ConvertGLEnumToTextureTarget(target);
+        TextureInternalFormat textureInternalFormat = MG_Util::ConvertGLEnumToTextureInternalFormat(internalformat);
+
+        if (!TextureImpl::ValidateTextureTarget(textureTarget)) return;
+        if (!TextureImpl::ValidateTextureUploadTarget(textureUploadTarget)) return;
+        if (textureTarget != TextureTarget::Texture2DMultisampleArray) {
+            MG_State::pGLContext->RecordError(
+                ErrorCode::InvalidEnum,
+                MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", __func__,
+                                             "Target must be GL_TEXTURE_2D_MULTISAMPLE_ARRAY or its proxy."));
+            return;
+        }
+
+        textureInternalFormat = MG_Util::ConvertInternalFormatToSized(textureInternalFormat, TextureInputFormat::RGBA,
+                                                                      TexturePixelDataType::UnsignedByte);
+        if (!TextureImpl::ValidateTextureInternalFormat(textureInternalFormat)) return;
+        if (!ValidateTextureMultisampleStorage(textureTarget, samples, width, height, depth, textureInternalFormat,
+                                               __func__))
+            return;
+
+        auto& activeUnit = MG_State::pGLContext->GetTextureUnitObject(MG_State::pGLContext->GetActiveTextureUnit());
+        auto& bindingSlot = activeUnit.GetBindingSlot(textureTarget);
+        const Bool isProxy = TextureImpl::IsProxyTextureTarget(textureUploadTarget);
+        auto& textureObject =
+            isProxy ? TextureImpl::pProxyTextureManager->CreateOrReplaceProxyTextureObject(textureUploadTarget)
+                    : bindingSlot.GetBoundObject();
+        if (!TextureImpl::ValidateTextureObject(textureObject)) return;
+        if (textureObject->GetStorageType() != TextureStorageType::Mipmap) {
+            MG_State::pGLContext->RecordError(
+                ErrorCode::InvalidOperation,
+                MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", __func__, "Texture storage is not mipmap-backed."));
+            return;
+        }
+
+        AllocateMultisampleTextureStorage(textureObject, textureUploadTarget, textureInternalFormat, samples, width,
+                                          height, depth, fixedsamplelocations);
     }
 
     void TexImage2DMultisample_State(GLenum target, GLsizei samples, GLenum internalformat, GLsizei width,
                                      GLsizei height, GLboolean fixedsamplelocations) {
-        // TODO: implement
+        TextureUploadTarget textureUploadTarget = MG_Util::ConvertGLEnumToTextureUploadTarget(target);
+        TextureTarget textureTarget = MG_Util::ConvertGLEnumToTextureTarget(target);
+        TextureInternalFormat textureInternalFormat = MG_Util::ConvertGLEnumToTextureInternalFormat(internalformat);
+
+        if (!TextureImpl::ValidateTextureTarget(textureTarget)) return;
+        if (!TextureImpl::ValidateTextureUploadTarget(textureUploadTarget)) return;
+        if (textureTarget != TextureTarget::Texture2DMultisample) {
+            MG_State::pGLContext->RecordError(
+                ErrorCode::InvalidEnum,
+                MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", __func__,
+                                             "Target must be GL_TEXTURE_2D_MULTISAMPLE or its proxy."));
+            return;
+        }
+
+        textureInternalFormat = MG_Util::ConvertInternalFormatToSized(textureInternalFormat, TextureInputFormat::RGBA,
+                                                                      TexturePixelDataType::UnsignedByte);
+        if (!TextureImpl::ValidateTextureInternalFormat(textureInternalFormat)) return;
+        if (!ValidateTextureMultisampleStorage(textureTarget, samples, width, height, 1, textureInternalFormat,
+                                               __func__))
+            return;
+
+        auto& activeUnit = MG_State::pGLContext->GetTextureUnitObject(MG_State::pGLContext->GetActiveTextureUnit());
+        auto& bindingSlot = activeUnit.GetBindingSlot(textureTarget);
+        const Bool isProxy = TextureImpl::IsProxyTextureTarget(textureUploadTarget);
+        auto& textureObject =
+            isProxy ? TextureImpl::pProxyTextureManager->CreateOrReplaceProxyTextureObject(textureUploadTarget)
+                    : bindingSlot.GetBoundObject();
+        if (!TextureImpl::ValidateTextureObject(textureObject)) return;
+        if (textureObject->GetStorageType() != TextureStorageType::Mipmap) {
+            MG_State::pGLContext->RecordError(
+                ErrorCode::InvalidOperation,
+                MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", __func__, "Texture storage is not mipmap-backed."));
+            return;
+        }
+
+        AllocateMultisampleTextureStorage(textureObject, textureUploadTarget, textureInternalFormat, samples, width,
+                                          height, 1, fixedsamplelocations);
     }
 
     void TexImage3D_State(GLenum target, GLint level, GLint internalformat, GLsizei width, GLsizei height,
@@ -1505,6 +1673,16 @@ namespace MobileGL::MG_Impl::GLImpl {
                 *params = (GLint)MG_Util::ConvertTextureInternalFormatToGLEnum(textureObject->GetFormat());
             }
             break;
+        case GL_TEXTURE_SAMPLES:
+            if (params) {
+                *params = textureObject->GetSamples();
+            }
+            break;
+        case GL_TEXTURE_FIXED_SAMPLE_LOCATIONS:
+            if (params) {
+                *params = textureObject->HasFixedSampleLocations() ? GL_TRUE : GL_FALSE;
+            }
+            break;
         case GL_TEXTURE_RED_TYPE:
         case GL_TEXTURE_GREEN_TYPE:
         case GL_TEXTURE_BLUE_TYPE:
@@ -1593,6 +1771,16 @@ namespace MobileGL::MG_Impl::GLImpl {
         case GL_TEXTURE_INTERNAL_FORMAT:
             if (params) {
                 *params = (GLfloat)MG_Util::ConvertTextureInternalFormatToGLEnum(textureObject->GetFormat());
+            }
+            break;
+        case GL_TEXTURE_SAMPLES:
+            if (params) {
+                *params = static_cast<GLfloat>(textureObject->GetSamples());
+            }
+            break;
+        case GL_TEXTURE_FIXED_SAMPLE_LOCATIONS:
+            if (params) {
+                *params = textureObject->HasFixedSampleLocations() ? 1.0f : 0.0f;
             }
             break;
         case GL_TEXTURE_RED_TYPE:
@@ -2157,6 +2345,22 @@ namespace MobileGL::MG_Impl::GLImpl {
         }
     }
 
+    void TextureStorage2DMultisample(GLuint texture, GLsizei samples, GLenum internalformat, GLsizei width,
+                                     GLsizei height, GLboolean fixedsamplelocations) {
+        auto textureObject = GetTextureObjectByName(texture, __func__);
+        WithTemporarilyBoundNamedTexture(textureObject, [&](GLenum target) {
+            TexStorage2DMultisample(target, samples, internalformat, width, height, fixedsamplelocations);
+        });
+    }
+
+    void TextureStorage3DMultisample(GLuint texture, GLsizei samples, GLenum internalformat, GLsizei width,
+                                     GLsizei height, GLsizei depth, GLboolean fixedsamplelocations) {
+        auto textureObject = GetTextureObjectByName(texture, __func__);
+        WithTemporarilyBoundNamedTexture(textureObject, [&](GLenum target) {
+            TexStorage3DMultisample(target, samples, internalformat, width, height, depth, fixedsamplelocations);
+        });
+    }
+
     void TexStorage1D(GLenum target, GLsizei levels, GLenum internalformat, GLsizei width) {
         const auto textureTarget = MG_Util::ConvertGLEnumToTextureTarget(target);
         const auto textureUploadTarget = MG_Util::ConvertGLEnumToTextureUploadTarget(target);
@@ -2198,6 +2402,16 @@ namespace MobileGL::MG_Impl::GLImpl {
         if (!TextureImpl::ValidateTextureObject(textureObject)) return;
 
         TextureStorage3D(textureObject->GetExternalIndex(), levels, internalformat, width, height, depth);
+    }
+
+    void TexStorage2DMultisample(GLenum target, GLsizei samples, GLenum internalformat, GLsizei width,
+                                 GLsizei height, GLboolean fixedsamplelocations) {
+        TexImage2DMultisample_State(target, samples, internalformat, width, height, fixedsamplelocations);
+    }
+
+    void TexStorage3DMultisample(GLenum target, GLsizei samples, GLenum internalformat, GLsizei width,
+                                 GLsizei height, GLsizei depth, GLboolean fixedsamplelocations) {
+        TexImage3DMultisample_State(target, samples, internalformat, width, height, depth, fixedsamplelocations);
     }
 
     void TextureSubImage1D(GLuint texture, GLint level, GLint xoffset, GLsizei width, GLenum format, GLenum type,
@@ -2611,6 +2825,30 @@ namespace MobileGL::MG_Impl::GLImpl {
                                              "pname is not supported by GetInternalformativ."));
             return;
         }
+    }
+
+    void GetMultisamplefv(GLenum pname, GLuint index, GLfloat* val) {
+        if (val == nullptr) return;
+        if (pname != GL_SAMPLE_POSITION) {
+            MG_State::pGLContext->RecordError(
+                ErrorCode::InvalidEnum,
+                MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", __func__, "Only GL_SAMPLE_POSITION is supported."));
+            return;
+        }
+
+        const Int maxSamples = MG_Backend::pActiveBackendObject != nullptr
+            ? std::max(MG_Backend::pActiveBackendObject->GetDynamicParameters().MaxSamples, 1)
+            : 1;
+        if (static_cast<Int>(index) >= maxSamples) {
+            MG_State::pGLContext->RecordError(
+                ErrorCode::InvalidValue,
+                MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", __func__, "Sample index is out of range."));
+            return;
+        }
+
+        // Keep sample positions deterministic even before the backend exposes vendor-specific patterns.
+        val[0] = 0.5f;
+        val[1] = 0.5f;
     }
 
     void TexSubImage3D(GLenum target, GLint level, GLint xoffset, GLint yoffset, GLint zoffset, GLsizei width,

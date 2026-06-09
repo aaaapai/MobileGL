@@ -20,6 +20,10 @@ namespace MobileGL::MG_Impl::GLImpl {
     void TextureStorage2D(GLuint texture, GLsizei levels, GLenum internalformat, GLsizei width, GLsizei height);
     void TextureStorage3D(GLuint texture, GLsizei levels, GLenum internalformat, GLsizei width, GLsizei height,
                           GLsizei depth);
+    void TextureStorage2DMultisample(GLuint texture, GLsizei samples, GLenum internalformat, GLsizei width,
+                                     GLsizei height, GLboolean fixedsamplelocations);
+    void TextureStorage3DMultisample(GLuint texture, GLsizei samples, GLenum internalformat, GLsizei width,
+                                     GLsizei height, GLsizei depth, GLboolean fixedsamplelocations);
     void TextureSubImage1D(GLuint texture, GLint level, GLint xoffset, GLsizei width, GLenum format, GLenum type,
                            const void* pixels);
     void TextureSubImage2D(GLuint texture, GLint level, GLint xoffset, GLint yoffset, GLsizei width, GLsizei height,
@@ -47,6 +51,10 @@ namespace MobileGL::MG_Impl::GLImpl {
     void TexStorage2D(GLenum target, GLsizei levels, GLenum internalformat, GLsizei width, GLsizei height);
     void TexStorage3D(GLenum target, GLsizei levels, GLenum internalformat, GLsizei width, GLsizei height,
                       GLsizei depth);
+    void TexStorage2DMultisample(GLenum target, GLsizei samples, GLenum internalformat, GLsizei width,
+                                 GLsizei height, GLboolean fixedsamplelocations);
+    void TexStorage3DMultisample(GLenum target, GLsizei samples, GLenum internalformat, GLsizei width,
+                                 GLsizei height, GLsizei depth, GLboolean fixedsamplelocations);
     void TexSubImage3D(GLenum target, GLint level, GLint xoffset, GLint yoffset, GLint zoffset, GLsizei width,
                        GLsizei height, GLsizei depth, GLenum format, GLenum type, const void* pixels);
     void TexSubImage2D(GLenum target, GLint level, GLint xoffset, GLint yoffset, GLsizei width, GLsizei height,
@@ -78,6 +86,7 @@ namespace MobileGL::MG_Impl::GLImpl {
     void GetTexParameterfv(GLenum target, GLenum pname, GLfloat* params);
     void GetTexLevelParameteriv(GLenum target, GLint level, GLenum pname, GLint* params);
     void GetTexLevelParameterfv(GLenum target, GLint level, GLenum pname, GLfloat* params);
+    void GetMultisamplefv(GLenum pname, GLuint index, GLfloat* val);
     void GetInternalformativ(GLenum target, GLenum internalformat, GLenum pname, GLsizei bufSize, GLint* params);
     void GetCompressedTexImage(GLenum target, GLint level, void* img);
     void GenTextures(GLsizei n, GLuint* textures);

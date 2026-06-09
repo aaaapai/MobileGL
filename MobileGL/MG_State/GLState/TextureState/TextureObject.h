@@ -40,6 +40,10 @@ namespace MobileGL::MG_State::GLState {
         virtual void SetBaseLevel(Uint baseLevel) = 0;
         virtual void SetMaxLevel(Uint maxLevel) = 0;
         virtual Uint16 GetTextureParamsVersion() const = 0;
+        virtual Int GetSamples() const = 0;
+        virtual void SetSamples(Int samples) = 0;
+        virtual Bool HasFixedSampleLocations() const = 0;
+        virtual void SetFixedSampleLocations(Bool fixedSampleLocations) = 0;
 
     protected:
         virtual Uint GetIndexOfTextureUploadTarget(TextureUploadTarget target) const = 0;
@@ -67,6 +71,10 @@ namespace MobileGL::MG_State::GLState {
         void SetBaseLevel(Uint baseLevel) override;
         void SetMaxLevel(Uint maxLevel) override;
         Uint16 GetTextureParamsVersion() const override;
+        Int GetSamples() const override;
+        void SetSamples(Int samples) override;
+        Bool HasFixedSampleLocations() const override;
+        void SetFixedSampleLocations(Bool fixedSampleLocations) override;
 
     protected:
         const Uint m_externalIndex;
@@ -78,6 +86,8 @@ namespace MobileGL::MG_State::GLState {
                                                      TextureSwizzleParam::Blue, TextureSwizzleParam::Alpha};
         UintVec2 m_levelRange = {0, 1000};
         Uint16 m_textureParamsVersion = 0;
+        Int m_samples = 0;
+        Bool m_fixedSampleLocations = true;
     };
 
     class TextureObjectMipmap : public TextureObjectBase {

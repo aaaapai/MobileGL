@@ -438,6 +438,34 @@ namespace MobileGL::MG_Impl::GLImpl {
                                           "NamedRenderbufferStorage_State");
     }
 
+    void NamedRenderbufferStorageMultisample_State(GLuint renderbuffer, GLsizei samples, GLenum internalformat,
+                                                   GLsizei width, GLsizei height) {
+        auto renderbufferObject =
+            GetNamedRenderbufferObject_State(renderbuffer, "NamedRenderbufferStorageMultisample_State");
+        if (!renderbufferObject) return;
+
+        TextureInternalFormat format = MG_Util::ConvertGLEnumToTextureInternalFormat(internalformat);
+        if (!TextureImpl::ValidateTextureInternalFormat(format)) return;
+        if (samples < 0) {
+            MG_State::pGLContext->RecordError(
+                ErrorCode::InvalidValue,
+                MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", "NamedRenderbufferStorageMultisample_State",
+                                             "Sample count must be non-negative."));
+            return;
+        }
+        if (width < 0 || height < 0) {
+            MG_State::pGLContext->RecordError(
+                ErrorCode::InvalidValue,
+                MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", "NamedRenderbufferStorageMultisample_State",
+                                             "Width and height must be non-negative."));
+            return;
+        }
+
+        renderbufferObject->AllocateStorage({width, height});
+        renderbufferObject->SetInternalFormat(format);
+        renderbufferObject->SetSamples(samples);
+    }
+
     void GenFramebuffers_State(GLsizei n, GLuint* framebuffers) {
         if (n < 0) {
             MG_State::pGLContext->RecordError(
@@ -1497,6 +1525,11 @@ namespace MobileGL::MG_Impl::GLImpl {
 
     void NamedRenderbufferStorage(GLuint renderbuffer, GLenum internalformat, GLsizei width, GLsizei height) {
         NamedRenderbufferStorage_State(renderbuffer, internalformat, width, height);
+    }
+
+    void NamedRenderbufferStorageMultisample(GLuint renderbuffer, GLsizei samples, GLenum internalformat,
+                                             GLsizei width, GLsizei height) {
+        NamedRenderbufferStorageMultisample_State(renderbuffer, samples, internalformat, width, height);
     }
 
     void GetNamedRenderbufferParameteriv(GLuint renderbuffer, GLenum pname, GLint* params) {

@@ -123,6 +123,33 @@ TEST_F(TextureTest, BoundTexStorage2DAllocatesRedTextureForSubImageUpdates) {
     EXPECT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
 }
 
+TEST_F(TextureTest, TextureStorage2DMultisampleTracksNamedObjectState) {
+    GLuint texture = 0;
+    MG_Impl::GLImpl::CreateTextures(GL_TEXTURE_2D_MULTISAMPLE, 1, &texture);
+
+    MG_Impl::GLImpl::TextureStorage2DMultisample(texture, 4, GL_RGBA8, 8, 6, GL_TRUE);
+
+    const auto textureObject = MG_State::pGLContext->GetTextureObject(texture);
+    ASSERT_NE(textureObject, nullptr);
+    EXPECT_EQ(textureObject->GetTarget(), TextureTarget::Texture2DMultisample);
+    EXPECT_EQ(textureObject->GetSamples(), 4);
+    EXPECT_TRUE(textureObject->HasFixedSampleLocations());
+
+    auto* textureMipmapObject = static_cast<MG_State::GLState::TextureObjectMipmap*>(textureObject.get());
+    ASSERT_NE(textureMipmapObject, nullptr);
+    EXPECT_EQ(textureMipmapObject->GetMipmapLevelCount(), 1u);
+    EXPECT_EQ(textureMipmapObject->GetMipmapTexelSize(TextureUploadTarget::Texture2DMultisample, 0), IntVec3(8, 6, 1));
+    EXPECT_FALSE(textureMipmapObject->IsStorageDirty(TextureUploadTarget::Texture2DMultisample, 0));
+
+    GLint samples = 0;
+    GLint fixed = 0;
+    MG_Impl::GLImpl::GetTextureLevelParameteriv(texture, 0, GL_TEXTURE_SAMPLES, &samples);
+    MG_Impl::GLImpl::GetTextureLevelParameteriv(texture, 0, GL_TEXTURE_FIXED_SAMPLE_LOCATIONS, &fixed);
+    EXPECT_EQ(samples, 4);
+    EXPECT_EQ(fixed, GL_TRUE);
+    EXPECT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+}
+
 TEST_F(TextureTest, GetTextureImageReadsNamedObjectWithoutBinding) {
     GLuint texture = 0;
     MG_Impl::GLImpl::CreateTextures(GL_TEXTURE_2D, 1, &texture);

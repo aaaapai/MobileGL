@@ -139,6 +139,22 @@ namespace MobileGL {
                 return m_textureParamsVersion;
             }
 
+            Int TextureObjectBase::GetSamples() const {
+                return m_samples;
+            }
+
+            void TextureObjectBase::SetSamples(Int samples) {
+                m_samples = samples;
+            }
+
+            Bool TextureObjectBase::HasFixedSampleLocations() const {
+                return m_fixedSampleLocations;
+            }
+
+            void TextureObjectBase::SetFixedSampleLocations(Bool fixedSampleLocations) {
+                m_fixedSampleLocations = fixedSampleLocations;
+            }
+
             Uint TextureObjectWithOneMipmap::GetMipmapLevelCount() const {
                 return m_textureStorage.GetLevelCount();
             }

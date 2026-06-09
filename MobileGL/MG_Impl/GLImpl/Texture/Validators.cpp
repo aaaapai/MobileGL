@@ -230,6 +230,18 @@ namespace MobileGL::MG_Impl::GLImpl::TextureImpl {
                 return false;
             }
         }
+        if (target == TextureUploadTarget::Texture2DMultisample ||
+            target == TextureUploadTarget::ProxyTexture2DMultisample ||
+            target == TextureUploadTarget::Texture2DMultisampleArray ||
+            target == TextureUploadTarget::ProxyTexture2DMultisampleArray) {
+            if (level != 0) {
+                MG_State::pGLContext->RecordError(
+                    ErrorCode::InvalidValue,
+                    MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", "ValidateTextureLevelWithUploadTarget",
+                                                 "Level must be zero for multisample textures"));
+                return false;
+            }
+        }
         return true;
     }
 
