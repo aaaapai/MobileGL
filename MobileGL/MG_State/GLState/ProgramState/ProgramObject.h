@@ -125,12 +125,24 @@ namespace MobileGL::MG_State::GLState {
         Int GetActiveFragmentOutputCount() const {
             return m_program ? m_program->getNumPipeOutputs() : 0;
         }
+        const String& GetActiveFragmentOutputName(Uint index) const {
+            MOBILEGL_ASSERT(m_program != nullptr, "ProgramObject::GetActiveFragmentOutputName: program is null");
+            MOBILEGL_ASSERT(index < static_cast<Uint>(m_program->getNumPipeOutputs()),
+                            "ProgramObject::GetActiveFragmentOutputName: index=%u out of range", index);
+            return m_program->getPipeOutput(static_cast<Int>(index)).name;
+        }
         Int GetFragmentOutputLocation(Uint index) const {
             MOBILEGL_ASSERT(m_program != nullptr, "ProgramObject::GetFragmentOutputLocation: program is null");
             MOBILEGL_ASSERT(index < static_cast<Uint>(m_program->getNumPipeOutputs()),
                             "ProgramObject::GetFragmentOutputLocation: index=%u out of range",
                             index);
             return static_cast<Int>(m_program->getPipeOutput(static_cast<Int>(index)).layoutLocation());
+        }
+        GLint GetActiveFragmentOutputArraySize(Uint index) const {
+            MOBILEGL_ASSERT(m_program != nullptr, "ProgramObject::GetActiveFragmentOutputArraySize: program is null");
+            MOBILEGL_ASSERT(index < static_cast<Uint>(m_program->getNumPipeOutputs()),
+                            "ProgramObject::GetActiveFragmentOutputArraySize: index=%u out of range", index);
+            return m_program->getPipeOutput(static_cast<Int>(index)).size;
         }
         GLenum GetFragmentOutputType(Uint index) const {
             MOBILEGL_ASSERT(m_program != nullptr, "ProgramObject::GetFragmentOutputType: program is null");

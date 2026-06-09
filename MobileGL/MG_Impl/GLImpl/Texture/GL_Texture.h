@@ -16,19 +16,37 @@ namespace MobileGL::MG_Impl::GLImpl {
     void GenerateMipmap(GLenum target);
     void GetTexImage(GLenum target, GLint level, GLenum format, GLenum type, GLvoid* pixels);
     void CreateTextures(GLenum target, GLsizei n, GLuint* textures);
+    void TextureStorage1D(GLuint texture, GLsizei levels, GLenum internalformat, GLsizei width);
     void TextureStorage2D(GLuint texture, GLsizei levels, GLenum internalformat, GLsizei width, GLsizei height);
+    void TextureStorage3D(GLuint texture, GLsizei levels, GLenum internalformat, GLsizei width, GLsizei height,
+                          GLsizei depth);
+    void TextureSubImage1D(GLuint texture, GLint level, GLint xoffset, GLsizei width, GLenum format, GLenum type,
+                           const void* pixels);
     void TextureSubImage2D(GLuint texture, GLint level, GLint xoffset, GLint yoffset, GLsizei width, GLsizei height,
                            GLenum format, GLenum type, const void* pixels);
+    void TextureSubImage3D(GLuint texture, GLint level, GLint xoffset, GLint yoffset, GLint zoffset, GLsizei width,
+                           GLsizei height, GLsizei depth, GLenum format, GLenum type, const void* pixels);
     void TextureParameterf(GLuint texture, GLenum pname, GLfloat param);
+    void TextureParameterfv(GLuint texture, GLenum pname, const GLfloat* params);
     void TextureParameteri(GLuint texture, GLenum pname, GLint param);
+    void TextureParameterIiv(GLuint texture, GLenum pname, const GLint* params);
+    void TextureParameterIuiv(GLuint texture, GLenum pname, const GLuint* params);
     void TextureParameteriv(GLuint texture, GLenum pname, const GLint* params);
+    void GenerateTextureMipmap(GLuint texture);
     void BindTextureUnit(GLuint unit, GLuint texture);
     void GetTextureImage(GLuint texture, GLint level, GLenum format, GLenum type, GLsizei bufSize, void* pixels);
     void GetTextureSubImage(GLuint texture, GLint level, GLint xoffset, GLint yoffset, GLint zoffset, GLsizei width,
                             GLsizei height, GLsizei depth, GLenum format, GLenum type, GLsizei bufSize, void* pixels);
+    void GetTextureParameterfv(GLuint texture, GLenum pname, GLfloat* params);
+    void GetTextureParameterIiv(GLuint texture, GLenum pname, GLint* params);
+    void GetTextureParameterIuiv(GLuint texture, GLenum pname, GLuint* params);
     void GetTextureParameteriv(GLuint texture, GLenum pname, GLint* params);
+    void GetTextureLevelParameterfv(GLuint texture, GLint level, GLenum pname, GLfloat* params);
     void GetTextureLevelParameteriv(GLuint texture, GLint level, GLenum pname, GLint* params);
+    void TexStorage1D(GLenum target, GLsizei levels, GLenum internalformat, GLsizei width);
     void TexStorage2D(GLenum target, GLsizei levels, GLenum internalformat, GLsizei width, GLsizei height);
+    void TexStorage3D(GLenum target, GLsizei levels, GLenum internalformat, GLsizei width, GLsizei height,
+                      GLsizei depth);
     void TexSubImage3D(GLenum target, GLint level, GLint xoffset, GLint yoffset, GLint zoffset, GLsizei width,
                        GLsizei height, GLsizei depth, GLenum format, GLenum type, const void* pixels);
     void TexSubImage2D(GLenum target, GLint level, GLint xoffset, GLint yoffset, GLsizei width, GLsizei height,
@@ -60,6 +78,7 @@ namespace MobileGL::MG_Impl::GLImpl {
     void GetTexParameterfv(GLenum target, GLenum pname, GLfloat* params);
     void GetTexLevelParameteriv(GLenum target, GLint level, GLenum pname, GLint* params);
     void GetTexLevelParameterfv(GLenum target, GLint level, GLenum pname, GLfloat* params);
+    void GetInternalformativ(GLenum target, GLenum internalformat, GLenum pname, GLsizei bufSize, GLint* params);
     void GetCompressedTexImage(GLenum target, GLint level, void* img);
     void GenTextures(GLsizei n, GLuint* textures);
     void DeleteTextures(GLsizei n, const GLuint* textures);

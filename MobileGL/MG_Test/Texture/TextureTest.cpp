@@ -232,6 +232,108 @@ TEST_F(TextureTest, TextureParameterfModifiesNamedObjectWithoutBinding) {
     EXPECT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
 }
 
+TEST_F(TextureTest, TextureStorage1DAndSubImageModifyNamedObjectOnly) {
+    GLuint namedTexture = 0;
+    GLuint boundTexture = 0;
+    MG_Impl::GLImpl::CreateTextures(GL_TEXTURE_1D, 1, &namedTexture);
+    MG_Impl::GLImpl::CreateTextures(GL_TEXTURE_1D, 1, &boundTexture);
+    MG_Impl::GLImpl::BindTextureUnit(0, boundTexture);
+
+    const auto boundObjectBefore =
+        MG_State::pGLContext->GetTextureUnitObject(0).GetBindingSlot(TextureTarget::Texture1D).GetBoundObject();
+
+    MG_Impl::GLImpl::TextureStorage1D(namedTexture, 2, GL_RGBA8, 4);
+    const Uint8 pixels[] = {
+        1, 2, 3, 4,
+        5, 6, 7, 8,
+        9, 10, 11, 12,
+        13, 14, 15, 16,
+    };
+    MG_Impl::GLImpl::TextureSubImage1D(namedTexture, 0, 0, 4, GL_RGBA, GL_UNSIGNED_BYTE, pixels);
+
+    const auto textureObject = MG_State::pGLContext->GetTextureObject(namedTexture);
+    auto* mipmapObject = static_cast<MG_State::GLState::TextureObjectMipmap*>(textureObject.get());
+    ASSERT_NE(mipmapObject, nullptr);
+    EXPECT_EQ(mipmapObject->GetMipmapTexelSize(TextureUploadTarget::Texture1D, 0), IntVec3(4, 1, 1));
+    EXPECT_EQ(mipmapObject->GetMipmapTexelSize(TextureUploadTarget::Texture1D, 1), IntVec3(2, 1, 1));
+    EXPECT_TRUE(mipmapObject->IsStorageDirty(TextureUploadTarget::Texture1D, 0));
+
+    const auto* stored = static_cast<const Uint8*>(mipmapObject->MapMipmapData(TextureUploadTarget::Texture1D, 0));
+    ASSERT_NE(stored, nullptr);
+    EXPECT_EQ(std::memcmp(stored, pixels, sizeof(pixels)), 0);
+
+    EXPECT_EQ(MG_State::pGLContext->GetTextureUnitObject(0).GetBindingSlot(TextureTarget::Texture1D).GetBoundObject(),
+              boundObjectBefore);
+    EXPECT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+}
+
+TEST_F(TextureTest, TextureStorage3DAndSubImageModifyNamedObjectOnly) {
+    GLuint texture = 0;
+    MG_Impl::GLImpl::CreateTextures(GL_TEXTURE_3D, 1, &texture);
+    MG_Impl::GLImpl::TextureStorage3D(texture, 2, GL_R8, 2, 2, 2);
+
+    const Uint8 pixels[] = {
+        1, 2, 3, 4,
+        5, 6, 7, 8,
+    };
+    MG_Impl::GLImpl::TextureSubImage3D(texture, 0, 0, 0, 0, 2, 2, 2, GL_RED, GL_UNSIGNED_BYTE, pixels);
+
+    const auto textureObject = MG_State::pGLContext->GetTextureObject(texture);
+    auto* mipmapObject = static_cast<MG_State::GLState::TextureObjectMipmap*>(textureObject.get());
+    ASSERT_NE(mipmapObject, nullptr);
+    EXPECT_EQ(mipmapObject->GetMipmapTexelSize(TextureUploadTarget::Texture3D, 0), IntVec3(2, 2, 2));
+    EXPECT_EQ(mipmapObject->GetMipmapTexelSize(TextureUploadTarget::Texture3D, 1), IntVec3(1, 1, 1));
+    EXPECT_TRUE(mipmapObject->IsStorageDirty(TextureUploadTarget::Texture3D, 0));
+
+    const auto* stored = static_cast<const Uint8*>(mipmapObject->MapMipmapData(TextureUploadTarget::Texture3D, 0));
+    ASSERT_NE(stored, nullptr);
+    EXPECT_EQ(std::memcmp(stored, pixels, sizeof(pixels)), 0);
+    EXPECT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+}
+
+TEST_F(TextureTest, NamedTextureVectorParametersAndGettersWorkWithoutBinding) {
+    GLuint texture = 0;
+    MG_Impl::GLImpl::CreateTextures(GL_TEXTURE_2D, 1, &texture);
+
+    const GLfloat borderColor[] = {0.25f, 0.5f, 0.75f, 1.0f};
+    const GLint swizzle[] = {GL_BLUE, GL_GREEN, GL_RED, GL_ALPHA};
+    MG_Impl::GLImpl::TextureParameterfv(texture, GL_TEXTURE_BORDER_COLOR, borderColor);
+    MG_Impl::GLImpl::TextureParameterIiv(texture, GL_TEXTURE_SWIZZLE_RGBA, swizzle);
+
+    GLfloat reportedBorder[4] = {};
+    GLint reportedSwizzle[4] = {};
+    MG_Impl::GLImpl::GetTextureParameterfv(texture, GL_TEXTURE_BORDER_COLOR, reportedBorder);
+    MG_Impl::GLImpl::GetTextureParameterIiv(texture, GL_TEXTURE_SWIZZLE_RGBA, reportedSwizzle);
+
+    EXPECT_FLOAT_EQ(reportedBorder[0], borderColor[0]);
+    EXPECT_FLOAT_EQ(reportedBorder[1], borderColor[1]);
+    EXPECT_FLOAT_EQ(reportedBorder[2], borderColor[2]);
+    EXPECT_FLOAT_EQ(reportedBorder[3], borderColor[3]);
+    EXPECT_EQ(reportedSwizzle[0], GL_BLUE);
+    EXPECT_EQ(reportedSwizzle[1], GL_GREEN);
+    EXPECT_EQ(reportedSwizzle[2], GL_RED);
+    EXPECT_EQ(reportedSwizzle[3], GL_ALPHA);
+    EXPECT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+}
+
+TEST_F(TextureTest, GetInternalformativReportsBasicTextureMetadata) {
+    GLint params[4] = {};
+
+    MG_Impl::GLImpl::GetInternalformativ(GL_TEXTURE_2D, GL_RGBA8, GL_INTERNALFORMAT_SUPPORTED, 1, params);
+    EXPECT_EQ(params[0], GL_TRUE);
+
+    MG_Impl::GLImpl::GetInternalformativ(GL_TEXTURE_2D, GL_RGBA8, GL_TEXTURE_IMAGE_FORMAT, 1, params);
+    EXPECT_EQ(params[0], GL_RGBA);
+
+    MG_Impl::GLImpl::GetInternalformativ(GL_TEXTURE_2D, GL_RGBA8, GL_TEXTURE_IMAGE_TYPE, 1, params);
+    EXPECT_EQ(params[0], GL_UNSIGNED_BYTE);
+
+    MG_Impl::GLImpl::GetInternalformativ(GL_TEXTURE_3D, GL_DEPTH24_STENCIL8, GL_FRAMEBUFFER_RENDERABLE_LAYERED, 1,
+                                         params);
+    EXPECT_EQ(params[0], GL_FULL_SUPPORT);
+    EXPECT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+}
+
 TEST_F(TextureTest, NormalizeDepth24Stencil8UsesPackedDepthStencilType) {
     GLenum internalFormat = 0;
     GLenum format = 0;
