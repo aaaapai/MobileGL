@@ -10,7 +10,7 @@
 #include "MG_Util/Types.h"
 
 namespace MobileGL::MG_Util::BackendLoader {
-    static void* OpenLib(const Vector<String>& names, const char* overrides = nullptr) {
+    static void* OpenLib(const Vector<String>& names) {
 #if !defined(__WIN32) && !defined(_WIN32) && !defined(__APPLE__)
         static const String LibPathPrefixes[] = {
             "/opt/vc/lib/", "/usr/local/lib/", "/usr/lib/", "/usr/lib/x86_64-linux-gnu/",
@@ -20,13 +20,7 @@ namespace MobileGL::MG_Util::BackendLoader {
 
         void* lib = nullptr;
 
-        Int flags = RTLD_LOCAL | RTLD_LAZY;
-        if (overrides) {
-                    if ((lib = dlopen(overrides, flags))) {
-                        //strncpy(path_name, overrides, PATH_MAX);
-                        return lib;
-                    }
-        }
+        Int flags = RTLD_GLOBAL | RTLD_LAZY;
         for (const auto& prefix : LibPathPrefixes) {
             for (const auto& name : names) {
                 String path_name = prefix + name;
@@ -40,40 +34,11 @@ namespace MobileGL::MG_Util::BackendLoader {
     }
 
     inline void* ProcAddress(void* lib, const char* name) {
-         static void* eglGetProcAddress_mgptr = nullptr;
-    
-         if (eglGetProcAddress_mgptr == nullptr) {
-             void* eglLib = nullptr;
-             static const Vector<String> EGLLibNames = {"libEGL.so"};
-             const char* libgl_egl = std::getenv("LIBGL_EGL");
-        
-             if (libgl_egl) {
-                 eglLib = OpenLib(EGLLibNames, libgl_egl);
-             } else {
-                 eglLib = OpenLib(EGLLibNames);
-             }
-        
-             if (eglLib) {
-                 eglGetProcAddress_mgptr = dlsym(eglLib, "eglGetProcAddress");
-             }
-         }
-    
-         if (eglGetProcAddress_mgptr != nullptr) {
-             MGLOG_W("Using eglGetProcAddress");
-             typedef void* (*EGLGetProcAddressFunc)(const char*);
-             EGLGetProcAddressFunc eglGetProcAddress = 
-                 reinterpret_cast<EGLGetProcAddressFunc>(eglGetProcAddress_mgptr);
-        
-             void* func = eglGetProcAddress(name);
-             if (func) return func;
-         }
-
-         // Fallback to dlsym on non-Windows/non-Apple platforms
-     #if !defined(__WIN32) && !defined(_WIN32) && !defined(__APPLE__)
-         return dlsym(lib, name);
-     #else
+#if !defined(__WIN32) && !defined(_WIN32) && !defined(__APPLE__)
+        return dlsym(lib, name);
+#else
         return nullptr;
-     #endif
+#endif
     }
 
     Bool AcquireGLESFunctions(MG_External::GLESFunctionsTable& funcs,
@@ -467,23 +432,16 @@ namespace MobileGL::MG_Util::BackendLoader {
     }
 
     Bool AcquireEGLFunctions(MG_External::EGLFunctionsTable& funcs) {
+        static const Vector<String> EGLLibNames = {"libEGL.so", "libEGL_angle.so", "libEGL_mesa.so" };
         void* eglLib = nullptr;
-        static const Vector<String> EGLLibNames = {"libEGL.so"};
         const char* libgl_egl = std::getenv("LIBGL_EGL");
-        if (libgl_egl && strcmp(libgl_egl, "libEGL_mesa.so") == 0) {
-            setenv("GALLIUM_DRIVER", "zink", 1);
-            setenv("MESA_LOADER_DRIVER_OVERRIDE", "zink", 1);
-            setenv("MESA_GL_VERSION_OVERRIDE", "3.2", 1);
-            setenv("MESA_GLSL_VERSION_OVERRIDE", "320", 1);
-            setenv("mesa_glthread", "true", 1);
-        }
-        if (libgl_egl) {
-            eglLib = OpenLib(EGLLibNames, libgl_egl);
-        } else {
+        if (!libgl_egl) {
             eglLib = OpenLib(EGLLibNames);
+        } else {
+            eglLib = dlopen(libgl_egl, RTLD_GLOBAL | RTLD_LAZY);
         }
         if (!eglLib) {
-            MGLOG_E("Failed to open libEGL.so");
+            MGLOG_E("Failed to open libEGL");
             return false;
         }
 #define INIT_EGL_FUNC(name)                                                                                            \
