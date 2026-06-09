@@ -541,7 +541,9 @@ namespace MobileGL::MG_Backend::DirectGLES {
                                                         static_cast<SizeT>(baseSize.y()),
                                                         static_cast<SizeT>(baseSize.z()),
                                                         0,
-                                                        0};
+                                                        0,
+                                                        stateTextureObject->GetSamples(),
+                                                        stateTextureObject->HasFixedSampleLocations()};
             switch (stateTextureObject->GetStorageType()) {
             case TextureStorageType::Mipmap: {
                 auto* textureMipmapObject =
@@ -565,6 +567,33 @@ namespace MobileGL::MG_Backend::DirectGLES {
                                                            &glFormat, &glType);
 
                     const auto& uploadTargets = textureMipmapObject->GetUploadTargets();
+                    if (TextureImpl::IsMultisampleTextureTarget(targetInternal)) {
+                        DebugImpl::ErrorLopper::Clear();
+                        g_GLESFuncs.glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
+                        switch (targetInternal) {
+                        case TextureTarget::Texture2DMultisample:
+                            g_GLESFuncs.glTexStorage2DMultisample(
+                                target, static_cast<GLsizei>(stateTextureObject->GetSamples()), glInternalFormat,
+                                static_cast<GLsizei>(baseSize.x()), static_cast<GLsizei>(baseSize.y()),
+                                stateTextureObject->HasFixedSampleLocations() ? GL_TRUE : GL_FALSE);
+                            break;
+                        case TextureTarget::Texture2DMultisampleArray:
+                            g_GLESFuncs.glTexStorage3DMultisample(
+                                target, static_cast<GLsizei>(stateTextureObject->GetSamples()), glInternalFormat,
+                                static_cast<GLsizei>(baseSize.x()), static_cast<GLsizei>(baseSize.y()),
+                                static_cast<GLsizei>(baseSize.z()),
+                                stateTextureObject->HasFixedSampleLocations() ? GL_TRUE : GL_FALSE);
+                            break;
+                        default:
+                            MOBILEGL_ASSERT(false, "Unexpected multisample target: %d", static_cast<Int>(targetInternal));
+                            break;
+                        }
+                        for (const auto& uploadTarget : uploadTargets) {
+                            for (SizeT level = 0; level < mipmapCount; ++level) {
+                                textureMipmapObject->MarkStorageDirty(uploadTarget, level, false);
+                            }
+                        }
+                    } else {
                     for (auto& uploadTarget : uploadTargets) {
                         for (SizeT level = 0; level < mipmapCount; ++level) {
                             auto levelTexelSize = textureMipmapObject->GetMipmapTexelSize(uploadTarget, level);
@@ -620,11 +649,24 @@ namespace MobileGL::MG_Backend::DirectGLES {
                             textureMipmapObject->MarkStorageDirty(uploadTarget, level, false);
                         }
                     }
+                    }
 
                     m_isInitialized = true;
                 }
 
                 { // Update all dirty mipmap levels
+                    if (TextureImpl::IsMultisampleTextureTarget(targetInternal)) {
+                        const auto& uploadTargets = textureMipmapObject->GetUploadTargets();
+                        for (const auto& uploadTarget : uploadTargets) {
+                            for (SizeT level = 0; level < mipmapCount; ++level) {
+                                if (textureMipmapObject->IsStorageDirty(uploadTarget, level)) {
+                                    textureMipmapObject->MarkStorageDirty(uploadTarget, level, false);
+                                }
+                            }
+                        }
+                        break;
+                    }
+
                     const auto mipmapCount = textureMipmapObject->GetMipmapLevelCount();
                     GLenum glInternalFormat, glType, glFormat;
                     TextureImpl::GenerateTextureFormatInfo(textureMipmapObject->GetFormat(), &glInternalFormat,
@@ -780,6 +822,12 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 return;
             }
 
+            const auto& samplerParams = samplerObject->GetAllSamplerParameters();
+            if (TextureImpl::IsMultisampleTextureTarget(targetInternal)) {
+                m_cacheSamplerParameters = samplerParams;
+                return;
+            }
+
             Bind(target);
             DebugImpl::ErrorLopper::Loop([file = __FILE__, line = __LINE__, func = __func__](GLenum err) {
                 MGLOG_D("%s(%s:%d) ES error: %s", func, file, line, MG_Util::ConvertGLEnumToString(err).c_str());
@@ -787,7 +835,6 @@ namespace MobileGL::MG_Backend::DirectGLES {
 
             // Update built-in sampler parameters
             MGLOG_D("Updating sampler parameters for texture with ID: %u", m_backendTextureId);
-            const auto& samplerParams = samplerObject->GetAllSamplerParameters();
 
 #define SYNC_TEX_SAMPLER_PARAM_IF_CHANGED(internalName, glName, type)                                                  \
     if (m_cacheSamplerParameters.internalName != samplerParams.internalName) {                                         \
@@ -871,6 +918,13 @@ namespace MobileGL::MG_Backend::DirectGLES {
             if (!IsSupportedTextureTarget(targetInternal)) {
                 MGLOG_E("    Texture target %s is not supported, skipping.",
                         MG_Util::ConvertTextureTargetToString(targetInternal).c_str());
+                return;
+            }
+
+            if (TextureImpl::IsMultisampleTextureTarget(targetInternal)) {
+                m_cacheLodRange = stateTextureObject->GetLevelRange();
+                m_cacheSwizzleParams = stateTextureObject->GetAllSwizzleParams();
+                m_cacheBorderColor = stateTextureObject->GetBorderColor();
                 return;
             }
 
