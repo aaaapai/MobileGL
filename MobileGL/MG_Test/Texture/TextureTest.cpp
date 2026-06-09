@@ -99,6 +99,30 @@ TEST_F(TextureTest, BoundTexSubImage2DUsesCompactRowsAfterUnpackProcessing) {
     EXPECT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
 }
 
+TEST_F(TextureTest, BoundTexStorage2DAllocatesRedTextureForSubImageUpdates) {
+    GLuint texture = 0;
+    MG_Impl::GLImpl::GenTextures(1, &texture);
+    MG_Impl::GLImpl::BindTexture(GL_TEXTURE_2D, texture);
+
+    MG_Impl::GLImpl::TexStorage2D(GL_TEXTURE_2D, 1, GL_R8, 32, 32);
+
+    const auto textureObject = MG_State::pGLContext->GetTextureObject(texture);
+    auto* mipmapObject = static_cast<MG_State::GLState::TextureObjectMipmap*>(textureObject.get());
+    ASSERT_NE(mipmapObject, nullptr);
+    EXPECT_EQ(mipmapObject->GetMipmapTexelSize(TextureUploadTarget::Texture2D, 0), IntVec3(32, 32, 1));
+    EXPECT_TRUE(textureObject->IsComplete());
+
+    const Uint8 pixels[4 * 4] = {
+        1, 2, 3, 4,
+        5, 6, 7, 8,
+        9, 10, 11, 12,
+        13, 14, 15, 16,
+    };
+    MG_Impl::GLImpl::TexSubImage2D(GL_TEXTURE_2D, 0, 20, 28, 4, 4, GL_RED, GL_UNSIGNED_BYTE, pixels);
+
+    EXPECT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+}
+
 TEST_F(TextureTest, GetTextureImageReadsNamedObjectWithoutBinding) {
     GLuint texture = 0;
     MG_Impl::GLImpl::CreateTextures(GL_TEXTURE_2D, 1, &texture);

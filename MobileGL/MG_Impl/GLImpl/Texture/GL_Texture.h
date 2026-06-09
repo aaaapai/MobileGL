@@ -28,6 +28,7 @@ namespace MobileGL::MG_Impl::GLImpl {
                             GLsizei height, GLsizei depth, GLenum format, GLenum type, GLsizei bufSize, void* pixels);
     void GetTextureParameteriv(GLuint texture, GLenum pname, GLint* params);
     void GetTextureLevelParameteriv(GLuint texture, GLint level, GLenum pname, GLint* params);
+    void TexStorage2D(GLenum target, GLsizei levels, GLenum internalformat, GLsizei width, GLsizei height);
     void TexSubImage3D(GLenum target, GLint level, GLint xoffset, GLint yoffset, GLint zoffset, GLsizei width,
                        GLsizei height, GLsizei depth, GLenum format, GLenum type, const void* pixels);
     void TexSubImage2D(GLenum target, GLint level, GLint xoffset, GLint yoffset, GLsizei width, GLsizei height,

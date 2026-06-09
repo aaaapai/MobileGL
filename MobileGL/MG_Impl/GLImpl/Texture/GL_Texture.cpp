@@ -1870,6 +1870,20 @@ namespace MobileGL::MG_Impl::GLImpl {
         }
     }
 
+    void TexStorage2D(GLenum target, GLsizei levels, GLenum internalformat, GLsizei width, GLsizei height) {
+        const auto textureTarget = MG_Util::ConvertGLEnumToTextureTarget(target);
+        const auto textureUploadTarget = MG_Util::ConvertGLEnumToTextureUploadTarget(target);
+        if (!TextureImpl::ValidateTextureTarget(textureTarget)) return;
+        if (!TextureImpl::ValidateTextureUploadTarget(textureUploadTarget)) return;
+
+        auto& activeUnit = MG_State::pGLContext->GetTextureUnitObject(MG_State::pGLContext->GetActiveTextureUnit());
+        auto& bindingSlot = activeUnit.GetBindingSlot(textureTarget);
+        auto& textureObject = bindingSlot.GetBoundObject();
+        if (!TextureImpl::ValidateTextureObject(textureObject)) return;
+
+        TextureStorage2D(textureObject->GetExternalIndex(), levels, internalformat, width, height);
+    }
+
     void TextureSubImage2D(GLuint texture, GLint level, GLint xoffset, GLint yoffset, GLsizei width, GLsizei height,
                            GLenum format, GLenum type, const void* pixels) {
         auto textureObject = GetTextureObjectByName(texture, __func__);
