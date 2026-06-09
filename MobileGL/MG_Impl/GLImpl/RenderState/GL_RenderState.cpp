@@ -320,6 +320,21 @@ namespace MobileGL::MG_Impl::GLImpl {
         MG_State::pGLContext->SetFrontFaceMode(frontFaceMode);
     }
 
+    void ProvokingVertex_State(GLenum mode) {
+        ProvokingVertexMode provokingVertexMode = MG_Util::ConvertGLEnumToProvokingVertexMode(mode);
+        if (provokingVertexMode == ProvokingVertexMode::Unknown) {
+            MG_State::pGLContext->RecordError(
+                ErrorCode::InvalidEnum,
+                MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", "ProvokingVertex_State",
+                                             "Provoking vertex mode enum " +
+                                                 MG_Util::ConvertProvokingVertexModeToString(provokingVertexMode) +
+                                                 "(" + MG_Util::ConvertGLEnumToString(mode) + ") is not supported."));
+            return;
+        }
+
+        MG_State::pGLContext->SetProvokingVertexMode(provokingVertexMode);
+    }
+
     void Enable_State(GLenum cap) {
         CapabilityInput capInput = MG_Util::ConvertGLEnumToCapabilityInput(cap);
         if (capInput == CapabilityInput::Unknown) {
@@ -663,6 +678,10 @@ namespace MobileGL::MG_Impl::GLImpl {
 
     void FrontFace(GLenum mode) {
         FrontFace_State(mode);
+    }
+
+    void ProvokingVertex(GLenum mode) {
+        ProvokingVertex_State(mode);
     }
 
     void Enable(GLenum cap) {

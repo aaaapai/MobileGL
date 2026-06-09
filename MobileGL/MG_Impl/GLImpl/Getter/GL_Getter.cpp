@@ -664,6 +664,28 @@ namespace MobileGL::MG_Impl::GLImpl {
             return;
         }
 
+        switch (pname) {
+        case GL_MAX_SHADER_STORAGE_BLOCK_SIZE:
+            if (MG_Backend::pActiveBackendObject) {
+                params[0] = static_cast<GLint64>(
+                    MG_Backend::pActiveBackendObject->GetDynamicParameters().MaxShaderStorageBlockSize);
+            } else {
+                params[0] = static_cast<GLint64>(MG_Backend::DynamicBackendParameters{}.MaxShaderStorageBlockSize);
+            }
+            return;
+        case GL_SUBGROUP_SIZE_KHR:
+        case GL_SUBGROUP_SUPPORTED_STAGES_KHR:
+        case GL_SUBGROUP_SUPPORTED_FEATURES_KHR:
+        case GL_SUBGROUP_QUAD_ALL_STAGES_KHR: {
+            GLint value = 0;
+            GetIntegerv(pname, &value);
+            params[0] = static_cast<GLint64>(value);
+            return;
+        }
+        default:
+            break;
+        }
+
         GLint ints[4] = {};
         GetIntegerv(pname, ints);
 
@@ -706,6 +728,7 @@ namespace MobileGL::MG_Impl::GLImpl {
             return;
         }
         const auto& rendererInfo = activeBackendObject->GetRendererInfo();
+        const auto& dynamicParameters = activeBackendObject->GetDynamicParameters();
 
         switch (pname) {
         case GL_ACTIVE_TEXTURE:
@@ -802,6 +825,18 @@ namespace MobileGL::MG_Impl::GLImpl {
         }
         case GL_COMPRESSED_TEXTURE_FORMATS:
             *params = 0; // compressed texture upload entrypoints are still unimplemented
+            break;
+        case GL_SUBGROUP_SIZE_KHR:
+            *params = static_cast<GLint>(dynamicParameters.SubgroupSize);
+            break;
+        case GL_SUBGROUP_SUPPORTED_STAGES_KHR:
+            *params = static_cast<GLint>(dynamicParameters.SubgroupSupportedStages);
+            break;
+        case GL_SUBGROUP_SUPPORTED_FEATURES_KHR:
+            *params = static_cast<GLint>(dynamicParameters.SubgroupSupportedFeatures);
+            break;
+        case GL_SUBGROUP_QUAD_ALL_STAGES_KHR:
+            *params = dynamicParameters.SubgroupQuadOperationsInAllStages ? GL_TRUE : GL_FALSE;
             break;
         case GL_MAX_COMPUTE_SHADER_STORAGE_BLOCKS:
             *params = activeBackendObject->GetDynamicParameters().MaxComputeShaderStorageBlocks;
@@ -1263,6 +1298,11 @@ namespace MobileGL::MG_Impl::GLImpl {
                 *params = 0;
             }
             break;
+        case GL_PARAMETER_BUFFER_BINDING_ARB: {
+            auto& obj = MG_State::pGLContext->GetBufferBindingSlot(BufferTarget::Parameter).GetBoundObject();
+            *params = obj ? static_cast<GLint>(obj->GetExternalIndex()) : 0;
+            break;
+        }
         case GL_POINT_FADE_THRESHOLD_SIZE:
             *params = 1;
             break;
@@ -1283,7 +1323,8 @@ namespace MobileGL::MG_Impl::GLImpl {
             *params = MG_State::pGLContext->IsCapabilityEnabled(CapabilityInput::ProgramPointSize) ? GL_TRUE : GL_FALSE;
             break;
         case GL_PROVOKING_VERTEX:
-            *params = GL_LAST_VERTEX_CONVENTION;
+            *params = static_cast<GLint>(
+                MG_Util::ConvertProvokingVertexModeToGLEnum(MG_State::pGLContext->GetProvokingVertexMode()));
             break;
         case GL_POINT_SIZE:
             *params = static_cast<GLint>(MG_State::pGLContext->GetPointSize());

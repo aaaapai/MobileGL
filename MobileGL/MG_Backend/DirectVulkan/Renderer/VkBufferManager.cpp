@@ -67,7 +67,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             .allocator = m_initInfo.allocator,
             .frameCount = m_initInfo.frameCount,
             .usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT |
-                     VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+                     VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT | VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT,
             .memoryUsage = m_initInfo.transientMemoryUsage,
             .allocationFlags = m_initInfo.transientAllocationFlags,
             .minBufferSize = m_initInfo.minUploadBytes,
@@ -86,6 +86,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
 
         const auto* bufferData = bufferObject->GetDataReadOnly().get();
         MOBILEGL_ASSERT(bufferData != nullptr, "VkBufferManager::SyncResidentBuffer requires frontend buffer data");
+        bufferObject->MarkPersistentMappedRangeDirty();
 
         const VkDeviceSize bufferSize = static_cast<VkDeviceSize>(bufferObject->GetSize());
         if (bufferSize == 0) {
@@ -200,7 +201,9 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         case BufferKind::TextureBuffer:
             return VK_BUFFER_USAGE_UNIFORM_TEXEL_BUFFER_BIT;
         case BufferKind::ShaderStorage:
-            return VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
+            return VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT;
+        case BufferKind::Indirect:
+            return VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
         default:
             return 0;
         }

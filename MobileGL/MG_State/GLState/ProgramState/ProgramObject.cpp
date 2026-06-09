@@ -321,6 +321,27 @@ namespace MobileGL::MG_State::GLState {
             }
         }
 
+        for (int i = 0; i < m_activeUniformCount; i++) {
+            auto& uniform = m_program->getUniform(i);
+            const auto locationIt = m_uniformLocations.find(uniform.name);
+            if (locationIt == m_uniformLocations.end()) {
+                continue;
+            }
+
+            const Uint location = locationIt->second;
+            if (location >= m_uniformSamplerOrImageUnitIndex.size() || uniform.getType() == nullptr ||
+                !uniform.getType()->isOpaque() || (!uniform.getType()->isTexture() && !uniform.getType()->isImage())) {
+                continue;
+            }
+
+            const int binding = uniform.getBinding();
+            if (binding >= 0 && binding != static_cast<int>(glslang::TQualifier::layoutBindingEnd)) {
+                m_uniformSamplerOrImageUnitIndex[location] = binding;
+                MGLOG_D("ProgramObject %u: Reflection - opaque uniform '%s' location=%u initialUnit=%d",
+                        m_externalIndex, uniform.name.c_str(), location, binding);
+            }
+        }
+
         // ------------ attributes (vertex in) ---------------
         Int inCount = m_program->getNumPipeInputs();
         MGLOG_D("ProgramObject %u: Reflection - pipe input count (attributes) = %d", m_externalIndex, inCount);

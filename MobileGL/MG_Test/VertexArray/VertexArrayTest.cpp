@@ -272,6 +272,102 @@ TEST_F(GeneralVertexArrayTest, General_VAOLifecycle) {
     EXPECT_EQ(GetError(), GL_NO_ERROR);
 }
 
+TEST_F(GeneralVertexArrayTest, General_CreateVertexArraysCreatesObjectsWithoutChangingBinding) {
+    GLuint bound = CreateVAO();
+    auto boundObj = MG_State::pGLContext->GetBoundVertexArray();
+    ASSERT_NE(boundObj, nullptr);
+
+    GLuint vaos[2] = {};
+    CreateVertexArrays(2, vaos);
+
+    EXPECT_NE(vaos[0], 0u);
+    EXPECT_NE(vaos[1], 0u);
+    EXPECT_NE(vaos[0], vaos[1]);
+    EXPECT_EQ(IsVertexArray(vaos[0]), GL_TRUE);
+    EXPECT_EQ(IsVertexArray(vaos[1]), GL_TRUE);
+    EXPECT_EQ(MG_State::pGLContext->GetBoundVertexArray(), boundObj);
+
+    DeleteVertexArrays(2, vaos);
+    DeleteVertexArrays(1, &bound);
+    EXPECT_EQ(GetError(), GL_NO_ERROR);
+}
+
+TEST_F(GeneralVertexArrayTest, General_CreateVertexArraysRejectsNegativeCount) {
+    GLuint vao = 0;
+    CreateVertexArrays(-1, &vao);
+    EXPECT_EQ(GetError(), GL_INVALID_VALUE);
+}
+
+TEST_F(GeneralVertexArrayTest, General_DirectStateAccessConfiguresNamedVAOWithoutChangingBinding) {
+    GLuint bound = CreateVAO();
+    auto boundObj = MG_State::pGLContext->GetBoundVertexArray();
+    ASSERT_NE(boundObj, nullptr);
+
+    GLuint vao = 0;
+    CreateVertexArrays(1, &vao);
+
+    GLuint vertexBuffer = 0;
+    GLuint indexBuffer = 0;
+    CreateBuffers(1, &vertexBuffer);
+    CreateBuffers(1, &indexBuffer);
+    NamedBufferData(vertexBuffer, 256, nullptr, GL_STATIC_DRAW);
+    NamedBufferData(indexBuffer, 128, nullptr, GL_STATIC_DRAW);
+
+    VertexArrayVertexBuffer(vao, 2, vertexBuffer, 16, 24);
+    VertexArrayAttribFormat(vao, 2, 3, GL_FLOAT, GL_TRUE, 12);
+    EnableVertexArrayAttrib(vao, 2);
+    VertexArrayElementBuffer(vao, indexBuffer);
+
+    auto vaoObj = MG_State::pGLContext->GetVertexArrayObject(vao);
+    ASSERT_NE(vaoObj, nullptr);
+
+    const auto& attr = vaoObj->GetAttribute(2);
+    EXPECT_TRUE(attr.Enabled);
+    EXPECT_EQ(attr.Size, 3);
+    EXPECT_EQ(attr.Type, DataType::Float32);
+    EXPECT_TRUE(attr.Normalized);
+    EXPECT_FALSE(attr.IsInteger);
+    EXPECT_EQ(attr.Stride, 24);
+    EXPECT_EQ(attr.Offset, 12);
+    EXPECT_EQ(attr.Buffer, MG_State::pGLContext->GetBufferObject(vertexBuffer));
+    EXPECT_EQ(vaoObj->GetIndexBufferBindingSlot().GetBoundObject(), MG_State::pGLContext->GetBufferObject(indexBuffer));
+    EXPECT_EQ(MG_State::pGLContext->GetBoundVertexArray(), boundObj);
+
+    DeleteVertexArrays(1, &vao);
+    DeleteVertexArrays(1, &bound);
+    GLuint buffers[] = {vertexBuffer, indexBuffer};
+    DeleteBuffers(2, buffers);
+    EXPECT_EQ(GetError(), GL_NO_ERROR);
+}
+
+TEST_F(GeneralVertexArrayTest, General_DirectStateAccessIntegerAttribAndUnbindElementBuffer) {
+    GLuint vao = 0;
+    GLuint indexBuffer = 0;
+    CreateVertexArrays(1, &vao);
+    CreateBuffers(1, &indexBuffer);
+
+    VertexArrayAttribIFormat(vao, 1, 4, GL_UNSIGNED_INT, 8);
+    EnableVertexArrayAttrib(vao, 1);
+    VertexArrayElementBuffer(vao, indexBuffer);
+    VertexArrayElementBuffer(vao, 0);
+
+    auto vaoObj = MG_State::pGLContext->GetVertexArrayObject(vao);
+    ASSERT_NE(vaoObj, nullptr);
+
+    const auto& attr = vaoObj->GetAttribute(1);
+    EXPECT_TRUE(attr.Enabled);
+    EXPECT_EQ(attr.Size, 4);
+    EXPECT_EQ(attr.Type, DataType::Uint32);
+    EXPECT_TRUE(attr.IsInteger);
+    EXPECT_FALSE(attr.Normalized);
+    EXPECT_EQ(attr.Offset, 8);
+    EXPECT_EQ(vaoObj->GetIndexBufferBindingSlot().GetBoundObject(), nullptr);
+
+    DeleteVertexArrays(1, &vao);
+    DeleteBuffers(1, &indexBuffer);
+    EXPECT_EQ(GetError(), GL_NO_ERROR);
+}
+
 TEST_F(GeneralVertexArrayTest, General_VertexAttributeConfiguration) {
     GLuint vao = CreateVAO();
     GLuint vbo = CreateVBO(GL_ARRAY_BUFFER, 128);

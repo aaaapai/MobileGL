@@ -19,6 +19,27 @@ namespace MobileGL::MG_Backend::DirectVulkan {
 
     BackendObject_DirectVulkan::~BackendObject_DirectVulkan() = default;
 
+    BackendObject_DirectVulkan::BackendObject_DirectVulkan():
+        m_rendererInfo{
+            .RendererName = "Magma",
+            .BackendName = "Direct (Vulkan)",
+            .ExtraVendor = Nullopt,
+            .RendererGLInfo =
+                {
+                    .TargetGLVersion = {3, 3, 0},
+                    .TargetGLSLVersion = {4, 6, 0},
+                    .Extensions = {V_OpenGL30, V_OpenGL31, V_OpenGL32,
+                                   V_OpenGL33, E_GL_ARB_draw_buffers_blend, E_GL_ARB_compute_shader,
+                                   E_GL_ARB_shader_storage_buffer_object, E_GL_ARB_shader_image_load_store,
+                                   E_GL_ARB_program_interface_query, E_GL_ARB_framebuffer_object,
+                                   E_GL_ARB_multi_draw_indirect, E_GL_ARB_indirect_parameters,
+                                   E_GL_EXT_framebuffer_object, E_GL_ARB_depth_texture, E_GL_ARB_buffer_storage,
+                                   E_GL_ARB_texture_storage, E_GL_ARB_direct_state_access,
+                                   E_GL_ARB_shader_draw_parameters, E_GL_ARB_gpu_shader_int64},
+                    .IsCompatibilityProfile = false
+                },
+            .StaticBackendCapability = {.AllowVSOnlyPrograms = false}} {}
+
     Bool BackendObject_DirectVulkan::InitWindowSurface() {
         if (!m_windowHandle.Handle) {
             MGLOG_E("Cannot initialize DirectVulkan window surface: native window handle is null");
@@ -47,8 +68,14 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             return false;
         }
 
-        MG_Util::BackendLoader::FillInVulkanCapabilities(m_vulkanCaps, pVulkanRenderer->GetPhysicalDevice().properties);
+        const auto& physicalDevice = pVulkanRenderer->GetPhysicalDevice();
+        if (!MG_Util::BackendLoader::QueryVulkanCapabilities(m_vulkanCaps, pVulkanRenderer->GetInstance(),
+                                                             physicalDevice.handle)) {
+            MGLOG_W("DirectVulkan: failed to query extended Vulkan capabilities, using basic properties");
+            MG_Util::BackendLoader::FillInVulkanCapabilities(m_vulkanCaps, physicalDevice.properties);
+        }
         UpdateDynamicBackendParameters();
+        UpdateAdvertisedExtensions();
         return true;
     }
 
@@ -113,24 +140,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
     }
 
     const RendererInfo& BackendObject_DirectVulkan::GetRendererInfo() const {
-        static RendererInfo RendererInfo = {
-            .RendererName = "Magma",          // Renderer Name
-            .BackendName = "Direct (Vulkan)", // Backend Name
-            .ExtraVendor = Nullopt,           // Extra vendor
-            .RendererGLInfo =
-                {
-                    .TargetGLVersion = {3, 3, 0},                      // Target OpenGL Version
-                    .TargetGLSLVersion = {4, 6, 0},                    // Target Shading Language Version
-                    .Extensions = {V_OpenGL30, V_OpenGL31, V_OpenGL32, // OpenGL Extensions
-                                   V_OpenGL33, E_GL_ARB_draw_buffers_blend, E_GL_ARB_compute_shader,
-                                   E_GL_ARB_shader_storage_buffer_object, E_GL_ARB_shader_image_load_store,
-                                   E_GL_ARB_program_interface_query, E_GL_ARB_framebuffer_object,
-                                   E_GL_EXT_framebuffer_object, E_GL_ARB_depth_texture},
-                    .IsCompatibilityProfile = false // Is Compatibility Profile
-                },
-            .StaticBackendCapability = {.AllowVSOnlyPrograms = false} // Backend Capability
-        };
-        return RendererInfo;
+        return m_rendererInfo;
     }
 
     String BackendObject_DirectVulkan::GetBackendAPIVersionString() const {
@@ -160,6 +170,8 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             funcsTable.GL.MultiDrawElementsBaseVertex = MultiDrawElementsBaseVertex;
             funcsTable.GL.MultiDrawElementsIndirect = MultiDrawElementsIndirect;
             funcsTable.GL.MultiDrawArraysIndirect = MultiDrawArraysIndirect;
+            funcsTable.GL.MultiDrawElementsIndirectCount = MultiDrawElementsIndirectCount;
+            funcsTable.GL.MultiDrawArraysIndirectCount = MultiDrawArraysIndirectCount;
             funcsTable.GL.DrawRangeElementsBaseVertex = DrawRangeElementsBaseVertex;
             funcsTable.GL.DrawRangeElements = DrawRangeElements;
             funcsTable.GL.DrawElementsInstancedBaseVertexBaseInstance = DrawElementsInstancedBaseVertexBaseInstance;
@@ -175,12 +187,16 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             funcsTable.GL.ClearBufferfv = ClearBufferfv;
             funcsTable.GL.ClearBufferuiv = ClearBufferuiv;
             funcsTable.GL.ClearBufferiv = ClearBufferiv;
+            funcsTable.GL.ClearNamedFramebufferfv = ClearNamedFramebufferfv;
+            funcsTable.GL.ClearNamedFramebufferfi = ClearNamedFramebufferfi;
             funcsTable.GL.BlitFramebuffer = BlitFramebuffer;
+            funcsTable.GL.BlitNamedFramebuffer = BlitNamedFramebuffer;
             funcsTable.GL.CopyTexImage2D = CopyTexImage2D;
             funcsTable.GL.CopyTexSubImage2D = CopyTexSubImage2D;
             funcsTable.GL.GenerateMipmap = GenerateMipmap;
             funcsTable.GL.ReadPixels = ReadPixels;
             funcsTable.GL.GetTexImage = GetTexImage;
+            funcsTable.GL.GetTextureImage = GetTextureImage;
             funcsTable.GL.DispatchCompute = DispatchCompute;
             funcsTable.GL.DispatchComputeIndirect = DispatchComputeIndirect;
             funcsTable.GL.MemoryBarrier = MemoryBarrier;
@@ -205,7 +221,67 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         return m_dynamicParameters;
     }
 
+    void BackendObject_DirectVulkan::ApplyVulkanCapabilitiesForTesting(
+        const MG_External::VulkanCapabilities& capabilities) {
+        m_vulkanCaps = capabilities;
+        UpdateDynamicBackendParameters();
+        UpdateAdvertisedExtensions();
+    }
+
+    void BackendObject_DirectVulkan::UpdateAdvertisedExtensions() {
+        auto& extensions = m_rendererInfo.RendererGLInfo.Extensions;
+        extensions.erase(std::remove(extensions.begin(), extensions.end(), E_GL_KHR_shader_subgroup),
+                         extensions.end());
+
+        if (m_vulkanCaps.SupportsShaderSubgroup) {
+            extensions.push_back(E_GL_KHR_shader_subgroup);
+        }
+    }
+
     void BackendObject_DirectVulkan::UpdateDynamicBackendParameters() {
+        const auto mapShaderStages = [](Uint32 vkStages) {
+            Uint32 glStages = 0;
+            if ((vkStages & VK_SHADER_STAGE_VERTEX_BIT) != 0) glStages |= GL_VERTEX_SHADER_BIT;
+            if ((vkStages & VK_SHADER_STAGE_TESSELLATION_CONTROL_BIT) != 0) glStages |= GL_TESS_CONTROL_SHADER_BIT;
+            if ((vkStages & VK_SHADER_STAGE_TESSELLATION_EVALUATION_BIT) != 0) {
+                glStages |= GL_TESS_EVALUATION_SHADER_BIT;
+            }
+            if ((vkStages & VK_SHADER_STAGE_GEOMETRY_BIT) != 0) glStages |= GL_GEOMETRY_SHADER_BIT;
+            if ((vkStages & VK_SHADER_STAGE_FRAGMENT_BIT) != 0) glStages |= GL_FRAGMENT_SHADER_BIT;
+            if ((vkStages & VK_SHADER_STAGE_COMPUTE_BIT) != 0) glStages |= GL_COMPUTE_SHADER_BIT;
+            return glStages;
+        };
+
+        const auto mapSubgroupFeatures = [](Uint32 vkFeatures) {
+            Uint32 glFeatures = 0;
+            if ((vkFeatures & VK_SUBGROUP_FEATURE_BASIC_BIT) != 0) {
+                glFeatures |= GL_SUBGROUP_FEATURE_BASIC_BIT_KHR;
+            }
+            if ((vkFeatures & VK_SUBGROUP_FEATURE_VOTE_BIT) != 0) {
+                glFeatures |= GL_SUBGROUP_FEATURE_VOTE_BIT_KHR;
+            }
+            if ((vkFeatures & VK_SUBGROUP_FEATURE_ARITHMETIC_BIT) != 0) {
+                glFeatures |= GL_SUBGROUP_FEATURE_ARITHMETIC_BIT_KHR;
+            }
+            if ((vkFeatures & VK_SUBGROUP_FEATURE_BALLOT_BIT) != 0) {
+                glFeatures |= GL_SUBGROUP_FEATURE_BALLOT_BIT_KHR;
+            }
+            if ((vkFeatures & VK_SUBGROUP_FEATURE_SHUFFLE_BIT) != 0) {
+                glFeatures |= GL_SUBGROUP_FEATURE_SHUFFLE_BIT_KHR;
+            }
+            if ((vkFeatures & VK_SUBGROUP_FEATURE_SHUFFLE_RELATIVE_BIT) != 0) {
+                glFeatures |= GL_SUBGROUP_FEATURE_SHUFFLE_RELATIVE_BIT_KHR;
+            }
+            if ((vkFeatures & VK_SUBGROUP_FEATURE_CLUSTERED_BIT) != 0) {
+                glFeatures |= GL_SUBGROUP_FEATURE_CLUSTERED_BIT_KHR;
+            }
+            if ((vkFeatures & VK_SUBGROUP_FEATURE_QUAD_BIT) != 0) {
+                glFeatures |= GL_SUBGROUP_FEATURE_QUAD_BIT_KHR;
+            }
+            return glFeatures;
+        };
+
+        static constexpr SizeT kMaxAdvertisedShaderStorageBlockSize = 512ull * 1024ull * 1024ull;
         m_dynamicParameters.UniformBufferOffsetAlignment = m_vulkanCaps.UniformBufferOffsetAlignment;
         m_dynamicParameters.AliasedLineWidthRangeMin = m_vulkanCaps.AliasedLineWidthRangeMin;
         m_dynamicParameters.AliasedLineWidthRangeMax = m_vulkanCaps.AliasedLineWidthRangeMax;
@@ -255,5 +331,23 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         m_dynamicParameters.ViewportBoundsRangeMax = m_vulkanCaps.ViewportBoundsRangeMax;
         m_dynamicParameters.ViewportSubpixelBits = m_vulkanCaps.ViewportSubpixelBits;
         m_dynamicParameters.SupportsWideLines = m_vulkanCaps.SupportsWideLines;
+        m_dynamicParameters.MaxShaderStorageBlockSize =
+            std::min(m_vulkanCaps.MaxShaderStorageBlockSize, kMaxAdvertisedShaderStorageBlockSize);
+        if (m_vulkanCaps.SupportsShaderSubgroup) {
+            m_dynamicParameters.SubgroupSize = m_vulkanCaps.SubgroupSize;
+            m_dynamicParameters.SubgroupSupportedStages = mapShaderStages(m_vulkanCaps.SubgroupSupportedStages);
+            m_dynamicParameters.SubgroupSupportedFeatures = mapSubgroupFeatures(m_vulkanCaps.SubgroupSupportedOperations);
+            m_dynamicParameters.SubgroupQuadOperationsInAllStages = m_vulkanCaps.SubgroupQuadOperationsInAllStages;
+        } else {
+            m_dynamicParameters.SubgroupSize = 0;
+            m_dynamicParameters.SubgroupSupportedStages = 0;
+            m_dynamicParameters.SubgroupSupportedFeatures = 0;
+            m_dynamicParameters.SubgroupQuadOperationsInAllStages = false;
+        }
+        if (m_dynamicParameters.MaxShaderStorageBlockSize != m_vulkanCaps.MaxShaderStorageBlockSize) {
+            MGLOG_I("DirectVulkan: clamped GL_MAX_SHADER_STORAGE_BLOCK_SIZE from %zu to %zu",
+                    m_vulkanCaps.MaxShaderStorageBlockSize,
+                    m_dynamicParameters.MaxShaderStorageBlockSize);
+        }
     }
 } // namespace MobileGL::MG_Backend::DirectVulkan

@@ -87,6 +87,23 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         return texture;
     }
 
+    DepthStencilAttachmentLoadInfo ResolveDepthStencilAttachmentLoadInfo(
+        VkImageLayout trackedLayout, Bool clearDepth, Bool clearStencil) {
+        DepthStencilAttachmentLoadInfo info{};
+        info.depthLoadOp = clearDepth
+            ? VK_ATTACHMENT_LOAD_OP_CLEAR
+            : (trackedLayout == VK_IMAGE_LAYOUT_UNDEFINED ? VK_ATTACHMENT_LOAD_OP_DONT_CARE
+                                                          : VK_ATTACHMENT_LOAD_OP_LOAD);
+        info.stencilLoadOp = clearStencil
+            ? VK_ATTACHMENT_LOAD_OP_CLEAR
+            : (trackedLayout == VK_IMAGE_LAYOUT_UNDEFINED ? VK_ATTACHMENT_LOAD_OP_DONT_CARE
+                                                          : VK_ATTACHMENT_LOAD_OP_LOAD);
+        info.initialLayout =
+            (trackedLayout == VK_IMAGE_LAYOUT_UNDEFINED || (clearDepth && clearStencil)) ? VK_IMAGE_LAYOUT_UNDEFINED
+                                                                                         : trackedLayout;
+        return info;
+    }
+
     VkRenderPassManager::VkRenderPassManager(VkDevice device,
         const VulkanRendererConfig& config, VkClearManager& clearManager, VkTextureManager& textureManager,
         SwapchainObject& swapchainObject):
@@ -426,27 +443,19 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                 depthAttachmentDescription.format = depthTextureResource->format;
             }
             depthAttachmentDescription.samples = VK_SAMPLE_COUNT_1_BIT;
-            depthAttachmentDescription.loadOp = clearDepth ?
-                VK_ATTACHMENT_LOAD_OP_CLEAR :
-                VK_ATTACHMENT_LOAD_OP_LOAD;
+            const auto loadInfo =
+                ResolveDepthStencilAttachmentLoadInfo(trackedDepthLayout, clearDepth, clearStencil);
+            depthAttachmentDescription.loadOp = loadInfo.depthLoadOp;
             depthAttachmentDescription.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-            depthAttachmentDescription.stencilLoadOp = clearStencil ?
-                VK_ATTACHMENT_LOAD_OP_CLEAR :
-                VK_ATTACHMENT_LOAD_OP_LOAD;
+            depthAttachmentDescription.stencilLoadOp = loadInfo.stencilLoadOp;
             depthAttachmentDescription.stencilStoreOp = VK_ATTACHMENT_STORE_OP_STORE;
             depthAttachmentDescription.finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
-            if (trackedDepthLayout == VK_IMAGE_LAYOUT_UNDEFINED) {
-                if (!clearDepth) {
-                    depthAttachmentDescription.loadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
-                }
-                if (!clearStencil) {
-                    depthAttachmentDescription.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
-                }
+            depthAttachmentDescription.initialLayout = loadInfo.initialLayout;
+            if (trackedDepthLayout == VK_IMAGE_LAYOUT_UNDEFINED && (!clearDepth || !clearStencil)) {
+                MGLOG_W("GetOrCreateRenderPass: depth/stencil attachment textureId=%d starts with undefined layout "
+                        "and partial/no clear; using DONT_CARE for uncleared aspects",
+                        texture.GetExternalIndex());
             }
-            depthAttachmentDescription.initialLayout =
-                (clearDepth && clearStencil) || trackedDepthLayout == VK_IMAGE_LAYOUT_UNDEFINED ?
-                    VK_IMAGE_LAYOUT_UNDEFINED :
-                    trackedDepthLayout;
             if (hasClear) {
                 pendingClearAttachments.emplace_back(PendingClearAttachmentInfo {
                     .attachmentIndex = depthAttachmentIndex,
@@ -461,8 +470,13 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                 });
                 attachmentViews.emplace_back(m_swapchainObject.GetDepthStencilImageView(swapchainImageIndex));
             } else {
-                MOBILEGL_ASSERT(clearDepth || clearStencil || depthTextureResource->layout != VK_IMAGE_LAYOUT_UNDEFINED,
+                MOBILEGL_ASSERT(depthTextureResource->layout != VK_IMAGE_LAYOUT_UNDEFINED ||
+                                    depthAttachmentDescription.loadOp != VK_ATTACHMENT_LOAD_OP_LOAD,
                                 "GetOrCreateRenderPass: depth attachment textureId=%d has undefined tracked layout with LOAD_OP_LOAD",
+                                texture.GetExternalIndex());
+                MOBILEGL_ASSERT(depthTextureResource->layout != VK_IMAGE_LAYOUT_UNDEFINED ||
+                                    depthAttachmentDescription.stencilLoadOp != VK_ATTACHMENT_LOAD_OP_LOAD,
+                                "GetOrCreateRenderPass: stencil attachment textureId=%d has undefined tracked layout with LOAD_OP_LOAD",
                                 texture.GetExternalIndex());
                 trackedAttachmentLayouts.emplace_back(TrackedAttachmentLayoutInfo {
                     .target = TrackedAttachmentTarget::Texture,

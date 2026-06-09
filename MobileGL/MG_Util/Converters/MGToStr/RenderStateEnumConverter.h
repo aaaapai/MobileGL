@@ -19,6 +19,7 @@ namespace MobileGL {
         String ConvertPixelStoreParamToString(PixelStoreParam value);
         String ConvertCullFaceModeToString(CullFaceMode value);
         String ConvertFrontFaceModeToString(FrontFaceMode value);
+        String ConvertProvokingVertexModeToString(ProvokingVertexMode value);
         String ConvertCapabilityInputToString(CapabilityInput value);
     } // namespace MG_Util
 } // namespace MobileGL

@@ -8,7 +8,7 @@
 
 #include "GL_Sync.h"
 
-#include "MG_State/GLState/Core.h"
+#include <MG_State/GLState/Core.h>
 #include <MG_Backend/BackendObjects.h>
 #include <MG_Backend/DirectGLES/BackendObject_DirectGLES.h>
 #include <MG_Util/BackendLoaders/OpenGL/Loader.h>
@@ -16,232 +16,164 @@
 
 namespace MobileGL::MG_Impl::GLImpl {
     namespace {
-        const MG_External::GLESFunctionsTable* TryGetDirectGLESFunctions(const char* funcName) {
+        struct SyncObject {
+            GLenum Condition = GL_SYNC_GPU_COMMANDS_COMPLETE;
+            GLbitfield Flags = 0;
+            GLsync BackendHandle = nullptr;
+        };
+
+        UnorderedMap<GLsync, UniquePtr<SyncObject>> g_syncObjects;
+
+        void RecordSyncError(const char* funcName, ErrorCode code, String message) {
+            MG_State::pGLContext->RecordError(code,
+                                              MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", funcName, Move(message)));
+        }
+
+        const MG_External::GLESFunctionsTable* TryGetDirectGLESFunctions() {
             auto* activeBackend = MG_Backend::pActiveBackendObject.get();
-            if (!activeBackend) {
-                MG_State::pGLContext->RecordError(
-                    ErrorCode::InvalidOperation,
-                    MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", funcName, "No active backend object."));
-                return nullptr;
-            }
+            if (!activeBackend) return nullptr;
 
             auto* directGLESBackend =
                 dynamic_cast<MG_Backend::DirectGLES::BackendObject_DirectGLES*>(activeBackend);
-            if (!directGLESBackend) {
-                MG_State::pGLContext->RecordError(
-                    ErrorCode::InvalidOperation,
-                    MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", funcName,
-                                                 "Sync objects are only implemented for the DirectGLES backend."));
+            return directGLESBackend ? &directGLESBackend->GetGLESFunctions() : nullptr;
+        }
+
+        SyncObject* GetSyncObject(GLsync sync, const char* funcName) {
+            auto it = g_syncObjects.find(sync);
+            if (sync == nullptr || it == g_syncObjects.end()) {
+                RecordSyncError(funcName, ErrorCode::InvalidValue, "Sync object is not valid.");
                 return nullptr;
             }
-
-            return &directGLESBackend->GetGLESFunctions();
+            return it->second.get();
         }
-
-        Bool ValidateFenceSyncArgs(const char* funcName, GLenum condition, GLbitfield flags) {
-            if (condition != GL_SYNC_GPU_COMMANDS_COMPLETE) {
-                MG_State::pGLContext->RecordError(
-                    ErrorCode::InvalidEnum,
-                    MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", funcName,
-                                                 "condition must be GL_SYNC_GPU_COMMANDS_COMPLETE."));
-                return false;
-            }
-            if (flags != 0) {
-                MG_State::pGLContext->RecordError(
-                    ErrorCode::InvalidValue,
-                    MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", funcName, "flags must be zero."));
-                return false;
-            }
-            return true;
-        }
-
-        Bool ValidateSyncHandle(const char* funcName, GLsync sync) {
-            if (sync != nullptr) {
-                return true;
-            }
-            MG_State::pGLContext->RecordError(
-                ErrorCode::InvalidValue,
-                MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", funcName, "sync must be a valid non-null handle."));
-            return false;
-        }
-    }
-
-    GLsync FenceSync_Backend(GLenum condition, GLbitfield flags) {
-        const auto* glesFuncs = TryGetDirectGLESFunctions(__func__);
-        if (!glesFuncs || !glesFuncs->glFenceSync) {
-            MG_State::pGLContext->RecordError(
-                ErrorCode::InvalidOperation,
-                MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", __func__,
-                                             "Backend does not expose glFenceSync."));
-            return nullptr;
-        }
-        return glesFuncs->glFenceSync(condition, flags);
-    }
-
-    GLboolean IsSync_Backend(GLsync sync) {
-        const auto* glesFuncs = TryGetDirectGLESFunctions(__func__);
-        if (!glesFuncs || !glesFuncs->glIsSync) {
-            MG_State::pGLContext->RecordError(
-                ErrorCode::InvalidOperation,
-                MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", __func__,
-                                             "Backend does not expose glIsSync."));
-            return GL_FALSE;
-        }
-        return glesFuncs->glIsSync(sync);
-    }
-
-    GLenum ClientWaitSync_Backend(GLsync sync, GLbitfield flags, GLuint64 timeout) {
-        const auto* glesFuncs = TryGetDirectGLESFunctions(__func__);
-        if (!glesFuncs || !glesFuncs->glClientWaitSync) {
-            MG_State::pGLContext->RecordError(
-                ErrorCode::InvalidOperation,
-                MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", __func__,
-                                             "Backend does not expose glClientWaitSync."));
-            return GL_WAIT_FAILED;
-        }
-        return glesFuncs->glClientWaitSync(sync, flags, timeout);
-    }
-
-    void WaitSync_Backend(GLsync sync, GLbitfield flags, GLuint64 timeout) {
-        const auto* glesFuncs = TryGetDirectGLESFunctions(__func__);
-        if (!glesFuncs || !glesFuncs->glWaitSync) {
-            MG_State::pGLContext->RecordError(
-                ErrorCode::InvalidOperation,
-                MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", __func__,
-                                             "Backend does not expose glWaitSync."));
-            return;
-        }
-        glesFuncs->glWaitSync(sync, flags, timeout);
-    }
-
-    void GetSynciv_Backend(GLsync sync, GLenum pname, GLsizei bufSize, GLsizei* length, GLint* values) {
-        const auto* glesFuncs = TryGetDirectGLESFunctions(__func__);
-        if (!glesFuncs || !glesFuncs->glGetSynciv) {
-            MG_State::pGLContext->RecordError(
-                ErrorCode::InvalidOperation,
-                MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", __func__,
-                                             "Backend does not expose glGetSynciv."));
-            return;
-        }
-        glesFuncs->glGetSynciv(sync, pname, bufSize, length, values);
-    }
-
-    void DeleteSync_Backend(GLsync sync) {
-        const auto* glesFuncs = TryGetDirectGLESFunctions(__func__);
-        if (!glesFuncs || !glesFuncs->glDeleteSync) {
-            MG_State::pGLContext->RecordError(
-                ErrorCode::InvalidOperation,
-                MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", __func__,
-                                             "Backend does not expose glDeleteSync."));
-            return;
-        }
-        glesFuncs->glDeleteSync(sync);
-    }
-
-    GLsync FenceSync_State(GLenum condition, GLbitfield flags) {
-        if (!ValidateFenceSyncArgs(__func__, condition, flags)) {
-            return nullptr;
-        }
-        return FenceSync_Backend(condition, flags);
-    }
-
-    GLboolean IsSync_State(GLsync sync) {
-        if (sync == nullptr) return GL_FALSE;
-        return IsSync_Backend(sync);
-    }
-
-    GLenum ClientWaitSync_State(GLsync sync, GLbitfield flags, GLuint64 timeout) {
-        (void)timeout;
-        if (!ValidateSyncHandle(__func__, sync)) {
-            return GL_WAIT_FAILED;
-        }
-        if ((flags & ~GL_SYNC_FLUSH_COMMANDS_BIT) != 0) {
-            MG_State::pGLContext->RecordError(
-                ErrorCode::InvalidValue,
-                MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", __func__,
-                                             "flags contains unsupported bits."));
-            return GL_WAIT_FAILED;
-        }
-        return ClientWaitSync_Backend(sync, flags, timeout);
-    }
-
-    void WaitSync_State(GLsync sync, GLbitfield flags, GLuint64 timeout) {
-        if (!ValidateSyncHandle(__func__, sync)) {
-            return;
-        }
-        if (flags != 0) {
-            MG_State::pGLContext->RecordError(
-                ErrorCode::InvalidValue,
-                MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", __func__, "flags must be zero."));
-            return;
-        }
-        if (timeout != GL_TIMEOUT_IGNORED) {
-            MG_State::pGLContext->RecordError(
-                ErrorCode::InvalidValue,
-                MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", __func__, "timeout must be GL_TIMEOUT_IGNORED."));
-            return;
-        }
-        WaitSync_Backend(sync, flags, timeout);
-    }
-
-    void GetSynciv_State(GLsync sync, GLenum pname, GLsizei bufSize, GLsizei* length, GLint* values) {
-        if (!ValidateSyncHandle(__func__, sync)) {
-            return;
-        }
-        if (bufSize < 0) {
-            MG_State::pGLContext->RecordError(
-                ErrorCode::InvalidValue,
-                MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", __func__, "bufSize must be non-negative."));
-            return;
-        }
-        if (bufSize > 0 && values == nullptr) {
-            MG_State::pGLContext->RecordError(
-                ErrorCode::InvalidValue,
-                MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", __func__,
-                                             "values must not be null when bufSize is positive."));
-            return;
-        }
-        switch (pname) {
-        case GL_OBJECT_TYPE:
-        case GL_SYNC_CONDITION:
-        case GL_SYNC_STATUS:
-        case GL_SYNC_FLAGS:
-            break;
-        default:
-            MG_State::pGLContext->RecordError(
-                ErrorCode::InvalidEnum,
-                MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", __func__, "Unsupported sync pname."));
-            return;
-        }
-        GetSynciv_Backend(sync, pname, bufSize, length, values);
-    }
-
-    void DeleteSync_State(GLsync sync) {
-        if (sync == nullptr) return;
-        DeleteSync_Backend(sync);
-    }
+    } // namespace
 
     GLsync FenceSync(GLenum condition, GLbitfield flags) {
-        return FenceSync_State(condition, flags);
+        if (condition != GL_SYNC_GPU_COMMANDS_COMPLETE) {
+            RecordSyncError("FenceSync", ErrorCode::InvalidEnum, "Condition must be GL_SYNC_GPU_COMMANDS_COMPLETE.");
+            return nullptr;
+        }
+        if (flags != 0) {
+            RecordSyncError("FenceSync", ErrorCode::InvalidValue, "Flags must be zero.");
+            return nullptr;
+        }
+
+        auto syncObject = MakeUnique<SyncObject>();
+        syncObject->Condition = condition;
+        syncObject->Flags = flags;
+        if (const auto* glesFuncs = TryGetDirectGLESFunctions(); glesFuncs && glesFuncs->glFenceSync) {
+            syncObject->BackendHandle = glesFuncs->glFenceSync(condition, flags);
+            if (syncObject->BackendHandle == nullptr) {
+                return nullptr;
+            }
+        }
+        GLsync handle = reinterpret_cast<GLsync>(syncObject.get());
+        g_syncObjects[handle] = Move(syncObject);
+        return handle;
     }
 
     GLboolean IsSync(GLsync sync) {
-        return IsSync_State(sync);
+        return g_syncObjects.find(sync) != g_syncObjects.end() ? GL_TRUE : GL_FALSE;
     }
 
     GLenum ClientWaitSync(GLsync sync, GLbitfield flags, GLuint64 timeout) {
-        return ClientWaitSync_State(sync, flags, timeout);
+        (void)timeout;
+        if ((flags & ~GL_SYNC_FLUSH_COMMANDS_BIT) != 0) {
+            RecordSyncError("ClientWaitSync", ErrorCode::InvalidValue,
+                            "Flags can only contain GL_SYNC_FLUSH_COMMANDS_BIT.");
+            return GL_WAIT_FAILED;
+        }
+        auto* syncObject = GetSyncObject(sync, "ClientWaitSync");
+        if (!syncObject) return GL_WAIT_FAILED;
+        if (syncObject->BackendHandle != nullptr) {
+            if (const auto* glesFuncs = TryGetDirectGLESFunctions(); glesFuncs && glesFuncs->glClientWaitSync) {
+                return glesFuncs->glClientWaitSync(syncObject->BackendHandle, flags, timeout);
+            }
+            RecordSyncError("ClientWaitSync", ErrorCode::InvalidOperation, "Backend sync wait is unavailable.");
+            return GL_WAIT_FAILED;
+        }
+        return GL_ALREADY_SIGNALED;
     }
 
     void WaitSync(GLsync sync, GLbitfield flags, GLuint64 timeout) {
-        WaitSync_State(sync, flags, timeout);
-    }
-
-    void GetSynciv(GLsync sync, GLenum pname, GLsizei bufSize, GLsizei* length, GLint* values) {
-        GetSynciv_State(sync, pname, bufSize, length, values);
+        if (flags != 0) {
+            RecordSyncError("WaitSync", ErrorCode::InvalidValue, "Flags must be zero.");
+            return;
+        }
+        if (timeout != GL_TIMEOUT_IGNORED) {
+            RecordSyncError("WaitSync", ErrorCode::InvalidValue, "Timeout must be GL_TIMEOUT_IGNORED.");
+            return;
+        }
+        auto* syncObject = GetSyncObject(sync, "WaitSync");
+        if (!syncObject) return;
+        if (syncObject->BackendHandle != nullptr) {
+            if (const auto* glesFuncs = TryGetDirectGLESFunctions(); glesFuncs && glesFuncs->glWaitSync) {
+                glesFuncs->glWaitSync(syncObject->BackendHandle, flags, timeout);
+                return;
+            }
+            RecordSyncError("WaitSync", ErrorCode::InvalidOperation, "Backend sync wait is unavailable.");
+        }
     }
 
     void DeleteSync(GLsync sync) {
-        DeleteSync_State(sync);
+        if (sync == nullptr) return;
+        auto it = g_syncObjects.find(sync);
+        if (it == g_syncObjects.end()) {
+            RecordSyncError("DeleteSync", ErrorCode::InvalidValue, "Sync object is not valid.");
+            return;
+        }
+        if (it->second->BackendHandle != nullptr) {
+            if (const auto* glesFuncs = TryGetDirectGLESFunctions(); glesFuncs && glesFuncs->glDeleteSync) {
+                glesFuncs->glDeleteSync(it->second->BackendHandle);
+            }
+        }
+        g_syncObjects.erase(it);
+    }
+
+    void GetSynciv(GLsync sync, GLenum pname, GLsizei bufSize, GLsizei* length, GLint* values) {
+        if (bufSize < 0) {
+            RecordSyncError("GetSynciv", ErrorCode::InvalidValue, "bufSize must be non-negative.");
+            return;
+        }
+        if (bufSize > 0 && values == nullptr) {
+            RecordSyncError("GetSynciv", ErrorCode::InvalidValue,
+                            "values must not be null when bufSize is positive.");
+            return;
+        }
+
+        auto* syncObject = GetSyncObject(sync, "GetSynciv");
+        if (!syncObject) return;
+        if (syncObject->BackendHandle != nullptr) {
+            if (const auto* glesFuncs = TryGetDirectGLESFunctions(); glesFuncs && glesFuncs->glGetSynciv) {
+                glesFuncs->glGetSynciv(syncObject->BackendHandle, pname, bufSize, length, values);
+                return;
+            }
+        }
+
+        GLint value = 0;
+        switch (pname) {
+        case GL_OBJECT_TYPE:
+            value = GL_SYNC_FENCE;
+            break;
+        case GL_SYNC_STATUS:
+            value = GL_SIGNALED;
+            break;
+        case GL_SYNC_CONDITION:
+            value = static_cast<GLint>(syncObject->Condition);
+            break;
+        case GL_SYNC_FLAGS:
+            value = static_cast<GLint>(syncObject->Flags);
+            break;
+        default:
+            RecordSyncError("GetSynciv", ErrorCode::InvalidEnum, std::format("Invalid pname enum: 0x{:X}", pname));
+            return;
+        }
+
+        if (length) {
+            *length = bufSize > 0 && values ? 1 : 0;
+        }
+        if (bufSize > 0 && values) {
+            values[0] = value;
+        }
     }
 } // namespace MobileGL::MG_Impl::GLImpl

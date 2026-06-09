@@ -135,6 +135,13 @@ namespace MobileGL {
         Unknown = -1
     };
 
+    enum class ProvokingVertexMode {
+        FirstVertex,
+        LastVertex,
+        ProvokingVertexModeCount,
+        Unknown = -1
+    };
+
     enum class CapabilityInput {
         Blend,
         ClipDistance0,
@@ -241,6 +248,7 @@ namespace MobileGL {
         Bool CullFaceEnabled = false;
         CullFaceMode CullFaceModeSetting = CullFaceMode::Back;
         FrontFaceMode FrontFaceModeSetting = FrontFaceMode::CounterClockwise;
+        ProvokingVertexMode ProvokingVertexModeSetting = ProvokingVertexMode::LastVertex;
 
         // Scissor
         Bool ColorLogicOpEnabled = false;
@@ -349,6 +357,8 @@ namespace MobileGL {
                 CullFaceMode GetCullFaceMode() const;
                 void SetFrontFaceMode(FrontFaceMode mode);
                 FrontFaceMode GetFrontFaceMode() const;
+                void SetProvokingVertexMode(ProvokingVertexMode mode);
+                ProvokingVertexMode GetProvokingVertexMode() const;
 
                 // Scissor
                 void SetScissorBox(IntVec4 box);      // x, y, width, height

@@ -129,6 +129,24 @@ namespace MobileGL::MG_Impl::GLImpl {
         MG_Backend::gBackendFunctionsTable.GL.MultiDrawArraysIndirect(mode, indirect, drawcount, stride);
     }
 
+    void MultiDrawElementsIndirectCount_Backend(GLenum mode, GLenum type, const void* indirect, GLintptr drawcount,
+                                                GLsizei maxdrawcount, GLsizei stride) {
+#ifdef TRACY_ENABLE
+        ZoneScopedC(TRACY_ZONECOLOR_BACKEND);
+#endif
+        MG_Backend::gBackendFunctionsTable.GL.MultiDrawElementsIndirectCount(mode, type, indirect, drawcount,
+                                                                             maxdrawcount, stride);
+    }
+
+    void MultiDrawArraysIndirectCount_Backend(GLenum mode, const void* indirect, GLintptr drawcount,
+                                              GLsizei maxdrawcount, GLsizei stride) {
+#ifdef TRACY_ENABLE
+        ZoneScopedC(TRACY_ZONECOLOR_BACKEND);
+#endif
+        MG_Backend::gBackendFunctionsTable.GL.MultiDrawArraysIndirectCount(mode, indirect, drawcount, maxdrawcount,
+                                                                           stride);
+    }
+
     void DrawRangeElementsBaseVertex_Backend(GLenum mode, GLuint start, GLuint end, GLsizei count, GLenum type,
                                              const void* indices, GLint basevertex) {
 #ifdef TRACY_ENABLE
@@ -270,6 +288,32 @@ namespace MobileGL::MG_Impl::GLImpl {
         if (!ValidateCurrentProgramForExecution(__func__)) return;
         if (!ValidatePrimitiveModeForBackend(__func__, mode)) return;
         MultiDrawArraysIndirect_Backend(mode, indirect, drawcount, stride);
+    }
+
+    void MultiDrawElementsIndirectCount(GLenum mode, GLenum type, const void* indirect, GLintptr drawcount,
+                                        GLsizei maxdrawcount, GLsizei stride) {
+        auto multiDrawElementsIndirectCount = MG_Backend::gBackendFunctionsTable.GL.MultiDrawElementsIndirectCount;
+        if (!multiDrawElementsIndirectCount) {
+            MG_State::pGLContext->RecordError(
+                ErrorCode::InvalidOperation,
+                MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", __func__,
+                                             "Backend does not support indirect-parameter indexed draws."));
+            return;
+        }
+        MultiDrawElementsIndirectCount_Backend(mode, type, indirect, drawcount, maxdrawcount, stride);
+    }
+
+    void MultiDrawArraysIndirectCount(GLenum mode, const void* indirect, GLintptr drawcount,
+                                      GLsizei maxdrawcount, GLsizei stride) {
+        auto multiDrawArraysIndirectCount = MG_Backend::gBackendFunctionsTable.GL.MultiDrawArraysIndirectCount;
+        if (!multiDrawArraysIndirectCount) {
+            MG_State::pGLContext->RecordError(
+                ErrorCode::InvalidOperation,
+                MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", __func__,
+                                             "Backend does not support indirect-parameter array draws."));
+            return;
+        }
+        MultiDrawArraysIndirectCount_Backend(mode, indirect, drawcount, maxdrawcount, stride);
     }
 
     void DrawRangeElementsBaseVertex(GLenum mode, GLuint start, GLuint end, GLsizei count, GLenum type,

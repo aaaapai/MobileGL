@@ -140,7 +140,10 @@ namespace MobileGL::MG_Backend::DirectGLES {
                                    V_OpenGL33, E_GL_ARB_draw_buffers_blend, E_GL_ARB_compute_shader,
                                    E_GL_ARB_shader_storage_buffer_object, E_GL_ARB_shader_image_load_store,
                                    E_GL_ARB_program_interface_query, E_GL_ARB_framebuffer_object,
-                                   E_GL_EXT_framebuffer_object, E_GL_ARB_depth_texture},
+                                   E_GL_EXT_framebuffer_object, E_GL_ARB_depth_texture, E_GL_ARB_buffer_storage,
+                                   E_GL_ARB_texture_storage, E_GL_ARB_direct_state_access,
+                                   E_GL_ARB_multi_draw_indirect, E_GL_ARB_indirect_parameters,
+                                   E_GL_ARB_shader_draw_parameters},
                     .IsCompatibilityProfile = false // Is Compatibility Profile
                 },
             .StaticBackendCapability = {.AllowVSOnlyPrograms = false} // Backend Capability
@@ -174,6 +177,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
             funcsTable.GL.MultiDrawElements = MultiDrawElements;
             funcsTable.GL.MultiDrawElementsBaseVertex = MultiDrawElementsBaseVertex;
             funcsTable.GL.MultiDrawElementsIndirect = MultiDrawElementsIndirect;
+            funcsTable.GL.MultiDrawElementsIndirectCount = MultiDrawElementsIndirectCount;
             funcsTable.GL.MultiDrawArraysIndirect = MultiDrawArraysIndirect;
             funcsTable.GL.DrawRangeElementsBaseVertex = DrawRangeElementsBaseVertex;
             funcsTable.GL.DrawRangeElements = DrawRangeElements;
@@ -205,7 +209,10 @@ namespace MobileGL::MG_Backend::DirectGLES {
             funcsTable.GL.ClearBufferfv = ClearBufferfv;
             funcsTable.GL.ClearBufferuiv = ClearBufferuiv;
             funcsTable.GL.ClearBufferiv = ClearBufferiv;
+            funcsTable.GL.ClearNamedFramebufferfv = ClearNamedFramebufferfv;
+            funcsTable.GL.ClearNamedFramebufferfi = ClearNamedFramebufferfi;
             funcsTable.GL.BlitFramebuffer = BlitFramebuffer;
+            funcsTable.GL.BlitNamedFramebuffer = BlitNamedFramebuffer;
             funcsTable.GL.CopyTexImage2D = CopyTexImage2D;
             funcsTable.GL.CopyTexSubImage2D = CopyTexSubImage2D;
             funcsTable.GL.GenerateMipmap = GenerateMipmap;

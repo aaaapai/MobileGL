@@ -20,6 +20,23 @@ namespace MobileGL::MG_Impl::GLImpl {
     GLboolean UnmapBuffer(GLenum target);
     void* MapBufferRange(GLenum target, GLintptr offset, GLsizeiptr length, GLbitfield access);
     void* MapBuffer(GLenum target, GLenum access);
+    void BufferStorage(GLenum target, GLsizeiptr size, const void* data, GLbitfield flags);
+    void CreateBuffers(GLsizei n, GLuint* buffers);
+    void NamedBufferStorage(GLuint buffer, GLsizeiptr size, const void* data, GLbitfield flags);
+    void NamedBufferData(GLuint buffer, GLsizeiptr size, const void* data, GLenum usage);
+    void NamedBufferSubData(GLuint buffer, GLintptr offset, GLsizeiptr size, const void* data);
+    void CopyNamedBufferSubData(GLuint readBuffer, GLuint writeBuffer, GLintptr readOffset, GLintptr writeOffset,
+                                GLsizeiptr size);
+    void ClearNamedBufferData(GLuint buffer, GLenum internalformat, GLenum format, GLenum type, const void* data);
+    void ClearNamedBufferSubData(GLuint buffer, GLenum internalformat, GLintptr offset, GLsizeiptr size, GLenum format,
+                                 GLenum type, const void* data);
+    void* MapNamedBuffer(GLuint buffer, GLenum access);
+    void* MapNamedBufferRange(GLuint buffer, GLintptr offset, GLsizeiptr length, GLbitfield access);
+    GLboolean UnmapNamedBuffer(GLuint buffer);
+    void FlushMappedNamedBufferRange(GLuint buffer, GLintptr offset, GLsizeiptr length);
+    void GetNamedBufferParameteriv(GLuint buffer, GLenum pname, GLint* params);
+    void GetNamedBufferParameteri64v(GLuint buffer, GLenum pname, GLint64* params);
+    void GetNamedBufferPointerv(GLuint buffer, GLenum pname, void** params);
     void CopyBufferSubData(GLenum readTarget, GLenum writeTarget, GLintptr readOffset, GLintptr writeOffset,
                            GLsizeiptr size);
     void BufferSubData(GLenum target, GLintptr offset, GLsizeiptr size, const void* data);

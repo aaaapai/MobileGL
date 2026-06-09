@@ -8,8 +8,14 @@
 
 #pragma once
 #include <Includes.h>
+#include "MG_State/GLState/TextureState/TextureEnum.h"
 
 namespace MobileGL {
+    namespace MG_State::GLState {
+        class FramebufferObject;
+        class ITextureObject;
+    }
+
     enum class BackendType {
         DirectGLES,
         DirectVulkan,
@@ -31,6 +37,10 @@ namespace MobileGL {
             void (*MultiDrawElementsIndirect)(GLenum mode, GLenum type, const void* indirect, GLsizei drawcount,
                                               GLsizei stride);
             void (*MultiDrawArraysIndirect)(GLenum mode, const void* indirect, GLsizei drawcount, GLsizei stride);
+            void (*MultiDrawElementsIndirectCount)(GLenum mode, GLenum type, const void* indirect,
+                                                   GLintptr drawcount, GLsizei maxdrawcount, GLsizei stride);
+            void (*MultiDrawArraysIndirectCount)(GLenum mode, const void* indirect, GLintptr drawcount,
+                                                 GLsizei maxdrawcount, GLsizei stride);
             void (*DrawRangeElementsBaseVertex)(GLenum mode, GLuint start, GLuint end, GLsizei count, GLenum type,
                                                 const void* indices, GLint basevertex);
             void (*DrawRangeElements)(GLenum mode, GLuint start, GLuint end, GLsizei count, GLenum type,
@@ -54,8 +64,17 @@ namespace MobileGL {
             void (*ClearBufferfv)(GLenum buffer, GLint drawbuffer, const GLfloat* value);
             void (*ClearBufferuiv)(GLenum buffer, GLint drawbuffer, const GLuint* value);
             void (*ClearBufferiv)(GLenum buffer, GLint drawbuffer, const GLint* value);
+            void (*ClearNamedFramebufferfv)(const SharedPtr<MG_State::GLState::FramebufferObject>& framebuffer,
+                                            GLenum buffer, GLint drawbuffer, const GLfloat* value);
+            void (*ClearNamedFramebufferfi)(const SharedPtr<MG_State::GLState::FramebufferObject>& framebuffer,
+                                            GLenum buffer, GLint drawbuffer, GLfloat depth, GLint stencil);
             void (*BlitFramebuffer)(GLint srcX0, GLint srcY0, GLint srcX1, GLint srcY1, GLint dstX0, GLint dstY0,
                                     GLint dstX1, GLint dstY1, GLbitfield mask, GLenum filter);
+            void (*BlitNamedFramebuffer)(const SharedPtr<MG_State::GLState::FramebufferObject>& readFramebuffer,
+                                         const SharedPtr<MG_State::GLState::FramebufferObject>& drawFramebuffer,
+                                         GLint srcX0, GLint srcY0, GLint srcX1, GLint srcY1,
+                                         GLint dstX0, GLint dstY0, GLint dstX1, GLint dstY1,
+                                         GLbitfield mask, GLenum filter);
             void (*CopyTexImage2D)(GLenum target, GLint level, GLenum internalformat, GLint x, GLint y, GLsizei width,
                                    GLsizei height, GLint border);
             void (*CopyTexSubImage2D)(GLenum target, GLint level, GLint xoffset, GLint yoffset, GLint x, GLint y,
@@ -64,6 +83,9 @@ namespace MobileGL {
             void (*ReadPixels)(GLint x, GLint y, GLsizei width, GLsizei height, GLenum format, GLenum type,
                                void* pixels);
             void (*GetTexImage)(GLenum target, GLint level, GLenum format, GLenum type, GLvoid* pixels);
+            void (*GetTextureImage)(const SharedPtr<MG_State::GLState::ITextureObject>& texture,
+                                    TextureUploadTarget uploadTarget, GLint level, GLenum format, GLenum type,
+                                    GLsizei bufSize, GLvoid* pixels);
             void (*DispatchCompute)(GLuint numGroupsX, GLuint numGroupsY, GLuint numGroupsZ);
             void (*DispatchComputeIndirect)(GLintptr indirect);
             void (*MemoryBarrier)(GLbitfield barriers);
@@ -138,6 +160,11 @@ namespace MobileGL {
             Float ViewportBoundsRangeMax = 0.0f;
             Int ViewportSubpixelBits = 0;
             Bool SupportsWideLines = false;
+            SizeT MaxShaderStorageBlockSize = 128 * 1024 * 1024;
+            Uint32 SubgroupSize = 0;
+            Uint32 SubgroupSupportedStages = 0;
+            Uint32 SubgroupSupportedFeatures = 0;
+            Bool SubgroupQuadOperationsInAllStages = false;
         };
 
         enum class WindowBackend {
