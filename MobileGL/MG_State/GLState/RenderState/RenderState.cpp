@@ -12,6 +12,20 @@
 namespace MobileGL {
     namespace MG_State {
         namespace GLState {
+            namespace {
+                SizeT GetStencilFaceIndex(StencilFace face) {
+                    switch (face) {
+                    case StencilFace::Front:
+                        return 0;
+                    case StencilFace::Back:
+                        return 1;
+                    default:
+                        MOBILEGL_ASSERT(false, "Invalid stencil face enum: %d", static_cast<int>(face));
+                        return 0;
+                    }
+                }
+            } // namespace
+
             RenderState::RenderState() {}
 
             Uint RenderState::GetVersion() const {
@@ -34,6 +48,44 @@ namespace MobileGL {
                 return m_parameters.Viewport;
             }
 
+            void RenderState::SetLineWidth(Float width) {
+                if (m_parameters.LineWidth == width) return;
+
+                m_parameters.LineWidth = width;
+                ++m_version;
+            }
+
+            Float RenderState::GetLineWidth() const {
+                return m_parameters.LineWidth;
+            }
+
+            void RenderState::SetPointSize(Float size) {
+                if (m_parameters.PointSize == size) return;
+
+                m_parameters.PointSize = size;
+                ++m_version;
+            }
+
+            Float RenderState::GetPointSize() const {
+                return m_parameters.PointSize;
+            }
+
+            void RenderState::SetPolygonOffset(Float factor, Float units) {
+                if (m_parameters.PolygonOffsetFactor == factor && m_parameters.PolygonOffsetUnits == units) return;
+
+                m_parameters.PolygonOffsetFactor = factor;
+                m_parameters.PolygonOffsetUnits = units;
+                ++m_version;
+            }
+
+            Float RenderState::GetPolygonOffsetFactor() const {
+                return m_parameters.PolygonOffsetFactor;
+            }
+
+            Float RenderState::GetPolygonOffsetUnits() const {
+                return m_parameters.PolygonOffsetUnits;
+            }
+
             // -------------------- Capabilities --------------------
             void RenderState::SetCapability(CapabilityInput cap, Bool enabled) {
 #define SET_CAPABILITY(capability, flag)                                                                               \
@@ -44,9 +96,28 @@ namespace MobileGL {
         break;
 
                 switch (cap) {
+                    SET_CAPABILITY(ColorLogicOp, enabled);
+                    SET_CAPABILITY(DebugOutput, enabled);
+                    SET_CAPABILITY(DebugOutputSynchronous, enabled);
                     SET_CAPABILITY(DepthTest, enabled);
                     SET_CAPABILITY(CullFace, enabled);
+                    SET_CAPABILITY(Dither, enabled);
+                    SET_CAPABILITY(LineSmooth, enabled);
+                    SET_CAPABILITY(Multisample, enabled);
+                    SET_CAPABILITY(PolygonOffsetFill, enabled);
+                    SET_CAPABILITY(PolygonOffsetLine, enabled);
+                    SET_CAPABILITY(PolygonOffsetPoint, enabled);
+                    SET_CAPABILITY(PolygonSmooth, enabled);
+                    SET_CAPABILITY(PrimitiveRestart, enabled);
+                    SET_CAPABILITY(PrimitiveRestartFixedIndex, enabled);
+                    SET_CAPABILITY(RasterizerDiscard, enabled);
+                    SET_CAPABILITY(SampleAlphaToCoverage, enabled);
+                    SET_CAPABILITY(SampleAlphaToOne, enabled);
+                    SET_CAPABILITY(SampleCoverage, enabled);
+                    SET_CAPABILITY(SampleMask, enabled);
                     SET_CAPABILITY(ScissorTest, enabled);
+                    SET_CAPABILITY(StencilTest, enabled);
+                    SET_CAPABILITY(ProgramPointSize, enabled);
                 case CapabilityInput::Blend: {
                     Bool stateChanged = false;
                     for (auto& blendState : m_parameters.BlendStates) {
@@ -68,9 +139,28 @@ namespace MobileGL {
     case CapabilityInput::capability:                                                                                  \
         return m_parameters.capability##Enabled;
                 switch (cap) {
+                    RETURN_CAPABILITY(ColorLogicOp);
+                    RETURN_CAPABILITY(DebugOutput);
+                    RETURN_CAPABILITY(DebugOutputSynchronous);
                     RETURN_CAPABILITY(DepthTest);
                     RETURN_CAPABILITY(CullFace);
+                    RETURN_CAPABILITY(Dither);
+                    RETURN_CAPABILITY(LineSmooth);
+                    RETURN_CAPABILITY(Multisample);
+                    RETURN_CAPABILITY(PolygonOffsetFill);
+                    RETURN_CAPABILITY(PolygonOffsetLine);
+                    RETURN_CAPABILITY(PolygonOffsetPoint);
+                    RETURN_CAPABILITY(PolygonSmooth);
+                    RETURN_CAPABILITY(PrimitiveRestart);
+                    RETURN_CAPABILITY(PrimitiveRestartFixedIndex);
+                    RETURN_CAPABILITY(RasterizerDiscard);
+                    RETURN_CAPABILITY(SampleAlphaToCoverage);
+                    RETURN_CAPABILITY(SampleAlphaToOne);
+                    RETURN_CAPABILITY(SampleCoverage);
+                    RETURN_CAPABILITY(SampleMask);
                     RETURN_CAPABILITY(ScissorTest);
+                    RETURN_CAPABILITY(StencilTest);
+                    RETURN_CAPABILITY(ProgramPointSize);
                 case CapabilityInput::Blend:
                     return m_parameters.BlendStates[0].Enabled;
                 default:
@@ -206,6 +296,17 @@ namespace MobileGL {
                 alpha = m_parameters.BlendStates[index].AlphaEquation;
             }
 
+            void RenderState::SetLogicOp(LogicOperation logicOp) {
+                if (m_parameters.LogicOp == logicOp) return;
+
+                m_parameters.LogicOp = logicOp;
+                ++m_version;
+            }
+
+            LogicOperation RenderState::GetLogicOp() const {
+                return m_parameters.LogicOp;
+            }
+
             // -------------------- Depth --------------------
             void RenderState::SetDepthFunc(DepthTestFunc func) {
                 if (m_parameters.DepthFunc == func) return;
@@ -227,6 +328,42 @@ namespace MobileGL {
 
             Bool RenderState::GetDepthMask() const {
                 return m_parameters.DepthMask;
+            }
+
+            void RenderState::SetStencilFunc(StencilFace face, DepthTestFunc func, Int ref, Uint32 mask) {
+                StencilFaceState& state = m_parameters.StencilStates[GetStencilFaceIndex(face)];
+                if (state.Func == func && state.Ref == ref && state.ValueMask == mask) return;
+
+                state.Func = func;
+                state.Ref = ref;
+                state.ValueMask = mask;
+                ++m_version;
+            }
+
+            void RenderState::SetStencilMask(StencilFace face, Uint32 mask) {
+                StencilFaceState& state = m_parameters.StencilStates[GetStencilFaceIndex(face)];
+                if (state.WriteMask == mask) return;
+
+                state.WriteMask = mask;
+                ++m_version;
+            }
+
+            void RenderState::SetStencilOp(StencilFace face, StencilOperation fail, StencilOperation depthFail,
+                                           StencilOperation depthPass) {
+                StencilFaceState& state = m_parameters.StencilStates[GetStencilFaceIndex(face)];
+                if (state.FailOp == fail && state.PassDepthFailOp == depthFail &&
+                    state.PassDepthPassOp == depthPass) {
+                    return;
+                }
+
+                state.FailOp = fail;
+                state.PassDepthFailOp = depthFail;
+                state.PassDepthPassOp = depthPass;
+                ++m_version;
+            }
+
+            const StencilFaceState& RenderState::GetStencilState(StencilFace face) const {
+                return m_parameters.StencilStates[GetStencilFaceIndex(face)];
             }
 
             // -------------------- Color Mask --------------------
@@ -273,6 +410,55 @@ namespace MobileGL {
 
             Uint32 RenderState::GetClearStencil() const {
                 return m_parameters.ClearStencil;
+            }
+
+            void RenderState::SetBlendColor(FloatVec4 color) {
+                if (m_parameters.BlendColor == color) return;
+
+                m_parameters.BlendColor = color;
+                ++m_version;
+            }
+
+            const FloatVec4& RenderState::GetBlendColor() const {
+                return m_parameters.BlendColor;
+            }
+
+            void RenderState::SetDepthRange(FloatVec2 range) {
+                if (m_parameters.DepthRange == range) return;
+
+                m_parameters.DepthRange = range;
+                ++m_version;
+            }
+
+            const FloatVec2& RenderState::GetDepthRange() const {
+                return m_parameters.DepthRange;
+            }
+
+            void RenderState::SetSampleCoverage(Float value, Bool invert) {
+                if (m_parameters.SampleCoverageValue == value && m_parameters.SampleCoverageInvert == invert) return;
+
+                m_parameters.SampleCoverageValue = value;
+                m_parameters.SampleCoverageInvert = invert;
+                ++m_version;
+            }
+
+            Float RenderState::GetSampleCoverageValue() const {
+                return m_parameters.SampleCoverageValue;
+            }
+
+            Bool RenderState::GetSampleCoverageInvert() const {
+                return m_parameters.SampleCoverageInvert;
+            }
+
+            void RenderState::SetSampleMaskValue(Uint32 mask) {
+                if (m_parameters.SampleMaskValue == mask) return;
+
+                m_parameters.SampleMaskValue = mask;
+                ++m_version;
+            }
+
+            Uint32 RenderState::GetSampleMaskValue() const {
+                return m_parameters.SampleMaskValue;
             }
 
             // -------------------- Pixel Store --------------------

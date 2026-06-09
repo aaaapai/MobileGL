@@ -120,10 +120,13 @@ namespace MobileGL::MG_State::GLState {
     void* BufferObject::AcquireMemory(Bool markMapped, Bool read, Bool write) {
         if (markMapped) {
             m_isMapped = true;
-            auto a = BufferMappingAccessBit::Coherent | BufferMappingAccessBit::Read;
             m_mappingAccess = (read ? BufferMappingAccessBit::Read : BufferMappingAccessBit::Null) |
                               (write ? BufferMappingAccessBit::Write : BufferMappingAccessBit::Null);
             m_mappedRange = {0, m_size};
+            if (write) {
+                m_change.Bits |= BufferChangeBits::ForbidInvalidationBit;
+                m_change.Bits |= BufferChangeBits::ForbidUnsynchronizationBit;
+            }
 
             if (m_mappingAccess & BufferMappingAccessBit::Write) {
                 m_stagingData.resize(m_size);
@@ -148,6 +151,13 @@ namespace MobileGL::MG_State::GLState {
         m_isMapped = true;
         m_mappingAccess = access;
         m_mappedRange = range;
+        m_change.Bits |=
+            !(access & BufferMappingAccessBit::InvalidateBuffer || access & BufferMappingAccessBit::InvalidateRange)
+                ? BufferChangeBits::ForbidInvalidationBit
+                : BufferChangeBits::None;
+        m_change.Bits |= !(access & BufferMappingAccessBit::Unsynchronized)
+                             ? BufferChangeBits::ForbidUnsynchronizationBit
+                             : BufferChangeBits::None;
 
         if (access & BufferMappingAccessBit::Write) {
             m_stagingData.resize(range.end - range.start);
@@ -162,14 +172,6 @@ namespace MobileGL::MG_State::GLState {
             m_ownsStagingData = false;
             return m_dataPtr->data() + range.start;
         }
-
-        m_change.Bits |=
-            !(access & BufferMappingAccessBit::InvalidateBuffer || access & BufferMappingAccessBit::InvalidateRange)
-                ? BufferChangeBits::ForbidInvalidationBit
-                : BufferChangeBits::None;
-        m_change.Bits |= !(access & BufferMappingAccessBit::Unsynchronized)
-                             ? BufferChangeBits::ForbidUnsynchronizationBit
-                             : BufferChangeBits::None;
     }
 
     const SharedPtr<Data>& BufferObject::GetDataReadOnly() const {
@@ -207,6 +209,18 @@ namespace MobileGL::MG_State::GLState {
 
     Range1D BufferObject::GetMappedRange() const {
         return m_isMapped ? m_mappedRange : Range1D{0, 0};
+    }
+
+    void* BufferObject::GetMappedPointer() {
+        if (!m_isMapped) {
+            return nullptr;
+        }
+
+        if (m_ownsStagingData) {
+            return m_stagingData.data();
+        }
+
+        return m_dataPtr->data() + m_mappedRange.start;
     }
 
     Flags<BufferMappingAccessBit> BufferObject::GetMappingAccess() const {

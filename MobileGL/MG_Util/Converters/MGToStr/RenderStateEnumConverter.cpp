@@ -45,6 +45,45 @@ namespace MobileGL {
             }
         }
 
+        String ConvertLogicOperationToString(LogicOperation v) {
+            switch (v) {
+            case LogicOperation::Clear:
+                return "Clear";
+            case LogicOperation::And:
+                return "And";
+            case LogicOperation::AndReverse:
+                return "AndReverse";
+            case LogicOperation::Copy:
+                return "Copy";
+            case LogicOperation::AndInverted:
+                return "AndInverted";
+            case LogicOperation::Noop:
+                return "Noop";
+            case LogicOperation::Xor:
+                return "Xor";
+            case LogicOperation::Or:
+                return "Or";
+            case LogicOperation::Nor:
+                return "Nor";
+            case LogicOperation::Equiv:
+                return "Equiv";
+            case LogicOperation::Invert:
+                return "Invert";
+            case LogicOperation::OrReverse:
+                return "OrReverse";
+            case LogicOperation::CopyInverted:
+                return "CopyInverted";
+            case LogicOperation::OrInverted:
+                return "OrInverted";
+            case LogicOperation::Nand:
+                return "Nand";
+            case LogicOperation::Set:
+                return "Set";
+            default:
+                return "Unknown";
+            }
+        }
+
         String ConvertDepthTestFuncToString(DepthTestFunc v) {
             switch (v) {
             case DepthTestFunc::Never:
@@ -63,6 +102,29 @@ namespace MobileGL {
                 return "GreaterEqual";
             case DepthTestFunc::Always:
                 return "Always";
+            default:
+                return "Unknown";
+            }
+        }
+
+        String ConvertStencilOperationToString(StencilOperation v) {
+            switch (v) {
+            case StencilOperation::Keep:
+                return "Keep";
+            case StencilOperation::Zero:
+                return "Zero";
+            case StencilOperation::Replace:
+                return "Replace";
+            case StencilOperation::IncrementClamp:
+                return "IncrementClamp";
+            case StencilOperation::DecrementClamp:
+                return "DecrementClamp";
+            case StencilOperation::Invert:
+                return "Invert";
+            case StencilOperation::IncrementWrap:
+                return "IncrementWrap";
+            case StencilOperation::DecrementWrap:
+                return "DecrementWrap";
             default:
                 return "Unknown";
             }

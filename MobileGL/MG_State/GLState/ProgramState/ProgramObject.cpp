@@ -60,6 +60,27 @@ namespace {
 }
 
 namespace MobileGL::MG_State::GLState {
+    void ProgramObject::ResetLinkArtifacts() {
+        m_program.reset();
+        m_generatedSpirv.clear();
+        m_uniformLocations.clear();
+        m_uniformIndexInTProgram.clear();
+        m_uniformSamplerOrImageUnitIndex.clear();
+        m_uniformBlockIndexByName.clear();
+        m_uniformBlockBinding.clear();
+        m_uniformOffsets.clear();
+        m_uniformSizesInBytes.clear();
+        m_globalUboScratch.clear();
+        m_attribs.clear();
+        m_attribTypes.clear();
+        m_activeUniformCount = 0;
+        m_maxUniformLocation = 0;
+        m_uniformNameMaxLength = 0;
+        m_attribInNameMaxLength = 0;
+        m_uniformBlockNameMaxLength = 0;
+        m_linkStatus = false;
+    }
+
     bool ProgramObject::ShaderIsAttached(const SharedPtr<ShaderObject>& shader) {
         MGLOG_D("ProgramObject %u: ShaderIsAttached check for shader %p", m_externalIndex, shader.get());
         auto it = std::find_if(m_shaders.begin(), m_shaders.end(),
@@ -135,6 +156,8 @@ namespace MobileGL::MG_State::GLState {
     void ProgramObject::Link(Bool addDefaultFSIfMissingForRenderingPipelineProgram) {
         MGLOG_D("ProgramObject %u: Link start, shaders to link: %zu", m_externalIndex, m_shaders.size());
         ++m_backendStateVersion;
+        ResetLinkArtifacts();
+        m_infoLog.clear();
         // Remove detached shaders first
         for (const auto& detachedShader : m_detachedShaders) {
             RemoveShader(detachedShader);
@@ -163,7 +186,6 @@ namespace MobileGL::MG_State::GLState {
                                         "log:\n{}\nShader src:\n{}",
                                         MG_Util::ConvertGLEnumToString(shaderTypes[i]), m_shaders[i]->GetInfoLog(),
                                         m_shaders[i]->GetShaderSource());
-                m_linkStatus = false;
                 MGLOG_E("ProgramObject %u: Link failed - shader[%zu] compile status false. InfoLog:\n%s",
                         m_externalIndex, i, m_infoLog.c_str());
                 return;
@@ -186,9 +208,9 @@ namespace MobileGL::MG_State::GLState {
             m_program = result.value();
             MGLOG_D("ProgramObject %u: LinkProgram succeeded, TProgram ptr %p", m_externalIndex, m_program.get());
         } else {
-            m_linkStatus = false;
             m_infoLog = result.error().log;
             MGLOG_E("ProgramObject %u: LinkProgram failed. InfoLog:\n%s", m_externalIndex, m_infoLog.c_str());
+            return;
         }
 
         MGLOG_D("ProgramObject %u: Starting reflection", m_externalIndex);

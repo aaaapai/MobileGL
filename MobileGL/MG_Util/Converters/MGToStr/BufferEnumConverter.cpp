@@ -72,6 +72,10 @@ namespace MobileGL {
         }
 
         String ConvertBufferMappingAccessToString(Flags<BufferMappingAccessBit> access) {
+            if (access == BufferMappingAccessBit::Null) {
+                return "[]";
+            }
+
             String result = "[";
             if (access & BufferMappingAccessBit::Read) result += "Read, ";
             if (access & BufferMappingAccessBit::Write) result += "Write, ";
@@ -84,7 +88,7 @@ namespace MobileGL {
             result.pop_back();
             result.pop_back();
             result += "]";
-            return result.empty() ? "[]" : result;
+            return result;
         }
     } // namespace MG_Util
 } // namespace MobileGL

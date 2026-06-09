@@ -57,10 +57,6 @@ namespace MobileGL {
 
             void SamplerObject::SetLodRange(Float minLod, Float maxLod) {
                 if (minLod == m_samplerParameters.minLod && maxLod == m_samplerParameters.maxLod) return;
-
-                if (minLod > maxLod) {
-                    THROW_EXCEPTION("minLod cannot be greater than maxLod");
-                }
                 m_samplerParameters.minLod = minLod;
                 m_samplerParameters.maxLod = maxLod;
                 ++m_version;

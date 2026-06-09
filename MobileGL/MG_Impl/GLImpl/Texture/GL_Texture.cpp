@@ -31,6 +31,21 @@ namespace MobileGL::MG_Impl::GLImpl {
     static SharedPtr<MG_State::GLState::ITextureObject> nullTextureObject;
     static UnorderedMap<Uint, Bool> g_autoGenerateMipmapByTextureId;
 
+    void GetTexParameteriv_State(GLenum target, GLenum pname, GLint* params);
+
+    namespace {
+        void SetTextureBorderColorFromFloats(const SharedPtr<MG_State::GLState::ITextureObject>& textureObject,
+                                             const GLfloat* params) {
+            textureObject->SetBorderColor(FloatVec4(params[0], params[1], params[2], params[3]));
+        }
+
+        void SetTextureBorderColorFromInts(const SharedPtr<MG_State::GLState::ITextureObject>& textureObject,
+                                           const GLint* params) {
+            textureObject->SetBorderColor(FloatVec4(static_cast<Float>(params[0]), static_cast<Float>(params[1]),
+                                                    static_cast<Float>(params[2]), static_cast<Float>(params[3])));
+        }
+    } // namespace
+
     const SharedPtr<MG_State::GLState::ITextureObject>& GetTextureObjectByTarget(
         TextureUploadTarget textureUploadTarget, TextureTarget textureTarget) {
         if (TextureImpl::IsProxyTextureTarget(textureUploadTarget)) {
@@ -360,7 +375,7 @@ namespace MobileGL::MG_Impl::GLImpl {
             // ======================= Processing ================================
             auto& textureObject = GetTextureObjectByTarget(textureUploadTarget, textureTarget);
             if (!textureObject) return;
-            THROW_UNIMPL_EXCEPTION;
+            SetTextureBorderColorFromFloats(textureObject, params);
             break;
         }
         case GL_TEXTURE_SWIZZLE_RGBA: {
@@ -401,8 +416,7 @@ namespace MobileGL::MG_Impl::GLImpl {
             // ======================= Processing ================================
             auto& textureObject = GetTextureObjectByTarget(textureUploadTarget, textureTarget);
             if (!textureObject) return;
-
-            THROW_UNIMPL_EXCEPTION;
+            SetTextureBorderColorFromInts(textureObject, params);
             break;
         }
         case GL_TEXTURE_SWIZZLE_RGBA: {
@@ -436,7 +450,11 @@ namespace MobileGL::MG_Impl::GLImpl {
     void TexParameterIiv_State(GLenum target, GLenum pname, const GLint* params) {
         switch (pname) {
         case GL_TEXTURE_BORDER_COLOR: {
-            THROW_UNIMPL_EXCEPTION;
+            TextureUploadTarget textureUploadTarget = MG_Util::ConvertGLEnumToTextureUploadTarget(target);
+            TextureTarget textureTarget = MG_Util::ConvertGLEnumToTextureTarget(target);
+            auto& textureObject = GetTextureObjectByTarget(textureUploadTarget, textureTarget);
+            if (!textureObject) return;
+            SetTextureBorderColorFromInts(textureObject, params);
             break;
         }
         case GL_TEXTURE_SWIZZLE_RGBA: {
@@ -470,7 +488,12 @@ namespace MobileGL::MG_Impl::GLImpl {
     void TexParameterIuiv_State(GLenum target, GLenum pname, const GLuint* params) {
         switch (pname) {
         case GL_TEXTURE_BORDER_COLOR: {
-            THROW_UNIMPL_EXCEPTION;
+            TextureUploadTarget textureUploadTarget = MG_Util::ConvertGLEnumToTextureUploadTarget(target);
+            TextureTarget textureTarget = MG_Util::ConvertGLEnumToTextureTarget(target);
+            auto& textureObject = GetTextureObjectByTarget(textureUploadTarget, textureTarget);
+            if (!textureObject) return;
+            textureObject->SetBorderColor(FloatVec4(static_cast<Float>(params[0]), static_cast<Float>(params[1]),
+                                                    static_cast<Float>(params[2]), static_cast<Float>(params[3])));
             break;
         }
         case GL_TEXTURE_SWIZZLE_RGBA: {
@@ -806,13 +829,17 @@ namespace MobileGL::MG_Impl::GLImpl {
     }
 
     void GetTexParameterIuiv_State(GLenum target, GLenum pname, GLuint* params) {
-        // TODO: implement
-        THROW_UNIMPL_EXCEPTION;
+        if (params == nullptr) return;
+
+        GLint signedParams[4] = {0, 0, 0, 0};
+        GetTexParameteriv_State(target, pname, signedParams);
+        for (int i = 0; i < 4; ++i) {
+            params[i] = static_cast<GLuint>(signedParams[i]);
+        }
     }
 
     void GetTexParameterIiv_State(GLenum target, GLenum pname, GLint* params) {
-        // TODO: implement
-        THROW_UNIMPL_EXCEPTION;
+        GetTexParameteriv_State(target, pname, params);
     }
 
     void GetTexParameteriv_State(GLenum target, GLenum pname, GLint* params) {
@@ -855,9 +882,48 @@ namespace MobileGL::MG_Impl::GLImpl {
             }
             break;
         case GL_TEXTURE_BASE_LEVEL:
+            if (params) {
+                *params = static_cast<GLint>(textureObject->GetLevelRange().x());
+            }
+            break;
         case GL_TEXTURE_MAX_LEVEL:
+            if (params) {
+                *params = static_cast<GLint>(textureObject->GetLevelRange().y());
+            }
+            break;
         case GL_TEXTURE_BORDER_COLOR:
-            break; // TODO
+            if (params) {
+                const auto& borderColor = textureObject->GetBorderColor();
+                params[0] = static_cast<GLint>(borderColor.x());
+                params[1] = static_cast<GLint>(borderColor.y());
+                params[2] = static_cast<GLint>(borderColor.z());
+                params[3] = static_cast<GLint>(borderColor.w());
+            }
+            break;
+        case GL_TEXTURE_SWIZZLE_R:
+            if (params) {
+                *params = static_cast<GLint>(
+                    MG_Util::ConvertTextureSwizzleParamToGLEnum(textureObject->GetSwizzleParam(TextureSwizzleParam::Red)));
+            }
+            break;
+        case GL_TEXTURE_SWIZZLE_G:
+            if (params) {
+                *params = static_cast<GLint>(MG_Util::ConvertTextureSwizzleParamToGLEnum(
+                    textureObject->GetSwizzleParam(TextureSwizzleParam::Green)));
+            }
+            break;
+        case GL_TEXTURE_SWIZZLE_B:
+            if (params) {
+                *params = static_cast<GLint>(
+                    MG_Util::ConvertTextureSwizzleParamToGLEnum(textureObject->GetSwizzleParam(TextureSwizzleParam::Blue)));
+            }
+            break;
+        case GL_TEXTURE_SWIZZLE_A:
+            if (params) {
+                *params = static_cast<GLint>(MG_Util::ConvertTextureSwizzleParamToGLEnum(
+                    textureObject->GetSwizzleParam(TextureSwizzleParam::Alpha)));
+            }
+            break;
         case GL_TEXTURE_WRAP_S:
             if (params) {
                 *params = (GLint)MG_Util::ConvertSamplerWrapModeToGLEnum(textureObject->GetSamplerObject()->GetWrapS());
@@ -933,14 +999,50 @@ namespace MobileGL::MG_Impl::GLImpl {
             }
             break;
         case GL_TEXTURE_BASE_LEVEL:
+            if (params) {
+                *params = static_cast<GLfloat>(textureObject->GetLevelRange().x());
+            }
+            break;
         case GL_TEXTURE_MAX_LEVEL:
+            if (params) {
+                *params = static_cast<GLfloat>(textureObject->GetLevelRange().y());
+            }
+            break;
         case GL_TEXTURE_SWIZZLE_R:
+            if (params) {
+                *params = static_cast<GLfloat>(
+                    MG_Util::ConvertTextureSwizzleParamToGLEnum(textureObject->GetSwizzleParam(TextureSwizzleParam::Red)));
+            }
+            break;
         case GL_TEXTURE_SWIZZLE_G:
+            if (params) {
+                *params = static_cast<GLfloat>(MG_Util::ConvertTextureSwizzleParamToGLEnum(
+                    textureObject->GetSwizzleParam(TextureSwizzleParam::Green)));
+            }
+            break;
         case GL_TEXTURE_SWIZZLE_B:
+            if (params) {
+                *params = static_cast<GLfloat>(MG_Util::ConvertTextureSwizzleParamToGLEnum(
+                    textureObject->GetSwizzleParam(TextureSwizzleParam::Blue)));
+            }
+            break;
         case GL_TEXTURE_SWIZZLE_A:
+            if (params) {
+                *params = static_cast<GLfloat>(MG_Util::ConvertTextureSwizzleParamToGLEnum(
+                    textureObject->GetSwizzleParam(TextureSwizzleParam::Alpha)));
+            }
+            break;
         case GL_TEXTURE_SWIZZLE_RGBA:
-        case GL_TEXTURE_BORDER_COLOR:
             break; // TODO
+        case GL_TEXTURE_BORDER_COLOR:
+            if (params) {
+                const auto& borderColor = textureObject->GetBorderColor();
+                params[0] = borderColor.x();
+                params[1] = borderColor.y();
+                params[2] = borderColor.z();
+                params[3] = borderColor.w();
+            }
+            break;
         case GL_TEXTURE_WRAP_S:
             if (params) {
                 *params =
@@ -1386,7 +1488,7 @@ namespace MobileGL::MG_Impl::GLImpl {
     }
 
     // Add to GL_Texture.cpp
-    void GetTexImage_State(GLenum target, GLint level, GLenum format, GLenum type, GLvoid* pixels) {
+    Bool GetTexImage_State(GLenum target, GLint level, GLenum format, GLenum type, GLvoid* pixels) {
         // ======================= Converting ================================
         TextureUploadTarget textureUploadTarget = MG_Util::ConvertGLEnumToTextureUploadTarget(target);
         TextureTarget textureTarget = MG_Util::ConvertGLEnumToTextureTarget(target);
@@ -1399,7 +1501,7 @@ namespace MobileGL::MG_Impl::GLImpl {
             MG_State::pGLContext->RecordError(
                 ErrorCode::InvalidEnum,
                 MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", "GetTexImage_State", "Invalid texture target"));
-            return;
+            return false;
         }
 
         // Validate level
@@ -1407,7 +1509,7 @@ namespace MobileGL::MG_Impl::GLImpl {
             MG_State::pGLContext->RecordError(
                 ErrorCode::InvalidValue,
                 MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", "GetTexImage_State", "Level must be non-negative"));
-            return;
+            return false;
         }
 
         // Validate format
@@ -1415,7 +1517,7 @@ namespace MobileGL::MG_Impl::GLImpl {
             MG_State::pGLContext->RecordError(
                 ErrorCode::InvalidEnum,
                 MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", "GetTexImage_State", "Invalid format"));
-            return;
+            return false;
         }
 
         // Validate type
@@ -1423,7 +1525,7 @@ namespace MobileGL::MG_Impl::GLImpl {
             MG_State::pGLContext->RecordError(
                 ErrorCode::InvalidEnum,
                 MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", "GetTexImage_State", "Invalid pixel data type"));
-            return;
+            return false;
         }
 
         // Get texture object
@@ -1438,7 +1540,7 @@ namespace MobileGL::MG_Impl::GLImpl {
             MG_State::pGLContext->RecordError(ErrorCode::InvalidOperation,
                                               MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", "GetTexImage_State",
                                                                            "No valid texture bound to target"));
-            return;
+            return false;
         }
 
         // Check texture completeness
@@ -1446,7 +1548,7 @@ namespace MobileGL::MG_Impl::GLImpl {
             MG_State::pGLContext->RecordError(
                 ErrorCode::InvalidOperation,
                 MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", "GetTexImage_State", "Texture is incomplete"));
-            return;
+            return false;
         }
 
         // Check PBO state
@@ -1459,7 +1561,7 @@ namespace MobileGL::MG_Impl::GLImpl {
                 MG_State::pGLContext->RecordError(
                     ErrorCode::InvalidOperation, MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", "GetTexImage_State",
                                                                               "Pixel pack buffer is currently mapped"));
-                return;
+                return false;
             }
 
             // Check alignment
@@ -1469,7 +1571,7 @@ namespace MobileGL::MG_Impl::GLImpl {
                     ErrorCode::InvalidOperation,
                     MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", "GetTexImage_State",
                                                  "Pixel data not aligned for pixel pack buffer"));
-                return;
+                return false;
             }
         }
 
@@ -1482,21 +1584,11 @@ namespace MobileGL::MG_Impl::GLImpl {
                     ErrorCode::InvalidOperation,
                     MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", "GetTexImage_State",
                                                  "No stencil buffer for stencil index format"));
-                return;
+                return false;
             }
         }
 
-        // Check for multisampling
-        if (textureObject->GetStorageType() == TextureStorageType::Mipmap) {
-            auto mipmapObject = static_cast<MG_State::GLState::TextureObjectMipmap*>(textureObject.get());
-            if (mipmapObject->GetMipmapLevelCount() > 1) {
-                MG_State::pGLContext->RecordError(
-                    ErrorCode::InvalidOperation,
-                    MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", "GetTexImage_State",
-                                                 "Multisampled textures not supported for GetTexImage"));
-                return;
-            }
-        }
+        return true;
     }
 
     /* @INSERTION_POINT:FUNCTION_IMPLEMENTATION@ */
@@ -1538,9 +1630,6 @@ namespace MobileGL::MG_Impl::GLImpl {
             textureObject = MG_State::pGLContext->GetTextureObject(texture);
         }
 
-        MG_State::pGLContext->GetImageTextureBinding(static_cast<Int>(unit))
-            .Bind(textureObject, level, layered, layer, access, format);
-
         auto bindImageTexture = MG_Backend::gBackendFunctionsTable.GL.BindImageTexture;
         if (!bindImageTexture) {
             MG_State::pGLContext->RecordError(
@@ -1549,6 +1638,9 @@ namespace MobileGL::MG_Impl::GLImpl {
                                              "Backend does not support image texture binding."));
             return;
         }
+
+        MG_State::pGLContext->GetImageTextureBinding(static_cast<Int>(unit))
+            .Bind(textureObject, level, layered, layer, access, format);
         bindImageTexture(unit, texture, level, layered, layer, access, format);
     }
 
@@ -1557,7 +1649,7 @@ namespace MobileGL::MG_Impl::GLImpl {
     }
 
     void GetTexImage(GLenum target, GLint level, GLenum format, GLenum type, GLvoid* pixels) {
-        GetTexImage_State(target, level, format, type, pixels);
+        if (!GetTexImage_State(target, level, format, type, pixels)) return;
         GetTexImage_Backend(target, level, format, type, pixels);
     }
 

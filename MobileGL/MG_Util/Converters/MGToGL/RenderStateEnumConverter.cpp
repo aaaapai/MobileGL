@@ -63,6 +63,45 @@ namespace MobileGL {
             }
         }
 
+        GLenum ConvertLogicOperationToGLEnum(LogicOperation v) {
+            switch (v) {
+            case LogicOperation::Clear:
+                return GL_CLEAR;
+            case LogicOperation::And:
+                return GL_AND;
+            case LogicOperation::AndReverse:
+                return GL_AND_REVERSE;
+            case LogicOperation::Copy:
+                return GL_COPY;
+            case LogicOperation::AndInverted:
+                return GL_AND_INVERTED;
+            case LogicOperation::Noop:
+                return GL_NOOP;
+            case LogicOperation::Xor:
+                return GL_XOR;
+            case LogicOperation::Or:
+                return GL_OR;
+            case LogicOperation::Nor:
+                return GL_NOR;
+            case LogicOperation::Equiv:
+                return GL_EQUIV;
+            case LogicOperation::Invert:
+                return GL_INVERT;
+            case LogicOperation::OrReverse:
+                return GL_OR_REVERSE;
+            case LogicOperation::CopyInverted:
+                return GL_COPY_INVERTED;
+            case LogicOperation::OrInverted:
+                return GL_OR_INVERTED;
+            case LogicOperation::Nand:
+                return GL_NAND;
+            case LogicOperation::Set:
+                return GL_SET;
+            default:
+                return GL_UNKNOWN_MGL;
+            }
+        }
+
         GLenum ConvertDepthTestFuncToGLEnum(DepthTestFunc v) {
             switch (v) {
             case DepthTestFunc::Never:
@@ -81,6 +120,29 @@ namespace MobileGL {
                 return GL_GEQUAL;
             case DepthTestFunc::Always:
                 return GL_ALWAYS;
+            default:
+                return GL_UNKNOWN_MGL;
+            }
+        }
+
+        GLenum ConvertStencilOperationToGLEnum(StencilOperation v) {
+            switch (v) {
+            case StencilOperation::Keep:
+                return GL_KEEP;
+            case StencilOperation::Zero:
+                return GL_ZERO;
+            case StencilOperation::Replace:
+                return GL_REPLACE;
+            case StencilOperation::IncrementClamp:
+                return GL_INCR;
+            case StencilOperation::DecrementClamp:
+                return GL_DECR;
+            case StencilOperation::Invert:
+                return GL_INVERT;
+            case StencilOperation::IncrementWrap:
+                return GL_INCR_WRAP;
+            case StencilOperation::DecrementWrap:
+                return GL_DECR_WRAP;
             default:
                 return GL_UNKNOWN_MGL;
             }

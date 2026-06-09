@@ -11,8 +11,64 @@
 #include <MG_State/GLState/Core.h>
 #include <MG_State/GLState/ErrorState/Error.h>
 #include <MG_Util/Converters/GLToMG/DataTypeConverter.h>
+#include <MG_Util/Converters/MGToGL/DataTypeConverter.h>
 
 namespace MobileGL::MG_Impl::GLImpl {
+    namespace {
+        static bool ValidateCurrentVertexAttribIndex(GLuint index, const char* funcName) {
+            if (!VertexArrayImpl::ValidateVertexAttributeIndex(index)) return false;
+            if (index == 0) {
+                MG_State::pGLContext->RecordError(
+                    ErrorCode::InvalidOperation,
+                    MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", funcName,
+                                                 "Generic vertex attribute 0 current value cannot be modified."));
+                return false;
+            }
+            return true;
+        }
+
+        static bool TryGetVertexAttribute(GLuint index, const MG_State::GLState::VertexAttribute** outAttr) {
+            if (!VertexArrayImpl::ValidateVertexAttributeIndex(index)) return false;
+
+            auto& vao = MG_State::pGLContext->GetBoundVertexArray();
+            if (!vao) {
+                MG_State::pGLContext->RecordError(
+                    ErrorCode::InvalidOperation,
+                    MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", __func__, "No vertex array object is bound."));
+                return false;
+            }
+
+            *outAttr = &vao->GetAttribute(index);
+            return true;
+        }
+
+        static bool IsCurrentVertexAttribQuery(GLenum pname) {
+            return pname == GL_CURRENT_VERTEX_ATTRIB;
+        }
+
+        static bool ValidateVertexAttribPname(GLenum pname) {
+            switch (pname) {
+            case GL_VERTEX_ATTRIB_ARRAY_ENABLED:
+            case GL_VERTEX_ATTRIB_ARRAY_SIZE:
+            case GL_VERTEX_ATTRIB_ARRAY_STRIDE:
+            case GL_VERTEX_ATTRIB_ARRAY_TYPE:
+            case GL_VERTEX_ATTRIB_ARRAY_NORMALIZED:
+            case GL_CURRENT_VERTEX_ATTRIB:
+            case GL_VERTEX_ATTRIB_ARRAY_BUFFER_BINDING:
+            case GL_VERTEX_ATTRIB_ARRAY_INTEGER:
+            case GL_VERTEX_ATTRIB_ARRAY_DIVISOR:
+            case GL_VERTEX_ATTRIB_ARRAY_POINTER:
+                return true;
+            default:
+                MG_State::pGLContext->RecordError(
+                    ErrorCode::InvalidEnum,
+                    MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", __func__,
+                                                 "Unsupported vertex attrib pname: " + std::to_string(pname)));
+                return false;
+            }
+        }
+    } // namespace
+
     void DisableVertexAttribArray_State(GLuint index) {
         if (!VertexArrayImpl::ValidateVertexAttributeIndex(index)) return;
 
@@ -163,6 +219,287 @@ namespace MobileGL::MG_Impl::GLImpl {
     }
 
     /* @INSERTION_POINT:FUNCTION_IMPLEMENTATION@ */
+    void VertexAttrib1f(GLuint index, GLfloat x) {
+        if (!ValidateCurrentVertexAttribIndex(index, __func__)) return;
+        MG_State::pGLContext->SetCurrentVertexAttributeFloat(index, {x, 0.0f, 0.0f, 1.0f});
+    }
+
+    void VertexAttrib1fv(GLuint index, const GLfloat* v) {
+        if (!v) {
+            MG_State::pGLContext->RecordError(
+                ErrorCode::InvalidValue,
+                MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", __func__, "value pointer cannot be null."));
+            return;
+        }
+        VertexAttrib1f(index, v[0]);
+    }
+
+    void VertexAttrib2f(GLuint index, GLfloat x, GLfloat y) {
+        if (!ValidateCurrentVertexAttribIndex(index, __func__)) return;
+        MG_State::pGLContext->SetCurrentVertexAttributeFloat(index, {x, y, 0.0f, 1.0f});
+    }
+
+    void VertexAttrib2fv(GLuint index, const GLfloat* v) {
+        if (!v) {
+            MG_State::pGLContext->RecordError(
+                ErrorCode::InvalidValue,
+                MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", __func__, "value pointer cannot be null."));
+            return;
+        }
+        VertexAttrib2f(index, v[0], v[1]);
+    }
+
+    void VertexAttrib3f(GLuint index, GLfloat x, GLfloat y, GLfloat z) {
+        if (!ValidateCurrentVertexAttribIndex(index, __func__)) return;
+        MG_State::pGLContext->SetCurrentVertexAttributeFloat(index, {x, y, z, 1.0f});
+    }
+
+    void VertexAttrib3fv(GLuint index, const GLfloat* v) {
+        if (!v) {
+            MG_State::pGLContext->RecordError(
+                ErrorCode::InvalidValue,
+                MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", __func__, "value pointer cannot be null."));
+            return;
+        }
+        VertexAttrib3f(index, v[0], v[1], v[2]);
+    }
+
+    void VertexAttrib4f(GLuint index, GLfloat x, GLfloat y, GLfloat z, GLfloat w) {
+        if (!ValidateCurrentVertexAttribIndex(index, __func__)) return;
+        MG_State::pGLContext->SetCurrentVertexAttributeFloat(index, {x, y, z, w});
+    }
+
+    void VertexAttrib4fv(GLuint index, const GLfloat* v) {
+        if (!v) {
+            MG_State::pGLContext->RecordError(
+                ErrorCode::InvalidValue,
+                MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", __func__, "value pointer cannot be null."));
+            return;
+        }
+        VertexAttrib4f(index, v[0], v[1], v[2], v[3]);
+    }
+
+    void VertexAttribI4i(GLuint index, GLint x, GLint y, GLint z, GLint w) {
+        if (!ValidateCurrentVertexAttribIndex(index, __func__)) return;
+        MG_State::pGLContext->SetCurrentVertexAttributeInt(index, {x, y, z, w});
+    }
+
+    void VertexAttribI4ui(GLuint index, GLuint x, GLuint y, GLuint z, GLuint w) {
+        if (!ValidateCurrentVertexAttribIndex(index, __func__)) return;
+        MG_State::pGLContext->SetCurrentVertexAttributeUint(index, {x, y, z, w});
+    }
+
+    void VertexAttribI4iv(GLuint index, const GLint* v) {
+        if (!v) {
+            MG_State::pGLContext->RecordError(
+                ErrorCode::InvalidValue,
+                MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", __func__, "value pointer cannot be null."));
+            return;
+        }
+        VertexAttribI4i(index, v[0], v[1], v[2], v[3]);
+    }
+
+    void VertexAttribI4uiv(GLuint index, const GLuint* v) {
+        if (!v) {
+            MG_State::pGLContext->RecordError(
+                ErrorCode::InvalidValue,
+                MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", __func__, "value pointer cannot be null."));
+            return;
+        }
+        VertexAttribI4ui(index, v[0], v[1], v[2], v[3]);
+    }
+
+    void VertexAttrib4Nub(GLuint index, GLubyte x, GLubyte y, GLubyte z, GLubyte w) {
+        constexpr float kInv255 = 1.0f / 255.0f;
+        VertexAttrib4f(index, x * kInv255, y * kInv255, z * kInv255, w * kInv255);
+    }
+
+    void VertexAttrib4Nubv(GLuint index, const GLubyte* v) {
+        if (!v) {
+            MG_State::pGLContext->RecordError(
+                ErrorCode::InvalidValue,
+                MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", __func__, "value pointer cannot be null."));
+            return;
+        }
+        VertexAttrib4Nub(index, v[0], v[1], v[2], v[3]);
+    }
+
+    void VertexAttrib4ubv(GLuint index, const GLubyte* v) {
+        if (!v) {
+            MG_State::pGLContext->RecordError(
+                ErrorCode::InvalidValue,
+                MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", __func__, "value pointer cannot be null."));
+            return;
+        }
+        VertexAttrib4f(index, static_cast<GLfloat>(v[0]), static_cast<GLfloat>(v[1]), static_cast<GLfloat>(v[2]),
+                       static_cast<GLfloat>(v[3]));
+    }
+
+    void GetVertexAttribfv(GLuint index, GLenum pname, GLfloat* params) {
+        if (!params) {
+            MG_State::pGLContext->RecordError(
+                ErrorCode::InvalidValue,
+                MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", __func__, "params pointer cannot be null."));
+            return;
+        }
+        if (!ValidateVertexAttribPname(pname)) return;
+
+        if (IsCurrentVertexAttribQuery(pname)) {
+            const auto& current = MG_State::pGLContext->GetCurrentVertexAttribute(index);
+            params[0] = current.floatValue[0];
+            params[1] = current.floatValue[1];
+            params[2] = current.floatValue[2];
+            params[3] = current.floatValue[3];
+            return;
+        }
+
+        const MG_State::GLState::VertexAttribute* attr = nullptr;
+        if (!TryGetVertexAttribute(index, &attr)) return;
+
+        switch (pname) {
+        case GL_VERTEX_ATTRIB_ARRAY_ENABLED:
+            params[0] = attr->Enabled ? 1.0f : 0.0f;
+            return;
+        case GL_VERTEX_ATTRIB_ARRAY_SIZE:
+            params[0] = static_cast<GLfloat>(attr->Size);
+            return;
+        case GL_VERTEX_ATTRIB_ARRAY_STRIDE:
+            params[0] = static_cast<GLfloat>(attr->Stride);
+            return;
+        case GL_VERTEX_ATTRIB_ARRAY_TYPE:
+            params[0] = static_cast<GLfloat>(MG_Util::ConvertDataTypeToGLEnum(attr->Type));
+            return;
+        case GL_VERTEX_ATTRIB_ARRAY_NORMALIZED:
+            params[0] = attr->Normalized ? 1.0f : 0.0f;
+            return;
+        case GL_VERTEX_ATTRIB_ARRAY_BUFFER_BINDING:
+            params[0] = attr->Buffer ? static_cast<GLfloat>(attr->Buffer->GetExternalIndex()) : 0.0f;
+            return;
+        case GL_VERTEX_ATTRIB_ARRAY_INTEGER:
+            params[0] = attr->IsInteger ? 1.0f : 0.0f;
+            return;
+        case GL_VERTEX_ATTRIB_ARRAY_DIVISOR:
+            params[0] = static_cast<GLfloat>(attr->Divisor);
+            return;
+        default:
+            MG_State::pGLContext->RecordError(
+                ErrorCode::InvalidEnum,
+                MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", __func__,
+                                             "Unsupported float vertex attrib pname: " + std::to_string(pname)));
+            return;
+        }
+    }
+
+    void GetVertexAttribiv(GLuint index, GLenum pname, GLint* params) {
+        if (!params) {
+            MG_State::pGLContext->RecordError(
+                ErrorCode::InvalidValue,
+                MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", __func__, "params pointer cannot be null."));
+            return;
+        }
+        if (!ValidateVertexAttribPname(pname)) return;
+
+        if (IsCurrentVertexAttribQuery(pname)) {
+            const auto& current = MG_State::pGLContext->GetCurrentVertexAttribute(index);
+            params[0] = current.intValue[0];
+            params[1] = current.intValue[1];
+            params[2] = current.intValue[2];
+            params[3] = current.intValue[3];
+            return;
+        }
+
+        const MG_State::GLState::VertexAttribute* attr = nullptr;
+        if (!TryGetVertexAttribute(index, &attr)) return;
+
+        switch (pname) {
+        case GL_VERTEX_ATTRIB_ARRAY_ENABLED:
+            params[0] = attr->Enabled ? GL_TRUE : GL_FALSE;
+            return;
+        case GL_VERTEX_ATTRIB_ARRAY_SIZE:
+            params[0] = attr->Size;
+            return;
+        case GL_VERTEX_ATTRIB_ARRAY_STRIDE:
+            params[0] = attr->Stride;
+            return;
+        case GL_VERTEX_ATTRIB_ARRAY_TYPE:
+            params[0] = static_cast<GLint>(MG_Util::ConvertDataTypeToGLEnum(attr->Type));
+            return;
+        case GL_VERTEX_ATTRIB_ARRAY_NORMALIZED:
+            params[0] = attr->Normalized ? GL_TRUE : GL_FALSE;
+            return;
+        case GL_VERTEX_ATTRIB_ARRAY_BUFFER_BINDING:
+            params[0] = attr->Buffer ? static_cast<GLint>(attr->Buffer->GetExternalIndex()) : 0;
+            return;
+        case GL_VERTEX_ATTRIB_ARRAY_INTEGER:
+            params[0] = attr->IsInteger ? GL_TRUE : GL_FALSE;
+            return;
+        case GL_VERTEX_ATTRIB_ARRAY_DIVISOR:
+            params[0] = static_cast<GLint>(attr->Divisor);
+            return;
+        default:
+            MG_State::pGLContext->RecordError(
+                ErrorCode::InvalidEnum,
+                MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", __func__,
+                                             "Unsupported integer vertex attrib pname: " + std::to_string(pname)));
+            return;
+        }
+    }
+
+    void GetVertexAttribPointerv(GLuint index, GLenum pname, void** pointer) {
+        if (!pointer) {
+            MG_State::pGLContext->RecordError(
+                ErrorCode::InvalidValue,
+                MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", __func__, "pointer cannot be null."));
+            return;
+        }
+        if (!VertexArrayImpl::ValidateVertexAttributeIndex(index)) return;
+        if (pname != GL_VERTEX_ATTRIB_ARRAY_POINTER) {
+            MG_State::pGLContext->RecordError(
+                ErrorCode::InvalidEnum,
+                MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", __func__,
+                                             "pname must be GL_VERTEX_ATTRIB_ARRAY_POINTER."));
+            return;
+        }
+
+        auto& vao = MG_State::pGLContext->GetBoundVertexArray();
+        if (!vao) {
+            MG_State::pGLContext->RecordError(
+                ErrorCode::InvalidOperation,
+                MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", __func__, "No vertex array object is bound."));
+            return;
+        }
+
+        const auto& attr = vao->GetAttribute(index);
+        *pointer = reinterpret_cast<void*>(attr.Offset);
+    }
+
+    void GetVertexAttribIiv(GLuint index, GLenum pname, GLint* params) {
+        GetVertexAttribiv(index, pname, params);
+    }
+
+    void GetVertexAttribIuiv(GLuint index, GLenum pname, GLuint* params) {
+        if (!params) {
+            MG_State::pGLContext->RecordError(
+                ErrorCode::InvalidValue,
+                MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", __func__, "params pointer cannot be null."));
+            return;
+        }
+        if (!ValidateVertexAttribPname(pname)) return;
+
+        if (IsCurrentVertexAttribQuery(pname)) {
+            const auto& current = MG_State::pGLContext->GetCurrentVertexAttribute(index);
+            params[0] = current.uintValue[0];
+            params[1] = current.uintValue[1];
+            params[2] = current.uintValue[2];
+            params[3] = current.uintValue[3];
+            return;
+        }
+
+        GLint signedParams[4] = {};
+        GetVertexAttribiv(index, pname, signedParams);
+        params[0] = static_cast<GLuint>(signedParams[0]);
+    }
+
     void VertexAttribDivisor(GLuint index, GLuint divisor) {
         VertexAttribDivisor_State(index, divisor);
     }

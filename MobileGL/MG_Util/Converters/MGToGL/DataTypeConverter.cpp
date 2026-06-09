@@ -24,6 +24,8 @@ namespace MobileGL {
                 return GL_INT;
             case DataType::Uint32:
                 return GL_UNSIGNED_INT;
+            case DataType::Fixed32:
+                return GL_FIXED;
             case DataType::Float16:
                 return GL_HALF_FLOAT;
             case DataType::Float32:

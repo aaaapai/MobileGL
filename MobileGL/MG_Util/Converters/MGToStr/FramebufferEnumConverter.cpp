@@ -29,6 +29,16 @@ namespace MobileGL {
             }
 
             switch (attachment) {
+            case FramebufferAttachmentType::None:
+                return "None";
+            case FramebufferAttachmentType::FrontLeft:
+                return "FrontLeft";
+            case FramebufferAttachmentType::FrontRight:
+                return "FrontRight";
+            case FramebufferAttachmentType::BackLeft:
+                return "BackLeft";
+            case FramebufferAttachmentType::BackRight:
+                return "BackRight";
             case FramebufferAttachmentType::Depth:
                 return "Depth";
             case FramebufferAttachmentType::Stencil:

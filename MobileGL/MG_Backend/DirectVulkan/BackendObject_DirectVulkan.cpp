@@ -207,5 +207,53 @@ namespace MobileGL::MG_Backend::DirectVulkan {
 
     void BackendObject_DirectVulkan::UpdateDynamicBackendParameters() {
         m_dynamicParameters.UniformBufferOffsetAlignment = m_vulkanCaps.UniformBufferOffsetAlignment;
+        m_dynamicParameters.AliasedLineWidthRangeMin = m_vulkanCaps.AliasedLineWidthRangeMin;
+        m_dynamicParameters.AliasedLineWidthRangeMax = m_vulkanCaps.AliasedLineWidthRangeMax;
+        m_dynamicParameters.SmoothLineWidthRangeMin = m_vulkanCaps.SmoothLineWidthRangeMin;
+        m_dynamicParameters.SmoothLineWidthRangeMax = m_vulkanCaps.SmoothLineWidthRangeMax;
+        m_dynamicParameters.SmoothLineWidthGranularity = m_vulkanCaps.SmoothLineWidthGranularity;
+        m_dynamicParameters.PointSizeRangeMin = m_vulkanCaps.PointSizeRangeMin;
+        m_dynamicParameters.PointSizeRangeMax = m_vulkanCaps.PointSizeRangeMax;
+        m_dynamicParameters.PointSizeGranularity = m_vulkanCaps.PointSizeGranularity;
+        m_dynamicParameters.Max3DTextureSize = m_vulkanCaps.Max3DTextureSize;
+        m_dynamicParameters.MaxArrayTextureLayers = m_vulkanCaps.MaxArrayTextureLayers;
+        m_dynamicParameters.MaxCubeMapTextureSize = m_vulkanCaps.MaxCubeMapTextureSize;
+        m_dynamicParameters.MaxFramebufferWidth = m_vulkanCaps.MaxFramebufferWidth;
+        m_dynamicParameters.MaxFramebufferHeight = m_vulkanCaps.MaxFramebufferHeight;
+        m_dynamicParameters.MaxFramebufferLayers = m_vulkanCaps.MaxFramebufferLayers;
+        m_dynamicParameters.MaxRenderbufferSize = m_vulkanCaps.MaxRenderbufferSize;
+        m_dynamicParameters.MaxTextureSize = m_vulkanCaps.MaxTextureSize;
+        m_dynamicParameters.MaxColorTextureSamples = m_vulkanCaps.MaxColorTextureSamples;
+        m_dynamicParameters.MaxDepthTextureSamples = m_vulkanCaps.MaxDepthTextureSamples;
+        m_dynamicParameters.MaxFramebufferSamples = m_vulkanCaps.MaxFramebufferSamples;
+        m_dynamicParameters.MaxIntegerSamples = m_vulkanCaps.MaxIntegerSamples;
+        m_dynamicParameters.MaxSamples = m_vulkanCaps.MaxSamples;
+        m_dynamicParameters.MaxSampleMaskWords = m_vulkanCaps.MaxSampleMaskWords;
+        m_dynamicParameters.MaxTextureImageUnits = m_vulkanCaps.MaxTextureImageUnits;
+        m_dynamicParameters.MaxVertexTextureImageUnits = m_vulkanCaps.MaxVertexTextureImageUnits;
+        m_dynamicParameters.MaxComputeTextureImageUnits = m_vulkanCaps.MaxComputeTextureImageUnits;
+        m_dynamicParameters.MaxCombinedTextureImageUnits = m_vulkanCaps.MaxCombinedTextureImageUnits;
+        m_dynamicParameters.MaxVertexAttribs = m_vulkanCaps.MaxVertexAttribs;
+        m_dynamicParameters.MaxComputeShaderStorageBlocks = m_vulkanCaps.MaxComputeShaderStorageBlocks;
+        m_dynamicParameters.MaxCombinedShaderStorageBlocks = m_vulkanCaps.MaxCombinedShaderStorageBlocks;
+        m_dynamicParameters.MaxComputeUniformBlocks = m_vulkanCaps.MaxComputeUniformBlocks;
+        m_dynamicParameters.MaxComputeWorkGroupInvocations = m_vulkanCaps.MaxComputeWorkGroupInvocations;
+        m_dynamicParameters.MaxShaderStorageBufferBindings = m_vulkanCaps.MaxShaderStorageBufferBindings;
+        m_dynamicParameters.MaxTextureBufferSize = m_vulkanCaps.MaxTextureBufferSize;
+        m_dynamicParameters.MaxUniformBufferBindings = m_vulkanCaps.MaxUniformBufferBindings;
+        m_dynamicParameters.MaxUniformBlockSize = m_vulkanCaps.MaxUniformBlockSize;
+        m_dynamicParameters.MaxImageUnits = m_vulkanCaps.MaxImageUnits;
+        m_dynamicParameters.MaxCombinedImageUniforms = m_vulkanCaps.MaxCombinedImageUniforms;
+        m_dynamicParameters.MaxComputeImageUniforms = m_vulkanCaps.MaxComputeImageUniforms;
+        m_dynamicParameters.MaxDrawBuffers = m_vulkanCaps.MaxDrawBuffers;
+        m_dynamicParameters.MaxColorAttachments = m_vulkanCaps.MaxColorAttachments;
+        m_dynamicParameters.MaxClipDistances = m_vulkanCaps.MaxClipDistances;
+        m_dynamicParameters.MaxViewports = m_vulkanCaps.MaxViewports;
+        m_dynamicParameters.MaxViewportWidth = m_vulkanCaps.MaxViewportWidth;
+        m_dynamicParameters.MaxViewportHeight = m_vulkanCaps.MaxViewportHeight;
+        m_dynamicParameters.ViewportBoundsRangeMin = m_vulkanCaps.ViewportBoundsRangeMin;
+        m_dynamicParameters.ViewportBoundsRangeMax = m_vulkanCaps.ViewportBoundsRangeMax;
+        m_dynamicParameters.ViewportSubpixelBits = m_vulkanCaps.ViewportSubpixelBits;
+        m_dynamicParameters.SupportsWideLines = m_vulkanCaps.SupportsWideLines;
     }
 } // namespace MobileGL::MG_Backend::DirectVulkan

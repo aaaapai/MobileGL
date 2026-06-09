@@ -200,6 +200,10 @@ namespace MobileGL {
                 size_t commentStartPos = source.find("/*");
                 while (commentStartPos != String::npos) {
                     size_t commentEndPos = source.find("*/", commentStartPos);
+                    if (commentEndPos == String::npos) {
+                        source.erase(commentStartPos);
+                        break;
+                    }
                     // + length of "*/"
                     source = source.replace(commentStartPos, commentEndPos - commentStartPos + 2, "");
                     commentStartPos = source.find("/*", commentStartPos);

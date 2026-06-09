@@ -47,6 +47,45 @@ namespace MobileGL {
             }
         }
 
+        VkLogicOp ConvertLogicOperationToVkEnum(LogicOperation v) {
+            switch (v) {
+            case LogicOperation::Clear:
+                return VK_LOGIC_OP_CLEAR;
+            case LogicOperation::And:
+                return VK_LOGIC_OP_AND;
+            case LogicOperation::AndReverse:
+                return VK_LOGIC_OP_AND_REVERSE;
+            case LogicOperation::Copy:
+                return VK_LOGIC_OP_COPY;
+            case LogicOperation::AndInverted:
+                return VK_LOGIC_OP_AND_INVERTED;
+            case LogicOperation::Noop:
+                return VK_LOGIC_OP_NO_OP;
+            case LogicOperation::Xor:
+                return VK_LOGIC_OP_XOR;
+            case LogicOperation::Or:
+                return VK_LOGIC_OP_OR;
+            case LogicOperation::Nor:
+                return VK_LOGIC_OP_NOR;
+            case LogicOperation::Equiv:
+                return VK_LOGIC_OP_EQUIVALENT;
+            case LogicOperation::Invert:
+                return VK_LOGIC_OP_INVERT;
+            case LogicOperation::OrReverse:
+                return VK_LOGIC_OP_OR_REVERSE;
+            case LogicOperation::CopyInverted:
+                return VK_LOGIC_OP_COPY_INVERTED;
+            case LogicOperation::OrInverted:
+                return VK_LOGIC_OP_OR_INVERTED;
+            case LogicOperation::Nand:
+                return VK_LOGIC_OP_NAND;
+            case LogicOperation::Set:
+                return VK_LOGIC_OP_SET;
+            default:
+                return VK_LOGIC_OP_COPY;
+            }
+        }
+
         VkCompareOp ConvertDepthTestFuncToVkEnum(DepthTestFunc v) {
             switch (v) {
             case DepthTestFunc::Never:
@@ -66,6 +105,29 @@ namespace MobileGL {
             case DepthTestFunc::Always:
             default:
                 return VK_COMPARE_OP_ALWAYS;
+            }
+        }
+
+        VkStencilOp ConvertStencilOperationToVkEnum(StencilOperation v) {
+            switch (v) {
+            case StencilOperation::Keep:
+                return VK_STENCIL_OP_KEEP;
+            case StencilOperation::Zero:
+                return VK_STENCIL_OP_ZERO;
+            case StencilOperation::Replace:
+                return VK_STENCIL_OP_REPLACE;
+            case StencilOperation::IncrementClamp:
+                return VK_STENCIL_OP_INCREMENT_AND_CLAMP;
+            case StencilOperation::DecrementClamp:
+                return VK_STENCIL_OP_DECREMENT_AND_CLAMP;
+            case StencilOperation::Invert:
+                return VK_STENCIL_OP_INVERT;
+            case StencilOperation::IncrementWrap:
+                return VK_STENCIL_OP_INCREMENT_AND_WRAP;
+            case StencilOperation::DecrementWrap:
+                return VK_STENCIL_OP_DECREMENT_AND_WRAP;
+            default:
+                return VK_STENCIL_OP_KEEP;
             }
         }
 

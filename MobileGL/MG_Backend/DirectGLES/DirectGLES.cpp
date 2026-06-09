@@ -415,7 +415,16 @@ namespace MobileGL::MG_Backend::DirectGLES {
         }                                                                                                              \
     }
             SYNC_CAPABILITY(DepthTest, GL_DEPTH_TEST);
+            SYNC_CAPABILITY(ColorLogicOp, GL_COLOR_LOGIC_OP);
+            SYNC_CAPABILITY(Dither, GL_DITHER);
+            SYNC_CAPABILITY(Multisample, GL_MULTISAMPLE);
+            SYNC_CAPABILITY(SampleAlphaToCoverage, GL_SAMPLE_ALPHA_TO_COVERAGE);
+            SYNC_CAPABILITY(SampleCoverage, GL_SAMPLE_COVERAGE);
+            SYNC_CAPABILITY(SampleMask, GL_SAMPLE_MASK);
+            SYNC_CAPABILITY(PolygonOffsetFill, GL_POLYGON_OFFSET_FILL);
+            SYNC_CAPABILITY(RasterizerDiscard, GL_RASTERIZER_DISCARD);
             SYNC_CAPABILITY(ScissorTest, GL_SCISSOR_TEST);
+            SYNC_CAPABILITY(StencilTest, GL_STENCIL_TEST);
             SYNC_CAPABILITY(CullFace, GL_CULL_FACE);
 
 #undef SYNC_CAPABILITY
@@ -528,6 +537,34 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 if (parameters.DepthMask != g_syncedRenderStateParameters.DepthMask) {
                     g_GLESFuncs.glDepthMask(parameters.DepthMask ? GL_TRUE : GL_FALSE);
                 }
+                if (parameters.DepthRange != g_syncedRenderStateParameters.DepthRange) {
+                    g_GLESFuncs.glDepthRangef(parameters.DepthRange.x(), parameters.DepthRange.y());
+                }
+            }
+
+            { // Stencil state
+                for (SizeT faceIndex = 0; faceIndex < parameters.StencilStates.size(); ++faceIndex) {
+                    const StencilFaceState& current = parameters.StencilStates[faceIndex];
+                    const StencilFaceState& synced = g_syncedRenderStateParameters.StencilStates[faceIndex];
+                    const GLenum glFace = faceIndex == 0 ? GL_FRONT : GL_BACK;
+
+                    if (current.Func != synced.Func || current.Ref != synced.Ref ||
+                        current.ValueMask != synced.ValueMask) {
+                        g_GLESFuncs.glStencilFuncSeparate(
+                            glFace, MG_Util::ConvertDepthTestFuncToGLEnum(current.Func), current.Ref,
+                            current.ValueMask);
+                    }
+                    if (current.WriteMask != synced.WriteMask) {
+                        g_GLESFuncs.glStencilMaskSeparate(glFace, current.WriteMask);
+                    }
+                    if (current.FailOp != synced.FailOp || current.PassDepthFailOp != synced.PassDepthFailOp ||
+                        current.PassDepthPassOp != synced.PassDepthPassOp) {
+                        g_GLESFuncs.glStencilOpSeparate(
+                            glFace, MG_Util::ConvertStencilOperationToGLEnum(current.FailOp),
+                            MG_Util::ConvertStencilOperationToGLEnum(current.PassDepthFailOp),
+                            MG_Util::ConvertStencilOperationToGLEnum(current.PassDepthPassOp));
+                    }
+                }
             }
 
             { // Color mask
@@ -546,6 +583,10 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 if (parameters.ClearDepth != g_syncedRenderStateParameters.ClearDepth) {
                     g_GLESFuncs.glClearDepthf(parameters.ClearDepth);
                 }
+                if (parameters.BlendColor != g_syncedRenderStateParameters.BlendColor) {
+                    const FloatVec4& blendColor = parameters.BlendColor;
+                    g_GLESFuncs.glBlendColor(blendColor.x(), blendColor.y(), blendColor.z(), blendColor.w());
+                }
             }
 
             { // Cull face mode
@@ -563,6 +604,45 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 if (parameters.ScissorBox != g_syncedRenderStateParameters.ScissorBox) {
                     const IntVec4& scissorBox = parameters.ScissorBox;
                     g_GLESFuncs.glScissor(scissorBox.x(), scissorBox.y(), scissorBox.z(), scissorBox.w());
+                }
+            }
+
+            { // Logic op
+                if (parameters.LogicOp != g_syncedRenderStateParameters.LogicOp) {
+                    g_GLESFuncs.glLogicOp(MG_Util::ConvertLogicOperationToGLEnum(parameters.LogicOp));
+                }
+            }
+
+            { // Polygon offset
+                if (parameters.PolygonOffsetFactor != g_syncedRenderStateParameters.PolygonOffsetFactor ||
+                    parameters.PolygonOffsetUnits != g_syncedRenderStateParameters.PolygonOffsetUnits) {
+                    g_GLESFuncs.glPolygonOffset(parameters.PolygonOffsetFactor, parameters.PolygonOffsetUnits);
+                }
+            }
+
+            { // Line width
+                if (parameters.LineWidth != g_syncedRenderStateParameters.LineWidth) {
+                    g_GLESFuncs.glLineWidth(parameters.LineWidth);
+                }
+            }
+
+            { // Point size
+                if (parameters.PointSize != g_syncedRenderStateParameters.PointSize) {
+                    g_GLESFuncs.glPointSize(parameters.PointSize);
+                }
+            }
+
+            { // Sample coverage
+                if (parameters.SampleCoverageValue != g_syncedRenderStateParameters.SampleCoverageValue ||
+                    parameters.SampleCoverageInvert != g_syncedRenderStateParameters.SampleCoverageInvert) {
+                    g_GLESFuncs.glSampleCoverage(parameters.SampleCoverageValue,
+                                                ToGLBoolean(parameters.SampleCoverageInvert));
+                }
+            }
+
+            { // Sample mask
+                if (g_GLESFuncs.glSampleMaski && parameters.SampleMaskValue != g_syncedRenderStateParameters.SampleMaskValue) {
+                    g_GLESFuncs.glSampleMaski(0, parameters.SampleMaskValue);
                 }
             }
 

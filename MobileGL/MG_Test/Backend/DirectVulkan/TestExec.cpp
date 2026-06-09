@@ -28,6 +28,8 @@
 #include <EGL/egl.h>
 #ifdef _WIN32
 #define GLFW_EXPOSE_NATIVE_WIN32
+#elif defined(__linux__)
+#define GLFW_EXPOSE_NATIVE_X11
 #elif defined(__APPLE__)
 #define GLFW_EXPOSE_NATIVE_COCOA
 #endif
@@ -107,9 +109,11 @@ int main() {
 
     glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
     GLFWwindow* window = glfwCreateWindow(800, 600, "MobileGL ContextCreation", nullptr, nullptr);
-    EGLNativeWindowType nativewindow = nullptr;
+    EGLNativeWindowType nativewindow = 0;
 #ifdef _WIN32
     nativewindow = glfwGetWin32Window(window);
+#elif defined(__linux__)
+    nativewindow = static_cast<EGLNativeWindowType>(glfwGetX11Window(window));
 #elif defined(__APPLE__)
     void* cocoaWindow = glfwGetCocoaWindow(window);
     MOBILEGL_ASSERT(cocoaWindow, "glfwGetCocoaWindow returned null");
@@ -128,6 +132,7 @@ int main() {
     msgSendVoidObj(contentView, sel_registerName("setLayer:"), metalLayer);
     nativewindow = reinterpret_cast<EGLNativeWindowType>(metalLayer);
 #endif
+    MOBILEGL_ASSERT(nativewindow, "Failed to acquire native window handle for EGL window surface creation");
     EGLSurface surface = eglCreateWindowSurface(display, config, nativewindow, nullptr);
     eglMakeCurrent(display, surface, surface, context);
 

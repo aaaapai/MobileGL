@@ -70,7 +70,7 @@ namespace MobileGL {
 
             class SpvcSession {
             public:
-                SpvcSession() {}
+                SpvcSession() = default;
 
                 explicit SpvcSession(const Vector<unsigned int>& spirv,
                                      Flags<SessionUsageBit> usage);
@@ -97,7 +97,7 @@ namespace MobileGL {
                 spvc_result ParseMetaData();
 
             private:
-                Flags<SessionUsageBit> usage;
+                Flags<SessionUsageBit> usage{};
 
                 // SPIRV-Cross state (used when Transpile flag is set)
                 spvc_context context = nullptr;

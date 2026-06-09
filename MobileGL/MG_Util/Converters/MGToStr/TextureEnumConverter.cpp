@@ -110,6 +110,8 @@ namespace MobileGL {
                 return "RGB10";
             case TextureInternalFormat::RGB12:
                 return "RGB12";
+            case TextureInternalFormat::RGB16:
+                return "RGB16";
             case TextureInternalFormat::RGB16Snorm:
                 return "RGB16Snorm";
             case TextureInternalFormat::RGBA2:

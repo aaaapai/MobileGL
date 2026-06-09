@@ -80,6 +80,93 @@ namespace MobileGL::MG_Impl::GLImpl {
         }
     }
 
+    void GetBufferPointerv_State(GLenum target, GLenum pname, void** params) {
+        if (!params) {
+            MG_State::pGLContext->RecordError(
+                ErrorCode::InvalidValue, MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", "GetBufferPointerv_State",
+                                                                      "Params pointer cannot be null."));
+            return;
+        }
+
+        BufferTarget bufferTarget = MG_Util::ConvertGLEnumToBufferTarget(target);
+        if (!BufferImpl::ValidateBufferTarget(bufferTarget)) return;
+
+        auto& bindingSlot = GetBufferBindingSlot(bufferTarget);
+        auto& bufferObject = bindingSlot.GetBoundObject();
+        if (!bufferObject) {
+            MG_State::pGLContext->RecordError(
+                ErrorCode::InvalidOperation,
+                MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", "GetBufferPointerv_State",
+                                             "Buffer target is bound to no buffer object."));
+            return;
+        }
+
+        if (pname != GL_BUFFER_MAP_POINTER) {
+            MG_State::pGLContext->RecordError(
+                ErrorCode::InvalidEnum, MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", "GetBufferPointerv_State",
+                                                                     std::format("Invalid pname enum: 0x{:X}", pname)));
+            return;
+        }
+
+        *params = bufferObject->GetMappedPointer();
+    }
+
+    void GetBufferParameteri64v_State(GLenum target, GLenum pname, GLint64* params) {
+        if (!params) {
+            MG_State::pGLContext->RecordError(
+                ErrorCode::InvalidValue, MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", "GetBufferParameteri64v_State",
+                                                                      "Params pointer cannot be null."));
+            return;
+        }
+
+        BufferTarget bufferTarget = MG_Util::ConvertGLEnumToBufferTarget(target);
+        if (!BufferImpl::ValidateBufferTarget(bufferTarget)) return;
+
+        auto& bindingSlot = GetBufferBindingSlot(bufferTarget);
+        auto& bufferObject = bindingSlot.GetBoundObject();
+        if (!bufferObject) {
+            MG_State::pGLContext->RecordError(
+                ErrorCode::InvalidOperation,
+                MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", "GetBufferParameteri64v_State",
+                                             "Buffer target is bound to no buffer object."));
+            return;
+        }
+
+        switch (pname) {
+        case GL_BUFFER_SIZE:
+            *params = static_cast<GLint64>(bufferObject->GetSize());
+            break;
+        case GL_BUFFER_USAGE:
+            *params = static_cast<GLint64>(MG_Util::ConvertBufferUsageToGLEnum(bufferObject->GetUsage()));
+            break;
+        case GL_BUFFER_ACCESS:
+            if (bufferObject->IsMapped()) {
+                auto access = bufferObject->GetMappingAccess();
+                if (access & BufferMappingAccessBit::Read && access & BufferMappingAccessBit::Write) {
+                    *params = GL_READ_WRITE;
+                } else if (access & BufferMappingAccessBit::Read) {
+                    *params = GL_READ_ONLY;
+                } else if (access & BufferMappingAccessBit::Write) {
+                    *params = GL_WRITE_ONLY;
+                } else {
+                    *params = 0;
+                }
+            } else {
+                *params = 0;
+            }
+            break;
+        case GL_BUFFER_MAPPED:
+            *params = bufferObject->IsMapped() ? GL_TRUE : GL_FALSE;
+            break;
+        default:
+            MG_State::pGLContext->RecordError(
+                ErrorCode::InvalidEnum,
+                MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", "GetBufferParameteri64v_State",
+                                             std::format("Invalid pname enum: 0x{:X}", pname)));
+            break;
+        }
+    }
+
     void DeleteBuffers_State(GLsizei n, const GLuint* buffers) {
         if (n < 0) {
             MG_State::pGLContext->RecordError(
@@ -524,16 +611,23 @@ namespace MobileGL::MG_Impl::GLImpl {
         BufferTarget bufferTarget = MG_Util::ConvertGLEnumToBufferTarget(target);
         if (!BufferImpl::ValidateBufferBindingPointTarget(bufferTarget)) return;
 
-        Bool doesBufferObjectCreated = MG_State::pGLContext->ValidateBufferObject(buffer);
-        if (!doesBufferObjectCreated) {
-            MG_State::pGLContext->CreateBufferObject(buffer);
+        SharedPtr<MG_State::GLState::BufferObject> bufferObject;
+        if (buffer != 0) {
+            Bool doesBufferObjectCreated = MG_State::pGLContext->ValidateBufferObject(buffer);
+            if (!doesBufferObjectCreated) {
+                MG_State::pGLContext->CreateBufferObject(buffer);
+            }
+            bufferObject = MG_State::pGLContext->GetBufferObject(buffer);
         }
-        auto& bufferObject = MG_State::pGLContext->GetBufferObject(buffer);
 
         auto& point = MG_State::pGLContext->GetBufferBindingPoint(bufferTarget, pointIndex);
         point.Bind(bufferObject);
-        point.SetRange(Range1D(0, bufferObject->GetSize()));
-        MGLOG_D("%s: set range (0, %d)", __func__, bufferObject->GetSize());
+        if (bufferObject) {
+            point.SetRange(Range1D(0, bufferObject->GetSize()));
+            MGLOG_D("%s: set range (0, %d)", __func__, bufferObject->GetSize());
+        } else {
+            point.ClearRange();
+        }
     }
 
     void BindBufferRange_State(GLenum target, GLuint index, GLuint buffer, GLintptr offset, GLsizeiptr size) {
@@ -542,20 +636,35 @@ namespace MobileGL::MG_Impl::GLImpl {
         BufferTarget bufferTarget = MG_Util::ConvertGLEnumToBufferTarget(target);
         if (!BufferImpl::ValidateBufferBindingPointTarget(bufferTarget)) return;
 
-        Bool doesBufferObjectCreated = MG_State::pGLContext->ValidateBufferObject(buffer);
-        if (!doesBufferObjectCreated) {
-            MG_State::pGLContext->CreateBufferObject(buffer);
+        SharedPtr<MG_State::GLState::BufferObject> bufferObject;
+        if (buffer != 0) {
+            Bool doesBufferObjectCreated = MG_State::pGLContext->ValidateBufferObject(buffer);
+            if (!doesBufferObjectCreated) {
+                MG_State::pGLContext->CreateBufferObject(buffer);
+            }
+            bufferObject = MG_State::pGLContext->GetBufferObject(buffer);
         }
-        auto& bufferObject = MG_State::pGLContext->GetBufferObject(buffer);
 
         auto& point = MG_State::pGLContext->GetBufferBindingPoint(bufferTarget, index);
         point.Bind(bufferObject);
-        point.SetRange(Range1D(offset, offset + size));
+        if (bufferObject) {
+            point.SetRange(Range1D(offset, offset + size));
+        } else {
+            point.ClearRange();
+        }
     }
 
     /* @INSERTION_POINT:FUNCTION_IMPLEMENTATION@ */
     void GetBufferParameteriv(GLenum target, GLenum pname, GLint* params) {
         GetBufferParameteriv_State(target, pname, params);
+    }
+
+    void GetBufferPointerv(GLenum target, GLenum pname, void** params) {
+        GetBufferPointerv_State(target, pname, params);
+    }
+
+    void GetBufferParameteri64v(GLenum target, GLenum pname, GLint64* params) {
+        GetBufferParameteri64v_State(target, pname, params);
     }
 
     GLboolean IsBuffer(GLuint buffer) {

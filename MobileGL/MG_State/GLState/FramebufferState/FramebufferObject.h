@@ -73,6 +73,7 @@ namespace MobileGL {
         class FramebufferAttachmentObject {
         public:
             explicit FramebufferAttachmentObject(const SharedPtr<MG_State::GLState::ITextureObject>& texture,
+                                                 TextureUploadTarget textureUploadTarget,
                                                  Int level = 0);
             explicit FramebufferAttachmentObject(const SharedPtr<RenderbufferObject>& renderbuffer);
             explicit FramebufferAttachmentObject(Bool IsValid = true);
@@ -83,6 +84,7 @@ namespace MobileGL {
             const SharedPtr<MG_State::GLState::ITextureObject>& GetTexture() const;
             const SharedPtr<RenderbufferObject>& GetRenderbuffer() const;
             Int GetTextureLevel() const;
+            TextureUploadTarget GetTextureUploadTarget() const;
             Bool IsComplete() const;
             IntVec3 GetSize() const;
             Bool IsValid() const;
@@ -90,6 +92,7 @@ namespace MobileGL {
         private:
             SharedPtr<MG_State::GLState::ITextureObject> m_texture = nullptr;
             SharedPtr<RenderbufferObject> m_renderbuffer = nullptr;
+            TextureUploadTarget m_textureUploadTarget = TextureUploadTarget::Unknown;
             Int m_textureLevel = 0;
             Bool m_isValid = true;
         };
@@ -108,7 +111,8 @@ namespace MobileGL {
 
             FramebufferObject(Uint externalIndex);
 
-            void AttachTexture(FramebufferAttachmentType type, const SharedPtr<ITextureObject>& texture, int level = 0);
+            void AttachTexture(FramebufferAttachmentType type, const SharedPtr<ITextureObject>& texture,
+                               TextureUploadTarget textureUploadTarget = TextureUploadTarget::Unknown, int level = 0);
             void AttachRenderbuffer(FramebufferAttachmentType type, const SharedPtr<RenderbufferObject>& renderbuffer);
             void Detach(FramebufferAttachmentType type);
             const FramebufferAttachmentObject& GetAttachment(FramebufferAttachmentType type) const;
@@ -117,7 +121,7 @@ namespace MobileGL {
             // aka. `buffer` as in glDrawBuffers/glReadBuffers
             void SetDrawBuffer(Uint index, FramebufferAttachmentType buffer);
             const FramebufferAttachmentArray& GetDrawBuffers() const;
-            void SetReadBuffer(FramebufferAttachmentType buf) { m_readBuffer = buf; }
+            void SetReadBuffer(FramebufferAttachmentType buf);
             FramebufferAttachmentType GetReadBuffer() const { return m_readBuffer; }
 
             FramebufferAttachmentVersionArray GetAllFramebufferAttachmentVersions() const {
@@ -136,7 +140,7 @@ namespace MobileGL {
             FramebufferAttachmentVersionArray m_attachmentVersions;
 
             FramebufferAttachmentArray m_drawBuffers; // Probably no versioning needed for this, just check equality
-            FramebufferAttachmentType m_readBuffer = FramebufferAttachmentType::Color0; // ditto
+            FramebufferAttachmentType m_readBuffer = FramebufferAttachmentType::None;
 
             // This version will bump when draw/read buffer changes (by `glDrawBuffer(s)`/`glReadBuffer`)
             Uint16 m_objectVersion = 0;

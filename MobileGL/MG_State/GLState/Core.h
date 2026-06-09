@@ -102,6 +102,13 @@ namespace MobileGL {
                 const RenderStateParameters& GetRenderStateParameters() const;
                 void SetViewport(IntVec4 viewport); // x, y, width, height
                 const IntVec4& GetViewport() const; // x, y, width, height
+                void SetLineWidth(Float width);
+                Float GetLineWidth() const;
+                void SetPointSize(Float size);
+                Float GetPointSize() const;
+                void SetPolygonOffset(Float factor, Float units);
+                Float GetPolygonOffsetFactor() const;
+                Float GetPolygonOffsetUnits() const;
                 void SetCapability(CapabilityInput cap, Bool enabled);
                 Bool IsCapabilityEnabled(CapabilityInput cap) const;
                 void SetCapabilityIndexed(CapabilityInput cap, Uint index, Bool enabled);
@@ -117,10 +124,17 @@ namespace MobileGL {
                 void GetBlendEquation(BlendEquation& color, BlendEquation& alpha) const;
                 void SetBlendEquationIndexed(Uint index, BlendEquation color, BlendEquation alpha);
                 void GetBlendEquationIndexed(Uint index, BlendEquation& color, BlendEquation& alpha) const;
+                void SetLogicOp(LogicOperation logicOp);
+                LogicOperation GetLogicOp() const;
                 void SetDepthFunc(DepthTestFunc func);
                 DepthTestFunc GetDepthFunc() const;
                 void SetDepthMask(Bool flag);
                 Bool GetDepthMask() const;
+                void SetStencilFunc(StencilFace face, DepthTestFunc func, Int ref, Uint32 mask);
+                void SetStencilMask(StencilFace face, Uint32 mask);
+                void SetStencilOp(StencilFace face, StencilOperation fail, StencilOperation depthFail,
+                                  StencilOperation depthPass);
+                const StencilFaceState& GetStencilState(StencilFace face) const;
                 void SetColorMask(BoolVec4 mask);
                 BoolVec4 GetColorMask() const;
                 void SetClearColor(FloatVec4 color);
@@ -129,6 +143,15 @@ namespace MobileGL {
                 Float GetClearDepth() const;
                 void SetClearStencil(Int stencil);
                 Uint32 GetClearStencil() const;
+                void SetBlendColor(FloatVec4 color);
+                const FloatVec4& GetBlendColor() const;
+                void SetDepthRange(FloatVec2 range);
+                const FloatVec2& GetDepthRange() const;
+                void SetSampleCoverage(Float value, Bool invert);
+                Float GetSampleCoverageValue() const;
+                Bool GetSampleCoverageInvert() const;
+                void SetSampleMaskValue(Uint32 mask);
+                Uint32 GetSampleMaskValue() const;
                 void SetPixelStoreParam(PixelStoreParam param, Int value);
                 Int GetPixelStoreParam(PixelStoreParam param) const;
                 PixelStoreParameters GetPixelStoreParameters(Bool isUnpack) const;

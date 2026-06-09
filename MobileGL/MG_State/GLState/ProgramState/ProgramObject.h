@@ -40,9 +40,38 @@ namespace MobileGL::MG_State::GLState {
             return (Int)it->second;
         }
 
+        Int GetActiveUniformIndex(const String& name) const {
+            const Int uniformIndex = m_program->getUniformIndex(name.c_str());
+            if (uniformIndex < 0 || uniformIndex >= m_activeUniformCount) return -1;
+            return m_program->getUniform(uniformIndex).name == name ? uniformIndex : -1;
+        }
+
+        Bool IsValidUniformLocation(Int location) const {
+            if (location < 0 || location > static_cast<Int>(m_maxUniformLocation)) return false;
+            if (static_cast<SizeT>(location) >= m_uniformIndexInTProgram.size()) return false;
+            const Int uniformIndexInProgram = m_uniformIndexInTProgram[location];
+            return uniformIndexInProgram != glslang::TQualifier::layoutLocationEnd &&
+                   uniformIndexInProgram >= 0 && uniformIndexInProgram < m_activeUniformCount;
+        }
+
         GLenum GetUniformType(Uint location) const {
             auto& uniform = m_program->getUniform(m_uniformIndexInTProgram[location]);
             return uniform.glDefineType;
+        }
+
+        GLenum GetActiveUniformType(Uint index) const {
+            auto& uniform = m_program->getUniform(static_cast<Int>(index));
+            return uniform.glDefineType;
+        }
+
+        GLint GetActiveUniformArraySize(Uint index) const {
+            auto& uniform = m_program->getUniform(static_cast<Int>(index));
+            return uniform.size;
+        }
+
+        Int GetActiveUniformBlockIndex(Uint index) const {
+            auto& uniform = m_program->getUniform(static_cast<Int>(index));
+            return uniform.index;
         }
 
         const glslang::TType* GetUniformTType(Uint location) const {
@@ -54,6 +83,11 @@ namespace MobileGL::MG_State::GLState {
 
         const String& GetUniformName(Uint location) const {
             auto& uniform = m_program->getUniform(m_uniformIndexInTProgram[location]);
+            return uniform.name;
+        }
+
+        const String& GetActiveUniformName(Uint index) const {
+            auto& uniform = m_program->getUniform(static_cast<Int>(index));
             return uniform.name;
         }
         Uint GetUniformOffset(Uint location) const { return m_uniformOffsets[location]; }
@@ -107,6 +141,9 @@ namespace MobileGL::MG_State::GLState {
         }
         GLenum GetAttribType(Uint index) const { return m_attribTypes[index]; }
         const String& GetAttribName(Uint index) const { return m_attribs[index]; }
+        GLenum GetActiveAttribType(Uint index) const { return m_program->getPipeInput(static_cast<Int>(index)).glDefineType; }
+        GLint GetActiveAttribArraySize(Uint index) const { return m_program->getPipeInput(static_cast<Int>(index)).size; }
+        const String& GetActiveAttribName(Uint index) const { return m_program->getPipeInput(static_cast<Int>(index)).name; }
         void* MapUBO() { return m_globalUboScratch.data(); }
         const void* GetUBOData() const { return m_globalUboScratch.data(); }
         Uint GetUBOSize() const { return static_cast<Uint>(m_globalUboScratch.size()); }
@@ -126,6 +163,7 @@ namespace MobileGL::MG_State::GLState {
         Int GetActiveAtomicCounterCount() const { return m_program->getNumAtomicCounters(); }
         Int GetActiveAttributesCount() const { return m_program->getNumPipeInputs(); }
         Int GetActiveUniformBlocksCount() const { return m_program->getNumUniformBlocks(); }
+        GLuint GetComputeLocalSize(Uint dim) const { return m_program->getLocalSize(static_cast<Int>(dim)); }
         Int GetActiveAttributesMaxLength() const { return m_attribInNameMaxLength; }
         Int GetActiveUniformBlocksMaxNameLength() const { return m_uniformBlockNameMaxLength; }
         Uint GetUniformBlockIndex(const char* name) const {
@@ -145,6 +183,16 @@ namespace MobileGL::MG_State::GLState {
         const String& GetUniformBlockName(Uint index) const {
             auto& ubo = m_program->getUniformBlock((Int)index);
             return ubo.name;
+        }
+
+        Int GetUniformBlockActiveUniformCount(Uint index) const {
+            return m_program->getUniformBlock((Int)index).numMembers;
+        }
+
+        Bool IsUniformBlockReferencedByStage(Uint index, EShLanguage stage) const {
+            const auto& ubo = m_program->getUniformBlock((Int)index);
+            const auto stageMask = static_cast<EShLanguageMask>(1 << stage);
+            return (ubo.stages & stageMask) != 0;
         }
 
         // Set by glUniformBlockBinding
@@ -171,6 +219,7 @@ namespace MobileGL::MG_State::GLState {
         Uint GetExternalIndex() const { return m_externalIndex; }
 
     private:
+        void ResetLinkArtifacts();
         void DoReflection();
         void GenerateBinary();
         void WaitUntilGenerationCompleted() const;

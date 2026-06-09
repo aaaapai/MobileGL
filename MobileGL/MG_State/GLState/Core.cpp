@@ -285,6 +285,34 @@ namespace MobileGL::MG_State {
             return m_renderState.GetViewport();
         }
 
+        void GLContext::SetLineWidth(Float width) {
+            m_renderState.SetLineWidth(width);
+        }
+
+        Float GLContext::GetLineWidth() const {
+            return m_renderState.GetLineWidth();
+        }
+
+        void GLContext::SetPointSize(Float size) {
+            m_renderState.SetPointSize(size);
+        }
+
+        Float GLContext::GetPointSize() const {
+            return m_renderState.GetPointSize();
+        }
+
+        void GLContext::SetPolygonOffset(Float factor, Float units) {
+            m_renderState.SetPolygonOffset(factor, units);
+        }
+
+        Float GLContext::GetPolygonOffsetFactor() const {
+            return m_renderState.GetPolygonOffsetFactor();
+        }
+
+        Float GLContext::GetPolygonOffsetUnits() const {
+            return m_renderState.GetPolygonOffsetUnits();
+        }
+
         void GLContext::SetCapability(CapabilityInput cap, Bool enabled) {
             m_renderState.SetCapability(cap, enabled);
         }
@@ -337,6 +365,14 @@ namespace MobileGL::MG_State {
             m_renderState.GetBlendEquationIndexed(index, color, alpha);
         }
 
+        void GLContext::SetLogicOp(LogicOperation logicOp) {
+            m_renderState.SetLogicOp(logicOp);
+        }
+
+        LogicOperation GLContext::GetLogicOp() const {
+            return m_renderState.GetLogicOp();
+        }
+
         void GLContext::SetDepthFunc(DepthTestFunc func) {
             m_renderState.SetDepthFunc(func);
         }
@@ -351,6 +387,23 @@ namespace MobileGL::MG_State {
 
         Bool GLContext::GetDepthMask() const {
             return m_renderState.GetDepthMask();
+        }
+
+        void GLContext::SetStencilFunc(StencilFace face, DepthTestFunc func, Int ref, Uint32 mask) {
+            m_renderState.SetStencilFunc(face, func, ref, mask);
+        }
+
+        void GLContext::SetStencilMask(StencilFace face, Uint32 mask) {
+            m_renderState.SetStencilMask(face, mask);
+        }
+
+        void GLContext::SetStencilOp(StencilFace face, StencilOperation fail, StencilOperation depthFail,
+                                     StencilOperation depthPass) {
+            m_renderState.SetStencilOp(face, fail, depthFail, depthPass);
+        }
+
+        const StencilFaceState& GLContext::GetStencilState(StencilFace face) const {
+            return m_renderState.GetStencilState(face);
         }
 
         void GLContext::SetColorMask(BoolVec4 mask) {
@@ -381,9 +434,45 @@ namespace MobileGL::MG_State {
             m_renderState.SetClearStencil(stencil);
         }
 
-            Uint32 GLContext::GetClearStencil() const {
-                return m_renderState.GetClearStencil();
-            }
+        Uint32 GLContext::GetClearStencil() const {
+            return m_renderState.GetClearStencil();
+        }
+
+        void GLContext::SetBlendColor(FloatVec4 color) {
+            m_renderState.SetBlendColor(color);
+        }
+
+        const FloatVec4& GLContext::GetBlendColor() const {
+            return m_renderState.GetBlendColor();
+        }
+
+        void GLContext::SetDepthRange(FloatVec2 range) {
+            m_renderState.SetDepthRange(range);
+        }
+
+        const FloatVec2& GLContext::GetDepthRange() const {
+            return m_renderState.GetDepthRange();
+        }
+
+        void GLContext::SetSampleCoverage(Float value, Bool invert) {
+            m_renderState.SetSampleCoverage(value, invert);
+        }
+
+        Float GLContext::GetSampleCoverageValue() const {
+            return m_renderState.GetSampleCoverageValue();
+        }
+
+        Bool GLContext::GetSampleCoverageInvert() const {
+            return m_renderState.GetSampleCoverageInvert();
+        }
+
+        void GLContext::SetSampleMaskValue(Uint32 mask) {
+            m_renderState.SetSampleMaskValue(mask);
+        }
+
+        Uint32 GLContext::GetSampleMaskValue() const {
+            return m_renderState.GetSampleMaskValue();
+        }
 
         void GLContext::SetPixelStoreParam(PixelStoreParam param, Int value) {
             m_renderState.SetPixelStoreParam(param, value);

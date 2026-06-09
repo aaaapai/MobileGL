@@ -15,6 +15,7 @@ namespace MobileGL::MG_Impl::GLImpl {
     void BlendEquationSeparatei(GLuint buf, GLenum modeRGB, GLenum modeAlpha);
     void BlendFunci(GLuint buf, GLenum src, GLenum dst);
     void BlendFuncSeparatei(GLuint buf, GLenum srcRGB, GLenum dstRGB, GLenum srcAlpha, GLenum dstAlpha);
+    void GetBooleani_v(GLenum target, GLuint index, GLboolean* data);
     void Disablei(GLenum target, GLuint index);
     void Enablei(GLenum target, GLuint index);
     void BlendFunc(GLenum sfactor, GLenum dfactor);

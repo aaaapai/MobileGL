@@ -9,16 +9,238 @@
 #include "GL_Getter.h"
 #include <Config.h>
 #include <MGGitHash.h>
+#include <MG_State/EGLState/Core.h>
 #include <MG_State/GLState/Core.h>
 #include <MG_State/GLState/ErrorState/ErrorInfo.h>
 #include <MG_Util/Converters/GLToStr/GLEnumConverter.h>
+#include <MG_Util/Converters/GLToMG/BufferEnumConverter.h>
+#include <MG_Util/Converters/MGToGL/FramebufferEnumConverter.h>
 #include <MG_Util/Converters/MGToGL/ErrorCodeConverter.h>
+#include <MG_Util/Converters/MGToGL/TextureEnumConverter.h>
 #include <MG_Util/Converters/MGToStr/GLExtensionConverter.h>
 #include <MG_Util/Converters/MGToGL/RenderStateEnumConverter.h>
 #include <MG_State/GLState/FramebufferState/FramebufferObject.h>
+#include <MG_Util/Texture/TextureFormatProcessor.h>
 #include <MG_Backend/BackendObjects.h>
 
 namespace MobileGL::MG_Impl::GLImpl {
+    namespace {
+        enum class IndexedBufferQueryKind {
+            Binding,
+            Start,
+            Size,
+        };
+
+        void CopyFloatsToInts(const GLfloat* src, SizeT count, GLint* dst) {
+            for (SizeT i = 0; i < count; ++i) {
+                dst[i] = static_cast<GLint>(src[i]);
+            }
+        }
+
+        constexpr GLint kFrontendMaxComputeUniformComponents = 1024;
+        constexpr GLint kFrontendMaxComputeAtomicCounters = 8;
+        constexpr GLint kFrontendMaxComputeAtomicCounterBuffers = 1;
+        constexpr GLint kFrontendMaxCombinedAtomicCounters = 8;
+        constexpr GLint kFrontendMaxFragmentAtomicCounters = 8;
+        constexpr GLint kFrontendMaxGeometryAtomicCounters = 0;
+        constexpr GLint kFrontendMaxTessControlAtomicCounters = 0;
+        constexpr GLint kFrontendMaxTessEvaluationAtomicCounters = 0;
+        constexpr GLint kFrontendMaxVertexAtomicCounters = 0;
+        constexpr GLint kFrontendMaxVertexUniformComponents = 4096;
+        constexpr GLint kFrontendMaxVertexUniformVectors = 128;
+        constexpr GLint kFrontendMaxVertexUniformBlocks = 14;
+        constexpr GLint kFrontendMaxVertexOutputComponents = 64;
+        constexpr GLint kFrontendMaxFragmentInputComponents = 128;
+        constexpr GLint kFrontendMaxFragmentUniformComponents = 4096;
+        constexpr GLint kFrontendMaxFragmentUniformVectors = 256;
+        constexpr GLint kFrontendMaxFragmentUniformBlocks = 14;
+        constexpr GLint kFrontendMaxGeometryInputComponents = 64;
+        constexpr GLint kFrontendMaxGeometryOutputComponents = 128;
+        constexpr GLint kFrontendMaxGeometryTextureImageUnits = 16;
+        constexpr GLint kFrontendMaxGeometryUniformComponents = 1024;
+        constexpr GLint kFrontendMaxGeometryUniformBlocks = 14;
+        constexpr GLint kFrontendMaxCombinedUniformBlocks = kFrontendMaxVertexUniformBlocks +
+                                                            kFrontendMaxGeometryUniformBlocks +
+                                                            kFrontendMaxFragmentUniformBlocks;
+        constexpr GLint kFrontendMaxVaryingComponents = 60;
+        constexpr GLint kFrontendMaxVaryingVectors = 8;
+        constexpr GLint kFrontendMaxProgramTexelOffset = 7;
+        constexpr GLint kFrontendMinProgramTexelOffset = -8;
+
+        GLint GetMaxCombinedUniformComponents(GLint maxDefaultUniformComponents, GLint maxUniformBlocks,
+                                              GLint maxUniformBlockSizeBytes) {
+            return maxDefaultUniformComponents + maxUniformBlocks * (maxUniformBlockSizeBytes / 4);
+        }
+
+        bool TryDecodeIndexedBufferQuery(GLenum pname, BufferTarget& bufferTarget, IndexedBufferQueryKind& queryKind) {
+            switch (pname) {
+            case GL_UNIFORM_BUFFER_BINDING:
+                bufferTarget = BufferTarget::Uniform;
+                queryKind = IndexedBufferQueryKind::Binding;
+                return true;
+            case GL_UNIFORM_BUFFER_START:
+                bufferTarget = BufferTarget::Uniform;
+                queryKind = IndexedBufferQueryKind::Start;
+                return true;
+            case GL_UNIFORM_BUFFER_SIZE:
+                bufferTarget = BufferTarget::Uniform;
+                queryKind = IndexedBufferQueryKind::Size;
+                return true;
+            case GL_TRANSFORM_FEEDBACK_BUFFER_BINDING:
+                bufferTarget = BufferTarget::TransformFeedback;
+                queryKind = IndexedBufferQueryKind::Binding;
+                return true;
+            case GL_TRANSFORM_FEEDBACK_BUFFER_START:
+                bufferTarget = BufferTarget::TransformFeedback;
+                queryKind = IndexedBufferQueryKind::Start;
+                return true;
+            case GL_TRANSFORM_FEEDBACK_BUFFER_SIZE:
+                bufferTarget = BufferTarget::TransformFeedback;
+                queryKind = IndexedBufferQueryKind::Size;
+                return true;
+            case GL_ATOMIC_COUNTER_BUFFER_BINDING:
+                bufferTarget = BufferTarget::AtomicCounter;
+                queryKind = IndexedBufferQueryKind::Binding;
+                return true;
+            case GL_ATOMIC_COUNTER_BUFFER_START:
+                bufferTarget = BufferTarget::AtomicCounter;
+                queryKind = IndexedBufferQueryKind::Start;
+                return true;
+            case GL_ATOMIC_COUNTER_BUFFER_SIZE:
+                bufferTarget = BufferTarget::AtomicCounter;
+                queryKind = IndexedBufferQueryKind::Size;
+                return true;
+            case GL_SHADER_STORAGE_BUFFER_BINDING:
+                bufferTarget = BufferTarget::ShaderStorage;
+                queryKind = IndexedBufferQueryKind::Binding;
+                return true;
+            case GL_SHADER_STORAGE_BUFFER_START:
+                bufferTarget = BufferTarget::ShaderStorage;
+                queryKind = IndexedBufferQueryKind::Start;
+                return true;
+            case GL_SHADER_STORAGE_BUFFER_SIZE:
+                bufferTarget = BufferTarget::ShaderStorage;
+                queryKind = IndexedBufferQueryKind::Size;
+                return true;
+            default:
+                return false;
+            }
+        }
+
+        bool IsIndexedBufferBindingQueryKind(IndexedBufferQueryKind queryKind) {
+            return queryKind == IndexedBufferQueryKind::Binding;
+        }
+
+        bool IsIndexedBufferRangeQueryKind(IndexedBufferQueryKind queryKind) {
+            return queryKind == IndexedBufferQueryKind::Start || queryKind == IndexedBufferQueryKind::Size;
+        }
+
+        bool TryDecodeDrawBufferQuery(GLenum pname, SizeT& drawBufferIndex) {
+            if (pname == GL_DRAW_BUFFER) {
+                drawBufferIndex = 0;
+                return true;
+            }
+            if (pname >= GL_DRAW_BUFFER0 && pname <= GL_DRAW_BUFFER15) {
+                drawBufferIndex = static_cast<SizeT>(pname - GL_DRAW_BUFFER0);
+                return true;
+            }
+            return false;
+        }
+
+        bool TryResolveImplementationColorReadParams(GLint& outFormat, GLint& outType) {
+            const auto& readFbo =
+                MG_State::pGLContext->GetFramebufferBindingSlot(FramebufferTarget::Read).GetBoundObject();
+            if (!readFbo) return false;
+
+            const auto attachmentType = readFbo->GetReadBuffer();
+            if (attachmentType == FramebufferAttachmentType::None) return false;
+
+            const auto& attachment = readFbo->GetAttachment(attachmentType);
+            TextureInternalFormat internalFormat = TextureInternalFormat::Unknown;
+            if (attachment.IsTexture() && attachment.GetTexture()) {
+                internalFormat = attachment.GetTexture()->GetFormat();
+            } else if (attachment.IsRenderbuffer() && attachment.GetRenderbuffer()) {
+                internalFormat = attachment.GetRenderbuffer()->GetInternalFormat();
+            }
+
+            if (internalFormat == TextureInternalFormat::Unknown) return false;
+
+            const GLenum glInternalFormat = MG_Util::ConvertTextureInternalFormatToGLEnum(internalFormat);
+            GLenum normalizedInternalFormat = glInternalFormat;
+            GLenum format = GL_RGBA;
+            GLenum type = GL_UNSIGNED_BYTE;
+            MG_Util::TextureFormatProcessor::NormalizePixelFormat(glInternalFormat, PixelFormatNormalizeOptionBit::None,
+                                                                  &normalizedInternalFormat, &format, &type);
+            outFormat = static_cast<GLint>(format);
+            outType = static_cast<GLint>(type);
+            return true;
+        }
+
+        GLint ResolveDrawFramebufferSampleCount() {
+            const auto& drawFbo =
+                MG_State::pGLContext->GetFramebufferBindingSlot(FramebufferTarget::Draw).GetBoundObject();
+            if (!drawFbo) return 0;
+
+            GLint maxSamples = 0;
+            for (const auto& attachment : drawFbo->GetAllAttachmentObjects()) {
+                if (!attachment.IsRenderbuffer() || !attachment.GetRenderbuffer()) continue;
+                maxSamples = std::max(maxSamples, static_cast<GLint>(attachment.GetRenderbuffer()->GetSamples()));
+            }
+            return maxSamples;
+        }
+
+        void RecordIndexedOnlyGetterError(const char* functionName, GLenum pname) {
+            MG_State::pGLContext->RecordError(
+                ErrorCode::InvalidEnum,
+                MakeUnique<GenericErrorInfo>(
+                    "MG_Impl/GLImpl", functionName,
+                    "pname " + MG_Util::ConvertGLEnumToString(pname) +
+                        " is only valid with indexed getter entrypoints."));
+        }
+
+        bool ValidateIndexedBufferQueryIndex(GLenum pname, GLuint index, const char* functionName,
+                                             BufferTarget bufferTarget) {
+            switch (bufferTarget) {
+            case BufferTarget::Uniform:
+            case BufferTarget::TransformFeedback:
+            case BufferTarget::AtomicCounter:
+            case BufferTarget::ShaderStorage:
+                break;
+            default:
+                MG_State::pGLContext->RecordError(
+                    ErrorCode::InvalidEnum,
+                    MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", functionName,
+                                                 "pname " + std::to_string(pname) +
+                                                     " is not a supported indexed buffer query."));
+                return false;
+            }
+
+            if (index >= MG_State::pGLContext->GetBufferBindingPointCount(bufferTarget)) {
+                MG_State::pGLContext->RecordError(
+                    ErrorCode::InvalidValue,
+                    MakeUnique<GenericErrorInfo>(
+                        "MG_Impl/GLImpl", functionName,
+                        "index " + std::to_string(index) + " is out of range for indexed buffer query " +
+                            std::to_string(pname) + "."));
+                return false;
+            }
+
+            return true;
+        }
+
+        void CopyIntsToBooleans(const GLint* src, SizeT count, GLboolean* dst) {
+            for (SizeT i = 0; i < count; ++i) {
+                dst[i] = src[i] ? GL_TRUE : GL_FALSE;
+            }
+        }
+
+        void CopyIntsToFloats(const GLint* src, SizeT count, GLfloat* dst) {
+            for (SizeT i = 0; i < count; ++i) {
+                dst[i] = static_cast<GLfloat>(src[i]);
+            }
+        }
+    } // namespace
+
     /* @INSERTION_POINT:FUNCTION_IMPLEMENTATION@ */
     const GLubyte* GetString(GLenum name) {
         static String vendorString;
@@ -38,50 +260,42 @@ namespace MobileGL::MG_Impl::GLImpl {
 
         switch (name) {
         case GL_VENDOR:
-            if (vendorString.empty()) {
-                if (rendererInfo.ExtraVendor.has_value()) {
-                    vendorString = std::format("{}{}", MG_Config::CoreVendor, rendererInfo.ExtraVendor.value());
-                } else {
-                    vendorString = MG_Config::CoreVendor;
-                }
+            if (rendererInfo.ExtraVendor.has_value()) {
+                vendorString = std::format("{}{}", MG_Config::CoreVendor, rendererInfo.ExtraVendor.value());
+            } else {
+                vendorString = MG_Config::CoreVendor;
             }
             MGLOG_D("vendorString: %s", vendorString.c_str());
             return (const GLubyte*)vendorString.c_str();
         case GL_VERSION: {
-            if (versionStr.empty()) {
-                versionStr =
-                    std::format("{} {} {}, {} Backend, GIT@" GIT_COMMIT_HASH_SHORT,
-                                rendererInfo.RendererGLInfo.TargetGLVersion.toString(), MG_Config::ProjectName,
-                                MG_Config::CoreVersion.toFormattedString(MG_Config::DefaultVersionStringFormatAttrib),
-                                rendererInfo.BackendName);
-            }
+            versionStr =
+                std::format("{} {} {}, {} Backend, GIT@" GIT_COMMIT_HASH_SHORT,
+                            rendererInfo.RendererGLInfo.TargetGLVersion.toString(), MG_Config::ProjectName,
+                            MG_Config::CoreVersion.toFormattedString(MG_Config::DefaultVersionStringFormatAttrib),
+                            rendererInfo.BackendName);
             MGLOG_D("versionStr: %s", versionStr.c_str());
             return (const GLubyte*)versionStr.c_str();
         }
         case GL_RENDERER: {
-            if (rendererString.empty()) {
-                String backendVersionStr = activeBackendObject->GetBackendAPIVersionString();
-                rendererString =
-                    std::format("{} ({}) ({})", rendererInfo.RendererName, MG_Config::CoreName, backendVersionStr);
-            }
+            String backendVersionStr = activeBackendObject->GetBackendAPIVersionString();
+            rendererString =
+                std::format("{} ({}) ({})", rendererInfo.RendererName, MG_Config::CoreName, backendVersionStr);
             MGLOG_D("rendererString: %s", rendererString.c_str());
             return (const GLubyte*)rendererString.c_str();
         }
         case GL_SHADING_LANGUAGE_VERSION:
-            if (shadingLanguageVersion.empty()) {
-                shadingLanguageVersion =
-                    std::format("{} {}", rendererInfo.RendererGLInfo.TargetGLSLVersion.toString({true, false}),
-                                MG_Config::ProjectName);
-            }
+            shadingLanguageVersion =
+                std::format("{} {}", rendererInfo.RendererGLInfo.TargetGLSLVersion.toString({true, false}),
+                            MG_Config::ProjectName);
             MGLOG_D("shadingLanguageVersion: %s", shadingLanguageVersion.c_str());
             return (const GLubyte*)shadingLanguageVersion.c_str();
         case GL_EXTENSIONS:
-            if (extensionsString.empty()) {
-                for (auto& ext : rendererInfo.RendererGLInfo.Extensions) {
-                    extensionsString += MG_Util::ConvertGLExtToString(ext);
+            extensionsString.clear();
+            for (const auto& ext : rendererInfo.RendererGLInfo.Extensions) {
+                if (!extensionsString.empty()) {
                     extensionsString += " ";
                 }
-                extensionsString.pop_back();
+                extensionsString += MG_Util::ConvertGLExtToString(ext);
             }
             return (const GLubyte*)extensionsString.c_str();
         default:
@@ -108,16 +322,239 @@ namespace MobileGL::MG_Impl::GLImpl {
         }
 
         static Vector<String> extStrings;
-        static Bool initialized = false;
-        if (!initialized) {
-            extStrings.reserve(exts.size());
-            for (const auto& ext : exts) {
-                extStrings.emplace_back(MG_Util::ConvertGLExtToString(ext));
-            }
-            initialized = true;
+        extStrings.clear();
+        extStrings.reserve(exts.size());
+        for (const auto& ext : exts) {
+            extStrings.emplace_back(MG_Util::ConvertGLExtToString(ext));
         }
 
         return (const GLubyte*)extStrings[index].c_str();
+    }
+
+    void GetBooleanv(GLenum pname, GLboolean* params) {
+        MGLOG_D("glGetBooleanv, pname: %s", MG_Util::ConvertGLEnumToString(pname).c_str());
+        if (!params) {
+            MG_State::pGLContext->RecordError(
+                ErrorCode::InvalidValue,
+                MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", __func__, "params pointer cannot be null"));
+            return;
+        }
+
+        switch (pname) {
+        case GL_BLEND:
+            *params = MG_State::pGLContext->IsCapabilityEnabled(CapabilityInput::Blend) ? GL_TRUE : GL_FALSE;
+            return;
+        case GL_BLEND_COLOR: {
+            const FloatVec4& blendColor = MG_State::pGLContext->GetBlendColor();
+            params[0] = blendColor.x() != 0.0f ? GL_TRUE : GL_FALSE;
+            params[1] = blendColor.y() != 0.0f ? GL_TRUE : GL_FALSE;
+            params[2] = blendColor.z() != 0.0f ? GL_TRUE : GL_FALSE;
+            params[3] = blendColor.w() != 0.0f ? GL_TRUE : GL_FALSE;
+            return;
+        }
+        case GL_COLOR_CLEAR_VALUE: {
+            const FloatVec4& clearColor = MG_State::pGLContext->GetClearColor();
+            params[0] = clearColor.x() != 0.0f ? GL_TRUE : GL_FALSE;
+            params[1] = clearColor.y() != 0.0f ? GL_TRUE : GL_FALSE;
+            params[2] = clearColor.z() != 0.0f ? GL_TRUE : GL_FALSE;
+            params[3] = clearColor.w() != 0.0f ? GL_TRUE : GL_FALSE;
+            return;
+        }
+        case GL_COLOR_WRITEMASK: {
+            BoolVec4 mask = MG_State::pGLContext->GetColorMask();
+            params[0] = mask.x() ? GL_TRUE : GL_FALSE;
+            params[1] = mask.y() ? GL_TRUE : GL_FALSE;
+            params[2] = mask.z() ? GL_TRUE : GL_FALSE;
+            params[3] = mask.w() ? GL_TRUE : GL_FALSE;
+            return;
+        }
+        case GL_DEPTH_CLEAR_VALUE:
+            *params = MG_State::pGLContext->GetClearDepth() != 0.0f ? GL_TRUE : GL_FALSE;
+            return;
+        case GL_DEPTH_RANGE: {
+            const FloatVec2& depthRange = MG_State::pGLContext->GetDepthRange();
+            params[0] = depthRange.x() != 0.0f ? GL_TRUE : GL_FALSE;
+            params[1] = depthRange.y() != 0.0f ? GL_TRUE : GL_FALSE;
+            return;
+        }
+        case GL_LINE_WIDTH:
+            *params = MG_State::pGLContext->GetLineWidth() != 0.0f ? GL_TRUE : GL_FALSE;
+            return;
+        case GL_POINT_SIZE:
+            *params = MG_State::pGLContext->GetPointSize() != 0.0f ? GL_TRUE : GL_FALSE;
+            return;
+        case GL_CULL_FACE:
+            *params = MG_State::pGLContext->IsCapabilityEnabled(CapabilityInput::CullFace) ? GL_TRUE : GL_FALSE;
+            return;
+        case GL_DEPTH_TEST:
+            *params = MG_State::pGLContext->IsCapabilityEnabled(CapabilityInput::DepthTest) ? GL_TRUE : GL_FALSE;
+            return;
+        case GL_DEPTH_WRITEMASK:
+            *params = MG_State::pGLContext->GetDepthMask() ? GL_TRUE : GL_FALSE;
+            return;
+        case GL_DITHER:
+            *params = MG_State::pGLContext->IsCapabilityEnabled(CapabilityInput::Dither) ? GL_TRUE : GL_FALSE;
+            return;
+        case GL_MULTISAMPLE:
+            *params = MG_State::pGLContext->IsCapabilityEnabled(CapabilityInput::Multisample) ? GL_TRUE : GL_FALSE;
+            return;
+        case GL_POLYGON_OFFSET_FILL:
+            *params =
+                MG_State::pGLContext->IsCapabilityEnabled(CapabilityInput::PolygonOffsetFill) ? GL_TRUE : GL_FALSE;
+            return;
+        case GL_PRIMITIVE_RESTART_FIXED_INDEX:
+            *params = MG_State::pGLContext->IsCapabilityEnabled(CapabilityInput::PrimitiveRestartFixedIndex)
+                          ? GL_TRUE
+                          : GL_FALSE;
+            return;
+        case GL_RASTERIZER_DISCARD:
+            *params =
+                MG_State::pGLContext->IsCapabilityEnabled(CapabilityInput::RasterizerDiscard) ? GL_TRUE : GL_FALSE;
+            return;
+        case GL_SAMPLE_ALPHA_TO_COVERAGE:
+            *params = MG_State::pGLContext->IsCapabilityEnabled(CapabilityInput::SampleAlphaToCoverage)
+                          ? GL_TRUE
+                          : GL_FALSE;
+            return;
+        case GL_SAMPLE_ALPHA_TO_ONE:
+            *params =
+                MG_State::pGLContext->IsCapabilityEnabled(CapabilityInput::SampleAlphaToOne) ? GL_TRUE : GL_FALSE;
+            return;
+        case GL_SAMPLE_COVERAGE:
+            *params = MG_State::pGLContext->IsCapabilityEnabled(CapabilityInput::SampleCoverage)
+                          ? GL_TRUE
+                          : GL_FALSE;
+            return;
+        case GL_SAMPLE_MASK:
+            *params =
+                MG_State::pGLContext->IsCapabilityEnabled(CapabilityInput::SampleMask) ? GL_TRUE : GL_FALSE;
+            return;
+        case GL_SCISSOR_TEST:
+            *params = MG_State::pGLContext->IsCapabilityEnabled(CapabilityInput::ScissorTest) ? GL_TRUE : GL_FALSE;
+            return;
+        case GL_STENCIL_TEST:
+            *params = MG_State::pGLContext->IsCapabilityEnabled(CapabilityInput::StencilTest) ? GL_TRUE : GL_FALSE;
+            return;
+        default:
+            break;
+        }
+
+        GLint ints[4] = {};
+        GetIntegerv(pname, ints);
+        switch (pname) {
+        case GL_COLOR_WRITEMASK:
+        case GL_SCISSOR_BOX:
+            CopyIntsToBooleans(ints, 4, params);
+            return;
+        default:
+            *params = ints[0] ? GL_TRUE : GL_FALSE;
+            return;
+        }
+    }
+
+    void GetFloatv(GLenum pname, GLfloat* params) {
+        MGLOG_D("glGetFloatv, pname: %s", MG_Util::ConvertGLEnumToString(pname).c_str());
+        if (!params) {
+            MG_State::pGLContext->RecordError(
+                ErrorCode::InvalidValue,
+                MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", __func__, "params pointer cannot be null"));
+            return;
+        }
+
+        switch (pname) {
+        case GL_BLEND_COLOR: {
+            const FloatVec4& blendColor = MG_State::pGLContext->GetBlendColor();
+            params[0] = blendColor.x();
+            params[1] = blendColor.y();
+            params[2] = blendColor.z();
+            params[3] = blendColor.w();
+            return;
+        }
+        case GL_COLOR_CLEAR_VALUE: {
+            const FloatVec4& clearColor = MG_State::pGLContext->GetClearColor();
+            params[0] = clearColor.x();
+            params[1] = clearColor.y();
+            params[2] = clearColor.z();
+            params[3] = clearColor.w();
+            return;
+        }
+        case GL_DEPTH_RANGE: {
+            const FloatVec2& depthRange = MG_State::pGLContext->GetDepthRange();
+            params[0] = depthRange.x();
+            params[1] = depthRange.y();
+            return;
+        }
+        case GL_VIEWPORT_BOUNDS_RANGE: {
+            const auto& dynamicParameters = MG_Backend::pActiveBackendObject->GetDynamicParameters();
+            params[0] = dynamicParameters.ViewportBoundsRangeMin;
+            params[1] = dynamicParameters.ViewportBoundsRangeMax;
+            return;
+        }
+        case GL_DEPTH_CLEAR_VALUE:
+            params[0] = MG_State::pGLContext->GetClearDepth();
+            return;
+        case GL_ALIASED_LINE_WIDTH_RANGE: {
+            const auto& dynamicParameters = MG_Backend::pActiveBackendObject->GetDynamicParameters();
+            params[0] = dynamicParameters.AliasedLineWidthRangeMin;
+            params[1] = dynamicParameters.AliasedLineWidthRangeMax;
+            return;
+        }
+        case GL_ALIASED_POINT_SIZE_RANGE:
+        case GL_POINT_SIZE_RANGE: {
+            const auto& dynamicParameters = MG_Backend::pActiveBackendObject->GetDynamicParameters();
+            params[0] = dynamicParameters.PointSizeRangeMin;
+            params[1] = dynamicParameters.PointSizeRangeMax;
+            return;
+        }
+        case GL_LINE_WIDTH:
+            params[0] = MG_State::pGLContext->GetLineWidth();
+            return;
+        case GL_POINT_SIZE:
+            params[0] = MG_State::pGLContext->GetPointSize();
+            return;
+        case GL_POLYGON_OFFSET_FACTOR:
+            params[0] = MG_State::pGLContext->GetPolygonOffsetFactor();
+            return;
+        case GL_POLYGON_OFFSET_UNITS:
+            params[0] = MG_State::pGLContext->GetPolygonOffsetUnits();
+            return;
+        case GL_SMOOTH_LINE_WIDTH_RANGE: {
+            const auto& dynamicParameters = MG_Backend::pActiveBackendObject->GetDynamicParameters();
+            params[0] = dynamicParameters.SmoothLineWidthRangeMin;
+            params[1] = dynamicParameters.SmoothLineWidthRangeMax;
+            return;
+        }
+        case GL_SMOOTH_LINE_WIDTH_GRANULARITY:
+            params[0] = MG_Backend::pActiveBackendObject->GetDynamicParameters().SmoothLineWidthGranularity;
+            return;
+        case GL_POINT_SIZE_GRANULARITY:
+            params[0] = MG_Backend::pActiveBackendObject->GetDynamicParameters().PointSizeGranularity;
+            return;
+        case GL_SAMPLE_COVERAGE_VALUE:
+            params[0] = MG_State::pGLContext->GetSampleCoverageValue();
+            return;
+        default:
+            break;
+        }
+
+        GLint ints[4] = {};
+        GetIntegerv(pname, ints);
+        switch (pname) {
+        case GL_ALIASED_LINE_WIDTH_RANGE:
+        case GL_ALIASED_POINT_SIZE_RANGE:
+        case GL_SMOOTH_LINE_WIDTH_RANGE:
+        case GL_POINT_SIZE_RANGE:
+        case GL_MAX_VIEWPORT_DIMS:
+            CopyIntsToFloats(ints, 2, params);
+            return;
+        case GL_SCISSOR_BOX:
+        case GL_VIEWPORT:
+            CopyIntsToFloats(ints, 4, params);
+            return;
+        default:
+            params[0] = static_cast<GLfloat>(ints[0]);
+            return;
+        }
     }
 
     void GetIntegeri_v(GLenum target, GLuint index, GLint* data) {
@@ -127,6 +564,37 @@ namespace MobileGL::MG_Impl::GLImpl {
                 MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", __func__, "data pointer cannot be null"));
             return;
         }
+
+        BufferTarget bufferTarget = BufferTarget::Unknown;
+        IndexedBufferQueryKind queryKind = IndexedBufferQueryKind::Binding;
+        if (TryDecodeIndexedBufferQuery(target, bufferTarget, queryKind)) {
+            if (!ValidateIndexedBufferQueryIndex(target, index, __func__, bufferTarget)) return;
+            const auto& bindingPoint = MG_State::pGLContext->GetBufferBindingPoint(bufferTarget, index);
+            const auto& bufferObject = bindingPoint.GetBoundObject();
+            if (!bufferObject) {
+                *data = 0;
+                return;
+            }
+
+            switch (queryKind) {
+            case IndexedBufferQueryKind::Binding:
+                *data = static_cast<GLint>(bufferObject->GetExternalIndex());
+                return;
+            case IndexedBufferQueryKind::Start:
+                *data = static_cast<GLint>(bindingPoint.GetRange().start);
+                return;
+            case IndexedBufferQueryKind::Size: {
+                const Range1D range = bindingPoint.GetRange();
+                const auto start = std::min(range.start, bufferObject->GetSize());
+                const auto end = std::min(range.end, bufferObject->GetSize());
+                *data = static_cast<GLint>(end - start);
+                return;
+            }
+            default:
+                break;
+            }
+        }
+
         auto getIntegeri = MG_Backend::gBackendFunctionsTable.GL.GetIntegeri_v;
         if (!getIntegeri) {
             *data = 0;
@@ -145,6 +613,37 @@ namespace MobileGL::MG_Impl::GLImpl {
                 MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", __func__, "data pointer cannot be null"));
             return;
         }
+
+        BufferTarget bufferTarget = BufferTarget::Unknown;
+        IndexedBufferQueryKind queryKind = IndexedBufferQueryKind::Binding;
+        if (TryDecodeIndexedBufferQuery(target, bufferTarget, queryKind)) {
+            if (!ValidateIndexedBufferQueryIndex(target, index, __func__, bufferTarget)) return;
+            const auto& bindingPoint = MG_State::pGLContext->GetBufferBindingPoint(bufferTarget, index);
+            const auto& bufferObject = bindingPoint.GetBoundObject();
+            if (!bufferObject) {
+                *data = 0;
+                return;
+            }
+
+            const Range1D range = bindingPoint.GetRange();
+            switch (queryKind) {
+            case IndexedBufferQueryKind::Binding:
+                *data = static_cast<GLint64>(bufferObject->GetExternalIndex());
+                return;
+            case IndexedBufferQueryKind::Start:
+                *data = static_cast<GLint64>(range.start);
+                return;
+            case IndexedBufferQueryKind::Size: {
+                const auto start = std::min(range.start, bufferObject->GetSize());
+                const auto end = std::min(range.end, bufferObject->GetSize());
+                *data = static_cast<GLint64>(end - start);
+                return;
+            }
+            default:
+                break;
+            }
+        }
+
         auto getInteger64i = MG_Backend::gBackendFunctionsTable.GL.GetInteger64i_v;
         if (!getInteger64i) {
             *data = 0;
@@ -154,6 +653,42 @@ namespace MobileGL::MG_Impl::GLImpl {
             return;
         }
         getInteger64i(target, index, data);
+    }
+
+    void GetInteger64v(GLenum pname, GLint64* params) {
+        MGLOG_D("glGetInteger64v, pname: %s", MG_Util::ConvertGLEnumToString(pname).c_str());
+        if (!params) {
+            MG_State::pGLContext->RecordError(
+                ErrorCode::InvalidValue,
+                MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", __func__, "params pointer cannot be null"));
+            return;
+        }
+
+        GLint ints[4] = {};
+        GetIntegerv(pname, ints);
+
+        switch (pname) {
+        case GL_BLEND_COLOR:
+        case GL_COLOR_CLEAR_VALUE:
+        case GL_COLOR_WRITEMASK:
+        case GL_SCISSOR_BOX:
+        case GL_VIEWPORT:
+            for (int i = 0; i < 4; ++i) {
+                params[i] = static_cast<GLint64>(ints[i]);
+            }
+            return;
+        case GL_DEPTH_RANGE:
+        case GL_ALIASED_POINT_SIZE_RANGE:
+        case GL_MAX_VIEWPORT_DIMS:
+        case GL_POINT_SIZE_RANGE:
+        case GL_VIEWPORT_BOUNDS_RANGE:
+            params[0] = static_cast<GLint64>(ints[0]);
+            params[1] = static_cast<GLint64>(ints[1]);
+            return;
+        default:
+            params[0] = static_cast<GLint64>(ints[0]);
+            return;
+        }
     }
 
     void GetIntegerv(GLenum pname, GLint* params) {
@@ -176,9 +711,19 @@ namespace MobileGL::MG_Impl::GLImpl {
         case GL_ACTIVE_TEXTURE:
             *params = MG_State::pGLContext->GetActiveTextureUnit() + GL_TEXTURE0;
             break;
-        case GL_ALIASED_LINE_WIDTH_RANGE:
-            *params = 0; // TODO
+        case GL_ALIASED_LINE_WIDTH_RANGE: {
+            const auto& dynamicParameters = activeBackendObject->GetDynamicParameters();
+            params[0] = static_cast<GLint>(dynamicParameters.AliasedLineWidthRangeMin);
+            params[1] = static_cast<GLint>(dynamicParameters.AliasedLineWidthRangeMax);
             break;
+        }
+        case GL_ALIASED_POINT_SIZE_RANGE:
+        case GL_POINT_SIZE_RANGE: {
+            const auto& dynamicParameters = activeBackendObject->GetDynamicParameters();
+            params[0] = static_cast<GLint>(dynamicParameters.PointSizeRangeMin);
+            params[1] = static_cast<GLint>(dynamicParameters.PointSizeRangeMax);
+            break;
+        }
         case GL_ARRAY_BUFFER_BINDING: {
             auto& obj = MG_State::pGLContext->GetBufferBindingSlot(BufferTarget::Vertex).GetBoundObject();
             if (obj)
@@ -190,9 +735,14 @@ namespace MobileGL::MG_Impl::GLImpl {
         case GL_BLEND:
             *params = MG_State::pGLContext->IsCapabilityEnabled(CapabilityInput::Blend) ? GL_TRUE : GL_FALSE;
             break;
-        case GL_BLEND_COLOR:
-            *params = 0; // TODO
+        case GL_BLEND_COLOR: {
+            const FloatVec4& blendColor = MG_State::pGLContext->GetBlendColor();
+            params[0] = static_cast<GLint>(blendColor.x());
+            params[1] = static_cast<GLint>(blendColor.y());
+            params[2] = static_cast<GLint>(blendColor.z());
+            params[3] = static_cast<GLint>(blendColor.w());
             break;
+        }
         case GL_BLEND_DST_ALPHA: {
             BlendFactor srcRGB, dstRGB, srcAlpha, dstAlpha;
             MG_State::pGLContext->GetBlendFunc(srcRGB, dstRGB, srcAlpha, dstAlpha);
@@ -231,11 +781,16 @@ namespace MobileGL::MG_Impl::GLImpl {
             *params = static_cast<GLint>(MG_Util::ConvertBlendFactorToGLEnum(srcRGB));
             break;
         }
-        case GL_COLOR_CLEAR_VALUE:
-            *params = 0; // TODO
+        case GL_COLOR_CLEAR_VALUE: {
+            const FloatVec4& clearColor = MG_State::pGLContext->GetClearColor();
+            params[0] = static_cast<GLint>(clearColor.x());
+            params[1] = static_cast<GLint>(clearColor.y());
+            params[2] = static_cast<GLint>(clearColor.z());
+            params[3] = static_cast<GLint>(clearColor.w());
             break;
+        }
         case GL_COLOR_LOGIC_OP:
-            *params = 0; // TODO
+            *params = MG_State::pGLContext->IsCapabilityEnabled(CapabilityInput::ColorLogicOp) ? GL_TRUE : GL_FALSE;
             break;
         case GL_COLOR_WRITEMASK: {
             BoolVec4 mask = MG_State::pGLContext->GetColorMask();
@@ -246,34 +801,36 @@ namespace MobileGL::MG_Impl::GLImpl {
             break;
         }
         case GL_COMPRESSED_TEXTURE_FORMATS:
-            *params = 0; // TODO
+            *params = 0; // compressed texture upload entrypoints are still unimplemented
             break;
         case GL_MAX_COMPUTE_SHADER_STORAGE_BLOCKS:
-            *params = 16; // TODO: use backend value
+            *params = activeBackendObject->GetDynamicParameters().MaxComputeShaderStorageBlocks;
             break;
         case GL_MAX_COMBINED_SHADER_STORAGE_BLOCKS:
-            *params = 96; // TODO: use backend value
+            *params = activeBackendObject->GetDynamicParameters().MaxCombinedShaderStorageBlocks;
             break;
         case GL_MAX_COMPUTE_UNIFORM_BLOCKS:
-            *params = 14; // TODO: use backend value
+            *params = activeBackendObject->GetDynamicParameters().MaxComputeUniformBlocks;
             break;
         case GL_MAX_COMPUTE_TEXTURE_IMAGE_UNITS:
-            *params = MG_State::GLState::TextureState::MAX_TEXTURE_IMAGE_UNITS; // TODO: use backend value
+            *params = activeBackendObject->GetDynamicParameters().MaxComputeTextureImageUnits;
             break;
         case GL_MAX_COMPUTE_UNIFORM_COMPONENTS:
-            *params = 1024 * 4; // TODO: use backend value
+            *params = kFrontendMaxComputeUniformComponents;
             break;
         case GL_MAX_COMPUTE_ATOMIC_COUNTERS:
-            *params = 8; // TODO: use backend value
+            *params = kFrontendMaxComputeAtomicCounters;
             break;
         case GL_MAX_COMPUTE_ATOMIC_COUNTER_BUFFERS:
-            *params = 8; // TODO: use backend value
+            *params = kFrontendMaxComputeAtomicCounterBuffers;
             break;
         case GL_MAX_COMBINED_COMPUTE_UNIFORM_COMPONENTS:
-            *params = 1024 * 228; // TODO: use backend value
+            *params = GetMaxCombinedUniformComponents(kFrontendMaxComputeUniformComponents,
+                                                      activeBackendObject->GetDynamicParameters().MaxComputeUniformBlocks,
+                                                      activeBackendObject->GetDynamicParameters().MaxUniformBlockSize);
             break;
         case GL_MAX_COMPUTE_WORK_GROUP_INVOCATIONS:
-            *params = 1024; // TODO: use backend value
+            *params = activeBackendObject->GetDynamicParameters().MaxComputeWorkGroupInvocations;
             break;
         case GL_MAX_COMPUTE_WORK_GROUP_COUNT:
             GetIntegeri_v(GL_MAX_COMPUTE_WORK_GROUP_COUNT, 0, &params[0]);
@@ -291,13 +848,13 @@ namespace MobileGL::MG_Impl::GLImpl {
             break;
         }
         case GL_MAX_DEBUG_GROUP_STACK_DEPTH:
-            *params = 0; // TODO
+            *params = 0; // debug-group entrypoints are stubbed
             break;
         case GL_DEBUG_GROUP_STACK_DEPTH:
-            *params = 0; // TODO
+            *params = 0; // debug-group entrypoints are stubbed
             break;
         case GL_CONTEXT_FLAGS:
-            *params = 0; // TODO
+            *params = 0; // contexts are created without debug/robust/forward-compatible flags
             break;
         case GL_CULL_FACE:
             *params = MG_State::pGLContext->IsCapabilityEnabled(CapabilityInput::CullFace) ? GL_TRUE : GL_FALSE;
@@ -319,26 +876,65 @@ namespace MobileGL::MG_Impl::GLImpl {
         case GL_DEPTH_FUNC:
             *params = (GLint)MG_Util::ConvertDepthTestFuncToGLEnum(MG_State::pGLContext->GetDepthFunc());
             break;
-        case GL_DEPTH_RANGE:
-            *params = 0; // TODO
+        case GL_DEPTH_RANGE: {
+            const FloatVec2& depthRange = MG_State::pGLContext->GetDepthRange();
+            params[0] = static_cast<GLint>(depthRange.x());
+            params[1] = static_cast<GLint>(depthRange.y());
             break;
+        }
         case GL_DEPTH_TEST:
             *params = MG_State::pGLContext->IsCapabilityEnabled(CapabilityInput::DepthTest) ? GL_TRUE : GL_FALSE;
             break;
         case GL_DEPTH_WRITEMASK:
             *params = MG_State::pGLContext->GetDepthMask() ? GL_TRUE : GL_FALSE;
             break;
+        case GL_DEBUG_OUTPUT:
+            *params = MG_State::pGLContext->IsCapabilityEnabled(CapabilityInput::DebugOutput) ? GL_TRUE : GL_FALSE;
+            break;
+        case GL_DEBUG_OUTPUT_SYNCHRONOUS:
+            *params = MG_State::pGLContext->IsCapabilityEnabled(CapabilityInput::DebugOutputSynchronous)
+                          ? GL_TRUE
+                          : GL_FALSE;
+            break;
         case GL_DITHER:
             *params = MG_State::pGLContext->IsCapabilityEnabled(CapabilityInput::Dither) ? GL_TRUE : GL_FALSE;
             break;
-        case GL_DOUBLEBUFFER:
-            *params = 0; // TODO
+        case GL_DOUBLEBUFFER: {
+            const auto currentDrawSurface = MG_State::pEGLContext->GetCurrentSurface(EGL_DRAW);
+            *params = MG_State::pEGLContext->IsDoubleBufferedSurface(currentDrawSurface) ? GL_TRUE : GL_FALSE;
             break;
+        }
         case GL_DRAW_BUFFER:
-            *params = 0; // TODO
-            break;
         case GL_DRAW_BUFFER0:
-            *params = 0; // TODO
+        case GL_DRAW_BUFFER1:
+        case GL_DRAW_BUFFER2:
+        case GL_DRAW_BUFFER3:
+        case GL_DRAW_BUFFER4:
+        case GL_DRAW_BUFFER5:
+        case GL_DRAW_BUFFER6:
+        case GL_DRAW_BUFFER7:
+        case GL_DRAW_BUFFER8:
+        case GL_DRAW_BUFFER9:
+        case GL_DRAW_BUFFER10:
+        case GL_DRAW_BUFFER11:
+        case GL_DRAW_BUFFER12:
+        case GL_DRAW_BUFFER13:
+        case GL_DRAW_BUFFER14:
+        case GL_DRAW_BUFFER15:
+            if (const auto& fbo = MG_State::pGLContext->GetFramebufferBindingSlot(FramebufferTarget::Draw)
+                                      .GetBoundObject()) {
+                SizeT drawBufferIndex = 0;
+                const bool decoded = TryDecodeDrawBufferQuery(pname, drawBufferIndex);
+                MOBILEGL_ASSERT(decoded, "Draw buffer query enum should have been decoded already: 0x%X", pname);
+                if (drawBufferIndex < MG_State::GLState::FramebufferObject::MAX_DRAW_BUFFERS) {
+                    *params = static_cast<GLint>(
+                        MG_Util::ConvertFramebufferAttachmentTypeToGLEnum(fbo->GetDrawBuffers()[drawBufferIndex]));
+                } else {
+                    *params = GL_NONE;
+                }
+            } else {
+                *params = 0;
+            }
             break;
         case GL_DRAW_FRAMEBUFFER_BINDING: {
             const auto& FBO = MG_State::pGLContext->GetFramebufferBindingSlot(FramebufferTarget::Draw).GetBoundObject();
@@ -360,67 +956,79 @@ namespace MobileGL::MG_Impl::GLImpl {
             break;
         }
         case GL_FRAGMENT_SHADER_DERIVATIVE_HINT:
-            *params = 0; // TODO
+            *params = GL_DONT_CARE;
             break;
-        case GL_IMPLEMENTATION_COLOR_READ_FORMAT:
-            *params = 0; // TODO
+        case GL_IMPLEMENTATION_COLOR_READ_FORMAT: {
+            GLint format = 0;
+            GLint type = 0;
+            *params = TryResolveImplementationColorReadParams(format, type) ? format : 0;
             break;
-        case GL_IMPLEMENTATION_COLOR_READ_TYPE:
-            *params = 0; // TODO
+        }
+        case GL_IMPLEMENTATION_COLOR_READ_TYPE: {
+            GLint format = 0;
+            GLint type = 0;
+            *params = TryResolveImplementationColorReadParams(format, type) ? type : 0;
             break;
+        }
         case GL_LINE_SMOOTH:
-            *params = 0; // TODO
+            *params = MG_State::pGLContext->IsCapabilityEnabled(CapabilityInput::LineSmooth) ? GL_TRUE : GL_FALSE;
             break;
         case GL_LINE_SMOOTH_HINT:
-            *params = 0; // TODO
+            *params = GL_DONT_CARE;
             break;
         case GL_LINE_WIDTH:
-            *params = 0; // TODO
+            *params = static_cast<GLint>(MG_State::pGLContext->GetLineWidth());
             break;
         case GL_LAYER_PROVOKING_VERTEX:
-            *params = 0; // TODO
+            *params = GL_LAST_VERTEX_CONVENTION;
             break;
         case GL_LOGIC_OP_MODE:
-            *params = 0; // TODO
+            *params = static_cast<GLint>(MG_Util::ConvertLogicOperationToGLEnum(MG_State::pGLContext->GetLogicOp()));
             break;
         case GL_MAJOR_VERSION:
             *params = rendererInfo.RendererGLInfo.TargetGLVersion.Major;
             break;
         case GL_MAX_3D_TEXTURE_SIZE:
-            *params = 1024 * 16; // TODO
+            *params = activeBackendObject->GetDynamicParameters().Max3DTextureSize;
             break;
         case GL_MAX_ARRAY_TEXTURE_LAYERS:
-            *params = 2048; // TODO
+            *params = activeBackendObject->GetDynamicParameters().MaxArrayTextureLayers;
             break;
         case GL_MAX_CLIP_DISTANCES:
-            *params = 8; // TODO
+            *params = activeBackendObject->GetDynamicParameters().MaxClipDistances;
             break;
         case GL_MAX_COLOR_TEXTURE_SAMPLES:
-            *params = 16; // TODO
+            *params = activeBackendObject->GetDynamicParameters().MaxColorTextureSamples;
             break;
         case GL_MAX_COMBINED_ATOMIC_COUNTERS:
-            *params = 16; // TODO
+            *params = kFrontendMaxCombinedAtomicCounters;
             break;
         case GL_MAX_COMBINED_FRAGMENT_UNIFORM_COMPONENTS:
-            *params = 1024 * 228; // TODO
+            *params = GetMaxCombinedUniformComponents(kFrontendMaxFragmentUniformComponents,
+                                                      kFrontendMaxFragmentUniformBlocks,
+                                                      activeBackendObject->GetDynamicParameters().MaxUniformBlockSize);
             break;
         case GL_MAX_COMBINED_GEOMETRY_UNIFORM_COMPONENTS:
-            *params = 1024 * 228; // TODO
+            *params = GetMaxCombinedUniformComponents(kFrontendMaxGeometryUniformComponents,
+                                                      kFrontendMaxGeometryUniformBlocks,
+                                                      activeBackendObject->GetDynamicParameters().MaxUniformBlockSize);
             break;
         case GL_MAX_COMBINED_TEXTURE_IMAGE_UNITS:
-            *params = 192; // TODO
+            *params = activeBackendObject->GetDynamicParameters().MaxCombinedTextureImageUnits;
             break;
         case GL_MAX_COMBINED_UNIFORM_BLOCKS:
-            *params = 70; // TODO
+            *params = kFrontendMaxCombinedUniformBlocks;
             break;
         case GL_MAX_COMBINED_VERTEX_UNIFORM_COMPONENTS:
-            *params = 1024 * 228; // TODO
+            *params = GetMaxCombinedUniformComponents(kFrontendMaxVertexUniformComponents,
+                                                      kFrontendMaxVertexUniformBlocks,
+                                                      activeBackendObject->GetDynamicParameters().MaxUniformBlockSize);
             break;
         case GL_MAX_CUBE_MAP_TEXTURE_SIZE:
-            *params = 1024 * 16; // TODO
+            *params = activeBackendObject->GetDynamicParameters().MaxCubeMapTextureSize;
             break;
         case GL_MAX_DEPTH_TEXTURE_SAMPLES:
-            *params = 16; // TODO
+            *params = activeBackendObject->GetDynamicParameters().MaxDepthTextureSamples;
             break;
         case GL_MAX_DUAL_SOURCE_DRAW_BUFFERS:
             *params = 1; // TODO
@@ -432,74 +1040,77 @@ namespace MobileGL::MG_Impl::GLImpl {
             *params = 1024 * 1024; // TODO
             break;
         case GL_MAX_FRAGMENT_ATOMIC_COUNTERS:
-            *params = 1024 * 4; // TODO
+            *params = kFrontendMaxFragmentAtomicCounters;
             break;
         case GL_MAX_FRAGMENT_SHADER_STORAGE_BLOCKS:
             *params = 16; // TODO
             break;
         case GL_MAX_FRAGMENT_INPUT_COMPONENTS:
-            *params = 128; // TODO
+            *params = kFrontendMaxFragmentInputComponents;
             break;
         case GL_MAX_FRAGMENT_UNIFORM_COMPONENTS:
-            *params = 1024 * 4; // TODO
+            *params = kFrontendMaxFragmentUniformComponents;
             break;
         case GL_MAX_FRAGMENT_UNIFORM_VECTORS:
-            *params = 256; // TODO
+            *params = kFrontendMaxFragmentUniformVectors;
             break;
         case GL_MAX_FRAGMENT_UNIFORM_BLOCKS:
-            *params = 14; // TODO
+            *params = kFrontendMaxFragmentUniformBlocks;
             break;
         case GL_MAX_FRAMEBUFFER_WIDTH:
-            *params = 1024 * 16; // TODO
+            *params = activeBackendObject->GetDynamicParameters().MaxFramebufferWidth;
             break;
         case GL_MAX_FRAMEBUFFER_HEIGHT:
-            *params = 1024 * 16; // TODO
+            *params = activeBackendObject->GetDynamicParameters().MaxFramebufferHeight;
             break;
         case GL_MAX_FRAMEBUFFER_LAYERS:
-            *params = 1024 * 2; // TODO
+            *params = activeBackendObject->GetDynamicParameters().MaxFramebufferLayers;
             break;
         case GL_MAX_FRAMEBUFFER_SAMPLES:
-            *params = 16; // TODO
+            *params = activeBackendObject->GetDynamicParameters().MaxFramebufferSamples;
             break;
         case GL_MAX_GEOMETRY_ATOMIC_COUNTERS:
-            *params = 14; // TODO
+            *params = kFrontendMaxGeometryAtomicCounters;
             break;
         case GL_MAX_GEOMETRY_SHADER_STORAGE_BLOCKS:
             *params = 16; // TODO
             break;
         case GL_MAX_GEOMETRY_INPUT_COMPONENTS:
-            *params = 128; // TODO
+            *params = kFrontendMaxGeometryInputComponents;
             break;
         case GL_MAX_GEOMETRY_OUTPUT_COMPONENTS:
-            *params = 128; // TODO
+            *params = kFrontendMaxGeometryOutputComponents;
             break;
         case GL_MAX_GEOMETRY_TEXTURE_IMAGE_UNITS:
-            *params = 8; // TODO
+            *params = kFrontendMaxGeometryTextureImageUnits;
             break;
         case GL_MAX_GEOMETRY_UNIFORM_BLOCKS:
-            *params = 14; // TODO
+            *params = kFrontendMaxGeometryUniformBlocks;
             break;
         case GL_MAX_GEOMETRY_UNIFORM_COMPONENTS:
-            *params = 1024 * 4; // TODO
+            *params = kFrontendMaxGeometryUniformComponents;
             break;
         case GL_MAX_IMAGE_UNITS:
-            *params = MG_State::GLState::TextureState::MAX_TEXTURE_IMAGE_UNITS; // TODO: use backend value
+            *params = activeBackendObject->GetDynamicParameters().MaxImageUnits;
             break;
         case GL_MAX_COMBINED_IMAGE_UNITS_AND_FRAGMENT_OUTPUTS:
-            *params = MG_State::GLState::TextureState::MAX_TEXTURE_IMAGE_UNITS +
-                      MG_State::GLState::FramebufferObject::MAX_DRAW_BUFFERS;
+            *params = activeBackendObject->GetDynamicParameters().MaxImageUnits +
+                      activeBackendObject->GetDynamicParameters().MaxDrawBuffers;
             break;
         case GL_MAX_COMBINED_IMAGE_UNIFORMS:
-            *params = MG_State::GLState::TextureState::MAX_TEXTURE_IMAGE_UNITS; // TODO: use backend value
+            *params = activeBackendObject->GetDynamicParameters().MaxCombinedImageUniforms;
             break;
         case GL_MAX_IMAGE_SAMPLES:
             *params = 0; // multisampled image load/store is not exposed by the DirectGLES frontend
             break;
         case GL_MAX_COMPUTE_IMAGE_UNIFORMS:
-            *params = MG_State::GLState::TextureState::MAX_TEXTURE_IMAGE_UNITS; // TODO: use backend value
+            *params = activeBackendObject->GetDynamicParameters().MaxComputeImageUniforms;
             break;
         case GL_MAX_INTEGER_SAMPLES:
-            *params = 16; // TODO
+            *params = activeBackendObject->GetDynamicParameters().MaxIntegerSamples;
+            break;
+        case GL_MULTISAMPLE:
+            *params = MG_State::pGLContext->IsCapabilityEnabled(CapabilityInput::Multisample) ? GL_TRUE : GL_FALSE;
             break;
         case GL_MIN_MAP_BUFFER_ALIGNMENT:
             *params = 64; // TODO
@@ -508,31 +1119,31 @@ namespace MobileGL::MG_Impl::GLImpl {
             *params = 256; // TODO
             break;
         case GL_MAX_PROGRAM_TEXEL_OFFSET:
-            *params = 7; // TODO
+            *params = kFrontendMaxProgramTexelOffset;
             break;
         case GL_MIN_PROGRAM_TEXEL_OFFSET:
-            *params = -8; // TODO
+            *params = kFrontendMinProgramTexelOffset;
             break;
         case GL_MAX_RECTANGLE_TEXTURE_SIZE:
             *params = 16 * 1024; // TODO
             break;
         case GL_MAX_RENDERBUFFER_SIZE:
-            *params = 16 * 1024; // TODO
+            *params = activeBackendObject->GetDynamicParameters().MaxRenderbufferSize;
             break;
         case GL_MAX_SAMPLE_MASK_WORDS:
-            *params = 1; // TODO
+            *params = activeBackendObject->GetDynamicParameters().MaxSampleMaskWords;
             break;
         case GL_MAX_SERVER_WAIT_TIMEOUT:
             *params = INT_MAX; // TODO
             break;
         case GL_MAX_SHADER_STORAGE_BUFFER_BINDINGS:
-            *params = 16; // TODO
+            *params = activeBackendObject->GetDynamicParameters().MaxShaderStorageBufferBindings;
             break;
         case GL_MAX_TESS_CONTROL_ATOMIC_COUNTERS:
-            *params = 1024 * 4; // TODO
+            *params = kFrontendMaxTessControlAtomicCounters;
             break;
         case GL_MAX_TESS_EVALUATION_ATOMIC_COUNTERS:
-            *params = 1024 * 4; // TODO
+            *params = kFrontendMaxTessEvaluationAtomicCounters;
             break;
         case GL_MAX_TESS_CONTROL_SHADER_STORAGE_BLOCKS:
             *params = 16; // TODO
@@ -541,77 +1152,77 @@ namespace MobileGL::MG_Impl::GLImpl {
             *params = 16; // TODO
             break;
         case GL_MAX_TEXTURE_BUFFER_SIZE:
-            *params = 1024 * 1024 * 128; // TODO
+            *params = activeBackendObject->GetDynamicParameters().MaxTextureBufferSize;
             break;
         case GL_MAX_TEXTURE_IMAGE_UNITS:
-            *params = 32; // TODO
+            *params = activeBackendObject->GetDynamicParameters().MaxTextureImageUnits;
             break;
         case GL_MAX_TEXTURE_LOD_BIAS:
             *params = 15; // TODO
             break;
         case GL_MAX_TEXTURE_SIZE:
-            *params = 1024 * 16; // TODO
+            *params = activeBackendObject->GetDynamicParameters().MaxTextureSize;
             break;
         case GL_MAX_UNIFORM_BUFFER_BINDINGS:
-            *params = 84; // TODO
+            *params = activeBackendObject->GetDynamicParameters().MaxUniformBufferBindings;
             break;
         case GL_MAX_UNIFORM_BLOCK_SIZE:
-            *params = 1024 * 24; // TODO
+            *params = activeBackendObject->GetDynamicParameters().MaxUniformBlockSize;
             break;
         case GL_MAX_UNIFORM_LOCATIONS:
             *params = 1024 * 4; // TODO
             break;
         case GL_MAX_VARYING_COMPONENTS:
-            *params = 16; // TODO
+            *params = kFrontendMaxVaryingComponents;
             break;
         case GL_MAX_VARYING_VECTORS:
-            *params = 16; // TODO
+            *params = kFrontendMaxVaryingVectors;
             break;
         case GL_MAX_VERTEX_ATOMIC_COUNTERS:
-            *params = 1024 * 4; // TODO
+            *params = kFrontendMaxVertexAtomicCounters;
             break;
         case GL_MAX_VERTEX_ATTRIBS:
-            *params = 16; // TODO
+            *params = activeBackendObject->GetDynamicParameters().MaxVertexAttribs;
             break;
         case GL_MAX_VERTEX_SHADER_STORAGE_BLOCKS:
             *params = 16; // TODO
             break;
         case GL_MAX_VERTEX_TEXTURE_IMAGE_UNITS:
-            *params = 32; // TODO
+            *params = activeBackendObject->GetDynamicParameters().MaxVertexTextureImageUnits;
             break;
         case GL_MAX_VERTEX_UNIFORM_COMPONENTS:
-            *params = 1024 * 4; // TODO
+            *params = kFrontendMaxVertexUniformComponents;
             break;
         case GL_MAX_VERTEX_UNIFORM_VECTORS:
-            *params = 1024; // TODO
+            *params = kFrontendMaxVertexUniformVectors;
             break;
         case GL_MAX_VERTEX_OUTPUT_COMPONENTS:
-            *params = 128; // TODO
+            *params = kFrontendMaxVertexOutputComponents;
             break;
         case GL_MAX_VERTEX_UNIFORM_BLOCKS:
-            *params = 14; // TODO
+            *params = kFrontendMaxVertexUniformBlocks;
             break;
         case GL_MAX_VIEWPORT_DIMS:
-            params[0] = 1024 * 16; // TODO
-            params[1] = 1024 * 16; // TODO
+            params[0] = activeBackendObject->GetDynamicParameters().MaxViewportWidth;
+            params[1] = activeBackendObject->GetDynamicParameters().MaxViewportHeight;
             break;
         case GL_MAX_VIEWPORTS:
-            *params = 16; // TODO
+            *params = activeBackendObject->GetDynamicParameters().MaxViewports;
             break;
         case GL_MINOR_VERSION:
             *params = rendererInfo.RendererGLInfo.TargetGLVersion.Minor;
             break;
         case GL_NUM_COMPRESSED_TEXTURE_FORMATS:
-            *params = 18; // TODO
+            *params = 0; // compressed texture upload entrypoints are still unimplemented
             break;
         case GL_NUM_EXTENSIONS:
             *params = (Int)rendererInfo.RendererGLInfo.Extensions.size();
             break;
         case GL_NUM_PROGRAM_BINARY_FORMATS:
-            *params = 2; // TODO
+            *params = 0;
             break;
         case GL_NUM_SHADER_BINARY_FORMATS:
-            *params = 0; // TODO
+            *params = 0; // ShaderBinary entrypoints are stubbed
             break;
         case GL_PACK_ALIGNMENT:
             *params = MG_State::pGLContext->GetPixelStoreParam(PixelStoreParam::PackAlignment);
@@ -638,47 +1249,57 @@ namespace MobileGL::MG_Impl::GLImpl {
             *params = MG_State::pGLContext->GetPixelStoreParam(PixelStoreParam::PackSwapBytes);
             break;
         case GL_PIXEL_PACK_BUFFER_BINDING:
-            *params = 0; // TODO
+            if (const auto& obj = MG_State::pGLContext->GetBufferBindingSlot(BufferTarget::PixelPack).GetBoundObject()) {
+                *params = static_cast<GLint>(obj->GetExternalIndex());
+            } else {
+                *params = 0;
+            }
             break;
         case GL_PIXEL_UNPACK_BUFFER_BINDING:
-            *params = 0; // TODO
+            if (const auto& obj =
+                    MG_State::pGLContext->GetBufferBindingSlot(BufferTarget::PixelUnpack).GetBoundObject()) {
+                *params = static_cast<GLint>(obj->GetExternalIndex());
+            } else {
+                *params = 0;
+            }
             break;
         case GL_POINT_FADE_THRESHOLD_SIZE:
-            *params = 0; // TODO
+            *params = 1;
+            break;
+        case GL_PRIMITIVE_RESTART:
+            *params = MG_State::pGLContext->IsCapabilityEnabled(CapabilityInput::PrimitiveRestart) ? GL_TRUE
+                                                                                                    : GL_FALSE;
             break;
         case GL_PRIMITIVE_RESTART_INDEX:
-            *params = 0; // TODO
+            *params = 0; // fixed default; PrimitiveRestartIndex entrypoints are stubbed
             break;
         case GL_PROGRAM_BINARY_FORMATS:
-            *params = 0; // TODO
+            *params = 0; // program-binary entrypoints are stubbed
             break;
         case GL_PROGRAM_PIPELINE_BINDING:
-            *params = 0; // TODO
+            *params = 0; // program-pipeline entrypoints are stubbed
             break;
         case GL_PROGRAM_POINT_SIZE:
             *params = MG_State::pGLContext->IsCapabilityEnabled(CapabilityInput::ProgramPointSize) ? GL_TRUE : GL_FALSE;
             break;
         case GL_PROVOKING_VERTEX:
-            *params = 0; // TODO
+            *params = GL_LAST_VERTEX_CONVENTION;
             break;
         case GL_POINT_SIZE:
-            *params = 0; // TODO
+            *params = static_cast<GLint>(MG_State::pGLContext->GetPointSize());
             break;
         case GL_POLYGON_MODE:
             params[0] = GL_FILL;
             params[1] = GL_FILL;
             break;
         case GL_POINT_SIZE_GRANULARITY:
-            *params = 0; // TODO
-            break;
-        case GL_POINT_SIZE_RANGE:
-            *params = 0; // TODO
+            *params = static_cast<GLint>(activeBackendObject->GetDynamicParameters().PointSizeGranularity);
             break;
         case GL_POLYGON_OFFSET_FACTOR:
-            *params = 0; // TODO
+            *params = static_cast<GLint>(MG_State::pGLContext->GetPolygonOffsetFactor());
             break;
         case GL_POLYGON_OFFSET_UNITS:
-            *params = 0; // TODO
+            *params = static_cast<GLint>(MG_State::pGLContext->GetPolygonOffsetUnits());
             break;
         case GL_POLYGON_OFFSET_FILL:
             *params =
@@ -696,25 +1317,51 @@ namespace MobileGL::MG_Impl::GLImpl {
             *params = MG_State::pGLContext->IsCapabilityEnabled(CapabilityInput::PolygonSmooth) ? GL_TRUE : GL_FALSE;
             break;
         case GL_POLYGON_SMOOTH_HINT:
-            *params = 0; // TODO
+            *params = GL_DONT_CARE;
             break;
         case GL_READ_BUFFER:
-            *params = 0; // TODO
+            if (const auto& fbo = MG_State::pGLContext->GetFramebufferBindingSlot(FramebufferTarget::Read)
+                                      .GetBoundObject()) {
+                *params =
+                    static_cast<GLint>(MG_Util::ConvertFramebufferAttachmentTypeToGLEnum(fbo->GetReadBuffer()));
+            } else {
+                *params = 0;
+            }
             break;
         case GL_RENDERBUFFER_BINDING:
-            *params = 0; // TODO
+            if (const auto& obj =
+                    MG_State::pGLContext->GetRenderbufferBindingSlot(RenderbufferTarget::Renderbuffer).GetBoundObject()) {
+                *params = static_cast<GLint>(obj->GetExternalIndex());
+            } else {
+                *params = 0;
+            }
             break;
         case GL_SAMPLE_BUFFERS:
-            *params = 0; // TODO
+            *params = ResolveDrawFramebufferSampleCount() > 0 ? 1 : 0;
             break;
         case GL_SAMPLE_COVERAGE_VALUE:
-            *params = 0; // TODO
+            *params = static_cast<GLint>(MG_State::pGLContext->GetSampleCoverageValue());
             break;
         case GL_SAMPLE_COVERAGE_INVERT:
-            *params = 0; // TODO
+            *params = MG_State::pGLContext->GetSampleCoverageInvert() ? GL_TRUE : GL_FALSE;
+            break;
+        case GL_SAMPLE_ALPHA_TO_COVERAGE:
+            *params =
+                MG_State::pGLContext->IsCapabilityEnabled(CapabilityInput::SampleAlphaToCoverage) ? GL_TRUE : GL_FALSE;
+            break;
+        case GL_SAMPLE_ALPHA_TO_ONE:
+            *params =
+                MG_State::pGLContext->IsCapabilityEnabled(CapabilityInput::SampleAlphaToOne) ? GL_TRUE : GL_FALSE;
+            break;
+        case GL_SAMPLE_COVERAGE:
+            *params = MG_State::pGLContext->IsCapabilityEnabled(CapabilityInput::SampleCoverage) ? GL_TRUE
+                                                                                                  : GL_FALSE;
+            break;
+        case GL_SAMPLE_MASK:
+            *params = MG_State::pGLContext->IsCapabilityEnabled(CapabilityInput::SampleMask) ? GL_TRUE : GL_FALSE;
             break;
         case GL_SAMPLE_MASK_VALUE:
-            *params = 0; // TODO
+            *params = static_cast<GLint>(MG_State::pGLContext->GetSampleMaskValue());
             break;
         case GL_SAMPLER_BINDING: {
             Int unit = MG_State::pGLContext->GetActiveTextureUnit();
@@ -724,16 +1371,21 @@ namespace MobileGL::MG_Impl::GLImpl {
             break;
         }
         case GL_SAMPLES:
-            *params = 0; // TODO
+            *params = ResolveDrawFramebufferSampleCount();
             break;
-        case GL_SCISSOR_BOX:
-            *params = 0; // TODO
+        case GL_SCISSOR_BOX: {
+            const IntVec4& scissorBox = MG_State::pGLContext->GetScissorBox();
+            params[0] = scissorBox.x();
+            params[1] = scissorBox.y();
+            params[2] = scissorBox.z();
+            params[3] = scissorBox.w();
             break;
+        }
         case GL_SCISSOR_TEST:
             *params = MG_State::pGLContext->IsCapabilityEnabled(CapabilityInput::ScissorTest) ? GL_TRUE : GL_FALSE;
             break;
         case GL_SHADER_COMPILER:
-            *params = 0; // TODO
+            *params = GL_TRUE;
             break;
         case GL_SHADER_STORAGE_BUFFER_BINDING: {
             auto& obj = MG_State::pGLContext->GetBufferBindingSlot(BufferTarget::ShaderStorage).GetBoundObject();
@@ -741,80 +1393,110 @@ namespace MobileGL::MG_Impl::GLImpl {
             break;
         }
         case GL_SHADER_STORAGE_BUFFER_OFFSET_ALIGNMENT:
-            *params = 256; // TODO: use backend value
+            *params = static_cast<GLint>(activeBackendObject->GetDynamicParameters().UniformBufferOffsetAlignment);
             break;
         case GL_SHADER_STORAGE_BUFFER_START:
-            *params = 0; // TODO
+            RecordIndexedOnlyGetterError(__func__, pname);
             break;
         case GL_SHADER_STORAGE_BUFFER_SIZE:
-            *params = 0; // TODO
+            RecordIndexedOnlyGetterError(__func__, pname);
             break;
-        case GL_SMOOTH_LINE_WIDTH_RANGE:
-            *params = 0; // TODO
+        case GL_SMOOTH_LINE_WIDTH_RANGE: {
+            const auto& dynamicParameters = activeBackendObject->GetDynamicParameters();
+            params[0] = static_cast<GLint>(dynamicParameters.SmoothLineWidthRangeMin);
+            params[1] = static_cast<GLint>(dynamicParameters.SmoothLineWidthRangeMax);
             break;
+        }
         case GL_SMOOTH_LINE_WIDTH_GRANULARITY:
-            *params = 0; // TODO
+            *params = static_cast<GLint>(activeBackendObject->GetDynamicParameters().SmoothLineWidthGranularity);
+            break;
             break;
         case GL_STENCIL_BACK_FAIL:
-            *params = 0; // TODO
+            *params = static_cast<GLint>(
+                MG_Util::ConvertStencilOperationToGLEnum(
+                    MG_State::pGLContext->GetStencilState(StencilFace::Back).FailOp));
             break;
         case GL_STENCIL_BACK_FUNC:
-            *params = 0; // TODO
+            *params = static_cast<GLint>(
+                MG_Util::ConvertDepthTestFuncToGLEnum(
+                    MG_State::pGLContext->GetStencilState(StencilFace::Back).Func));
             break;
         case GL_STENCIL_BACK_PASS_DEPTH_FAIL:
-            *params = 0; // TODO
+            *params = static_cast<GLint>(
+                MG_Util::ConvertStencilOperationToGLEnum(
+                    MG_State::pGLContext->GetStencilState(StencilFace::Back).PassDepthFailOp));
             break;
         case GL_STENCIL_BACK_PASS_DEPTH_PASS:
-            *params = 0; // TODO
+            *params = static_cast<GLint>(
+                MG_Util::ConvertStencilOperationToGLEnum(
+                    MG_State::pGLContext->GetStencilState(StencilFace::Back).PassDepthPassOp));
             break;
         case GL_STENCIL_BACK_REF:
-            *params = 0; // TODO
+            *params = MG_State::pGLContext->GetStencilState(StencilFace::Back).Ref;
             break;
         case GL_STENCIL_BACK_VALUE_MASK:
-            *params = 0; // TODO
+            *params = static_cast<GLint>(MG_State::pGLContext->GetStencilState(StencilFace::Back).ValueMask);
             break;
         case GL_STENCIL_BACK_WRITEMASK:
-            *params = 0; // TODO
+            *params = static_cast<GLint>(MG_State::pGLContext->GetStencilState(StencilFace::Back).WriteMask);
             break;
         case GL_STENCIL_CLEAR_VALUE:
-            *params = 0; // TODO
+            *params = static_cast<GLint>(MG_State::pGLContext->GetClearStencil());
             break;
         case GL_STENCIL_FAIL:
-            *params = 0; // TODO
+            *params = static_cast<GLint>(
+                MG_Util::ConvertStencilOperationToGLEnum(
+                    MG_State::pGLContext->GetStencilState(StencilFace::Front).FailOp));
             break;
         case GL_STENCIL_FUNC:
-            *params = 0; // TODO
+            *params = static_cast<GLint>(
+                MG_Util::ConvertDepthTestFuncToGLEnum(
+                    MG_State::pGLContext->GetStencilState(StencilFace::Front).Func));
             break;
         case GL_STENCIL_PASS_DEPTH_FAIL:
-            *params = 0; // TODO
+            *params = static_cast<GLint>(
+                MG_Util::ConvertStencilOperationToGLEnum(
+                    MG_State::pGLContext->GetStencilState(StencilFace::Front).PassDepthFailOp));
             break;
         case GL_STENCIL_PASS_DEPTH_PASS:
-            *params = 0; // TODO
+            *params = static_cast<GLint>(
+                MG_Util::ConvertStencilOperationToGLEnum(
+                    MG_State::pGLContext->GetStencilState(StencilFace::Front).PassDepthPassOp));
             break;
         case GL_STENCIL_REF:
-            *params = 0; // TODO
+            *params = MG_State::pGLContext->GetStencilState(StencilFace::Front).Ref;
             break;
         case GL_STENCIL_TEST:
             *params = MG_State::pGLContext->IsCapabilityEnabled(CapabilityInput::StencilTest) ? GL_TRUE : GL_FALSE;
             break;
         case GL_STENCIL_VALUE_MASK:
-            *params = 0; // TODO
+            *params = static_cast<GLint>(MG_State::pGLContext->GetStencilState(StencilFace::Front).ValueMask);
             break;
         case GL_STENCIL_WRITEMASK:
-            *params = 0; // TODO
+            *params = static_cast<GLint>(MG_State::pGLContext->GetStencilState(StencilFace::Front).WriteMask);
             break;
         case GL_STEREO:
-            *params = 0; // TODO
+            *params = 0; // stereo surfaces are not exposed
             break;
         case GL_SUBPIXEL_BITS:
-            *params = 0; // TODO
+            *params = activeBackendObject->GetDynamicParameters().ViewportSubpixelBits;
             break;
-        case GL_TEXTURE_BINDING_1D:
-            *params = 0; // TODO
+        case GL_TEXTURE_BINDING_1D: {
+            Int unit = MG_State::pGLContext->GetActiveTextureUnit();
+            auto& tu = MG_State::pGLContext->GetTextureUnitObject(unit);
+            const auto& slot = tu.GetBindingSlot(TextureTarget::Texture1D);
+            const auto& obj = slot.GetBoundObject();
+            *params = obj ? static_cast<GLint>(obj->GetExternalIndex()) : 0;
             break;
-        case GL_TEXTURE_BINDING_1D_ARRAY:
-            *params = 0; // TODO
+        }
+        case GL_TEXTURE_BINDING_1D_ARRAY: {
+            Int unit = MG_State::pGLContext->GetActiveTextureUnit();
+            auto& tu = MG_State::pGLContext->GetTextureUnitObject(unit);
+            const auto& slot = tu.GetBindingSlot(TextureTarget::Texture1DArray);
+            const auto& obj = slot.GetBoundObject();
+            *params = obj ? static_cast<GLint>(obj->GetExternalIndex()) : 0;
             break;
+        }
         case GL_TEXTURE_BINDING_2D: {
             Int unit = MG_State::pGLContext->GetActiveTextureUnit();
             auto& tu = MG_State::pGLContext->GetTextureUnitObject(unit);
@@ -824,15 +1506,30 @@ namespace MobileGL::MG_Impl::GLImpl {
             MGLOG_D("Get GL_TEXTURE_BINDING_2D: %d", *params);
             break;
         }
-        case GL_TEXTURE_BINDING_2D_ARRAY:
-            *params = 0; // TODO
+        case GL_TEXTURE_BINDING_2D_ARRAY: {
+            Int unit = MG_State::pGLContext->GetActiveTextureUnit();
+            auto& tu = MG_State::pGLContext->GetTextureUnitObject(unit);
+            const auto& slot = tu.GetBindingSlot(TextureTarget::Texture2DArray);
+            const auto& obj = slot.GetBoundObject();
+            *params = obj ? static_cast<GLint>(obj->GetExternalIndex()) : 0;
             break;
-        case GL_TEXTURE_BINDING_2D_MULTISAMPLE:
-            *params = 0; // TODO
+        }
+        case GL_TEXTURE_BINDING_2D_MULTISAMPLE: {
+            Int unit = MG_State::pGLContext->GetActiveTextureUnit();
+            auto& tu = MG_State::pGLContext->GetTextureUnitObject(unit);
+            const auto& slot = tu.GetBindingSlot(TextureTarget::Texture2DMultisample);
+            const auto& obj = slot.GetBoundObject();
+            *params = obj ? static_cast<GLint>(obj->GetExternalIndex()) : 0;
             break;
-        case GL_TEXTURE_BINDING_2D_MULTISAMPLE_ARRAY:
-            *params = 0; // TODO
+        }
+        case GL_TEXTURE_BINDING_2D_MULTISAMPLE_ARRAY: {
+            Int unit = MG_State::pGLContext->GetActiveTextureUnit();
+            auto& tu = MG_State::pGLContext->GetTextureUnitObject(unit);
+            const auto& slot = tu.GetBindingSlot(TextureTarget::Texture2DMultisampleArray);
+            const auto& obj = slot.GetBoundObject();
+            *params = obj ? static_cast<GLint>(obj->GetExternalIndex()) : 0;
             break;
+        }
         case GL_TEXTURE_BINDING_3D: {
             Int unit = MG_State::pGLContext->GetActiveTextureUnit();
             auto& tu = MG_State::pGLContext->GetTextureUnitObject(unit);
@@ -841,9 +1538,14 @@ namespace MobileGL::MG_Impl::GLImpl {
             *params = obj ? static_cast<GLint>(obj->GetExternalIndex()) : 0;
             break;
         }
-        case GL_TEXTURE_BINDING_BUFFER:
-            *params = 0; // TODO
+        case GL_TEXTURE_BINDING_BUFFER: {
+            Int unit = MG_State::pGLContext->GetActiveTextureUnit();
+            auto& tu = MG_State::pGLContext->GetTextureUnitObject(unit);
+            const auto& slot = tu.GetBindingSlot(TextureTarget::TextureBuffer);
+            const auto& obj = slot.GetBoundObject();
+            *params = obj ? static_cast<GLint>(obj->GetExternalIndex()) : 0;
             break;
+        }
         case GL_TEXTURE_BINDING_CUBE_MAP: {
             Int unit = MG_State::pGLContext->GetActiveTextureUnit();
             auto& tu = MG_State::pGLContext->GetTextureUnitObject(unit);
@@ -852,38 +1554,52 @@ namespace MobileGL::MG_Impl::GLImpl {
             *params = obj ? static_cast<GLint>(obj->GetExternalIndex()) : 0;
             break;
         }
-        case GL_TEXTURE_BINDING_RECTANGLE:
-            *params = 0; // TODO
+        case GL_TEXTURE_BINDING_RECTANGLE: {
+            Int unit = MG_State::pGLContext->GetActiveTextureUnit();
+            auto& tu = MG_State::pGLContext->GetTextureUnitObject(unit);
+            const auto& slot = tu.GetBindingSlot(TextureTarget::TextureRectangle);
+            const auto& obj = slot.GetBoundObject();
+            *params = obj ? static_cast<GLint>(obj->GetExternalIndex()) : 0;
             break;
+        }
         case GL_TEXTURE_COMPRESSION_HINT:
-            *params = 0; // TODO
+            *params = GL_DONT_CARE;
             break;
         case GL_TEXTURE_BUFFER_OFFSET_ALIGNMENT:
-            *params = 0; // TODO
+            *params = 0; // texture-buffer range entrypoints are stubbed
             break;
         case GL_TIMESTAMP:
-            *params = 0; // TODO
+            *params = 0; // timer-query entrypoints are stubbed
             break;
         case GL_TRANSFORM_FEEDBACK_BUFFER_BINDING:
-            *params = 0; // TODO
+            if (const auto& obj =
+                    MG_State::pGLContext->GetBufferBindingSlot(BufferTarget::TransformFeedback).GetBoundObject()) {
+                *params = static_cast<GLint>(obj->GetExternalIndex());
+            } else {
+                *params = 0;
+            }
             break;
         case GL_TRANSFORM_FEEDBACK_BUFFER_START:
-            *params = 0; // TODO
+            RecordIndexedOnlyGetterError(__func__, pname);
             break;
         case GL_TRANSFORM_FEEDBACK_BUFFER_SIZE:
-            *params = 0; // TODO
+            RecordIndexedOnlyGetterError(__func__, pname);
             break;
         case GL_UNIFORM_BUFFER_BINDING:
-            *params = 0; // TODO
+            if (const auto& obj = MG_State::pGLContext->GetBufferBindingSlot(BufferTarget::Uniform).GetBoundObject()) {
+                *params = static_cast<GLint>(obj->GetExternalIndex());
+            } else {
+                *params = 0;
+            }
             break;
         case GL_UNIFORM_BUFFER_OFFSET_ALIGNMENT:
             *params = (Int)activeBackendObject->GetDynamicParameters().UniformBufferOffsetAlignment;
             break;
         case GL_UNIFORM_BUFFER_SIZE:
-            *params = 0; // TODO
+            RecordIndexedOnlyGetterError(__func__, pname);
             break;
         case GL_UNIFORM_BUFFER_START:
-            *params = 0; // TODO
+            RecordIndexedOnlyGetterError(__func__, pname);
             break;
         case GL_UNPACK_ALIGNMENT:
             *params = MG_State::pGLContext->GetPixelStoreParam(PixelStoreParam::UnpackAlignment);
@@ -915,19 +1631,19 @@ namespace MobileGL::MG_Impl::GLImpl {
             break;
         }
         case GL_VERTEX_BINDING_DIVISOR:
-            *params = 0; // TODO
+            *params = 0; // vertex-binding entrypoints are stubbed
             break;
         case GL_VERTEX_BINDING_OFFSET:
-            *params = 0; // TODO
+            *params = 0; // vertex-binding entrypoints are stubbed
             break;
         case GL_VERTEX_BINDING_STRIDE:
-            *params = 0; // TODO
+            *params = 0; // vertex-binding entrypoints are stubbed
             break;
         case GL_MAX_VERTEX_ATTRIB_RELATIVE_OFFSET:
-            *params = 0; // TODO
+            *params = 0; // vertex-binding entrypoints are stubbed
             break;
         case GL_MAX_VERTEX_ATTRIB_BINDINGS:
-            *params = 0; // TODO
+            *params = 0; // vertex-binding entrypoints are stubbed
             break;
         case GL_VIEWPORT: {
             const auto& vp = MG_State::pGLContext->GetViewport();
@@ -938,13 +1654,14 @@ namespace MobileGL::MG_Impl::GLImpl {
             break;
         }
         case GL_VIEWPORT_BOUNDS_RANGE:
-            *params = 0; // TODO
+            params[0] = static_cast<GLint>(activeBackendObject->GetDynamicParameters().ViewportBoundsRangeMin);
+            params[1] = static_cast<GLint>(activeBackendObject->GetDynamicParameters().ViewportBoundsRangeMax);
             break;
         case GL_VIEWPORT_INDEX_PROVOKING_VERTEX:
-            *params = 0; // TODO
+            *params = GL_LAST_VERTEX_CONVENTION;
             break;
         case GL_VIEWPORT_SUBPIXEL_BITS:
-            *params = 0; // TODO
+            *params = activeBackendObject->GetDynamicParameters().ViewportSubpixelBits;
             break;
         case GL_MAX_ELEMENT_INDEX:
             *params = 1024 * 1024; // TODO
@@ -954,10 +1671,11 @@ namespace MobileGL::MG_Impl::GLImpl {
             break;
         case GL_MAX_COLOR_ATTACHMENTS:
         case GL_MAX_DRAW_BUFFERS:
-            *params = MG_State::GLState::FramebufferObject::MAX_DRAW_BUFFERS; // TODO: use backend value
+            *params = pname == GL_MAX_COLOR_ATTACHMENTS ? activeBackendObject->GetDynamicParameters().MaxColorAttachments
+                                                        : activeBackendObject->GetDynamicParameters().MaxDrawBuffers;
             break;
         case GL_MAX_SAMPLES:
-            *params = 16; // TODO
+            *params = activeBackendObject->GetDynamicParameters().MaxSamples;
             break;
         default:
             MGLOG_E("glGetIntegerv: Invalid enum %s (0x%X)", MG_Util::ConvertGLEnumToString(pname).c_str(), pname);

@@ -12,8 +12,8 @@
 namespace MobileGL::MG_State::GLState {
     // FramebufferAttachmentObject
     FramebufferAttachmentObject::FramebufferAttachmentObject(
-        const SharedPtr<MG_State::GLState::ITextureObject>& texture, Int level)
-        : m_texture(texture), m_textureLevel(level) {}
+        const SharedPtr<MG_State::GLState::ITextureObject>& texture, TextureUploadTarget textureUploadTarget, Int level)
+        : m_texture(texture), m_textureUploadTarget(textureUploadTarget), m_textureLevel(level) {}
     FramebufferAttachmentObject::FramebufferAttachmentObject(const SharedPtr<RenderbufferObject>& renderbuffer)
         : m_renderbuffer(renderbuffer) {}
     FramebufferAttachmentObject::FramebufferAttachmentObject(Bool IsValid)
@@ -45,6 +45,10 @@ namespace MobileGL::MG_State::GLState {
         return m_textureLevel;
     }
 
+    TextureUploadTarget FramebufferAttachmentObject::GetTextureUploadTarget() const {
+        return m_textureUploadTarget;
+    }
+
     Bool FramebufferAttachmentObject::IsComplete() const {
         if (IsTexture()) {
             Bool complete = m_texture->IsComplete();
@@ -59,11 +63,18 @@ namespace MobileGL::MG_State::GLState {
 
     IntVec3 FramebufferAttachmentObject::GetSize() const {
         if (IsTexture()) {
-            // TODO: get correct upload target
             MOBILEGL_ASSERT(nullptr != static_cast<MG_State::GLState::TextureObjectMipmap*>(m_texture.get()),
                             "Texture object here should always be an object with mipmap");
             auto textureMipmapObject = static_cast<MG_State::GLState::TextureObjectMipmap*>(m_texture.get());
-            return textureMipmapObject->GetMipmapTexelSize(TextureUploadTarget::Texture2D, m_textureLevel);
+            TextureUploadTarget resolvedTarget = m_textureUploadTarget;
+            if (resolvedTarget == TextureUploadTarget::Unknown) {
+                const auto& uploadTargets = m_texture->GetUploadTargets();
+                MOBILEGL_ASSERT(!uploadTargets.empty(),
+                                "FramebufferAttachmentObject::GetSize: textureId=%u exposes no upload targets",
+                                m_texture->GetExternalIndex());
+                resolvedTarget = uploadTargets[0];
+            }
+            return textureMipmapObject->GetMipmapTexelSize(resolvedTarget, m_textureLevel);
         } else if (IsRenderbuffer()) {
             return {m_renderbuffer->GetWidth(), m_renderbuffer->GetHeight(), 1};
         }
@@ -79,13 +90,16 @@ namespace MobileGL::MG_State::GLState {
         : m_externalIndex(externalIndex), m_attachmentVersions{}, m_drawBuffers{} {
         m_attachmentObjects.fill(FramebufferAttachmentObject(false));
         m_drawBuffers.fill(FramebufferAttachmentType::None);
-        m_drawBuffers[0] = FramebufferAttachmentType::Color0;
+        const FramebufferAttachmentType defaultColorBuffer =
+            (externalIndex == 0) ? FramebufferAttachmentType::BackLeft : FramebufferAttachmentType::Color0;
+        m_drawBuffers[0] = defaultColorBuffer;
+        m_readBuffer = defaultColorBuffer;
         m_attachmentVersions.fill(0);
     }
 
     void FramebufferObject::AttachTexture(FramebufferAttachmentType type, const SharedPtr<ITextureObject>& texture,
-                                          int level) {
-        m_attachmentObjects[static_cast<SizeT>(type)] = FramebufferAttachmentObject(texture, level);
+                                          TextureUploadTarget textureUploadTarget, int level) {
+        m_attachmentObjects[static_cast<SizeT>(type)] = FramebufferAttachmentObject(texture, textureUploadTarget, level);
         BumpAttachmentVersion(type);
     }
 
@@ -148,6 +162,12 @@ namespace MobileGL::MG_State::GLState {
 
     const FramebufferObject::FramebufferAttachmentArray& FramebufferObject::GetDrawBuffers() const {
         return m_drawBuffers;
+    }
+
+    void FramebufferObject::SetReadBuffer(FramebufferAttachmentType buf) {
+        if (m_readBuffer == buf) return;
+        m_readBuffer = buf;
+        ++m_objectVersion;
     }
 
     Uint FramebufferObject::GetExternalIndex() const {

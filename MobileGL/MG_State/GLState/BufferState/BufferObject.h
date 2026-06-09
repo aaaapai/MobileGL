@@ -94,6 +94,7 @@ namespace MobileGL {
             SizeT GetSize() const;
             BufferUsage GetUsage() const;
             Range1D GetMappedRange() const;
+            void* GetMappedPointer();
             const SharedPtr<Data>& GetDataReadOnly() const;
             Flags<BufferMappingAccessBit> GetMappingAccess() const;
             Uint GetExternalIndex() const;

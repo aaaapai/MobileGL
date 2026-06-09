@@ -13,7 +13,9 @@
 namespace MobileGL {
     namespace MG_Util {
         String ConvertBlendFactorToString(BlendFactor value);
+        String ConvertLogicOperationToString(LogicOperation value);
         String ConvertDepthTestFuncToString(DepthTestFunc value);
+        String ConvertStencilOperationToString(StencilOperation value);
         String ConvertPixelStoreParamToString(PixelStoreParam value);
         String ConvertCullFaceModeToString(CullFaceMode value);
         String ConvertFrontFaceModeToString(FrontFaceMode value);

@@ -614,10 +614,27 @@ namespace MobileGL::MG_Backend::DirectGLES {
                                             MG_Util::ConvertGLEnumToString(err).c_str());
                                 });
                             auto texelSize = textureMipmapObject->GetMipmapTexelSize(uploadTarget, level);
-                            g_GLESFuncs.glTexSubImage2D(glUploadTarget, static_cast<GLint>(level), 0, 0,
-                                                        static_cast<GLsizei>(texelSize.x()),
-                                                        static_cast<GLsizei>(texelSize.y()), glFormat, glType,
-                                                        textureMipmapObject->MapMipmapData(uploadTarget, level));
+                            const void* mipData = textureMipmapObject->MapMipmapData(uploadTarget, level);
+                            switch (stateTextureObject->GetTarget()) {
+                            case TextureTarget::Texture2D:
+                            case TextureTarget::TextureCubeMap:
+                                g_GLESFuncs.glTexSubImage2D(glUploadTarget, static_cast<GLint>(level), 0, 0,
+                                                            static_cast<GLsizei>(texelSize.x()),
+                                                            static_cast<GLsizei>(texelSize.y()), glFormat, glType,
+                                                            mipData);
+                                break;
+                            case TextureTarget::Texture3D:
+                                g_GLESFuncs.glTexSubImage3D(glUploadTarget, static_cast<GLint>(level), 0, 0, 0,
+                                                            static_cast<GLsizei>(texelSize.x()),
+                                                            static_cast<GLsizei>(texelSize.y()),
+                                                            static_cast<GLsizei>(texelSize.z()), glFormat, glType,
+                                                            mipData);
+                                break;
+                            default:
+                                MGLOG_E("Unhandled texture target %s",
+                                        MG_Util::ConvertTextureTargetToString(stateTextureObject->GetTarget()).c_str());
+                                break;
+                            }
                             textureMipmapObject->MarkStorageDirty(uploadTarget, level, false);
                         }
                     }
@@ -912,7 +929,11 @@ namespace MobileGL::MG_Backend::DirectGLES {
                     return false;
                 }
                 const auto& backendTextureObject = backendTextureIt->second;
-                auto glTextureTarget = MG_Util::ConvertTextureTargetToGLEnum(textureObject->GetTarget());
+                auto glTextureTarget =
+                    MG_Util::ConvertTextureUploadTargetToGLEnum(attachmentObject.GetTextureUploadTarget());
+                if (glTextureTarget == GL_UNKNOWN_MGL) {
+                    glTextureTarget = MG_Util::ConvertTextureTargetToGLEnum(textureObject->GetTarget());
+                }
                 backendTextureObject->Bind(glTextureTarget);
                 g_GLESFuncs.glFramebufferTexture2D(glFBOTarget, glBackendAttachment, glTextureTarget,
                                                    backendTextureObject->GetBackendTextureId(),
@@ -1428,7 +1449,8 @@ namespace MobileGL::MG_Backend::DirectGLES {
                     stateRBOObject->GetExternalIndex());
 
             if (m_isInitialized && m_cacheInternalFormat == stateRBOObject->GetInternalFormat() &&
-                m_cacheWidth == stateRBOObject->GetWidth() && m_cacheHeight == stateRBOObject->GetHeight()) {
+                m_cacheWidth == stateRBOObject->GetWidth() && m_cacheHeight == stateRBOObject->GetHeight() &&
+                m_cacheSamples == stateRBOObject->GetSamples()) {
                 MGLOG_D("RBO %u already initialized with matching parameters, skipping re-allocation.",
                         stateRBOObject->GetExternalIndex());
                 return;
@@ -1440,15 +1462,23 @@ namespace MobileGL::MG_Backend::DirectGLES {
             TextureInternalFormat internalFormat = stateRBOObject->GetInternalFormat();
             Int width = static_cast<Int>(stateRBOObject->GetWidth());
             Int height = static_cast<Int>(stateRBOObject->GetHeight());
+            Int samples = static_cast<Int>(stateRBOObject->GetSamples());
             GLenum glInternalFormat, glType, glFormat;
             TextureImpl::GenerateTextureFormatInfo(internalFormat, &glInternalFormat, &glFormat, &glType);
 
-            g_GLESFuncs.glRenderbufferStorage(GL_RENDERBUFFER, glInternalFormat, static_cast<GLsizei>(width),
-                                              static_cast<GLsizei>(height));
+            if (samples > 0) {
+                g_GLESFuncs.glRenderbufferStorageMultisample(
+                    GL_RENDERBUFFER, static_cast<GLsizei>(samples), glInternalFormat, static_cast<GLsizei>(width),
+                    static_cast<GLsizei>(height));
+            } else {
+                g_GLESFuncs.glRenderbufferStorage(GL_RENDERBUFFER, glInternalFormat, static_cast<GLsizei>(width),
+                                                  static_cast<GLsizei>(height));
+            }
 
             m_cacheInternalFormat = internalFormat;
             m_cacheWidth = width;
             m_cacheHeight = height;
+            m_cacheSamples = samples;
 
             m_isInitialized = true;
             MGLOG_D("RBO %u sync completed. backend ID %u", stateRBOObject->GetExternalIndex(), m_backendRBOId);

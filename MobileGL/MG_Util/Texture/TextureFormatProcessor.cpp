@@ -157,6 +157,9 @@ namespace MobileGL::MG_Util::TextureFormatProcessor {
             case GL_SRGB8:
                 *outFormat = GL_RGB;
                 break;
+            case GL_SRGB8_ALPHA8:
+                *outFormat = GL_RGBA;
+                break;
 
             // Color sized other
             case GL_RGB9_E5:
@@ -178,6 +181,7 @@ namespace MobileGL::MG_Util::TextureFormatProcessor {
                 break;
 
             // Depth Stencil
+            case GL_DEPTH24_STENCIL8:
             case GL_DEPTH32F_STENCIL8:
             case GL_DEPTH_STENCIL:
                 *outFormat = GL_DEPTH_STENCIL;
@@ -298,6 +302,9 @@ namespace MobileGL::MG_Util::TextureFormatProcessor {
             case GL_SRGB8:
                 *outType = GL_UNSIGNED_BYTE;
                 break;
+            case GL_SRGB8_ALPHA8:
+                *outType = GL_UNSIGNED_BYTE;
+                break;
 
             // Color sized other
             case GL_RGB9_E5:
@@ -331,6 +338,9 @@ namespace MobileGL::MG_Util::TextureFormatProcessor {
                 break;
 
             // Depth Stencil
+            case GL_DEPTH24_STENCIL8:
+                *outType = GL_UNSIGNED_INT_24_8;
+                break;
             case GL_DEPTH32F_STENCIL8:
             case GL_DEPTH_STENCIL:
                 *outType = GL_FLOAT_32_UNSIGNED_INT_24_8_REV;

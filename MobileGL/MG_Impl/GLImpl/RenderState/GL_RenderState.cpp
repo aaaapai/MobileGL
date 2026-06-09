@@ -14,6 +14,32 @@
 #include <MG_Util/Converters/MGToStr/RenderStateEnumConverter.h>
 
 namespace MobileGL::MG_Impl::GLImpl {
+    static Float ClampUnitFloat(GLfloat value) {
+        return std::clamp(static_cast<Float>(value), 0.0f, 1.0f);
+    }
+
+    static Bool ValidateIndexedBlendCapability(GLenum target, GLuint index, const char* functionName) {
+        if (target != GL_BLEND) {
+            MG_State::pGLContext->RecordError(
+                ErrorCode::InvalidEnum,
+                MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", functionName,
+                                             "Only GL_BLEND is supported for indexed capability state."));
+            return false;
+        }
+
+        if (index >= MG_State::GLState::FramebufferObject::MAX_DRAW_BUFFERS) {
+            MG_State::pGLContext->RecordError(
+                ErrorCode::InvalidValue,
+                MakeUnique<GenericErrorInfo>(
+                    "MG_Impl/GLImpl", functionName,
+                    "Buffer index " + std::to_string(index) + " is out of range. Max supported is " +
+                        std::to_string(MG_State::GLState::FramebufferObject::MAX_DRAW_BUFFERS - 1) + "."));
+            return false;
+        }
+
+        return true;
+    }
+
     static Bool TryConvertBlendEquation(GLenum mode, const char* functionName,
                                         ::MobileGL::BlendEquation& outEquation) {
         outEquation = MG_Util::ConvertGLEnumToBlendEquation(mode);
@@ -23,6 +49,43 @@ namespace MobileGL::MG_Impl::GLImpl {
             ErrorCode::InvalidEnum,
             MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", functionName,
                                          "Blend equation enum " + MG_Util::ConvertGLEnumToString(mode) +
+                                             " is not supported."));
+        return false;
+    }
+
+    static Bool TryDecodeStencilFace(GLenum face, const char* functionName, Bool& applyFront, Bool& applyBack) {
+        switch (face) {
+        case GL_FRONT:
+            applyFront = true;
+            applyBack = false;
+            return true;
+        case GL_BACK:
+            applyFront = false;
+            applyBack = true;
+            return true;
+        case GL_FRONT_AND_BACK:
+            applyFront = true;
+            applyBack = true;
+            return true;
+        default:
+            MG_State::pGLContext->RecordError(
+                ErrorCode::InvalidEnum,
+                MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", functionName,
+                                             "Stencil face enum " + MG_Util::ConvertGLEnumToString(face) +
+                                                 " is not supported."));
+            return false;
+        }
+    }
+
+    static Bool TryConvertStencilOperation(GLenum value, const char* functionName, const char* paramName,
+                                           StencilOperation& outOperation) {
+        outOperation = MG_Util::ConvertGLEnumToStencilOperation(value);
+        if (outOperation != StencilOperation::Unknown) return true;
+
+        MG_State::pGLContext->RecordError(
+            ErrorCode::InvalidEnum,
+            MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", functionName,
+                                         String(paramName) + " enum " + MG_Util::ConvertGLEnumToString(value) +
                                              " is not supported."));
         return false;
     }
@@ -39,27 +102,74 @@ namespace MobileGL::MG_Impl::GLImpl {
     }
 
     void StencilOpSeparate_State(GLenum face, GLenum sfail, GLenum dpfail, GLenum dppass) {
-        // TODO: implement
+        Bool applyFront = false;
+        Bool applyBack = false;
+        if (!TryDecodeStencilFace(face, "StencilOpSeparate_State", applyFront, applyBack)) return;
+
+        StencilOperation failOp = StencilOperation::Unknown;
+        StencilOperation depthFailOp = StencilOperation::Unknown;
+        StencilOperation depthPassOp = StencilOperation::Unknown;
+        if (!TryConvertStencilOperation(sfail, "StencilOpSeparate_State", "sfail", failOp) ||
+            !TryConvertStencilOperation(dpfail, "StencilOpSeparate_State", "dpfail", depthFailOp) ||
+            !TryConvertStencilOperation(dppass, "StencilOpSeparate_State", "dppass", depthPassOp)) {
+            return;
+        }
+
+        if (applyFront) {
+            MG_State::pGLContext->SetStencilOp(StencilFace::Front, failOp, depthFailOp, depthPassOp);
+        }
+        if (applyBack) {
+            MG_State::pGLContext->SetStencilOp(StencilFace::Back, failOp, depthFailOp, depthPassOp);
+        }
     }
 
     void StencilOp_State(GLenum fail, GLenum zfail, GLenum zpass) {
-        // TODO: implement
+        StencilOpSeparate_State(GL_FRONT_AND_BACK, fail, zfail, zpass);
     }
 
     void StencilMaskSeparate_State(GLenum face, GLuint mask) {
-        // TODO: implement
+        Bool applyFront = false;
+        Bool applyBack = false;
+        if (!TryDecodeStencilFace(face, "StencilMaskSeparate_State", applyFront, applyBack)) return;
+
+        if (applyFront) {
+            MG_State::pGLContext->SetStencilMask(StencilFace::Front, mask);
+        }
+        if (applyBack) {
+            MG_State::pGLContext->SetStencilMask(StencilFace::Back, mask);
+        }
     }
 
     void StencilMask_State(GLuint mask) {
-        // TODO: implement
+        StencilMaskSeparate_State(GL_FRONT_AND_BACK, mask);
     }
 
     void StencilFuncSeparate_State(GLenum face, GLenum func, GLint ref, GLuint mask) {
-        // TODO: implement
+        Bool applyFront = false;
+        Bool applyBack = false;
+        if (!TryDecodeStencilFace(face, "StencilFuncSeparate_State", applyFront, applyBack)) return;
+
+        DepthTestFunc depthFunc = MG_Util::ConvertGLEnumToDepthTestFunc(func);
+        if (depthFunc == DepthTestFunc::Unknown) {
+            MG_State::pGLContext->RecordError(
+                ErrorCode::InvalidEnum,
+                MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", "StencilFuncSeparate_State",
+                                             "Stencil func enum " + MG_Util::ConvertGLEnumToString(func) +
+                                                 " is not supported."));
+            return;
+        }
+
+        const Int clampedRef = std::max(ref, 0);
+        if (applyFront) {
+            MG_State::pGLContext->SetStencilFunc(StencilFace::Front, depthFunc, clampedRef, mask);
+        }
+        if (applyBack) {
+            MG_State::pGLContext->SetStencilFunc(StencilFace::Back, depthFunc, clampedRef, mask);
+        }
     }
 
     void StencilFunc_State(GLenum func, GLint ref, GLuint mask) {
-        // TODO: implement
+        StencilFuncSeparate_State(GL_FRONT_AND_BACK, func, ref, mask);
     }
 
     void Scissor_State(GLint x, GLint y, GLsizei width, GLsizei height) {
@@ -74,11 +184,11 @@ namespace MobileGL::MG_Impl::GLImpl {
     }
 
     void SampleCoverage_State(GLfloat value, GLboolean invert) {
-        // TODO: implement
+        MG_State::pGLContext->SetSampleCoverage(std::clamp(static_cast<Float>(value), 0.0f, 1.0f), invert == GL_TRUE);
     }
 
     void PolygonOffset_State(GLfloat factor, GLfloat units) {
-        // TODO: implement
+        MG_State::pGLContext->SetPolygonOffset(static_cast<Float>(factor), static_cast<Float>(units));
     }
 
     void PolygonMode_State(GLenum face, GLenum mode) {
@@ -86,7 +196,15 @@ namespace MobileGL::MG_Impl::GLImpl {
     }
 
     void PointSize_State(GLfloat size) {
-        // TODO: implement
+        if (size <= 0.0f) {
+            MG_State::pGLContext->RecordError(
+                ErrorCode::InvalidValue,
+                MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", "PointSize_State",
+                                             "Point size must be greater than zero."));
+            return;
+        }
+
+        MG_State::pGLContext->SetPointSize(static_cast<Float>(size));
     }
 
     void PointParameterf_State(GLenum pname, GLfloat param) {
@@ -114,14 +232,36 @@ namespace MobileGL::MG_Impl::GLImpl {
     }
 
     void LogicOp_State(GLenum opcode) {
-        // TODO: implement
+        LogicOperation logicOp = MG_Util::ConvertGLEnumToLogicOperation(opcode);
+        if (logicOp == LogicOperation::Unknown) {
+            MG_State::pGLContext->RecordError(
+                ErrorCode::InvalidEnum,
+                MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", "LogicOp_State",
+                                             "Logic op enum " + MG_Util::ConvertGLEnumToString(opcode) +
+                                                 " is not supported."));
+            return;
+        }
+
+        MG_State::pGLContext->SetLogicOp(logicOp);
     }
 
     void LineWidth_State(GLfloat width) {
-        // TODO: implement
+        if (width <= 0.0f) {
+            MG_State::pGLContext->RecordError(
+                ErrorCode::InvalidValue,
+                MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", "LineWidth_State",
+                                             "Line width must be greater than zero."));
+            return;
+        }
+
+        MG_State::pGLContext->SetLineWidth(static_cast<Float>(width));
     }
 
     GLboolean IsEnabledi_State(GLenum target, GLuint index) {
+        if (!ValidateIndexedBlendCapability(target, index, "IsEnabledi_State")) {
+            return GL_FALSE;
+        }
+
         CapabilityInput capInput = MG_Util::ConvertGLEnumToCapabilityInput(target);
         if (capInput == CapabilityInput::Unknown) {
             MG_State::pGLContext->RecordError(
@@ -133,6 +273,18 @@ namespace MobileGL::MG_Impl::GLImpl {
         }
 
         return MG_State::pGLContext->IsCapabilityEnabledIndexed(capInput, index) ? GL_TRUE : GL_FALSE;
+    }
+
+    void GetBooleani_v_State(GLenum target, GLuint index, GLboolean* data) {
+        if (!data) {
+            MG_State::pGLContext->RecordError(
+                ErrorCode::InvalidValue,
+                MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", "GetBooleani_v_State",
+                                             "data pointer cannot be null."));
+            return;
+        }
+
+        *data = IsEnabledi_State(target, index);
     }
 
     GLboolean IsEnabled_State(GLenum cap) {
@@ -197,7 +349,8 @@ namespace MobileGL::MG_Impl::GLImpl {
     }
 
     void DepthRange_State(GLclampd near_val, GLclampd far_val) {
-        // TODO: implement
+        MG_State::pGLContext->SetDepthRange(
+            FloatVec2(ClampUnitFloat(static_cast<GLfloat>(near_val)), ClampUnitFloat(static_cast<GLfloat>(far_val))));
     }
 
     void DepthMask_State(GLboolean flag) {
@@ -289,7 +442,8 @@ namespace MobileGL::MG_Impl::GLImpl {
     }
 
     void BlendColor_State(GLfloat red, GLfloat green, GLfloat blue, GLfloat alpha) {
-        // TODO: implement
+        MG_State::pGLContext->SetBlendColor(
+            FloatVec4(ClampUnitFloat(red), ClampUnitFloat(green), ClampUnitFloat(blue), ClampUnitFloat(alpha)));
     }
 
     void ClearStencil_State(GLint s) {
@@ -359,6 +513,10 @@ namespace MobileGL::MG_Impl::GLImpl {
     }
 
     void Disablei_State(GLenum target, GLuint index) {
+        if (!ValidateIndexedBlendCapability(target, index, "Disablei_State")) {
+            return;
+        }
+
         auto capInput = MG_Util::ConvertGLEnumToCapabilityInput(target);
         if (capInput == CapabilityInput::Unknown) {
             MG_State::pGLContext->RecordError(
@@ -373,6 +531,10 @@ namespace MobileGL::MG_Impl::GLImpl {
     }
 
     void Enablei_State(GLenum target, GLuint index) {
+        if (!ValidateIndexedBlendCapability(target, index, "Enablei_State")) {
+            return;
+        }
+
         auto capInput = MG_Util::ConvertGLEnumToCapabilityInput(target);
         if (capInput == CapabilityInput::Unknown) {
             MG_State::pGLContext->RecordError(
@@ -401,6 +563,10 @@ namespace MobileGL::MG_Impl::GLImpl {
 
     void BlendFuncSeparatei(GLuint buf, GLenum srcRGB, GLenum dstRGB, GLenum srcAlpha, GLenum dstAlpha) {
         BlendFuncSeparatei_State(buf, srcRGB, dstRGB, srcAlpha, dstAlpha);
+    }
+
+    void GetBooleani_v(GLenum target, GLuint index, GLboolean* data) {
+        GetBooleani_v_State(target, index, data);
     }
 
     void Disablei(GLenum target, GLuint index) {

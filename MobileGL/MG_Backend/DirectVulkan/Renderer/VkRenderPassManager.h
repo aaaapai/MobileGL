@@ -26,7 +26,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
 
     struct PendingClearAttachmentInfo {
         Uint32 attachmentIndex = 0;
-        MG_State::GLState::ITextureObject* texture = nullptr;
+        PendingClearKey key{};
     };
 
     struct TrackedAttachmentLayoutInfo {

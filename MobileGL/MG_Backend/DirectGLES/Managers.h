@@ -313,6 +313,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
             TextureInternalFormat m_cacheInternalFormat = TextureInternalFormat::Unknown;
             Int m_cacheWidth = 0;
             Int m_cacheHeight = 0;
+            Int m_cacheSamples = 0;
         };
 
         extern StateBackendObjectRegistry<MG_State::GLState::RenderbufferObject, BackendRenderbufferObject>
