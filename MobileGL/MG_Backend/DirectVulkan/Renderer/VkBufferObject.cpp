@@ -140,6 +140,14 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         }
 
         Memcpy(static_cast<Uint8*>(mapped) + offset, data, static_cast<SizeT>(size));
+        const VkResult flushResult = vmaFlushAllocation(m_allocator, m_allocation, offset, size);
+        if (flushResult != VK_SUCCESS) {
+            MGLOG_E("VkBufferObject::Upload failed: vmaFlushAllocation returned %d", flushResult);
+            if (!wasMapped) {
+                Unmap();
+            }
+            return false;
+        }
         if (!wasMapped) {
             Unmap();
         }

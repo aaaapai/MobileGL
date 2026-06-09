@@ -15,6 +15,19 @@ namespace MobileGL::MG_Impl::GLImpl {
                           GLenum format);
     void GenerateMipmap(GLenum target);
     void GetTexImage(GLenum target, GLint level, GLenum format, GLenum type, GLvoid* pixels);
+    void CreateTextures(GLenum target, GLsizei n, GLuint* textures);
+    void TextureStorage2D(GLuint texture, GLsizei levels, GLenum internalformat, GLsizei width, GLsizei height);
+    void TextureSubImage2D(GLuint texture, GLint level, GLint xoffset, GLint yoffset, GLsizei width, GLsizei height,
+                           GLenum format, GLenum type, const void* pixels);
+    void TextureParameterf(GLuint texture, GLenum pname, GLfloat param);
+    void TextureParameteri(GLuint texture, GLenum pname, GLint param);
+    void TextureParameteriv(GLuint texture, GLenum pname, const GLint* params);
+    void BindTextureUnit(GLuint unit, GLuint texture);
+    void GetTextureImage(GLuint texture, GLint level, GLenum format, GLenum type, GLsizei bufSize, void* pixels);
+    void GetTextureSubImage(GLuint texture, GLint level, GLint xoffset, GLint yoffset, GLint zoffset, GLsizei width,
+                            GLsizei height, GLsizei depth, GLenum format, GLenum type, GLsizei bufSize, void* pixels);
+    void GetTextureParameteriv(GLuint texture, GLenum pname, GLint* params);
+    void GetTextureLevelParameteriv(GLuint texture, GLint level, GLenum pname, GLint* params);
     void TexSubImage3D(GLenum target, GLint level, GLint xoffset, GLint yoffset, GLint zoffset, GLsizei width,
                        GLsizei height, GLsizei depth, GLenum format, GLenum type, const void* pixels);
     void TexSubImage2D(GLenum target, GLint level, GLint xoffset, GLint yoffset, GLsizei width, GLsizei height,

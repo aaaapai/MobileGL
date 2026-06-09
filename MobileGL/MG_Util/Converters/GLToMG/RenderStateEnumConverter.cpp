@@ -148,6 +148,17 @@ namespace MobileGL {
             }
         }
 
+        ProvokingVertexMode ConvertGLEnumToProvokingVertexMode(GLenum v) {
+            switch (v) {
+            case GL_FIRST_VERTEX_CONVENTION:
+                return ProvokingVertexMode::FirstVertex;
+            case GL_LAST_VERTEX_CONVENTION:
+                return ProvokingVertexMode::LastVertex;
+            default:
+                return ProvokingVertexMode::Unknown;
+            }
+        }
+
         CapabilityInput ConvertGLEnumToCapabilityInput(GLenum v) {
             switch (v) {
             case GL_BLEND:

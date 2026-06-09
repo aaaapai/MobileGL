@@ -39,6 +39,7 @@ namespace MobileGL::MG_Impl::GLImpl {
     GLboolean IsEnabled(GLenum cap);
     void Hint(GLenum target, GLenum mode);
     void FrontFace(GLenum mode);
+    void ProvokingVertex(GLenum mode);
     void Enable(GLenum cap);
     void Disable(GLenum cap);
     void DepthRange(GLclampd near_val, GLclampd far_val);

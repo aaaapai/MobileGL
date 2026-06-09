@@ -731,6 +731,10 @@ namespace MobileGL::MG_Impl::GLImpl {
         Uniformv_State<4>(location, count, value);
     }
 
+    void Uniform1uiv_State(GLint location, GLsizei count, const GLuint* value) {
+        Uniformv_State<1>(location, count, value);
+    }
+
     void UniformMatrix2fv_State(GLint location, GLsizei count, GLboolean transpose, const GLfloat* value) {
         // For 2x2 matrices, we have 4 elements per matrix
         // If transpose is GL_TRUE, we need to transpose the matrix data
@@ -1263,6 +1267,10 @@ namespace MobileGL::MG_Impl::GLImpl {
         Uniform4iv(location, 1, v);
     }
 
+    void Uniform1ui(GLint location, GLuint v0) {
+        Uniform1uiv(location, 1, &v0);
+    }
+
     void Uniform1fv(GLint location, GLsizei count, const GLfloat* value) {
         Uniform1fv_State(location, count, value);
     }
@@ -1293,6 +1301,10 @@ namespace MobileGL::MG_Impl::GLImpl {
 
     void Uniform4iv(GLint location, GLsizei count, const GLint* value) {
         Uniform4iv_State(location, count, value);
+    }
+
+    void Uniform1uiv(GLint location, GLsizei count, const GLuint* value) {
+        Uniform1uiv_State(location, count, value);
     }
 
     void UniformMatrix2fv(GLint location, GLsizei count, GLboolean transpose, const GLfloat* value) {

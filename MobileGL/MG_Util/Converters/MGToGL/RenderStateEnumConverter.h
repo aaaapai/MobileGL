@@ -18,6 +18,7 @@ namespace MobileGL {
         GLenum ConvertPixelStoreParamToGLEnum(PixelStoreParam value);
         GLenum ConvertCullFaceModeToGLEnum(CullFaceMode value);
         GLenum ConvertFrontFaceModeToGLEnum(FrontFaceMode value);
+        GLenum ConvertProvokingVertexModeToGLEnum(ProvokingVertexMode value);
         GLenum ConvertCapabilityInputToGLEnum(CapabilityInput value);
     } // namespace MG_Util
 } // namespace MobileGL

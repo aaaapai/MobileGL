@@ -413,6 +413,14 @@ namespace MobileGL::MG_State {
             return m_renderState.GetFrontFaceMode();
         }
 
+        void GLContext::SetProvokingVertexMode(ProvokingVertexMode mode) {
+            m_renderState.SetProvokingVertexMode(mode);
+        }
+
+        ProvokingVertexMode GLContext::GetProvokingVertexMode() const {
+            return m_renderState.GetProvokingVertexMode();
+        }
+
         void GLContext::SetScissorBox(IntVec4 box) {
             m_renderState.SetScissorBox(box);
         }

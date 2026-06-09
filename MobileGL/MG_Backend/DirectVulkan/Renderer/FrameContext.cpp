@@ -178,9 +178,9 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         packet.signalSemaphore = m_swapchainImageRenderFinishedSemaphores[swapchainImageIndex];
         packet.commandBuffer = frame.commandBuffer;
 
-        packet.submitInfo.waitSemaphoreCount = 1;
-        packet.submitInfo.pWaitSemaphores = &packet.waitSemaphore;
-        packet.submitInfo.pWaitDstStageMask = &packet.waitDstStageMask;
+        packet.submitInfo.waitSemaphoreCount = frame.imageAvailableSemaphoreConsumed ? 0U : 1U;
+        packet.submitInfo.pWaitSemaphores = frame.imageAvailableSemaphoreConsumed ? nullptr : &packet.waitSemaphore;
+        packet.submitInfo.pWaitDstStageMask = frame.imageAvailableSemaphoreConsumed ? nullptr : &packet.waitDstStageMask;
         packet.submitInfo.commandBufferCount = shouldSubmitCommandBuffer ? 1U : 0U;
         packet.submitInfo.pCommandBuffers = shouldSubmitCommandBuffer ? &packet.commandBuffer : nullptr;
         packet.submitInfo.signalSemaphoreCount = 1;
@@ -217,6 +217,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             return result;
         }
 
+        frame.imageAvailableSemaphoreConsumed = false;
         return vkAcquireNextImageKHR(device, swapchain, timeout, frame.imageAvailableSemaphore, acquireFence,
                                      &outImageIndex);
     }
@@ -260,6 +261,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
 
         frame.hasCommandBufferRecorded = false;
         frame.isCommandRecording = false;
+        frame.imageAvailableSemaphoreConsumed = false;
         return VK_SUCCESS;
     }
 
@@ -277,5 +279,6 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         frame.imageAvailableSemaphore = VK_NULL_HANDLE;
         frame.isCommandRecording = false;
         frame.hasCommandBufferRecorded = false;
+        frame.imageAvailableSemaphoreConsumed = false;
     }
 } // namespace MobileGL::MG_Backend::DirectVulkan

@@ -37,6 +37,15 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         VkImageLayout finalLayout = VK_IMAGE_LAYOUT_UNDEFINED;
     };
 
+    struct DepthStencilAttachmentLoadInfo {
+        VkAttachmentLoadOp depthLoadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
+        VkAttachmentLoadOp stencilLoadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
+        VkImageLayout initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    };
+
+    DepthStencilAttachmentLoadInfo ResolveDepthStencilAttachmentLoadInfo(
+        VkImageLayout trackedLayout, Bool clearDepth, Bool clearStencil);
+
     struct RenderPassEntry {
         static inline VkDevice s_device;
         static inline Vector<VkTextureManager::TextureResource*> s_textureResourcesScratch;

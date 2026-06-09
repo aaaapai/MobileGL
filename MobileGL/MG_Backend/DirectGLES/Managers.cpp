@@ -23,9 +23,11 @@
 #include <MG_Util/Converters/GLToMG/FramebufferEnumConverter.h>
 #include <MG_Util/Converters/MGToGL/FramebufferEnumConverter.h>
 #include <MG_State/GLState/FramebufferState/FramebufferObject.h>
+#include <cctype>
 
 namespace MobileGL::MG_Backend::DirectGLES {
     constexpr Bool PREFER_MAP_BUFFER_RANGE_FOR_BUFFER_SYNC = true;
+    constexpr const char* BASE_INSTANCE_UNIFORM_NAME = "mg_BaseInstance";
 
     static Uint ResolveBackendEsslVersion() {
         const auto& version = g_GLESCapabilities.GLESVersion;
@@ -36,6 +38,47 @@ namespace MobileGL::MG_Backend::DirectGLES {
             return 310;
         }
         return 300;
+    }
+
+    String ReplaceIdentifier(String source, const String& from, const String& to) {
+        SizeT pos = 0;
+        while ((pos = source.find(from, pos)) != String::npos) {
+            const Bool leftIsIdent = pos > 0 &&
+                (std::isalnum(static_cast<unsigned char>(source[pos - 1])) || source[pos - 1] == '_');
+            const SizeT end = pos + from.size();
+            const Bool rightIsIdent = end < source.size() &&
+                (std::isalnum(static_cast<unsigned char>(source[end])) || source[end] == '_');
+            if (!leftIsIdent && !rightIsIdent) {
+                source.replace(pos, from.size(), to);
+                pos += to.size();
+            } else {
+                pos = end;
+            }
+        }
+        return source;
+    }
+
+    String InjectUniformAfterVersion(String source, const String& declaration) {
+        const SizeT versionPos = source.find("#version");
+        if (versionPos == String::npos) {
+            return declaration + "\n" + source;
+        }
+
+        const SizeT lineEnd = source.find('\n', versionPos);
+        if (lineEnd == String::npos) {
+            return source + "\n" + declaration + "\n";
+        }
+        source.insert(lineEnd + 1, declaration + "\n");
+        return source;
+    }
+
+    String EmulateBaseInstanceInVertexShader(String source, GLenum shaderType) {
+        if (shaderType != GL_VERTEX_SHADER || source.find("gl_BaseInstance") == String::npos) {
+            return source;
+        }
+        source = ReplaceIdentifier(std::move(source), "gl_BaseInstance", BASE_INSTANCE_UNIFORM_NAME);
+        return InjectUniformAfterVersion(std::move(source),
+                                         String("uniform highp int ") + BASE_INSTANCE_UNIFORM_NAME + ";");
     }
 
     namespace BufferImpl {
@@ -629,13 +672,15 @@ namespace MobileGL::MG_Backend::DirectGLES {
                     static_cast<MG_State::GLState::TextureObjectBuffer*>(stateTextureObject.get());
                 auto& slot = textureBufferObject->GetBufferBindingSlot();
                 auto& buffer = slot.GetBoundObject();
+                if (!buffer) {
+                    MGLOG_D("Texture buffer object with ID: %u has no bound buffer, skipping sync.",
+                            stateTextureObject->GetExternalIndex());
+                    return;
+                }
                 auto bufferIndex = buffer->GetExternalIndex();
                 currentTextureInfo.bufferExternalIndex = bufferIndex;
 
                 Bool needsRegeneration = !m_isInitialized || (currentTextureInfo != m_prevTextureInfo);
-                MGLOG_D("Texture state changed significantly or not initialized, regenerating texture (tex buffer) "
-                        "with ID: %u",
-                        m_backendTextureId);
 
                 // Need to sync texture buffer if not synced yet
                 auto& backendBuffers = BufferImpl::g_backendBufferObjects;
@@ -659,7 +704,19 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 TextureImpl::GenerateTextureFormatInfo(textureBufferObject->GetFormat(), &glInternalFormat, &glFormat,
                                                        &glType);
 
-                g_GLESFuncs.glTexBuffer(GL_TEXTURE_BUFFER, glInternalFormat, backendId);
+                if (needsRegeneration) {
+                    MGLOG_D("Texture state changed significantly or not initialized, regenerating texture buffer with "
+                            "ID: %u, buffer ID: %u, buffer size: %zu, format: %s",
+                            m_backendTextureId, backendId, buffer->GetSize(),
+                            MG_Util::ConvertGLEnumToString(glInternalFormat).c_str());
+                    g_GLESFuncs.glTexBuffer(GL_TEXTURE_BUFFER, glInternalFormat, backendId);
+                    DebugImpl::ErrorLopper::Loop(
+                        [file = __FILE__, line = __LINE__, func = __func__, glInternalFormat, backendId](GLenum err) {
+                            MGLOG_D("%s(%s:%d) glTexBuffer(format=%s, buffer=%u) ES error: %s",
+                                    func, file, line, MG_Util::ConvertGLEnumToString(glInternalFormat).c_str(),
+                                    backendId, MG_Util::ConvertGLEnumToString(err).c_str());
+                        });
+                }
                 break;
             }
             default:
@@ -748,7 +805,11 @@ namespace MobileGL::MG_Backend::DirectGLES {
 
             SYNC_TEX_SAMPLER_PARAM_IF_CHANGED(wrapS, GL_TEXTURE_WRAP_S, WrapMode)
             SYNC_TEX_SAMPLER_PARAM_IF_CHANGED(wrapT, GL_TEXTURE_WRAP_T, WrapMode)
-            SYNC_TEX_SAMPLER_PARAM_IF_CHANGED(wrapR, GL_TEXTURE_WRAP_R, WrapMode)
+            if (SupportsWrapR(targetInternal)) {
+                SYNC_TEX_SAMPLER_PARAM_IF_CHANGED(wrapR, GL_TEXTURE_WRAP_R, WrapMode)
+            } else {
+                m_cacheSamplerParameters.wrapR = samplerParams.wrapR;
+            }
             SYNC_TEX_SAMPLER_PARAM_IF_CHANGED(compareFunc, GL_TEXTURE_COMPARE_FUNC, CompareFunc)
             SYNC_TEX_SAMPLER_PARAM_IF_CHANGED(compareMode, GL_TEXTURE_COMPARE_MODE, CompareMode)
             if (m_cacheSamplerParameters.minLod != samplerParams.minLod) {
@@ -901,17 +962,37 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 g_GLESFuncs.glBindFramebuffer(GL_DRAW_FRAMEBUFFER, m_backendFBOId);
         }
 
+        void BackendFramebufferObject::InvalidateSyncedState() {
+            std::fill(std::begin(m_frontendDrawBuffers), std::end(m_frontendDrawBuffers),
+                      FramebufferAttachmentType::Unknown);
+            std::fill(std::begin(m_backendDrawBuffers), std::end(m_backendDrawBuffers), GL_NONE);
+            m_frontendReadBuffer = FramebufferAttachmentType::Unknown;
+            m_backendReadBuffer = GL_NONE;
+            std::fill(m_syncedFrontendAttachmentVersions.begin(), m_syncedFrontendAttachmentVersions.end(),
+                      static_cast<Uint16>(~0u));
+        }
+
         static Bool SyncAttachmentObject(GLenum glFBOTarget,
                                          const MG_State::GLState::FramebufferAttachmentObject& attachmentObject,
                                          GLenum glBackendAttachment) {
             if (attachmentObject.IsTexture()) {
                 const auto& textureObject = attachmentObject.GetTexture();
+                SharedPtr<TextureImpl::BackendTextureObject> backendTextureObject;
                 const auto& backendTextureIt = TextureImpl::g_backendTextureObjects.find(textureObject.get());
                 if (backendTextureIt == TextureImpl::g_backendTextureObjects.end()) {
+                    auto& backendTextureSlot = TextureImpl::g_backendTextureObjects.GetOrCreate(textureObject);
+                    if (!backendTextureSlot) {
+                        backendTextureSlot = MakeShared<TextureImpl::BackendTextureObject>();
+                    }
+                    backendTextureObject = backendTextureSlot;
+                } else {
+                    backendTextureObject = backendTextureIt->second;
+                }
+                if (!backendTextureObject) {
                     MGLOG_E("%s: No backend texture found for FBO attachment, cannot bind texture.", __func__);
                     return false;
                 }
-                const auto& backendTextureObject = backendTextureIt->second;
+                backendTextureObject->SyncMipmapsToBackend(textureObject);
                 auto glTextureTarget = MG_Util::ConvertTextureTargetToGLEnum(textureObject->GetTarget());
                 backendTextureObject->Bind(glTextureTarget);
                 g_GLESFuncs.glFramebufferTexture2D(glFBOTarget, glBackendAttachment, glTextureTarget,
@@ -1019,8 +1100,9 @@ namespace MobileGL::MG_Backend::DirectGLES {
 
                 // relevant FRONTEND!!! version should be checked and updated
                 if (m_syncedFrontendAttachmentVersions[i] != attachmentVersions[i]) {
-                    SyncAttachmentObject(glFBOTarget, attachmentObject, glBackendAttachment);
-                    m_syncedFrontendAttachmentVersions[i] = attachmentVersions[i];
+                    if (SyncAttachmentObject(glFBOTarget, attachmentObject, glBackendAttachment)) {
+                        m_syncedFrontendAttachmentVersions[i] = attachmentVersions[i];
+                    }
                 }
 #if MOBILEGL_LOG_ACTIVE_LEVEL <= MOBILEGL_LOG_LEVEL_DEBUG
                 else {
@@ -1032,6 +1114,9 @@ namespace MobileGL::MG_Backend::DirectGLES {
                             MG_Util::ConvertFramebufferAttachmentTypeToString(frontendType).c_str(),
                             MG_Util::ConvertGLEnumToString(glBackendAttachment).c_str(),
                             m_syncedFrontendAttachmentVersions[i]);
+                    if (!attachmentObject.IsTexture() && !attachmentObject.IsRenderbuffer()) {
+                        continue;
+                    }
                     GLint objectType = GL_NONE;
                     g_GLESFuncs.glGetFramebufferAttachmentParameteriv(
                         glFBOTarget, glBackendAttachment, GL_FRAMEBUFFER_ATTACHMENT_OBJECT_TYPE, &objectType);
@@ -1217,6 +1302,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 source = RemoveLayoutBinding(source);
                 source = ProcessOutColorLocations(source);
                 source = ForceFlatIntegerVaryings(source, glShaderType);
+                source = EmulateBaseInstanceInVertexShader(std::move(source), glShaderType);
                 source = ForceSupporterOutput(source);
 
                 // Patch for Photon compiler precision issue
@@ -1267,6 +1353,8 @@ namespace MobileGL::MG_Backend::DirectGLES {
             } else {
                 MGLOG_D("Program linked successfully. ID: %u", m_backendProgramId);
             }
+            m_baseInstanceUniformLocation = g_GLESFuncs.glGetUniformLocation(m_backendProgramId,
+                                                                             BASE_INSTANCE_UNIFORM_NAME);
 
             // Create global UBO
             if (stateProgramObject->GetUBOSize() > 0) {
@@ -1288,6 +1376,13 @@ namespace MobileGL::MG_Backend::DirectGLES {
 #endif
             MGLOG_D("Using program %u", m_backendProgramId);
             g_GLESFuncs.glUseProgram(m_backendProgramId);
+        }
+
+        void BackendProgramObjectImpl::SetBaseInstance(Uint32 baseInstance) const {
+            if (m_baseInstanceUniformLocation < 0) {
+                return;
+            }
+            g_GLESFuncs.glUniform1i(m_baseInstanceUniformLocation, static_cast<GLint>(baseInstance));
         }
     } // namespace PrgramImpl
 

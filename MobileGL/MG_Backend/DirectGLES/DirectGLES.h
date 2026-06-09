@@ -8,6 +8,7 @@
 
 #pragma once
 #include <Includes.h>
+#include <MG_State/GLState/FramebufferState/FramebufferObject.h>
 #include <MG_State/GLState/TextureState/TextureState.h>
 #include <MG_State/GLState/SamplerState/SamplerObject.h>
 #include <MG_Util/BackendLoaders/OpenGL/Loader.h>
@@ -30,6 +31,8 @@ namespace MobileGL::MG_Backend::DirectGLES {
     void MultiDrawElementsBaseVertex(GLenum mode, const GLsizei* count, GLenum type, const GLvoid* const* indices,
                                      GLsizei drawcount, const GLint* basevertex);
     void MultiDrawElementsIndirect(GLenum mode, GLenum type, const void* indirect, GLsizei drawcount, GLsizei stride);
+    void MultiDrawElementsIndirectCount(GLenum mode, GLenum type, const void* indirect, GLintptr drawcount,
+                                        GLsizei maxdrawcount, GLsizei stride);
     void MultiDrawArraysIndirect(GLenum mode, const void* indirect, GLsizei drawcount, GLsizei stride);
     void DrawRangeElementsBaseVertex(GLenum mode, GLuint start, GLuint end, GLsizei count, GLenum type,
                                      const void* indices, GLint basevertex);
@@ -46,8 +49,17 @@ namespace MobileGL::MG_Backend::DirectGLES {
                                          GLuint baseinstance);
     void DrawArraysInstanced(GLenum mode, GLint first, GLsizei count, GLsizei instancecount);
     void DrawArraysIndirect(GLenum mode, const void* indirect);
+    void ClearNamedFramebufferfv(const SharedPtr<MG_State::GLState::FramebufferObject>& framebuffer,
+                                 GLenum buffer, GLint drawbuffer, const GLfloat* value);
+    void ClearNamedFramebufferfi(const SharedPtr<MG_State::GLState::FramebufferObject>& framebuffer,
+                                 GLenum buffer, GLint drawbuffer, GLfloat depth, GLint stencil);
     void BlitFramebuffer(GLint srcX0, GLint srcY0, GLint srcX1, GLint srcY1, GLint dstX0, GLint dstY0, GLint dstX1,
                          GLint dstY1, GLbitfield mask, GLenum filter);
+    void BlitNamedFramebuffer(const SharedPtr<MG_State::GLState::FramebufferObject>& readFramebuffer,
+                              const SharedPtr<MG_State::GLState::FramebufferObject>& drawFramebuffer,
+                              GLint srcX0, GLint srcY0, GLint srcX1, GLint srcY1,
+                              GLint dstX0, GLint dstY0, GLint dstX1, GLint dstY1,
+                              GLbitfield mask, GLenum filter);
     void CopyTexImage2D(GLenum target, GLint level, GLenum internalformat, GLint x, GLint y, GLsizei width,
                         GLsizei height, GLint border);
     void CopyTexSubImage2D(GLenum target, GLint level, GLint xoffset, GLint yoffset, GLint x, GLint y, GLsizei width,

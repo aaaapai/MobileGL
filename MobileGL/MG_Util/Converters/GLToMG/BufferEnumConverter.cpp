@@ -38,6 +38,8 @@ namespace MobileGL {
                 return BufferTarget::DispatchIndirect;
             case GL_DRAW_INDIRECT_BUFFER:
                 return BufferTarget::DrawIndirect;
+            case GL_PARAMETER_BUFFER_ARB:
+                return BufferTarget::Parameter;
             case GL_SHADER_STORAGE_BUFFER:
                 return BufferTarget::ShaderStorage;
             case GL_UNKNOWN_MGL:

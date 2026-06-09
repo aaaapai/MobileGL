@@ -11,6 +11,9 @@
 
 namespace MobileGL::MG_Impl::GLImpl {
     GLsync FenceSync(GLenum condition, GLbitfield flags);
+    GLboolean IsSync(GLsync sync);
     GLenum ClientWaitSync(GLsync sync, GLbitfield flags, GLuint64 timeout);
+    void WaitSync(GLsync sync, GLbitfield flags, GLuint64 timeout);
     void DeleteSync(GLsync sync);
+    void GetSynciv(GLsync sync, GLenum pname, GLsizei bufSize, GLsizei* length, GLint* values);
 } // namespace MobileGL::MG_Impl::GLImpl

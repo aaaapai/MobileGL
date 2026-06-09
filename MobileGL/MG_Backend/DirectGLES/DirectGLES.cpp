@@ -21,6 +21,7 @@
 #include <MG_Util/Converters/MGToGL/TextureEnumConverter.h>
 #include <MG_Util/Converters/MGToStr/TextureEnumConverter.h>
 #include <MG_Util/Converters/MGToGL/RenderStateEnumConverter.h>
+#include <MG_Util/Metrics/BufferMetrics.h>
 #include <MG_Util/Texture/PixelStoreProcessor.h>
 #include <cstdio>
 #include <cstdlib>
@@ -56,6 +57,14 @@ namespace MobileGL::MG_Backend::DirectGLES {
         a = a | b;
         return a;
     }
+
+    struct DrawElementsIndirectCommand {
+        Uint32 count = 0;
+        Uint32 instanceCount = 0;
+        Uint32 firstIndex = 0;
+        Int32 baseVertex = 0;
+        Uint32 baseInstance = 0;
+    };
 
     namespace DebugImpl {
 #if MOBILEGL_LOG_ACTIVE_LEVEL <= MOBILEGL_LOG_LEVEL_DEBUG
@@ -107,6 +116,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
 
     namespace BufferImpl {
         void CreateAndSyncBufferObject(const SharedPtr<MG_State::GLState::BufferObject>& bufferObject) {
+            bufferObject->MarkPersistentMappedRangeDirty();
             if (!(bufferObject->GetChangeBits() & BufferChangeBits::DirtyBit)) return;
 
             const auto& backendBufferIt = g_backendBufferObjects.find(bufferObject.get());
@@ -623,6 +633,41 @@ namespace MobileGL::MG_Backend::DirectGLES {
         }
     }
 
+    void SyncAndBindFramebufferObject(const SharedPtr<MG_State::GLState::FramebufferObject>& framebuffer,
+                                      FramebufferTarget target, Bool forceSync = false) {
+#ifdef TRACY_ENABLE
+        ZoneScopedC(TRACY_ZONECOLOR_BACKEND);
+#endif
+        if (!framebuffer || framebuffer == MG_Impl::GLImpl::FramebufferImpl::pDefaultFramebufferInfo->defaultFBO) {
+            g_GLESFuncs.glBindFramebuffer(target == FramebufferTarget::Draw ? GL_DRAW_FRAMEBUFFER : GL_READ_FRAMEBUFFER,
+                                          0);
+            return;
+        }
+
+        auto& registry = FramebufferImpl::g_backendFramebufferObjects;
+        const auto& backendFBOIt = registry.find(framebuffer.get());
+        const Bool exists = backendFBOIt != registry.end();
+        auto& backendObj = exists ? backendFBOIt->second : registry.GetOrCreate(framebuffer);
+        if (!exists) {
+            backendObj = MakeShared<FramebufferImpl::BackendFramebufferObject>();
+        }
+        if (forceSync) {
+            backendObj->InvalidateSyncedState();
+        }
+
+        backendObj->SyncToBackend(framebuffer, target);
+        backendObj->Bind(target);
+    }
+
+    void ForceBindCurrentFBO(FramebufferTarget target) {
+#ifdef TRACY_ENABLE
+        ZoneScopedC(TRACY_ZONECOLOR_BACKEND);
+#endif
+        auto& slot = MG_State::pGLContext->GetFramebufferBindingSlot(target);
+        SyncAndBindFramebufferObject(slot.GetBoundObject(), target);
+        FramebufferImpl::g_fboBindVersions[(SizeT)target] = slot.GetVersion();
+    }
+
     void PrepareForDraw(DrawSyncBit syncBit) {
 #ifdef TRACY_ENABLE
         ZoneScopedC(TRACY_ZONECOLOR_BACKEND);
@@ -801,6 +846,17 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 g_GLESFuncs.glUseProgram(0);
                 MGLOG_E("No backend program found (maybe not synced) for current program, cannot use program.");
             }
+        }
+    }
+
+    void SetCurrentBaseInstance(Uint32 baseInstance) {
+        const auto& currentProgram = MG_State::pGLContext->GetCurrentProgram();
+        if (!currentProgram || !currentProgram->GetLinkStatus()) {
+            return;
+        }
+        const auto& backendProgramIt = PrgramImpl::g_backendProgramObjects.find(currentProgram.get());
+        if (backendProgramIt != PrgramImpl::g_backendProgramObjects.end()) {
+            backendProgramIt->second->SetBaseInstance(baseInstance);
         }
     }
 
@@ -1033,14 +1089,127 @@ namespace MobileGL::MG_Backend::DirectGLES {
 #if MOBILEGL_LOG_ACTIVE_LEVEL <= MOBILEGL_LOG_LEVEL_DEBUG && MOBILEGL_ENABLE_SCOPE_MARKER
         DebugImpl::OpenGLScopeMarker marker(__func__);
 #endif
-        DrawSyncBit syncBit = DrawSyncBit::IndexBuffer | DrawSyncBit::IndirectBuffer;
+        if (drawcount <= 0) {
+            return;
+        }
+        if (stride == 0) {
+            stride = sizeof(DrawElementsIndirectCommand);
+        }
+        if (stride < static_cast<GLsizei>(sizeof(DrawElementsIndirectCommand))) {
+            MGLOG_E("MultiDrawElementsIndirect skipped: stride %d is smaller than command size %zu",
+                    stride, sizeof(DrawElementsIndirectCommand));
+            return;
+        }
+
+        DrawSyncBit syncBit = DrawSyncBit::IndexBuffer | DrawSyncBit::IndirectBuffer | DrawSyncBit::Instancing;
         PrepareForDraw(syncBit);
 
-        for (GLsizei i = 0; i < drawcount; ++i) {
-            const GLvoid* cmd = reinterpret_cast<const GLvoid*>(reinterpret_cast<const std::uint8_t*>(indirect) +
-                                                                i * (stride ? stride : sizeof(GLsizei) * 4));
-            g_GLESFuncs.glDrawElementsIndirect(mode, type, cmd);
+        const SizeT indexSize = MG_Util::GetGLTypeSize(type);
+        if (indexSize == 0) {
+            MGLOG_E("MultiDrawElementsIndirect skipped: unsupported index type 0x%x", type);
+            return;
         }
+
+        auto drawBuffer = MG_State::pGLContext->GetBufferBindingSlot(BufferTarget::DrawIndirect).GetBoundObject();
+        if (!drawBuffer) {
+            MGLOG_E("MultiDrawElementsIndirect skipped: no GL_DRAW_INDIRECT_BUFFER is bound");
+            return;
+        }
+        drawBuffer->MarkPersistentMappedRangeDirty();
+        const auto drawData = drawBuffer->GetDataReadOnly();
+        const SizeT commandOffset = reinterpret_cast<SizeT>(indirect);
+        const SizeT commandBytes = commandOffset + static_cast<SizeT>(stride) * static_cast<SizeT>(drawcount - 1) +
+            sizeof(DrawElementsIndirectCommand);
+        if (!drawData || commandBytes > drawData->size()) {
+            MGLOG_E("MultiDrawElementsIndirect skipped: invalid GL_DRAW_INDIRECT_BUFFER binding or range");
+            return;
+        }
+
+        for (GLsizei i = 0; i < drawcount; ++i) {
+            DrawElementsIndirectCommand cmd{};
+            std::memcpy(&cmd, drawData->data() + commandOffset + static_cast<SizeT>(i) * stride, sizeof(cmd));
+            if (cmd.count == 0 || cmd.instanceCount == 0) {
+                continue;
+            }
+            SetCurrentBaseInstance(cmd.baseInstance);
+            const auto indexByteOffset = static_cast<SizeT>(cmd.firstIndex) * indexSize;
+            g_GLESFuncs.glDrawElementsInstancedBaseVertex(
+                mode, static_cast<GLsizei>(cmd.count), type, reinterpret_cast<const GLvoid*>(indexByteOffset),
+                static_cast<GLsizei>(cmd.instanceCount), cmd.baseVertex);
+        }
+        SetCurrentBaseInstance(0);
+    }
+
+    void MultiDrawElementsIndirectCount(GLenum mode, GLenum type, const void* indirect, GLintptr drawcount,
+                                        GLsizei maxdrawcount, GLsizei stride) {
+#if MOBILEGL_LOG_ACTIVE_LEVEL <= MOBILEGL_LOG_LEVEL_DEBUG && MOBILEGL_ENABLE_SCOPE_MARKER
+        DebugImpl::OpenGLScopeMarker marker(__func__);
+#endif
+        if (maxdrawcount <= 0) {
+            return;
+        }
+        if (stride == 0) {
+            stride = sizeof(DrawElementsIndirectCommand);
+        }
+        if (stride < static_cast<GLsizei>(sizeof(DrawElementsIndirectCommand))) {
+            MGLOG_E("MultiDrawElementsIndirectCount skipped: stride %d is smaller than command size %zu",
+                    stride, sizeof(DrawElementsIndirectCommand));
+            return;
+        }
+
+        DrawSyncBit syncBit = DrawSyncBit::IndexBuffer | DrawSyncBit::IndirectBuffer | DrawSyncBit::Instancing;
+        PrepareForDraw(syncBit);
+
+        const SizeT indexSize = MG_Util::GetGLTypeSize(type);
+        if (indexSize == 0) {
+            MGLOG_E("MultiDrawElementsIndirectCount skipped: unsupported index type 0x%x", type);
+            return;
+        }
+
+        auto drawBuffer = MG_State::pGLContext->GetBufferBindingSlot(BufferTarget::DrawIndirect).GetBoundObject();
+        auto parameterBuffer = MG_State::pGLContext->GetBufferBindingSlot(BufferTarget::Parameter).GetBoundObject();
+        if (!drawBuffer) {
+            MGLOG_E("MultiDrawElementsIndirectCount skipped: no GL_DRAW_INDIRECT_BUFFER is bound");
+            return;
+        }
+        if (!parameterBuffer) {
+            MGLOG_E("MultiDrawElementsIndirectCount skipped: no GL_PARAMETER_BUFFER is bound");
+            return;
+        }
+
+        drawBuffer->MarkPersistentMappedRangeDirty();
+        parameterBuffer->MarkPersistentMappedRangeDirty();
+        const auto drawData = drawBuffer->GetDataReadOnly();
+        const auto parameterData = parameterBuffer->GetDataReadOnly();
+
+        const SizeT commandOffset = reinterpret_cast<SizeT>(indirect);
+        const SizeT commandBytes = commandOffset + static_cast<SizeT>(stride) * static_cast<SizeT>(maxdrawcount - 1) +
+            sizeof(DrawElementsIndirectCommand);
+        if (!drawData || commandBytes > drawData->size()) {
+            MGLOG_E("MultiDrawElementsIndirectCount skipped: invalid GL_DRAW_INDIRECT_BUFFER binding or range");
+            return;
+        }
+        if (!parameterData || drawcount < 0 || static_cast<SizeT>(drawcount) + sizeof(Uint32) > parameterData->size()) {
+            MGLOG_E("MultiDrawElementsIndirectCount skipped: invalid GL_PARAMETER_BUFFER binding or range");
+            return;
+        }
+
+        Uint32 actualDrawCount = 0;
+        std::memcpy(&actualDrawCount, parameterData->data() + drawcount, sizeof(actualDrawCount));
+        actualDrawCount = std::min<Uint32>(actualDrawCount, static_cast<Uint32>(maxdrawcount));
+        for (Uint32 i = 0; i < actualDrawCount; ++i) {
+            DrawElementsIndirectCommand cmd{};
+            std::memcpy(&cmd, drawData->data() + commandOffset + static_cast<SizeT>(i) * stride, sizeof(cmd));
+            if (cmd.count == 0 || cmd.instanceCount == 0) {
+                continue;
+            }
+            SetCurrentBaseInstance(cmd.baseInstance);
+            const auto indexByteOffset = static_cast<SizeT>(cmd.firstIndex) * indexSize;
+            g_GLESFuncs.glDrawElementsInstancedBaseVertex(
+                mode, static_cast<GLsizei>(cmd.count), type, reinterpret_cast<const GLvoid*>(indexByteOffset),
+                static_cast<GLsizei>(cmd.instanceCount), cmd.baseVertex);
+        }
+        SetCurrentBaseInstance(0);
     }
 
     void MultiDrawArraysIndirect(GLenum mode, const void* indirect, GLsizei drawcount, GLsizei stride) {
@@ -1149,6 +1318,31 @@ namespace MobileGL::MG_Backend::DirectGLES {
         DebugImpl::ErrorLopper::Loop([file = __FILE__, line = __LINE__](auto err) {
             MGLOG_D("ES error (%s:%d): %s", file, line, MG_Util::ConvertGLEnumToString(err).c_str());
         });
+    }
+
+    void BlitNamedFramebuffer(const SharedPtr<MG_State::GLState::FramebufferObject>& readFramebuffer,
+                              const SharedPtr<MG_State::GLState::FramebufferObject>& drawFramebuffer,
+                              GLint srcX0, GLint srcY0, GLint srcX1, GLint srcY1,
+                              GLint dstX0, GLint dstY0, GLint dstX1, GLint dstY1,
+                              GLbitfield mask, GLenum filter) {
+#if MOBILEGL_LOG_ACTIVE_LEVEL <= MOBILEGL_LOG_LEVEL_DEBUG && MOBILEGL_ENABLE_SCOPE_MARKER
+        DebugImpl::OpenGLScopeMarker marker(__func__);
+#endif
+        TextureImpl::SyncNeccessaryTextures();
+        RenderStateImpl::SyncRenderState();
+
+        SyncAndBindFramebufferObject(readFramebuffer, FramebufferTarget::Read, true);
+        SyncAndBindFramebufferObject(drawFramebuffer, FramebufferTarget::Draw, true);
+
+        MGLOG_D("ES %s(%d, %d, %d, %d, %d, %d, %d, %d, 0x%x, %s)", __func__, srcX0, srcY0, srcX1, srcY1,
+                dstX0, dstY0, dstX1, dstY1, mask, MG_Util::ConvertGLEnumToString(filter).c_str());
+        g_GLESFuncs.glBlitFramebuffer(srcX0, srcY0, srcX1, srcY1, dstX0, dstY0, dstX1, dstY1, mask, filter);
+        DebugImpl::ErrorLopper::Loop([file = __FILE__, line = __LINE__](auto err) {
+            MGLOG_D("ES error (%s:%d): %s", file, line, MG_Util::ConvertGLEnumToString(err).c_str());
+        });
+
+        ForceBindCurrentFBO(FramebufferTarget::Read);
+        ForceBindCurrentFBO(FramebufferTarget::Draw);
     }
 
     Bool UpdateTextureBindingAtTarget(GLenum target) {
@@ -1659,6 +1853,40 @@ namespace MobileGL::MG_Backend::DirectGLES {
         BindCurrentFBO(FramebufferTarget::Draw);
 
         g_GLESFuncs.glClearBufferuiv(buffer, drawbuffer, value);
+    }
+
+    void ClearNamedFramebufferfv(const SharedPtr<MG_State::GLState::FramebufferObject>& framebuffer,
+                                 GLenum buffer, GLint drawbuffer, const GLfloat* value) {
+#if MOBILEGL_LOG_ACTIVE_LEVEL <= MOBILEGL_LOG_LEVEL_DEBUG && MOBILEGL_ENABLE_SCOPE_MARKER
+        DebugImpl::OpenGLScopeMarker marker(__func__);
+#endif
+        TextureImpl::SyncNeccessaryTextures();
+        RenderStateImpl::SyncRenderState();
+
+        SyncAndBindFramebufferObject(framebuffer, FramebufferTarget::Draw, true);
+        g_GLESFuncs.glClearBufferfv(buffer, drawbuffer, value);
+        DebugImpl::ErrorLopper::Loop([file = __FILE__, line = __LINE__](auto err) {
+            MGLOG_D("ES error (%s:%d): %s", file, line, MG_Util::ConvertGLEnumToString(err).c_str());
+        });
+
+        ForceBindCurrentFBO(FramebufferTarget::Draw);
+    }
+
+    void ClearNamedFramebufferfi(const SharedPtr<MG_State::GLState::FramebufferObject>& framebuffer,
+                                 GLenum buffer, GLint drawbuffer, GLfloat depth, GLint stencil) {
+#if MOBILEGL_LOG_ACTIVE_LEVEL <= MOBILEGL_LOG_LEVEL_DEBUG && MOBILEGL_ENABLE_SCOPE_MARKER
+        DebugImpl::OpenGLScopeMarker marker(__func__);
+#endif
+        TextureImpl::SyncNeccessaryTextures();
+        RenderStateImpl::SyncRenderState();
+
+        SyncAndBindFramebufferObject(framebuffer, FramebufferTarget::Draw, true);
+        g_GLESFuncs.glClearBufferfi(buffer, drawbuffer, depth, stencil);
+        DebugImpl::ErrorLopper::Loop([file = __FILE__, line = __LINE__](auto err) {
+            MGLOG_D("ES error (%s:%d): %s", file, line, MG_Util::ConvertGLEnumToString(err).c_str());
+        });
+
+        ForceBindCurrentFBO(FramebufferTarget::Draw);
     }
 
     class TempPixelStoreParameterSync {

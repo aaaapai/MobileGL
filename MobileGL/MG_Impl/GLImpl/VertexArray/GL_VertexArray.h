@@ -11,6 +11,14 @@
 
 namespace MobileGL::MG_Impl::GLImpl {
     /* @INSERTION_POINT:FUNCTION_DECLARATION@ */
+    void CreateVertexArrays(GLsizei n, GLuint* arrays);
+    void DisableVertexArrayAttrib(GLuint vaobj, GLuint index);
+    void EnableVertexArrayAttrib(GLuint vaobj, GLuint index);
+    void VertexArrayElementBuffer(GLuint vaobj, GLuint buffer);
+    void VertexArrayVertexBuffer(GLuint vaobj, GLuint bindingindex, GLuint buffer, GLintptr offset, GLsizei stride);
+    void VertexArrayAttribFormat(GLuint vaobj, GLuint attribindex, GLint size, GLenum type, GLboolean normalized,
+                                 GLuint relativeoffset);
+    void VertexArrayAttribIFormat(GLuint vaobj, GLuint attribindex, GLint size, GLenum type, GLuint relativeoffset);
     void VertexAttribDivisor(GLuint index, GLuint divisor);
     GLboolean IsVertexArray(GLuint array);
     void DisableVertexAttribArray(GLuint index);

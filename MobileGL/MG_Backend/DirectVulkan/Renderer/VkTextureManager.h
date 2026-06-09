@@ -33,6 +33,7 @@ public:
         VkImage image = VK_NULL_HANDLE;
         VmaAllocation allocation = nullptr;
         VkImageView fullView = VK_NULL_HANDLE;
+        VkImageView sampledView = VK_NULL_HANDLE;
         Vector<VkImageView> perMipViews;
         Vector<VkImageView> perMipSampledViews;
         VkImageLayout layout = VK_IMAGE_LAYOUT_UNDEFINED;
@@ -53,6 +54,7 @@ public:
             std::swap(this->image, that.image);
             std::swap(this->allocation, that.allocation);
             std::swap(this->fullView, that.fullView);
+            std::swap(this->sampledView, that.sampledView);
             std::swap(this->perMipViews, that.perMipViews);
             std::swap(this->perMipSampledViews, that.perMipSampledViews);
             std::swap(this->layout, that.layout);
@@ -72,6 +74,9 @@ public:
             if (fullView != VK_NULL_HANDLE) {
                 vkDestroyImageView(s_device, fullView, nullptr);
             }
+            if (sampledView != VK_NULL_HANDLE) {
+                vkDestroyImageView(s_device, sampledView, nullptr);
+            }
             for (const auto attachmentView : perMipViews) {
                 if (attachmentView != VK_NULL_HANDLE) {
                     vkDestroyImageView(s_device, attachmentView, nullptr);
@@ -86,6 +91,7 @@ public:
                 vmaDestroyImage(s_allocator, image, allocation);
             }
             fullView = VK_NULL_HANDLE;
+            sampledView = VK_NULL_HANDLE;
             perMipViews.clear();
             perMipSampledViews.clear();
             image = VK_NULL_HANDLE;
@@ -126,6 +132,8 @@ public:
                                                       VkImageLayout newLayout);
     Bool TransitionTextureForSampling(VkCommandBuffer commandBuffer, MG_State::GLState::ITextureObject& texture);
     Bool TransitionTextureForStorageImage(VkCommandBuffer commandBuffer, MG_State::GLState::ITextureObject& texture);
+
+    static VkImageAspectFlags ResolveSampledImageViewAspectMask(VkImageAspectFlags imageAspect);
 
     static Bool TransitionImageLayout(VkCommandBuffer commandBuffer, VkImage image, VkImageLayout& trackedLayout,
                                VkImageLayout newLayout, VkPipelineStageFlags srcStageMask,
