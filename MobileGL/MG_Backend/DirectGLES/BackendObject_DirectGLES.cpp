@@ -34,18 +34,11 @@ namespace MobileGL::MG_Backend::DirectGLES {
     }
 
     void BackendObject_DirectGLES::Initialize() {
-        if (!MG_Util::BackendLoader::AcquireEGLFunctions(m_EGLFunctions)) {
-            MGLOG_E("Failed to acquire EGL functions for DirectGLES backend");
-            return;
-        }
-        if (!MG_Util::BackendLoader::AcquireGLESFunctions(m_GLESFunctions, m_EGLFunctions.eglGetProcAddress)) {
-            MGLOG_E("Failed to acquire GLES functions for DirectGLES backend");
-            return;
-        }
-        m_initialized = true;
-
+        MG_Util::BackendLoader::AcquireEGLFunctions(m_EGLFunctions);
+        MG_Util::BackendLoader::AcquireGLESFunctions(m_GLESFunctions, m_EGLFunctions.eglGetProcAddress);
         DirectGLES::SetEGLFuncsTable(m_EGLFunctions);
         DirectGLES::SetGLESFuncsTable(m_GLESFunctions);
+        m_initialized = true;
     }
 
     Bool BackendObject_DirectGLES::InitCapabilities() {

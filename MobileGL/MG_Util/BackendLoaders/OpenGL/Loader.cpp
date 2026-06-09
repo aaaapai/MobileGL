@@ -41,21 +41,18 @@ namespace MobileGL::MG_Util::BackendLoader {
 #endif
     }
 
-    Bool AcquireGLESFunctions(MG_External::GLESFunctionsTable& funcs,
+    void AcquireGLESFunctions(MG_External::GLESFunctionsTable& funcs,
                               MG_External::EGL::eglGetProcAddress_PTR procAddress) {
         if (!procAddress) {
             MGLOG_E("eglGetProcAddress is nullptr, cannot load GLES functions");
-            return false;
+            return;
         }
-
-        Bool allRequiredLoaded = true;
 
 #define INIT_GLES_FUNC(name)                                                                                           \
     do {                                                                                                               \
         funcs.name = (MG_External::GLES::name##_PTR)procAddress(#name);                                                \
         if (!funcs.name) {                                                                                             \
             MGLOG_E("Failed to load GLES function: %s", #name);                                                        \
-            allRequiredLoaded = false;                                                                                 \
         }                                                                                                              \
     } while (0);
 
@@ -433,25 +430,21 @@ namespace MobileGL::MG_Util::BackendLoader {
             INIT_GLES_FUNC(glMultiDrawElementsIndirectEXT)
             INIT_GLES_FUNC(glMultiDrawElementsBaseVertexEXT)
         }
-        return allRequiredLoaded;
     }
 
-    Bool AcquireEGLFunctions(MG_External::EGLFunctionsTable& funcs) {
+    void AcquireEGLFunctions(MG_External::EGLFunctionsTable& funcs) {
         static const Vector<String> EGLLibNames = {"libEGL.so"};
         void* eglLib = OpenLib(EGLLibNames);
         if (!eglLib) {
             MGLOG_E("Failed to open libEGL.so");
-            return false;
+            return;
         }
-
-        Bool allRequiredLoaded = true;
 
 #define INIT_EGL_FUNC(name)                                                                                            \
     do {                                                                                                               \
         funcs.name = (MG_External::EGL::name##_PTR)ProcAddress(eglLib, #name);                                         \
         if (!funcs.name) {                                                                                             \
             MGLOG_E("Failed to load EGL function: %s", #name);                                                         \
-            allRequiredLoaded = false;                                                                                 \
         }                                                                                                              \
     } while (0);
 
@@ -504,7 +497,6 @@ namespace MobileGL::MG_Util::BackendLoader {
             INIT_EGL_FUNC(eglGetPlatformDisplay)
             INIT_EGL_FUNC(eglWaitSync)
         }
-        return allRequiredLoaded;
     }
 
     Bool FillInGLESCapabilities(MG_External::GLESCapabilities& caps, const MG_External::GLESFunctionsTable& glesFuncs) {
