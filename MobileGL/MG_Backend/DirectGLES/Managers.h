@@ -15,6 +15,8 @@
 #include <MG_State/GLState/Core.h>
 
 namespace MobileGL::MG_Backend::DirectGLES {
+    String EmulateBaseInstanceInVertexShader(String source, GLenum shaderType);
+
     template <typename StateObject, typename BackendObject>
     class StateBackendObjectRegistry {
     public:
@@ -226,6 +228,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
             BackendFramebufferObject();
             void SyncToBackend(const SharedPtr<MG_State::GLState::FramebufferObject>& stateFBOObject,
                                FramebufferTarget asTarget);
+            void InvalidateSyncedState();
             Uint GetBackendFramebufferId() const { return m_backendFBOId; }
             void Bind(FramebufferTarget target) const;
             //            FramebufferAttachmentType GetCompactedAttachmentTypeAtDrawBufferIndex(Int index);
@@ -267,12 +270,14 @@ namespace MobileGL::MG_Backend::DirectGLES {
             ~BackendProgramObjectImpl();
             void SyncToBackend(const SharedPtr<MG_State::GLState::ProgramObject>& stateProgramObject);
             void Use() const;
+            void SetBaseInstance(Uint32 baseInstance) const;
             Uint GetBackendProgramId() const { return m_backendProgramId; }
             Uint GetBackendGlobalUBOId() const { return m_backendGlobalUBOId; }
 
         private:
             Uint m_backendProgramId = 0;
             Uint m_backendGlobalUBOId = 0;
+            Int m_baseInstanceUniformLocation = -1;
             Bool m_isInitialized = false;
         };
 

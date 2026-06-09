@@ -14,6 +14,7 @@
 #include <string>
 
 #include <MG_Backend/DirectGLES/BackendObject_DirectGLES.h>
+#include <MG_Backend/DirectGLES/Managers.h>
 #include <MG_Backend/DirectVulkan/BackendObject_DirectVulkan.h>
 #include <MG_Backend/BackendObjects.h>
 #include <MG_Impl/GLImpl/Getter/GL_Getter.h>
@@ -88,6 +89,71 @@ TEST(DirectGLESSanity, AdvertisesDepthTextureForGlmarkShadowScenes) {
     const auto& extensions = backend.GetRendererInfo().RendererGLInfo.Extensions;
 
     EXPECT_NE(std::find(extensions.begin(), extensions.end(), MobileGL::E_GL_ARB_depth_texture), extensions.end());
+}
+
+TEST(DirectGLESSanity, AdvertisesVoxyRequiredRenderingExtensionsWithoutRaisingGLVersion) {
+    MobileGL::MG_Backend::DirectGLES::BackendObject_DirectGLES backend;
+    const auto& rendererInfo = backend.GetRendererInfo().RendererGLInfo;
+    const auto& extensions = rendererInfo.Extensions;
+
+    EXPECT_EQ(rendererInfo.TargetGLVersion.Major, 3);
+    EXPECT_EQ(rendererInfo.TargetGLVersion.Minor, 3);
+    EXPECT_EQ(rendererInfo.TargetGLVersion.Patch, 0);
+
+    EXPECT_NE(std::find(extensions.begin(), extensions.end(), MobileGL::E_GL_ARB_compute_shader),
+              extensions.end());
+    EXPECT_NE(std::find(extensions.begin(), extensions.end(), MobileGL::E_GL_ARB_shader_storage_buffer_object),
+              extensions.end());
+    EXPECT_NE(std::find(extensions.begin(), extensions.end(), MobileGL::E_GL_ARB_texture_storage),
+              extensions.end());
+    EXPECT_NE(std::find(extensions.begin(), extensions.end(), MobileGL::E_GL_ARB_direct_state_access),
+              extensions.end());
+    EXPECT_NE(std::find(extensions.begin(), extensions.end(), MobileGL::E_GL_ARB_multi_draw_indirect),
+              extensions.end());
+    EXPECT_NE(std::find(extensions.begin(), extensions.end(), MobileGL::E_GL_ARB_indirect_parameters),
+              extensions.end());
+    EXPECT_NE(std::find(extensions.begin(), extensions.end(), MobileGL::E_GL_ARB_shader_draw_parameters),
+              extensions.end());
+    EXPECT_EQ(std::find(extensions.begin(), extensions.end(), MobileGL::E_GL_ARB_gpu_shader_int64),
+              extensions.end());
+    EXPECT_EQ(std::find(extensions.begin(), extensions.end(), MobileGL::E_GL_KHR_shader_subgroup),
+              extensions.end());
+}
+
+TEST(DirectGLESSanity, ProvidesNamedFramebufferBlitForDirectStateAccess) {
+    MobileGL::MG_Backend::DirectGLES::BackendObject_DirectGLES backend;
+    const auto& funcs = backend.GetBackendFunctions().GL;
+
+    EXPECT_NE(funcs.ClearNamedFramebufferfv, nullptr);
+    EXPECT_NE(funcs.ClearNamedFramebufferfi, nullptr);
+    EXPECT_NE(funcs.BlitFramebuffer, nullptr);
+    EXPECT_NE(funcs.BlitNamedFramebuffer, nullptr);
+}
+
+TEST(DirectGLESSanity, RewritesBaseInstanceBuiltinForEsslVertexShaders) {
+    const MobileGL::String source = R"(#version 320 es
+void main() {
+    uint drawId = gl_BaseInstance;
+    uint untouched = my_gl_BaseInstance_value;
+}
+)";
+
+    const auto rewritten = MobileGL::MG_Backend::DirectGLES::EmulateBaseInstanceInVertexShader(
+        source, GL_VERTEX_SHADER);
+
+    EXPECT_NE(rewritten.find("uniform highp int mg_BaseInstance;"), MobileGL::String::npos);
+    EXPECT_NE(rewritten.find("uint drawId = mg_BaseInstance;"), MobileGL::String::npos);
+    EXPECT_NE(rewritten.find("my_gl_BaseInstance_value"), MobileGL::String::npos);
+    EXPECT_EQ(rewritten.find("uint drawId = gl_BaseInstance;"), MobileGL::String::npos);
+}
+
+TEST(DirectGLESSanity, LeavesBaseInstanceBuiltinAloneOutsideVertexShaders) {
+    const MobileGL::String source = "#version 320 es\nuint value = gl_BaseInstance;\n";
+
+    const auto rewritten = MobileGL::MG_Backend::DirectGLES::EmulateBaseInstanceInVertexShader(
+        source, GL_FRAGMENT_SHADER);
+
+    EXPECT_EQ(rewritten, source);
 }
 
 TEST(DirectVulkanSanity, AdvertisesTextureStorageForDirectStateAccess) {
