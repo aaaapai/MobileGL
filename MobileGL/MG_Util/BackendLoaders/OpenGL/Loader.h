@@ -1007,7 +1007,7 @@ namespace MobileGL {
         };
 
         struct GLESCapabilities {
-            Version GLESVersion{3, 0, 0};
+            Version GLESVersion{3, 6, 0};
             String GLESVersionString;
             String GLESVendorString;
             String GLESRendererString;
