@@ -150,6 +150,27 @@ TEST_F(FramebufferTest, NamedDepthFramebufferTextureStorageIsCompleteWithoutBind
     EXPECT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
 }
 
+TEST_F(FramebufferTest, FramebufferTextureBumpsAttachmentVersionOnlyOnce) {
+    GLuint framebuffer = 0;
+    GLuint texture = 0;
+    MG_Impl::GLImpl::CreateFramebuffers(1, &framebuffer);
+    MG_Impl::GLImpl::CreateTextures(GL_TEXTURE_2D, 1, &texture);
+    MG_Impl::GLImpl::TextureStorage2D(texture, 1, GL_RGBA8, 64, 32);
+    MG_Impl::GLImpl::BindFramebuffer(GL_DRAW_FRAMEBUFFER, framebuffer);
+
+    const auto framebufferObject = MG_State::pGLContext->GetFramebufferObject(framebuffer);
+    const auto beforeVersions = framebufferObject->GetAllFramebufferAttachmentVersions();
+    const auto beforeObjectVersion = framebufferObject->GetObjectVersion();
+
+    MG_Impl::GLImpl::FramebufferTexture(GL_DRAW_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, texture, 0);
+
+    const auto afterVersions = framebufferObject->GetAllFramebufferAttachmentVersions();
+    EXPECT_EQ(afterVersions[static_cast<SizeT>(FramebufferAttachmentType::Color0)],
+              beforeVersions[static_cast<SizeT>(FramebufferAttachmentType::Color0)] + 1);
+    EXPECT_EQ(framebufferObject->GetObjectVersion(), beforeObjectVersion + 1);
+    EXPECT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+}
+
 TEST_F(FramebufferTest, ReadPixelsAllowsPersistentMappedPixelPackBuffer) {
     GLuint framebuffer = 0;
     GLuint texture = 0;
