@@ -26,6 +26,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             VkPipelineLayout pipelineLayout = VK_NULL_HANDLE;
             VkRenderPass renderPass = VK_NULL_HANDLE;
             Uint32 colorAttachmentCount = 1;
+            VkSampleCountFlagBits rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
             Uint32 subpass = 0;
             VkPrimitiveTopology topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
             VkCullModeFlags cullMode = VK_CULL_MODE_BACK_BIT;

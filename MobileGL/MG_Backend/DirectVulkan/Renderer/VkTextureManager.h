@@ -72,6 +72,7 @@ public:
         VkFormat format = VK_FORMAT_UNDEFINED;
         VkImageAspectFlags aspect = VK_IMAGE_ASPECT_NONE;
         VkImageViewType viewType = VK_IMAGE_VIEW_TYPE_2D;
+        VkSampleCountFlagBits sampleCount = VK_SAMPLE_COUNT_1_BIT;
         Uint16 syncedTextureParamsVersion = 0;
 
         TextureResource() = default;
@@ -94,6 +95,7 @@ public:
             std::swap(this->format, that.format);
             std::swap(this->aspect, that.aspect);
             std::swap(this->viewType, that.viewType);
+            std::swap(this->sampleCount, that.sampleCount);
             std::swap(this->syncedTextureParamsVersion, that.syncedTextureParamsVersion);
         }
 
@@ -139,6 +141,7 @@ public:
             format = VK_FORMAT_UNDEFINED;
             aspect = VK_IMAGE_ASPECT_NONE;
             viewType = VK_IMAGE_VIEW_TYPE_2D;
+            sampleCount = VK_SAMPLE_COUNT_1_BIT;
             syncedTextureParamsVersion = 0;
         }
 

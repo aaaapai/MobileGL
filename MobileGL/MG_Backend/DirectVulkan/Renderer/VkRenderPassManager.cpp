@@ -172,6 +172,10 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                 auto* resource = m_textureManager.SyncTextureAndGetDescriptor(*texture);
                 if (resource != nullptr) {
                     imageIdentity = reinterpret_cast<Uint64>(resource->image);
+                    XXHASH_VERIFY(XXH64_update(m_hashState, &resource->sampleCount, sizeof(resource->sampleCount)));
+                } else {
+                    const VkSampleCountFlagBits fallbackSampleCount = VK_SAMPLE_COUNT_1_BIT;
+                    XXHASH_VERIFY(XXH64_update(m_hashState, &fallbackSampleCount, sizeof(fallbackSampleCount)));
                 }
                 XXHASH_VERIFY(XXH64_update(m_hashState, &imageIdentity, sizeof(imageIdentity)));
             }
@@ -289,6 +293,21 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         textureResources.reserve(colorAttachmentSlotCount + 1);
         Vector<VkImageView> attachmentViews;
         attachmentViews.reserve(colorAttachmentSlotCount + 1);
+        VkSampleCountFlagBits renderPassSampleCount = VK_SAMPLE_COUNT_1_BIT;
+        Bool hasRenderPassSampleCount = false;
+        const auto adoptRenderPassSampleCount = [&](VkSampleCountFlagBits sampleCount,
+                                                    const char* attachmentKind,
+                                                    Int attachmentId) {
+            if (!hasRenderPassSampleCount) {
+                renderPassSampleCount = sampleCount;
+                hasRenderPassSampleCount = true;
+                return;
+            }
+            MOBILEGL_ASSERT(renderPassSampleCount == sampleCount,
+                            "GetOrCreateRenderPass: mismatched sample count %d on %s attachment %d (expected %d)",
+                            static_cast<Int>(sampleCount), attachmentKind, attachmentId,
+                            static_cast<Int>(renderPassSampleCount));
+        };
         // This should automatically work on default & offscreen FBO
         // assuming default FBO has the right param
         for (Uint32 i = 0; i < colorAttachmentSlotCount; ++i) {
@@ -306,15 +325,14 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             // Color attachment description
             VkAttachmentDescription& desc = attachmentDescriptions.back();
             switch (textureTarget) {
-                case TextureTarget::Texture2D: {
-                    auto* texture2d =
-                        static_cast<MG_State::GLState::TextureObject2D*>(texture);
+                case TextureTarget::Texture2D:
+                case TextureTarget::Texture2DMultisample: {
                     desc.flags = 0;
                     desc.format = isDefaultFbo ?
                         m_swapchainObject.GetSurfaceFormat().format :
                         MG_Util::ConvertTextureInternalFormatToVkEnum(
-                            texture2d->GetFormat());
-                    desc.samples = VK_SAMPLE_COUNT_1_BIT;
+                            texture->GetFormat());
+                    VkSampleCountFlagBits attachmentSampleCount = VK_SAMPLE_COUNT_1_BIT;
                     ClearAttachmentPayload clearPayload{};
                     Bool hasClear = m_clearManager.GetPendingClear(att, clearPayload);
                     VkImageLayout trackedColorLayout = VK_IMAGE_LAYOUT_UNDEFINED;
@@ -348,6 +366,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                             .swapchainImageIndex = swapchainImageIndex,
                             .finalLayout = desc.finalLayout,
                         });
+                        attachmentSampleCount = VK_SAMPLE_COUNT_1_BIT;
                         textureResources.emplace_back(nullptr);
                         attachmentViews.emplace_back(swapchainViews[swapchainImageIndex]);
                     } else {
@@ -356,6 +375,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                                         "GetOrCreateRenderPass: SyncTextureAndGetDescriptor failed at color attachment %d", i);
                         textureResources.emplace_back(textureResource);
                         desc.format = textureResource->format;
+                        attachmentSampleCount = textureResource->sampleCount;
                         trackedColorLayout = textureResource->layout;
                         trackedAttachmentLayouts.emplace_back(TrackedAttachmentLayoutInfo {
                             .target = TrackedAttachmentTarget::Texture,
@@ -372,6 +392,8 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                         MOBILEGL_ASSERT(attachmentViews.back() != VK_NULL_HANDLE,
                                         "GetOrCreateRenderPass: GetOrCreateAttachmentView failed at color attachment %d", i);
                     }
+                    desc.samples = attachmentSampleCount;
+                    adoptRenderPassSampleCount(attachmentSampleCount, "color", texture->GetExternalIndex());
 
                     if (!hasClear && trackedColorLayout == VK_IMAGE_LAYOUT_UNDEFINED) {
                         MGLOG_W("GetOrCreateRenderPass: color attachment textureId=%d starts with undefined layout and no clear; "
@@ -439,10 +461,13 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             depthAttachmentDescription.format = isDefaultFbo ?
                 m_swapchainObject.GetDepthStencilFormat() :
                 MG_Util::ConvertTextureInternalFormatToVkEnum(texture.GetFormat());
+            VkSampleCountFlagBits depthAttachmentSampleCount = VK_SAMPLE_COUNT_1_BIT;
             if (!isDefaultFbo) {
                 depthAttachmentDescription.format = depthTextureResource->format;
+                depthAttachmentSampleCount = depthTextureResource->sampleCount;
             }
-            depthAttachmentDescription.samples = VK_SAMPLE_COUNT_1_BIT;
+            depthAttachmentDescription.samples = depthAttachmentSampleCount;
+            adoptRenderPassSampleCount(depthAttachmentSampleCount, "depth/stencil", texture.GetExternalIndex());
             const auto loadInfo =
                 ResolveDepthStencilAttachmentLoadInfo(trackedDepthLayout, clearDepth, clearStencil);
             depthAttachmentDescription.loadOp = loadInfo.depthLoadOp;
@@ -556,13 +581,15 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             static_cast<Uint32>(attachmentViews.size()),
             static_cast<Uint32>(colorAttachmentRefs.size()),
             hasDepthStencilAttachment,
+            renderPassSampleCount,
             extent,
             1 };
-        MGLOG_D("VkRenderPassManager::GetOrCreateRenderPass: hash=0x%llx compatibilityHash=0x%llx attachmentCount=%u colorAttachmentCount=%u extent=%dx%d",
+        MGLOG_D("VkRenderPassManager::GetOrCreateRenderPass: hash=0x%llx compatibilityHash=0x%llx attachmentCount=%u colorAttachmentCount=%u samples=%d extent=%dx%d",
                 static_cast<unsigned long long>(hash),
                 static_cast<unsigned long long>(compatibilityHash),
                 renderPassEntry.attachmentCount,
                 renderPassEntry.colorAttachmentCount,
+                static_cast<Int>(renderPassEntry.sampleCount),
                 extent.x(),
                 extent.y());
         auto [insertedIt, _] = m_renderPasses.emplace(hash, Move(renderPassEntry));

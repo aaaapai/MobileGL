@@ -58,6 +58,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         Uint32 attachmentCount = 0;
         Uint32 colorAttachmentCount = 0;
         Bool hasDepthStencilAttachment = false;
+        VkSampleCountFlagBits sampleCount = VK_SAMPLE_COUNT_1_BIT;
         IntVec2 extent = {0, 0};
         Uint32 subpass = 0;
 
@@ -73,6 +74,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             std::swap(attachmentCount, that.attachmentCount);
             std::swap(colorAttachmentCount, that.colorAttachmentCount);
             std::swap(hasDepthStencilAttachment, that.hasDepthStencilAttachment);
+            std::swap(sampleCount, that.sampleCount);
             std::swap(extent, that.extent);
             std::swap(subpass, that.subpass);
         }
@@ -86,6 +88,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             Uint32 attachmentCount,
             Uint32 colorAttachmentCount,
             Bool hasDepthStencilAttachment,
+            VkSampleCountFlagBits sampleCount,
             IntVec2 extent, int subpass):
             hash(hash),
             renderPass(renderpass),
@@ -96,6 +99,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             attachmentCount(attachmentCount),
             colorAttachmentCount(colorAttachmentCount),
             hasDepthStencilAttachment(hasDepthStencilAttachment),
+            sampleCount(sampleCount),
             extent(extent),
             subpass(subpass)
         {}

@@ -2167,6 +2167,7 @@ void main() {
             .pipelineLayout = programObj.pipelineLayout,
             .renderPass = renderPassEntry.renderPass,
             .colorAttachmentCount = renderPassEntry.colorAttachmentCount,
+            .rasterizationSamples = renderPassEntry.sampleCount,
             .subpass = 0,
             .topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST,
             .cullMode = VK_CULL_MODE_NONE,
@@ -2633,6 +2634,7 @@ void main() {
             .pipelineLayout = programObj.pipelineLayout,
             .renderPass = renderPassEntry.renderPass,
             .colorAttachmentCount = renderPassEntry.colorAttachmentCount,
+            .rasterizationSamples = renderPassEntry.sampleCount,
             .subpass = 0,
             .topology = MG_Util::ConvertPrimitiveModeToVkEnum(mode),
             .cullMode = cullFaceEnabled
