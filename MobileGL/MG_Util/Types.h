@@ -88,11 +88,18 @@ template <
 >
 using UnorderedMap = std::unordered_map<Key, T>;
 #elif UseABSL
-template <
+/*template <
         typename Key,
         typename T,
         class Hash = absl::container_internal::hash_default_hash<Key>,
         class KeyEqual = absl::container_internal::hash_default_eq<Key>,
+        class Allocator = std::allocator<std::pair<const Key, T>>
+>*/
+template <
+        typename Key,
+        typename T,
+        class Hash= std::hash<Key>,
+        class KeyEqual = std::equal_to<Key>,
         class Allocator = std::allocator<std::pair<const Key, T>>
 >
 using UnorderedMap = absl::flat_hash_map<Key, T, Hash, KeyEqual, Allocator>;
