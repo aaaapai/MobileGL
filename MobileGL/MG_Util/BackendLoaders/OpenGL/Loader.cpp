@@ -432,7 +432,7 @@ namespace MobileGL::MG_Util::BackendLoader {
         }
     }
 
-    Bool AcquireEGLFunctions(MG_External::EGLFunctionsTable& funcs) {
+    void AcquireEGLFunctions(MG_External::EGLFunctionsTable& funcs) {
         static const Vector<String> EGLLibNames = {"libEGL.so", "libEGL_angle.so", "libEGL_mesa.so" };
         void* eglLib = nullptr;
         const char* libgl_egl = std::getenv("LIBGL_EGL");
