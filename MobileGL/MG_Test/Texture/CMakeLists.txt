@@ -18,3 +18,21 @@ target_link_libraries(
 
 include(GoogleTest)
 gtest_discover_tests(TextureTest)
+
+add_executable(
+        VkClearManagerTest
+        VkClearManagerTest.cpp
+)
+
+target_include_directories(VkClearManagerTest PRIVATE
+        ${MGL_ROOT}/include
+        ${MGL_ROOT}/MobileGL
+)
+
+target_link_libraries(
+        VkClearManagerTest PRIVATE
+        GTest::gtest_main
+        ${LINK_LIBRARIES}
+)
+
+gtest_discover_tests(VkClearManagerTest)

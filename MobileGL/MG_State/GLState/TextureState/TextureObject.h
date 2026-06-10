@@ -44,6 +44,7 @@ namespace MobileGL::MG_State::GLState {
         virtual void SetSamples(Int samples) = 0;
         virtual Bool HasFixedSampleLocations() const = 0;
         virtual void SetFixedSampleLocations(Bool fixedSampleLocations) = 0;
+        virtual Uint64 GetLifetimeId() const = 0;
 
     protected:
         virtual Uint GetIndexOfTextureUploadTarget(TextureUploadTarget target) const = 0;
@@ -75,9 +76,13 @@ namespace MobileGL::MG_State::GLState {
         void SetSamples(Int samples) override;
         Bool HasFixedSampleLocations() const override;
         void SetFixedSampleLocations(Bool fixedSampleLocations) override;
+        Uint64 GetLifetimeId() const override;
 
     protected:
+        static Uint64 AllocateLifetimeId();
+
         const Uint m_externalIndex;
+        const Uint64 m_lifetimeId;
         const TextureTarget m_target = TextureTarget::Unknown;
         TextureInternalFormat m_internalFormat = TextureInternalFormat::Unknown;
         SharedPtr<SamplerObject> m_sampler = nullptr;

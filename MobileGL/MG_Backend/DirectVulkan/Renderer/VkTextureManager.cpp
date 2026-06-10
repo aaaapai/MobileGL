@@ -156,6 +156,14 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         }
     }
 
+    VkTextureManager::TextureIdentity VkTextureManager::MakeTextureIdentity(
+        MG_State::GLState::ITextureObject* texture) {
+        return TextureIdentity{
+            .texture = texture,
+            .lifetimeId = texture ? texture->GetLifetimeId() : 0,
+        };
+    }
+
     static void GetImageTransitionDestinationState(VkImageLayout newLayout,
                                                    VkPipelineStageFlags& outDstStageMask,
                                                    VkAccessFlags& outDstAccessMask) {
@@ -580,6 +588,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
     void VkTextureManager::Shutdown() {
         DestroyDeferredReleases();
         m_textureResources.clear();
+        m_aliveObjects.clear();
 
         m_device = VK_NULL_HANDLE;
         m_physicalDevice = VK_NULL_HANDLE;
@@ -600,28 +609,56 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         CollectDeferredReleases(frameIndex);
     }
 
+    void VkTextureManager::EraseTrackedTexture(const TextureIdentity& identity) {
+        auto resourceIt = m_textureResources.find(identity);
+        if (resourceIt != m_textureResources.end()) {
+            DeferResourceRelease(Move(resourceIt->second));
+            m_textureResources.erase(resourceIt);
+        }
+        m_aliveObjects.erase(identity);
+    }
+
+    void VkTextureManager::PruneStaleTextureAliases(MG_State::GLState::ITextureObject* texture) {
+        if (texture == nullptr) {
+            return;
+        }
+
+        Vector<TextureIdentity> staleAliases;
+        staleAliases.reserve(m_aliveObjects.size());
+        for (auto it = m_aliveObjects.begin(); it != m_aliveObjects.end(); ++it) {
+            if (it->first.texture != texture) {
+                continue;
+            }
+            const auto liveTexture = it->second.lock();
+            if (!liveTexture || liveTexture.get() != texture ||
+                liveTexture->GetLifetimeId() != it->first.lifetimeId) {
+                staleAliases.emplace_back(it->first);
+            }
+        }
+        for (const auto& identity : staleAliases) {
+            EraseTrackedTexture(identity);
+        }
+    }
+
     VkTextureManager::TextureResource* VkTextureManager::SyncTextureAndGetDescriptor(MG_State::GLState::ITextureObject& texture) {
         MOBILEGL_ASSERT(m_device != VK_NULL_HANDLE, "SyncTextureAndGetDescriptor: m_device == VK_NULL_HANDLE");
 
-        auto aliveIt = m_aliveObjects.find(&texture);
+        const TextureIdentity identity = MakeTextureIdentity(&texture);
+        auto aliveIt = m_aliveObjects.find(identity);
         if (aliveIt != m_aliveObjects.end() && aliveIt->second.expired()) {
-            auto resourceIt = m_textureResources.find(&texture);
-            if (resourceIt != m_textureResources.end()) {
-                DeferResourceRelease(Move(resourceIt->second));
-                m_textureResources.erase(resourceIt);
-            }
-            m_aliveObjects.erase(aliveIt);
+            EraseTrackedTexture(aliveIt->first);
         }
 
         const auto& liveTexture = MG_State::pGLContext->GetTextureObject(texture.GetExternalIndex());
         if (liveTexture && liveTexture.get() == &texture) {
-            m_aliveObjects[&texture] = WeakPtr<MG_State::GLState::ITextureObject>(liveTexture);
+            m_aliveObjects[identity] = WeakPtr<MG_State::GLState::ITextureObject>(liveTexture);
+            PruneStaleTextureAliases(&texture);
         }
 
-        auto it = m_textureResources.find(&texture);
+        auto it = m_textureResources.find(identity);
         if (it == m_textureResources.end()) {
             TextureResource initial{};
-            auto [insertIt, _] = m_textureResources.emplace(&texture, Move(initial));
+            auto [insertIt, _] = m_textureResources.emplace(identity, Move(initial));
             it = insertIt;
         }
 
@@ -737,7 +774,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
 
     void VkTextureManager::UpdateTrackedImageLayout(MG_State::GLState::ITextureObject* texture, VkImageLayout newLayout) {
         MOBILEGL_ASSERT(texture != nullptr, "UpdateTrackedImageLayout: texture is null");
-        auto it = m_textureResources.find(texture);
+        auto it = m_textureResources.find(MakeTextureIdentity(texture));
         MOBILEGL_ASSERT(it != m_textureResources.end(),
                         "UpdateTrackedImageLayout: textureId=%d has no tracked resource", texture->GetExternalIndex());
         MOBILEGL_ASSERT(it->second.image != VK_NULL_HANDLE,
@@ -750,7 +787,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                                                                         Uint32 writtenMipLevel,
                                                                         VkImageLayout newLayout) {
         MOBILEGL_ASSERT(texture != nullptr, "UpdateTrackedImageLayoutAfterAttachmentWrite: texture is null");
-        auto it = m_textureResources.find(texture);
+        auto it = m_textureResources.find(MakeTextureIdentity(texture));
         MOBILEGL_ASSERT(it != m_textureResources.end(),
                         "UpdateTrackedImageLayoutAfterAttachmentWrite: textureId=%d has no tracked resource",
                         texture->GetExternalIndex());
@@ -920,20 +957,18 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         if (m_gcCounter != 0) {
             return 0;
         }
-        SizeT count = 0;
-        for (auto it = m_aliveObjects.begin(); it != m_aliveObjects.end();) {
-            auto current = it++;
-            if (current->second.expired()) {
-                auto resourceIt = m_textureResources.find(current->first);
-                if (resourceIt != m_textureResources.end()) {
-                    DeferResourceRelease(Move(resourceIt->second));
-                    m_textureResources.erase(resourceIt);
-                }
-                m_aliveObjects.erase(current);
-                ++count;
+
+        Vector<MG_State::GLState::ITextureObject*> expiredTextures;
+        expiredTextures.reserve(m_aliveObjects.size());
+        for (auto it = m_aliveObjects.begin(); it != m_aliveObjects.end(); ++it) {
+            if (it->second.expired()) {
+                expiredTextures.emplace_back(it->first.texture);
             }
         }
-        return count;
+        for (auto* texture : expiredTextures) {
+            PruneStaleTextureAliases(texture);
+        }
+        return expiredTextures.size();
     }
 
     Bool VkTextureManager::SyncTexture(MG_State::GLState::ITextureObject &texture,

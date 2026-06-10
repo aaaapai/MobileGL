@@ -105,6 +105,20 @@ TEST_F(FramebufferTest, CreateFramebuffersCreatesObjectsImmediately) {
     EXPECT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
 }
 
+TEST_F(FramebufferTest, DefaultFramebufferIdentityTracksFramebufferNameZero) {
+    const auto defaultFramebuffer = MG_State::pGLContext->GetFramebufferObject(0);
+    ASSERT_NE(defaultFramebuffer, nullptr);
+    EXPECT_TRUE(defaultFramebuffer->IsDefaultFramebuffer());
+    const auto defaultFramebufferCopy = *defaultFramebuffer;
+    EXPECT_TRUE(defaultFramebufferCopy.IsDefaultFramebuffer());
+
+    GLuint framebuffer = 0;
+    MG_Impl::GLImpl::CreateFramebuffers(1, &framebuffer);
+    const auto userFramebuffer = MG_State::pGLContext->GetFramebufferObject(framebuffer);
+    ASSERT_NE(userFramebuffer, nullptr);
+    EXPECT_FALSE(userFramebuffer->IsDefaultFramebuffer());
+}
+
 TEST_F(FramebufferTest, NamedFramebufferTextureAttachesWithoutChangingBindings) {
     GLuint framebuffer = 0;
     MG_Impl::GLImpl::CreateFramebuffers(1, &framebuffer);
@@ -257,6 +271,46 @@ TEST_F(FramebufferTest, NamedFramebufferDrawBuffersDoNotModifyDefaultFramebuffer
     EXPECT_EQ(MG_State::pGLContext->GetFramebufferBindingSlot(FramebufferTarget::Draw).GetBoundObject(), defaultDraw);
     EXPECT_EQ(MG_State::pGLContext->GetFramebufferBindingSlot(FramebufferTarget::Read).GetBoundObject(), defaultRead);
     EXPECT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+}
+
+TEST_F(FramebufferTest, DefaultFramebufferReadBufferAcceptsGLBackAlias) {
+    const auto defaultRead =
+        MG_State::pGLContext->GetFramebufferBindingSlot(FramebufferTarget::Read).GetBoundObject();
+
+    MG_Impl::GLImpl::ReadBuffer(GL_BACK);
+
+    EXPECT_EQ(defaultRead->GetReadBuffer(), FramebufferAttachmentType::BackLeft);
+    EXPECT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+}
+
+TEST_F(FramebufferTest, DefaultFramebufferDrawBufferAcceptsGLFrontAlias) {
+    const auto defaultDraw =
+        MG_State::pGLContext->GetFramebufferBindingSlot(FramebufferTarget::Draw).GetBoundObject();
+
+    MG_Impl::GLImpl::DrawBuffer(GL_FRONT);
+
+    EXPECT_EQ(defaultDraw->GetDrawBuffers()[0], FramebufferAttachmentType::FrontLeft);
+    EXPECT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
+}
+
+TEST_F(FramebufferTest, DefaultFramebufferProvidesTextureAttachmentsForFrontAndBackAliases) {
+    const auto defaultFramebuffer =
+        MG_State::pGLContext->GetFramebufferBindingSlot(FramebufferTarget::Draw).GetBoundObject();
+    ASSERT_NE(defaultFramebuffer, nullptr);
+
+    const auto& frontLeft = defaultFramebuffer->GetAttachment(FramebufferAttachmentType::FrontLeft);
+    const auto& frontRight = defaultFramebuffer->GetAttachment(FramebufferAttachmentType::FrontRight);
+    const auto& backLeft = defaultFramebuffer->GetAttachment(FramebufferAttachmentType::BackLeft);
+    const auto& backRight = defaultFramebuffer->GetAttachment(FramebufferAttachmentType::BackRight);
+
+    EXPECT_TRUE(frontLeft.IsTexture());
+    EXPECT_TRUE(frontRight.IsTexture());
+    EXPECT_TRUE(backLeft.IsTexture());
+    EXPECT_TRUE(backRight.IsTexture());
+    EXPECT_TRUE(frontLeft.IsComplete());
+    EXPECT_TRUE(frontRight.IsComplete());
+    EXPECT_TRUE(backLeft.IsComplete());
+    EXPECT_TRUE(backRight.IsComplete());
 }
 
 TEST_F(FramebufferTest, ClearNamedFramebufferfvUsesNamedObjectWithoutChangingBindings) {

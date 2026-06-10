@@ -689,7 +689,8 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             if (trackedAttachment.target != TrackedAttachmentTarget::Texture) {
                 continue;
             }
-            if (trackedAttachment.texture == &texture) {
+            const auto trackedTexture = trackedAttachment.texture.lock();
+            if (trackedTexture && trackedTexture.get() == &texture) {
                 return true;
             }
         }
@@ -1064,9 +1065,33 @@ void main() {
         static Bool ResolveColorBlitBinding(MG_State::GLState::FramebufferObject& fbo, Bool isReadFramebuffer,
                                             Uint32 swapchainImageIndex, SwapchainObject& swapchainObject,
                                             VkTextureManager& textureManager, BlitImageBinding& outBinding) {
-            const Bool isDefaultFbo = (&fbo == MG_Impl::GLImpl::FramebufferImpl::pDefaultFramebufferInfo->defaultFBO.get());
+            const Bool isDefaultFbo = fbo.IsDefaultFramebuffer();
             const FramebufferAttachmentType attachmentType =
                 isReadFramebuffer ? fbo.GetReadBuffer() : fbo.GetDrawBuffers()[0];
+            outBinding.label = isReadFramebuffer ? "read" : "draw";
+
+            if (isDefaultFbo) {
+                const Bool defaultColorAttachment =
+                    attachmentType == FramebufferAttachmentType::Color0 ||
+                    (attachmentType >= FramebufferAttachmentType::FrontLeft &&
+                     attachmentType <= FramebufferAttachmentType::BackRight);
+                if (!defaultColorAttachment) {
+                    MGLOG_E("BlitFramebuffer skipped: default framebuffer color attachment %d is not supported",
+                            static_cast<Int>(attachmentType));
+                    return false;
+                }
+                outBinding.image = swapchainObject.GetImage(swapchainImageIndex);
+                outBinding.trackedLayout = nullptr;
+                outBinding.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+                const auto extent = swapchainObject.GetExtent();
+                outBinding.extent = {static_cast<Int>(extent.width), static_cast<Int>(extent.height)};
+                outBinding.mipLevel = 0;
+                outBinding.mipLevelCount = 1;
+                outBinding.baseArrayLayer = 0;
+                outBinding.layerCount = 1;
+                return true;
+            }
+
             if (attachmentType < FramebufferAttachmentType::Color0 || attachmentType > FramebufferAttachmentType::Color31) {
                 MGLOG_E("BlitFramebuffer only supports color attachments right now (attachment=%d)",
                         static_cast<Int>(attachmentType));
@@ -1090,20 +1115,6 @@ void main() {
 
             auto* texture = attachment.GetTexture().get();
             MOBILEGL_ASSERT(texture != nullptr, "ResolveColorBlitBinding: texture attachment is null");
-            outBinding.label = isReadFramebuffer ? "read" : "draw";
-
-            if (isDefaultFbo) {
-                outBinding.image = swapchainObject.GetImage(swapchainImageIndex);
-                outBinding.trackedLayout = nullptr;
-                outBinding.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-                const auto extent = swapchainObject.GetExtent();
-                outBinding.extent = {static_cast<Int>(extent.width), static_cast<Int>(extent.height)};
-                outBinding.mipLevel = 0;
-                outBinding.mipLevelCount = 1;
-                outBinding.baseArrayLayer = 0;
-                outBinding.layerCount = 1;
-                return true;
-            }
 
             auto* resource = textureManager.SyncTextureAndGetDescriptor(*texture);
             if (resource == nullptr) {
@@ -1134,8 +1145,7 @@ void main() {
                                                   VkTextureManager& textureManager,
                                                   VkImageAspectFlags requiredAspectMask,
                                                   BlitImageBinding& outBinding) {
-            const Bool isDefaultFbo =
-                (&fbo == MG_Impl::GLImpl::FramebufferImpl::pDefaultFramebufferInfo->defaultFBO.get());
+            const Bool isDefaultFbo = fbo.IsDefaultFramebuffer();
             const auto attachmentType = ResolveFramebufferCopyAttachmentType(fbo, isReadFramebuffer, requiredAspectMask);
             if (attachmentType == FramebufferAttachmentType::None) {
                 MGLOG_E("BlitFramebuffer skipped: unsupported aspect mask=0x%x",
@@ -1250,8 +1260,7 @@ void main() {
                                                     VkTextureManager& textureManager,
                                                     VkImageAspectFlags requiredAspectMask,
                                                     BlitImageBinding& outBinding) {
-            const Bool isDefaultFbo =
-                (&fbo == MG_Impl::GLImpl::FramebufferImpl::pDefaultFramebufferInfo->defaultFBO.get());
+            const Bool isDefaultFbo = fbo.IsDefaultFramebuffer();
             const auto attachmentType = ResolveFramebufferCopyAttachmentType(fbo, true, requiredAspectMask);
             if (attachmentType == FramebufferAttachmentType::None) {
                 MGLOG_E("CopyTexSubImage2D skipped: unsupported source aspect mask=0x%x",
@@ -1545,7 +1554,7 @@ void main() {
         ProgramFactory::CompileOptionFlags flags = ProgramFactory::CompileOptionBit::PositionZRemap;
         const auto& currentDrawFBO =
             MG_State::pGLContext->GetFramebufferBindingSlot(FramebufferTarget::Draw).GetBoundObject();
-        if (currentDrawFBO == MG_Impl::GLImpl::FramebufferImpl::pDefaultFramebufferInfo->defaultFBO) {
+        if (currentDrawFBO != nullptr && currentDrawFBO->IsDefaultFramebuffer()) {
             flags |= ProgramFactory::CompileOptionBit::PositionYFlip;
             switch (preTransform) {
             case VK_SURFACE_TRANSFORM_ROTATE_90_BIT_KHR:
@@ -2703,8 +2712,7 @@ void main() {
         const auto& drawFboBinding =
             MG_State::pGLContext->GetFramebufferBindingSlot(FramebufferTarget::Draw).GetBoundObject();
         MOBILEGL_ASSERT(drawFboBinding != nullptr, "GetOrCreatePipeline: draw framebuffer is null");
-        const Bool isDefaultDrawFbo =
-            drawFboBinding.get() == MG_Impl::GLImpl::FramebufferImpl::pDefaultFramebufferInfo->defaultFBO.get();
+        const Bool isDefaultDrawFbo = drawFboBinding->IsDefaultFramebuffer();
         const auto& drawBuffers = drawFboBinding->GetDrawBuffers();
         auto resolveCompleteColorAttachmentTexture = [&](Uint32 drawBufferIndex) -> MG_State::GLState::ITextureObject* {
             if (isDefaultDrawFbo || drawBufferIndex >= drawBuffers.size()) {
@@ -3430,8 +3438,7 @@ void main() {
                                                                GLint srcX0, GLint srcY0, GLint srcX1, GLint srcY1,
                                                                GLint dstX0, GLint dstY0, GLint dstX1, GLint dstY1,
                                                                GLenum filter) {
-        const Bool drawIsDefaultFbo =
-            (&drawFbo == MG_Impl::GLImpl::FramebufferImpl::pDefaultFramebufferInfo->defaultFBO.get());
+        const Bool drawIsDefaultFbo = drawFbo.IsDefaultFramebuffer();
         if (!drawIsDefaultFbo) {
             return false;
         }
@@ -3607,10 +3614,8 @@ void main() {
             VkRenderPassManager::EndRenderPass(frame.commandBuffer);
         }
 
-        const Bool readIsDefaultFbo =
-            (readFbo == MG_Impl::GLImpl::FramebufferImpl::pDefaultFramebufferInfo->defaultFBO);
-        const Bool drawIsDefaultFbo =
-            (drawFbo == MG_Impl::GLImpl::FramebufferImpl::pDefaultFramebufferInfo->defaultFBO);
+        const Bool readIsDefaultFbo = readFbo->IsDefaultFramebuffer();
+        const Bool drawIsDefaultFbo = drawFbo->IsDefaultFramebuffer();
         if (isColorBlit && drawIsDefaultFbo &&
             RequiresShaderBlitToDefaultFramebuffer(m_swapchainObject.GetPreTransform())) {
             if (TryBlitToDefaultFramebufferWithShader(frame, *readFbo, *drawFbo,
@@ -3959,8 +3964,7 @@ void main() {
             VkRenderPassManager::EndRenderPass(frame.commandBuffer);
         }
 
-        const Bool readIsDefaultFbo =
-            (readFbo == MG_Impl::GLImpl::FramebufferImpl::pDefaultFramebufferInfo->defaultFBO);
+        const Bool readIsDefaultFbo = readFbo->IsDefaultFramebuffer();
 
         BlitImageBinding dstBinding{};
         if (!ResolveTextureCopyDestinationBinding(*destinationTexture, static_cast<Uint32>(level), *m_textureManager,
@@ -4161,8 +4165,7 @@ void main() {
             VkRenderPassManager::EndRenderPass(frame.commandBuffer);
         }
 
-        const Bool readIsDefaultFbo =
-            (readFbo == MG_Impl::GLImpl::FramebufferImpl::pDefaultFramebufferInfo->defaultFBO);
+        const Bool readIsDefaultFbo = readFbo->IsDefaultFramebuffer();
         BlitImageBinding srcBinding{};
         if (!ResolveColorBlitBinding(*readFbo, true, m_imageIndexAcquired, m_swapchainObject, *m_textureManager,
                                      srcBinding)) {
@@ -5582,7 +5585,8 @@ void main() {
             }
 
             ClearAttachmentPayload clearPayload{};
-            if (!m_clearManager->GetPendingClear(pending.key, clearPayload)) {
+            SharedPtr<MG_State::GLState::ITextureObject> liveTexture;
+            if (!m_clearManager->GetPendingClear(pending.key, clearPayload, liveTexture)) {
                 continue;
             }
 
@@ -5595,7 +5599,7 @@ void main() {
                         clearPayload.color.x(),
                         clearPayload.color.y(),
                         clearPayload.color.z(),
-                        ResolveColorClearAlpha(pending.key.texture, clearPayload.color.w())
+                        ResolveColorClearAlpha(liveTexture.get(), clearPayload.color.w())
                 };
             } else {
                 if ((clearPayload.mask & GL_DEPTH_BUFFER_BIT) != 0) {

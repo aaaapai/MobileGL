@@ -12,6 +12,7 @@
 #include <Includes.h>
 #include <MG_State/GLState/TextureState/TextureObject.h>
 #include <vk_mem_alloc.h>
+#include <unordered_map>
 
 namespace MobileGL::MG_State::GLState {
 class ITextureObject;
@@ -20,6 +21,23 @@ class ITextureObject;
 namespace MobileGL::MG_Backend::DirectVulkan {
 class VkTextureManager {
 public:
+    struct TextureIdentity {
+        MG_State::GLState::ITextureObject* texture = nullptr;
+        Uint64 lifetimeId = 0;
+
+        Bool operator==(const TextureIdentity& other) const {
+            return texture == other.texture && lifetimeId == other.lifetimeId;
+        }
+    };
+
+    struct TextureIdentityHash {
+        SizeT operator()(const TextureIdentity& key) const {
+            SizeT hash = std::hash<MG_State::GLState::ITextureObject*>{}(key.texture);
+            hash ^= std::hash<Uint64>{}(key.lifetimeId) + 0x9e3779b9u + (hash << 6) + (hash >> 2);
+            return hash;
+        }
+    };
+
     struct InitInfo {
         VkDevice device = VK_NULL_HANDLE;
         VkPhysicalDevice physicalDevice = VK_NULL_HANDLE;
@@ -212,6 +230,9 @@ private:
     void DeferViewRelease(VkImageView view);
     void CollectDeferredReleases(Uint32 frameIndex);
     void DestroyDeferredReleases();
+    static TextureIdentity MakeTextureIdentity(MG_State::GLState::ITextureObject* texture);
+    void EraseTrackedTexture(const TextureIdentity& identity);
+    void PruneStaleTextureAliases(MG_State::GLState::ITextureObject* texture);
 
     VkDevice m_device = VK_NULL_HANDLE;
     VkPhysicalDevice m_physicalDevice = VK_NULL_HANDLE;
@@ -221,8 +242,8 @@ private:
     Uint32 m_currentFrameIndex = 0;
 
     Uint8 m_gcCounter = 0;
-    UnorderedMap<MG_State::GLState::ITextureObject*, WeakPtr<MG_State::GLState::ITextureObject>> m_aliveObjects;
-    UnorderedMap<MG_State::GLState::ITextureObject*, TextureResource> m_textureResources;
+    std::unordered_map<TextureIdentity, WeakPtr<MG_State::GLState::ITextureObject>, TextureIdentityHash> m_aliveObjects;
+    std::unordered_map<TextureIdentity, TextureResource, TextureIdentityHash> m_textureResources;
     Vector<Vector<TextureResource>> m_deferredReleases;
     Vector<Vector<VkImageView>> m_deferredViewReleases;
 };

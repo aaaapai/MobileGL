@@ -31,7 +31,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
 
     struct TrackedAttachmentLayoutInfo {
         TrackedAttachmentTarget target = TrackedAttachmentTarget::Texture;
-        MG_State::GLState::ITextureObject* texture = nullptr;
+        WeakPtr<MG_State::GLState::ITextureObject> texture;
         Uint32 textureMipLevel = 0;
         Uint32 swapchainImageIndex = 0;
         VkImageLayout finalLayout = VK_IMAGE_LAYOUT_UNDEFINED;
@@ -45,6 +45,8 @@ namespace MobileGL::MG_Backend::DirectVulkan {
 
     DepthStencilAttachmentLoadInfo ResolveDepthStencilAttachmentLoadInfo(
         VkImageLayout trackedLayout, Bool clearDepth, Bool clearStencil);
+    IntVec2 ResolveRenderPassFramebufferExtent(Bool isDefaultFbo, const TextureSize& attachmentExtent,
+                                               VkExtent2D swapchainExtent);
 
     struct RenderPassEntry {
         static inline VkDevice s_device;

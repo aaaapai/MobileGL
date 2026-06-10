@@ -17,6 +17,10 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                target <= TextureUploadTarget::CubeMapNegativeZ;
     }
 
+    static Bool PendingClearMatchesTextureIdentity(const PendingClearKey& key, const TextureIdentity& identity) {
+        return key.texture == identity.texture && key.textureLifetimeId == identity.lifetimeId;
+    }
+
     static Uint32 ResolveAttachmentBaseArrayLayer(TextureUploadTarget target) {
         if (!IsCubeMapFaceUploadTarget(target)) {
             return 0;
@@ -42,6 +46,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                                                         Uint32 baseArrayLayer, Uint32 layerCount) {
         return PendingClearKey {
             .texture = texture,
+            .textureLifetimeId = texture ? texture->GetLifetimeId() : 0,
             .mipLevel = mipLevel,
             .baseArrayLayer = baseArrayLayer,
             .layerCount = layerCount,
@@ -66,7 +71,74 @@ namespace MobileGL::MG_Backend::DirectVulkan {
     }
 
     void VkClearManager::Shutdown() {
+        const std::lock_guard<std::mutex> lock(m_mutex);
+        m_pendingClears.clear();
+        m_aliveObjects.clear();
+    }
 
+    TextureIdentity VkClearManager::MakeTextureIdentity(MG_State::GLState::ITextureObject* texture) {
+        return TextureIdentity {
+            .texture = texture,
+            .lifetimeId = texture ? texture->GetLifetimeId() : 0,
+        };
+    }
+
+    void VkClearManager::MergeClearPayload(ClearAttachmentPayload& dst, const ClearAttachmentPayload& src) {
+        dst.mask |= src.mask;
+        if ((src.mask & GL_COLOR_BUFFER_BIT) != 0) {
+            dst.color = src.color;
+        }
+        if ((src.mask & GL_DEPTH_BUFFER_BIT) != 0) {
+            dst.depth = src.depth;
+        }
+        if ((src.mask & GL_STENCIL_BUFFER_BIT) != 0) {
+            dst.stencil = src.stencil;
+        }
+    }
+
+    void VkClearManager::ErasePendingClearsForTextureLocked(const TextureIdentity& identity) {
+        Vector<PendingClearKey> keysToErase;
+        keysToErase.reserve(m_pendingClears.size());
+        for (auto it = m_pendingClears.begin(); it != m_pendingClears.end(); ++it) {
+            if (PendingClearMatchesTextureIdentity(it->first, identity)) {
+                keysToErase.emplace_back(it->first);
+            }
+        }
+        for (const auto& key : keysToErase) {
+            m_pendingClears.erase(key);
+        }
+        m_aliveObjects.erase(identity);
+    }
+
+    Bool VkClearManager::LockTextureIdentityLocked(const TextureIdentity& identity,
+                                                   SharedPtr<MG_State::GLState::ITextureObject>& outTexture) {
+        outTexture.reset();
+        if (identity.texture == nullptr) {
+            return false;
+        }
+
+        auto aliveIt = m_aliveObjects.find(identity);
+        if (aliveIt == m_aliveObjects.end()) {
+            ErasePendingClearsForTextureLocked(identity);
+            return false;
+        }
+
+        outTexture = aliveIt->second.lock();
+        if (!outTexture || outTexture.get() != identity.texture || outTexture->GetLifetimeId() != identity.lifetimeId) {
+            ErasePendingClearsForTextureLocked(identity);
+            outTexture.reset();
+            return false;
+        }
+
+        return true;
+    }
+
+    Bool VkClearManager::LockTextureLocked(const PendingClearKey& key,
+                                           SharedPtr<MG_State::GLState::ITextureObject>& outTexture) {
+        return LockTextureIdentityLocked(TextureIdentity{
+            .texture = key.texture,
+            .lifetimeId = key.textureLifetimeId,
+        }, outTexture);
     }
 
     void VkClearManager::QueueClear(GLbitfield mask, const ClearFramebufferPayload& clearPayload,
@@ -121,25 +193,15 @@ namespace MobileGL::MG_Backend::DirectVulkan {
 
     void VkClearManager::QueueClear(const ClearAttachmentPayload& clearPayload,
                                     const SharedPtr<MG_State::GLState::ITextureObject>& texture) {
-        if (clearPayload.mask == 0) {
+        if (clearPayload.mask == 0 || !texture) {
             return;
         }
-        WeakPtr<MG_State::GLState::ITextureObject> weakTexturePtr = texture;
-        if (weakTexturePtr.expired())
-            return;
-        auto* pTexture = weakTexturePtr.lock().get();
-        m_aliveObjects[pTexture] = weakTexturePtr;
-        auto& pending = m_pendingClears[MakePendingClearKey(pTexture)];
-        pending.mask |= clearPayload.mask;
-        if (clearPayload.mask & GL_COLOR_BUFFER_BIT) {
-            pending.color = clearPayload.color;
-        }
-        if (clearPayload.mask & GL_DEPTH_BUFFER_BIT) {
-            pending.depth = clearPayload.depth;
-        }
-        if (clearPayload.mask & GL_STENCIL_BUFFER_BIT) {
-            pending.stencil = clearPayload.stencil;
-        }
+
+        const PendingClearKey key = MakePendingClearKey(texture.get());
+        const std::lock_guard<std::mutex> lock(m_mutex);
+        m_aliveObjects[MakeTextureIdentity(texture.get())] = texture;
+        auto& pending = m_pendingClears[key];
+        MergeClearPayload(pending, clearPayload);
     }
 
     void VkClearManager::QueueClear(const ClearAttachmentPayload& clearPayload,
@@ -151,35 +213,42 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         if (!texture) {
             return;
         }
-        WeakPtr<MG_State::GLState::ITextureObject> weakTexturePtr = texture;
-        if (weakTexturePtr.expired()) {
-            return;
-        }
-        auto* pTexture = weakTexturePtr.lock().get();
-        m_aliveObjects[pTexture] = weakTexturePtr;
-        auto& pending = m_pendingClears[MakePendingClearKey(attachment)];
-        pending.mask |= clearPayload.mask;
-        if (clearPayload.mask & GL_COLOR_BUFFER_BIT) {
-            pending.color = clearPayload.color;
-        }
-        if (clearPayload.mask & GL_DEPTH_BUFFER_BIT) {
-            pending.depth = clearPayload.depth;
-        }
-        if (clearPayload.mask & GL_STENCIL_BUFFER_BIT) {
-            pending.stencil = clearPayload.stencil;
-        }
+
+        const PendingClearKey key = MakePendingClearKey(attachment);
+        const std::lock_guard<std::mutex> lock(m_mutex);
+        m_aliveObjects[MakeTextureIdentity(texture.get())] = texture;
+        auto& pending = m_pendingClears[key];
+        MergeClearPayload(pending, clearPayload);
     }
 
     Bool VkClearManager::HasPendingClear(MG_State::GLState::ITextureObject* texture) {
         if (texture == nullptr) {
             return false;
         }
-        return std::any_of(m_pendingClears.begin(), m_pendingClears.end(),
-                           [texture](const auto& item) { return item.first.texture == texture; });
+
+        const Uint64 lifetimeId = texture->GetLifetimeId();
+        const std::lock_guard<std::mutex> lock(m_mutex);
+        for (auto it = m_pendingClears.begin(); it != m_pendingClears.end(); ++it) {
+            if (it->first.texture == texture && it->first.textureLifetimeId == lifetimeId) {
+                SharedPtr<MG_State::GLState::ITextureObject> liveTexture;
+                return LockTextureLocked(it->first, liveTexture);
+            }
+        }
+        return false;
     }
 
     Bool VkClearManager::HasPendingClear(const PendingClearKey& key) {
-        return key.texture != nullptr && m_pendingClears.find(key) != m_pendingClears.end();
+        if (key.texture == nullptr) {
+            return false;
+        }
+
+        const std::lock_guard<std::mutex> lock(m_mutex);
+        if (m_pendingClears.find(key) == m_pendingClears.end()) {
+            return false;
+        }
+
+        SharedPtr<MG_State::GLState::ITextureObject> liveTexture;
+        return LockTextureLocked(key, liveTexture);
     }
 
     Bool VkClearManager::HasPendingClear(const MG_State::GLState::FramebufferAttachmentObject& attachment) {
@@ -190,20 +259,30 @@ namespace MobileGL::MG_Backend::DirectVulkan {
     }
 
     Bool VkClearManager::GetPendingClear(const PendingClearKey& key, ClearAttachmentPayload& outPayload) {
-        if (key.texture == nullptr || m_aliveObjects.find(key.texture) == m_aliveObjects.end()) {
+        SharedPtr<MG_State::GLState::ITextureObject> liveTexture;
+        return GetPendingClear(key, outPayload, liveTexture);
+    }
+
+    Bool VkClearManager::GetPendingClear(const PendingClearKey& key, ClearAttachmentPayload& outPayload,
+                                         SharedPtr<MG_State::GLState::ITextureObject>& outTexture) {
+        if (key.texture == nullptr) {
+            return false;
+        }
+
+        const std::lock_guard<std::mutex> lock(m_mutex);
+        if (!LockTextureLocked(key, outTexture)) {
             return false;
         }
         auto it = m_pendingClears.find(key);
         if (it == m_pendingClears.end()) {
-            MGLOG_D("%s: Failed getting pending clear for texture %d mip=%u layer=%u count=%u", __func__,
-                    key.texture ? key.texture->GetExternalIndex() : 0, key.mipLevel, key.baseArrayLayer, key.layerCount);
+            outTexture.reset();
             return false;
         }
 
         outPayload = it->second;
-        MGLOG_D("%s: Got pending clear for texture %d (%s), mip=%u layer=%u count=%u mask=0x%x clear value: color = (%.2f, %.2f, %.2f, %.2f), depth = (%.2f), stencil = (%u)", __func__,
-            key.texture->GetExternalIndex(),
-            MG_Util::ConvertTextureInternalFormatToString(key.texture->GetFormat()).c_str(),
+        MGLOG_D("%s: Got pending clear for texture@%p lifetime=%llu, mip=%u layer=%u count=%u mask=0x%x clear value: color = (%.2f, %.2f, %.2f, %.2f), depth = (%.2f), stencil = (%u)", __func__,
+            static_cast<void*>(key.texture),
+            static_cast<unsigned long long>(key.textureLifetimeId),
             key.mipLevel, key.baseArrayLayer, key.layerCount,
             static_cast<Uint32>(outPayload.mask),
             outPayload.color[0], outPayload.color[1], outPayload.color[2], outPayload.color[3],
@@ -224,14 +303,20 @@ namespace MobileGL::MG_Backend::DirectVulkan {
     Bool VkClearManager::GetPendingClears(MG_State::GLState::ITextureObject* texture,
                                           Vector<PendingClearEntry>& outEntries) {
         outEntries.clear();
-        if (texture == nullptr || m_aliveObjects.find(texture) == m_aliveObjects.end()) {
+        if (texture == nullptr) {
             return false;
         }
-        for (const auto& [key, payload] : m_pendingClears) {
-            if (key.texture != texture) {
-                continue;
+
+        const Uint64 lifetimeId = texture->GetLifetimeId();
+        const std::lock_guard<std::mutex> lock(m_mutex);
+        SharedPtr<MG_State::GLState::ITextureObject> liveTexture;
+        if (!LockTextureIdentityLocked(MakeTextureIdentity(texture), liveTexture)) {
+            return false;
+        }
+        for (auto it = m_pendingClears.begin(); it != m_pendingClears.end(); ++it) {
+            if (it->first.texture == texture && it->first.textureLifetimeId == lifetimeId) {
+                outEntries.emplace_back(PendingClearEntry{.key = it->first, .payload = it->second});
             }
-            outEntries.emplace_back(PendingClearEntry{.key = key, .payload = payload});
         }
         return !outEntries.empty();
     }
@@ -240,24 +325,29 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         if (texture == nullptr) {
             return;
         }
+
+        const TextureIdentity identity = MakeTextureIdentity(texture);
         MGLOG_D("%s: Pop all pending clears for texture %d", __func__, texture->GetExternalIndex());
-        m_aliveObjects.erase(texture);
-        for (auto it = m_pendingClears.begin(); it != m_pendingClears.end();) {
-            if (it->first.texture == texture) {
-                it = m_pendingClears.erase(it);
-            } else {
-                ++it;
-            }
-        }
+        const std::lock_guard<std::mutex> lock(m_mutex);
+        ErasePendingClearsForTextureLocked(identity);
     }
 
     void VkClearManager::PopPendingClear(const PendingClearKey& key) {
         if (key.texture == nullptr) {
             return;
         }
-        MGLOG_D("%s: Pop pending clear for texture %d mip=%u layer=%u count=%u", __func__,
-                key.texture->GetExternalIndex(), key.mipLevel, key.baseArrayLayer, key.layerCount);
-        m_pendingClears.erase(key);
+
+        {
+            const std::lock_guard<std::mutex> lock(m_mutex);
+            auto it = m_pendingClears.find(key);
+            if (it != m_pendingClears.end()) {
+                m_pendingClears.erase(it);
+            }
+        }
+
+        MGLOG_D("%s: Pop pending clear for texture@%p lifetime=%llu mip=%u layer=%u count=%u", __func__,
+                static_cast<void*>(key.texture), static_cast<unsigned long long>(key.textureLifetimeId),
+                key.mipLevel, key.baseArrayLayer, key.layerCount);
     }
 
     void VkClearManager::PopPendingClear(const MG_State::GLState::FramebufferAttachmentObject& attachment) {
@@ -268,26 +358,26 @@ namespace MobileGL::MG_Backend::DirectVulkan {
     }
 
     SizeT VkClearManager::CollectGarbage() {
+        const std::lock_guard<std::mutex> lock(m_mutex);
         m_gcCounter++;
         if (m_gcCounter != 0) {
             return 0;
         }
 
-        SizeT count = 0;
-        for (auto it = m_aliveObjects.begin(); it != m_aliveObjects.end();) {
-            auto current = it++;
-            if (current->second.expired()) {
-                for (auto clearIt = m_pendingClears.begin(); clearIt != m_pendingClears.end();) {
-                    if (clearIt->first.texture == current->first) {
-                        clearIt = m_pendingClears.erase(clearIt);
-                    } else {
-                        ++clearIt;
-                    }
-                }
-                m_aliveObjects.erase(current);
-                ++count;
+        Vector<TextureIdentity> expiredTextures;
+        expiredTextures.reserve(m_aliveObjects.size());
+        for (auto it = m_aliveObjects.begin(); it != m_aliveObjects.end(); ++it) {
+            if (it->second.expired()) {
+                expiredTextures.emplace_back(it->first);
             }
         }
-        return count;
+        if (expiredTextures.empty()) {
+            return 0;
+        }
+
+        for (const auto& identity : expiredTextures) {
+            ErasePendingClearsForTextureLocked(identity);
+        }
+        return expiredTextures.size();
     }
 } // namespace MobileGL::MG_Backend::DirectVulkan

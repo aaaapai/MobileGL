@@ -131,6 +131,7 @@ namespace MobileGL {
             Uint16 GetObjectVersion() const { return m_objectVersion; }
 
             Uint GetExternalIndex() const;
+            Bool IsDefaultFramebuffer() const { return m_externalIndex == 0; }
 
         private:
             void BumpAttachmentVersion(FramebufferAttachmentType type);
