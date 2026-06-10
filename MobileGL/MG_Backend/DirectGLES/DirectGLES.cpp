@@ -1086,19 +1086,6 @@ void MultiDrawElementsBaseVertex(GLenum mode, const GLsizei* count, GLenum type,
     g_mdiBuffer.Cleanup();
 }
 
-    void MultiDrawElementsBaseVertex(GLenum mode, const GLsizei* count, GLenum type, const GLvoid* const* indices,
-                                     GLsizei drawcount, const GLint* basevertex) {
-#if MOBILEGL_LOG_ACTIVE_LEVEL <= MOBILEGL_LOG_LEVEL_DEBUG && MOBILEGL_ENABLE_SCOPE_MARKER
-        DebugImpl::OpenGLScopeMarker marker(__func__);
-#endif
-        DrawSyncBit syncBit = DrawSyncBit::IndexBuffer;
-        PrepareForDraw(syncBit);
-
-        for (GLsizei i = 0; i < drawcount; ++i) {
-            g_GLESFuncs.glDrawElementsBaseVertex(mode, count[i], type, indices[i], basevertex[i]);
-        }
-    }
-
     void MultiDrawElementsIndirect(GLenum mode, GLenum type, const void* indirect, GLsizei drawcount, GLsizei stride) {
 #if MOBILEGL_LOG_ACTIVE_LEVEL <= MOBILEGL_LOG_LEVEL_DEBUG && MOBILEGL_ENABLE_SCOPE_MARKER
         DebugImpl::OpenGLScopeMarker marker(__func__);
