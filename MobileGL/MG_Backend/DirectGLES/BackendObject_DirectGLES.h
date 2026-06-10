@@ -21,6 +21,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
         Bool InitWindowSurface() override;
         Bool InitializeEGLDisplay(EGLDisplay dpy, EGLint* major, EGLint* minor) override;
         Bool CreateEGLWindowSurface(const WindowHandle& handle) override;
+        Bool CreateEGLPbufferSurface(EGLint width, EGLint height) override;
         Bool MakeEGLCurrent(EGLDisplay dpy, EGLSurface draw, EGLSurface read, EGLContext ctx) override;
         Bool SwapEGLBuffers(EGLDisplay dpy, EGLSurface draw) override;
         void ReleaseEGLResources() override;

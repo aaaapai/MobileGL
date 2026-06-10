@@ -12,6 +12,62 @@
 #include <MG_Backend/BackendObjects.h>
 
 namespace MobileGL::MG_Impl::GLImpl {
+    static Bool ValidateCurrentProgramForExecution(const char* functionName) {
+        const auto& currentProgram = MG_State::pGLContext->GetCurrentProgram();
+        if (!currentProgram) {
+            MG_State::pGLContext->RecordError(
+                ErrorCode::InvalidOperation,
+                MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", functionName, "There is no current program object."));
+            return false;
+        }
+
+        if (!currentProgram->GetLinkStatus()) {
+            MG_State::pGLContext->RecordError(
+                ErrorCode::InvalidOperation,
+                MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", functionName,
+                                             "The current program object is not linked."));
+            return false;
+        }
+
+        return true;
+    }
+
+    static Bool ValidateCurrentProgramForCompute(const char* functionName) {
+        if (!ValidateCurrentProgramForExecution(functionName)) return false;
+
+        const auto& currentProgram = MG_State::pGLContext->GetCurrentProgram();
+        if (currentProgram->GetShaderIndexByStage(ShaderStage::Compute) < 0) {
+            MG_State::pGLContext->RecordError(
+                ErrorCode::InvalidOperation,
+                MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", functionName,
+                                             "The current program object has no compute shader stage."));
+            return false;
+        }
+
+        return true;
+    }
+
+    static Bool ValidatePrimitiveModeForBackend(const char* functionName, GLenum mode) {
+        const auto& activeBackendObject = MG_Backend::pActiveBackendObject;
+        if (!activeBackendObject) {
+            MG_State::pGLContext->RecordError(
+                ErrorCode::InvalidOperation,
+                MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", functionName, "No active backend object."));
+            return false;
+        }
+
+        if (activeBackendObject->GetBackendType() == BackendType::DirectVulkan && mode == GL_LINE_LOOP) {
+            MG_State::pGLContext->RecordError(
+                ErrorCode::InvalidOperation,
+                MakeUnique<GenericErrorInfo>(
+                    "MG_Impl/GLImpl", functionName,
+                    "Primitive mode GL_LINE_LOOP is not supported by the DirectVulkan backend."));
+            return false;
+        }
+
+        return true;
+    }
+
     void Clear_Backend(GLbitfield mask) {
 #ifdef TRACY_ENABLE
         ZoneScopedC(TRACY_ZONECOLOR_BACKEND);
@@ -182,6 +238,7 @@ namespace MobileGL::MG_Impl::GLImpl {
                 MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", __func__, "Backend does not support compute dispatch."));
             return;
         }
+        if (!ValidateCurrentProgramForCompute(__func__)) return;
         dispatchCompute(numGroupsX, numGroupsY, numGroupsZ);
     }
 
@@ -194,6 +251,7 @@ namespace MobileGL::MG_Impl::GLImpl {
                                              "Backend does not support indirect compute dispatch."));
             return;
         }
+        if (!ValidateCurrentProgramForCompute(__func__)) return;
         dispatchComputeIndirect(indirect);
     }
 
@@ -221,10 +279,14 @@ namespace MobileGL::MG_Impl::GLImpl {
     }
 
     void MultiDrawElementsIndirect(GLenum mode, GLenum type, const void* indirect, GLsizei drawcount, GLsizei stride) {
+        if (!ValidateCurrentProgramForExecution(__func__)) return;
+        if (!ValidatePrimitiveModeForBackend(__func__, mode)) return;
         MultiDrawElementsIndirect_Backend(mode, type, indirect, drawcount, stride);
     }
 
     void MultiDrawArraysIndirect(GLenum mode, const void* indirect, GLsizei drawcount, GLsizei stride) {
+        if (!ValidateCurrentProgramForExecution(__func__)) return;
+        if (!ValidatePrimitiveModeForBackend(__func__, mode)) return;
         MultiDrawArraysIndirect_Backend(mode, indirect, drawcount, stride);
     }
 
@@ -256,65 +318,93 @@ namespace MobileGL::MG_Impl::GLImpl {
 
     void DrawRangeElementsBaseVertex(GLenum mode, GLuint start, GLuint end, GLsizei count, GLenum type,
                                      const void* indices, GLint basevertex) {
+        if (!ValidateCurrentProgramForExecution(__func__)) return;
+        if (!ValidatePrimitiveModeForBackend(__func__, mode)) return;
         DrawRangeElementsBaseVertex_Backend(mode, start, end, count, type, indices, basevertex);
     }
 
     void DrawRangeElements(GLenum mode, GLuint start, GLuint end, GLsizei count, GLenum type, const void* indices) {
+        if (!ValidateCurrentProgramForExecution(__func__)) return;
+        if (!ValidatePrimitiveModeForBackend(__func__, mode)) return;
         DrawRangeElements_Backend(mode, start, end, count, type, indices);
     }
 
     void DrawElementsInstancedBaseVertexBaseInstance(GLenum mode, GLsizei count, GLenum type, const void* indices,
                                                      GLsizei instancecount, GLint basevertex, GLuint baseinstance) {
+        if (!ValidateCurrentProgramForExecution(__func__)) return;
+        if (!ValidatePrimitiveModeForBackend(__func__, mode)) return;
         DrawElementsInstancedBaseVertexBaseInstance_Backend(mode, count, type, indices, instancecount, basevertex,
                                                             baseinstance);
     }
 
     void DrawElementsInstancedBaseVertex(GLenum mode, GLsizei count, GLenum type, const void* indices,
                                          GLsizei instancecount, GLint basevertex) {
+        if (!ValidateCurrentProgramForExecution(__func__)) return;
+        if (!ValidatePrimitiveModeForBackend(__func__, mode)) return;
         DrawElementsInstancedBaseVertex_Backend(mode, count, type, indices, instancecount, basevertex);
     }
 
     void DrawElementsInstancedBaseInstance(GLenum mode, GLsizei count, GLenum type, const void* indices,
                                            GLsizei instancecount, GLuint baseinstance) {
+        if (!ValidateCurrentProgramForExecution(__func__)) return;
+        if (!ValidatePrimitiveModeForBackend(__func__, mode)) return;
         DrawElementsInstancedBaseInstance_Backend(mode, count, type, indices, instancecount, baseinstance);
     }
 
     void DrawElementsInstanced(GLenum mode, GLsizei count, GLenum type, const void* indices, GLsizei instancecount) {
+        if (!ValidateCurrentProgramForExecution(__func__)) return;
+        if (!ValidatePrimitiveModeForBackend(__func__, mode)) return;
         DrawElementsInstanced_Backend(mode, count, type, indices, instancecount);
     }
 
     void DrawElementsIndirect(GLenum mode, GLenum type, const void* indirect) {
+        if (!ValidateCurrentProgramForExecution(__func__)) return;
+        if (!ValidatePrimitiveModeForBackend(__func__, mode)) return;
         DrawElementsIndirect_Backend(mode, type, indirect);
     }
 
     void DrawArraysInstancedBaseInstance(GLenum mode, GLint first, GLsizei count, GLsizei instancecount,
                                          GLuint baseinstance) {
+        if (!ValidateCurrentProgramForExecution(__func__)) return;
+        if (!ValidatePrimitiveModeForBackend(__func__, mode)) return;
         DrawArraysInstancedBaseInstance_Backend(mode, first, count, instancecount, baseinstance);
     }
 
     void DrawArraysInstanced(GLenum mode, GLint first, GLsizei count, GLsizei instancecount) {
+        if (!ValidateCurrentProgramForExecution(__func__)) return;
+        if (!ValidatePrimitiveModeForBackend(__func__, mode)) return;
         DrawArraysInstanced_Backend(mode, first, count, instancecount);
     }
 
     void DrawArraysIndirect(GLenum mode, const void* indirect) {
+        if (!ValidateCurrentProgramForExecution(__func__)) return;
+        if (!ValidatePrimitiveModeForBackend(__func__, mode)) return;
         DrawArraysIndirect_Backend(mode, indirect);
     }
 
     void DrawElementsBaseVertex(GLenum mode, GLsizei count, GLenum type, const void* indices, GLint basevertex) {
+        if (!ValidateCurrentProgramForExecution(__func__)) return;
+        if (!ValidatePrimitiveModeForBackend(__func__, mode)) return;
         DrawElementsBaseVertex_Backend(mode, count, type, indices, basevertex);
     }
 
     void DrawArrays(GLenum mode, GLint first, GLsizei count) {
+        if (!ValidateCurrentProgramForExecution(__func__)) return;
+        if (!ValidatePrimitiveModeForBackend(__func__, mode)) return;
         DrawArrays_Backend(mode, first, count);
     }
 
     void MultiDrawElements(GLenum mode, const GLsizei* count, GLenum type, const void* const* indices,
                            GLsizei drawcount) {
+        if (!ValidateCurrentProgramForExecution(__func__)) return;
+        if (!ValidatePrimitiveModeForBackend(__func__, mode)) return;
         MultiDrawElements_Backend(mode, count, type, indices, drawcount);
     }
 
     void MultiDrawElementsBaseVertex(GLenum mode, const GLsizei* count, GLenum type, const void* const* indices,
                                      GLsizei drawcount, const GLint* basevertex) {
+        if (!ValidateCurrentProgramForExecution(__func__)) return;
+        if (!ValidatePrimitiveModeForBackend(__func__, mode)) return;
         MultiDrawElementsBaseVertex_Backend(mode, count, type, indices, drawcount, basevertex);
     }
 
@@ -323,6 +413,8 @@ namespace MobileGL::MG_Impl::GLImpl {
     }
 
     void DrawElements(GLenum mode, GLsizei count, GLenum type, const void* indices) {
+        if (!ValidateCurrentProgramForExecution(__func__)) return;
+        if (!ValidatePrimitiveModeForBackend(__func__, mode)) return;
         DrawElements_Backend(mode, count, type, indices);
     }
 

@@ -15,12 +15,11 @@ namespace MobileGL {
         namespace GLState {
             /* These texture types are not yet implemented:
              * TextureRectangle,
-             * Texture2DMultisample,
              * TextureBuffer,
              * Texture1DArray,
              * Texture2DArray,
              * TextureCubeMapArray,
-             * Texture2DMultisampleArray
+             * Texture2DMultisampleArray layered attachment behavior
              */
 #define STUB_TEXTURE_OBJECT_CLASS_DEFINITION(className, texTarget, uploadTargets)                                      \
     class className : public TextureObjectWithOneMipmap {                                                              \

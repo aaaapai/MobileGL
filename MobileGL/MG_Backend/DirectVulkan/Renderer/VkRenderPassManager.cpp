@@ -22,6 +22,32 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         return requestedAlpha;
     }
 
+    static Bool IsCubeMapFaceUploadTarget(TextureUploadTarget target) {
+        return target >= TextureUploadTarget::CubeMapPositiveX &&
+               target <= TextureUploadTarget::CubeMapNegativeZ;
+    }
+
+    static Uint32 ResolveAttachmentBaseArrayLayer(const MG_State::GLState::FramebufferAttachmentObject& attachment) {
+        const TextureUploadTarget uploadTarget = attachment.GetTextureUploadTarget();
+        if (!IsCubeMapFaceUploadTarget(uploadTarget)) {
+            return 0;
+        }
+        return static_cast<Uint32>(uploadTarget) - static_cast<Uint32>(TextureUploadTarget::CubeMapPositiveX);
+    }
+
+    static Uint32 ResolveAttachmentLayerCount(const MG_State::GLState::FramebufferAttachmentObject& attachment) {
+        static_cast<void>(attachment);
+        return 1u;
+    }
+
+    static VkImageViewType ResolveAttachmentViewType(
+        const MG_State::GLState::FramebufferAttachmentObject& attachment,
+        const VkTextureManager::TextureResource& resource) {
+        return IsCubeMapFaceUploadTarget(attachment.GetTextureUploadTarget()) ?
+            VK_IMAGE_VIEW_TYPE_2D :
+            resource.viewType;
+    }
+
     static MG_State::GLState::ITextureObject* ResolveCompleteColorAttachmentTexture(
         const MG_State::GLState::FramebufferObject& fbo,
         FramebufferAttachmentType attachmentType,
@@ -78,6 +104,14 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         return info;
     }
 
+    IntVec2 ResolveRenderPassFramebufferExtent(Bool isDefaultFbo, const TextureSize& attachmentExtent,
+                                               VkExtent2D swapchainExtent) {
+        if (isDefaultFbo) {
+            return {static_cast<Int>(swapchainExtent.width), static_cast<Int>(swapchainExtent.height)};
+        }
+        return {attachmentExtent.x(), attachmentExtent.y()};
+    }
+
     VkRenderPassManager::VkRenderPassManager(VkDevice device,
         const VulkanRendererConfig& config, VkClearManager& clearManager, VkTextureManager& textureManager,
         SwapchainObject& swapchainObject):
@@ -96,12 +130,16 @@ namespace MobileGL::MG_Backend::DirectVulkan {
     }
 
     void VkRenderPassManager::Shutdown() {
+        m_renderPasses.clear();
+        RenderPassEntry::s_textureResourcesScratch.clear();
+        s_activeRenderPass = {};
+        s_hasActiveRenderPass = false;
     }
 
     VkRenderPassManager::HashType VkRenderPassManager::ComputeHash(
         const MG_State::GLState::FramebufferObject& fbo, Uint32 swapchainImageIndex, Bool includePendingClear) const {
         XXHASH_VERIFY(XXH64_reset(m_hashState, m_config.CacheVersion));
-        const Bool isDefaultFbo = (&fbo == MG_Impl::GLImpl::FramebufferImpl::pDefaultFramebufferInfo->defaultFBO.get());
+        const Bool isDefaultFbo = fbo.IsDefaultFramebuffer();
         if (isDefaultFbo) {
             XXHASH_VERIFY(XXH64_update(m_hashState, &swapchainImageIndex, sizeof(swapchainImageIndex)));
         }
@@ -132,25 +170,34 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                 contentPtr = att.GetRenderbuffer().get();
             XXHASH_VERIFY(XXH64_update(m_hashState, &contentPtr, sizeof(contentPtr)));
             if (att.IsTexture()) {
+                const Uint64 textureLifetimeId = att.GetTexture()->GetLifetimeId();
+                XXHASH_VERIFY(XXH64_update(m_hashState, &textureLifetimeId, sizeof(textureLifetimeId)));
                 const Int textureLevel = att.GetTextureLevel();
                 XXHASH_VERIFY(XXH64_update(m_hashState, &textureLevel, sizeof(textureLevel)));
+                const TextureUploadTarget textureUploadTarget = att.GetTextureUploadTarget();
+                XXHASH_VERIFY(XXH64_update(m_hashState, &textureUploadTarget, sizeof(textureUploadTarget)));
 
                 Uint64 imageIdentity = 0;
                 auto* texture = att.GetTexture().get();
                 auto* resource = m_textureManager.SyncTextureAndGetDescriptor(*texture);
                 if (resource != nullptr) {
                     imageIdentity = reinterpret_cast<Uint64>(resource->image);
+                    XXHASH_VERIFY(XXH64_update(m_hashState, &resource->sampleCount, sizeof(resource->sampleCount)));
+                } else {
+                    const VkSampleCountFlagBits fallbackSampleCount = VK_SAMPLE_COUNT_1_BIT;
+                    XXHASH_VERIFY(XXH64_update(m_hashState, &fallbackSampleCount, sizeof(fallbackSampleCount)));
                 }
                 XXHASH_VERIFY(XXH64_update(m_hashState, &imageIdentity, sizeof(imageIdentity)));
             }
 
             if (includePendingClear && att.IsTexture()) {
                 auto* texture = att.GetTexture().get();
-                auto hasClear = m_clearManager.HasPendingClear(texture);
+                const auto pendingClearKey = VkClearManager::MakePendingClearKey(att);
+                auto hasClear = m_clearManager.HasPendingClear(pendingClearKey);
                 XXHASH_VERIFY(XXH64_update(m_hashState, &hasClear, sizeof(hasClear)));
                 if (hasClear) {
                     ClearAttachmentPayload clearPayload{};
-                    Bool hasPayload = m_clearManager.GetPendingClear(texture, clearPayload);
+                    Bool hasPayload = m_clearManager.GetPendingClear(pendingClearKey, clearPayload);
                     XXHASH_VERIFY(XXH64_update(m_hashState, &hasPayload, sizeof(hasPayload)));
                     if (hasPayload) {
                         XXHASH_VERIFY(XXH64_update(m_hashState, &clearPayload.mask, sizeof(clearPayload.mask)));
@@ -159,8 +206,11 @@ namespace MobileGL::MG_Backend::DirectVulkan {
 
                 VkImageLayout currentLayout = VK_IMAGE_LAYOUT_UNDEFINED;
                 if (isDefaultFbo) {
-                    if (attachment >= FramebufferAttachmentType::Color0 &&
-                        attachment <= FramebufferAttachmentType::Color31) {
+                    const Bool isDefaultColorAttachment =
+                        attachment == FramebufferAttachmentType::Color0 ||
+                        (attachment >= FramebufferAttachmentType::FrontLeft &&
+                         attachment <= FramebufferAttachmentType::BackRight);
+                    if (isDefaultColorAttachment) {
                         currentLayout = m_swapchainObject.GetImageLayout(swapchainImageIndex);
                     } else if (attachment == FramebufferAttachmentType::Depth ||
                                attachment == FramebufferAttachmentType::Stencil) {
@@ -197,18 +247,18 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                 }
 
                 const auto& att = fbo.GetAttachment(attachment);
-                if (att.IsTexture() && m_clearManager.HasPendingClear(att.GetTexture().get())) {
+                if (att.IsTexture() && m_clearManager.HasPendingClear(att)) {
                     return true;
                 }
             }
 
             const auto& depthAtt = fbo.GetAttachment(FramebufferAttachmentType::Depth);
-            if (depthAtt.IsTexture() && m_clearManager.HasPendingClear(depthAtt.GetTexture().get())) {
+            if (depthAtt.IsTexture() && m_clearManager.HasPendingClear(depthAtt)) {
                 return true;
             }
 
             const auto& stencilAtt = fbo.GetAttachment(FramebufferAttachmentType::Stencil);
-            if (stencilAtt.IsTexture() && m_clearManager.HasPendingClear(stencilAtt.GetTexture().get())) {
+            if (stencilAtt.IsTexture() && m_clearManager.HasPendingClear(stencilAtt)) {
                 return true;
             }
 
@@ -232,13 +282,17 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         if (it != m_renderPasses.end())
             return it->second;
 
-        Bool isDefaultFbo = (&fbo == MG_Impl::GLImpl::FramebufferImpl::pDefaultFramebufferInfo->defaultFBO.get());
+        Bool isDefaultFbo = fbo.IsDefaultFramebuffer();
         // Color attachment
         auto& drawbufs = fbo.GetDrawBuffers();
         const Uint32 colorAttachmentSlotCount = static_cast<Uint32>(drawbufs.size());
 
-        Int width = 0;
-        Int height = 0;
+        const VkExtent2D swapchainExtent = m_swapchainObject.GetExtent();
+        // Default framebuffer attachments are frontend placeholders; Vulkan framebuffer extent must match the swapchain.
+        const IntVec2 defaultFramebufferExtent =
+            ResolveRenderPassFramebufferExtent(isDefaultFbo, {0, 0, 0}, swapchainExtent);
+        Int width = defaultFramebufferExtent.x();
+        Int height = defaultFramebufferExtent.y();
         Vector<VkAttachmentDescription> attachmentDescriptions;
         attachmentDescriptions.reserve(colorAttachmentSlotCount + 1);
         // Keep the full GL draw buffer slot span so fragment outputs targeting GL_NONE map to VK_ATTACHMENT_UNUSED.
@@ -256,6 +310,21 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         textureResources.reserve(colorAttachmentSlotCount + 1);
         Vector<VkImageView> attachmentViews;
         attachmentViews.reserve(colorAttachmentSlotCount + 1);
+        VkSampleCountFlagBits renderPassSampleCount = VK_SAMPLE_COUNT_1_BIT;
+        Bool hasRenderPassSampleCount = false;
+        const auto adoptRenderPassSampleCount = [&](VkSampleCountFlagBits sampleCount,
+                                                    const char* attachmentKind,
+                                                    Int attachmentId) {
+            if (!hasRenderPassSampleCount) {
+                renderPassSampleCount = sampleCount;
+                hasRenderPassSampleCount = true;
+                return;
+            }
+            MOBILEGL_ASSERT(renderPassSampleCount == sampleCount,
+                            "GetOrCreateRenderPass: mismatched sample count %d on %s attachment %d (expected %d)",
+                            static_cast<Int>(sampleCount), attachmentKind, attachmentId,
+                            static_cast<Int>(renderPassSampleCount));
+        };
         // This should automatically work on default & offscreen FBO
         // assuming default FBO has the right param
         for (Uint32 i = 0; i < colorAttachmentSlotCount; ++i) {
@@ -273,17 +342,16 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             // Color attachment description
             VkAttachmentDescription& desc = attachmentDescriptions.back();
             switch (textureTarget) {
-                case TextureTarget::Texture2D: {
-                    auto* texture2d =
-                        static_cast<MG_State::GLState::TextureObject2D*>(texture);
+                case TextureTarget::Texture2D:
+                case TextureTarget::Texture2DMultisample: {
                     desc.flags = 0;
                     desc.format = isDefaultFbo ?
                         m_swapchainObject.GetSurfaceFormat().format :
                         MG_Util::ConvertTextureInternalFormatToVkEnum(
-                            texture2d->GetFormat());
-                    desc.samples = VK_SAMPLE_COUNT_1_BIT;
+                            texture->GetFormat());
+                    VkSampleCountFlagBits attachmentSampleCount = VK_SAMPLE_COUNT_1_BIT;
                     ClearAttachmentPayload clearPayload{};
-                    Bool hasClear = m_clearManager.GetPendingClear(texture, clearPayload);
+                    Bool hasClear = m_clearManager.GetPendingClear(att, clearPayload);
                     VkImageLayout trackedColorLayout = VK_IMAGE_LAYOUT_UNDEFINED;
                     desc.loadOp = hasClear ?
                         VK_ATTACHMENT_LOAD_OP_CLEAR :
@@ -297,13 +365,15 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                     if (hasClear) {
                         pendingClearAttachments.emplace_back(PendingClearAttachmentInfo {
                             .attachmentIndex = attachmentIndex,
-                            .texture = texture
+                            .key = VkClearManager::MakePendingClearKey(att)
                         });
                     }
+                    const IntVec2 attachmentExtent =
+                        ResolveRenderPassFramebufferExtent(isDefaultFbo, att.GetSize(), swapchainExtent);
                     if (width == 0)
-                        width = att.GetSize().x();
+                        width = attachmentExtent.x();
                     if (height == 0)
-                        height = att.GetSize().y();
+                        height = attachmentExtent.y();
 
                     if (isDefaultFbo) {
                         const auto& swapchainViews = m_swapchainObject.GetImageViews();
@@ -315,6 +385,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                             .swapchainImageIndex = swapchainImageIndex,
                             .finalLayout = desc.finalLayout,
                         });
+                        attachmentSampleCount = VK_SAMPLE_COUNT_1_BIT;
                         textureResources.emplace_back(nullptr);
                         attachmentViews.emplace_back(swapchainViews[swapchainImageIndex]);
                     } else {
@@ -323,17 +394,25 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                                         "GetOrCreateRenderPass: SyncTextureAndGetDescriptor failed at color attachment %d", i);
                         textureResources.emplace_back(textureResource);
                         desc.format = textureResource->format;
+                        attachmentSampleCount = textureResource->sampleCount;
                         trackedColorLayout = textureResource->layout;
                         trackedAttachmentLayouts.emplace_back(TrackedAttachmentLayoutInfo {
                             .target = TrackedAttachmentTarget::Texture,
-                            .texture = texture,
+                            .texture = att.GetTexture(),
                             .textureMipLevel = attachmentMipLevel,
                             .finalLayout = desc.finalLayout,
                         });
-                        attachmentViews.emplace_back(m_textureManager.GetOrCreateViewAtMipLevel(*texture, attachmentMipLevel));
+                        const Uint32 baseArrayLayer = ResolveAttachmentBaseArrayLayer(att);
+                        const Uint32 layerCount = ResolveAttachmentLayerCount(att);
+                        const VkImageViewType attachmentViewType = ResolveAttachmentViewType(att, *textureResource);
+                        attachmentViews.emplace_back(
+                            m_textureManager.GetOrCreateAttachmentViewAtMipLevel(
+                                *texture, attachmentMipLevel, baseArrayLayer, layerCount, attachmentViewType));
                         MOBILEGL_ASSERT(attachmentViews.back() != VK_NULL_HANDLE,
                                         "GetOrCreateRenderPass: GetOrCreateAttachmentView failed at color attachment %d", i);
                     }
+                    desc.samples = attachmentSampleCount;
+                    adoptRenderPassSampleCount(attachmentSampleCount, "color", texture->GetExternalIndex());
 
                     if (!hasClear && trackedColorLayout == VK_IMAGE_LAYOUT_UNDEFINED) {
                         MGLOG_W("GetOrCreateRenderPass: color attachment textureId=%d starts with undefined layout and no clear; "
@@ -357,19 +436,35 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             attachmentRef.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
         }
 
-        // Depth attachment description
+        // Depth/stencil attachment description
         auto& depthAtt = fbo.GetAttachment(FramebufferAttachmentType::Depth);
+        auto& stencilAtt = fbo.GetAttachment(FramebufferAttachmentType::Stencil);
         VkAttachmentDescription depthAttachmentDescription;
         VkAttachmentReference depthAttachmentRef;
         depthAttachmentRef.attachment = VK_ATTACHMENT_UNUSED;
         depthAttachmentRef.layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
         VkTextureManager::TextureResource* depthTextureResource = nullptr;
-        if (depthAtt.IsComplete() && depthAtt.IsTexture()) {
-            auto& texture = *depthAtt.GetTexture();
-            const Uint32 attachmentMipLevel = static_cast<Uint32>(std::max(depthAtt.GetTextureLevel(), 0));
+        const auto isUsableDepthStencilAttachment = [](const auto& attachment) {
+            return attachment.IsComplete() && attachment.IsTexture();
+        };
+        const auto* selectedDepthStencilAttachment = isUsableDepthStencilAttachment(depthAtt) ? &depthAtt :
+                                                     (isUsableDepthStencilAttachment(stencilAtt) ? &stencilAtt : nullptr);
+        const Bool hasDistinctDepthAndStencilAttachments =
+            isUsableDepthStencilAttachment(depthAtt) && isUsableDepthStencilAttachment(stencilAtt) &&
+            (depthAtt.GetTexture().get() != stencilAtt.GetTexture().get() ||
+             depthAtt.GetTextureUploadTarget() != stencilAtt.GetTextureUploadTarget() ||
+             depthAtt.GetTextureLevel() != stencilAtt.GetTextureLevel());
+        if (hasDistinctDepthAndStencilAttachments) {
+            MGLOG_E("GetOrCreateRenderPass: separate depth/stencil attachments are not supported yet; using the depth attachment and ignoring the standalone stencil attachment for framebuffer %u",
+                    fbo.GetExternalIndex());
+        }
+        if (selectedDepthStencilAttachment != nullptr) {
+            auto& texture = *selectedDepthStencilAttachment->GetTexture();
+            const Uint32 attachmentMipLevel =
+                static_cast<Uint32>(std::max(selectedDepthStencilAttachment->GetTextureLevel(), 0));
             const Uint32 depthAttachmentIndex = static_cast<Uint32>(attachmentDescriptions.size());
             ClearAttachmentPayload clearPayload{};
-            Bool hasClear = m_clearManager.GetPendingClear(&texture, clearPayload);
+            Bool hasClear = m_clearManager.GetPendingClear(*selectedDepthStencilAttachment, clearPayload);
             Bool clearDepth = hasClear && (clearPayload.mask & GL_DEPTH_BUFFER_BIT) != 0;
             Bool clearStencil = hasClear && (clearPayload.mask & GL_STENCIL_BUFFER_BIT) != 0;
             VkImageLayout trackedDepthLayout = isDefaultFbo ?
@@ -385,10 +480,13 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             depthAttachmentDescription.format = isDefaultFbo ?
                 m_swapchainObject.GetDepthStencilFormat() :
                 MG_Util::ConvertTextureInternalFormatToVkEnum(texture.GetFormat());
+            VkSampleCountFlagBits depthAttachmentSampleCount = VK_SAMPLE_COUNT_1_BIT;
             if (!isDefaultFbo) {
                 depthAttachmentDescription.format = depthTextureResource->format;
+                depthAttachmentSampleCount = depthTextureResource->sampleCount;
             }
-            depthAttachmentDescription.samples = VK_SAMPLE_COUNT_1_BIT;
+            depthAttachmentDescription.samples = depthAttachmentSampleCount;
+            adoptRenderPassSampleCount(depthAttachmentSampleCount, "depth/stencil", texture.GetExternalIndex());
             const auto loadInfo =
                 ResolveDepthStencilAttachmentLoadInfo(trackedDepthLayout, clearDepth, clearStencil);
             depthAttachmentDescription.loadOp = loadInfo.depthLoadOp;
@@ -405,7 +503,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             if (hasClear) {
                 pendingClearAttachments.emplace_back(PendingClearAttachmentInfo {
                     .attachmentIndex = depthAttachmentIndex,
-                    .texture = &texture
+                    .key = VkClearManager::MakePendingClearKey(*selectedDepthStencilAttachment)
                 });
             }
             if (isDefaultFbo) {
@@ -426,17 +524,26 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                                 texture.GetExternalIndex());
                 trackedAttachmentLayouts.emplace_back(TrackedAttachmentLayoutInfo {
                     .target = TrackedAttachmentTarget::Texture,
-                    .texture = &texture,
+                    .texture = selectedDepthStencilAttachment->GetTexture(),
                     .textureMipLevel = attachmentMipLevel,
                     .finalLayout = depthAttachmentDescription.finalLayout,
                 });
                 textureResources.emplace_back(depthTextureResource);
-                attachmentViews.emplace_back(m_textureManager.GetOrCreateViewAtMipLevel(texture, attachmentMipLevel));
+                const Uint32 baseArrayLayer = ResolveAttachmentBaseArrayLayer(*selectedDepthStencilAttachment);
+                const Uint32 layerCount = ResolveAttachmentLayerCount(*selectedDepthStencilAttachment);
+                const VkImageViewType attachmentViewType =
+                    ResolveAttachmentViewType(*selectedDepthStencilAttachment, *depthTextureResource);
+                attachmentViews.emplace_back(
+                    m_textureManager.GetOrCreateAttachmentViewAtMipLevel(
+                        texture, attachmentMipLevel, baseArrayLayer, layerCount, attachmentViewType));
                 MOBILEGL_ASSERT(attachmentViews.back() != VK_NULL_HANDLE,
                                 "GetOrCreateRenderPass: GetOrCreateAttachmentView failed at depth attachment");
+                const IntVec2 attachmentExtent =
+                    ResolveRenderPassFramebufferExtent(isDefaultFbo, selectedDepthStencilAttachment->GetSize(),
+                                                       swapchainExtent);
                 if (width == 0 || height == 0) {
-                    width = depthAtt.GetSize().x();
-                    height = depthAtt.GetSize().y();
+                    width = attachmentExtent.x();
+                    height = attachmentExtent.y();
                 }
             }
             attachmentDescriptions.emplace_back(depthAttachmentDescription);
@@ -453,7 +560,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         subpassDesc.colorAttachmentCount = colorAttachmentRefs.size();
         subpassDesc.pColorAttachments = colorAttachmentRefs.data();
         subpassDesc.pResolveAttachments = nullptr;
-        subpassDesc.pDepthStencilAttachment = depthAtt.IsComplete() ? &depthAttachmentRef : VK_NULL_HANDLE;
+        subpassDesc.pDepthStencilAttachment = hasDepthStencilAttachment ? &depthAttachmentRef : VK_NULL_HANDLE;
         subpassDesc.preserveAttachmentCount = 0;
         subpassDesc.pPreserveAttachments = nullptr;
 
@@ -496,13 +603,15 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             static_cast<Uint32>(attachmentViews.size()),
             static_cast<Uint32>(colorAttachmentRefs.size()),
             hasDepthStencilAttachment,
+            renderPassSampleCount,
             extent,
             1 };
-        MGLOG_D("VkRenderPassManager::GetOrCreateRenderPass: hash=0x%llx compatibilityHash=0x%llx attachmentCount=%u colorAttachmentCount=%u extent=%dx%d",
+        MGLOG_D("VkRenderPassManager::GetOrCreateRenderPass: hash=0x%llx compatibilityHash=0x%llx attachmentCount=%u colorAttachmentCount=%u samples=%d extent=%dx%d",
                 static_cast<unsigned long long>(hash),
                 static_cast<unsigned long long>(compatibilityHash),
                 renderPassEntry.attachmentCount,
                 renderPassEntry.colorAttachmentCount,
+                static_cast<Int>(renderPassEntry.sampleCount),
                 extent.x(),
                 extent.y());
         auto [insertedIt, _] = m_renderPasses.emplace(hash, Move(renderPassEntry));
@@ -526,11 +635,12 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             clearValue.depthStencil = {1.0f, 0};
         }
         for (const auto& pending: renderPassEntry.pendingClearAttachments) {
-            if (!pending.texture || pending.attachmentIndex >= clearValues.size()) {
+            if (pending.key.texture == nullptr || pending.attachmentIndex >= clearValues.size()) {
                 continue;
             }
             ClearAttachmentPayload clearPayload{};
-            if (!s_clearManager->GetPendingClear(pending.texture, clearPayload)) {
+            SharedPtr<MG_State::GLState::ITextureObject> liveTexture;
+            if (!s_clearManager->GetPendingClear(pending.key, clearPayload, liveTexture)) {
                 continue;
             }
             if ((clearPayload.mask & GL_COLOR_BUFFER_BIT) != 0) {
@@ -538,7 +648,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                     clearPayload.color.x(),
                     clearPayload.color.y(),
                     clearPayload.color.z(),
-                    ResolveColorClearAlpha(pending.texture, clearPayload.color.w())
+                    ResolveColorClearAlpha(liveTexture.get(), clearPayload.color.w())
                 };
             }
             if ((clearPayload.mask & GL_DEPTH_BUFFER_BIT) != 0) {
@@ -554,7 +664,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
 
         vkCmdBeginRenderPass(commandBuffer, &renderPassBeginInfo, VK_SUBPASS_CONTENTS_INLINE);
         for (const auto& pending: renderPassEntry.pendingClearAttachments) {
-            s_clearManager->PopPendingClear(pending.texture);
+            s_clearManager->PopPendingClear(pending.key);
         }
         s_activeRenderPass.hash = renderPassEntry.hash;
         s_activeRenderPass.compatibilityHash = renderPassEntry.compatibilityHash;
@@ -573,11 +683,13 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                 switch (trackedAttachment.target) {
                     case TrackedAttachmentTarget::Texture:
                         MOBILEGL_ASSERT(s_textureManager != nullptr, "EndRenderPass: texture manager is null");
-                        s_textureManager->UpdateTrackedImageLayoutAfterAttachmentWrite(
-                            commandBuffer,
-                            trackedAttachment.texture,
-                            trackedAttachment.textureMipLevel,
-                            trackedAttachment.finalLayout);
+                        if (const auto texture = trackedAttachment.texture.lock()) {
+                            s_textureManager->UpdateTrackedImageLayoutAfterAttachmentWrite(
+                                commandBuffer,
+                                texture.get(),
+                                trackedAttachment.textureMipLevel,
+                                trackedAttachment.finalLayout);
+                        }
                         break;
                     case TrackedAttachmentTarget::SwapchainColor:
                         MOBILEGL_ASSERT(s_swapchainObject != nullptr, "EndRenderPass: swapchain object is null");

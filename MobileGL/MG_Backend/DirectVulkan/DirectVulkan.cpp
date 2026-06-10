@@ -39,6 +39,21 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             GLint computeWorkGroupSize[3] = {1, 1, 1};
         };
 
+        struct DrawElementsIndirectCommand {
+            Uint32 count = 0;
+            Uint32 instanceCount = 0;
+            Uint32 firstIndex = 0;
+            Int32 baseVertex = 0;
+            Uint32 baseInstance = 0;
+        };
+
+        struct DrawArraysIndirectCommand {
+            Uint32 count = 0;
+            Uint32 instanceCount = 0;
+            Uint32 first = 0;
+            Uint32 baseInstance = 0;
+        };
+
         UnorderedMap<GLuint, ProgramResourceCache> g_programResourceCaches;
 
         String NormalizeDescriptorName(const SpvReflectDescriptorBinding& binding) {
@@ -193,6 +208,122 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                 name[copyLength] = '\0';
             }
         }
+
+        const Uint8* ResolveIndirectCommandBytes(const void* indirect, SizeT requiredBytes, const char* label) {
+            auto drawBuffer = MG_State::pGLContext->GetBufferBindingSlot(BufferTarget::DrawIndirect).GetBoundObject();
+            if (drawBuffer) {
+                drawBuffer->MarkPersistentMappedRangeDirty();
+                const auto drawData = drawBuffer->GetDataReadOnly();
+                const SizeT commandOffset = reinterpret_cast<SizeT>(indirect);
+                if (!drawData || commandOffset + requiredBytes > drawData->size()) {
+                    MGLOG_E("%s skipped: invalid GL_DRAW_INDIRECT_BUFFER binding or range", label);
+                    return nullptr;
+                }
+                return drawData->data() + commandOffset;
+            }
+
+            if (!indirect) {
+                MGLOG_E("%s skipped: indirect pointer is null", label);
+                return nullptr;
+            }
+
+            return reinterpret_cast<const Uint8*>(indirect);
+        }
+
+        Vector<GLuint> GetUniformBlockActiveVariables(const MG_State::GLState::ProgramObject& program,
+                                                      GLuint blockIndex) {
+            Vector<GLuint> activeVariables;
+            const Uint uniformCount = program.GetUniformCount();
+            activeVariables.reserve(uniformCount);
+            for (Uint uniformIndex = 0; uniformIndex < uniformCount; ++uniformIndex) {
+                if (program.GetActiveUniformBlockIndex(uniformIndex) == static_cast<Int>(blockIndex)) {
+                    activeVariables.push_back(uniformIndex);
+                }
+            }
+            return activeVariables;
+        }
+
+        GLuint FindProgramInputIndex(const MG_State::GLState::ProgramObject& program, const String& name) {
+            const Int activeCount = program.GetActiveAttributesCount();
+            for (Int index = 0; index < activeCount; ++index) {
+                if (program.GetActiveAttribName(index) == name) {
+                    return static_cast<GLuint>(index);
+                }
+            }
+            return GL_INVALID_INDEX;
+        }
+
+        GLuint FindProgramOutputIndex(const MG_State::GLState::ProgramObject& program, const String& name) {
+            const Int activeCount = program.GetActiveFragmentOutputCount();
+            for (Int index = 0; index < activeCount; ++index) {
+                if (program.GetActiveFragmentOutputName(index) == name) {
+                    return static_cast<GLuint>(index);
+                }
+            }
+            return GL_INVALID_INDEX;
+        }
+
+        GLint GetProgramOutputLocation(const MG_State::GLState::ProgramObject& program, const String& name) {
+            const Int activeCount = program.GetActiveFragmentOutputCount();
+            for (Int index = 0; index < activeCount; ++index) {
+                if (program.GetActiveFragmentOutputName(index) == name) {
+                    return program.GetFragmentOutputLocation(index);
+                }
+            }
+            return -1;
+        }
+
+        GLint GetProgramResourceActiveCount(const MG_State::GLState::ProgramObject& program, GLenum programInterface,
+                                            const ProgramResourceCache& cache) {
+            switch (programInterface) {
+            case GL_SHADER_STORAGE_BLOCK:
+                return static_cast<GLint>(cache.storageBlocks.size());
+            case GL_BUFFER_VARIABLE:
+                return static_cast<GLint>(cache.bufferVariables.size());
+            case GL_UNIFORM_BLOCK:
+                return program.GetActiveUniformBlocksCount();
+            case GL_UNIFORM:
+                return static_cast<GLint>(program.GetUniformCount());
+            case GL_PROGRAM_INPUT:
+                return program.GetActiveAttributesCount();
+            case GL_PROGRAM_OUTPUT:
+                return program.GetActiveFragmentOutputCount();
+            default:
+                return 0;
+            }
+        }
+
+        GLint GetProgramResourceMaxNameLength(const MG_State::GLState::ProgramObject& program, GLenum programInterface,
+                                              const ProgramResourceCache& cache) {
+            switch (programInterface) {
+            case GL_SHADER_STORAGE_BLOCK: {
+                SizeT maxLength = 0;
+                for (const auto& block : cache.storageBlocks) maxLength = std::max(maxLength, block.name.size() + 1);
+                return static_cast<GLint>(maxLength);
+            }
+            case GL_BUFFER_VARIABLE: {
+                SizeT maxLength = 0;
+                for (const auto& var : cache.bufferVariables) maxLength = std::max(maxLength, var.name.size() + 1);
+                return static_cast<GLint>(maxLength);
+            }
+            case GL_UNIFORM_BLOCK:
+                return program.GetActiveUniformBlocksMaxNameLength() + 1;
+            case GL_UNIFORM:
+                return program.GetUniformMaxLength() + 1;
+            case GL_PROGRAM_INPUT:
+                return program.GetActiveAttributesMaxLength() + 1;
+            case GL_PROGRAM_OUTPUT: {
+                SizeT maxLength = 0;
+                const Int activeCount = program.GetActiveFragmentOutputCount();
+                for (Int index = 0; index < activeCount; ++index) {
+                    maxLength = std::max(maxLength, program.GetActiveFragmentOutputName(index).size() + 1);
+                }
+                return static_cast<GLint>(maxLength);
+            }
+            default:
+                return 0;
+            }
+        }
     } // namespace
 
     GLuint GetShaderStorageBlockIndex(const MG_State::GLState::ProgramObject& program, const String& name) {
@@ -256,7 +387,44 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         pVulkanRenderer->MultiDrawElementsIndirectCount(mode, type, indirect, 0, drawcount, stride);
     }
     void MultiDrawArraysIndirect(GLenum mode, const void* indirect, GLsizei drawcount, GLsizei stride) {
-        MGLOG_W("DirectVulkan::MultiDrawArraysIndirect is not implemented yet (drawcount=%d)", drawcount);
+        MOBILEGL_ASSERT(pVulkanRenderer, "DirectVulkan::MultiDrawArraysIndirect called with null VulkanRenderer");
+        MOBILEGL_ASSERT(MG_State::pGLContext, "DirectVulkan::MultiDrawArraysIndirect called with null GL context");
+
+        if (drawcount <= 0) {
+            return;
+        }
+        if (stride == 0) {
+            stride = sizeof(DrawArraysIndirectCommand);
+        }
+        if (stride < static_cast<GLsizei>(sizeof(DrawArraysIndirectCommand))) {
+            MGLOG_E("MultiDrawArraysIndirect skipped: stride %d is smaller than command size %zu",
+                    stride, sizeof(DrawArraysIndirectCommand));
+            return;
+        }
+
+        const auto* commandBytes = ResolveIndirectCommandBytes(
+            indirect,
+            static_cast<SizeT>(stride) * static_cast<SizeT>(drawcount - 1) + sizeof(DrawArraysIndirectCommand),
+            "MultiDrawArraysIndirect");
+        if (!commandBytes) {
+            return;
+        }
+
+        for (GLsizei i = 0; i < drawcount; ++i) {
+            DrawArraysIndirectCommand cmd{};
+            std::memcpy(&cmd, commandBytes + static_cast<SizeT>(i) * stride, sizeof(cmd));
+            if (cmd.count == 0 || cmd.instanceCount == 0) {
+                continue;
+            }
+
+            DrawCmd payload{};
+            payload.mode = mode;
+            payload.params.vertexCount = cmd.count;
+            payload.params.instanceCount = cmd.instanceCount;
+            payload.params.firstVertex = cmd.first;
+            payload.params.firstInstance = cmd.baseInstance;
+            pVulkanRenderer->DrawArrays(payload);
+        }
     }
     void MultiDrawElementsIndirectCount(GLenum mode, GLenum type, const void* indirect, GLintptr drawcount,
                                         GLsizei maxdrawcount, GLsizei stride) {
@@ -266,23 +434,152 @@ namespace MobileGL::MG_Backend::DirectVulkan {
     }
     void MultiDrawArraysIndirectCount(GLenum mode, const void* indirect, GLintptr drawcount,
                                       GLsizei maxdrawcount, GLsizei stride) {
-        MGLOG_W("DirectVulkan::MultiDrawArraysIndirectCount is not implemented yet (maxdrawcount=%d)", maxdrawcount);
+        MOBILEGL_ASSERT(pVulkanRenderer, "DirectVulkan::MultiDrawArraysIndirectCount called with null VulkanRenderer");
+        MOBILEGL_ASSERT(MG_State::pGLContext, "DirectVulkan::MultiDrawArraysIndirectCount called with null GL context");
+
+        if (maxdrawcount <= 0) {
+            return;
+        }
+        if (stride == 0) {
+            stride = sizeof(DrawArraysIndirectCommand);
+        }
+        if (stride < static_cast<GLsizei>(sizeof(DrawArraysIndirectCommand))) {
+            MGLOG_E("MultiDrawArraysIndirectCount skipped: stride %d is smaller than command size %zu",
+                    stride, sizeof(DrawArraysIndirectCommand));
+            return;
+        }
+
+        auto parameterBuffer = MG_State::pGLContext->GetBufferBindingSlot(BufferTarget::Parameter).GetBoundObject();
+        if (!parameterBuffer || drawcount < 0 || static_cast<SizeT>(drawcount) + sizeof(Uint32) > parameterBuffer->GetSize()) {
+            MGLOG_E("MultiDrawArraysIndirectCount skipped: invalid GL_PARAMETER_BUFFER binding or range");
+            return;
+        }
+
+        parameterBuffer->MarkPersistentMappedRangeDirty();
+        const auto parameterData = parameterBuffer->GetDataReadOnly();
+        if (!parameterData) {
+            MGLOG_E("MultiDrawArraysIndirectCount skipped: CPU fallback cannot read parameter buffer");
+            return;
+        }
+
+        Uint32 actualDrawCount = 0;
+        std::memcpy(&actualDrawCount, parameterData->data() + drawcount, sizeof(actualDrawCount));
+        actualDrawCount = std::min<Uint32>(actualDrawCount, static_cast<Uint32>(maxdrawcount));
+        MultiDrawArraysIndirect(mode, indirect, static_cast<GLsizei>(actualDrawCount), stride);
     }
     void DrawRangeElementsBaseVertex(GLenum mode, GLuint start, GLuint end, GLsizei count, GLenum type,
-                                     const void* indices, GLint basevertex) {}
-    void DrawRangeElements(GLenum mode, GLuint start, GLuint end, GLsizei count, GLenum type, const void* indices) {}
+                                     const void* indices, GLint basevertex) {
+        (void)start;
+        (void)end;
+        DrawElementsBaseVertex(mode, count, type, indices, basevertex);
+    }
+    void DrawRangeElements(GLenum mode, GLuint start, GLuint end, GLsizei count, GLenum type, const void* indices) {
+        (void)start;
+        (void)end;
+        DrawElements(mode, count, type, indices);
+    }
     void DrawElementsInstancedBaseVertexBaseInstance(GLenum mode, GLsizei count, GLenum type, const void* indices,
-                                                     GLsizei instancecount, GLint basevertex, GLuint baseinstance) {}
+                                                     GLsizei instancecount, GLint basevertex, GLuint baseinstance) {
+        MOBILEGL_ASSERT(pVulkanRenderer, "DirectVulkan::DrawElementsInstancedBaseVertexBaseInstance called with null VulkanRenderer");
+        MOBILEGL_ASSERT(MG_State::pGLContext, "DirectVulkan::DrawElementsInstancedBaseVertexBaseInstance called with null GL context");
+
+        DrawIndexedCmd payload{};
+        payload.mode = mode;
+        payload.indexBufferView.indexType = type;
+        payload.indexBufferView.indexByteOffset = reinterpret_cast<SizeT>(indices);
+        payload.indexBufferView.indexByteSize = count * MG_Util::GetGLTypeSize(type);
+        payload.params.indexCount = count;
+        payload.params.instanceCount = instancecount;
+        payload.params.firstIndex = 0;
+        payload.params.vertexOffset = basevertex;
+        payload.params.firstInstance = static_cast<Int32>(baseinstance);
+        pVulkanRenderer->DrawElements(payload);
+    }
     void DrawElementsInstancedBaseVertex(GLenum mode, GLsizei count, GLenum type, const void* indices,
-                                         GLsizei instancecount, GLint basevertex) {}
+                                         GLsizei instancecount, GLint basevertex) {
+        DrawElementsInstancedBaseVertexBaseInstance(mode, count, type, indices, instancecount, basevertex, 0);
+    }
     void DrawElementsInstancedBaseInstance(GLenum mode, GLsizei count, GLenum type, const void* indices,
-                                           GLsizei instancecount, GLuint baseinstance) {}
-    void DrawElementsInstanced(GLenum mode, GLsizei count, GLenum type, const void* indices, GLsizei instancecount) {}
-    void DrawElementsIndirect(GLenum mode, GLenum type, const void* indirect) {}
+                                           GLsizei instancecount, GLuint baseinstance) {
+        DrawElementsInstancedBaseVertexBaseInstance(mode, count, type, indices, instancecount, 0, baseinstance);
+    }
+    void DrawElementsInstanced(GLenum mode, GLsizei count, GLenum type, const void* indices, GLsizei instancecount) {
+        DrawElementsInstancedBaseVertexBaseInstance(mode, count, type, indices, instancecount, 0, 0);
+    }
+    void DrawElementsIndirect(GLenum mode, GLenum type, const void* indirect) {
+        MOBILEGL_ASSERT(pVulkanRenderer, "DirectVulkan::DrawElementsIndirect called with null VulkanRenderer");
+        MOBILEGL_ASSERT(MG_State::pGLContext, "DirectVulkan::DrawElementsIndirect called with null GL context");
+
+        const SizeT indexSize = MG_Util::GetGLTypeSize(type);
+        if (indexSize == 0) {
+            MGLOG_E("DrawElementsIndirect skipped: unsupported index type 0x%x", type);
+            return;
+        }
+
+        const auto* commandBytes =
+            ResolveIndirectCommandBytes(indirect, sizeof(DrawElementsIndirectCommand), "DrawElementsIndirect");
+        if (!commandBytes) {
+            return;
+        }
+
+        DrawElementsIndirectCommand cmd{};
+        std::memcpy(&cmd, commandBytes, sizeof(cmd));
+        if (cmd.count == 0 || cmd.instanceCount == 0) {
+            return;
+        }
+
+        DrawIndexedCmd payload{};
+        payload.mode = mode;
+        payload.indexBufferView.indexType = type;
+        payload.indexBufferView.indexByteOffset = static_cast<SizeT>(cmd.firstIndex) * indexSize;
+        payload.indexBufferView.indexByteSize = static_cast<SizeT>(cmd.count) * indexSize;
+        payload.params.indexCount = cmd.count;
+        payload.params.instanceCount = cmd.instanceCount;
+        payload.params.firstIndex = 0;
+        payload.params.vertexOffset = cmd.baseVertex;
+        payload.params.firstInstance = static_cast<Int32>(cmd.baseInstance);
+        pVulkanRenderer->DrawElements(payload);
+    }
     void DrawArraysInstancedBaseInstance(GLenum mode, GLint first, GLsizei count, GLsizei instancecount,
-                                         GLuint baseinstance) {}
-    void DrawArraysInstanced(GLenum mode, GLint first, GLsizei count, GLsizei instancecount) {}
-    void DrawArraysIndirect(GLenum mode, const void* indirect) {}
+                                         GLuint baseinstance) {
+        MOBILEGL_ASSERT(pVulkanRenderer, "DirectVulkan::DrawArraysInstancedBaseInstance called with null VulkanRenderer");
+        MOBILEGL_ASSERT(MG_State::pGLContext, "DirectVulkan::DrawArraysInstancedBaseInstance called with null GL context");
+
+        DrawCmd payload{};
+        payload.mode = mode;
+        payload.params.vertexCount = count;
+        payload.params.instanceCount = instancecount;
+        payload.params.firstVertex = first;
+        payload.params.firstInstance = baseinstance;
+        pVulkanRenderer->DrawArrays(payload);
+    }
+    void DrawArraysInstanced(GLenum mode, GLint first, GLsizei count, GLsizei instancecount) {
+        DrawArraysInstancedBaseInstance(mode, first, count, instancecount, 0);
+    }
+    void DrawArraysIndirect(GLenum mode, const void* indirect) {
+        MOBILEGL_ASSERT(pVulkanRenderer, "DirectVulkan::DrawArraysIndirect called with null VulkanRenderer");
+        MOBILEGL_ASSERT(MG_State::pGLContext, "DirectVulkan::DrawArraysIndirect called with null GL context");
+
+        const auto* commandBytes =
+            ResolveIndirectCommandBytes(indirect, sizeof(DrawArraysIndirectCommand), "DrawArraysIndirect");
+        if (!commandBytes) {
+            return;
+        }
+
+        DrawArraysIndirectCommand cmd{};
+        std::memcpy(&cmd, commandBytes, sizeof(cmd));
+        if (cmd.count == 0 || cmd.instanceCount == 0) {
+            return;
+        }
+
+        DrawCmd payload{};
+        payload.mode = mode;
+        payload.params.vertexCount = cmd.count;
+        payload.params.instanceCount = cmd.instanceCount;
+        payload.params.firstVertex = cmd.first;
+        payload.params.firstInstance = cmd.baseInstance;
+        pVulkanRenderer->DrawArrays(payload);
+    }
     void CopyTexImage2D(GLenum target, GLint level, GLenum internalformat, GLint x, GLint y, GLsizei width,
                         GLsizei height, GLint border) {
         MOBILEGL_ASSERT(pVulkanRenderer, "DirectVulkan::CopyTexImage2D called with null VulkanRenderer");
@@ -461,31 +758,35 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         auto* programObject = TryGetDirectVulkanProgram(program);
         if (!programObject) return;
         auto& cache = GetProgramResourceCache(*programObject);
-        if (programInterface == GL_SHADER_STORAGE_BLOCK) {
-            if (pname == GL_ACTIVE_RESOURCES) {
-                *params = static_cast<GLint>(cache.storageBlocks.size());
-            } else if (pname == GL_MAX_NAME_LENGTH) {
-                SizeT maxLength = 0;
-                for (const auto& block : cache.storageBlocks) maxLength = std::max(maxLength, block.name.size() + 1);
-                *params = static_cast<GLint>(maxLength);
+        switch (pname) {
+        case GL_ACTIVE_RESOURCES:
+            *params = GetProgramResourceActiveCount(*programObject, programInterface, cache);
+            return;
+        case GL_MAX_NAME_LENGTH:
+            *params = GetProgramResourceMaxNameLength(*programObject, programInterface, cache);
+            return;
+        case GL_MAX_NUM_ACTIVE_VARIABLES:
+            if (programInterface == GL_SHADER_STORAGE_BLOCK) {
+                SizeT maxCount = 0;
+                for (const auto& block : cache.storageBlocks) {
+                    maxCount = std::max(maxCount, block.activeVariables.size());
+                }
+                *params = static_cast<GLint>(maxCount);
+            } else if (programInterface == GL_UNIFORM_BLOCK) {
+                GLint maxCount = 0;
+                const Int activeBlocks = programObject->GetActiveUniformBlocksCount();
+                for (Int index = 0; index < activeBlocks; ++index) {
+                    maxCount = std::max(maxCount, programObject->GetUniformBlockActiveUniformCount(index));
+                }
+                *params = maxCount;
             } else {
                 *params = 0;
             }
             return;
-        }
-        if (programInterface == GL_BUFFER_VARIABLE) {
-            if (pname == GL_ACTIVE_RESOURCES) {
-                *params = static_cast<GLint>(cache.bufferVariables.size());
-            } else if (pname == GL_MAX_NAME_LENGTH) {
-                SizeT maxLength = 0;
-                for (const auto& var : cache.bufferVariables) maxLength = std::max(maxLength, var.name.size() + 1);
-                *params = static_cast<GLint>(maxLength);
-            } else {
-                *params = 0;
-            }
+        default:
+            *params = 0;
             return;
         }
-        *params = 0;
     }
 
     GLuint GetProgramResourceIndex(GLuint program, GLenum programInterface, const GLchar* name) {
@@ -493,16 +794,29 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         auto* programObject = TryGetDirectVulkanProgram(program);
         if (!programObject) return GL_INVALID_INDEX;
         auto& cache = GetProgramResourceCache(*programObject);
+        const String resourceName = name;
         if (programInterface == GL_SHADER_STORAGE_BLOCK) {
             return GetShaderStorageBlockIndex(*programObject, name);
         }
         if (programInterface == GL_BUFFER_VARIABLE) {
-            const String resourceName = name;
             const auto it = std::find_if(cache.bufferVariables.begin(), cache.bufferVariables.end(),
                 [&](const BufferVariableResource& var) { return var.name == resourceName; });
             return it == cache.bufferVariables.end()
                 ? GL_INVALID_INDEX
                 : static_cast<GLuint>(std::distance(cache.bufferVariables.begin(), it));
+        }
+        if (programInterface == GL_UNIFORM_BLOCK) {
+            return programObject->GetUniformBlockIndex(name);
+        }
+        if (programInterface == GL_UNIFORM) {
+            const Int activeUniformIndex = programObject->GetActiveUniformIndex(resourceName);
+            return activeUniformIndex >= 0 ? static_cast<GLuint>(activeUniformIndex) : GL_INVALID_INDEX;
+        }
+        if (programInterface == GL_PROGRAM_INPUT) {
+            return FindProgramInputIndex(*programObject, resourceName);
+        }
+        if (programInterface == GL_PROGRAM_OUTPUT) {
+            return FindProgramOutputIndex(*programObject, resourceName);
         }
         return GL_INVALID_INDEX;
     }
@@ -518,6 +832,23 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         }
         if (programInterface == GL_BUFFER_VARIABLE && index < cache.bufferVariables.size()) {
             CopyResourceName(cache.bufferVariables[index].name, bufSize, length, name);
+            return;
+        }
+        if (programInterface == GL_UNIFORM_BLOCK && programObject->IsActiveUniformBlock(index)) {
+            CopyResourceName(programObject->GetUniformBlockName(index), bufSize, length, name);
+            return;
+        }
+        if (programInterface == GL_UNIFORM && index < programObject->GetUniformCount()) {
+            CopyResourceName(programObject->GetActiveUniformName(index), bufSize, length, name);
+            return;
+        }
+        if (programInterface == GL_PROGRAM_INPUT && index < static_cast<GLuint>(programObject->GetActiveAttributesCount())) {
+            CopyResourceName(programObject->GetActiveAttribName(index), bufSize, length, name);
+            return;
+        }
+        if (programInterface == GL_PROGRAM_OUTPUT &&
+            index < static_cast<GLuint>(programObject->GetActiveFragmentOutputCount())) {
+            CopyResourceName(programObject->GetActiveFragmentOutputName(index), bufSize, length, name);
             return;
         }
         if (length) *length = 0;
@@ -589,6 +920,155 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                     writeValue(0);
                     break;
                 }
+            } else if (programInterface == GL_UNIFORM_BLOCK &&
+                       programObject->IsActiveUniformBlock(index)) {
+                const auto activeVariables = GetUniformBlockActiveVariables(*programObject, index);
+                switch (prop) {
+                case GL_NAME_LENGTH:
+                    writeValue(static_cast<GLint>(programObject->GetUniformBlockName(index).size() + 1));
+                    break;
+                case GL_BUFFER_BINDING:
+                    writeValue(static_cast<GLint>(programObject->GetUniformBlockBinding(index)));
+                    break;
+                case GL_BUFFER_DATA_SIZE:
+                    writeValue(static_cast<GLint>(programObject->GetUBOSizeAt(index)));
+                    break;
+                case GL_NUM_ACTIVE_VARIABLES:
+                    writeValue(static_cast<GLint>(activeVariables.size()));
+                    break;
+                case GL_ACTIVE_VARIABLES:
+                    for (const GLuint variableIndex : activeVariables) {
+                        writeValue(static_cast<GLint>(variableIndex));
+                    }
+                    break;
+                case GL_REFERENCED_BY_VERTEX_SHADER:
+                    writeValue(programObject->IsUniformBlockReferencedByStage(index, EShLangVertex) ? GL_TRUE
+                                                                                                     : GL_FALSE);
+                    break;
+                case GL_REFERENCED_BY_FRAGMENT_SHADER:
+                    writeValue(programObject->IsUniformBlockReferencedByStage(index, EShLangFragment) ? GL_TRUE
+                                                                                                       : GL_FALSE);
+                    break;
+                case GL_REFERENCED_BY_COMPUTE_SHADER:
+                    writeValue(programObject->IsUniformBlockReferencedByStage(index, EShLangCompute) ? GL_TRUE
+                                                                                                      : GL_FALSE);
+                    break;
+                case GL_REFERENCED_BY_GEOMETRY_SHADER:
+                case GL_REFERENCED_BY_TESS_CONTROL_SHADER:
+                case GL_REFERENCED_BY_TESS_EVALUATION_SHADER:
+                    writeValue(GL_FALSE);
+                    break;
+                default:
+                    writeValue(0);
+                    break;
+                }
+            } else if (programInterface == GL_UNIFORM && index < programObject->GetUniformCount()) {
+                const auto& uniformName = programObject->GetActiveUniformName(index);
+                const GLint location = programObject->GetUniformLocation(uniformName);
+                switch (prop) {
+                case GL_NAME_LENGTH:
+                    writeValue(static_cast<GLint>(uniformName.size() + 1));
+                    break;
+                case GL_TYPE:
+                    writeValue(static_cast<GLint>(programObject->GetActiveUniformType(index)));
+                    break;
+                case GL_ARRAY_SIZE:
+                    writeValue(programObject->GetActiveUniformArraySize(index));
+                    break;
+                case GL_BLOCK_INDEX:
+                    writeValue(programObject->GetActiveUniformBlockIndex(index));
+                    break;
+                case GL_LOCATION:
+                    writeValue(location);
+                    break;
+                case GL_OFFSET:
+                    writeValue(location >= 0 && programObject->IsValidUniformLocation(location)
+                                   ? static_cast<GLint>(programObject->GetUniformOffset(location))
+                                   : 0);
+                    break;
+                case GL_ARRAY_STRIDE:
+                case GL_MATRIX_STRIDE:
+                case GL_IS_ROW_MAJOR:
+                case GL_TOP_LEVEL_ARRAY_SIZE:
+                case GL_TOP_LEVEL_ARRAY_STRIDE:
+                case GL_REFERENCED_BY_VERTEX_SHADER:
+                case GL_REFERENCED_BY_FRAGMENT_SHADER:
+                case GL_REFERENCED_BY_COMPUTE_SHADER:
+                case GL_REFERENCED_BY_GEOMETRY_SHADER:
+                case GL_REFERENCED_BY_TESS_CONTROL_SHADER:
+                case GL_REFERENCED_BY_TESS_EVALUATION_SHADER:
+                    writeValue(0);
+                    break;
+                default:
+                    writeValue(0);
+                    break;
+                }
+            } else if (programInterface == GL_PROGRAM_INPUT &&
+                       index < static_cast<GLuint>(programObject->GetActiveAttributesCount())) {
+                const auto& resourceName = programObject->GetActiveAttribName(index);
+                switch (prop) {
+                case GL_NAME_LENGTH:
+                    writeValue(static_cast<GLint>(resourceName.size() + 1));
+                    break;
+                case GL_TYPE:
+                    writeValue(static_cast<GLint>(programObject->GetActiveAttribType(index)));
+                    break;
+                case GL_ARRAY_SIZE:
+                    writeValue(programObject->GetActiveAttribArraySize(index));
+                    break;
+                case GL_LOCATION:
+                    writeValue(programObject->GetAttributeLocation(resourceName));
+                    break;
+                case GL_REFERENCED_BY_VERTEX_SHADER:
+                    writeValue(GL_TRUE);
+                    break;
+                case GL_REFERENCED_BY_FRAGMENT_SHADER:
+                case GL_REFERENCED_BY_COMPUTE_SHADER:
+                case GL_REFERENCED_BY_GEOMETRY_SHADER:
+                case GL_REFERENCED_BY_TESS_CONTROL_SHADER:
+                case GL_REFERENCED_BY_TESS_EVALUATION_SHADER:
+                case GL_IS_PER_PATCH:
+                case GL_LOCATION_INDEX:
+                    writeValue(0);
+                    break;
+                default:
+                    writeValue(0);
+                    break;
+                }
+            } else if (programInterface == GL_PROGRAM_OUTPUT &&
+                       index < static_cast<GLuint>(programObject->GetActiveFragmentOutputCount())) {
+                const auto& resourceName = programObject->GetActiveFragmentOutputName(index);
+                switch (prop) {
+                case GL_NAME_LENGTH:
+                    writeValue(static_cast<GLint>(resourceName.size() + 1));
+                    break;
+                case GL_TYPE:
+                    writeValue(static_cast<GLint>(programObject->GetFragmentOutputType(index)));
+                    break;
+                case GL_ARRAY_SIZE:
+                    writeValue(programObject->GetActiveFragmentOutputArraySize(index));
+                    break;
+                case GL_LOCATION:
+                    writeValue(programObject->GetFragmentOutputLocation(index));
+                    break;
+                case GL_LOCATION_INDEX:
+                    writeValue(0);
+                    break;
+                case GL_REFERENCED_BY_FRAGMENT_SHADER:
+                    writeValue(GL_TRUE);
+                    break;
+                case GL_REFERENCED_BY_VERTEX_SHADER:
+                case GL_REFERENCED_BY_COMPUTE_SHADER:
+                case GL_REFERENCED_BY_GEOMETRY_SHADER:
+                case GL_REFERENCED_BY_TESS_CONTROL_SHADER:
+                case GL_REFERENCED_BY_TESS_EVALUATION_SHADER:
+                case GL_IS_PER_PATCH:
+                    writeValue(0);
+                    break;
+                default:
+                    writeValue(0);
+                    break;
+                }
             } else {
                 writeValue(0);
             }
@@ -602,13 +1082,21 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         if (programInterface == GL_UNIFORM) {
             return programObject->GetUniformLocation(name);
         }
+        if (programInterface == GL_PROGRAM_INPUT) {
+            return programObject->GetAttributeLocation(name);
+        }
+        if (programInterface == GL_PROGRAM_OUTPUT) {
+            return GetProgramOutputLocation(*programObject, name);
+        }
         return -1;
     }
 
     GLint GetProgramResourceLocationIndex(GLuint program, GLenum programInterface, const GLchar* name) {
-        (void)program;
-        (void)programInterface;
-        (void)name;
+        auto* programObject = TryGetDirectVulkanProgram(program);
+        if (!programObject || !name) return -1;
+        if (programInterface == GL_PROGRAM_OUTPUT) {
+            return GetProgramOutputLocation(*programObject, name) >= 0 ? 0 : -1;
+        }
         return -1;
     }
 

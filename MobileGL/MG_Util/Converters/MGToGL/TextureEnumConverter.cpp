@@ -110,6 +110,8 @@ namespace MobileGL {
                 return GL_RGB10;
             case TextureInternalFormat::RGB12:
                 return GL_RGB12;
+            case TextureInternalFormat::RGB16:
+                return GL_RGB16;
             case TextureInternalFormat::RGB16Snorm:
                 return GL_RGB16_SNORM;
             case TextureInternalFormat::RGBA2:
@@ -267,6 +269,8 @@ namespace MobileGL {
                 return GL_UNSIGNED_SHORT_5_5_5_1;
             case TexturePixelDataType::UnsignedShort1555Rev:
                 return GL_UNSIGNED_SHORT_1_5_5_5_REV;
+            case TexturePixelDataType::UnsignedInt8888:
+                return GL_UNSIGNED_INT_8_8_8_8;
             case TexturePixelDataType::UnsignedInt8888Rev:
                 return GL_UNSIGNED_INT_8_8_8_8_REV;
             case TexturePixelDataType::UnsignedInt1010102:

@@ -16,10 +16,16 @@
 namespace MobileGL::MG_State::GLState {
     void ShaderObject::SetShaderSource(const String& source) {
         m_source = source;
+        m_shader.reset();
+        m_compileStatus = false;
+        m_infoLog.clear();
     }
 
     void ShaderObject::SetShaderSource(String&& source) {
         m_source = Move(source);
+        m_shader.reset();
+        m_compileStatus = false;
+        m_infoLog.clear();
     }
 
     void ShaderObject::Compile() {
@@ -38,8 +44,10 @@ namespace MobileGL::MG_State::GLState {
         if (result) {
             m_compileStatus = true;
             m_shader = result.value();
+            m_infoLog.clear();
         } else {
             m_compileStatus = false;
+            m_shader.reset();
             m_infoLog = result.error().log;
             MGLOG_D("ShaderObject::Compile: Shader %d compilation failed.\nSource:\n%s\nInfoLog:\n%s\nSetting "
                     "m_compileStatus = false as a result.",

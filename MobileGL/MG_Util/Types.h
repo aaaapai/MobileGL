@@ -115,7 +115,7 @@ namespace MobileGL {
     // represents a range of [start, end)
     struct Range1D {
         SizeT start = 0;
-        SizeT end = ~0u;
+        SizeT end = ~SizeT(0);
 
         void Update(SizeT newStart, SizeT newEnd) {
             MOBILEGL_ASSERT(newStart <= newEnd, "Range1D::Update: newStart (%zu) > newEnd (%zu)", newStart, newEnd);

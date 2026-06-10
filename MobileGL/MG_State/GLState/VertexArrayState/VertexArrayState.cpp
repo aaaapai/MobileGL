@@ -50,8 +50,8 @@ namespace MobileGL::MG_State::GLState {
 
     void VertexArrayState::MarkVertexArrayForDeletion(Uint index) {
         if (m_indexGenerator.IsValid(index)) {
-            if (m_boundVertexArray) {
-                m_boundVertexArray = nullptr;
+            if (m_boundVertexArray && m_boundVertexArray->GetExternalIndex() == index) {
+                m_boundVertexArray = GetVertexArrayObject(0);
             }
 
             if (ValidateVertexArrayObject(index)) {

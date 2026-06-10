@@ -41,11 +41,11 @@ namespace MobileGL::MG_Util::BackendLoader {
 #endif
     }
 
-    Bool AcquireGLESFunctions(MG_External::GLESFunctionsTable& funcs,
+    void AcquireGLESFunctions(MG_External::GLESFunctionsTable& funcs,
                               MG_External::EGL::eglGetProcAddress_PTR procAddress) {
         if (!procAddress) {
             MGLOG_E("eglGetProcAddress is nullptr, cannot load GLES functions");
-            return false;
+            return;
         }
 
 #define INIT_GLES_FUNC(name)                                                                                           \
@@ -149,6 +149,8 @@ namespace MobileGL::MG_Util::BackendLoader {
             INIT_GLES_FUNC(glIsTexture)
             INIT_GLES_FUNC(glLineWidth)
             INIT_GLES_FUNC(glLinkProgram)
+            INIT_GLES_FUNC(glLogicOp)
+            INIT_GLES_FUNC(glPointSize)
             INIT_GLES_FUNC(glPixelStorei)
             INIT_GLES_FUNC(glPolygonOffset)
             INIT_GLES_FUNC(glReadPixels)
@@ -428,16 +430,16 @@ namespace MobileGL::MG_Util::BackendLoader {
             INIT_GLES_FUNC(glMultiDrawElementsIndirectEXT)
             INIT_GLES_FUNC(glMultiDrawElementsBaseVertexEXT)
         }
-        return true;
     }
 
-    Bool AcquireEGLFunctions(MG_External::EGLFunctionsTable& funcs) {
+    void AcquireEGLFunctions(MG_External::EGLFunctionsTable& funcs) {
         static const Vector<String> EGLLibNames = {"libEGL.so"};
         void* eglLib = OpenLib(EGLLibNames);
         if (!eglLib) {
             MGLOG_E("Failed to open libEGL.so");
-            return false;
+            return;
         }
+
 #define INIT_EGL_FUNC(name)                                                                                            \
     do {                                                                                                               \
         funcs.name = (MG_External::EGL::name##_PTR)ProcAddress(eglLib, #name);                                         \
@@ -495,7 +497,6 @@ namespace MobileGL::MG_Util::BackendLoader {
             INIT_EGL_FUNC(eglGetPlatformDisplay)
             INIT_EGL_FUNC(eglWaitSync)
         }
-        return true;
     }
 
     Bool FillInGLESCapabilities(MG_External::GLESCapabilities& caps, const MG_External::GLESFunctionsTable& glesFuncs) {
@@ -535,6 +536,179 @@ namespace MobileGL::MG_Util::BackendLoader {
         MGLOG_I("OpenGL ES capabilities:");
         glesFuncs.glGetIntegerv(GL_UNIFORM_BUFFER_OFFSET_ALIGNMENT, &caps.UniformBufferOffsetAlignment);
         MGLOG_I("    GL_UNIFORM_BUFFER_OFFSET_ALIGNMENT: %d", caps.UniformBufferOffsetAlignment);
+        GLfloat aliasedLineWidthRange[2] = {1.0f, 1.0f};
+        GLfloat smoothLineWidthRange[2] = {1.0f, 1.0f};
+        GLfloat smoothLineWidthGranularity = 1.0f;
+        GLfloat aliasedPointSizeRange[2] = {1.0f, 1.0f};
+        GLfloat viewportBoundsRange[2] = {0.0f, 0.0f};
+        GLint maxViewportDims[2] = {16384, 16384};
+        GLint viewportSubpixelBits = 0;
+        GLint max3DTextureSize = 16384;
+        GLint maxArrayTextureLayers = 2048;
+        GLint maxCubeMapTextureSize = 16384;
+        GLint maxFramebufferWidth = 16384;
+        GLint maxFramebufferHeight = 16384;
+        GLint maxFramebufferLayers = 2048;
+        GLint maxRenderbufferSize = 16384;
+        GLint maxTextureSize = 16384;
+        GLint maxColorTextureSamples = 1;
+        GLint maxDepthTextureSamples = 1;
+        GLint maxFramebufferSamples = 1;
+        GLint maxIntegerSamples = 1;
+        GLint maxSamples = 1;
+        GLint maxSampleMaskWords = 1;
+        GLint maxTextureImageUnits = 32;
+        GLint maxVertexTextureImageUnits = 32;
+        GLint maxComputeTextureImageUnits = 32;
+        GLint maxCombinedTextureImageUnits = 192;
+        GLint maxVertexAttribs = 16;
+        GLint maxComputeShaderStorageBlocks = 8;
+        GLint maxCombinedShaderStorageBlocks = 32;
+        GLint maxComputeUniformBlocks = 12;
+        GLint maxComputeWorkGroupInvocations = 128;
+        GLint maxShaderStorageBufferBindings = 8;
+        GLint maxTextureBufferSize = 65536;
+        GLint maxUniformBufferBindings = 24;
+        GLint maxUniformBlockSize = 16384;
+        GLint maxImageUnits = 8;
+        GLint maxCombinedImageUniforms = 8;
+        GLint maxComputeImageUniforms = 8;
+        GLint maxDrawBuffers = 8;
+        GLint maxColorAttachments = 8;
+        GLint maxClipDistances = 8;
+        GLint maxViewports = 16;
+        glesFuncs.glGetFloatv(GL_ALIASED_LINE_WIDTH_RANGE, aliasedLineWidthRange);
+        glesFuncs.glGetFloatv(GL_SMOOTH_LINE_WIDTH_RANGE, smoothLineWidthRange);
+        glesFuncs.glGetFloatv(GL_SMOOTH_LINE_WIDTH_GRANULARITY, &smoothLineWidthGranularity);
+        glesFuncs.glGetFloatv(GL_ALIASED_POINT_SIZE_RANGE, aliasedPointSizeRange);
+        glesFuncs.glGetFloatv(GL_VIEWPORT_BOUNDS_RANGE, viewportBoundsRange);
+        glesFuncs.glGetIntegerv(GL_MAX_3D_TEXTURE_SIZE, &max3DTextureSize);
+        glesFuncs.glGetIntegerv(GL_MAX_ARRAY_TEXTURE_LAYERS, &maxArrayTextureLayers);
+        glesFuncs.glGetIntegerv(GL_MAX_CUBE_MAP_TEXTURE_SIZE, &maxCubeMapTextureSize);
+        glesFuncs.glGetIntegerv(GL_MAX_FRAMEBUFFER_WIDTH, &maxFramebufferWidth);
+        glesFuncs.glGetIntegerv(GL_MAX_FRAMEBUFFER_HEIGHT, &maxFramebufferHeight);
+        glesFuncs.glGetIntegerv(GL_MAX_FRAMEBUFFER_LAYERS, &maxFramebufferLayers);
+        glesFuncs.glGetIntegerv(GL_MAX_RENDERBUFFER_SIZE, &maxRenderbufferSize);
+        glesFuncs.glGetIntegerv(GL_MAX_TEXTURE_SIZE, &maxTextureSize);
+        glesFuncs.glGetIntegerv(GL_MAX_COLOR_TEXTURE_SAMPLES, &maxColorTextureSamples);
+        glesFuncs.glGetIntegerv(GL_MAX_DEPTH_TEXTURE_SAMPLES, &maxDepthTextureSamples);
+        glesFuncs.glGetIntegerv(GL_MAX_FRAMEBUFFER_SAMPLES, &maxFramebufferSamples);
+        glesFuncs.glGetIntegerv(GL_MAX_INTEGER_SAMPLES, &maxIntegerSamples);
+        glesFuncs.glGetIntegerv(GL_MAX_SAMPLES, &maxSamples);
+        glesFuncs.glGetIntegerv(GL_MAX_SAMPLE_MASK_WORDS, &maxSampleMaskWords);
+        glesFuncs.glGetIntegerv(GL_MAX_TEXTURE_IMAGE_UNITS, &maxTextureImageUnits);
+        glesFuncs.glGetIntegerv(GL_MAX_VERTEX_TEXTURE_IMAGE_UNITS, &maxVertexTextureImageUnits);
+        glesFuncs.glGetIntegerv(GL_MAX_COMPUTE_TEXTURE_IMAGE_UNITS, &maxComputeTextureImageUnits);
+        glesFuncs.glGetIntegerv(GL_MAX_COMBINED_TEXTURE_IMAGE_UNITS, &maxCombinedTextureImageUnits);
+        glesFuncs.glGetIntegerv(GL_MAX_VERTEX_ATTRIBS, &maxVertexAttribs);
+        glesFuncs.glGetIntegerv(GL_MAX_COMPUTE_SHADER_STORAGE_BLOCKS, &maxComputeShaderStorageBlocks);
+        glesFuncs.glGetIntegerv(GL_MAX_COMBINED_SHADER_STORAGE_BLOCKS, &maxCombinedShaderStorageBlocks);
+        glesFuncs.glGetIntegerv(GL_MAX_COMPUTE_UNIFORM_BLOCKS, &maxComputeUniformBlocks);
+        glesFuncs.glGetIntegerv(GL_MAX_COMPUTE_WORK_GROUP_INVOCATIONS, &maxComputeWorkGroupInvocations);
+        glesFuncs.glGetIntegerv(GL_MAX_SHADER_STORAGE_BUFFER_BINDINGS, &maxShaderStorageBufferBindings);
+        glesFuncs.glGetIntegerv(GL_MAX_TEXTURE_BUFFER_SIZE, &maxTextureBufferSize);
+        glesFuncs.glGetIntegerv(GL_MAX_UNIFORM_BUFFER_BINDINGS, &maxUniformBufferBindings);
+        glesFuncs.glGetIntegerv(GL_MAX_UNIFORM_BLOCK_SIZE, &maxUniformBlockSize);
+        glesFuncs.glGetIntegerv(GL_MAX_IMAGE_UNITS, &maxImageUnits);
+        glesFuncs.glGetIntegerv(GL_MAX_COMBINED_IMAGE_UNIFORMS, &maxCombinedImageUniforms);
+        glesFuncs.glGetIntegerv(GL_MAX_COMPUTE_IMAGE_UNIFORMS, &maxComputeImageUniforms);
+        glesFuncs.glGetIntegerv(GL_MAX_DRAW_BUFFERS, &maxDrawBuffers);
+        glesFuncs.glGetIntegerv(GL_MAX_COLOR_ATTACHMENTS, &maxColorAttachments);
+        glesFuncs.glGetIntegerv(GL_MAX_CLIP_DISTANCES, &maxClipDistances);
+        glesFuncs.glGetIntegerv(GL_MAX_VIEWPORTS, &maxViewports);
+        glesFuncs.glGetIntegerv(GL_MAX_VIEWPORT_DIMS, maxViewportDims);
+        glesFuncs.glGetIntegerv(GL_VIEWPORT_SUBPIXEL_BITS, &viewportSubpixelBits);
+        caps.AliasedLineWidthRangeMin = aliasedLineWidthRange[0];
+        caps.AliasedLineWidthRangeMax = aliasedLineWidthRange[1];
+        caps.SmoothLineWidthRangeMin = smoothLineWidthRange[0];
+        caps.SmoothLineWidthRangeMax = smoothLineWidthRange[1];
+        caps.SmoothLineWidthGranularity = smoothLineWidthGranularity;
+        caps.PointSizeRangeMin = aliasedPointSizeRange[0];
+        caps.PointSizeRangeMax = aliasedPointSizeRange[1];
+        caps.PointSizeGranularity = 1.0f;
+        caps.Max3DTextureSize = max3DTextureSize;
+        caps.MaxArrayTextureLayers = maxArrayTextureLayers;
+        caps.MaxCubeMapTextureSize = maxCubeMapTextureSize;
+        caps.MaxFramebufferWidth = maxFramebufferWidth;
+        caps.MaxFramebufferHeight = maxFramebufferHeight;
+        caps.MaxFramebufferLayers = maxFramebufferLayers;
+        caps.MaxRenderbufferSize = maxRenderbufferSize;
+        caps.MaxTextureSize = maxTextureSize;
+        caps.MaxColorTextureSamples = maxColorTextureSamples;
+        caps.MaxDepthTextureSamples = maxDepthTextureSamples;
+        caps.MaxFramebufferSamples = maxFramebufferSamples;
+        caps.MaxIntegerSamples = maxIntegerSamples;
+        caps.MaxSamples = maxSamples;
+        caps.MaxSampleMaskWords = maxSampleMaskWords;
+        caps.MaxTextureImageUnits = maxTextureImageUnits;
+        caps.MaxVertexTextureImageUnits = maxVertexTextureImageUnits;
+        caps.MaxComputeTextureImageUnits = maxComputeTextureImageUnits;
+        caps.MaxCombinedTextureImageUnits = maxCombinedTextureImageUnits;
+        caps.MaxVertexAttribs = maxVertexAttribs;
+        caps.MaxComputeShaderStorageBlocks = maxComputeShaderStorageBlocks;
+        caps.MaxCombinedShaderStorageBlocks = maxCombinedShaderStorageBlocks;
+        caps.MaxComputeUniformBlocks = maxComputeUniformBlocks;
+        caps.MaxComputeWorkGroupInvocations = maxComputeWorkGroupInvocations;
+        caps.MaxShaderStorageBufferBindings = maxShaderStorageBufferBindings;
+        caps.MaxTextureBufferSize = maxTextureBufferSize;
+        caps.MaxUniformBufferBindings = maxUniformBufferBindings;
+        caps.MaxUniformBlockSize = maxUniformBlockSize;
+        caps.MaxImageUnits = maxImageUnits;
+        caps.MaxCombinedImageUniforms = maxCombinedImageUniforms;
+        caps.MaxComputeImageUniforms = maxComputeImageUniforms;
+        caps.MaxDrawBuffers = maxDrawBuffers;
+        caps.MaxColorAttachments = maxColorAttachments;
+        caps.MaxClipDistances = maxClipDistances;
+        caps.MaxViewports = maxViewports;
+        caps.MaxViewportWidth = maxViewportDims[0];
+        caps.MaxViewportHeight = maxViewportDims[1];
+        caps.ViewportBoundsRangeMin = viewportBoundsRange[0];
+        caps.ViewportBoundsRangeMax = viewportBoundsRange[1];
+        caps.ViewportSubpixelBits = viewportSubpixelBits;
+        MGLOG_I("    GL_ALIASED_LINE_WIDTH_RANGE: [%.3f, %.3f]", caps.AliasedLineWidthRangeMin,
+                caps.AliasedLineWidthRangeMax);
+        MGLOG_I("    GL_SMOOTH_LINE_WIDTH_RANGE: [%.3f, %.3f]", caps.SmoothLineWidthRangeMin,
+                caps.SmoothLineWidthRangeMax);
+        MGLOG_I("    GL_SMOOTH_LINE_WIDTH_GRANULARITY: %.3f", caps.SmoothLineWidthGranularity);
+        MGLOG_I("    GL_ALIASED_POINT_SIZE_RANGE: [%.3f, %.3f]", caps.PointSizeRangeMin, caps.PointSizeRangeMax);
+        MGLOG_I("    GL_MAX_3D_TEXTURE_SIZE: %d", caps.Max3DTextureSize);
+        MGLOG_I("    GL_MAX_ARRAY_TEXTURE_LAYERS: %d", caps.MaxArrayTextureLayers);
+        MGLOG_I("    GL_MAX_CUBE_MAP_TEXTURE_SIZE: %d", caps.MaxCubeMapTextureSize);
+        MGLOG_I("    GL_MAX_FRAMEBUFFER_WIDTH: %d", caps.MaxFramebufferWidth);
+        MGLOG_I("    GL_MAX_FRAMEBUFFER_HEIGHT: %d", caps.MaxFramebufferHeight);
+        MGLOG_I("    GL_MAX_FRAMEBUFFER_LAYERS: %d", caps.MaxFramebufferLayers);
+        MGLOG_I("    GL_MAX_RENDERBUFFER_SIZE: %d", caps.MaxRenderbufferSize);
+        MGLOG_I("    GL_MAX_TEXTURE_SIZE: %d", caps.MaxTextureSize);
+        MGLOG_I("    GL_MAX_COLOR_TEXTURE_SAMPLES: %d", caps.MaxColorTextureSamples);
+        MGLOG_I("    GL_MAX_DEPTH_TEXTURE_SAMPLES: %d", caps.MaxDepthTextureSamples);
+        MGLOG_I("    GL_MAX_FRAMEBUFFER_SAMPLES: %d", caps.MaxFramebufferSamples);
+        MGLOG_I("    GL_MAX_INTEGER_SAMPLES: %d", caps.MaxIntegerSamples);
+        MGLOG_I("    GL_MAX_SAMPLES: %d", caps.MaxSamples);
+        MGLOG_I("    GL_MAX_SAMPLE_MASK_WORDS: %d", caps.MaxSampleMaskWords);
+        MGLOG_I("    GL_MAX_TEXTURE_IMAGE_UNITS: %d", caps.MaxTextureImageUnits);
+        MGLOG_I("    GL_MAX_VERTEX_TEXTURE_IMAGE_UNITS: %d", caps.MaxVertexTextureImageUnits);
+        MGLOG_I("    GL_MAX_COMPUTE_TEXTURE_IMAGE_UNITS: %d", caps.MaxComputeTextureImageUnits);
+        MGLOG_I("    GL_MAX_COMBINED_TEXTURE_IMAGE_UNITS: %d", caps.MaxCombinedTextureImageUnits);
+        MGLOG_I("    GL_MAX_VERTEX_ATTRIBS: %d", caps.MaxVertexAttribs);
+        MGLOG_I("    GL_MAX_COMPUTE_SHADER_STORAGE_BLOCKS: %d", caps.MaxComputeShaderStorageBlocks);
+        MGLOG_I("    GL_MAX_COMBINED_SHADER_STORAGE_BLOCKS: %d", caps.MaxCombinedShaderStorageBlocks);
+        MGLOG_I("    GL_MAX_COMPUTE_UNIFORM_BLOCKS: %d", caps.MaxComputeUniformBlocks);
+        MGLOG_I("    GL_MAX_COMPUTE_WORK_GROUP_INVOCATIONS: %d", caps.MaxComputeWorkGroupInvocations);
+        MGLOG_I("    GL_MAX_SHADER_STORAGE_BUFFER_BINDINGS: %d", caps.MaxShaderStorageBufferBindings);
+        MGLOG_I("    GL_MAX_TEXTURE_BUFFER_SIZE: %d", caps.MaxTextureBufferSize);
+        MGLOG_I("    GL_MAX_UNIFORM_BUFFER_BINDINGS: %d", caps.MaxUniformBufferBindings);
+        MGLOG_I("    GL_MAX_UNIFORM_BLOCK_SIZE: %d", caps.MaxUniformBlockSize);
+        MGLOG_I("    GL_MAX_IMAGE_UNITS: %d", caps.MaxImageUnits);
+        MGLOG_I("    GL_MAX_COMBINED_IMAGE_UNIFORMS: %d", caps.MaxCombinedImageUniforms);
+        MGLOG_I("    GL_MAX_COMPUTE_IMAGE_UNIFORMS: %d", caps.MaxComputeImageUniforms);
+        MGLOG_I("    GL_MAX_DRAW_BUFFERS: %d", caps.MaxDrawBuffers);
+        MGLOG_I("    GL_MAX_COLOR_ATTACHMENTS: %d", caps.MaxColorAttachments);
+        MGLOG_I("    GL_MAX_CLIP_DISTANCES: %d", caps.MaxClipDistances);
+        MGLOG_I("    GL_MAX_VIEWPORTS: %d", caps.MaxViewports);
+        MGLOG_I("    GL_MAX_VIEWPORT_DIMS: [%d, %d]", caps.MaxViewportWidth, caps.MaxViewportHeight);
+        MGLOG_I("    GL_VIEWPORT_BOUNDS_RANGE: [%.3f, %.3f]", caps.ViewportBoundsRangeMin,
+                caps.ViewportBoundsRangeMax);
+        MGLOG_I("    GL_VIEWPORT_SUBPIXEL_BITS: %d", caps.ViewportSubpixelBits);
 
         return true;
     }

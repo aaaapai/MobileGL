@@ -76,6 +76,10 @@ namespace MobileGL {
                 m_height = size.y();
                 m_allocated = true;
             }
+
+            void RenderbufferObject::SetSamples(Int samples) {
+                m_samples = samples;
+            }
         } // namespace GLState
     } // namespace MG_State
 } // namespace MobileGL

@@ -149,7 +149,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
 #ifdef TRACY_ENABLE
             ZoneScopedC(TRACY_ZONECOLOR_BACKEND);
 #endif
-            while (GLenum err = g_GLESFuncs.glGetError() != GL_NO_ERROR) {
+            for (GLenum err = g_GLESFuncs.glGetError(); err != GL_NO_ERROR; err = g_GLESFuncs.glGetError()) {
                 MGLOG_E("-> GLES Error: %s", MG_Util::ConvertGLEnumToString(err).c_str());
             }
         }

@@ -13,7 +13,31 @@
 #include <MG_Util/Converters/MGToGL/TextureEnumConverter.h>
 
 namespace MobileGL::MG_Impl::GLImpl {
+    namespace {
+        Bool ValidateSamplerParameterValue(GLenum pname, const void* param, Bool isFloat, Bool isInteger) {
+            if (param == nullptr) return false;
+
+            switch (pname) {
+            case GL_TEXTURE_MIN_LOD:
+            case GL_TEXTURE_MAX_LOD:
+            case GL_TEXTURE_LOD_BIAS:
+                return true;
+            default:
+                break;
+            }
+
+            if (isFloat) {
+                return SamplerImpl::ValidateSamplerFloatParam(pname, *(const GLfloat*)param);
+            }
+            if (isInteger) {
+                return SamplerImpl::ValidateSamplerIntParam(pname, static_cast<GLint>(*(const GLuint*)param));
+            }
+            return SamplerImpl::ValidateSamplerIntParam(pname, *(const GLint*)param);
+        }
+    } // namespace
+
     void SetSamplerParam_State(GLuint sampler, GLenum pname, const void* param, bool isFloat, bool isInteger) {
+        if (param == nullptr) return;
         if (!SamplerImpl::ValidateSamplerName(sampler)) return;
 
         Bool doesSamplerObjectCreated = MG_State::pGLContext->ValidateSamplerObject(sampler);
@@ -23,6 +47,7 @@ namespace MobileGL::MG_Impl::GLImpl {
         }
         auto& samplerObj = MG_State::pGLContext->GetSamplerObject(sampler);
         if (!SamplerImpl::ValidateSamplerObject(sampler)) return;
+        if (!ValidateSamplerParameterValue(pname, param, isFloat, isInteger)) return;
 
         using namespace MG_Util;
         switch (pname) {
@@ -65,6 +90,7 @@ namespace MobileGL::MG_Impl::GLImpl {
     }
 
     void GetSamplerParam_State(GLuint sampler, GLenum pname, void* params, bool isFloat, bool isInteger) {
+        if (params == nullptr) return;
         if (!SamplerImpl::ValidateSamplerName(sampler)) return;
 
         Bool doesSamplerObjectCreated = MG_State::pGLContext->ValidateSamplerObject(sampler);

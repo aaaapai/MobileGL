@@ -26,6 +26,8 @@ namespace MobileGL::MG_Impl::GLImpl {
     void GenRenderbuffers(GLsizei n, GLuint* renderbuffers);
     void CreateRenderbuffers(GLsizei n, GLuint* renderbuffers);
     void NamedRenderbufferStorage(GLuint renderbuffer, GLenum internalformat, GLsizei width, GLsizei height);
+    void NamedRenderbufferStorageMultisample(GLuint renderbuffer, GLsizei samples, GLenum internalformat,
+                                             GLsizei width, GLsizei height);
     void GetNamedRenderbufferParameteriv(GLuint renderbuffer, GLenum pname, GLint* params);
     void FramebufferRenderbuffer(GLenum target, GLenum attachment, GLenum renderbuffertarget, GLuint renderbuffer);
     void NamedFramebufferRenderbuffer(GLuint framebuffer, GLenum attachment, GLenum renderbuffertarget,
