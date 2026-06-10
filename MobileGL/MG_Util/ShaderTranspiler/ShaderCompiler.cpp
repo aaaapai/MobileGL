@@ -183,7 +183,7 @@ namespace MobileGL {
                 tshader->setAutoMapBindings(true);
                 tshader->setGlobalUniformBlockName(GLOBAL_UBO_NAME);
                 if (!tshader->parse(&GetTBuiltInResourceInstance(), 460, ECompatibilityProfile,
-                                    /*forceDefaultVersionAndProfile: */ false,
+                                    /*forceDefaultVersionAndProfile: */ true,
                                     /*forwardCompatible: */ true, messages)) {
                     ResultInfo r;
                     r.log += "Error: [glslang] Cannot compile " + ConvertGLEnumToString(shaderType) + ":\n" +
