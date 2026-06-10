@@ -46,7 +46,7 @@ uniform mg_DepthRangeParameters mg_DepthRange;
 
     // ==================== 3. 注入subgroup_BigGiftPackage ====================
     // 检查是否使用了任何subgroup相关标识符
-    bool hasSubgroupIdentifiers = false;
+    /*bool hasSubgroupIdentifiers = false;
     const char* subgroupKeywords[] = {
         "subgroupBallot", "activeMask", "gl_SubgroupInvocationID",
         "subgroupAdd", "gl_NumSubgroups", "gl_SubgroupID",
@@ -106,10 +106,10 @@ uniform mg_DepthRangeParameters mg_DepthRange;
                     source = source.replace(pos, strlen(oldStr), newStr);
                     pos = source.find(oldStr);
                 }
-            }
+            }*/
             
             // 插入subgroup_BigGiftPackage实现（完整的模拟实现代码）
-            const std::string subgroupImpl = R"(
+            /*const std::string subgroupImpl = R"(
 #define SUBGROUP_SIZE 32
 
 // ==================== 基础子组模拟 ====================
@@ -991,7 +991,7 @@ void mg_subgroupMemoryBarrier() {
                 source += "\n" + clusteredImpl + "\n";
             }
         }
-    }
+    }*/
 
     const char* arbKeywords[] = {
         "gl_DrawIDARB",
@@ -1030,7 +1030,7 @@ void mg_subgroupMemoryBarrier() {
     }
 
     // ==================== 6. 注入temporal_filter ====================
-    const char* str_temporal_filter = "GI_TemporalFilter";
+    /*const char* str_temporal_filter = "GI_TemporalFilter";
     if (source.find(str_temporal_filter) != String::npos) {
         // 检查是否已经定义了GI_TemporalFilter函数
         const char* str_temporal_filter_def = "vec4 GI_TemporalFilter()";
@@ -1049,7 +1049,7 @@ void mg_subgroupMemoryBarrier() {
                 source += "\n" + temporalFilterImpl + "\n";
             }
         }
-    }
+    }*/
     
     // 替换texture2D为texture
     size_t pos = 0;
