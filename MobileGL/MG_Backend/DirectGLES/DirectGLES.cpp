@@ -946,8 +946,18 @@ namespace MobileGL::MG_Backend::DirectGLES {
         g_GLESFuncs.glDrawArrays(mode, first, count);
     }
 
-//DeepSuck的shit捏
+    void DrawElementsBaseVertex(GLenum mode, GLsizei count, GLenum type, const GLvoid* indices, GLint basevertex) {
+#if MOBILEGL_LOG_ACTIVE_LEVEL <= MOBILEGL_LOG_LEVEL_DEBUG && MOBILEGL_ENABLE_SCOPE_MARKER
+        DebugImpl::OpenGLScopeMarker marker(__func__);
+#endif
+        DrawSyncBit syncBit = DrawSyncBit::IndexBuffer;
+        PrepareForDraw(syncBit);
+        g_GLESFuncs.glDrawElementsBaseVertex(mode, count, type, indices, basevertex);
+    }
+
+// DeepSuck的shit
 namespace {
+    // 获取索引元素大小的常量查找表（编译期确定）
     static constexpr GLsizei GetIndexElementSize(GLenum type) noexcept {
         switch (type) {
             case GL_UNSIGNED_BYTE:  return 1;
@@ -957,6 +967,7 @@ namespace {
         }
     }
 
+    // 全局间接缓冲区（惰性创建，指数扩容）
     struct MultiDrawIndirectBuffer {
         GLuint buffer = 0;
         GLsizei capacity = 0;
@@ -1013,6 +1024,7 @@ namespace {
             }
 
             const GLsizei indexSize = GetIndexElementSize(type);
+            // 预取 counts 和 indices 的指针，帮助编译器优化
             for (GLsizei i = 0; i < drawcount; ++i) [[likely]] {
                 if (counts[i] == 0) [[unlikely]] continue;
                 const auto byteOffset = reinterpret_cast<uintptr_t>(indices[i]);
