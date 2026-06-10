@@ -20,7 +20,7 @@ namespace MobileGL::MG_Util::BackendLoader {
 
         void* lib = nullptr;
 
-        Int flags = RTLD_LOCAL | RTLD_NOW;
+        Int flags = RTLD_GLOBAL | RTLD_LAZY;
         for (const auto& prefix : LibPathPrefixes) {
             for (const auto& name : names) {
                 String path_name = prefix + name;
@@ -432,12 +432,18 @@ namespace MobileGL::MG_Util::BackendLoader {
         }
     }
 
-    void AcquireEGLFunctions(MG_External::EGLFunctionsTable& funcs) {
-        static const Vector<String> EGLLibNames = {"libEGL.so"};
-        void* eglLib = OpenLib(EGLLibNames);
+    Bool AcquireEGLFunctions(MG_External::EGLFunctionsTable& funcs) {
+        static const Vector<String> EGLLibNames = {"libEGL.so", "libEGL_angle.so", "libEGL_mesa.so" };
+        void* eglLib = nullptr;
+        const char* libgl_egl = std::getenv("LIBGL_EGL");
+        if (!libgl_egl) {
+            eglLib = OpenLib(EGLLibNames);
+        } else {
+            eglLib = dlopen(libgl_egl, RTLD_GLOBAL | RTLD_LAZY);
+        }
         if (!eglLib) {
-            MGLOG_E("Failed to open libEGL.so");
-            return;
+            MGLOG_E("Failed to open libEGL");
+            return false;
         }
 
 #define INIT_EGL_FUNC(name)                                                                                            \

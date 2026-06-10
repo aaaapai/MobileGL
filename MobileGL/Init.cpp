@@ -14,6 +14,9 @@
 #include <MG_Impl/GLImpl/Texture/ProxyTexture.h>
 #include <MG_Impl/GLImpl/Framebuffer/GL_Framebuffer.h>
 
+#include <MG_Util/Config/settings.h>
+#include <MG_Util/Config/config.h>
+
 namespace MobileGL {
     namespace {
         Bool g_isInitialized = false;

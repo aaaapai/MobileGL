@@ -611,7 +611,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
     }
 
     void MemoryBarrier(GLbitfield barriers) {
-        MOBILEGL_ASSERT(pVulkanRenderer, "DirectVulkan::MemoryBarrier called with null VulkanRenderer");
+        //MOBILEGL_ASSERT(pVulkanRenderer, "DirectVulkan::MemoryBarrier called with null VulkanRenderer");
         pVulkanRenderer->MemoryBarrier(barriers);
     }
 

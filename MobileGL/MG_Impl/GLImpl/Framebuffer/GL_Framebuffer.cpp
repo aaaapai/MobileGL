@@ -1072,6 +1072,11 @@ namespace MobileGL::MG_Impl::GLImpl {
     }
 
     GLenum CheckFramebufferStatus_State(GLenum target) {
+
+        if (std::getenv("MGL_CHEAT_CHECKFRAMEBUFFERSTATUS")) {
+                return GL_FRAMEBUFFER_COMPLETE;
+        }
+
         FramebufferTarget framebufferTarget = MG_Util::ConvertGLEnumToFramebufferTarget(target);
         if (!FramebufferImpl::ValidateFramebufferTarget(framebufferTarget)) return GL_FRAMEBUFFER_UNDEFINED;
 

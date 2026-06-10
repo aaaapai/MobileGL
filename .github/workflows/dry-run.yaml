@@ -1,0 +1,153 @@
+name: Python Clean - Delete All Old Runs
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: '模拟运行（只查看不删除）'
+        required: true
+        default: 'true'
+        type: boolean
+      days_old:
+        description: '删除多少天前的运行'
+        required: true
+        default: '1'
+        type: string
+
+jobs:
+  clean:
+    runs-on: ubuntu-latest
+    
+    permissions:
+      actions: write
+      contents: read
+      
+    steps:
+    - name: Setup Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+        
+    - name: Install requests
+      run: pip install requests
+        
+    - name: Delete old runs
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        REPO: ${{ github.repository }}
+        DRY_RUN: ${{ github.event.inputs.dry_run }}
+        DAYS_OLD: ${{ github.event.inputs.days_old }}
+      run: |
+        python - <<'EOF'
+        import os
+        import requests
+        from datetime import datetime, timedelta
+        import time
+        
+        token = os.environ.get('GITHUB_TOKEN')
+        repo = os.environ.get('REPO')
+        dry_run = os.environ.get('DRY_RUN', 'true').lower() == 'true'
+        days_old = int(os.environ.get('DAYS_OLD', 1))
+        
+        headers = {
+            'Authorization': f'token {token}',
+            'Accept': 'application/vnd.github.v3+json'
+        }
+        
+        # 计算截止日期
+        cutoff_date = (datetime.utcnow() - timedelta(days=days_old)).isoformat()
+        
+        print(f"🔍 清理配置:")
+        print(f"  仓库: {repo}")
+        print(f"  删除 {days_old} 天前的运行 (截止: {cutoff_date})")
+        print(f"  模拟模式: {dry_run}")
+        print()
+        
+        # 获取所有运行
+        print("获取所有运行...")
+        runs_to_delete = []
+        page = 1
+        
+        while True:
+            url = f"https://api.github.com/repos/{repo}/actions/runs"
+            params = {
+                'per_page': 100,
+                'page': page
+            }
+            
+            response = requests.get(url, headers=headers, params=params)
+            if response.status_code != 200:
+                print(f"错误: {response.status_code}")
+                break
+                
+            data = response.json()
+            runs = data.get('workflow_runs', [])
+            
+            if not runs:
+                break
+                
+            for run in runs:
+                run_id = run['id']
+                created_at = run['created_at']
+                status = run['status']
+                branch = run['head_branch']
+                name = run.get('name', '未命名')
+                
+                # 跳过进行中的
+                if status in ['in_progress', 'queued', 'pending']:
+                    continue
+                    
+                # 检查日期
+                if created_at < cutoff_date:
+                    runs_to_delete.append({
+                        'id': run_id,
+                        'name': name,
+                        'date': created_at,
+                        'branch': branch
+                    })
+                    print(f"  ✓ 标记删除 #{run_id} - {name} ({created_at}) [{branch}]")
+            
+            if len(runs) < 100:
+                break
+                
+            page += 1
+            time.sleep(0.5)
+        
+        total = len(runs_to_delete)
+        print(f"\n📊 找到 {total} 个需要删除的运行")
+        
+        if total == 0:
+            print("✅ 没有需要删除的运行")
+            exit(0)
+            
+        if dry_run:
+            print("\n🔍 [模拟模式] 以上是将会删除的运行")
+            print("设置 dry_run=false 实际删除")
+            exit(0)
+            
+        # 删除
+        print(f"\n🗑️ 开始删除 {total} 个运行...")
+        deleted = 0
+        failed = 0
+        
+        for i, run in enumerate(runs_to_delete, 1):
+            run_id = run['id']
+            url = f"https://api.github.com/repos/{repo}/actions/runs/{run_id}"
+            
+            print(f"进度: [{i}/{total}] 删除 #{run_id}...", end=' ')
+            
+            response = requests.delete(url, headers=headers)
+            if response.status_code == 204:
+                deleted += 1
+                print("✓ 成功")
+            else:
+                failed += 1
+                print(f"✗ 失败 ({response.status_code})")
+            
+            time.sleep(0.2)
+        
+        print(f"\n✅ 完成!")
+        print(f"  成功: {deleted}")
+        print(f"  失败: {failed}")
+        
+        EOF

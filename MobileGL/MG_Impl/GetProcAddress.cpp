@@ -9,7 +9,7 @@
 #include "GetProcAddress.h"
 #define GETPROC(name, var)                                                                                             \
     if (strcmp(#name, var) == 0) {                                                                                     \
-        return (void*)name;                                                                                            \
+        return reinterpret_cast<void*>(name);                                                                                            \
     }
 
 namespace MobileGL::MG_Impl {

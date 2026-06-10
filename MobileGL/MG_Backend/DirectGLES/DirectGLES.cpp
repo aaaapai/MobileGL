@@ -1063,31 +1063,148 @@ namespace MobileGL::MG_Backend::DirectGLES {
         g_GLESFuncs.glDrawElementsBaseVertex(mode, count, type, indices, basevertex);
     }
 
-    void MultiDrawElements(GLenum mode, const GLsizei* count, GLenum type, const GLvoid* const* indices,
-                           GLsizei drawcount) {
-#if MOBILEGL_LOG_ACTIVE_LEVEL <= MOBILEGL_LOG_LEVEL_DEBUG && MOBILEGL_ENABLE_SCOPE_MARKER
-        DebugImpl::OpenGLScopeMarker marker(__func__);
-#endif
-        DrawSyncBit syncBit = DrawSyncBit::IndexBuffer;
-        PrepareForDraw(syncBit);
-
-        for (GLsizei i = 0; i < drawcount; ++i) {
-            g_GLESFuncs.glDrawElements(mode, count[i], type, indices[i]);
+// DeepSuck的shit
+namespace {
+    // 获取索引元素大小的常量查找表（编译期确定）
+    static constexpr GLsizei GetIndexElementSize(GLenum type) noexcept {
+        switch (type) {
+            case GL_UNSIGNED_BYTE:  return 1;
+            case GL_UNSIGNED_SHORT: return 2;
+            case GL_UNSIGNED_INT:   return 4;
+            default:                return 4;
         }
     }
 
-    void MultiDrawElementsBaseVertex(GLenum mode, const GLsizei* count, GLenum type, const GLvoid* const* indices,
-                                     GLsizei drawcount, const GLint* basevertex) {
-#if MOBILEGL_LOG_ACTIVE_LEVEL <= MOBILEGL_LOG_LEVEL_DEBUG && MOBILEGL_ENABLE_SCOPE_MARKER
-        DebugImpl::OpenGLScopeMarker marker(__func__);
-#endif
-        DrawSyncBit syncBit = DrawSyncBit::IndexBuffer;
-        PrepareForDraw(syncBit);
+    // 全局间接缓冲区（惰性创建，指数扩容）
+    struct MultiDrawIndirectBuffer {
+        GLuint buffer = 0;
+        GLsizei capacity = 0;
+        GLint previousBinding = 0;
 
-        for (GLsizei i = 0; i < drawcount; ++i) {
-            g_GLESFuncs.glDrawElementsBaseVertex(mode, count[i], type, indices[i], basevertex[i]);
+        ~MultiDrawIndirectBuffer() {
+            if (buffer != 0) [[unlikely]] {
+                g_GLESFuncs.glDeleteBuffers(1, &buffer);
+                buffer = 0;
+            }
         }
+
+        // 确保缓冲区足够大，并绑定到当前上下文（自动保存原绑定）
+        bool Prepare(GLsizei needed) noexcept {
+            // 保存当前绑定
+            g_GLESFuncs.glGetIntegerv(GL_DRAW_INDIRECT_BUFFER_BINDING, &previousBinding);
+
+            if (buffer == 0) [[unlikely]] {
+                g_GLESFuncs.glGenBuffers(1, &buffer);
+                if (buffer == 0) [[unlikely]] return false;
+                capacity = 1;
+                g_GLESFuncs.glBindBuffer(GL_DRAW_INDIRECT_BUFFER, buffer);
+                g_GLESFuncs.glBufferData(GL_DRAW_INDIRECT_BUFFER,
+                                         capacity * sizeof(DrawElementsIndirectCommand),
+                                         nullptr, GL_DYNAMIC_DRAW);
+            } else {
+                g_GLESFuncs.glBindBuffer(GL_DRAW_INDIRECT_BUFFER, buffer);
+            }
+
+            if (needed > capacity) [[unlikely]] {
+                GLsizei newCap = capacity;
+                while (newCap < needed) newCap = newCap ? newCap * 2 : 1;
+                g_GLESFuncs.glBufferData(GL_DRAW_INDIRECT_BUFFER,
+                                         newCap * sizeof(DrawElementsIndirectCommand),
+                                         nullptr, GL_DYNAMIC_DRAW);
+                capacity = newCap;
+            }
+            return true;
+        }
+
+        // 填充命令（必须在 Prepare 之后，且缓冲区已绑定）
+        void UploadCommands(GLenum type,
+                            const GLsizei* counts,
+                            const GLvoid* const* indices,
+                            GLsizei drawcount,
+                            const GLint* basevertex) noexcept {
+            auto* cmds = static_cast<DrawElementsIndirectCommand*>(
+                g_GLESFuncs.glMapBufferRange(GL_DRAW_INDIRECT_BUFFER, 0,
+                                             drawcount * sizeof(DrawElementsIndirectCommand),
+                                             GL_MAP_WRITE_BIT | GL_MAP_INVALIDATE_BUFFER_BIT));
+            if (cmds == nullptr) [[unlikely]] {
+                MGLOG_E("MultiDrawIndirectBuffer: glMapBufferRange failed");
+                return;
+            }
+
+            const GLsizei indexSize = GetIndexElementSize(type);
+            // 预取 counts 和 indices 的指针，帮助编译器优化
+            for (GLsizei i = 0; i < drawcount; ++i) [[likely]] {
+                if (counts[i] == 0) [[unlikely]] continue;
+                const auto byteOffset = reinterpret_cast<uintptr_t>(indices[i]);
+                cmds[i].firstIndex = static_cast<Uint32>(byteOffset / indexSize);
+                cmds[i].count = static_cast<Uint32>(counts[i]);
+                cmds[i].instanceCount = 1;
+                cmds[i].baseVertex = (basevertex != nullptr) ? basevertex[i] : 0;
+                cmds[i].baseInstance = 0;
+            }
+
+            g_GLESFuncs.glUnmapBuffer(GL_DRAW_INDIRECT_BUFFER);
+        }
+
+        // 清理：恢复原来的间接缓冲区绑定
+        void Cleanup() noexcept {
+            g_GLESFuncs.glBindBuffer(GL_DRAW_INDIRECT_BUFFER, static_cast<GLuint>(previousBinding));
+        }
+    };
+
+    static MultiDrawIndirectBuffer g_mdiBuffer;
+} // anonymous namespace
+
+void MultiDrawElements(GLenum mode, const GLsizei* count, GLenum type,
+                       const GLvoid* const* indices, GLsizei drawcount) {
+#if MOBILEGL_LOG_ACTIVE_LEVEL <= MOBILEGL_LOG_LEVEL_DEBUG && MOBILEGL_ENABLE_SCOPE_MARKER
+    DebugImpl::OpenGLScopeMarker marker(__func__);
+#endif
+
+    DrawSyncBit syncBit = DrawSyncBit::IndexBuffer | DrawSyncBit::IndirectBuffer;
+    PrepareForDraw(syncBit);
+
+    if (!g_mdiBuffer.Prepare(drawcount)) [[unlikely]] {
+        MGLOG_E("MultiDrawElements: failed to prepare indirect buffer");
+        return;
     }
+
+    g_mdiBuffer.UploadCommands(type, count, indices, drawcount, nullptr);
+
+    for (GLsizei i = 0; i < drawcount; ++i) [[likely]] {
+        if (count[i] == 0) [[unlikely]] continue;
+        const GLvoid* offset = reinterpret_cast<GLvoid*>(i * sizeof(DrawElementsIndirectCommand));
+        g_GLESFuncs.glDrawElementsIndirect(mode, type, offset);
+    }
+
+    g_mdiBuffer.Cleanup();
+}
+
+void MultiDrawElementsBaseVertex(GLenum mode, const GLsizei* count, GLenum type,
+                                 const GLvoid* const* indices, GLsizei drawcount,
+                                 const GLint* basevertex) {
+#if MOBILEGL_LOG_ACTIVE_LEVEL <= MOBILEGL_LOG_LEVEL_DEBUG && MOBILEGL_ENABLE_SCOPE_MARKER
+    DebugImpl::OpenGLScopeMarker marker(__func__);
+#endif
+
+    DrawSyncBit syncBit = DrawSyncBit::IndexBuffer | DrawSyncBit::IndirectBuffer;
+    PrepareForDraw(syncBit);
+
+    if (!g_mdiBuffer.Prepare(drawcount)) [[unlikely]] {
+        MGLOG_E("MultiDrawElementsBaseVertex: failed to prepare indirect buffer");
+        return;
+    }
+
+    g_mdiBuffer.UploadCommands(type, count, indices, drawcount, basevertex);
+
+    for (GLsizei i = 0; i < drawcount; ++i) [[likely]] {
+        if (count[i] == 0) [[unlikely]] continue;
+        const GLvoid* offset = reinterpret_cast<GLvoid*>(i * sizeof(DrawElementsIndirectCommand));
+        g_GLESFuncs.glDrawElementsIndirect(mode, type, offset);
+    }
+
+    g_mdiBuffer.Cleanup();
+}
 
     void MultiDrawElementsIndirect(GLenum mode, GLenum type, const void* indirect, GLsizei drawcount, GLsizei stride) {
 #if MOBILEGL_LOG_ACTIVE_LEVEL <= MOBILEGL_LOG_LEVEL_DEBUG && MOBILEGL_ENABLE_SCOPE_MARKER

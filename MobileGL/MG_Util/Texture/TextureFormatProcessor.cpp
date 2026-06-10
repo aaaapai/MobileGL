@@ -341,8 +341,9 @@ namespace MobileGL::MG_Util::TextureFormatProcessor {
             case GL_DEPTH32F_STENCIL8:
                 *outType = GL_FLOAT_32_UNSIGNED_INT_24_8_REV;
                 break;
-            case GL_DEPTH24_STENCIL8:
+
             case GL_DEPTH_STENCIL:
+            case GL_DEPTH24_STENCIL8:
                 *outType = GL_UNSIGNED_INT_24_8;
                 break;
 
