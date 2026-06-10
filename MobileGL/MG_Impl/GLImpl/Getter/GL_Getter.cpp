@@ -722,6 +722,16 @@ namespace MobileGL::MG_Impl::GLImpl {
             return;
         }
 
+        if (pname == GL_ELEMENT_ARRAY_BUFFER_BINDING) {
+            if (!MG_State::pGLContext->GetBoundVertexArray()) {
+                *params = 0;
+                return;
+            }
+            const auto& bufferObject = MG_State::pGLContext->GetBufferBindingSlot(BufferTarget::Index).GetBoundObject();
+            *params = bufferObject ? static_cast<GLint>(bufferObject->GetExternalIndex()) : 0;
+            return;
+        }
+
         const auto& activeBackendObject = MG_Backend::pActiveBackendObject;
         if (!activeBackendObject) {
             MGLOG_E("activeBackendObject is not initialized!");

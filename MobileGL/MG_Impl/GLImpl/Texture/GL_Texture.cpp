@@ -1356,7 +1356,8 @@ namespace MobileGL::MG_Impl::GLImpl {
 
         GLint signedParams[4] = {0, 0, 0, 0};
         GetTexParameteriv_State(target, pname, signedParams);
-        for (int i = 0; i < 4; ++i) {
+        const int componentCount = pname == GL_TEXTURE_BORDER_COLOR || pname == GL_TEXTURE_SWIZZLE_RGBA ? 4 : 1;
+        for (int i = 0; i < componentCount; ++i) {
             params[i] = static_cast<GLuint>(signedParams[i]);
         }
     }
@@ -1421,6 +1422,15 @@ namespace MobileGL::MG_Impl::GLImpl {
                 params[1] = static_cast<GLint>(borderColor.y());
                 params[2] = static_cast<GLint>(borderColor.z());
                 params[3] = static_cast<GLint>(borderColor.w());
+            }
+            break;
+        case GL_TEXTURE_SWIZZLE_RGBA:
+            if (params) {
+                const auto& swizzleParams = textureObject->GetAllSwizzleParams();
+                params[0] = static_cast<GLint>(MG_Util::ConvertTextureSwizzleParamToGLEnum(swizzleParams[0]));
+                params[1] = static_cast<GLint>(MG_Util::ConvertTextureSwizzleParamToGLEnum(swizzleParams[1]));
+                params[2] = static_cast<GLint>(MG_Util::ConvertTextureSwizzleParamToGLEnum(swizzleParams[2]));
+                params[3] = static_cast<GLint>(MG_Util::ConvertTextureSwizzleParamToGLEnum(swizzleParams[3]));
             }
             break;
         case GL_TEXTURE_SWIZZLE_R:
@@ -1531,6 +1541,15 @@ namespace MobileGL::MG_Impl::GLImpl {
                 *params = static_cast<GLfloat>(textureObject->GetLevelRange().y());
             }
             break;
+        case GL_TEXTURE_BORDER_COLOR:
+            if (params) {
+                const auto& borderColor = textureObject->GetBorderColor();
+                params[0] = borderColor.x();
+                params[1] = borderColor.y();
+                params[2] = borderColor.z();
+                params[3] = borderColor.w();
+            }
+            break;
         case GL_TEXTURE_SWIZZLE_R:
             if (params) {
                 *params = static_cast<GLfloat>(
@@ -1556,14 +1575,12 @@ namespace MobileGL::MG_Impl::GLImpl {
             }
             break;
         case GL_TEXTURE_SWIZZLE_RGBA:
-            break; // TODO
-        case GL_TEXTURE_BORDER_COLOR:
             if (params) {
-                const auto& borderColor = textureObject->GetBorderColor();
-                params[0] = borderColor.x();
-                params[1] = borderColor.y();
-                params[2] = borderColor.z();
-                params[3] = borderColor.w();
+                const auto& swizzleParams = textureObject->GetAllSwizzleParams();
+                params[0] = static_cast<GLfloat>(MG_Util::ConvertTextureSwizzleParamToGLEnum(swizzleParams[0]));
+                params[1] = static_cast<GLfloat>(MG_Util::ConvertTextureSwizzleParamToGLEnum(swizzleParams[1]));
+                params[2] = static_cast<GLfloat>(MG_Util::ConvertTextureSwizzleParamToGLEnum(swizzleParams[2]));
+                params[3] = static_cast<GLfloat>(MG_Util::ConvertTextureSwizzleParamToGLEnum(swizzleParams[3]));
             }
             break;
         case GL_TEXTURE_WRAP_S:
