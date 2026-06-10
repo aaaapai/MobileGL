@@ -22,6 +22,10 @@ namespace MobileGL::MG_Impl::GLImpl {
                          GLchar* name);
     void GetActiveUniform(GLuint program, GLuint index, GLsizei bufSize, GLsizei* length, GLint* size, GLenum* type,
                           GLchar* name);
+    void GetActiveUniformName(GLuint program, GLuint uniformIndex, GLsizei bufSize, GLsizei* length,
+                              GLchar* uniformName);
+    void GetUniformIndices(GLuint program, GLsizei uniformCount, const GLchar* const* uniformNames,
+                           GLuint* uniformIndices);
     void GetAttachedShaders(GLuint program, GLsizei maxCount, GLsizei* count, GLuint* shaders);
     GLint GetAttribLocation(GLuint program, const GLchar* name);
     void GetProgramiv(GLuint program, GLenum pname, GLint* params);
@@ -32,6 +36,7 @@ namespace MobileGL::MG_Impl::GLImpl {
     GLint GetUniformLocation(GLuint program, const GLchar* name);
     void GetUniformfv(GLuint program, GLint location, GLfloat* params);
     void GetUniformiv(GLuint program, GLint location, GLint* params);
+    void GetUniformuiv(GLuint program, GLint location, GLuint* params);
     GLboolean IsProgram(GLuint program);
     GLboolean IsShader(GLuint shader);
     void LinkProgram(GLuint program);
@@ -46,6 +51,9 @@ namespace MobileGL::MG_Impl::GLImpl {
     void Uniform3i(GLint location, GLint v0, GLint v1, GLint v2);
     void Uniform4i(GLint location, GLint v0, GLint v1, GLint v2, GLint v3);
     void Uniform1ui(GLint location, GLuint v0);
+    void Uniform2ui(GLint location, GLuint v0, GLuint v1);
+    void Uniform3ui(GLint location, GLuint v0, GLuint v1, GLuint v2);
+    void Uniform4ui(GLint location, GLuint v0, GLuint v1, GLuint v2, GLuint v3);
     void Uniform1fv(GLint location, GLsizei count, const GLfloat* value);
     void Uniform2fv(GLint location, GLsizei count, const GLfloat* value);
     void Uniform3fv(GLint location, GLsizei count, const GLfloat* value);
@@ -55,6 +63,9 @@ namespace MobileGL::MG_Impl::GLImpl {
     void Uniform3iv(GLint location, GLsizei count, const GLint* value);
     void Uniform4iv(GLint location, GLsizei count, const GLint* value);
     void Uniform1uiv(GLint location, GLsizei count, const GLuint* value);
+    void Uniform2uiv(GLint location, GLsizei count, const GLuint* value);
+    void Uniform3uiv(GLint location, GLsizei count, const GLuint* value);
+    void Uniform4uiv(GLint location, GLsizei count, const GLuint* value);
     void UniformMatrix2fv(GLint location, GLsizei count, GLboolean transpose, const GLfloat* value);
     void UniformMatrix3fv(GLint location, GLsizei count, GLboolean transpose, const GLfloat* value);
     void UniformMatrix4fv(GLint location, GLsizei count, GLboolean transpose, const GLfloat* value);

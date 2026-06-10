@@ -87,6 +87,7 @@ namespace MobileGL {
                 EGLContextHandle GetCurrentContext() const;
                 EGLDisplayHandle GetCurrentDisplay() const;
                 EGLSurfaceHandle GetCurrentSurface(EGLint readdraw) const;
+                Bool IsDoubleBufferedSurface(EGLSurfaceHandle surface) const;
 
                 // Sync
                 EGLSyncHandle CreateSync(EGLDisplayHandle display, EGLenum type, const EGLAttrib* attribList);

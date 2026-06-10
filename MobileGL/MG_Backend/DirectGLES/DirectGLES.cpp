@@ -65,6 +65,34 @@ namespace MobileGL::MG_Backend::DirectGLES {
         Uint32 baseInstance = 0;
     };
 
+    struct DrawArraysIndirectCommand {
+        Uint32 count = 0;
+        Uint32 instanceCount = 0;
+        Uint32 first = 0;
+        Uint32 baseInstance = 0;
+    };
+
+    const Uint8* ResolveIndirectCommandBytes(const void* indirect, SizeT requiredBytes, const char* label) {
+        auto drawBuffer = MG_State::pGLContext->GetBufferBindingSlot(BufferTarget::DrawIndirect).GetBoundObject();
+        if (drawBuffer) {
+            drawBuffer->MarkPersistentMappedRangeDirty();
+            const auto drawData = drawBuffer->GetDataReadOnly();
+            const SizeT commandOffset = reinterpret_cast<SizeT>(indirect);
+            if (!drawData || commandOffset + requiredBytes > drawData->size()) {
+                MGLOG_E("%s skipped: invalid GL_DRAW_INDIRECT_BUFFER binding or range", label);
+                return nullptr;
+            }
+            return drawData->data() + commandOffset;
+        }
+
+        if (!indirect) {
+            MGLOG_E("%s skipped: indirect pointer is null", label);
+            return nullptr;
+        }
+
+        return reinterpret_cast<const Uint8*>(indirect);
+    }
+
     namespace DebugImpl {
 #if MOBILEGL_LOG_ACTIVE_LEVEL <= MOBILEGL_LOG_LEVEL_DEBUG
         void ErrorLopper::Loop(const std::function<void(GLenum)>& func) {
@@ -425,7 +453,16 @@ namespace MobileGL::MG_Backend::DirectGLES {
         }                                                                                                              \
     }
             SYNC_CAPABILITY(DepthTest, GL_DEPTH_TEST);
+            SYNC_CAPABILITY(ColorLogicOp, GL_COLOR_LOGIC_OP);
+            SYNC_CAPABILITY(Dither, GL_DITHER);
+            SYNC_CAPABILITY(Multisample, GL_MULTISAMPLE);
+            SYNC_CAPABILITY(SampleAlphaToCoverage, GL_SAMPLE_ALPHA_TO_COVERAGE);
+            SYNC_CAPABILITY(SampleCoverage, GL_SAMPLE_COVERAGE);
+            SYNC_CAPABILITY(SampleMask, GL_SAMPLE_MASK);
+            SYNC_CAPABILITY(PolygonOffsetFill, GL_POLYGON_OFFSET_FILL);
+            SYNC_CAPABILITY(RasterizerDiscard, GL_RASTERIZER_DISCARD);
             SYNC_CAPABILITY(ScissorTest, GL_SCISSOR_TEST);
+            SYNC_CAPABILITY(StencilTest, GL_STENCIL_TEST);
             SYNC_CAPABILITY(CullFace, GL_CULL_FACE);
 
 #undef SYNC_CAPABILITY
@@ -538,6 +575,34 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 if (parameters.DepthMask != g_syncedRenderStateParameters.DepthMask) {
                     g_GLESFuncs.glDepthMask(parameters.DepthMask ? GL_TRUE : GL_FALSE);
                 }
+                if (parameters.DepthRange != g_syncedRenderStateParameters.DepthRange) {
+                    g_GLESFuncs.glDepthRangef(parameters.DepthRange.x(), parameters.DepthRange.y());
+                }
+            }
+
+            { // Stencil state
+                for (SizeT faceIndex = 0; faceIndex < parameters.StencilStates.size(); ++faceIndex) {
+                    const StencilFaceState& current = parameters.StencilStates[faceIndex];
+                    const StencilFaceState& synced = g_syncedRenderStateParameters.StencilStates[faceIndex];
+                    const GLenum glFace = faceIndex == 0 ? GL_FRONT : GL_BACK;
+
+                    if (current.Func != synced.Func || current.Ref != synced.Ref ||
+                        current.ValueMask != synced.ValueMask) {
+                        g_GLESFuncs.glStencilFuncSeparate(
+                            glFace, MG_Util::ConvertDepthTestFuncToGLEnum(current.Func), current.Ref,
+                            current.ValueMask);
+                    }
+                    if (current.WriteMask != synced.WriteMask) {
+                        g_GLESFuncs.glStencilMaskSeparate(glFace, current.WriteMask);
+                    }
+                    if (current.FailOp != synced.FailOp || current.PassDepthFailOp != synced.PassDepthFailOp ||
+                        current.PassDepthPassOp != synced.PassDepthPassOp) {
+                        g_GLESFuncs.glStencilOpSeparate(
+                            glFace, MG_Util::ConvertStencilOperationToGLEnum(current.FailOp),
+                            MG_Util::ConvertStencilOperationToGLEnum(current.PassDepthFailOp),
+                            MG_Util::ConvertStencilOperationToGLEnum(current.PassDepthPassOp));
+                    }
+                }
             }
 
             { // Color mask
@@ -556,6 +621,10 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 if (parameters.ClearDepth != g_syncedRenderStateParameters.ClearDepth) {
                     g_GLESFuncs.glClearDepthf(parameters.ClearDepth);
                 }
+                if (parameters.BlendColor != g_syncedRenderStateParameters.BlendColor) {
+                    const FloatVec4& blendColor = parameters.BlendColor;
+                    g_GLESFuncs.glBlendColor(blendColor.x(), blendColor.y(), blendColor.z(), blendColor.w());
+                }
             }
 
             { // Cull face mode
@@ -573,6 +642,45 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 if (parameters.ScissorBox != g_syncedRenderStateParameters.ScissorBox) {
                     const IntVec4& scissorBox = parameters.ScissorBox;
                     g_GLESFuncs.glScissor(scissorBox.x(), scissorBox.y(), scissorBox.z(), scissorBox.w());
+                }
+            }
+
+            { // Logic op
+                if (parameters.LogicOp != g_syncedRenderStateParameters.LogicOp) {
+                    g_GLESFuncs.glLogicOp(MG_Util::ConvertLogicOperationToGLEnum(parameters.LogicOp));
+                }
+            }
+
+            { // Polygon offset
+                if (parameters.PolygonOffsetFactor != g_syncedRenderStateParameters.PolygonOffsetFactor ||
+                    parameters.PolygonOffsetUnits != g_syncedRenderStateParameters.PolygonOffsetUnits) {
+                    g_GLESFuncs.glPolygonOffset(parameters.PolygonOffsetFactor, parameters.PolygonOffsetUnits);
+                }
+            }
+
+            { // Line width
+                if (parameters.LineWidth != g_syncedRenderStateParameters.LineWidth) {
+                    g_GLESFuncs.glLineWidth(parameters.LineWidth);
+                }
+            }
+
+            { // Point size
+                if (parameters.PointSize != g_syncedRenderStateParameters.PointSize) {
+                    g_GLESFuncs.glPointSize(parameters.PointSize);
+                }
+            }
+
+            { // Sample coverage
+                if (parameters.SampleCoverageValue != g_syncedRenderStateParameters.SampleCoverageValue ||
+                    parameters.SampleCoverageInvert != g_syncedRenderStateParameters.SampleCoverageInvert) {
+                    g_GLESFuncs.glSampleCoverage(parameters.SampleCoverageValue,
+                                                ToGLBoolean(parameters.SampleCoverageInvert));
+                }
+            }
+
+            { // Sample mask
+                if (g_GLESFuncs.glSampleMaski && parameters.SampleMaskValue != g_syncedRenderStateParameters.SampleMaskValue) {
+                    g_GLESFuncs.glSampleMaski(0, parameters.SampleMaskValue);
                 }
             }
 
@@ -1123,24 +1231,17 @@ void MultiDrawElementsBaseVertex(GLenum mode, const GLsizei* count, GLenum type,
             return;
         }
 
-        auto drawBuffer = MG_State::pGLContext->GetBufferBindingSlot(BufferTarget::DrawIndirect).GetBoundObject();
-        if (!drawBuffer) {
-            MGLOG_E("MultiDrawElementsIndirect skipped: no GL_DRAW_INDIRECT_BUFFER is bound");
-            return;
-        }
-        drawBuffer->MarkPersistentMappedRangeDirty();
-        const auto drawData = drawBuffer->GetDataReadOnly();
-        const SizeT commandOffset = reinterpret_cast<SizeT>(indirect);
-        const SizeT commandBytes = commandOffset + static_cast<SizeT>(stride) * static_cast<SizeT>(drawcount - 1) +
-            sizeof(DrawElementsIndirectCommand);
-        if (!drawData || commandBytes > drawData->size()) {
-            MGLOG_E("MultiDrawElementsIndirect skipped: invalid GL_DRAW_INDIRECT_BUFFER binding or range");
+        const auto* commandBytes = ResolveIndirectCommandBytes(
+            indirect,
+            static_cast<SizeT>(stride) * static_cast<SizeT>(drawcount - 1) + sizeof(DrawElementsIndirectCommand),
+            "MultiDrawElementsIndirect");
+        if (!commandBytes) {
             return;
         }
 
         for (GLsizei i = 0; i < drawcount; ++i) {
             DrawElementsIndirectCommand cmd{};
-            std::memcpy(&cmd, drawData->data() + commandOffset + static_cast<SizeT>(i) * stride, sizeof(cmd));
+            std::memcpy(&cmd, commandBytes + static_cast<SizeT>(i) * stride, sizeof(cmd));
             if (cmd.count == 0 || cmd.instanceCount == 0) {
                 continue;
             }
@@ -1229,14 +1330,41 @@ void MultiDrawElementsBaseVertex(GLenum mode, const GLsizei* count, GLenum type,
 #if MOBILEGL_LOG_ACTIVE_LEVEL <= MOBILEGL_LOG_LEVEL_DEBUG && MOBILEGL_ENABLE_SCOPE_MARKER
         DebugImpl::OpenGLScopeMarker marker(__func__);
 #endif
-        DrawSyncBit syncBit = DrawSyncBit::IndirectBuffer;
+        if (drawcount <= 0) {
+            return;
+        }
+        if (stride == 0) {
+            stride = sizeof(DrawArraysIndirectCommand);
+        }
+        if (stride < static_cast<GLsizei>(sizeof(DrawArraysIndirectCommand))) {
+            MGLOG_E("MultiDrawArraysIndirect skipped: stride %d is smaller than command size %zu",
+                    stride, sizeof(DrawArraysIndirectCommand));
+            return;
+        }
+
+        DrawSyncBit syncBit = DrawSyncBit::IndirectBuffer | DrawSyncBit::Instancing;
         PrepareForDraw(syncBit);
 
-        for (GLsizei i = 0; i < drawcount; ++i) {
-            const GLvoid* cmd = reinterpret_cast<const GLvoid*>(reinterpret_cast<const uint8_t*>(indirect) +
-                                                                i * (stride ? stride : sizeof(GLsizei) * 4));
-            g_GLESFuncs.glDrawArraysIndirect(mode, cmd);
+        const auto* commandBytes = ResolveIndirectCommandBytes(
+            indirect,
+            static_cast<SizeT>(stride) * static_cast<SizeT>(drawcount - 1) + sizeof(DrawArraysIndirectCommand),
+            "MultiDrawArraysIndirect");
+        if (!commandBytes) {
+            return;
         }
+
+        for (GLsizei i = 0; i < drawcount; ++i) {
+            DrawArraysIndirectCommand cmd{};
+            std::memcpy(&cmd, commandBytes + static_cast<SizeT>(i) * stride, sizeof(cmd));
+            if (cmd.count == 0 || cmd.instanceCount == 0) {
+                continue;
+            }
+            SetCurrentBaseInstance(cmd.baseInstance);
+            g_GLESFuncs.glDrawArraysInstanced(
+                mode, static_cast<GLint>(cmd.first), static_cast<GLsizei>(cmd.count),
+                static_cast<GLsizei>(cmd.instanceCount));
+        }
+        SetCurrentBaseInstance(0);
     }
 
     void DrawRangeElementsBaseVertex(GLenum mode, GLuint start, GLuint end, GLsizei count, GLenum type,
@@ -1254,8 +1382,11 @@ void MultiDrawElementsBaseVertex(GLenum mode, const GLsizei* count, GLenum type,
 
     void DrawElementsInstancedBaseVertexBaseInstance(GLenum mode, GLsizei count, GLenum type, const void* indices,
                                                      GLsizei instancecount, GLint basevertex, GLuint baseinstance) {
-        // Not supported in OpenGL ES
-        MGLOG_W("DrawElementsInstancedBaseVertexBaseInstance is not supported in OpenGL ES.");
+        DrawSyncBit syncBit = DrawSyncBit::IndexBuffer | DrawSyncBit::Instancing;
+        PrepareForDraw(syncBit);
+        SetCurrentBaseInstance(baseinstance);
+        g_GLESFuncs.glDrawElementsInstancedBaseVertex(mode, count, type, indices, instancecount, basevertex);
+        SetCurrentBaseInstance(0);
     }
 
     void DrawElementsInstancedBaseVertex(GLenum mode, GLsizei count, GLenum type, const void* indices,
@@ -1267,8 +1398,11 @@ void MultiDrawElementsBaseVertex(GLenum mode, const GLsizei* count, GLenum type,
 
     void DrawElementsInstancedBaseInstance(GLenum mode, GLsizei count, GLenum type, const void* indices,
                                            GLsizei instancecount, GLuint baseinstance) {
-        // Not supported in OpenGL ES
-        MGLOG_W("DrawElementsInstancedBaseInstance is not supported in OpenGL ES.");
+        DrawSyncBit syncBit = DrawSyncBit::IndexBuffer | DrawSyncBit::Instancing;
+        PrepareForDraw(syncBit);
+        SetCurrentBaseInstance(baseinstance);
+        g_GLESFuncs.glDrawElementsInstanced(mode, count, type, indices, instancecount);
+        SetCurrentBaseInstance(0);
     }
 
     void DrawElementsInstanced(GLenum mode, GLsizei count, GLenum type, const void* indices, GLsizei instancecount) {
@@ -1278,15 +1412,42 @@ void MultiDrawElementsBaseVertex(GLenum mode, const GLsizei* count, GLenum type,
     }
 
     void DrawElementsIndirect(GLenum mode, GLenum type, const void* indirect) {
-        DrawSyncBit syncBit = DrawSyncBit::IndexBuffer | DrawSyncBit::IndirectBuffer;
+        DrawSyncBit syncBit = DrawSyncBit::IndexBuffer | DrawSyncBit::IndirectBuffer | DrawSyncBit::Instancing;
         PrepareForDraw(syncBit);
-        g_GLESFuncs.glDrawElementsIndirect(mode, type, indirect);
+
+        const SizeT indexSize = MG_Util::GetGLTypeSize(type);
+        if (indexSize == 0) {
+            MGLOG_E("DrawElementsIndirect skipped: unsupported index type 0x%x", type);
+            return;
+        }
+
+        const auto* commandBytes =
+            ResolveIndirectCommandBytes(indirect, sizeof(DrawElementsIndirectCommand), "DrawElementsIndirect");
+        if (!commandBytes) {
+            return;
+        }
+
+        DrawElementsIndirectCommand cmd{};
+        std::memcpy(&cmd, commandBytes, sizeof(cmd));
+        if (cmd.count == 0 || cmd.instanceCount == 0) {
+            return;
+        }
+
+        SetCurrentBaseInstance(cmd.baseInstance);
+        const auto indexByteOffset = static_cast<SizeT>(cmd.firstIndex) * indexSize;
+        g_GLESFuncs.glDrawElementsInstancedBaseVertex(
+            mode, static_cast<GLsizei>(cmd.count), type, reinterpret_cast<const GLvoid*>(indexByteOffset),
+            static_cast<GLsizei>(cmd.instanceCount), cmd.baseVertex);
+        SetCurrentBaseInstance(0);
     }
 
     void DrawArraysInstancedBaseInstance(GLenum mode, GLint first, GLsizei count, GLsizei instancecount,
                                          GLuint baseinstance) {
-        // Not supported in OpenGL ES
-        MGLOG_W("DrawArraysInstancedBaseInstance is not supported in OpenGL ES.");
+        DrawSyncBit syncBit = DrawSyncBit::Instancing;
+        PrepareForDraw(syncBit);
+        SetCurrentBaseInstance(baseinstance);
+        g_GLESFuncs.glDrawArraysInstanced(mode, first, count, instancecount);
+        SetCurrentBaseInstance(0);
     }
 
     void DrawArraysInstanced(GLenum mode, GLint first, GLsizei count, GLsizei instancecount) {
@@ -1296,9 +1457,26 @@ void MultiDrawElementsBaseVertex(GLenum mode, const GLsizei* count, GLenum type,
     }
 
     void DrawArraysIndirect(GLenum mode, const void* indirect) {
-        DrawSyncBit syncBit = DrawSyncBit::IndirectBuffer;
+        DrawSyncBit syncBit = DrawSyncBit::IndirectBuffer | DrawSyncBit::Instancing;
         PrepareForDraw(syncBit);
-        g_GLESFuncs.glDrawArraysIndirect(mode, indirect);
+
+        const auto* commandBytes =
+            ResolveIndirectCommandBytes(indirect, sizeof(DrawArraysIndirectCommand), "DrawArraysIndirect");
+        if (!commandBytes) {
+            return;
+        }
+
+        DrawArraysIndirectCommand cmd{};
+        std::memcpy(&cmd, commandBytes, sizeof(cmd));
+        if (cmd.count == 0 || cmd.instanceCount == 0) {
+            return;
+        }
+
+        SetCurrentBaseInstance(cmd.baseInstance);
+        g_GLESFuncs.glDrawArraysInstanced(
+            mode, static_cast<GLint>(cmd.first), static_cast<GLsizei>(cmd.count),
+            static_cast<GLsizei>(cmd.instanceCount));
+        SetCurrentBaseInstance(0);
     }
 
     void BlitFramebuffer(GLint srcX0, GLint srcY0, GLint srcX1, GLint srcY1, GLint dstX0, GLint dstY0, GLint dstX1,

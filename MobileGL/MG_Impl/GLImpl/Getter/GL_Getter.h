@@ -13,8 +13,10 @@ namespace MobileGL::MG_Impl::GLImpl {
     /* @INSERTION_POINT:FUNCTION_DECLARATION@ */
     const GLubyte* GetString(GLenum name);
     const GLubyte* GetStringi(GLenum name, GLuint index);
+    void GetBooleanv(GLenum pname, GLboolean* params);
+    void GetFloatv(GLenum pname, GLfloat* params);
     void GetIntegerv(GLenum pname, GLint* params);
-    void GetInteger64v(GLenum pname, GLint64* data);
+    void GetInteger64v(GLenum pname, GLint64* params);
     void GetIntegeri_v(GLenum target, GLuint index, GLint* data);
     void GetInteger64i_v(GLenum target, GLuint index, GLint64* data);
     GLenum GetError();

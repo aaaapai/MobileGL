@@ -50,7 +50,7 @@ namespace MobileGL {
 
             Uint TextureObject2DCube::GetIndexOfTextureUploadTarget(TextureUploadTarget target) const {
                 MOBILEGL_ASSERT(TextureUploadTarget::CubeMapPositiveX <= target &&
-                                    target <= TextureUploadTarget::ProxyCubeMap,
+                                    target <= TextureUploadTarget::CubeMapNegativeZ,
                                 "Invalid TextureUploadTarget!");
                 return (Uint)target - (Uint)TextureUploadTarget::CubeMapPositiveX;
             }

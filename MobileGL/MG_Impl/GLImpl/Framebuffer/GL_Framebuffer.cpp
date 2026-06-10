@@ -15,10 +15,144 @@
 #include <MG_State/GLState/ErrorState/Error.h>
 #include <MG_Util/Converters/GLToStr/GLEnumConverter.h>
 #include <MG_Util/Converters/GLToMG/TextureEnumConverter.h>
+#include <MG_Util/Converters/MGToMG/TextureEnumConverter.h>
 #include <MG_Util/Converters/MGToGL/TextureEnumConverter.h>
+#include <MG_Util/Converters/MGToStr/TextureEnumConverter.h>
 #include <MG_Util/Converters/GLToMG/FramebufferEnumConverter.h>
 
 namespace MobileGL::MG_Impl::GLImpl {
+    namespace {
+        Bool IsActiveBackendDirectVulkan() {
+            auto* activeBackend = MG_Backend::pActiveBackendObject.get();
+            return activeBackend != nullptr && activeBackend->GetBackendType() == BackendType::DirectVulkan;
+        }
+
+        Bool HasDistinctCompleteDepthStencilTextureAttachments(
+            const MG_State::GLState::FramebufferObject& framebufferObject) {
+            if (framebufferObject.GetExternalIndex() == 0) {
+                return false;
+            }
+
+            const auto& depthAttachment = framebufferObject.GetAttachment(FramebufferAttachmentType::Depth);
+            const auto& stencilAttachment = framebufferObject.GetAttachment(FramebufferAttachmentType::Stencil);
+            if (!depthAttachment.IsComplete() || !stencilAttachment.IsComplete() ||
+                !depthAttachment.IsTexture() || !stencilAttachment.IsTexture()) {
+                return false;
+            }
+
+            return depthAttachment.GetTexture().get() != stencilAttachment.GetTexture().get() ||
+                   depthAttachment.GetTextureUploadTarget() != stencilAttachment.GetTextureUploadTarget() ||
+                   depthAttachment.GetTextureLevel() != stencilAttachment.GetTextureLevel();
+        }
+
+        Bool HasCompleteRenderbufferAttachment(const MG_State::GLState::FramebufferObject& framebufferObject) {
+            if (framebufferObject.GetExternalIndex() == 0) {
+                return false;
+            }
+
+            for (const auto& attachment : framebufferObject.GetAllAttachmentObjects()) {
+                if (attachment.IsRenderbuffer() && attachment.IsComplete()) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        Bool IsUnsupportedFramebufferForDirectVulkan(
+            const MG_State::GLState::FramebufferObject& framebufferObject) {
+            return HasDistinctCompleteDepthStencilTextureAttachments(framebufferObject) ||
+                   HasCompleteRenderbufferAttachment(framebufferObject);
+        }
+
+        void RecordUnsupportedFramebufferTextureAttachmentError(const char* functionName, const char* detail) {
+            MG_State::pGLContext->RecordError(
+                ErrorCode::InvalidOperation,
+                MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", functionName, detail));
+        }
+
+        Bool ResolveRepresentableFramebufferTextureUploadTarget(const MG_State::GLState::ITextureObject& textureObject,
+                                                                TextureUploadTarget& outUploadTarget) {
+            switch (textureObject.GetTarget()) {
+            case TextureTarget::Texture1D:
+                outUploadTarget = TextureUploadTarget::Texture1D;
+                return true;
+            case TextureTarget::Texture2D:
+                outUploadTarget = TextureUploadTarget::Texture2D;
+                return true;
+            case TextureTarget::TextureRectangle:
+                outUploadTarget = TextureUploadTarget::TextureRectangle;
+                return true;
+            case TextureTarget::Texture2DMultisample:
+                outUploadTarget = TextureUploadTarget::Texture2DMultisample;
+                return true;
+            default:
+                outUploadTarget = TextureUploadTarget::Unknown;
+                return false;
+            }
+        }
+
+        void AttachFramebufferTextureWithUploadTarget(const char* functionName, GLenum target, GLenum attachment,
+                                                      GLuint texture, GLint level,
+                                                      TextureUploadTarget textureUploadTarget) {
+            if (target == GL_FRAMEBUFFER) {
+                target = GL_DRAW_FRAMEBUFFER;
+            }
+
+            if (attachment == GL_DEPTH_STENCIL_ATTACHMENT) {
+                AttachFramebufferTextureWithUploadTarget(functionName, target, GL_DEPTH_ATTACHMENT, texture, level,
+                                                        textureUploadTarget);
+                AttachFramebufferTextureWithUploadTarget(functionName, target, GL_STENCIL_ATTACHMENT, texture, level,
+                                                        textureUploadTarget);
+                return;
+            }
+
+            const FramebufferAttachmentType attachmentType = MG_Util::ConvertGLEnumToFramebufferAttachmentType(attachment);
+            const FramebufferTarget framebufferTarget = MG_Util::ConvertGLEnumToFramebufferTarget(target);
+            if (!FramebufferImpl::ValidateFramebufferAttachmentType(attachmentType)) return;
+            if (!FramebufferImpl::ValidateFramebufferTarget(framebufferTarget)) return;
+            if (!TextureImpl::ValidateTextureName(texture, true)) return;
+
+            auto& bindingSlot = MG_State::pGLContext->GetFramebufferBindingSlot(framebufferTarget);
+            auto& framebufferObject = bindingSlot.GetBoundObject();
+            if (!framebufferObject) {
+                MG_State::pGLContext->RecordError(
+                    ErrorCode::InvalidOperation,
+                    MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", functionName,
+                                                 "Framebuffer target is bound to no framebuffer object."));
+                return;
+            }
+
+            if (texture == 0) {
+                framebufferObject->Detach(attachmentType);
+                return;
+            }
+
+            auto& textureObject = MG_State::pGLContext->GetTextureObject(texture);
+            if (!textureObject) {
+                MG_State::pGLContext->RecordError(
+                    ErrorCode::InvalidOperation,
+                    MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", functionName,
+                                                 std::format("Texture object {} is not valid.", texture)));
+                return;
+            }
+
+            const auto expectedTextureTarget = MG_Util::ConvertTextureUploadTargetToTextureTarget(textureUploadTarget);
+            if (expectedTextureTarget == TextureTarget::Unknown ||
+                textureObject->GetTarget() != expectedTextureTarget) {
+                MG_State::pGLContext->RecordError(
+                    ErrorCode::InvalidOperation,
+                    MakeUnique<GenericErrorInfo>(
+                        "MG_Impl/GLImpl", functionName,
+                        std::format("Attachment target {} does not match texture {} target {}.",
+                                    MG_Util::ConvertTextureUploadTargetToString(textureUploadTarget), texture,
+                                    MG_Util::ConvertTextureTargetToString(textureObject->GetTarget()))));
+                return;
+            }
+
+            framebufferObject->AttachTexture(attachmentType, textureObject, textureUploadTarget, level);
+        }
+    } // namespace
+
     void BlitFramebuffer_Backend(GLint srcX0, GLint srcY0, GLint srcX1, GLint srcY1, GLint dstX0, GLint dstY0,
                                  GLint dstX1, GLint dstY1, GLbitfield mask, GLenum filter) {
         MG_Backend::gBackendFunctionsTable.GL.BlitFramebuffer(srcX0, srcY0, srcX1, srcY1, dstX0, dstY0, dstX1, dstY1,
@@ -59,12 +193,53 @@ namespace MobileGL::MG_Impl::GLImpl {
     }
 
     void SampleMaski_State(GLuint maskNumber, GLbitfield mask) {
-        // TODO: implement
+        if (maskNumber != 0) {
+            MG_State::pGLContext->RecordError(
+                ErrorCode::InvalidValue,
+                MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", "SampleMaski_State",
+                                             "Only sample mask word 0 is currently supported."));
+            return;
+        }
+
+        MG_State::pGLContext->SetSampleMaskValue(static_cast<Uint32>(mask));
     }
 
     void RenderbufferStorageMultisample_State(GLenum target, GLsizei samples, GLenum internalformat, GLsizei width,
                                               GLsizei height) {
-        // TODO: implement
+        RenderbufferTarget rbTarget = MG_Util::ConvertGLEnumToRenderbufferTarget(target);
+        if (!FramebufferImpl::ValidateRenderbufferTarget(rbTarget)) return;
+
+        auto& bindingSlot = MG_State::pGLContext->GetRenderbufferBindingSlot(rbTarget);
+        auto& renderbufferObject = bindingSlot.GetBoundObject();
+        if (!renderbufferObject) {
+            MG_State::pGLContext->RecordError(
+                ErrorCode::InvalidOperation,
+                MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", "RenderbufferStorageMultisample_State",
+                                             "Renderbuffer target is bound to no renderbuffer object."));
+            return;
+        }
+
+        TextureInternalFormat format = MG_Util::ConvertGLEnumToTextureInternalFormat(internalformat);
+        if (!TextureImpl::ValidateTextureInternalFormat(format)) return;
+
+        if (samples < 0) {
+            MG_State::pGLContext->RecordError(
+                ErrorCode::InvalidValue,
+                MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", "RenderbufferStorageMultisample_State",
+                                             "Sample count must be non-negative."));
+            return;
+        }
+        if (width < 0 || height < 0) {
+            MG_State::pGLContext->RecordError(
+                ErrorCode::InvalidValue,
+                MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", "RenderbufferStorageMultisample_State",
+                                             "Width and height must be non-negative."));
+            return;
+        }
+
+        renderbufferObject->AllocateStorage({width, height});
+        renderbufferObject->SetInternalFormat(format);
+        renderbufferObject->SetSamples(samples);
     }
 
     void AllocateRenderbufferStorage_State(const SharedPtr<MG_State::GLState::RenderbufferObject>& renderbufferObject,
@@ -85,6 +260,7 @@ namespace MobileGL::MG_Impl::GLImpl {
         }
         renderbufferObject->AllocateStorage({width, height});
         renderbufferObject->SetInternalFormat(format);
+        renderbufferObject->SetSamples(0);
     }
 
     void RenderbufferStorage_State(GLenum target, GLenum internalformat, GLsizei width, GLsizei height) {
@@ -96,11 +272,11 @@ namespace MobileGL::MG_Impl::GLImpl {
     }
 
     GLboolean IsRenderbuffer_State(GLuint renderbuffer) {
-        return MG_State::pGLContext->ValidateRenderbufferName(renderbuffer);
+        return MG_State::pGLContext->ValidateRenderbufferObject(renderbuffer);
     }
 
     GLboolean IsFramebuffer_State(GLuint framebuffer) {
-        return MG_State::pGLContext->ValidateFramebufferName(framebuffer);
+        return MG_State::pGLContext->ValidateFramebufferObject(framebuffer);
     }
 
     void GetFramebufferAttachmentParameteriv_State(GLenum target, GLenum attachment, GLenum pname, GLint* params) {
@@ -173,6 +349,26 @@ namespace MobileGL::MG_Impl::GLImpl {
                 : 0;
             break;
         case GL_FRAMEBUFFER_ATTACHMENT_TEXTURE_CUBE_MAP_FACE:
+            if (attachmentObject != nullptr && attachmentObject->IsTexture() && attachmentObject->IsValid()) {
+                const GLenum glUploadTarget =
+                    MG_Util::ConvertTextureUploadTargetToGLEnum(attachmentObject->GetTextureUploadTarget());
+                switch (glUploadTarget) {
+                case GL_TEXTURE_CUBE_MAP_POSITIVE_X:
+                case GL_TEXTURE_CUBE_MAP_NEGATIVE_X:
+                case GL_TEXTURE_CUBE_MAP_POSITIVE_Y:
+                case GL_TEXTURE_CUBE_MAP_NEGATIVE_Y:
+                case GL_TEXTURE_CUBE_MAP_POSITIVE_Z:
+                case GL_TEXTURE_CUBE_MAP_NEGATIVE_Z:
+                    *params = static_cast<GLint>(glUploadTarget);
+                    break;
+                default:
+                    *params = 0;
+                    break;
+                }
+            } else {
+                *params = 0;
+            }
+            break;
         case GL_FRAMEBUFFER_ATTACHMENT_TEXTURE_LAYER:
             *params = 0;
             break;
@@ -242,6 +438,34 @@ namespace MobileGL::MG_Impl::GLImpl {
                                           "NamedRenderbufferStorage_State");
     }
 
+    void NamedRenderbufferStorageMultisample_State(GLuint renderbuffer, GLsizei samples, GLenum internalformat,
+                                                   GLsizei width, GLsizei height) {
+        auto renderbufferObject =
+            GetNamedRenderbufferObject_State(renderbuffer, "NamedRenderbufferStorageMultisample_State");
+        if (!renderbufferObject) return;
+
+        TextureInternalFormat format = MG_Util::ConvertGLEnumToTextureInternalFormat(internalformat);
+        if (!TextureImpl::ValidateTextureInternalFormat(format)) return;
+        if (samples < 0) {
+            MG_State::pGLContext->RecordError(
+                ErrorCode::InvalidValue,
+                MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", "NamedRenderbufferStorageMultisample_State",
+                                             "Sample count must be non-negative."));
+            return;
+        }
+        if (width < 0 || height < 0) {
+            MG_State::pGLContext->RecordError(
+                ErrorCode::InvalidValue,
+                MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", "NamedRenderbufferStorageMultisample_State",
+                                             "Width and height must be non-negative."));
+            return;
+        }
+
+        renderbufferObject->AllocateStorage({width, height});
+        renderbufferObject->SetInternalFormat(format);
+        renderbufferObject->SetSamples(samples);
+    }
+
     void GenFramebuffers_State(GLsizei n, GLuint* framebuffers) {
         if (n < 0) {
             MG_State::pGLContext->RecordError(
@@ -293,12 +517,31 @@ namespace MobileGL::MG_Impl::GLImpl {
     }
 
     void FramebufferTextureLayer_State(GLenum target, GLenum attachment, GLuint texture, GLint level, GLint layer) {
-        // TODO: implement
+        if (texture == 0) {
+            const TextureUploadTarget detachTarget = TextureUploadTarget::Texture2D;
+            AttachFramebufferTextureWithUploadTarget(__func__, target, attachment, texture, level, detachTarget);
+            return;
+        }
+
+        static_cast<void>(layer);
+        RecordUnsupportedFramebufferTextureAttachmentError(
+            __func__,
+            "Layered framebuffer texture attachments are not represented by the current framebuffer attachment model.");
     }
 
     void FramebufferTexture3D_State(GLenum target, GLenum attachment, GLenum textarget, GLuint texture, GLint level,
                                     GLint zoffset) {
-        // TODO: implement
+        if (texture == 0) {
+            TextureUploadTarget textureUploadTarget = MG_Util::ConvertGLEnumToTextureUploadTarget(textarget);
+            if (!TextureImpl::ValidateTextureUploadTarget(textureUploadTarget)) return;
+            AttachFramebufferTextureWithUploadTarget(__func__, target, attachment, texture, level, textureUploadTarget);
+            return;
+        }
+
+        static_cast<void>(zoffset);
+        RecordUnsupportedFramebufferTextureAttachmentError(
+            __func__,
+            "3D framebuffer texture slice attachments are not represented by the current framebuffer attachment model.");
     }
 
     void FramebufferTexture2D_State(GLenum target, GLenum attachment, GLenum textarget, GLuint texture, GLint level) {
@@ -318,6 +561,11 @@ namespace MobileGL::MG_Impl::GLImpl {
         if (!FramebufferImpl::ValidateFramebufferAttachmentType(attachmentType)) return;
         if (!FramebufferImpl::ValidateFramebufferTarget(framebufferTarget)) return;
         if (!TextureImpl::ValidateTextureName(texture, true)) return;
+        TextureUploadTarget textureUploadTarget = TextureUploadTarget::Unknown;
+        if (texture != 0) {
+            textureUploadTarget = MG_Util::ConvertGLEnumToTextureUploadTarget(textarget);
+            if (!TextureImpl::ValidateTextureUploadTarget(textureUploadTarget)) return;
+        }
 
         auto& bindingSlot = MG_State::pGLContext->GetFramebufferBindingSlot(framebufferTarget);
         auto& framebufferObject = bindingSlot.GetBoundObject();
@@ -343,15 +591,59 @@ namespace MobileGL::MG_Impl::GLImpl {
             return;
         }
 
-        framebufferObject->AttachTexture(attachmentType, textureObject, textureObject ? level : 0);
+        const auto expectedTextureTarget = MG_Util::ConvertTextureUploadTargetToTextureTarget(textureUploadTarget);
+        if (expectedTextureTarget == TextureTarget::Unknown ||
+            textureObject->GetTarget() != expectedTextureTarget) {
+            MG_State::pGLContext->RecordError(
+                ErrorCode::InvalidOperation,
+                MakeUnique<GenericErrorInfo>(
+                    "MG_Impl/GLImpl", "FramebufferTexture2D_State",
+                    std::format("Attachment target {} does not match texture {} target {}.",
+                                MG_Util::ConvertGLEnumToString(textarget),
+                                texture,
+                                MG_Util::ConvertTextureTargetToString(textureObject->GetTarget()))));
+            return;
+        }
+
+        framebufferObject->AttachTexture(attachmentType, textureObject, textureUploadTarget, textureObject ? level : 0);
     }
 
     void FramebufferTexture1D_State(GLenum target, GLenum attachment, GLenum textarget, GLuint texture, GLint level) {
-        // TODO: implement
+        TextureUploadTarget textureUploadTarget = TextureUploadTarget::Unknown;
+        if (texture != 0) {
+            textureUploadTarget = MG_Util::ConvertGLEnumToTextureUploadTarget(textarget);
+            if (!TextureImpl::ValidateTextureUploadTarget(textureUploadTarget)) return;
+        } else {
+            textureUploadTarget = TextureUploadTarget::Texture1D;
+        }
+        AttachFramebufferTextureWithUploadTarget(__func__, target, attachment, texture, level, textureUploadTarget);
     }
 
     void FramebufferTexture_State(GLenum target, GLenum attachment, GLuint texture, GLint level) {
-        FramebufferTexture2D_State(target, attachment, GL_TEXTURE_2D, texture, level);
+        if (texture == 0) {
+            AttachFramebufferTextureWithUploadTarget(__func__, target, attachment, texture, level,
+                                                     TextureUploadTarget::Texture2D);
+            return;
+        }
+
+        auto& textureObject = MG_State::pGLContext->GetTextureObject(texture);
+        if (!textureObject) {
+            MG_State::pGLContext->RecordError(
+                ErrorCode::InvalidOperation,
+                MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", __func__,
+                                             std::format("Texture object {} is not valid.", texture)));
+            return;
+        }
+
+        TextureUploadTarget textureUploadTarget = TextureUploadTarget::Unknown;
+        if (!ResolveRepresentableFramebufferTextureUploadTarget(*textureObject, textureUploadTarget)) {
+            RecordUnsupportedFramebufferTextureAttachmentError(
+                __func__,
+                "Layered or multi-image framebuffer texture targets are not fully represented by the current framebuffer attachment model.");
+            return;
+        }
+
+        AttachFramebufferTextureWithUploadTarget(__func__, target, attachment, texture, level, textureUploadTarget);
     }
 
     void NamedFramebufferTexture_State(GLuint framebuffer, GLenum attachment, GLuint texture, GLint level) {
@@ -382,7 +674,15 @@ namespace MobileGL::MG_Impl::GLImpl {
             return;
         }
 
-        framebufferObject->AttachTexture(attachmentType, textureObject, level);
+        TextureUploadTarget textureUploadTarget = TextureUploadTarget::Unknown;
+        if (!ResolveRepresentableFramebufferTextureUploadTarget(*textureObject, textureUploadTarget)) {
+            RecordUnsupportedFramebufferTextureAttachmentError(
+                "NamedFramebufferTexture_State",
+                "Layered or multi-image framebuffer texture targets are not fully represented by the current framebuffer attachment model.");
+            return;
+        }
+
+        framebufferObject->AttachTexture(attachmentType, textureObject, textureUploadTarget, level);
     }
 
     void FramebufferRenderbuffer_State(GLenum target, GLenum attachment, GLenum renderbuffertarget,
@@ -396,7 +696,8 @@ namespace MobileGL::MG_Impl::GLImpl {
         RenderbufferTarget rbTarget = MG_Util::ConvertGLEnumToRenderbufferTarget(renderbuffertarget);
         if (!FramebufferImpl::ValidateFramebufferAttachmentType(attachmentType)) return;
         if (!FramebufferImpl::ValidateFramebufferTarget(framebufferTarget)) return;
-        if (!FramebufferImpl::ValidateRenderbufferName(renderbuffer)) return;
+        if (!FramebufferImpl::ValidateRenderbufferTarget(rbTarget)) return;
+        if (!FramebufferImpl::ValidateRenderbufferName(renderbuffer, true)) return;
         auto& bindingSlot = MG_State::pGLContext->GetFramebufferBindingSlot(framebufferTarget);
         auto& framebufferObject = bindingSlot.GetBoundObject();
         if (!framebufferObject) {
@@ -467,9 +768,9 @@ namespace MobileGL::MG_Impl::GLImpl {
             return;
         }
         if (!fbo) {
-            MG_State::pGLContext->RecordError(ErrorCode::InvalidOperation,
-                                              MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", __func__,
-                                                                           "Framebuffer object is null."));
+            MG_State::pGLContext->RecordError(
+                ErrorCode::InvalidOperation,
+                MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", __func__, "Framebuffer object is null."));
             return;
         }
 
@@ -489,20 +790,20 @@ namespace MobileGL::MG_Impl::GLImpl {
                 return;
             }
 
-            if (isDefaultFBO && attType >= FramebufferAttachmentType::Color0 &&
-                attType <= FramebufferAttachmentType::Color31) {
+            if (isDefaultFBO && attType != FramebufferAttachmentType::None &&
+                (attType < FramebufferAttachmentType::FrontLeft || attType > FramebufferAttachmentType::BackRight)) {
                 MG_State::pGLContext->RecordError(
                     ErrorCode::InvalidEnum,
                     MakeUnique<GenericErrorInfo>(
                         "MG_Impl/GLImpl", __func__,
-                        std::format(
-                            "FBO is default FBO, but bufs[{}] = {} is one of the `GL_COLOR_ATTACHMENTn` tokens.", i,
-                            MG_Util::ConvertGLEnumToString(bufs[i]))));
+                        std::format("FBO is default FBO, but bufs[{}] = {} is not `GL_NONE` or one of the default "
+                                    "framebuffer color buffer tokens.",
+                                    i, MG_Util::ConvertGLEnumToString(bufs[i]))));
                 return;
             }
 
-            if (!isDefaultFBO && attType >= FramebufferAttachmentType::FrontLeft &&
-                attType <= FramebufferAttachmentType::BackRight) {
+            if (!isDefaultFBO && attType != FramebufferAttachmentType::None &&
+                (attType < FramebufferAttachmentType::Color0 || attType > FramebufferAttachmentType::Color31)) {
                 MG_State::pGLContext->RecordError(
                     ErrorCode::InvalidEnum,
                     MakeUnique<GenericErrorInfo>(
@@ -576,6 +877,43 @@ namespace MobileGL::MG_Impl::GLImpl {
         // Get bound framebuffer
         auto& bindingSlot = MG_State::pGLContext->GetFramebufferBindingSlot(FramebufferTarget::Read);
         auto& fbo = bindingSlot.GetBoundObject();
+        if (!fbo) {
+            MG_State::pGLContext->RecordError(
+                ErrorCode::InvalidOperation,
+                MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", __func__, "No framebuffer bound to read target."));
+            return;
+        }
+        const Bool isDefaultFBO = (fbo == FramebufferImpl::pDefaultFramebufferInfo->defaultFBO);
+        if (isDefaultFBO && attType != FramebufferAttachmentType::None &&
+            (attType < FramebufferAttachmentType::FrontLeft || attType > FramebufferAttachmentType::BackRight)) {
+            MG_State::pGLContext->RecordError(
+                ErrorCode::InvalidEnum,
+                MakeUnique<GenericErrorInfo>(
+                    "MG_Impl/GLImpl", __func__,
+                    std::format("Default framebuffer read buffer {} is not valid.", MG_Util::ConvertGLEnumToString(mode))));
+            return;
+        }
+        if (!isDefaultFBO && attType != FramebufferAttachmentType::None &&
+            (attType < FramebufferAttachmentType::Color0 || attType > FramebufferAttachmentType::Color31)) {
+            MG_State::pGLContext->RecordError(
+                ErrorCode::InvalidEnum,
+                MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", __func__,
+                                             std::format("Framebuffer object read buffer {} is not valid.",
+                                                         MG_Util::ConvertGLEnumToString(mode))));
+            return;
+        }
+        if (!isDefaultFBO &&
+            static_cast<SizeT>(attType) >
+                static_cast<SizeT>(FramebufferAttachmentType::Color0) +
+                    MG_State::GLState::FramebufferObject::MAX_DRAW_BUFFERS) {
+            MG_State::pGLContext->RecordError(
+                ErrorCode::InvalidOperation,
+                MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", __func__,
+                                             std::format("Read buffer {} indicates a color buffer that does not exist "
+                                                         "in the current GL context.",
+                                                         MG_Util::ConvertGLEnumToString(mode))));
+            return;
+        }
         fbo->SetReadBuffer(attType);
     }
 
@@ -754,10 +1092,16 @@ namespace MobileGL::MG_Impl::GLImpl {
 
         // TODO: distinguish GL_FRAMEBUFFER_INCOMPLETE_ATTACHMENT and GL_FRAMEBUFFER_INCOMPLETE_MISSING_ATTACHMENT
         // TODO: GL_FRAMEBUFFER_INCOMPLETE_DRAW_BUFFER, GL_FRAMEBUFFER_INCOMPLETE_READ_BUFFER,
-        //       GL_FRAMEBUFFER_UNSUPPORTED, GL_FRAMEBUFFER_INCOMPLETE_MULTISAMPLE,
+        //       additional GL_FRAMEBUFFER_UNSUPPORTED cases, GL_FRAMEBUFFER_INCOMPLETE_MULTISAMPLE,
         //       GL_FRAMEBUFFER_INCOMPLETE_LAYER_TARGETS
-        return framebufferObject->CheckCompleteness() ? GL_FRAMEBUFFER_COMPLETE
-                                                       : GL_FRAMEBUFFER_INCOMPLETE_MISSING_ATTACHMENT;
+        if (!framebufferObject->CheckCompleteness()) {
+            return GL_FRAMEBUFFER_INCOMPLETE_MISSING_ATTACHMENT;
+        }
+        if (IsActiveBackendDirectVulkan() &&
+            IsUnsupportedFramebufferForDirectVulkan(*framebufferObject)) {
+            return GL_FRAMEBUFFER_UNSUPPORTED;
+        }
+        return GL_FRAMEBUFFER_COMPLETE;
     }
 
     GLenum CheckNamedFramebufferStatus_State(GLuint framebuffer, GLenum target) {
@@ -773,8 +1117,14 @@ namespace MobileGL::MG_Impl::GLImpl {
         auto framebufferObject = GetNamedFramebufferObject_State(framebuffer, "CheckNamedFramebufferStatus_State");
         if (!framebufferObject) return GL_FRAMEBUFFER_UNDEFINED;
 
-        return framebufferObject->CheckCompleteness() ? GL_FRAMEBUFFER_COMPLETE
-                                                       : GL_FRAMEBUFFER_INCOMPLETE_MISSING_ATTACHMENT;
+        if (!framebufferObject->CheckCompleteness()) {
+            return GL_FRAMEBUFFER_INCOMPLETE_MISSING_ATTACHMENT;
+        }
+        if (IsActiveBackendDirectVulkan() &&
+            IsUnsupportedFramebufferForDirectVulkan(*framebufferObject)) {
+            return GL_FRAMEBUFFER_UNSUPPORTED;
+        }
+        return GL_FRAMEBUFFER_COMPLETE;
     }
 
     void GetFramebufferAttachmentParameteriv_Object(
@@ -871,9 +1221,15 @@ namespace MobileGL::MG_Impl::GLImpl {
     }
 
     void BindRenderbuffer_State(GLenum target, GLuint renderbuffer) {
-        if (!FramebufferImpl::ValidateRenderbufferName(renderbuffer)) return;
+        if (!FramebufferImpl::ValidateRenderbufferName(renderbuffer, true)) return;
         RenderbufferTarget renderbufferTarget = MG_Util::ConvertGLEnumToRenderbufferTarget(target);
         if (!FramebufferImpl::ValidateRenderbufferTarget(renderbufferTarget)) return;
+
+        auto& bindingSlot = MG_State::pGLContext->GetRenderbufferBindingSlot(renderbufferTarget);
+        if (renderbuffer == 0) {
+            bindingSlot.Bind(nullptr);
+            return;
+        }
 
         Bool doesRenderbufferCreated = MG_State::pGLContext->ValidateRenderbufferObject(renderbuffer);
         if (!doesRenderbufferCreated) {
@@ -881,7 +1237,6 @@ namespace MobileGL::MG_Impl::GLImpl {
         }
         auto& renderbufferObject = MG_State::pGLContext->GetRenderbufferObject(renderbuffer);
 
-        auto& bindingSlot = MG_State::pGLContext->GetRenderbufferBindingSlot(renderbufferTarget);
         bindingSlot.Bind(renderbufferObject);
     }
 
@@ -990,7 +1345,7 @@ namespace MobileGL::MG_Impl::GLImpl {
         MG_Backend::gBackendFunctionsTable.GL.ClearBufferiv(buffer, drawbuffer, value);
     }
 
-    void ReadPixels_State(GLint x, GLint y, GLsizei width, GLsizei height, GLenum format, GLenum type, void* pixels) {
+    Bool ReadPixels_State(GLint x, GLint y, GLsizei width, GLsizei height, GLenum format, GLenum type, void* pixels) {
         TextureInputFormat textureInputFormat = MG_Util::ConvertGLEnumToTextureInputFormat(format);
         TexturePixelDataType texturePixelDataType = MG_Util::ConvertGLEnumToTexturePixelDataType(type);
 
@@ -999,7 +1354,7 @@ namespace MobileGL::MG_Impl::GLImpl {
             MG_State::pGLContext->RecordError(ErrorCode::InvalidValue,
                                               MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", "ReadPixels_State",
                                                                            "Width and height must be non-negative"));
-            return;
+            return false;
         }
 
         // Validate format
@@ -1007,7 +1362,7 @@ namespace MobileGL::MG_Impl::GLImpl {
             MG_State::pGLContext->RecordError(
                 ErrorCode::InvalidEnum,
                 MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", "ReadPixels_State", "Invalid format"));
-            return;
+            return false;
         }
 
         // Validate type
@@ -1015,7 +1370,7 @@ namespace MobileGL::MG_Impl::GLImpl {
             MG_State::pGLContext->RecordError(
                 ErrorCode::InvalidEnum,
                 MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", "ReadPixels_State", "Invalid pixel data type"));
-            return;
+            return false;
         }
 
         // Get bound framebuffer
@@ -1026,7 +1381,7 @@ namespace MobileGL::MG_Impl::GLImpl {
             MG_State::pGLContext->RecordError(ErrorCode::InvalidOperation,
                                               MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", "ReadPixels_State",
                                                                            "No framebuffer bound to read target"));
-            return;
+            return false;
         }
 
         // Check framebuffer completeness
@@ -1034,7 +1389,7 @@ namespace MobileGL::MG_Impl::GLImpl {
             MG_State::pGLContext->RecordError(
                 ErrorCode::InvalidFramebufferOperation,
                 MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", "ReadPixels_State", "Framebuffer is incomplete"));
-            return;
+            return false;
         }
 
         // Check for required buffers
@@ -1044,7 +1399,7 @@ namespace MobileGL::MG_Impl::GLImpl {
                     ErrorCode::InvalidOperation,
                     MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", "ReadPixels_State",
                                                  "No stencil buffer for stencil index format"));
-                return;
+                return false;
             }
         } else if (textureInputFormat == TextureInputFormat::DepthComponent) {
             if (!framebufferObject->GetAttachment(FramebufferAttachmentType::Depth).IsValid()) {
@@ -1052,7 +1407,7 @@ namespace MobileGL::MG_Impl::GLImpl {
                     ErrorCode::InvalidOperation,
                     MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", "ReadPixels_State",
                                                  "No depth buffer for depth component format"));
-                return;
+                return false;
             }
         } else if (textureInputFormat == TextureInputFormat::DepthStencil) {
             if (!framebufferObject->GetAttachment(FramebufferAttachmentType::Depth).IsValid() ||
@@ -1061,7 +1416,7 @@ namespace MobileGL::MG_Impl::GLImpl {
                     ErrorCode::InvalidOperation,
                     MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", "ReadPixels_State",
                                                  "No depth/stencil buffer for depth-stencil format"));
-                return;
+                return false;
             }
 
             // Validate type for depth/stencil
@@ -1070,7 +1425,7 @@ namespace MobileGL::MG_Impl::GLImpl {
                 MG_State::pGLContext->RecordError(
                     ErrorCode::InvalidEnum, MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", "ReadPixels_State",
                                                                          "Invalid type for depth-stencil format"));
-                return;
+                return false;
             }
         }
 
@@ -1085,18 +1440,18 @@ namespace MobileGL::MG_Impl::GLImpl {
                 MG_State::pGLContext->RecordError(
                     ErrorCode::InvalidOperation, MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", "ReadPixels_State",
                                                                               "Pixel pack buffer is currently mapped"));
-                return;
+                return false;
             }
 
             // Check alignment
             const SizeT typeSize = MG_Util::GetTexturePixelDataTypeSize(texturePixelDataType);
-            /*if (reinterpret_cast<uintptr_t>(pixels) % typeSize != 0) {
+            if (reinterpret_cast<uintptr_t>(pixels) % typeSize != 0) {
                 MG_State::pGLContext->RecordError(
                     ErrorCode::InvalidOperation,
                     MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", "ReadPixels_State",
                                                  "Pixel data not aligned for pixel pack buffer"));
-                return;
-            }*/
+                return false;
+            }
         }
 
         // Check multisampling
@@ -1107,9 +1462,11 @@ namespace MobileGL::MG_Impl::GLImpl {
                     ErrorCode::InvalidOperation,
                     MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", "ReadPixels_State",
                                                  "ReadPixels not supported for multisampled framebuffers"));
-                return;
+                return false;
             }
         }
+
+        return true;
     }
 
     void ReadPixels_Backend(GLint x, GLint y, GLsizei width, GLsizei height, GLenum format, GLenum type, void* pixels) {
@@ -1118,7 +1475,7 @@ namespace MobileGL::MG_Impl::GLImpl {
 
     /* @INSERTION_POINT:FUNCTION_IMPLEMENTATION@ */
     void ReadPixels(GLint x, GLint y, GLsizei width, GLsizei height, GLenum format, GLenum type, void* pixels) {
-        ReadPixels_State(x, y, width, height, format, type, pixels);
+        if (!ReadPixels_State(x, y, width, height, format, type, pixels)) return;
         ReadPixels_Backend(x, y, width, height, format, type, pixels);
     }
 
@@ -1173,6 +1530,11 @@ namespace MobileGL::MG_Impl::GLImpl {
 
     void NamedRenderbufferStorage(GLuint renderbuffer, GLenum internalformat, GLsizei width, GLsizei height) {
         NamedRenderbufferStorage_State(renderbuffer, internalformat, width, height);
+    }
+
+    void NamedRenderbufferStorageMultisample(GLuint renderbuffer, GLsizei samples, GLenum internalformat,
+                                             GLsizei width, GLsizei height) {
+        NamedRenderbufferStorageMultisample_State(renderbuffer, samples, internalformat, width, height);
     }
 
     void GetNamedRenderbufferParameteriv(GLuint renderbuffer, GLenum pname, GLint* params) {

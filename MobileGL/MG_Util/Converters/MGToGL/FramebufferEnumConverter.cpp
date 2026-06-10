@@ -16,8 +16,9 @@ namespace MobileGL {
                 return GL_DRAW_FRAMEBUFFER;
             case FramebufferTarget::Read:
                 return GL_READ_FRAMEBUFFER;
+            case FramebufferTarget::Unknown:
             default:
-                return GL_DRAW_FRAMEBUFFER;
+                return GL_UNKNOWN_MGL;
             }
         }
 
@@ -29,6 +30,8 @@ namespace MobileGL {
             }
 
             switch (type) {
+            case FramebufferAttachmentType::None:
+                return GL_NONE;
             case FramebufferAttachmentType::Depth:
                 return GL_DEPTH_ATTACHMENT;
             case FramebufferAttachmentType::Stencil:
@@ -41,8 +44,9 @@ namespace MobileGL {
                 return GL_BACK_LEFT;
             case FramebufferAttachmentType::BackRight:
                 return GL_BACK_RIGHT;
+            case FramebufferAttachmentType::Unknown:
             default:
-                return GL_NONE;
+                return GL_UNKNOWN_MGL;
             }
         }
 
@@ -50,8 +54,9 @@ namespace MobileGL {
             switch (target) {
             case RenderbufferTarget::Renderbuffer:
                 return GL_RENDERBUFFER;
+            case RenderbufferTarget::Unknown:
             default:
-                return GL_RENDERBUFFER;
+                return GL_UNKNOWN_MGL;
             }
         }
 

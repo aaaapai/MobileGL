@@ -157,6 +157,9 @@ namespace MobileGL::MG_Util::TextureFormatProcessor {
             case GL_SRGB8:
                 *outFormat = GL_RGB;
                 break;
+            case GL_SRGB8_ALPHA8:
+                *outFormat = GL_RGBA;
+                break;
 
             // Color sized other
             case GL_RGB9_E5:
@@ -297,6 +300,9 @@ namespace MobileGL::MG_Util::TextureFormatProcessor {
 
             // Color sRGB
             case GL_SRGB8:
+                *outType = GL_UNSIGNED_BYTE;
+                break;
+            case GL_SRGB8_ALPHA8:
                 *outType = GL_UNSIGNED_BYTE;
                 break;
 

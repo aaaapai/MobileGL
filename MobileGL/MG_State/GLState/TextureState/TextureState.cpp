@@ -57,7 +57,7 @@ namespace MobileGL::MG_State::GLState {
             textureObject = MakeShared<TextureObjectBuffer>(index);
             break;
 
-            // These texture types are stubbed:
+            // These texture types are still stubbed:
         case TextureTarget::TextureRectangle:
             textureObject = MakeShared<TextureObjectRectangle>(index);
             break;

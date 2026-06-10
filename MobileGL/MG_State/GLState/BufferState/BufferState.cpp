@@ -56,6 +56,14 @@ namespace MobileGL::MG_State::GLState {
                         bindingSlot.Bind(nullptr);
                     }
                 }
+                for (auto& bindingPointArray : m_bufferBindPointTargets) {
+                    for (auto& bindingPoint : bindingPointArray) {
+                        if (bindingPoint.GetBoundObject() == it->second) {
+                            bindingPoint.Bind(nullptr);
+                            bindingPoint.ClearRange();
+                        }
+                    }
+                }
                 m_bufferObjects.erase(it);
             }
             m_indexGenerator.Delete(index);

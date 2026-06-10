@@ -26,12 +26,12 @@ namespace MobileGL::MG_Backend::DirectVulkan {
 
     struct PendingClearAttachmentInfo {
         Uint32 attachmentIndex = 0;
-        MG_State::GLState::ITextureObject* texture = nullptr;
+        PendingClearKey key{};
     };
 
     struct TrackedAttachmentLayoutInfo {
         TrackedAttachmentTarget target = TrackedAttachmentTarget::Texture;
-        MG_State::GLState::ITextureObject* texture = nullptr;
+        WeakPtr<MG_State::GLState::ITextureObject> texture;
         Uint32 textureMipLevel = 0;
         Uint32 swapchainImageIndex = 0;
         VkImageLayout finalLayout = VK_IMAGE_LAYOUT_UNDEFINED;
@@ -45,6 +45,8 @@ namespace MobileGL::MG_Backend::DirectVulkan {
 
     DepthStencilAttachmentLoadInfo ResolveDepthStencilAttachmentLoadInfo(
         VkImageLayout trackedLayout, Bool clearDepth, Bool clearStencil);
+    IntVec2 ResolveRenderPassFramebufferExtent(Bool isDefaultFbo, const TextureSize& attachmentExtent,
+                                               VkExtent2D swapchainExtent);
 
     struct RenderPassEntry {
         static inline VkDevice s_device;
@@ -58,6 +60,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         Uint32 attachmentCount = 0;
         Uint32 colorAttachmentCount = 0;
         Bool hasDepthStencilAttachment = false;
+        VkSampleCountFlagBits sampleCount = VK_SAMPLE_COUNT_1_BIT;
         IntVec2 extent = {0, 0};
         Uint32 subpass = 0;
 
@@ -73,6 +76,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             std::swap(attachmentCount, that.attachmentCount);
             std::swap(colorAttachmentCount, that.colorAttachmentCount);
             std::swap(hasDepthStencilAttachment, that.hasDepthStencilAttachment);
+            std::swap(sampleCount, that.sampleCount);
             std::swap(extent, that.extent);
             std::swap(subpass, that.subpass);
         }
@@ -86,6 +90,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             Uint32 attachmentCount,
             Uint32 colorAttachmentCount,
             Bool hasDepthStencilAttachment,
+            VkSampleCountFlagBits sampleCount,
             IntVec2 extent, int subpass):
             hash(hash),
             renderPass(renderpass),
@@ -96,6 +101,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             attachmentCount(attachmentCount),
             colorAttachmentCount(colorAttachmentCount),
             hasDepthStencilAttachment(hasDepthStencilAttachment),
+            sampleCount(sampleCount),
             extent(extent),
             subpass(subpass)
         {}

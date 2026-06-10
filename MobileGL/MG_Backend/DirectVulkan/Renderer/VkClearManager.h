@@ -14,6 +14,7 @@
 #include "MG_Util/Math/VectorTypes.h"
 
 #include <Includes.h>
+#include <unordered_map>
 
 namespace MobileGL::MG_Backend::DirectVulkan {
     struct ClearFramebufferPayload {
@@ -29,8 +30,64 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         Uint32 stencil = 0;
     };
 
+    struct PendingClearKey {
+        MG_State::GLState::ITextureObject* texture = nullptr;
+        Uint64 textureLifetimeId = 0;
+        Uint32 mipLevel = 0;
+        Uint32 baseArrayLayer = 0;
+        Uint32 layerCount = 1;
+
+        Bool operator==(const PendingClearKey& other) const {
+            return texture == other.texture && textureLifetimeId == other.textureLifetimeId &&
+                   mipLevel == other.mipLevel &&
+                   baseArrayLayer == other.baseArrayLayer && layerCount == other.layerCount;
+        }
+    };
+
+    struct TextureIdentity {
+        MG_State::GLState::ITextureObject* texture = nullptr;
+        Uint64 lifetimeId = 0;
+
+        Bool operator==(const TextureIdentity& other) const {
+            return texture == other.texture && lifetimeId == other.lifetimeId;
+        }
+    };
+
+    struct PendingClearEntry {
+        PendingClearKey key{};
+        ClearAttachmentPayload payload{};
+    };
+
+    struct PendingClearKeyHash {
+        SizeT operator()(const PendingClearKey& key) const {
+            const SizeT textureHash = std::hash<MG_State::GLState::ITextureObject*>{}(key.texture);
+            const SizeT textureLifetimeHash = std::hash<Uint64>{}(key.textureLifetimeId);
+            const SizeT mipHash = std::hash<Uint32>{}(key.mipLevel);
+            const SizeT layerHash = std::hash<Uint32>{}(key.baseArrayLayer);
+            const SizeT layerCountHash = std::hash<Uint32>{}(key.layerCount);
+            SizeT hash = textureHash;
+            hash ^= textureLifetimeHash + 0x9e3779b9u + (hash << 6) + (hash >> 2);
+            hash ^= mipHash + 0x9e3779b9u + (hash << 6) + (hash >> 2);
+            hash ^= layerHash + 0x9e3779b9u + (hash << 6) + (hash >> 2);
+            hash ^= layerCountHash + 0x9e3779b9u + (hash << 6) + (hash >> 2);
+            return hash;
+        }
+    };
+
+    struct TextureIdentityHash {
+        SizeT operator()(const TextureIdentity& key) const {
+            SizeT hash = std::hash<MG_State::GLState::ITextureObject*>{}(key.texture);
+            hash ^= std::hash<Uint64>{}(key.lifetimeId) + 0x9e3779b9u + (hash << 6) + (hash >> 2);
+            return hash;
+        }
+    };
+
     class VkClearManager {
     public:
+        static PendingClearKey MakePendingClearKey(const MG_State::GLState::FramebufferAttachmentObject& attachment);
+        static PendingClearKey MakePendingClearKey(MG_State::GLState::ITextureObject* texture, Uint32 mipLevel = 0,
+                                                   Uint32 baseArrayLayer = 0, Uint32 layerCount = 1);
+
         Bool Initialize();
         void Shutdown();
 
@@ -38,13 +95,33 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         void QueueClear(
             const ClearAttachmentPayload& clearPayload,
             const SharedPtr<MG_State::GLState::ITextureObject>& texture);
+        void QueueClear(const ClearAttachmentPayload& clearPayload,
+                        const MG_State::GLState::FramebufferAttachmentObject& attachment);
         Bool HasPendingClear(MG_State::GLState::ITextureObject* texture);
-        Bool GetPendingClear(MG_State::GLState::ITextureObject* texture, ClearAttachmentPayload& outPayload);
+        Bool HasPendingClear(const PendingClearKey& key);
+        Bool HasPendingClear(const MG_State::GLState::FramebufferAttachmentObject& attachment);
+        Bool GetPendingClear(const PendingClearKey& key, ClearAttachmentPayload& outPayload);
+        Bool GetPendingClear(const PendingClearKey& key, ClearAttachmentPayload& outPayload,
+                             SharedPtr<MG_State::GLState::ITextureObject>& outTexture);
+        Bool GetPendingClear(const MG_State::GLState::FramebufferAttachmentObject& attachment,
+                             ClearAttachmentPayload& outPayload);
+        Bool GetPendingClears(MG_State::GLState::ITextureObject* texture, Vector<PendingClearEntry>& outEntries);
         void PopPendingClear(MG_State::GLState::ITextureObject* texture);
+        void PopPendingClear(const PendingClearKey& key);
+        void PopPendingClear(const MG_State::GLState::FramebufferAttachmentObject& attachment);
         SizeT CollectGarbage();
     private:
+        static TextureIdentity MakeTextureIdentity(MG_State::GLState::ITextureObject* texture);
+        static void MergeClearPayload(ClearAttachmentPayload& dst, const ClearAttachmentPayload& src);
+        void ErasePendingClearsForTextureLocked(const TextureIdentity& identity);
+        Bool LockTextureIdentityLocked(const TextureIdentity& identity,
+                                      SharedPtr<MG_State::GLState::ITextureObject>& outTexture);
+        Bool LockTextureLocked(const PendingClearKey& key,
+                               SharedPtr<MG_State::GLState::ITextureObject>& outTexture);
+
         Uint8 m_gcCounter = 0;
-        UnorderedMap<MG_State::GLState::ITextureObject*, ClearAttachmentPayload> m_pendingClears;
-        UnorderedMap<MG_State::GLState::ITextureObject*, WeakPtr<MG_State::GLState::ITextureObject>> m_aliveObjects;
+        mutable std::mutex m_mutex;
+        std::unordered_map<PendingClearKey, ClearAttachmentPayload, PendingClearKeyHash> m_pendingClears;
+        std::unordered_map<TextureIdentity, WeakPtr<MG_State::GLState::ITextureObject>, TextureIdentityHash> m_aliveObjects;
     };
 } // namespace MobileGL::MG_Backend::DirectVulkan

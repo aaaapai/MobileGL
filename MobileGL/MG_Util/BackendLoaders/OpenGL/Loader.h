@@ -238,6 +238,8 @@ namespace MobileGL {
             GL_FUNC_TYPEDEF(GLboolean, glIsTexture, GLuint texture)
             GL_FUNC_TYPEDEF(void, glLineWidth, GLfloat width)
             GL_FUNC_TYPEDEF(void, glLinkProgram, GLuint program)
+            GL_FUNC_TYPEDEF(void, glLogicOp, GLenum opcode)
+            GL_FUNC_TYPEDEF(void, glPointSize, GLfloat size)
             GL_FUNC_TYPEDEF(void, glPixelStorei, GLenum pname, GLint param)
             GL_FUNC_TYPEDEF(void, glPolygonOffset, GLfloat factor, GLfloat units)
             GL_FUNC_TYPEDEF(void, glReadPixels, GLint x, GLint y, GLsizei width, GLsizei height, GLenum format,
@@ -725,6 +727,8 @@ namespace MobileGL {
             GL_FUNC_DECL(glIsTexture)
             GL_FUNC_DECL(glLineWidth)
             GL_FUNC_DECL(glLinkProgram)
+            GL_FUNC_DECL(glLogicOp)
+            GL_FUNC_DECL(glPointSize)
             GL_FUNC_DECL(glPixelStorei)
             GL_FUNC_DECL(glPolygonOffset)
             GL_FUNC_DECL(glReadPixels)
@@ -1015,13 +1019,60 @@ namespace MobileGL {
             Bool SupportsPersistentMapping = false;
             Bool SupportsNorm16Texture = false;
             Int UniformBufferOffsetAlignment = 256;
+            Float AliasedLineWidthRangeMin = 1.0f;
+            Float AliasedLineWidthRangeMax = 1.0f;
+            Float SmoothLineWidthRangeMin = 1.0f;
+            Float SmoothLineWidthRangeMax = 1.0f;
+            Float SmoothLineWidthGranularity = 1.0f;
+            Float PointSizeRangeMin = 1.0f;
+            Float PointSizeRangeMax = 1.0f;
+            Float PointSizeGranularity = 1.0f;
+            Int Max3DTextureSize = 16384;
+            Int MaxArrayTextureLayers = 2048;
+            Int MaxCubeMapTextureSize = 16384;
+            Int MaxFramebufferWidth = 16384;
+            Int MaxFramebufferHeight = 16384;
+            Int MaxFramebufferLayers = 2048;
+            Int MaxRenderbufferSize = 16384;
+            Int MaxTextureSize = 16384;
+            Int MaxColorTextureSamples = 1;
+            Int MaxDepthTextureSamples = 1;
+            Int MaxFramebufferSamples = 1;
+            Int MaxIntegerSamples = 1;
+            Int MaxSamples = 1;
+            Int MaxSampleMaskWords = 1;
+            Int MaxTextureImageUnits = 32;
+            Int MaxVertexTextureImageUnits = 32;
+            Int MaxComputeTextureImageUnits = 32;
+            Int MaxCombinedTextureImageUnits = 192;
+            Int MaxVertexAttribs = 16;
+            Int MaxComputeShaderStorageBlocks = 8;
+            Int MaxCombinedShaderStorageBlocks = 32;
+            Int MaxComputeUniformBlocks = 12;
+            Int MaxComputeWorkGroupInvocations = 128;
+            Int MaxShaderStorageBufferBindings = 8;
+            Int MaxTextureBufferSize = 65536;
+            Int MaxUniformBufferBindings = 24;
+            Int MaxUniformBlockSize = 16384;
+            Int MaxImageUnits = 8;
+            Int MaxCombinedImageUniforms = 8;
+            Int MaxComputeImageUniforms = 8;
+            Int MaxDrawBuffers = 8;
+            Int MaxColorAttachments = 8;
+            Int MaxClipDistances = 8;
+            Int MaxViewports = 16;
+            Int MaxViewportWidth = 16384;
+            Int MaxViewportHeight = 16384;
+            Float ViewportBoundsRangeMin = 0.0f;
+            Float ViewportBoundsRangeMax = 0.0f;
+            Int ViewportSubpixelBits = 0;
         };
     } // namespace MG_External
 
     namespace MG_Util::BackendLoader {
-        Bool AcquireGLESFunctions(MG_External::GLESFunctionsTable& funcs,
+        void AcquireGLESFunctions(MG_External::GLESFunctionsTable& funcs,
                                   MG_External::EGL::eglGetProcAddress_PTR procAddress);
-        Bool AcquireEGLFunctions(MG_External::EGLFunctionsTable& funcs);
+        void AcquireEGLFunctions(MG_External::EGLFunctionsTable& funcs);
         Bool FillInGLESCapabilities(MG_External::GLESCapabilities& caps,
                                     const MG_External::GLESFunctionsTable& glesFuncs);
     } // namespace MG_Util::BackendLoader

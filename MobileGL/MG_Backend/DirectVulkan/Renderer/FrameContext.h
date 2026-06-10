@@ -25,7 +25,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         struct PresentInfoPacket {
             VkSemaphore waitSemaphore = VK_NULL_HANDLE;
             VkSwapchainKHR swapchain = VK_NULL_HANDLE;
-            const Uint32* imageIndex = nullptr;
+            Uint32 imageIndex = 0;
             VkPresentInfoKHR presentInfo{VK_STRUCTURE_TYPE_PRESENT_INFO_KHR};
         };
 
@@ -54,7 +54,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         Bool TransitionToPresent(VkImage image, VkImageLayout oldLayout,
                                  VkImageLayout presentLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
         SubmitInfoPacket GetSubmitInfo(Bool shouldSubmitCommandBuffer, Uint32 swapchainImageIndex) const;
-        PresentInfoPacket GetPresentInfo(VkSwapchainKHR swapchain, const Uint32& imageIndex) const;
+        PresentInfoPacket GetPresentInfo(VkSwapchainKHR swapchain, Uint32 imageIndex) const;
         VkResult WaitAndAcquireNextImage(VkDevice device, VkSwapchainKHR swapchain, Uint32& outImageIndex,
                                          Uint64 timeout = UINT64_MAX, VkFence acquireFence = VK_NULL_HANDLE);
 

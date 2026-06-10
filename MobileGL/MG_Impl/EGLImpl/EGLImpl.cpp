@@ -258,6 +258,9 @@ namespace MobileGL::MG_Impl::EGLImpl {
         if (!state) {
             return EGL_FALSE;
         }
+        if (auto* backendObject = MG_Backend::pActiveBackendObject.get()) {
+            (void)backendObject->MakeEGLCurrent(EGL_NO_DISPLAY, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
+        }
         state->ReleaseThread();
         return EGL_TRUE;
     }

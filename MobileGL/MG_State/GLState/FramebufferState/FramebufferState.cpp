@@ -62,7 +62,7 @@ namespace MobileGL::MG_State::GLState {
             if (it != m_framebufferObjects.end()) {
                 for (auto& bindingSlot : m_bindingSlots) {
                     if (bindingSlot.GetBoundObject() == it->second) {
-                        bindingSlot.Bind(nullptr);
+                        bindingSlot.Bind(GetFramebufferObject(0));
                     }
                 }
                 m_framebufferObjects.erase(it);

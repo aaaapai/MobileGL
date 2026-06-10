@@ -1268,6 +1268,7 @@ namespace MobileGL::MG_Impl::GLImpl {
         if (!BufferImpl::ValidateBufferBindingPointTarget(bufferTarget)) return;
 
         auto& point = MG_State::pGLContext->GetBufferBindingPoint(bufferTarget, pointIndex);
+        SharedPtr<MG_State::GLState::BufferObject> bufferObject;
         if (buffer == 0) {
             point.Bind(nullptr);
             point.SetRange(Range1D(0, 0));
@@ -1278,11 +1279,15 @@ namespace MobileGL::MG_Impl::GLImpl {
         if (!doesBufferObjectCreated) {
             MG_State::pGLContext->CreateBufferObject(buffer);
         }
-        auto& bufferObject = MG_State::pGLContext->GetBufferObject(buffer);
+        bufferObject = MG_State::pGLContext->GetBufferObject(buffer);
 
         point.Bind(bufferObject);
-        point.SetRange(Range1D(0, bufferObject->GetSize()));
-        MGLOG_D("%s: set range (0, %d)", __func__, bufferObject->GetSize());
+        if (bufferObject) {
+            point.SetRange(Range1D(0, bufferObject->GetSize()));
+            MGLOG_D("%s: set range (0, %d)", __func__, bufferObject->GetSize());
+        } else {
+            point.ClearRange();
+        }
     }
 
     void BindBufferRange_State(GLenum target, GLuint index, GLuint buffer, GLintptr offset, GLsizeiptr size) {
@@ -1292,6 +1297,7 @@ namespace MobileGL::MG_Impl::GLImpl {
         if (!BufferImpl::ValidateBufferBindingPointTarget(bufferTarget)) return;
 
         auto& point = MG_State::pGLContext->GetBufferBindingPoint(bufferTarget, index);
+        SharedPtr<MG_State::GLState::BufferObject> bufferObject;
         if (buffer == 0) {
             point.Bind(nullptr);
             point.SetRange(Range1D(0, 0));
@@ -1302,10 +1308,14 @@ namespace MobileGL::MG_Impl::GLImpl {
         if (!doesBufferObjectCreated) {
             MG_State::pGLContext->CreateBufferObject(buffer);
         }
-        auto& bufferObject = MG_State::pGLContext->GetBufferObject(buffer);
+        bufferObject = MG_State::pGLContext->GetBufferObject(buffer);
 
         point.Bind(bufferObject);
-        point.SetRange(Range1D(offset, offset + size));
+        if (bufferObject) {
+            point.SetRange(Range1D(offset, offset + size));
+        } else {
+            point.ClearRange();
+        }
     }
 
     /* @INSERTION_POINT:FUNCTION_IMPLEMENTATION@ */
@@ -1313,14 +1323,12 @@ namespace MobileGL::MG_Impl::GLImpl {
         GetBufferParameteriv_State(target, pname, params);
     }
 
-    void GetBufferParameteri64v(GLenum target, GLenum pname, GLint64* params) {
-        GetBufferParameteri64v_State(target, pname, params);
-    }
-
     void GetBufferPointerv(GLenum target, GLenum pname, void** params) {
         GetBufferPointerv_State(target, pname, params);
     }
-
+    void GetBufferParameteri64v(GLenum target, GLenum pname, GLint64* params) {
+        GetBufferParameteri64v_State(target, pname, params);
+    }
     GLboolean IsBuffer(GLuint buffer) {
         return IsBuffer_State(buffer);
     }

@@ -7,7 +7,11 @@
 // End of Source File Header
 
 #include "ProxyTexture.h"
+#include <MG_State/GLState/TextureState/TextureObject1D.h>
 #include <MG_State/GLState/TextureState/TextureObject2D.h>
+#include <MG_State/GLState/TextureState/TextureObject2DCube.h>
+#include <MG_State/GLState/TextureState/TextureObject3D.h>
+#include <MG_State/GLState/TextureState/TextureObjectStubs.h>
 
 namespace MobileGL::MG_Impl::GLImpl::TextureImpl {
     UniquePtr<ProxyTextureManager> pProxyTextureManager;
@@ -37,7 +41,39 @@ namespace MobileGL::MG_Impl::GLImpl::TextureImpl {
             m_proxyTexturesMap.erase(it);
         }
         auto& obj = m_proxyTexturesMap[target];
-        obj = MakeShared<MG_State::GLState::TextureObject2D>(0);
+        switch (target) {
+        case TextureUploadTarget::ProxyTexture1D:
+        case TextureUploadTarget::ProxyTexture1DArray:
+            obj = MakeShared<MG_State::GLState::TextureObject1D>(0);
+            break;
+        case TextureUploadTarget::ProxyTexture2D:
+            obj = MakeShared<MG_State::GLState::TextureObject2D>(0);
+            break;
+        case TextureUploadTarget::ProxyTexture3D:
+            obj = MakeShared<MG_State::GLState::TextureObject3D>(0);
+            break;
+        case TextureUploadTarget::ProxyCubeMap:
+            obj = MakeShared<MG_State::GLState::TextureObject2DCube>(0);
+            break;
+        case TextureUploadTarget::ProxyTextureRectangle:
+            obj = MakeShared<MG_State::GLState::TextureObjectRectangle>(0);
+            break;
+        case TextureUploadTarget::ProxyTexture2DArray:
+            obj = MakeShared<MG_State::GLState::TextureObject2DArray>(0);
+            break;
+        case TextureUploadTarget::ProxyCubeMapArray:
+            obj = MakeShared<MG_State::GLState::TextureObjectCubeMapArray>(0);
+            break;
+        case TextureUploadTarget::ProxyTexture2DMultisample:
+            obj = MakeShared<MG_State::GLState::TextureObject2DMultisample>(0);
+            break;
+        case TextureUploadTarget::ProxyTexture2DMultisampleArray:
+            obj = MakeShared<MG_State::GLState::TextureObject2DMultisampleArray>(0);
+            break;
+        default:
+            obj = MakeShared<MG_State::GLState::TextureObject2D>(0);
+            break;
+        }
         return obj;
     }
 

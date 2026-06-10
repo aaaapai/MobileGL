@@ -162,10 +162,14 @@ namespace MobileGL::MG_Backend::DirectGLES {
     namespace TextureImpl {
         inline Bool IsSupportedTextureTarget(TextureTarget target) {
             if (target == TextureTarget::Texture1D || target == TextureTarget::TextureRectangle ||
-                target == TextureTarget::Texture2DMultisampleArray || target == TextureTarget::Texture1DArray ||
-                target == TextureTarget::Texture2DMultisample || target == TextureTarget::Texture2DArray)
+                target == TextureTarget::Texture1DArray || target == TextureTarget::Texture2DArray)
                 return false;
             return true;
+        }
+
+        inline Bool IsMultisampleTextureTarget(TextureTarget target) {
+            return target == TextureTarget::Texture2DMultisample ||
+                   target == TextureTarget::Texture2DMultisampleArray;
         }
 
         inline Bool SupportsWrapR(TextureTarget target) {
@@ -179,11 +183,14 @@ namespace MobileGL::MG_Backend::DirectGLES {
             SizeT depth = 0;
             SizeT mipmapLevels = 0;
             Uint bufferExternalIndex = 0;
+            Int samples = 0;
+            Bool fixedSampleLocations = true;
 
             bool operator==(const StateTextureBasicInfo& other) const {
                 return internalFormat == other.internalFormat && width == other.width && height == other.height &&
                        depth == other.depth && mipmapLevels == other.mipmapLevels &&
-                       bufferExternalIndex == other.bufferExternalIndex;
+                       bufferExternalIndex == other.bufferExternalIndex && samples == other.samples &&
+                       fixedSampleLocations == other.fixedSampleLocations;
             }
 
             bool operator!=(const StateTextureBasicInfo& other) const { return !(*this == other); }
@@ -322,6 +329,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
             TextureInternalFormat m_cacheInternalFormat = TextureInternalFormat::Unknown;
             Int m_cacheWidth = 0;
             Int m_cacheHeight = 0;
+            Int m_cacheSamples = 0;
         };
 
         extern StateBackendObjectRegistry<MG_State::GLState::RenderbufferObject, BackendRenderbufferObject>

@@ -18,15 +18,14 @@
 #include <MG_Util/Config/config.h>
 
 namespace MobileGL {
-    void Initialize() {
+    namespace {
+        Bool g_isInitialized = false;
+    }
 
-        const char* mgl_config_in_plugin = std::getenv("MGL_CONFIG_IN_PLUGIN");
-        if (mgl_config_in_plugin != nullptr) {
-            std::string_view sv(mgl_config_in_plugin);
-            if (sv == "true") {
-                if (check_path()) config_refresh();
-                init_settings();
-            }
+    void Initialize() {
+        if (g_isInitialized) {
+            MGLOG_D("MobileGL already initialized; skipping duplicate Initialize()");
+            return;
         }
 
         MG_Util::Debug::InitFile();
@@ -41,16 +40,24 @@ namespace MobileGL {
         MGLOG_D("MG_Impl initialized");
         glslang::InitializeProcess();
         MGLOG_D("glslang initialized");
+        g_isInitialized = true;
         MGLOG_I("MobileGL initialized");
     }
 
     void Destroy() {
+        if (!g_isInitialized) {
+            return;
+        }
+
         MGLOG_I("MobileGL closing...");
         glslang::FinalizeProcess();
+        MG_Backend::pActiveBackendObject.reset();
         MG_State::pGLContext.reset();
         MG_State::pEGLContext.reset();
         MG_Impl::GLImpl::TextureImpl::pProxyTextureManager.reset();
         MG_Impl::GLImpl::FramebufferImpl::pDefaultFramebufferInfo.reset();
+        MG_Backend::gBackendFunctionsTable = {};
+        g_isInitialized = false;
         MG_Util::Debug::Close();
 
         // TODO: add and use Destroy functions for other subsystems

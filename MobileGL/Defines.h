@@ -34,7 +34,9 @@
 #define MOBILEGL_EGL_API MOBILEGL_API
 
 // ====================== MobileGL configurations ======================= //
+#ifndef MOBILEGL_LOG_ACTIVE_LEVEL
 #define MOBILEGL_LOG_ACTIVE_LEVEL MOBILEGL_LOG_LEVEL_ERROR
+#endif
 
 #define MOBILEGL_LOG_ENABLE_CONSOLE 1
 #define MOBILEGL_LOG_ENABLE_FILE 0

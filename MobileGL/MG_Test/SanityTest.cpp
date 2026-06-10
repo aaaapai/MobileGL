@@ -165,6 +165,18 @@ TEST(DirectVulkanSanity, AdvertisesTextureStorageForDirectStateAccess) {
     EXPECT_NE(std::find(extensions.begin(), extensions.end(), MobileGL::E_GL_ARB_texture_storage), extensions.end());
 }
 
+TEST(DirectVulkanSanity, RenderPassExtentUsesSwapchainSizeOnlyForDefaultFramebuffer) {
+    using MobileGL::MG_Backend::DirectVulkan::ResolveRenderPassFramebufferExtent;
+
+    const MobileGL::TextureSize attachmentExtent = {512, 512, 1};
+    const VkExtent2D swapchainExtent = {3200u, 1440u};
+
+    EXPECT_EQ(ResolveRenderPassFramebufferExtent(true, attachmentExtent, swapchainExtent),
+              MobileGL::IntVec2(3200, 1440));
+    EXPECT_EQ(ResolveRenderPassFramebufferExtent(false, attachmentExtent, swapchainExtent),
+              MobileGL::IntVec2(512, 512));
+}
+
 TEST(DirectVulkanSanity, AdvertisesVoxyRequiredRenderingExtensionsWithoutRaisingGLVersion) {
     MobileGL::MG_Backend::DirectVulkan::BackendObject_DirectVulkan backend;
     const auto& rendererInfo = backend.GetRendererInfo().RendererGLInfo;

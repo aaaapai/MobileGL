@@ -120,11 +120,27 @@ namespace MobileGL {
                             less_operands.push_back({SPV_OPERAND_TYPE_ID, {abs_inst->result_id()}});
                             less_operands.push_back({SPV_OPERAND_TYPE_ID, {eps_id}});
 
-                            bool isEqualOp =
-                                (inst.opcode() == spv::Op::OpFOrdEqual || inst.opcode() == spv::Op::OpFUnordEqual);
+                            spv::Op replacementOp = spv::Op::OpNop;
+                            switch (inst.opcode()) {
+                            case spv::Op::OpFOrdEqual:
+                                replacementOp = spv::Op::OpFOrdLessThan;
+                                break;
+                            case spv::Op::OpFUnordEqual:
+                                replacementOp = spv::Op::OpFUnordLessThan;
+                                break;
+                            case spv::Op::OpFOrdNotEqual:
+                                replacementOp = spv::Op::OpFOrdGreaterThanEqual;
+                                break;
+                            case spv::Op::OpFUnordNotEqual:
+                                replacementOp = spv::Op::OpFUnordGreaterThanEqual;
+                                break;
+                            default:
+                                MOBILEGL_ASSERT(false, "Unexpected float compare opcode: %d",
+                                                static_cast<int>(inst.opcode()));
+                                break;
+                            }
                             Instruction* less_than_inst = builder.AddInstruction(MakeUnique<Instruction>(
-                                context(), isEqualOp ? spv::Op::OpFOrdLessThan : spv::Op::OpFOrdGreaterThanEqual,
-                                bool_type_id, context()->TakeNextId(), less_operands));
+                                context(), replacementOp, bool_type_id, context()->TakeNextId(), less_operands));
 
                             // 5. Replaces all uses of old insn with new one
                             context()->ReplaceAllUsesWith(inst.result_id(), less_than_inst->result_id());

@@ -29,6 +29,7 @@ namespace MobileGL {
                 Uint GetExternalIndex() const;
                 void SetInternalFormat(TextureInternalFormat format);
                 void AllocateStorage(IntVec2 size);
+                void SetSamples(Int samples);
                 Int GetWidth() const;
                 Int GetHeight() const;
                 TextureInternalFormat GetInternalFormat() const;
@@ -47,7 +48,7 @@ namespace MobileGL {
                 TextureInternalFormat m_internalFormat;
                 Int m_width = 0;
                 Int m_height = 0;
-                Int m_samples = 0; // TODO: multisampling support
+                Int m_samples = 0;
                 Bool m_allocated = false;
                 ComponentSizes m_componentSizes;
             };

@@ -217,6 +217,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         VkQueue m_presentQueue = VK_NULL_HANDLE;
         Bool m_drawIndirectCountExtensionEnabled = false;
         Bool m_indexTypeUint8ExtensionEnabled = false;
+        Bool m_logicOpFeatureEnabled = false;
         using PFNDrawIndexedIndirectCountFunc = void(VKAPI_PTR*)(VkCommandBuffer commandBuffer, VkBuffer buffer,
                                                                  VkDeviceSize offset, VkBuffer countBuffer,
                                                                  VkDeviceSize countBufferOffset, Uint32 maxDrawCount,

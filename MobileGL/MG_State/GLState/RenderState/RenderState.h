@@ -41,6 +41,27 @@ namespace MobileGL {
         Unknown = -1
     };
 
+    enum class LogicOperation {
+        Clear,
+        And,
+        AndReverse,
+        Copy,
+        AndInverted,
+        Noop,
+        Xor,
+        Or,
+        Nor,
+        Equiv,
+        Invert,
+        OrReverse,
+        CopyInverted,
+        OrInverted,
+        Nand,
+        Set,
+        LogicOperationCount,
+        Unknown = -1
+    };
+
     enum class DepthTestFunc {
         Never,
         Less,
@@ -51,6 +72,26 @@ namespace MobileGL {
         GreaterEqual,
         Always,
         DepthTestFuncCount,
+        Unknown = -1
+    };
+
+    enum class StencilOperation {
+        Keep,
+        Zero,
+        Replace,
+        IncrementClamp,
+        DecrementClamp,
+        Invert,
+        IncrementWrap,
+        DecrementWrap,
+        StencilOperationCount,
+        Unknown = -1
+    };
+
+    enum class StencilFace {
+        Front,
+        Back,
+        StencilFaceCount,
         Unknown = -1
     };
 
@@ -162,12 +203,27 @@ namespace MobileGL {
         BlendEquation AlphaEquation = BlendEquation::Add;
     };
 
+    struct StencilFaceState {
+        DepthTestFunc Func = DepthTestFunc::Always;
+        Int Ref = 0;
+        Uint32 ValueMask = 0xffffffffu;
+        Uint32 WriteMask = 0xffffffffu;
+        StencilOperation FailOp = StencilOperation::Keep;
+        StencilOperation PassDepthFailOp = StencilOperation::Keep;
+        StencilOperation PassDepthPassOp = StencilOperation::Keep;
+    };
+
     struct RenderStateParameters {
         // Rasterization
         IntVec4 Viewport = IntVec4(0, 0, 0, 0); // x, y, width, height
+        Float LineWidth = 1.0f;
+        Float PointSize = 1.0f;
+        Float PolygonOffsetFactor = 0.0f;
+        Float PolygonOffsetUnits = 0.0f;
 
         // Blending
         Array<PerBufferBlendState, MG_State::GLState::FramebufferObject::MAX_DRAW_BUFFERS> BlendStates;
+        LogicOperation LogicOp = LogicOperation::Copy;
 
         // Depth
         Bool DepthTestEnabled = false;
@@ -181,6 +237,12 @@ namespace MobileGL {
         FloatVec4 ClearColor = FloatVec4(0.0f, 0.0f, 0.0f, 1.0f);
         Float ClearDepth = 1.0f;
         Uint32 ClearStencil = 0;
+        FloatVec4 BlendColor = FloatVec4(0.0f, 0.0f, 0.0f, 0.0f);
+        FloatVec2 DepthRange = FloatVec2(0.0f, 1.0f);
+        Float SampleCoverageValue = 1.0f;
+        Bool SampleCoverageInvert = false;
+        Uint32 SampleMaskValue = 0xffffffffu;
+        Array<StencilFaceState, 2> StencilStates{};
 
         // Cull Face
         Bool CullFaceEnabled = false;
@@ -189,7 +251,26 @@ namespace MobileGL {
         ProvokingVertexMode ProvokingVertexModeSetting = ProvokingVertexMode::LastVertex;
 
         // Scissor
+        Bool ColorLogicOpEnabled = false;
+        Bool DebugOutputEnabled = false;
+        Bool DebugOutputSynchronousEnabled = false;
+        Bool DitherEnabled = true;
+        Bool LineSmoothEnabled = false;
+        Bool MultisampleEnabled = true;
+        Bool PolygonOffsetFillEnabled = false;
+        Bool PolygonOffsetLineEnabled = false;
+        Bool PolygonOffsetPointEnabled = false;
+        Bool PolygonSmoothEnabled = false;
+        Bool PrimitiveRestartEnabled = false;
+        Bool PrimitiveRestartFixedIndexEnabled = false;
+        Bool RasterizerDiscardEnabled = false;
+        Bool SampleAlphaToCoverageEnabled = false;
+        Bool SampleAlphaToOneEnabled = false;
+        Bool SampleCoverageEnabled = false;
+        Bool SampleMaskEnabled = false;
         Bool ScissorTestEnabled = false;
+        Bool StencilTestEnabled = false;
+        Bool ProgramPointSizeEnabled = false;
         IntVec4 ScissorBox = IntVec4(0, 0, 0, 0); // x, y, width, height
     };
 
@@ -205,6 +286,13 @@ namespace MobileGL {
                 // Rasterization
                 void SetViewport(IntVec4 viewport); // x, y, width, height
                 const IntVec4& GetViewport() const; // x, y, width, height
+                void SetLineWidth(Float width);
+                Float GetLineWidth() const;
+                void SetPointSize(Float size);
+                Float GetPointSize() const;
+                void SetPolygonOffset(Float factor, Float units);
+                Float GetPolygonOffsetFactor() const;
+                Float GetPolygonOffsetUnits() const;
 
                 // Capabilities
                 void SetCapability(CapabilityInput cap, Bool enabled);
@@ -224,12 +312,19 @@ namespace MobileGL {
                 void GetBlendEquation(BlendEquation& color, BlendEquation& alpha) const;
                 void SetBlendEquationIndexed(Uint index, BlendEquation color, BlendEquation alpha);
                 void GetBlendEquationIndexed(Uint index, BlendEquation& color, BlendEquation& alpha) const;
+                void SetLogicOp(LogicOperation logicOp);
+                LogicOperation GetLogicOp() const;
 
                 // Depth
                 void SetDepthFunc(DepthTestFunc func);
                 DepthTestFunc GetDepthFunc() const;
                 void SetDepthMask(Bool flag);
                 Bool GetDepthMask() const;
+                void SetStencilFunc(StencilFace face, DepthTestFunc func, Int ref, Uint32 mask);
+                void SetStencilMask(StencilFace face, Uint32 mask);
+                void SetStencilOp(StencilFace face, StencilOperation fail, StencilOperation depthFail,
+                                  StencilOperation depthPass);
+                const StencilFaceState& GetStencilState(StencilFace face) const;
 
                 // Color Mask
                 void SetColorMask(BoolVec4 mask);
@@ -242,6 +337,15 @@ namespace MobileGL {
                 Float GetClearDepth() const;
                 void SetClearStencil(Int stencil);
                 Uint32 GetClearStencil() const;
+                void SetBlendColor(FloatVec4 color);
+                const FloatVec4& GetBlendColor() const;
+                void SetDepthRange(FloatVec2 range);
+                const FloatVec2& GetDepthRange() const;
+                void SetSampleCoverage(Float value, Bool invert);
+                Float GetSampleCoverageValue() const;
+                Bool GetSampleCoverageInvert() const;
+                void SetSampleMaskValue(Uint32 mask);
+                Uint32 GetSampleMaskValue() const;
 
                 // Pixel Store
                 void SetPixelStoreParam(PixelStoreParam param, Int value);

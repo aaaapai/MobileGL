@@ -13,9 +13,15 @@
 namespace MobileGL {
     namespace MG_State {
         namespace GLState {
+            static std::atomic<Uint64> s_nextTextureLifetimeId = 1;
+
             // TextureObjectBase implementations
+            Uint64 TextureObjectBase::AllocateLifetimeId() {
+                return s_nextTextureLifetimeId.fetch_add(1, std::memory_order_relaxed);
+            }
+
             TextureObjectBase::TextureObjectBase(TextureTarget target, Uint externalIndex)
-                : m_target(target), m_externalIndex(externalIndex) {
+                : m_externalIndex(externalIndex), m_lifetimeId(AllocateLifetimeId()), m_target(target) {
                 m_sampler = MakeShared<SamplerObject>(0);
             }
 
@@ -137,6 +143,26 @@ namespace MobileGL {
 
             Uint16 TextureObjectBase::GetTextureParamsVersion() const {
                 return m_textureParamsVersion;
+            }
+
+            Int TextureObjectBase::GetSamples() const {
+                return m_samples;
+            }
+
+            void TextureObjectBase::SetSamples(Int samples) {
+                m_samples = samples;
+            }
+
+            Bool TextureObjectBase::HasFixedSampleLocations() const {
+                return m_fixedSampleLocations;
+            }
+
+            void TextureObjectBase::SetFixedSampleLocations(Bool fixedSampleLocations) {
+                m_fixedSampleLocations = fixedSampleLocations;
+            }
+
+            Uint64 TextureObjectBase::GetLifetimeId() const {
+                return m_lifetimeId;
             }
 
             Uint TextureObjectWithOneMipmap::GetMipmapLevelCount() const {

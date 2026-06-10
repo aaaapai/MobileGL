@@ -1139,6 +1139,21 @@ namespace MobileGL {
                 return EGL_NO_SURFACE;
             }
 
+            Bool EGLContext::IsDoubleBufferedSurface(EGLSurfaceHandle surface) const {
+                const std::lock_guard<std::recursive_mutex> lock(m_mutex);
+                const auto* surfaceObject = TryGetSurface(surface);
+                if (!surfaceObject) {
+                    return false;
+                }
+
+                if (surfaceObject->RenderBuffer != EGL_BACK_BUFFER) {
+                    return false;
+                }
+
+                return surfaceObject->Type == SurfaceType::Window ||
+                       surfaceObject->Type == SurfaceType::PlatformWindow;
+            }
+
             EGLContext::EGLSyncHandle EGLContext::CreateSync(EGLDisplayHandle display, EGLenum type,
                                                              const EGLAttrib* attribList) {
                 const std::lock_guard<std::recursive_mutex> lock(m_mutex);
