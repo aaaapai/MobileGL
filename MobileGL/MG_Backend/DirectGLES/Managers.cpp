@@ -26,7 +26,7 @@
 #include <cctype>
 
 namespace MobileGL::MG_Backend::DirectGLES {
-    constexpr Bool PREFER_MAP_BUFFER_RANGE_FOR_BUFFER_SYNC = true;
+    constexpr Bool PREFER_MAP_BUFFER_RANGE_FOR_BUFFER_SYNC = false;
     constexpr const char* BASE_INSTANCE_UNIFORM_NAME = "mg_BaseInstance";
 
     static Uint ResolveBackendEsslVersion() {
@@ -130,9 +130,11 @@ namespace MobileGL::MG_Backend::DirectGLES {
 
             // glMapBufferRange or glBufferSubData
             Bool useInvalidationMap = !(stateBufferObject->GetChangeBits() & BufferChangeBits::ForbidInvalidationBit);
+            // TODO: MAY AFFECT PERFORMANCE
             Bool useUnsynchronizedMap =
                 !(stateBufferObject->GetChangeBits() & BufferChangeBits::ForbidUnsynchronizationBit);
-            Bool useMapBufferRange = useInvalidationMap || useUnsynchronizedMap;
+            Bool useMapBufferRange = PREFER_MAP_BUFFER_RANGE_FOR_BUFFER_SYNC &&
+                                     (useInvalidationMap || useUnsynchronizedMap);
 
             if (!useMapBufferRange && PREFER_MAP_BUFFER_RANGE_FOR_BUFFER_SYNC) {
                 auto usage = stateBufferObject->GetUsage();
