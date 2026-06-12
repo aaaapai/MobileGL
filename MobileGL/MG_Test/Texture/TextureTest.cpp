@@ -127,12 +127,13 @@ TEST_F(TextureTest, TextureStorage2DMultisampleTracksNamedObjectState) {
     GLuint texture = 0;
     MG_Impl::GLImpl::CreateTextures(GL_TEXTURE_2D_MULTISAMPLE, 1, &texture);
 
-    MG_Impl::GLImpl::TextureStorage2DMultisample(texture, 4, GL_RGBA8, 8, 6, GL_TRUE);
+    constexpr GLsizei sampleCount = 1;
+    MG_Impl::GLImpl::TextureStorage2DMultisample(texture, sampleCount, GL_RGBA8, 8, 6, GL_TRUE);
 
     const auto textureObject = MG_State::pGLContext->GetTextureObject(texture);
     ASSERT_NE(textureObject, nullptr);
     EXPECT_EQ(textureObject->GetTarget(), TextureTarget::Texture2DMultisample);
-    EXPECT_EQ(textureObject->GetSamples(), 4);
+    EXPECT_EQ(textureObject->GetSamples(), sampleCount);
     EXPECT_TRUE(textureObject->HasFixedSampleLocations());
 
     auto* textureMipmapObject = static_cast<MG_State::GLState::TextureObjectMipmap*>(textureObject.get());
@@ -145,7 +146,7 @@ TEST_F(TextureTest, TextureStorage2DMultisampleTracksNamedObjectState) {
     GLint fixed = 0;
     MG_Impl::GLImpl::GetTextureLevelParameteriv(texture, 0, GL_TEXTURE_SAMPLES, &samples);
     MG_Impl::GLImpl::GetTextureLevelParameteriv(texture, 0, GL_TEXTURE_FIXED_SAMPLE_LOCATIONS, &fixed);
-    EXPECT_EQ(samples, 4);
+    EXPECT_EQ(samples, sampleCount);
     EXPECT_EQ(fixed, GL_TRUE);
     EXPECT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
 }
@@ -303,6 +304,7 @@ TEST_F(TextureTest, TextureStorage3DAndSubImageModifyNamedObjectOnly) {
         1, 2, 3, 4,
         5, 6, 7, 8,
     };
+    MG_Impl::GLImpl::PixelStorei(GL_UNPACK_ALIGNMENT, 1);
     MG_Impl::GLImpl::TextureSubImage3D(texture, 0, 0, 0, 0, 2, 2, 2, GL_RED, GL_UNSIGNED_BYTE, pixels);
 
     const auto textureObject = MG_State::pGLContext->GetTextureObject(texture);

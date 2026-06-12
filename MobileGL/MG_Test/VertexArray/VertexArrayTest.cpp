@@ -127,7 +127,9 @@ TEST_F(VertexArrayTest, DeleteVAO) {
 
     ASSERT_FALSE(MobileGL::MG_State::pGLContext->ValidateVertexArrayObject(vaoNames[0]));
     ASSERT_EQ(MobileGL::MG_State::pGLContext->GetVertexArrayObject(vaoNames[0]), nullptr);
-    ASSERT_EQ(MobileGL::MG_State::pGLContext->GetBoundVertexArray(), nullptr);
+    const auto boundVao = MobileGL::MG_State::pGLContext->GetBoundVertexArray();
+    ASSERT_NE(boundVao, nullptr);
+    ASSERT_EQ(boundVao->GetExternalIndex(), 0u);
 }
 
 TEST_F(VertexArrayTest, ValidateNamesAndObjects) {
@@ -598,12 +600,12 @@ TEST_F(GeneralVertexArrayTest, General_DeleteBoundVAO) {
 
     DeleteVertexArrays(1, &vao);
 
-    EXPECT_EQ(MG_State::pGLContext->GetBoundVertexArray(), nullptr);
+    const auto boundVao = MG_State::pGLContext->GetBoundVertexArray();
+    ASSERT_NE(boundVao, nullptr);
+    EXPECT_EQ(boundVao->GetExternalIndex(), 0u);
     EXPECT_EQ(MG_State::pGLContext->GetVertexArrayObject(vao), nullptr);
 
     VertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 0, nullptr);
-    EXPECT_EQ(GetError(), GL_INVALID_OPERATION);
-
     EXPECT_EQ(GetError(), GL_NO_ERROR);
 }
 

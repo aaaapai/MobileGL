@@ -2434,11 +2434,8 @@ void MultiDrawElementsBaseVertex(GLenum mode, const GLsizei* count, GLenum type,
     }
 
     static Bool PresentStatsEnabled() {
-        static const Bool enabled = [] {
-            const char* value = std::getenv("MOBILEGL_GLES_PRESENT_STATS");
-            return value != nullptr && value[0] != '\0' && std::strcmp(value, "0") != 0;
-        }();
-        return enabled;
+        const char* value = std::getenv("MOBILEGL_GLES_PRESENT_STATS");
+        return value != nullptr && value[0] != '\0' && std::strcmp(value, "0") != 0;
     }
 
     static void DumpDefaultFramebufferStats() {
@@ -2698,13 +2695,7 @@ void MultiDrawElementsBaseVertex(GLenum mode, const GLsizei* count, GLenum type,
     }
 
     void Present() {
-        if (g_Display != EGL_NO_DISPLAY && g_Surface != EGL_NO_SURFACE) {
-            DumpDefaultFramebufferStats();
-            if (g_GLESFuncs.glFlush) {
-                g_GLESFuncs.glFlush();
-            }
             g_EGLFuncs.eglSwapBuffers(g_Display, g_Surface);
-        }
     }
 
     void DestroyEGLContext() {

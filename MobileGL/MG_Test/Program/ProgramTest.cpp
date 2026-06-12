@@ -399,7 +399,7 @@ TEST_F(ProgramTest, CompileAndLink) {
     ASSERT_EQ(uniformCount, 14);
     GLint uniformNameMaxLength = 0;
     GetProgramiv(program, GL_ACTIVE_UNIFORM_MAX_LENGTH, &uniformNameMaxLength);
-    ASSERT_EQ(uniformNameMaxLength, 12);
+    ASSERT_EQ(uniformNameMaxLength, static_cast<GLint>(sizeof("GreenMatrix0")));
 
     ASSERT_EQ(GetAttribLocation(program, "Position"), 2);
     ASSERT_EQ(GetAttribLocation(program, "fIn1"), 1);

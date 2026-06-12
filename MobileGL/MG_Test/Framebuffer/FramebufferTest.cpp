@@ -75,6 +75,16 @@ class FramebufferTest : public ::testing::Test {
 protected:
     void SetUp() override {
         MobileGL::Initialize();
+        const auto defaultFramebuffer = MG_State::pGLContext->GetFramebufferObject(0);
+        ASSERT_NE(defaultFramebuffer, nullptr);
+        MG_State::pGLContext->GetFramebufferBindingSlot(FramebufferTarget::Draw).Bind(defaultFramebuffer);
+        MG_State::pGLContext->GetFramebufferBindingSlot(FramebufferTarget::Read).Bind(defaultFramebuffer);
+        defaultFramebuffer->SetDrawBuffer(0, FramebufferAttachmentType::BackLeft);
+        for (Uint i = 1; i < MG_State::GLState::FramebufferObject::MAX_DRAW_BUFFERS; ++i) {
+            defaultFramebuffer->SetDrawBuffer(i, FramebufferAttachmentType::None);
+        }
+        defaultFramebuffer->SetReadBuffer(FramebufferAttachmentType::BackLeft);
+
         g_lastBlitReadFramebuffer = nullptr;
         g_lastBlitDrawFramebuffer = nullptr;
         g_blitNamedFramebufferCallCount = 0;
@@ -258,6 +268,8 @@ TEST_F(FramebufferTest, NamedFramebufferDrawBuffersDoNotModifyDefaultFramebuffer
         MG_State::pGLContext->GetFramebufferBindingSlot(FramebufferTarget::Draw).GetBoundObject();
     const auto defaultRead =
         MG_State::pGLContext->GetFramebufferBindingSlot(FramebufferTarget::Read).GetBoundObject();
+    const auto defaultDrawBuffer = defaultDraw->GetDrawBuffers()[0];
+    const auto defaultReadBuffer = defaultRead->GetReadBuffer();
 
     GLenum bufs[] = {GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1};
     MG_Impl::GLImpl::NamedFramebufferDrawBuffers(framebuffer, 2, bufs);
@@ -267,7 +279,8 @@ TEST_F(FramebufferTest, NamedFramebufferDrawBuffersDoNotModifyDefaultFramebuffer
     EXPECT_EQ(framebufferObject->GetDrawBuffers()[0], FramebufferAttachmentType::Color0);
     EXPECT_EQ(framebufferObject->GetDrawBuffers()[1], FramebufferAttachmentType::Color1);
     EXPECT_EQ(framebufferObject->GetReadBuffer(), FramebufferAttachmentType::Color1);
-    EXPECT_EQ(defaultDraw->GetDrawBuffers()[0], FramebufferAttachmentType::Color0);
+    EXPECT_EQ(defaultDraw->GetDrawBuffers()[0], defaultDrawBuffer);
+    EXPECT_EQ(defaultRead->GetReadBuffer(), defaultReadBuffer);
     EXPECT_EQ(MG_State::pGLContext->GetFramebufferBindingSlot(FramebufferTarget::Draw).GetBoundObject(), defaultDraw);
     EXPECT_EQ(MG_State::pGLContext->GetFramebufferBindingSlot(FramebufferTarget::Read).GetBoundObject(), defaultRead);
     EXPECT_EQ(MG_Impl::GLImpl::GetError(), GL_NO_ERROR);
