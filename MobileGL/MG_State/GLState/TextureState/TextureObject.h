@@ -91,6 +91,10 @@ namespace MobileGL::MG_State::GLState {
         void SetImmutableLevels(Uint levels) override;
         Uint16 GetTextureParamsVersion() const override;
         Uint64 GetContentVersion() const override;
+        // Bumps the content version without touching per-level storage-dirty flags. Used when the
+        // set of defined mip levels grows via GPU-side mip generation (glGenerateMipmap): the level
+        // set changed (so a cached sampled view's level range is stale) but no CPU data is dirty.
+        void BumpContentVersion();
         Int GetSamples() const override;
         void SetSamples(Int samples) override;
         Bool HasFixedSampleLocations() const override;

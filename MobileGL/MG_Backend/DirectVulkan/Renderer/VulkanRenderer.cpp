@@ -1901,6 +1901,62 @@ void main() {
         CreateAllocator();
 
         CreateCommandPool();
+
+        // Frames-in-flight is a request, not a guarantee: it also seeds the swapchain image
+        // count (SwapchainObject clamps the hint into [minImageCount, maxImageCount]). Not every
+        // driver/surface supports >= 3 swapchain images, and keeping more frame slots than the
+        // surface can present would leave the surplus slots stalling on vkAcquireNextImageKHR.
+        // So clamp to the surface's real limits here, before any per-frame resource is sized off
+        // it. (The standalone driver POST is headless and has no surface, so this check lives at
+        // renderer init.) Existing logs already report the swapchain's min/actual image count;
+        // this one adds the frames-in-flight decision itself.
+        {
+            // Desired depth comes from the MOBILEGL_MAGMA_FRAMESINFLIGHT env var (so it can be
+            // tuned per device without a rebuild); if unset/invalid, fall back to the config value.
+            Uint32 requestedFramesInFlight = m_config.MaxFramesInFlight;
+            if (const char* framesEnv = std::getenv("MOBILEGL_MAGMA_FRAMESINFLIGHT")) {
+                char* parseEnd = nullptr;
+                const long parsedFrames = std::strtol(framesEnv, &parseEnd, 10);
+                if (parseEnd != framesEnv && *parseEnd == '\0' && parsedFrames >= 1 && parsedFrames <= 64) {
+                    requestedFramesInFlight = static_cast<Uint32>(parsedFrames);
+                    MGLOG_I("MaxFramesInFlight: MOBILEGL_MAGMA_FRAMESINFLIGHT=%ld requested", parsedFrames);
+                } else {
+                    MGLOG_W("MaxFramesInFlight: ignoring invalid MOBILEGL_MAGMA_FRAMESINFLIGHT='%s'; "
+                            "falling back to %u", framesEnv, requestedFramesInFlight);
+                }
+            }
+
+            VkSurfaceCapabilitiesKHR surfaceCaps{};
+            const VkResult capsResult = vkGetPhysicalDeviceSurfaceCapabilitiesKHR(
+                m_physicalDevice.handle, m_surface, &surfaceCaps);
+            if (capsResult != VK_SUCCESS) {
+                MGLOG_W("MaxFramesInFlight: vkGetPhysicalDeviceSurfaceCapabilitiesKHR failed (VkResult=%d); "
+                        "keeping requested %u", static_cast<Int>(capsResult), requestedFramesInFlight);
+            } else {
+                // Frames-in-flight is the CPU pipeline depth; it only needs to stay <= the number
+                // of swapchain images the surface can provide (maxImageCount), so the extra slots
+                // never stall on vkAcquireNextImageKHR. It must NOT be forced up to minImageCount:
+                // the swapchain independently gets >= minImageCount images (SwapchainObject raises
+                // the count), and inflating the CPU depth would only add latency + memory.
+                Uint32 chosenFramesInFlight = requestedFramesInFlight;
+                if (surfaceCaps.maxImageCount != 0 && chosenFramesInFlight > surfaceCaps.maxImageCount) {
+                    chosenFramesInFlight = surfaceCaps.maxImageCount;  // 0 == no upper bound
+                }
+                if (chosenFramesInFlight < 2) {
+                    chosenFramesInFlight = 2;  // never drop below double buffering
+                }
+                m_config.MaxFramesInFlight = chosenFramesInFlight;
+                if (chosenFramesInFlight != requestedFramesInFlight) {
+                    MGLOG_W("MaxFramesInFlight: requested %u unsupported by surface (minImageCount=%u, "
+                            "maxImageCount=%u); using %u", requestedFramesInFlight, surfaceCaps.minImageCount,
+                            surfaceCaps.maxImageCount, chosenFramesInFlight);
+                } else {
+                    MGLOG_I("MaxFramesInFlight: using %u (surface minImageCount=%u, maxImageCount=%u)",
+                            chosenFramesInFlight, surfaceCaps.minImageCount, surfaceCaps.maxImageCount);
+                }
+            }
+        }
+
         VK_VERIFY(m_frameContext.Initialize(m_device, m_commandPool, m_config.MaxFramesInFlight),
                   "CreateFrameContexts");
         MGLOG_I("CreateFrameContexts completed");
@@ -2109,11 +2165,11 @@ void main() {
     }
 
     Bool VulkanRenderer::UploadAndBindVertexBuffers(
-        VkCommandBuffer commandBuffer, const MG_State::GLState::VertexArrayObject& vao, const DrawCmdParam& drawParams) {
+        VkCommandBuffer commandBuffer, const MG_State::GLState::VertexArrayObject& vao,
+        const ProgramFactory::VkProgramObject& programObj, const DrawCmdParam& drawParams) {
+        // programObj is resolved once in SetupDraw and passed in; re-resolving it here would repeat
+        // the GetCurrentProgram + GetOrCreateProgram hash lookup every draw.
         auto& vertexInputState = m_vertexInputStateFactory->GetOrCreateVertexInputState(vao);
-        const auto& program = *MG_State::pGLContext->GetCurrentProgram();
-        const auto transformFlags = GetShaderTransformFlags(m_swapchainObject.GetPreTransform());
-        const auto& programObj = m_programFactory->GetOrCreateProgram(program, transformFlags);
         const Uint32 activeAttribMask = programObj.activeVertexInputLocationMask;
         const Uint32 vertexInputAttribMask = BuildVertexInputAttributeMask(vertexInputState.attributes);
         const Uint32 missingAttribMask = activeAttribMask & ~vertexInputAttribMask;
@@ -2125,16 +2181,12 @@ void main() {
         vkBuffers.assign(bindingCount, VK_NULL_HANDLE);
         vkOffsets.assign(bindingCount, 0);
 
-        auto findBufferByKey = [&](SizeT bufferKey) -> const MG_State::GLState::BufferObject* {
+        auto findBufferByKey = [&](SizeT bufferKey) -> const SharedPtr<MG_State::GLState::BufferObject>* {
             const auto& attrs = vao.GetAllAttributes();
             for (Uint32 location = 0; location < MG_State::GLState::VertexArrayObject::MAX_VERTEX_ATTRIBS; ++location) {
                 const auto& attr = attrs[location];
-                if (!attr.Buffer) {
-                    continue;
-                }
-                const auto* buffer = attr.Buffer.get();
-                if (reinterpret_cast<SizeT>(buffer) == bufferKey) {
-                    return buffer;
+                if (attr.Buffer && reinterpret_cast<SizeT>(attr.Buffer.get()) == bufferKey) {
+                    return &attr.Buffer;
                 }
             }
             return nullptr;
@@ -2187,11 +2239,13 @@ void main() {
             }
 
             const SizeT bufferKey = vertexInputState.bindingBufferKeys[binding];
-            const MG_State::GLState::BufferObject* sourceBuffer = findBufferByKey(bufferKey);
-            MOBILEGL_ASSERT(sourceBuffer != nullptr, "UploadAndBindVertexStreams failed to resolve source buffer");
-            auto sourceBufferShared = MG_State::pGLContext->GetBufferObject(sourceBuffer->GetExternalIndex());
-            MOBILEGL_ASSERT(sourceBufferShared != nullptr,
-                            "UploadAndBindVertexStreams failed to resolve shared source buffer");
+            // The VAO attribute already holds the buffer's SharedPtr; use it by reference directly
+            // instead of re-resolving it from the GL context by external index (a map lookup +
+            // atomic refcount every binding every draw).
+            const SharedPtr<MG_State::GLState::BufferObject>* sourceBufferSharedPtr = findBufferByKey(bufferKey);
+            MOBILEGL_ASSERT(sourceBufferSharedPtr != nullptr && *sourceBufferSharedPtr != nullptr,
+                            "UploadAndBindVertexStreams failed to resolve source buffer");
+            const auto& sourceBufferShared = *sourceBufferSharedPtr;
             BufferSlice slice{};
             const SizeT sourceSize = sourceBufferShared->GetSize();
             if (ShouldUseTransientVertexIndexBuffer(*sourceBufferShared)) {
@@ -3333,6 +3387,9 @@ void main() {
         // Begin command recording if not yet
         if (!frame.isCommandRecording) {
             m_frameContext.BeginCommandRecording();
+            // New command buffer: a program/FBO address from a previous frame may have been
+            // recycled, so start the sampled-set skip cache fresh this frame.
+            m_lastSampledSetValid = false;
         }
 
         auto* activeRenderPass = VkRenderPassManager::GetActiveRenderPass();
@@ -3341,9 +3398,31 @@ void main() {
         // which probably indicates it's been gone through codepath like `fbo attach` -> `clear` -> `fbo detach`, and
         // without draws in between to give it a chance to materialize such clear.
         // Deal with this situation here.
-        auto& sampledTextures = m_sampledTexturesScratch; // cleared by CollectSampledTextures
-        Bool hasSampledTextures = m_uniformManager->CollectSampledTextures(program, programObj, sampledTextures);
-        MOBILEGL_ASSERT(hasSampledTextures, "%s: CollectSampledTextures failed", __func__);
+        // Reuse the previous draw's sampled-texture list when the set is provably unchanged (same
+        // program+state+transform and no bind/unbind/delete since), skipping the per-draw GL walk.
+        // The layout/feedback/transition loops below still run on the list every draw, so this only
+        // elides re-resolving *which* textures are sampled, never their layout handling.
+        auto& sampledTextures = m_sampledTexturesScratch;
+        {
+            const Uint64 programLifetimeId = program.GetLifetimeId();
+            const Uint32 programVersion = program.GetBackendStateVersion();
+            const Uint64 bindGeneration = MG_State::pGLContext->GetTextureBindGeneration();
+            const Bool sampledSetUnchanged =
+                m_lastSampledSetValid && m_lastSampledSetProgramLifetimeId == programLifetimeId &&
+                m_lastSampledSetProgramVersion == programVersion &&
+                m_lastSampledSetTransformFlags == transformFlags &&
+                m_lastSampledSetBindGeneration == bindGeneration;
+            if (!sampledSetUnchanged) {
+                const Bool hasSampledTextures =
+                    m_uniformManager->CollectSampledTextures(program, programObj, sampledTextures);
+                MOBILEGL_ASSERT(hasSampledTextures, "%s: CollectSampledTextures failed", __func__);
+                m_lastSampledSetValid = true;
+                m_lastSampledSetProgramLifetimeId = programLifetimeId;
+                m_lastSampledSetProgramVersion = programVersion;
+                m_lastSampledSetTransformFlags = transformFlags;
+                m_lastSampledSetBindGeneration = bindGeneration;
+            }
+        }
         MGLOG_D("SetupDraw: program=%u drawFbo=%u sampledTextureCount=%zu activeRenderPass=%s",
                 program.GetExternalIndex(), drawFbo ? drawFbo->GetExternalIndex() : 0u, sampledTextures.size(),
                 activeRenderPass ? "true" : "false");
@@ -3483,7 +3562,7 @@ void main() {
             return false;
         }
 
-        auto vtxUploadOk = UploadAndBindVertexBuffers(frame.commandBuffer, vao, drawParams);
+        auto vtxUploadOk = UploadAndBindVertexBuffers(frame.commandBuffer, vao, programObj, drawParams);
         if (!vtxUploadOk) {
             MGLOG_E("SetupDraw skipped: failed to upload vertex buffers");
             return false;

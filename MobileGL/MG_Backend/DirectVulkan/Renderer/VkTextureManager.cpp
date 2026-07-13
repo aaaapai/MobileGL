@@ -1071,9 +1071,13 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         // SyncTextureResource, SyncTextureViews and the per-level dirty scan. Layout is
         // maintained separately by the transition path, so the resource still reflects truth.
         const Uint64 syncingContentVersion = texture.GetContentVersion();
+        const auto* syncingMipTexture = MG_State::GLState::AsMipmapTexture(&texture);
+        const Uint32 syncingMipLevelCount =
+            syncingMipTexture != nullptr ? syncingMipTexture->GetMipmapLevelCount() : 0u;
         if (outResource.image != VK_NULL_HANDLE &&
             outResource.syncedContentVersion == syncingContentVersion &&
-            outResource.syncedTextureParamsVersion == texture.GetTextureParamsVersion()) {
+            outResource.syncedTextureParamsVersion == texture.GetTextureParamsVersion() &&
+            outResource.syncedMipLevelCount == syncingMipLevelCount) {
             return true;
         }
 
@@ -1124,6 +1128,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                              texelSize, byteSize, hasDirtyMipLevel);
         if (!hasDirtyMipLevel) {
             outResource.syncedContentVersion = syncingContentVersion;
+            outResource.syncedMipLevelCount = syncingMipLevelCount;
             return true;
         }
 
@@ -1132,6 +1137,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             return false;
         }
         outResource.syncedContentVersion = syncingContentVersion;
+        outResource.syncedMipLevelCount = syncingMipLevelCount;
         return true;
     }
 
