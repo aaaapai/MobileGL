@@ -61,6 +61,9 @@ namespace MobileGL {
         glslang::InitializeProcess();
         MGLOG_D("glslang initialized");
         g_isInitialized = true;
+
+        MG_Backend::InitCapabilities(); // mgl老师，OpenGL ES查询能力有点发紫，可能是eglMakeCurrent没有被调用
+
         MGLOG_I("MobileGL initialized");
     }
 
