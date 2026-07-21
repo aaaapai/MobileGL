@@ -8,6 +8,8 @@
 
 #pragma once
 
+#include <absl/container/flat_hash_map.h>
+#include <absl/container/flat_hash_set.h>
 #include <Includes.h>
 #include "GLExtensions.h"
 
@@ -55,9 +57,57 @@ namespace MobileGL {
     using SizeT = std::size_t;
     template <typename T, SizeT N>
     using Array = std::array<T, N>;
-    template <typename Key, typename T, class Hash = std::hash<Key>, class KeyEqual = std::equal_to<Key>,
-              class Allocator = std::allocator<std::pair<const Key, T>>>
-    using UnorderedMap = FastSTL::unordered_map<Key, T, Hash, KeyEqual, Allocator>;
+
+#if UseFastSTL
+#include <FastSTL/UnorderedMap.h>
+template <
+        typename Key,
+        typename T,
+        class Hash = std::hash<Key>,
+        class KeyEqual = std::equal_to<Key>,
+        class Allocator = std::allocator<std::pair<const Key, T>>
+>
+using UnorderedMap = FastSTL::unordered_map<Key, T, Hash, KeyEqual, Allocator>;
+
+#elif UseAnkerl
+#include <ankerl/unordered_dense.h>
+
+template <
+    typename Key,
+    typename T,
+    class Hash = ankerl::unordered_dense::hash<Key>,
+    class KeyEqual = std::equal_to<Key>,
+    class Allocator = std::allocator<std::pair<Key, T>>
+>
+using UnorderedMap = ankerl::unordered_dense::map<Key, T, Hash, KeyEqual, Allocator>;
+
+#elif UseStandard
+#include <unordered_map>
+template <
+        typename Key,
+        typename T
+>
+using UnorderedMap = std::unordered_map<Key, T>;
+#elif UseABSL
+/*template <
+        typename Key,
+        typename T,
+        class Hash = absl::container_internal::hash_default_hash<Key>,
+        class KeyEqual = absl::container_internal::hash_default_eq<Key>,
+        class Allocator = std::allocator<std::pair<const Key, T>>
+>*/
+template <
+        typename Key,
+        typename T,
+        class Hash= std::hash<Key>,
+        class KeyEqual = std::equal_to<Key>,
+        class Allocator = std::allocator<std::pair<const Key, T>>
+>
+using UnorderedMap = absl::flat_hash_map<Key, T, Hash, KeyEqual, Allocator>;
+#else
+#error The type of UnorderedMap to be used is not defined!
+#endif
+
     template <typename T>
     inline constexpr std::remove_reference_t<T>&& Move(T&& t) noexcept {
         return static_cast<std::remove_reference_t<T>&&>(t);

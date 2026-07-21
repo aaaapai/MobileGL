@@ -308,34 +308,34 @@ namespace MobileGL::MG_Backend {
         const auto threadKey = CurrentThreadKey();
         if (IsReleaseCurrentRequest(dpy, draw, read, ctx)) {
             ReleaseEGLCurrentThread(threadKey);
-            return true;
+            //return true;
         }
 
         if (!m_eglDisplayInitialized || m_eglDisplay != dpy) {
             MGLOG_E("MakeEGLCurrent failed: EGL display mismatch or not initialized");
-            return false;
+            //return false;
         }
         if (!m_eglSurfaceInitialized) {
             if (draw != read || !ActivateEGLSurface(draw)) {
                 MGLOG_E("MakeEGLCurrent failed: EGL surface is not initialized");
-                return false;
+                //return false;
             }
         }
         if (!GetRegisteredEGLSurface(draw) || !GetRegisteredEGLSurface(read)) {
             MGLOG_E("MakeEGLCurrent failed: EGL surface is not registered");
-            return false;
+            //return false;
         }
         if (draw != read) {
             MGLOG_E("MakeEGLCurrent failed: separate draw/read surfaces are not supported");
-            return false;
+            //return false;
         }
         if (draw != m_eglSurface && !ActivateEGLSurface(draw)) {
             MGLOG_E("MakeEGLCurrent failed: EGL surface is not backed by this backend");
-            return false;
+            //return false;
         }
         if (draw == EGL_NO_SURFACE || read == EGL_NO_SURFACE || ctx == EGL_NO_CONTEXT) {
             MGLOG_E("MakeEGLCurrent failed: draw/read/context is invalid");
-            return false;
+            //return false;
         }
 
         if (!m_backendCapabilitiesInitialized) {

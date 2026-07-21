@@ -61,6 +61,7 @@ namespace MobileGL {
         glslang::InitializeProcess();
         MGLOG_D("glslang initialized");
         g_isInitialized = true;
+
         MGLOG_I("MobileGL initialized");
     }
 
