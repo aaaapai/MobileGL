@@ -1,9 +1,16 @@
-// vulkan_loader.h - Vulkan loader for Android (core + Android extensions)
+// vulkan_loader.h - Full Vulkan loader for Android (auto-generated)
 #pragma once
+
+// 启用 Beta 扩展（确保所有 PFN_* 类型可见）
+#define VK_ENABLE_BETA_EXTENSIONS 1
+// 仅启用 Android 平台，避免引入其他平台头文件
+#define VK_USE_PLATFORM_ANDROID_KHR 1
+
 #ifndef VK_NO_PROTOTYPES
 #define VK_NO_PROTOTYPES
 #endif
 #include <vulkan/vulkan.h>
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -19,7 +26,6 @@ extern PFN_vkGetPhysicalDeviceImageFormatProperties g_vkGetPhysicalDeviceImageFo
 extern PFN_vkGetPhysicalDeviceProperties g_vkGetPhysicalDeviceProperties;
 extern PFN_vkGetPhysicalDeviceQueueFamilyProperties g_vkGetPhysicalDeviceQueueFamilyProperties;
 extern PFN_vkGetPhysicalDeviceMemoryProperties g_vkGetPhysicalDeviceMemoryProperties;
-extern PFN_vkGetInstanceProcAddr g_vkGetInstanceProcAddr;
 extern PFN_vkGetDeviceProcAddr g_vkGetDeviceProcAddr;
 extern PFN_vkCreateDevice g_vkCreateDevice;
 extern PFN_vkDestroyDevice g_vkDestroyDevice;
@@ -799,7 +805,6 @@ extern PFN_vkGetMemoryAndroidHardwareBufferANDROID g_vkGetMemoryAndroidHardwareB
 #define vkGetPhysicalDeviceProperties g_vkGetPhysicalDeviceProperties
 #define vkGetPhysicalDeviceQueueFamilyProperties g_vkGetPhysicalDeviceQueueFamilyProperties
 #define vkGetPhysicalDeviceMemoryProperties g_vkGetPhysicalDeviceMemoryProperties
-#define vkGetInstanceProcAddr g_vkGetInstanceProcAddr
 #define vkGetDeviceProcAddr g_vkGetDeviceProcAddr
 #define vkCreateDevice g_vkCreateDevice
 #define vkDestroyDevice g_vkDestroyDevice

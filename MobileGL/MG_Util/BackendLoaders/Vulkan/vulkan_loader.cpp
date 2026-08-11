@@ -1,4 +1,4 @@
-// vulkan_loader.cpp - Vulkan loader for Android
+// vulkan_loader.cpp - Full Vulkan loader for Android (auto-generated)
 #include "vulkan_loader.h"
 #include <cstring>
 #include <cstdlib>
@@ -24,7 +24,6 @@ PFN_vkGetPhysicalDeviceImageFormatProperties g_vkGetPhysicalDeviceImageFormatPro
 PFN_vkGetPhysicalDeviceProperties g_vkGetPhysicalDeviceProperties = nullptr;
 PFN_vkGetPhysicalDeviceQueueFamilyProperties g_vkGetPhysicalDeviceQueueFamilyProperties = nullptr;
 PFN_vkGetPhysicalDeviceMemoryProperties g_vkGetPhysicalDeviceMemoryProperties = nullptr;
-PFN_vkGetInstanceProcAddr g_vkGetInstanceProcAddr = nullptr;
 PFN_vkGetDeviceProcAddr g_vkGetDeviceProcAddr = nullptr;
 PFN_vkCreateDevice g_vkCreateDevice = nullptr;
 PFN_vkDestroyDevice g_vkDestroyDevice = nullptr;
@@ -827,7 +826,8 @@ static bool LoadAllFunctions(VkInstance instance, VkDevice device) {
 #define LOAD_FUNC(ptr, name) do { \
     ptr = (PFN_##name)g_vkGetInstanceProcAddr(instance, #name); \
     if (!ptr && device != VK_NULL_HANDLE) { \
-        ptr = (PFN_##name)g_vkGetInstanceProcAddr(device, #name); \
+        /* 强制转换 device 为 VkInstance 以匹配函数签名 */ \
+        ptr = (PFN_##name)g_vkGetInstanceProcAddr((VkInstance)device, #name); \
     } \
     if (!ptr) { \
         SetError("Failed to load: %s", #name); \
@@ -843,7 +843,6 @@ static bool LoadAllFunctions(VkInstance instance, VkDevice device) {
     LOAD_FUNC(g_vkGetPhysicalDeviceProperties, vkGetPhysicalDeviceProperties);
     LOAD_FUNC(g_vkGetPhysicalDeviceQueueFamilyProperties, vkGetPhysicalDeviceQueueFamilyProperties);
     LOAD_FUNC(g_vkGetPhysicalDeviceMemoryProperties, vkGetPhysicalDeviceMemoryProperties);
-    LOAD_FUNC(g_vkGetInstanceProcAddr, vkGetInstanceProcAddr);
     LOAD_FUNC(g_vkGetDeviceProcAddr, vkGetDeviceProcAddr);
     LOAD_FUNC(g_vkCreateDevice, vkCreateDevice);
     LOAD_FUNC(g_vkDestroyDevice, vkDestroyDevice);
