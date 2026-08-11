@@ -1,0 +1,17 @@
+name: Update Submodules
+on:
+  workflow_dispatch:
+
+jobs:
+  update-submodules:
+    runs-on: ubuntu-slim
+    steps:
+    - uses: actions/checkout@main
+      with:
+        submodules: 'recursive'
+        
+    - name: Update all submodules
+      run: |
+        chmod +x ./update.bash
+        ./update.bash
+        
