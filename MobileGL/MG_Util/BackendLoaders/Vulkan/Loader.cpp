@@ -7,10 +7,14 @@
 // End of Source File Header
 
 #include "Loader.h"
-#include "vulkan_loader.h"
 
 #include <Config.h>
 #include <cmath>
+
+extern "C" {
+extern bool VulkanLoader_Init(void);
+extern const char* VulkanLoader_GetError(void);
+}
 
 namespace MobileGL::MG_Util::BackendLoader {
     namespace {
