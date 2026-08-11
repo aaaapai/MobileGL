@@ -7,6 +7,7 @@
 // End of Source File Header
 
 #include "Loader.h"
+#include "vulkan_loader.h"
 
 #include <Config.h>
 #include <cmath>
@@ -103,6 +104,12 @@ namespace MobileGL::MG_Util::BackendLoader {
 
     Bool QueryVulkanCapabilities(MobileGL::MG_External::VulkanCapabilities& caps, VkInstance instance,
                                  VkPhysicalDevice physicalDevice) {
+
+        if (!VulkanLoader_Init()) {
+        MGLOG_E("VulkanLoader_Init failed: %s", VulkanLoader_GetError());
+        return false;
+        }
+
         if (!physicalDevice) {
             MGLOG_E("Invalid physical device handle");
             return false;
