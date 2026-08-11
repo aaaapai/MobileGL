@@ -1,4 +1,4 @@
-// vulkan_loader.cpp - Vulkan loader with original symbol names
+// vulkan_loader.cpp
 #include "vulkan_loader.h"
 #include <cstring>
 #include <cstdlib>
@@ -14,6 +14,8 @@
 #endif
 
 PFN_vkGetInstanceProcAddr g_vkGetInstanceProcAddr = nullptr;
+// vkGetInstanceProcAddr 指向同一个变量
+PFN_vkGetInstanceProcAddr vkGetInstanceProcAddr = nullptr;
 
 PFN_vkCreateInstance vkCreateInstance = nullptr;
 PFN_vkDestroyInstance vkDestroyInstance = nullptr;
@@ -823,9 +825,9 @@ static bool LoadLibraryFile(const char* path) {
 
 static bool LoadAllFunctions(VkInstance instance, VkDevice device) {
 #define LOAD_FUNC(ptr, name) do { \
-    ptr = (PFN_##name)g_vkGetInstanceProcAddr(instance, #name); \
+    ptr = (PFN_##name)vkGetInstanceProcAddr(instance, #name); \
     if (!ptr && device != VK_NULL_HANDLE) { \
-        ptr = (PFN_##name)g_vkGetInstanceProcAddr((VkInstance)device, #name); \
+        ptr = (PFN_##name)vkGetInstanceProcAddr((VkInstance)device, #name); \
     } \
     if (!ptr) { \
         SetError("Failed to load: %s", #name); \
@@ -1624,6 +1626,7 @@ bool VulkanLoader_Init(void) {
         uintptr_t addr = std::strtoull(env, &end, 0);
         if (end != env && *end == '\0') {
             g_vkGetInstanceProcAddr = (PFN_vkGetInstanceProcAddr)addr;
+            vkGetInstanceProcAddr = g_vkGetInstanceProcAddr;
             from_ptr = true;
         }
     }
@@ -1644,10 +1647,11 @@ bool VulkanLoader_Init(void) {
             SetError("vkGetInstanceProcAddr not found");
             return false;
         }
+        vkGetInstanceProcAddr = g_vkGetInstanceProcAddr;
     }
 
     PFN_vkCreateInstance createInstance = (PFN_vkCreateInstance)
-        g_vkGetInstanceProcAddr(VK_NULL_HANDLE, "vkCreateInstance");
+        vkGetInstanceProcAddr(VK_NULL_HANDLE, "vkCreateInstance");
     if (!createInstance) {
         SetError("vkCreateInstance not available");
         return false;
@@ -1662,13 +1666,13 @@ bool VulkanLoader_Init(void) {
     }
 
     PFN_vkEnumeratePhysicalDevices enumerateDevices = (PFN_vkEnumeratePhysicalDevices)
-        g_vkGetInstanceProcAddr(temp_instance, "vkEnumeratePhysicalDevices");
+        vkGetInstanceProcAddr(temp_instance, "vkEnumeratePhysicalDevices");
     PFN_vkCreateDevice createDevice = (PFN_vkCreateDevice)
-        g_vkGetInstanceProcAddr(temp_instance, "vkCreateDevice");
+        vkGetInstanceProcAddr(temp_instance, "vkCreateDevice");
     if (!enumerateDevices || !createDevice) {
         SetError("Failed to get device functions");
         PFN_vkDestroyInstance destroyInst = (PFN_vkDestroyInstance)
-            g_vkGetInstanceProcAddr(temp_instance, "vkDestroyInstance");
+            vkGetInstanceProcAddr(temp_instance, "vkDestroyInstance");
         if (destroyInst) destroyInst(temp_instance, nullptr);
         return false;
     }
@@ -1678,7 +1682,7 @@ bool VulkanLoader_Init(void) {
     if (deviceCount == 0) {
         SetError("No physical devices");
         PFN_vkDestroyInstance destroyInst = (PFN_vkDestroyInstance)
-            g_vkGetInstanceProcAddr(temp_instance, "vkDestroyInstance");
+            vkGetInstanceProcAddr(temp_instance, "vkDestroyInstance");
         if (destroyInst) destroyInst(temp_instance, nullptr);
         return false;
     }
@@ -1690,7 +1694,7 @@ bool VulkanLoader_Init(void) {
     if (createDevice(physDevices[0], &devInfo, nullptr, &temp_device) != VK_SUCCESS) {
         SetError("Failed to create temp device");
         PFN_vkDestroyInstance destroyInst = (PFN_vkDestroyInstance)
-            g_vkGetInstanceProcAddr(temp_instance, "vkDestroyInstance");
+            vkGetInstanceProcAddr(temp_instance, "vkDestroyInstance");
         if (destroyInst) destroyInst(temp_instance, nullptr);
         return false;
     }
@@ -1698,10 +1702,10 @@ bool VulkanLoader_Init(void) {
     bool success = LoadAllFunctions(temp_instance, temp_device);
 
     PFN_vkDestroyDevice destroyDevice = (PFN_vkDestroyDevice)
-        g_vkGetInstanceProcAddr(temp_instance, "vkDestroyDevice");
+        vkGetInstanceProcAddr(temp_instance, "vkDestroyDevice");
     if (destroyDevice) destroyDevice(temp_device, nullptr);
     PFN_vkDestroyInstance destroyInstance = (PFN_vkDestroyInstance)
-        g_vkGetInstanceProcAddr(temp_instance, "vkDestroyInstance");
+        vkGetInstanceProcAddr(temp_instance, "vkDestroyInstance");
     if (destroyInstance) destroyInstance(temp_instance, nullptr);
 
     if (!success) return false;

@@ -1,4 +1,4 @@
-// vulkan_loader.h - Vulkan loader with original symbol names
+// vulkan_loader.h
 #pragma once
 #define VK_ENABLE_BETA_EXTENSIONS 1
 #define VK_USE_PLATFORM_ANDROID_KHR 1
@@ -9,10 +9,10 @@
 extern "C" {
 #endif
 
-// 加载器入口
 extern PFN_vkGetInstanceProcAddr g_vkGetInstanceProcAddr;
+// 也导出原始符号名
+extern PFN_vkGetInstanceProcAddr vkGetInstanceProcAddr;
 
-// 所有 Vulkan 函数指针（直接以原始名称导出）
 extern PFN_vkCreateInstance vkCreateInstance;
 extern PFN_vkDestroyInstance vkDestroyInstance;
 extern PFN_vkEnumeratePhysicalDevices vkEnumeratePhysicalDevices;
