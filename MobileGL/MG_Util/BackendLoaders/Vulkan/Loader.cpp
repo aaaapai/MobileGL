@@ -11,11 +11,6 @@
 #include <Config.h>
 #include <cmath>
 
-extern "C" {
-extern bool VulkanLoader_Init(void);
-extern const char* VulkanLoader_GetError(void);
-}
-
 namespace MobileGL::MG_Util::BackendLoader {
     namespace {
         struct VulkanDynamicFunctions {
@@ -108,11 +103,6 @@ namespace MobileGL::MG_Util::BackendLoader {
 
     Bool QueryVulkanCapabilities(MobileGL::MG_External::VulkanCapabilities& caps, VkInstance instance,
                                  VkPhysicalDevice physicalDevice) {
-
-        if (!VulkanLoader_Init()) {
-        MGLOG_E("VulkanLoader_Init failed: %s", VulkanLoader_GetError());
-        return false;
-        }
 
         if (!physicalDevice) {
             MGLOG_E("Invalid physical device handle");
