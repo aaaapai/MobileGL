@@ -9,8 +9,6 @@
 extern "C" {
 #endif
 
-extern PFN_vkGetInstanceProcAddr g_vkGetInstanceProcAddr;
-// 也导出原始符号名
 extern PFN_vkGetInstanceProcAddr vkGetInstanceProcAddr;
 
 extern PFN_vkCreateInstance vkCreateInstance;
