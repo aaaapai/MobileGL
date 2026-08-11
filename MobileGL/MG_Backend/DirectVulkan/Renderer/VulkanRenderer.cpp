@@ -19,6 +19,9 @@
 #include "MG_State/GLState/TextureState/TextureObject.h"
 #include "MG_Impl/GLImpl/Framebuffer/GL_Framebuffer.h"
 #include "MG_Util/Converters/GLToMG/TextureEnumConverter.h"
+// Only reached from an MGLOG_W, which the shipping INFO log level compiles out - so the
+// missing include never broke a default build and did break every WARN/DEBUG-level one.
+#include "MG_Util/Converters/MGToStr/TextureEnumConverter.h"
 #include "MG_Util/Converters/MGToVk/RenderStateEnumConverter.h"
 #include "MG_Util/Converters/MGToVk/TextureEnumConverter.h"
 #include "MG_Util/Math/HalfFloat.h"
@@ -5568,6 +5571,19 @@ void main() {
         MakeXfbWritesVisible();
         VkTextureManager::DrawSyncScope drawSyncScope(*m_textureManager);
         m_textureManager->CollectGarbage();
+        {
+            // Mirror DirectGLES's SyncToBackend gate: a program whose phase-B job failed or
+            // was cancelled has no usable optimized module - and on an in-place
+            // SanitizeAndOptimizeBinary failure GetGeneratedSpirv() still holds the RAW
+            // glslang words, which must never reach vkCreateShaderModule. Drop the draw.
+            const auto& drawProgram = *MG_State::pGLContext->GetProgramForDraw();
+            if (!drawProgram.GetLinkStatus() || !drawProgram.GetSpirvStatus()) {
+                MGLOG_D("SetupDraw skipped: program=%u is linked=%d spirv=%d",
+                        drawProgram.GetExternalIndex(), static_cast<int>(drawProgram.GetLinkStatus()),
+                        static_cast<int>(drawProgram.GetSpirvStatus()));
+                return false;
+            }
+        }
         if (TrySetupDrawFastPath(frame, mode, aspects, drawParams, pIndexBufferView)) {
             return true;
         }
@@ -6018,6 +6034,11 @@ void main() {
         m_textureManager->CollectGarbage();
         auto& frame = m_frameContext.GetCurrent();
         const auto& program = *MG_State::pGLContext->GetProgramForDraw();
+        if (!program.GetLinkStatus() || !program.GetSpirvStatus()) {
+            MGLOG_E("DispatchCompute skipped: program=%u has no optimized SPIR-V",
+                    program.GetExternalIndex());
+            return;
+        }
         ProgramFactory::CompileOptionFlags transformFlags = 0;
         const auto& programObj = m_programFactory->GetOrCreateProgram(program, transformFlags);
 
@@ -6058,6 +6079,11 @@ void main() {
         m_textureManager->CollectGarbage();
         auto& frame = m_frameContext.GetCurrent();
         const auto& program = *MG_State::pGLContext->GetProgramForDraw();
+        if (!program.GetLinkStatus() || !program.GetSpirvStatus()) {
+            MGLOG_E("DispatchComputeIndirect skipped: program=%u has no optimized SPIR-V",
+                    program.GetExternalIndex());
+            return;
+        }
         ProgramFactory::CompileOptionFlags transformFlags = 0;
         const auto& programObj = m_programFactory->GetOrCreateProgram(program, transformFlags);
 
