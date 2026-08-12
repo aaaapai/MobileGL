@@ -21,11 +21,6 @@
 #include <atomic>
 #include <mutex>
 
-extern "C" {
-extern bool VulkanLoader_Init(void);
-extern const char* VulkanLoader_GetError(void);
-}
-
 namespace MobileGL {
     namespace {
         std::atomic<Bool> g_isInitialized = false;
@@ -110,10 +105,6 @@ namespace MobileGL {
         // on the async subsystem (ProgramUtilTest compiles that file without it).
         if (MG_Util::Async::AsyncShaderCompileEnabled()) {
             MG_Util::ShaderTranspiler::ShaderCompiler::PrewarmBuiltins();
-        }
-
-        if (!VulkanLoader_Init()) {
-        MGLOG_E("VulkanLoader_Init failed: %s", VulkanLoader_GetError());
         }
 
         MGLOG_D("glslang initialized");
