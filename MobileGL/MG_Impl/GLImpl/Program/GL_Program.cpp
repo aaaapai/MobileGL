@@ -625,6 +625,12 @@ namespace MobileGL::MG_Impl::GLImpl {
     }
 
     void GetProgramiv_State(GLuint program, GLenum pname, GLint* params) {
+
+        if (std::getenv("MOBILEGL_NO_ERROR")) {
+            *params = GL_TRUE;
+            return;
+        }
+
         auto& programObject = TryToGetProgramObject(program);
         if (!programObject) return;
 
