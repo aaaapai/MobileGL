@@ -3,6 +3,9 @@
         glX*;
         egl*;
         gl*;
+        *_nativeRunDriverBench;
+        *_nativeRunTraceReplay;
+        *_nativeRunDriverPost;
     local:
         *;
 };
