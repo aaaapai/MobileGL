@@ -2236,7 +2236,7 @@ namespace MobileGL::MG_Impl::GLImpl {
             break;
         case GL_MAX_COMBINED_TEXTURE_IMAGE_UNITS:
             if (std::getenv("MOBILEGL_NO_ERROR")) {
-                *params = 256;
+                *params = 127;
                 break;
             }
             *params = dynamicParameters.MaxCombinedTextureImageUnits;
@@ -2357,7 +2357,7 @@ namespace MobileGL::MG_Impl::GLImpl {
             break;
         case GL_MAX_TEXTURE_IMAGE_UNITS:
             if (std::getenv("MOBILEGL_NO_ERROR")) {
-                *params = 256;
+                *params = 127;
                 break;
             }
             *params = dynamicParameters.MaxTextureImageUnits;
