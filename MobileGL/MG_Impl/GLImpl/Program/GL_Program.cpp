@@ -761,6 +761,18 @@ namespace MobileGL::MG_Impl::GLImpl {
     }
 
     void GetProgramInfoLog_State(GLuint program, GLsizei bufSize, GLsizei* length, GLchar* infoLog) {
+        if (std::getenv("MOBILEGL_NO_ERROR")) {
+        // 1. 必须清零长度，告诉调用方“没有任何日志”
+        if (length) {
+            *length = 0;
+        }
+        // 2. 如果缓冲区合法，写入空终止符，防止调用方 printf 读到野指针
+        if (infoLog && bufSize > 0) {
+            infoLog[0] = '\0';
+        }
+        return; // 安全跳过真实实现
+        }
+        
         auto& programObject = TryToGetProgramObject(program);
         if (!programObject) return;
 
