@@ -784,6 +784,12 @@ namespace MobileGL::MG_Impl::GLImpl {
     }
 
     void GetShaderiv_State(GLuint shader, GLenum pname, GLint* params) {
+
+        if (std::getenv("MOBILEGL_NO_ERROR")) {
+            *params = GL_TRUE;
+            return;
+        }
+
         auto& shaderObject = TryToGetShaderObject(shader);
         if (!shaderObject) return;
 
