@@ -2235,6 +2235,10 @@ namespace MobileGL::MG_Impl::GLImpl {
             *params = kFrontendMaxGeometryTotalOutputComponents;
             break;
         case GL_MAX_COMBINED_TEXTURE_IMAGE_UNITS:
+            if (std::getenv("MOBILEGL_NO_ERROR")) {
+                *params = 256;
+                break;
+            }
             *params = dynamicParameters.MaxCombinedTextureImageUnits;
             break;
         case GL_MAX_COMBINED_VERTEX_UNIFORM_COMPONENTS:
