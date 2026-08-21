@@ -2457,6 +2457,7 @@ namespace MobileGL::MG_Impl::GLImpl {
     }
 
     GLenum GetError() {
+        if (std::getenv("MOBILEGL_NO_ERROR")) return GL_NO_ERROR;
         auto error = MG_State::pGLContext->PopGLError();
         if (!error || !error->get()) {
             return GL_NO_ERROR;
