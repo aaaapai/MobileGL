@@ -53,6 +53,21 @@ add_executable(MobileGLIntegrationTest
     Scenarios/AsyncCompileScenario.cpp
     Scenarios/XfbAfterClipDistanceScenario.cpp
     Scenarios/ThreeChannelAttachmentScenario.cpp
+    Scenarios/PipelineFailureScenario.cpp
+    Scenarios/AdvertisedLimitsScenario.cpp
+    Scenarios/PixelStoreSweepScenario.cpp
+    Scenarios/FragCoordOriginScenario.cpp
+    Scenarios/ClearThenReadPixelsScenario.cpp
+    Scenarios/DepthStencilReadbackScenario.cpp
+    Scenarios/SsboArrayLengthScenario.cpp
+    Scenarios/UniformInitializerScenario.cpp
+    Scenarios/SwizzleAccessRoutineScenario.cpp
+    Scenarios/ProgramPipelineScenario.cpp
+    Scenarios/ImageLoadStoreSsoScenario.cpp
+    Scenarios/SsboDeclarationFormScenario.cpp
+    Scenarios/Glsl420DeclarationScenario.cpp
+    Scenarios/FragmentOutputArrayIndexScenario.cpp
+    Scenarios/BufferTextureScenario.cpp
 )
 
 target_include_directories(MobileGLIntegrationTest PRIVATE

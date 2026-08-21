@@ -36,6 +36,14 @@ namespace MobileGL::MG_Backend::DirectGLES {
     Bool InProcessTeardown();
     void EnsureProcessTeardownSentinel();
 
+    // Generation of the backend ES context that owns the driver ids currently handed
+    // out. Bumped exactly once per DestroyEGLContext. Every backend twin that owns a
+    // driver name (texture, framebuffer, renderbuffer, sampler) stamps this at
+    // construction and compares it in its destructor: a twin outliving its context
+    // must NOT glDelete* its id, because a successor context may already have recycled
+    // that name and the delete would take out a live object of the new context.
+    extern Uint g_backendContextGeneration;
+
     // Which optional pieces of state a draw needs synchronized before it is issued.
     // Index/indirect buffer syncs and the instancing-related work are skipped for
     // draws that provably cannot read them.
@@ -121,6 +129,11 @@ namespace MobileGL::MG_Backend::DirectGLES {
 
         // Null when no live state object owns this key. The result points into the map, so
         // it stays valid only until the next GetOrCreate/Find/CollectGarbage on this registry.
+        // Take that literally, including for Find: the map is open-addressed and erases by
+        // shifting the rest of the probe cluster into the hole, so an erase relocates entries
+        // OTHER than the erased one - and Find erases, whenever it lands on a key whose state
+        // object has expired. Callers that need the twin across another registry call must copy
+        // the BackendPtr out (or keep only the pointee, which is heap-allocated and never moves).
         BackendPtr* Find(StateObject* stateObj) {
             const auto entryIt = m_entries.find(stateObj);
             if (entryIt == m_entries.end()) {
@@ -613,6 +626,11 @@ namespace MobileGL::MG_Backend::DirectGLES {
             Bool m_isInitialized = false;
             Bool m_imageBindableStorageRequired = false;
             Bool m_backendStorageImmutable = false;
+            // Latches the "this driver has no buffer textures" report to once per texture. The
+            // report is emitted from the respecify path, which bails before recording the state
+            // it was asked to apply - so without the latch the texture stays permanently dirty
+            // and every draw of every frame logs the same line.
+            Bool m_bufferTextureUnsupportedReported = false;
             StateTextureBasicInfo m_prevTextureInfo;
             // Frontend content version at the last completed mipmap sync. The per-draw
             // clean probe compares this before rebuilding shape info and scanning
@@ -657,15 +675,20 @@ namespace MobileGL::MG_Backend::DirectGLES {
                      MG_State::GLState::TextureState::MAX_TEXTURE_IMAGE_UNITS>
             g_boundTexturesCache;
         extern Uint g_activeTextureUnit;
-        // Bumped when the backend ES context is destroyed; texture ids stamped with
-        // an older generation belong to a dead context and must not be deleted.
-        extern Uint g_textureContextGeneration;
     } // namespace TextureImpl
 
     namespace FramebufferImpl {
         class BackendFramebufferObject {
         public:
             BackendFramebufferObject();
+            // Deletes the driver framebuffer and scrubs the binding shadow. Without it every
+            // frontend glDeleteFramebuffers leaked one ES framebuffer for the process lifetime;
+            // an app that creates a framebuffer per readback (GL CTS packed_pixels does ~3300
+            // per case) walked the driver into hundreds of megabytes of dead framebuffers and
+            // out of the resources a later attachment needs.
+            ~BackendFramebufferObject();
+            BackendFramebufferObject(const BackendFramebufferObject&) = delete;
+            BackendFramebufferObject& operator=(const BackendFramebufferObject&) = delete;
             void SyncToBackend(const SharedPtr<MG_State::GLState::FramebufferObject>& stateFBOObject,
                                FramebufferTarget asTarget);
             // Apply only this FBO's read buffer (glReadBuffer) to the backend. Split out so it can
@@ -680,6 +703,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
 
         private:
             Uint m_backendFBOId = 0;
+            Uint m_contextGeneration = 0;
 
             /* this will save buffers in its original form,
                reversion, absence or not consecutive are all allowed, as long as GL spec allows it
@@ -821,6 +845,10 @@ namespace MobileGL::MG_Backend::DirectGLES {
         void BindFramebufferId(GLenum fbTarget, Uint id);
         Uint CurrentFramebufferBinding(FramebufferTarget target);
         void InvalidateFramebufferBindingCache();
+        // A driver framebuffer id is about to be deleted: ES reverts every target that
+        // currently binds it to 0, so the binding shadow has to follow or the next
+        // BindFramebufferId(0) would be deduped away and leave the deleted name bound.
+        void NoteFramebufferIdDeleted(Uint id);
     } // namespace FramebufferImpl
 
     // Shared scratch framebuffers for the readback/copy/blit emulation paths, with a
@@ -1010,6 +1038,11 @@ namespace MobileGL::MG_Backend::DirectGLES {
             Uint32 GetSnormFallbackClampOutputMask() const { return m_snormFallbackClampOutputMask; }
             Uint32 GetUnormFallbackClampOutputMask() const { return m_unormFallbackClampOutputMask; }
             Uint GetFragColorBroadcastCount() const { return m_fragColorBroadcastCount; }
+            // Signature of the glShaderStorageBlockBinding override set the generated ESSL was
+            // transpiled against (ES can only express a storage-block binding as the declared
+            // qualifier, so the overrides are baked into the source). A mismatch means the
+            // program is stale exactly like the clamp masks above.
+            Uint64 GetShaderStorageBlockBindingSignature() const { return m_shaderStorageBlockBindingSignature; }
 
             Bool HasGlobalUboBlock() const { return m_globalUboBackendBlockIndex >= 0; }
             const Vector<Int>& GetUniformBlockBackendIndices() const { return m_uniformBlockBackendIndices; }
@@ -1025,11 +1058,22 @@ namespace MobileGL::MG_Backend::DirectGLES {
             // Frontend link version this backend program (and its resource caches) was
             // built from; a mismatch means every link-derived cache here is stale.
             Uint32 GetSyncedLinkVersion() const { return m_syncedLinkVersion; }
+            // Image-uniform unit generation this backend program was GENERATED against.
+            // Separate from the link version because it is not link state: ES forbids
+            // glUniform1i on an image uniform, so RebindImageUniformsToFrontendUnits bakes the
+            // unit into the ESSL, and a program built before glUniform1i moved that unit is as
+            // stale as one built before a relink - while the sampler half, which really is
+            // re-issued per draw, needs nothing of the sort.
+            Uint32 GetSyncedImageUnitVersion() const { return m_syncedImageUnitVersion; }
 
         private:
             void CacheResourceLocations(const SharedPtr<MG_State::GLState::ProgramObject>& stateProgramObject);
 
             Uint m_backendProgramId = 0;
+            // GL name of the frontend program this was last synced from; diagnostics only, so
+            // an unusable backend program can be traced back to the glCreateProgram id the app
+            // knows it by.
+            Uint m_frontendProgramId = 0;
             Uint m_backendGlobalUBOId = 0;
             Int m_baseInstanceUniformLocation = -1;
             Int m_drawIdUniformLocation = -1;
@@ -1040,6 +1084,8 @@ namespace MobileGL::MG_Backend::DirectGLES {
             // Draw buffers a legacy gl_FragColor write has to reach (see
             // PrgramImpl::BroadcastLegacyFragColor); 1 keeps the plain single-output shader.
             Uint m_fragColorBroadcastCount = 1;
+            // 0 is the signature of an empty override set, i.e. what almost every program has.
+            Uint64 m_shaderStorageBlockBindingSignature = 0;
             Bool m_isInitialized = false;
             Bool m_backendProgramUsable = false;
 
@@ -1050,6 +1096,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
             Uint32 m_lastUploadedGlobalUboVersion = ~0u;
             BufferImpl::UboRingAllocation m_globalUboRingAllocation;
             Uint32 m_syncedLinkVersion = ~0u;
+            Uint32 m_syncedImageUnitVersion = ~0u;
             SamplerPassMemo m_samplerPassMemo;
         };
 
@@ -1073,26 +1120,45 @@ namespace MobileGL::MG_Backend::DirectGLES {
         // on the backend program (eliminated as unused, or the driver lacks the entry
         // points), which is not an error - GL_BUFFER_BINDING is served from the frontend
         // record either way.
+        //
+        // NOT how a rebinding reaches the shader. glShaderStorageBlockBinding has no ES
+        // equivalent and is absent from every real ES driver, so this is a no-op there;
+        // SyncToBackend bakes the effective binding into the ESSL it generates instead
+        // (SpvcSession::SetShaderStorageBlockBinding). This is kept as the cheaper path on
+        // a driver that does happen to expose the entry point.
         Bool ApplyShaderStorageBlockBinding(Uint backendProgramId, const String& blockName, Uint binding);
         // Replays every glShaderStorageBlockBinding recorded on the program onto a backend
-        // program that was just built. The frontend record is authoritative (only the
-        // shader's DECLARED binding survives in the SPIR-V), so without this replay any
-        // rebuild would silently revert rebound blocks. Mirrors DirectVulkan's
-        // reseed-on-rebuild in BuildProgramResourceCache.
+        // program that was just built - best effort, on the same "only where the driver has
+        // the entry point" terms as ApplyShaderStorageBlockBinding above. Mirrors
+        // DirectVulkan's reseed-on-rebuild in BuildProgramResourceCache.
         void ReseedShaderStorageBlockBindings(Uint backendProgramId,
                                               const MG_State::GLState::ProgramObject& stateProgramObject);
+        // Order-independent digest of the program's glShaderStorageBlockBinding overrides.
+        // The generated ESSL carries them (ES has no way to move a storage block's binding
+        // after link), so a program built against a different set is stale and the draw path
+        // has to rebuild it. Computed from the values, so re-setting a block to the binding it
+        // already has costs nothing. 0 when nothing was ever rebound.
+        Uint64 ComputeShaderStorageBlockBindingSignature(
+            const MG_State::GLState::ProgramObject& stateProgramObject);
     } // namespace PrgramImpl
 
     namespace SamplerImpl {
         class BackendSamplerObject {
         public:
             BackendSamplerObject();
+            // Deletes the driver sampler and clears the units whose binding shadow still names
+            // this twin (a recycled heap address would otherwise false-skip a later Bind).
+            // Frontend glDeleteSamplers used to leak the backend id for the process lifetime.
+            ~BackendSamplerObject();
+            BackendSamplerObject(const BackendSamplerObject&) = delete;
+            BackendSamplerObject& operator=(const BackendSamplerObject&) = delete;
             void SyncToBackend(const SharedPtr<MG_State::GLState::SamplerObject>& stateSamplerObject);
             void Bind(Uint unit);
             Uint GetBackendSamplerId() const;
 
         private:
             Uint m_backendSamplerId = 0;
+            Uint m_contextGeneration = 0;
             Bool m_isInitialized = false;
             SamplerParameters m_cacheSamplerParameters;
             Uint16 m_syncedSamplerVersion = 0;
@@ -1110,12 +1176,18 @@ namespace MobileGL::MG_Backend::DirectGLES {
         class BackendRenderbufferObject {
         public:
             BackendRenderbufferObject();
+            // Deletes the driver renderbuffer; frontend glDeleteRenderbuffers used to leak it
+            // (with its whole image allocation) for the process lifetime.
+            ~BackendRenderbufferObject();
+            BackendRenderbufferObject(const BackendRenderbufferObject&) = delete;
+            BackendRenderbufferObject& operator=(const BackendRenderbufferObject&) = delete;
             void SyncToBackend(const SharedPtr<MG_State::GLState::RenderbufferObject>& stateRBOObject);
             Uint GetBackendRenderbufferId() const { return m_backendRBOId; }
             void Bind() const;
 
         private:
             Uint m_backendRBOId = 0;
+            Uint m_contextGeneration = 0;
             Bool m_isInitialized = false;
             TextureInternalFormat m_cacheInternalFormat = TextureInternalFormat::Unknown;
             Int m_cacheWidth = 0;

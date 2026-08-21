@@ -68,6 +68,29 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         }
     }
 
+    // Uniform location of ELEMENT `element` of the opaque-uniform array at `baseLocation`, or
+    // -1 when the reflection did not reserve that element. DoReflection hands out one location
+    // per array element, so the element's location is the base plus its index - bounded by the
+    // array's real extent so a descriptorCount that outran the reflection cannot walk onto the
+    // next uniform. Element 0 is the ordinary non-array case and costs nothing extra.
+    static Int ResolveDescriptorElementLocation(const MG_State::GLState::ProgramObject& program, Int baseLocation,
+                                                Uint32 element) {
+        if (baseLocation < 0 || element == 0) {
+            return baseLocation;
+        }
+        const Int location = baseLocation + static_cast<Int>(element);
+        return program.UniformLocationsAliasSameUniform(baseLocation, location) ? location : -1;
+    }
+
+    // descriptorCount this binding declares in the descriptor set layout (1 for everything that
+    // is not an array). Kept in one place because the layout, the scratch reservation and the
+    // per-element write loops must all agree on it.
+    static Uint32 BindingDescriptorCount(const ProgramFactory::VkProgramObject& programObj, Uint32 binding) {
+        return binding < programObj.bindingDescriptorCounts.size()
+                   ? std::max<Uint32>(1u, programObj.bindingDescriptorCounts[binding])
+                   : 1u;
+    }
+
     static Int ResolveSamplerUnitIndex(const MG_State::GLState::ProgramObject& program, Int location, Uint32 binding) {
         MOBILEGL_ASSERT(location >= -1, "ResolveSamplerUnitIndex: invalid sampler location for binding %u", binding);
         if (location < 0) {
@@ -268,28 +291,44 @@ namespace MobileGL::MG_Backend::DirectVulkan {
     Bool UniformManager::ResolveSamplerDescriptor(VkCommandBuffer commandBuffer,
                                                             const MG_State::GLState::ProgramObject& program,
                                                             const ProgramFactory::VkProgramObject& programObj,
-                                                            Uint32 binding, VkDescriptorImageInfo& outImageInfo,
+                                                            Uint32 binding, Uint32 element,
+                                                            VkDescriptorImageInfo& outImageInfo,
                                                             Bool trustUnchangedHint) const {
         MOBILEGL_ASSERT(m_textureManager != nullptr, "ResolveSamplerDescriptor: texture manager is null");
         MOBILEGL_ASSERT(m_samplerManager != nullptr, "ResolveSamplerDescriptor: sampler manager is null");
+        // The whole-descriptor memo below is keyed by binding alone, so it describes a binding
+        // that carries exactly one descriptor. An arrayed binding's elements would overwrite
+        // each other in it (see SamplerResolveMemo::info); they re-resolve instead.
+        const Bool descriptorMemoUsable = BindingDescriptorCount(programObj, binding) == 1u;
         // The caller proved every input of this binding's resolution unchanged since the
         // last full resolve (which also filled the cache), so the whole chain below -
         // texture/sampler resolution, completeness probe, sync, layout handling, sampler
         // and view lookups - would recompute the identical descriptor.
-        if (trustUnchangedHint && binding < m_samplerResolveMemo.size() &&
+        if (trustUnchangedHint && descriptorMemoUsable && binding < m_samplerResolveMemo.size() &&
             m_samplerResolveMemo[binding].infoValid) {
             outImageInfo = m_samplerResolveMemo[binding].info;
             return true;
         }
         MOBILEGL_ASSERT(binding < programObj.samplerNameByBinding.size(),
                         "ResolveSamplerDescriptor: sampler binding %u name lookup out of range", binding);
+        // Per ELEMENT, and resolved BEFORE anything is looked up through it: GLSL 4.20 gives every
+        // element of `uniform sampler2D goku[4]` its own texture unit (consecutive from the
+        // declared binding, but glUniform1i may scatter them afterwards), so the unit - and with
+        // it the bound texture, the unit's sampler override and the fallback decision - is the
+        // element's, not the binding's. An element past the array's reserved extent has no unit
+        // at all, and must not fall back to resolving unit 0's texture.
+        const Int location =
+            ResolveDescriptorElementLocation(program, programObj.samplerUniformLocationByBinding[binding], element);
+        if (location < 0 && element > 0) {
+            MGLOG_D("ResolveSamplerDescriptor: binding %u element %u is past the end of its sampler array", binding,
+                    element);
+            return false;
+        }
+        const Int unit = ResolveSamplerUnitIndex(program, location, binding);
         // Raw-pointer resolve to skip the SharedPtr atomic refcount churn: the bound texture stays
         // alive through the draw via GL binding state. Only the fallback path needs a SharedPtr to
         // keep the fallback texture alive for the rest of this call.
-        MG_State::GLState::ITextureObject* texture = ResolveSamplerTextureRaw(program, programObj, binding);
-
-        const Int location = programObj.samplerUniformLocationByBinding[binding];
-        const Int unit = ResolveSamplerUnitIndex(program, location, binding);
+        MG_State::GLState::ITextureObject* texture = ResolveSamplerTextureRaw(program, programObj, binding, element);
         auto& textureUnit = MG_State::pGLContext->GetTextureUnitObject(unit);
         const auto& samplerOverride = textureUnit.GetSamplerObject();
         const auto preferredTarget = programObj.samplerTextureTargetByBinding[binding];
@@ -459,9 +498,21 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         if (outImageInfo.sampler == VK_NULL_HANDLE) {
             return false;
         }
+        // Only for a binding that carries a single descriptor - an array's elements would
+        // publish each other's descriptors here, and the next hinted draw would hand element
+        // N-1's texture to element 0.
         if (binding < m_samplerResolveMemo.size()) {
-            m_samplerResolveMemo[binding].info = outImageInfo;
-            m_samplerResolveMemo[binding].infoValid = true;
+            if (descriptorMemoUsable) {
+                m_samplerResolveMemo[binding].info = outImageInfo;
+                m_samplerResolveMemo[binding].infoValid = true;
+            } else {
+                // An arrayed binding publishes nothing here, and clears what a previous program
+                // published at this index. Not strictly required - the hint's proof obligations
+                // are program-scoped and the entry is reset every frame - but leaving another
+                // program's descriptor sitting in a slot this one never refreshes is the kind of
+                // thing the next reader has to re-derive is safe.
+                m_samplerResolveMemo[binding].infoValid = false;
+            }
             NoteSamplerResolveMemoTouched(binding);
         }
         return true;
@@ -500,42 +551,58 @@ namespace MobileGL::MG_Backend::DirectVulkan {
 
     Bool UniformManager::ProgramSamplesOnlySingleLevelTextures(
         const MG_State::GLState::ProgramObject& program, const ProgramFactory::VkProgramObject& programObj) {
+        // A declined program never draws (see VkProgramObject::declinedDescriptors), and its
+        // declined binding has no resolvable uniform location - so there is nothing to prove
+        // about the textures it would have sampled.
+        if (programObj.declinedDescriptors) {
+            return false;
+        }
         Bool sawSampler = false;
         for (Uint32 binding = 0; binding < programObj.bindingKinds.size(); ++binding) {
             if (programObj.bindingKinds[binding] != ProgramFactory::DescriptorBindingKind::CombinedImageSampler) {
                 continue;
             }
-            const auto* texture = ResolveSamplerTextureRaw(program, programObj, binding);
-            if (texture == nullptr) return false;
-            const auto& levelRange = texture->GetLevelRange();
-            if (levelRange.x() != levelRange.y()) return false;
+            // The rewrite this gates is program-wide, so EVERY sampler the program can read has
+            // to qualify - including every element of a sampler array, each of which reaches a
+            // different texture through its own unit.
+            const Uint32 descriptorCount = BindingDescriptorCount(programObj, binding);
+            for (Uint32 element = 0; element < descriptorCount; ++element) {
+                // The element's own location first, exactly as ResolveSamplerDescriptor resolves
+                // it - an element with no location would otherwise be judged on unit 0's texture.
+                const Int location = ResolveDescriptorElementLocation(
+                    program, programObj.samplerUniformLocationByBinding[binding], element);
+                if (location < 0 && element > 0) return false;
+                const auto* texture = ResolveSamplerTextureRaw(program, programObj, binding, element);
+                if (texture == nullptr) return false;
+                const auto& levelRange = texture->GetLevelRange();
+                if (levelRange.x() != levelRange.y()) return false;
 
-            // An explicit-LOD sample is a single filtered tap, so it also gives up anisotropic
-            // filtering - which a single-level view can still have. Resolve the sampler exactly
-            // the way ResolveSamplerDescriptor does and bail if anisotropy would apply.
-            const Int location = programObj.samplerUniformLocationByBinding[binding];
-            const Int unit = ResolveSamplerUnitIndex(program, location, binding);
-            const auto& samplerOverride = MG_State::pGLContext->GetTextureUnitObject(unit).GetSamplerObject();
-            const auto* effectiveSampler =
-                samplerOverride ? samplerOverride.get() : texture->GetSamplerObject().get();
-            if (effectiveSampler == nullptr) return false;
-            if (effectiveSampler->GetMaxAnisotropy() > 1.0f &&
-                effectiveSampler->GetMinFilter() == SamplerFilterMode::Linear &&
-                effectiveSampler->GetMagFilter() == SamplerFilterMode::Linear) {
-                return false;
-            }
+                // An explicit-LOD sample is a single filtered tap, so it also gives up anisotropic
+                // filtering - which a single-level view can still have. Resolve the sampler exactly
+                // the way ResolveSamplerDescriptor does and bail if anisotropy would apply.
+                const Int unit = ResolveSamplerUnitIndex(program, location, binding);
+                const auto& samplerOverride = MG_State::pGLContext->GetTextureUnitObject(unit).GetSamplerObject();
+                const auto* effectiveSampler =
+                    samplerOverride ? samplerOverride.get() : texture->GetSamplerObject().get();
+                if (effectiveSampler == nullptr) return false;
+                if (effectiveSampler->GetMaxAnisotropy() > 1.0f &&
+                    effectiveSampler->GetMinFilter() == SamplerFilterMode::Linear &&
+                    effectiveSampler->GetMagFilter() == SamplerFilterMode::Linear) {
+                    return false;
+                }
 
-            // An explicit LOD 0 makes lambda exactly 0, which is the magnification side of the
-            // min/mag decision. That only matches the implicit form when lambda could not have been
-            // positive anyway (the LOD clamp already pins it at or below 0), or when the two
-            // filters are the same and the choice cannot be observed.
-            const Float effectiveMaxLod = effectiveSampler->GetMipmapMode() == SamplerMipmapMode::None
-                                              ? 0.0f
-                                              : effectiveSampler->GetMaxLod();
-            if (effectiveMaxLod > 0.0f && effectiveSampler->GetMinFilter() != effectiveSampler->GetMagFilter()) {
-                return false;
+                // An explicit LOD 0 makes lambda exactly 0, which is the magnification side of the
+                // min/mag decision. That only matches the implicit form when lambda could not have been
+                // positive anyway (the LOD clamp already pins it at or below 0), or when the two
+                // filters are the same and the choice cannot be observed.
+                const Float effectiveMaxLod = effectiveSampler->GetMipmapMode() == SamplerMipmapMode::None
+                                                  ? 0.0f
+                                                  : effectiveSampler->GetMaxLod();
+                if (effectiveMaxLod > 0.0f && effectiveSampler->GetMinFilter() != effectiveSampler->GetMagFilter()) {
+                    return false;
+                }
+                sawSampler = true;
             }
-            sawSampler = true;
         }
         return sawSampler;
     }
@@ -568,14 +635,15 @@ namespace MobileGL::MG_Backend::DirectVulkan {
 
     MG_State::GLState::ITextureObject* UniformManager::ResolveSamplerTextureRaw(
         const MG_State::GLState::ProgramObject& program, const ProgramFactory::VkProgramObject& programObj,
-        Uint32 binding) {
+        Uint32 binding, Uint32 element) {
         MOBILEGL_ASSERT(MG_State::pGLContext != nullptr, "ResolveSamplerTextureRaw: GL context is null");
         MOBILEGL_ASSERT(binding < programObj.samplerUniformLocationByBinding.size(),
                         "ResolveSamplerTextureRaw: sampler location binding %u out of range", binding);
         MOBILEGL_ASSERT(binding < programObj.samplerTextureTargetByBinding.size(),
                         "ResolveSamplerTextureRaw: sampler target binding %u out of range", binding);
 
-        const Int location = programObj.samplerUniformLocationByBinding[binding];
+        const Int location =
+            ResolveDescriptorElementLocation(program, programObj.samplerUniformLocationByBinding[binding], element);
         const Int unit = ResolveSamplerUnitIndex(program, location, binding);
 
         auto& textureUnit = MG_State::pGLContext->GetTextureUnitObject(unit);
@@ -677,7 +745,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
 
     Bool UniformManager::ResolveStorageBufferDescriptor(const MG_State::GLState::ProgramObject& program,
                                                         const ProgramFactory::VkProgramObject& programObj,
-                                                        Uint32 binding,
+                                                        Uint32 binding, Uint32 element,
                                                         VkDescriptorBufferInfo& outBufferInfo) const {
         outBufferInfo = {};
         MOBILEGL_ASSERT(m_bufferManager != nullptr, "ResolveStorageBufferDescriptor: buffer manager is null");
@@ -688,8 +756,11 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         const Int blockIndex = programObj.storageBlockIndexByBinding[binding];
         MOBILEGL_ASSERT(blockIndex >= 0, "ResolveStorageBufferDescriptor: no SSBO block mapped to binding %u",
                         binding);
+        // A block instance array declares one block whose elements take consecutive GL binding
+        // points from the declared one (GL 4.6 core 7.8), and the reflection collapses the whole
+        // array to that one block - so the element index IS the offset from its binding.
         const GLuint frontendBinding =
-            GetShaderStorageBlockBinding(program, static_cast<GLuint>(blockIndex));
+            GetShaderStorageBlockBinding(program, static_cast<GLuint>(blockIndex)) + element;
         const Uint32 bindingPointCount =
             static_cast<Uint32>(MG_State::pGLContext->GetBufferBindingPointCount(BufferTarget::ShaderStorage));
         MOBILEGL_ASSERT(frontendBinding < bindingPointCount,
@@ -742,7 +813,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
     Bool UniformManager::ResolveStorageImageDescriptor(VkCommandBuffer commandBuffer,
                                                        const MG_State::GLState::ProgramObject& program,
                                                        const ProgramFactory::VkProgramObject& programObj,
-                                                       Uint32 binding,
+                                                       Uint32 binding, Uint32 element,
                                                        VkDescriptorImageInfo& outImageInfo) const {
         outImageInfo = {};
         MOBILEGL_ASSERT(m_textureManager != nullptr, "ResolveStorageImageDescriptor: texture manager is null");
@@ -750,9 +821,22 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         MOBILEGL_ASSERT(binding < programObj.samplerUniformLocationByBinding.size(),
                         "ResolveStorageImageDescriptor: binding %u out of range", binding);
 
-        const Int location = programObj.samplerUniformLocationByBinding[binding];
-        if (location < 0) {
+        const Int baseLocation = programObj.samplerUniformLocationByBinding[binding];
+        if (baseLocation < 0) {
             MGLOG_E("ResolveStorageImageDescriptor: storage image binding %u has no uniform location", binding);
+            return false;
+        }
+        // Per ELEMENT, and this is where an image array differs from a storage-block array: GL
+        // gives every element of `uniform image2D g_image[4]` its own glUniform1i-assigned image
+        // unit, and the four units need not be consecutive or even ordered (the conformance case
+        // uses 0, 2, 4, 6). DoReflection reserves one uniform location per array element, so the
+        // element's location is the base plus its index - checked against the array's real
+        // extent so a descriptorCount that outran the reflection cannot walk onto the next
+        // uniform.
+        const Int location = baseLocation + static_cast<Int>(element);
+        if (!program.UniformLocationsAliasSameUniform(baseLocation, location)) {
+            MGLOG_E("ResolveStorageImageDescriptor: binding %u element %u is past the end of its image array",
+                    binding, element);
             return false;
         }
         const Int imageUnit = program.GetUniformSamplerOrImageUnitIndex(static_cast<Uint>(location));
@@ -844,7 +928,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
 
     Bool UniformManager::ResolveSampledBinding(const MG_State::GLState::ProgramObject& program,
                                                const ProgramFactory::VkProgramObject& programObj,
-                                               Uint32 binding,
+                                               Uint32 binding, Uint32 element,
                                                MG_State::GLState::ITextureObject*& outTexture,
                                                const MG_State::GLState::SamplerObject*& outSampler) const {
         // Open-coded ResolveSamplerTextureRaw so the unit is resolved once for both the
@@ -855,7 +939,11 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                         "ResolveSampledBinding: sampler location binding %u out of range", binding);
         MOBILEGL_ASSERT(binding < programObj.samplerTextureTargetByBinding.size(),
                         "ResolveSampledBinding: sampler target binding %u out of range", binding);
-        const Int location = programObj.samplerUniformLocationByBinding[binding];
+        const Int location =
+            ResolveDescriptorElementLocation(program, programObj.samplerUniformLocationByBinding[binding], element);
+        if (location < 0 && element > 0) {
+            return false;
+        }
         const Int unit = ResolveSamplerUnitIndex(program, location, binding);
         auto& textureUnit = MG_State::pGLContext->GetTextureUnitObject(unit);
         const TextureTarget preferredTarget = programObj.samplerTextureTargetByBinding[binding];
@@ -891,6 +979,11 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         if (outBindingRecords != nullptr) {
             outBindingRecords->clear();
         }
+        // Nothing to prepare for a program the bind path is going to refuse; its declined
+        // binding has no uniform location to resolve a texture through either.
+        if (programObj.declinedDescriptors) {
+            return true;
+        }
 
         const Uint32 bindingCount =
             std::min<Uint32>(m_maxBindings, static_cast<Uint32>(programObj.bindingKinds.size()));
@@ -899,19 +992,27 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                 continue;
             }
 
-            MG_State::GLState::ITextureObject* texture = nullptr;
-            const MG_State::GLState::SamplerObject* sampler = nullptr;
-            if (!ResolveSampledBinding(program, programObj, binding, texture, sampler)) {
-                continue;
-            }
-            if (outBindingRecords != nullptr) {
-                outBindingRecords->push_back({texture != nullptr ? texture->GetLifetimeId() : 0,
-                                              sampler != nullptr ? sampler->GetLifetimeId() : 0});
-            }
+            // Every ELEMENT of a sampler array reaches its own texture through its own unit,
+            // so every element has to be in the sampled set: this walk is what gets those
+            // textures synced and transitioned to a sampled layout BEFORE the render pass
+            // opens, and a missed element would first be touched by the descriptor resolve
+            // inside an active pass.
+            const Uint32 descriptorCount = BindingDescriptorCount(programObj, binding);
+            for (Uint32 element = 0; element < descriptorCount; ++element) {
+                MG_State::GLState::ITextureObject* texture = nullptr;
+                const MG_State::GLState::SamplerObject* sampler = nullptr;
+                if (!ResolveSampledBinding(program, programObj, binding, element, texture, sampler)) {
+                    continue;
+                }
+                if (outBindingRecords != nullptr) {
+                    outBindingRecords->push_back({texture != nullptr ? texture->GetLifetimeId() : 0,
+                                                  sampler != nullptr ? sampler->GetLifetimeId() : 0});
+                }
 
-            auto found = std::find(outTextures.begin(), outTextures.end(), texture);
-            if (found == outTextures.end()) {
-                outTextures.push_back(texture);
+                auto found = std::find(outTextures.begin(), outTextures.end(), texture);
+                if (found == outTextures.end()) {
+                    outTextures.push_back(texture);
+                }
             }
         }
         return true;
@@ -920,6 +1021,10 @@ namespace MobileGL::MG_Backend::DirectVulkan {
     Bool UniformManager::SampledBindingsUnchanged(const MG_State::GLState::ProgramObject& program,
                                                   const ProgramFactory::VkProgramObject& programObj,
                                                   const Vector<SampledBindingRecord>& previousRecords) const {
+        // A declined program takes the full path every time and is refused there.
+        if (programObj.declinedDescriptors) {
+            return false;
+        }
         SizeT recordIndex = 0;
         // Iterate only the bindings this program declares (ascending), exactly like
         // BindProgramUniformBuffers: this runs per draw whenever the texture bind
@@ -932,18 +1037,24 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             if (programObj.bindingKinds[binding] != ProgramFactory::DescriptorBindingKind::CombinedImageSampler) {
                 continue;
             }
-            MG_State::GLState::ITextureObject* texture = nullptr;
-            const MG_State::GLState::SamplerObject* sampler = nullptr;
-            if (!ResolveSampledBinding(program, programObj, binding, texture, sampler)) {
-                continue;
-            }
-            if (recordIndex >= previousRecords.size()) {
-                return false;
-            }
-            const SampledBindingRecord& record = previousRecords[recordIndex++];
-            if (record.textureLifetimeId != (texture != nullptr ? texture->GetLifetimeId() : 0) ||
-                record.samplerLifetimeId != (sampler != nullptr ? sampler->GetLifetimeId() : 0)) {
-                return false;
+            // Element-for-element, in the same order CollectSampledTextures recorded them -
+            // the two walks have to visit the identical descriptor sequence or the positional
+            // comparison below drifts.
+            const Uint32 descriptorCount = BindingDescriptorCount(programObj, binding);
+            for (Uint32 element = 0; element < descriptorCount; ++element) {
+                MG_State::GLState::ITextureObject* texture = nullptr;
+                const MG_State::GLState::SamplerObject* sampler = nullptr;
+                if (!ResolveSampledBinding(program, programObj, binding, element, texture, sampler)) {
+                    continue;
+                }
+                if (recordIndex >= previousRecords.size()) {
+                    return false;
+                }
+                const SampledBindingRecord& record = previousRecords[recordIndex++];
+                if (record.textureLifetimeId != (texture != nullptr ? texture->GetLifetimeId() : 0) ||
+                    record.samplerLifetimeId != (sampler != nullptr ? sampler->GetLifetimeId() : 0)) {
+                    return false;
+                }
             }
         }
         return recordIndex == previousRecords.size();
@@ -956,6 +1067,11 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         outTextures.clear();
         MOBILEGL_ASSERT(MG_State::pGLContext != nullptr,
                         "CollectStorageImageTextures: GL context is null");
+        // Same as the sampled walk: a declined program is refused at bind time, and its declined
+        // binding has no uniform location to reach an image unit through.
+        if (programObj.declinedDescriptors) {
+            return true;
+        }
 
         const Uint32 bindingCount =
             std::min<Uint32>(m_maxBindings, static_cast<Uint32>(programObj.bindingKinds.size()));
@@ -968,26 +1084,40 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                 return false;
             }
 
-            const Int location = programObj.samplerUniformLocationByBinding[binding];
-            if (location < 0) {
+            const Int baseLocation = programObj.samplerUniformLocationByBinding[binding];
+            if (baseLocation < 0) {
                 MGLOG_E("CollectStorageImageTextures: binding %u has no image uniform location", binding);
                 return false;
             }
-            const Int imageUnit = program.GetUniformSamplerOrImageUnitIndex(static_cast<Uint>(location));
-            if (imageUnit < 0 || imageUnit >= MG_State::GLState::TextureState::MAX_TEXTURE_IMAGE_UNITS) {
-                MGLOG_E("CollectStorageImageTextures: image unit %d is invalid for binding %u",
-                        imageUnit, binding);
-                return false;
-            }
+            // Per ELEMENT, for the same reason the sampled walk above is: an image ARRAY is one
+            // binding whose elements each carry their own image unit, so each reaches its own
+            // texture. This walk is what puts those textures into the pre-pass sync and layout
+            // transition; collecting only element 0 left elements 1..N to be first touched by
+            // the descriptor resolve, which happens with a render pass already open.
+            const Uint32 descriptorCount = BindingDescriptorCount(programObj, binding);
+            for (Uint32 element = 0; element < descriptorCount; ++element) {
+                const Int location = ResolveDescriptorElementLocation(program, baseLocation, element);
+                if (location < 0) {
+                    MGLOG_E("CollectStorageImageTextures: binding %u element %u is past the end of its image array",
+                            binding, element);
+                    return false;
+                }
+                const Int imageUnit = program.GetUniformSamplerOrImageUnitIndex(static_cast<Uint>(location));
+                if (imageUnit < 0 || imageUnit >= MG_State::GLState::TextureState::MAX_TEXTURE_IMAGE_UNITS) {
+                    MGLOG_E("CollectStorageImageTextures: image unit %d is invalid for binding %u element %u",
+                            imageUnit, binding, element);
+                    return false;
+                }
 
-            auto* texture = MG_State::pGLContext->GetImageTextureBinding(imageUnit).Texture.get();
-            if (texture == nullptr) {
-                MGLOG_E("CollectStorageImageTextures: image unit %d is unbound for binding %u",
-                        imageUnit, binding);
-                return false;
-            }
-            if (std::find(outTextures.begin(), outTextures.end(), texture) == outTextures.end()) {
-                outTextures.push_back(texture);
+                auto* texture = MG_State::pGLContext->GetImageTextureBinding(imageUnit).Texture.get();
+                if (texture == nullptr) {
+                    MGLOG_E("CollectStorageImageTextures: image unit %d is unbound for binding %u element %u",
+                            imageUnit, binding, element);
+                    return false;
+                }
+                if (std::find(outTextures.begin(), outTextures.end(), texture) == outTextures.end()) {
+                    outTextures.push_back(texture);
+                }
             }
         }
         return true;
@@ -1358,6 +1488,17 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                                                              VkPipelineBindPoint bindPoint,
                                                              const SamplerBindingOverride* samplerBindingOverride,
                                                              Bool samplerDescriptorsUnchangedHint) {
+        // This program has a descriptor MobileGL could not resolve (see
+        // VkProgramObject::declinedDescriptors). Refusing here is the whole of the decline: the
+        // binding is still declared in the layout, so the pipeline is consistent with the shader
+        // and creating it is safe - what must not happen is the draw, because the descriptor
+        // behind that binding can never be written. The draw setup skips the draw on a false
+        // return. ReflectLayout already said why, once, at MGLOG_I.
+        if (programObj.declinedDescriptors) {
+            MGLOG_D("UniformDescriptorBinder::BindProgramUniformBuffers: refusing a program whose descriptor layout "
+                    "was declined at reflection");
+            return false;
+        }
         auto& frame = m_frames[frameIndex];
         if (frame.descriptorPools.empty()) {
             MGLOG_E("UniformDescriptorBinder::BindProgramUniformBuffers failed: frame descriptor pools are invalid");
@@ -1416,13 +1557,27 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         dynamicOffsets.clear();
         // Arrayed UBO bindings contribute extra buffer infos and dynamic offsets; reserve for
         // the worst case so the pBufferInfo pointers taken below never dangle on reallocation.
+        // Arrayed SSBO bindings contribute extra buffer infos too (but no dynamic offsets).
         Uint32 uboArrayExtra = 0;
         for (const auto& arrayEntry : programObj.arrayedUniformBlockIndicesByBinding) {
             uboArrayExtra += static_cast<Uint32>(arrayEntry.second.size()) - 1u;
         }
+        // Surplus descriptors over "one per binding", summed across EVERY arrayed binding
+        // whatever its kind - storage blocks, image arrays and sampler arrays all land here.
+        // One number for all of them because each container below is bounded by the same total.
+        Uint32 arrayDescriptorExtra = 0;
+        for (const Uint16 count : programObj.bindingDescriptorCounts) {
+            if (count > 1) arrayDescriptorExtra += static_cast<Uint32>(count) - 1u;
+        }
         writes.reserve(m_maxBindings);
-        bufferInfos.reserve(m_maxBindings + uboArrayExtra);
-        imageInfos.reserve(m_maxBindings);
+        bufferInfos.reserve(m_maxBindings + uboArrayExtra + arrayDescriptorExtra);
+        // Every binding pushes at most descriptorCount image infos, so bindings + surplus is the
+        // worst case. Reserving only m_maxBindings here was exact while every binding pushed
+        // exactly one - and reallocates under an image or sampler array, dangling every
+        // pImageInfo already recorded in `writes` before vkUpdateDescriptorSets reads them. That
+        // is reachable wherever m_maxBindings is small (it clamps to ~16 on Adreno and Mali),
+        // which is exactly where a 7-element CTS sampler array does not fit the slack.
+        imageInfos.reserve(m_maxBindings + arrayDescriptorExtra);
         texelBufferViews.reserve(m_maxBindings);
         dynamicOffsets.reserve(programObj.dynamicBindings.size() + uboArrayExtra);
 
@@ -1450,10 +1605,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             write.descriptorCount = 1;
 
             if (kind == ProgramFactory::DescriptorBindingKind::UniformBufferDynamic) {
-                const Uint32 descriptorCount =
-                    binding < programObj.bindingDescriptorCounts.size()
-                        ? std::max<Uint32>(1, programObj.bindingDescriptorCounts[binding])
-                        : 1u;
+                const Uint32 descriptorCount = BindingDescriptorCount(programObj, binding);
                 dynamicUboDescriptorCount += descriptorCount;
                 fastRebindUboBinding = binding;
                 const SizeT firstBufferInfoIndex = bufferInfos.size();
@@ -1493,59 +1645,109 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                 write.pTexelBufferView = &texelBufferViews.back();
                 writes.push_back(write);
             } else if (kind == ProgramFactory::DescriptorBindingKind::StorageBuffer) {
-                VkDescriptorBufferInfo bufferInfo{};
-                if (!ResolveStorageBufferDescriptor(program, programObj, binding, bufferInfo)) {
-                    MGLOG_E(
-                        "UniformDescriptorBinder::BindProgramUniformBuffers failed: storage buffer binding %u has no valid descriptor",
-                        binding);
-                    return false;
+                // One write per binding, but `descriptorCount` buffer infos: a GLSL block
+                // instance array occupies a single binding whose elements each come from their
+                // own GL binding point.
+                const Uint32 descriptorCount = BindingDescriptorCount(programObj, binding);
+                const SizeT firstBufferInfoIndex = bufferInfos.size();
+                for (Uint32 element = 0; element < descriptorCount; ++element) {
+                    VkDescriptorBufferInfo bufferInfo{};
+                    if (!ResolveStorageBufferDescriptor(program, programObj, binding, element, bufferInfo)) {
+                        MGLOG_E(
+                            "UniformDescriptorBinder::BindProgramUniformBuffers failed: storage buffer binding %u "
+                            "element %u has no valid descriptor",
+                            binding, element);
+                        return false;
+                    }
+                    bufferInfos.push_back(bufferInfo);
                 }
 
-                bufferInfos.push_back(bufferInfo);
                 fastRebindKindsEligible = false;
                 write.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-                write.pBufferInfo = &bufferInfos.back();
+                write.descriptorCount = descriptorCount;
+                write.pBufferInfo = &bufferInfos[firstBufferInfoIndex];
                 writes.push_back(write);
             } else if (kind == ProgramFactory::DescriptorBindingKind::StorageImage) {
-                VkDescriptorImageInfo imageInfo{};
-                if (!ResolveStorageImageDescriptor(commandBuffer, program, programObj, binding, imageInfo)) {
-                    MGLOG_E(
-                        "UniformDescriptorBinder::BindProgramUniformBuffers failed: storage image binding %u has no valid descriptor",
-                        binding);
-                    return false;
+                // One write per binding, but `descriptorCount` image infos: an ARRAY of image
+                // uniforms is a single binding whose elements each carry their own image unit.
+                // Writing only element 0 - which is all this used to do - left elements 1..N
+                // never written at all, and a shader that indexes them reads an undefined
+                // descriptor (lavapipe faults inside the shader; a real driver is free to do
+                // anything).
+                const Uint32 descriptorCount = BindingDescriptorCount(programObj, binding);
+                const SizeT firstImageInfoIndex = imageInfos.size();
+                for (Uint32 element = 0; element < descriptorCount; ++element) {
+                    VkDescriptorImageInfo imageInfo{};
+                    if (!ResolveStorageImageDescriptor(commandBuffer, program, programObj, binding, element,
+                                                       imageInfo)) {
+                        MGLOG_E(
+                            "UniformDescriptorBinder::BindProgramUniformBuffers failed: storage image binding %u "
+                            "element %u has no valid descriptor",
+                            binding, element);
+                        return false;
+                    }
+                    imageInfos.push_back(imageInfo);
                 }
-                imageInfos.push_back(imageInfo);
                 fastRebindKindsEligible = false;
                 write.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
-                write.pImageInfo = &imageInfos.back();
+                write.descriptorCount = descriptorCount;
+                write.pImageInfo = &imageInfos[firstImageInfoIndex];
                 writes.push_back(write);
             } else {
-                VkDescriptorImageInfo imageInfo{};
-                Bool hasImage = false;
-                if (samplerBindingOverride != nullptr &&
-                    samplerBindingOverride->binding == binding &&
-                    samplerBindingOverride->texture != nullptr &&
-                    samplerBindingOverride->sampler != nullptr) {
-                    hasImage = ResolveSamplerDescriptorOverride(*samplerBindingOverride, imageInfo);
-                } else {
-                    hasImage = ResolveSamplerDescriptor(commandBuffer, program, programObj, binding, imageInfo,
-                                                        samplerDescriptorsUnchangedHint);
+                // One write per binding, but `descriptorCount` image infos: a sampler ARRAY is a
+                // single binding whose elements each carry their own texture unit. Writing only
+                // element 0 - which is all this used to do - left elements 1..N never written,
+                // so a shader indexing them sampled a descriptor nobody had filled in
+                // (KHR-GL42.shading_language_420pack.binding_sampler_array).
+                const Uint32 descriptorCount = BindingDescriptorCount(programObj, binding);
+                // Overrides come only from MobileGL's own blit and depth-mipmap programs, whose
+                // samplers are scalars; the override replaces THE descriptor at its binding, so
+                // there is no element for it to mean on an arrayed one.
+                const Bool overrideThisBinding = samplerBindingOverride != nullptr &&
+                                                 samplerBindingOverride->binding == binding &&
+                                                 samplerBindingOverride->texture != nullptr &&
+                                                 samplerBindingOverride->sampler != nullptr;
+                MOBILEGL_ASSERT(
+                    !overrideThisBinding || descriptorCount == 1,
+                    "BindProgramUniformBuffers: sampler override targets arrayed binding %u (%u descriptors)",
+                    binding, descriptorCount);
+                const SizeT firstImageInfoIndex = imageInfos.size();
+                for (Uint32 element = 0; element < descriptorCount; ++element) {
+                    VkDescriptorImageInfo imageInfo{};
+                    Bool hasImage = false;
+                    if (overrideThisBinding && element == 0) {
+                        hasImage = ResolveSamplerDescriptorOverride(*samplerBindingOverride, imageInfo);
+                    } else {
+                        hasImage = ResolveSamplerDescriptor(commandBuffer, program, programObj, binding, element,
+                                                            imageInfo, samplerDescriptorsUnchangedHint);
+                    }
+                    if (!hasImage) {
+                        MGLOG_E(
+                            "UniformDescriptorBinder::BindProgramUniformBuffers failed: sampler binding %u element %u "
+                            "has no valid texture descriptor",
+                            binding, element);
+                        return false;
+                    }
+                    if (imageInfo.sampler == VK_NULL_HANDLE || imageInfo.imageView == VK_NULL_HANDLE) {
+                        MGLOG_E(
+                            "UniformDescriptorBinder::BindProgramUniformBuffers failed: sampler binding %u element %u "
+                            "has null sampler or imageView",
+                            binding, element);
+                        return false;
+                    }
+                    imageInfos.push_back(imageInfo);
                 }
-                if (!hasImage) {
-                    MGLOG_E(
-                        "UniformDescriptorBinder::BindProgramUniformBuffers failed: sampler binding %u has no valid texture descriptor",
-                        binding);
-                    return false;
+                if (descriptorCount > 1) {
+                    // The dynamic-offset-only rebind replays a whole descriptor set on the
+                    // strength of the sampler hint alone, and its eligibility probe was written
+                    // for bindings that carry one descriptor each. An arrayed sampler binding
+                    // also bypasses the per-binding descriptor memo, so there is nothing for it
+                    // to win here either.
+                    fastRebindKindsEligible = false;
                 }
-                if (imageInfo.sampler == VK_NULL_HANDLE || imageInfo.imageView == VK_NULL_HANDLE) {
-                    MGLOG_E(
-                        "UniformDescriptorBinder::BindProgramUniformBuffers failed: sampler binding %u has null sampler or imageView",
-                        binding);
-                    return false;
-                }
-                imageInfos.push_back(imageInfo);
                 write.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-                write.pImageInfo = &imageInfos.back();
+                write.descriptorCount = descriptorCount;
+                write.pImageInfo = &imageInfos[firstImageInfoIndex];
                 writes.push_back(write);
             }
         }

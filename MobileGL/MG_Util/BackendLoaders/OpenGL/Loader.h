@@ -600,6 +600,16 @@ namespace MobileGL {
             GL_FUNC_TYPEDEF(void, glSamplerParameterIuiv, GLuint sampler, GLenum pname, const GLuint* param)
             GL_FUNC_TYPEDEF(void, glGetSamplerParameterIiv, GLuint sampler, GLenum pname, GLint* params)
             GL_FUNC_TYPEDEF(void, glGetSamplerParameterIuiv, GLuint sampler, GLenum pname, GLuint* params)
+            // The unsuffixed names are the ES 3.2 CORE entry points. A driver whose buffer-texture
+            // support comes from GL_EXT_texture_buffer or GL_OES_texture_buffer exports the
+            // suffixed spellings instead, and a strict eglGetProcAddress returns NULL for the core
+            // one there - so resolving only the core name makes both extension tiers look absent.
+            GL_FUNC_TYPEDEF(void, glTexBufferEXT, GLenum target, GLenum internalformat, GLuint buffer)
+            GL_FUNC_TYPEDEF(void, glTexBufferOES, GLenum target, GLenum internalformat, GLuint buffer)
+            GL_FUNC_TYPEDEF(void, glTexBufferRangeEXT, GLenum target, GLenum internalformat, GLuint buffer,
+                            GLintptr offset, GLsizeiptr size)
+            GL_FUNC_TYPEDEF(void, glTexBufferRangeOES, GLenum target, GLenum internalformat, GLuint buffer,
+                            GLintptr offset, GLsizeiptr size)
             GL_FUNC_TYPEDEF(void, glTexBuffer, GLenum target, GLenum internalformat, GLuint buffer)
             GL_FUNC_TYPEDEF(void, glTexBufferRange, GLenum target, GLenum internalformat, GLuint buffer,
                             GLintptr offset, GLsizeiptr size)
@@ -1002,6 +1012,10 @@ namespace MobileGL {
             GL_FUNC_DECL(glGetSamplerParameterIuiv)
             GL_FUNC_DECL(glTexBuffer)
             GL_FUNC_DECL(glTexBufferRange)
+            GL_FUNC_DECL(glTexBufferEXT)
+            GL_FUNC_DECL(glTexBufferOES)
+            GL_FUNC_DECL(glTexBufferRangeEXT)
+            GL_FUNC_DECL(glTexBufferRangeOES)
             GL_FUNC_DECL(glTexStorage3DMultisample)
             GL_FUNC_DECL(glMapBufferRange)
             GL_FUNC_DECL(glBufferStorageEXT)
@@ -1057,6 +1071,27 @@ namespace MobileGL {
             Bool SupportsTextureBorderClamp = false;
             // GL_TEXTURE_CUBE_MAP_ARRAY: ES 3.2 core, or EXT/OES_texture_cube_map_array before it.
             Bool SupportsTextureCubeMapArray = false;
+            // Which spelling of buffer-texture support the host driver has. Desktop GL makes buffer
+            // textures core from 3.1 on, so the frontend advertises them unconditionally and an app
+            // may call glTexBuffer at any time; ES only gained them in 3.2, and before that only
+            // through EXT/OES_texture_buffer. The two extensions are functionally identical but
+            // their ESSL directives are NOT interchangeable, and SPIRV-Cross hardcodes the EXT
+            // spelling whenever it emits ESSL below 320 for a Dim=Buffer image - so a driver that
+            // ships only the OES spelling needs the emitted directive retargeted, and a driver with
+            // neither cannot compile such a shader at all. Gate on this, never on the entry point:
+            // eglGetProcAddress hands back live-looking stubs (see AcquireGLESFunctions).
+            enum class TextureBufferTier : Uint8 {
+                None = 0,  // no core support and neither extension; glTexBuffer is unusable
+                CoreEs32,  // ES >= 3.2, buffer textures are core and ESSL 320 needs no directive
+                ExtensionEXT, // GL_EXT_texture_buffer; ESSL below 320 must say GL_EXT_texture_buffer
+                ExtensionOES, // GL_OES_texture_buffer; ESSL below 320 must say GL_OES_texture_buffer
+            };
+            TextureBufferTier TextureBufferSupport = TextureBufferTier::None;
+            // GL_MAX_TEXTURE_BUFFER_SIZE actually came back from the driver. False means the value
+            // below is MobileGL's own floor, not a driver answer: the pname is only legal once
+            // buffer textures exist, and querying it on a driver without them raises
+            // GL_INVALID_ENUM and leaves the default untouched.
+            Bool MaxTextureBufferSizeIsDriverReported = false;
             // GL_MAX_TEXTURE_MAX_ANISOTROPY_EXT of the host driver; only queried when the
             // extension above is present, and left at 1.0 (no anisotropy) otherwise.
             Float MaxTextureMaxAnisotropy = 1.0f;

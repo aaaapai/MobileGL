@@ -1100,4 +1100,119 @@ void main() { color = u + v; }
         EXPECT_EQ(viaActiveUniformBlockiv, 5);
         EXPECT_EQ(TakeError(), GL_NO_ERROR);
     }
+
+    // ---------------------------------------------------- queries on an unlinked program ----
+    // glGetProgramiv is legal on a program that has never linked - GL 4.6 sec. 7.3 says the
+    // queried state simply has its initial value - but the reflection-backed pnames read
+    // Artifacts().program, which is null until a link produces one. That dereference was a
+    // SIGSEGV inside glslang::TProgram::getNumPipeInputs, and KHR-GL30.api.coverage walks into it
+    // (it queries GL_ACTIVE_ATTRIBUTES right after a glGetAttribLocation that failed). It only
+    // became reachable once the glCopyTexImage2D throw ahead of it in the same case stopped
+    // killing the run first.
+    TEST_F(ProgramInterfaceTest, ReflectionQueriesOnAnUnlinkedProgramAnswerZero) {
+        const GLuint neverLinked = CreateProgram();
+        ASSERT_NE(neverLinked, 0u);
+        ClearErrors();
+
+        for (const GLenum pname : {GL_ACTIVE_ATTRIBUTES, GL_ACTIVE_ATTRIBUTE_MAX_LENGTH, GL_ACTIVE_UNIFORMS,
+                                   GL_ACTIVE_UNIFORM_MAX_LENGTH, GL_ACTIVE_UNIFORM_BLOCKS,
+                                   GL_ACTIVE_ATOMIC_COUNTER_BUFFERS}) {
+            GLint value = -1;
+            GetProgramiv(neverLinked, pname, &value);
+            ClearErrors();
+            EXPECT_GE(value, 0) << "pname 0x" << std::hex << pname << " left its output untouched";
+        }
+
+        // A program that was linked and FAILED is the shape api.coverage actually hits.
+        const GLuint brokenSource = MakeProgram("#version 430\nvoid main() { this is not glsl }\n", kSimpleFs);
+        LinkProgram(brokenSource);
+        ClearErrors();
+        GLint linked = GL_TRUE;
+        GetProgramiv(brokenSource, GL_LINK_STATUS, &linked);
+        ASSERT_EQ(linked, GL_FALSE) << "the shader was supposed to fail to compile";
+        ClearErrors();
+
+        GLint attributes = -1;
+        GetProgramiv(brokenSource, GL_ACTIVE_ATTRIBUTES, &attributes);
+        ClearErrors();
+        EXPECT_EQ(attributes, 0);
+
+        // GL_COMPUTE_WORK_GROUP_SIZE is GL_INVALID_OPERATION on a program that has not linked (GL
+        // 4.6 sec. 7.13), so it is allowed to leave the output alone - but it still reaches
+        // GetComputeLocalSize(), and it may not do so through a null reflection.
+        GLint localSize[3] = {-1, -1, -1};
+        GetProgramiv(brokenSource, GL_COMPUTE_WORK_GROUP_SIZE, localSize);
+        const GLenum computeError = TakeError();
+        ClearErrors();
+        EXPECT_TRUE(computeError == GL_INVALID_OPERATION || (localSize[0] == 0 && localSize[1] == 0 &&
+                                                             localSize[2] == 0))
+            << "either the query is refused, or it answers the initial value - never both untouched "
+               "and unreported";
+    }
+
+    // ------------------------------------------------------------- length on every path ----
+    // glGetProgramResourceiv's *length is the caller's only signal for how many entries params
+    // holds, and callers are entitled to leave it uninitialised: the CTS declares `GLsizei
+    // length;` next to a 1000-entry stack array and then loops `for (i = 0; i < length; ++i)`
+    // (gl4cProgramInterfaceQueryTests.cpp:2172). Leaving it untouched on an error path therefore
+    // does not "return nothing" - it hands the caller whatever was on its stack and makes it walk
+    // that far. KHR-GL43.program_interface_query.subroutines-vertex read 0x20202020 ("    ")
+    // entries and took the process down on BOTH backends. So: zero on every exit, real count on
+    // success. Poisoning with the exact CTS-observed value keeps the assertion honest.
+    TEST_F(ProgramInterfaceTest, GetProgramResourceivReportsLengthOnEveryExitPath) {
+        const GLuint p = MakeProgram(kSimpleVs, kSimpleFs);
+        BindAttribLocation(p, 0, "position");
+        BindFragDataLocation(p, 0, "color");
+        LinkProgram(p);
+        ExpectLinked(p);
+        ClearErrors();
+
+        constexpr GLsizei kPoison = 0x20202020;
+        constexpr GLsizei kBufSize = 16;
+        GLint params[kBufSize] = {};
+
+        const GLenum nameLengthProp = GL_NAME_LENGTH;
+        const GLenum compatibleSubroutinesProp = GL_COMPATIBLE_SUBROUTINES;
+        const GLenum notAProp = GL_TEXTURE_2D;
+
+        const auto lengthAfter = [&](GLuint program, GLenum iface, GLuint index, GLsizei propCount,
+                                     const GLenum* props, GLsizei bufSize, GLint* out) {
+            GLsizei length = kPoison;
+            GetProgramResourceiv(program, iface, index, propCount, props, bufSize, &length, out);
+            ClearErrors();
+            return length;
+        };
+
+        // The case that actually crashed: no subroutine reflection exists, so the query errors
+        // out - and the caller then trusts *length.
+        EXPECT_EQ(lengthAfter(p, GL_VERTEX_SUBROUTINE_UNIFORM, 0, 1, &compatibleSubroutinesProp, kBufSize, params), 0)
+            << "GL_VERTEX_SUBROUTINE_UNIFORM";
+        // Not a program name.
+        EXPECT_EQ(lengthAfter(p + 4242, GL_UNIFORM, 0, 1, &nameLengthProp, kBufSize, params), 0) << "bad program";
+        // Not an interface enum.
+        EXPECT_EQ(lengthAfter(p, GL_TEXTURE_2D, 0, 1, &nameLengthProp, kBufSize, params), 0) << "bad interface";
+        // propCount <= 0, bufSize < 0.
+        EXPECT_EQ(lengthAfter(p, GL_PROGRAM_OUTPUT, 0, 0, &nameLengthProp, kBufSize, params), 0) << "propCount 0";
+        EXPECT_EQ(lengthAfter(p, GL_PROGRAM_OUTPUT, 0, 1, &nameLengthProp, -1, params), 0) << "negative bufSize";
+        // props == nullptr.
+        EXPECT_EQ(lengthAfter(p, GL_PROGRAM_OUTPUT, 0, 1, nullptr, kBufSize, params), 0) << "null props";
+        // A prop this command does not know at all.
+        EXPECT_EQ(lengthAfter(p, GL_PROGRAM_OUTPUT, 0, 1, &notAProp, kBufSize, params), 0) << "unknown prop";
+        // A prop it knows but this interface does not carry.
+        EXPECT_EQ(lengthAfter(p, GL_PROGRAM_OUTPUT, 0, 1, &compatibleSubroutinesProp, kBufSize, params), 0)
+            << "prop/interface mismatch";
+        // Index past the end of a real interface.
+        EXPECT_EQ(lengthAfter(p, GL_PROGRAM_OUTPUT, 9999, 1, &nameLengthProp, kBufSize, params), 0) << "bad index";
+        // Nowhere to put the values.
+        EXPECT_EQ(lengthAfter(p, GL_PROGRAM_OUTPUT, 0, 1, &nameLengthProp, kBufSize, nullptr), 0) << "null params";
+
+        // ...and the success path still reports the count it actually wrote.
+        const GLuint outputIndex = GetProgramResourceIndex(p, GL_PROGRAM_OUTPUT, "color");
+        ASSERT_NE(outputIndex, GL_INVALID_INDEX);
+        GLsizei length = kPoison;
+        GetProgramResourceiv(p, GL_PROGRAM_OUTPUT, outputIndex, 1, &nameLengthProp, kBufSize, &length, params);
+        EXPECT_EQ(TakeError(), GL_NO_ERROR);
+        EXPECT_EQ(length, 1);
+        EXPECT_EQ(params[0], 6) << "GL_NAME_LENGTH counts the terminator";
+    }
 } // namespace

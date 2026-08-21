@@ -1491,8 +1491,8 @@ namespace MobileGL::MG_Impl::GLImpl {
     // offset and size, which is also how glBindBuffersRange spells "reset this element"
     // (a NULL buffers array, or a zero entry inside one).
     static Bool ValidateBufferRangeOffsetAndSize(GLenum target, GLintptr offset, GLsizeiptr size,
-                                                 const char* funcName) {
-        if (size <= 0) {
+                                                 const char* funcName, Bool hasBuffer = true) {
+        if (hasBuffer && size <= 0) {
             MG_State::pGLContext->RecordError(
                 ErrorCode::InvalidValue,
                 MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", funcName,
@@ -1527,16 +1527,27 @@ namespace MobileGL::MG_Impl::GLImpl {
                 return false;
             }
         }
-        // A transform feedback capture binding is addressed in 32-bit components, so BOTH the
-        // offset and the size must be multiples of 4.
-        if (target == GL_TRANSFORM_FEEDBACK_BUFFER && ((offset % 4) != 0 || (size % 4) != 0)) {
+        // GL 4.6 core 6.1.1 constrains the OFFSET to a multiple of four for both
+        // TRANSFORM_FEEDBACK_BUFFER and ATOMIC_COUNTER_BUFFER (the atomic-counter one has no
+        // queryable alignment pname, which is why it was missing here), and the SIZE only for
+        // transform feedback, whose capture is written in whole 32-bit components. Extending the
+        // size rule to atomic counters as well breaks a legal bind: the conformance suite splits
+        // MAX_ATOMIC_COUNTER_BUFFER_SIZE evenly across the binding points and that quotient is
+        // not required to land on four.
+        if ((target == GL_TRANSFORM_FEEDBACK_BUFFER || target == GL_ATOMIC_COUNTER_BUFFER) && (offset % 4) != 0) {
+            MG_State::pGLContext->RecordError(
+                ErrorCode::InvalidValue,
+                MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", funcName,
+                                             std::format("offset ({}) must be a multiple of 4 for {}.", offset,
+                                                         MG_Util::ConvertGLEnumToString(target))));
+            return false;
+        }
+        if (target == GL_TRANSFORM_FEEDBACK_BUFFER && hasBuffer && (size % 4) != 0) {
             MG_State::pGLContext->RecordError(
                 ErrorCode::InvalidValue,
                 MakeUnique<GenericErrorInfo>(
                     "MG_Impl/GLImpl", funcName,
-                    std::format("offset ({}) and size ({}) must both be multiples of 4 for "
-                                "GL_TRANSFORM_FEEDBACK_BUFFER.",
-                                offset, size)));
+                    std::format("size ({}) must be a multiple of 4 for GL_TRANSFORM_FEEDBACK_BUFFER.", size)));
             return false;
         }
         return true;
@@ -1548,7 +1559,12 @@ namespace MobileGL::MG_Impl::GLImpl {
         BufferTarget bufferTarget = MG_Util::ConvertGLEnumToBufferTarget(target);
         if (!BufferImpl::ValidateBufferBindingPointTarget(bufferTarget)) return;
         if (!BufferImpl::ValidateBufferBindingPointIndex(bufferTarget, index)) return;
-        if (buffer != 0 && !ValidateBufferRangeOffsetAndSize(target, offset, size, __func__)) return;
+        // The target's alignment rules are a property of the BINDING POINT, not of the buffer,
+        // so they apply even when buffer is zero - which is exactly how
+        // KHR-GL43.shader_storage_buffer_object.negative-api-bind probes the SSBO alignment
+        // (glBindBufferRange(SHADER_STORAGE_BUFFER, 0, 0, alignment - 1, 0)). Only the size
+        // rules need a buffer, since buffer 0 detaches the binding point and ignores size.
+        if (!ValidateBufferRangeOffsetAndSize(target, offset, size, __func__, /*hasBuffer: */ buffer != 0)) return;
         if (bufferTarget == BufferTarget::TransformFeedback && MG_State::pGLContext->IsTransformFeedbackActive()) {
             MG_State::pGLContext->RecordError(
                 ErrorCode::InvalidOperation,
@@ -1732,10 +1748,30 @@ namespace MobileGL::MG_Impl::GLImpl {
         return BufferImpl::ValidateBufferBindingPointRange(bufferTarget, first, count, funcName);
     }
 
+    // ARB_multi_bind states the equivalence to a loop of single binds "except that ... buffers
+    // will not be created if they do not exist": glBindBuffer instantiates a name glGenBuffers
+    // merely reserved, glBindBuffers* must refuse it and raise INVALID_OPERATION instead
+    // (KHR-GL44.multi_bind.errors_bind_buffers).
+    //
+    // Deliberately PER ELEMENT, not all-or-nothing: the equivalence the extension defines is a
+    // loop, so a bad entry costs its own binding point and nothing else. Rejecting the whole
+    // call instead cost multi_bind.functional_bind_buffers_base its bindings.
+    static Bool IsExistingBufferForMultiBind(GLuint buffer, GLsizei index, const char* funcName) {
+        if (buffer == 0 || MG_State::pGLContext->ValidateBufferObject(buffer)) return true;
+        MG_State::pGLContext->RecordError(
+            ErrorCode::InvalidOperation,
+            MakeUnique<GenericErrorInfo>(
+                "MG_Impl/GLImpl", funcName,
+                std::format("buffers[{}] ({}) is not the name of an existing buffer object.", index, buffer)));
+        return false;
+    }
+
     void BindBuffersBase(GLenum target, GLuint first, GLsizei count, const GLuint* buffers) {
         if (!ValidateMultiBindBufferRange(target, first, count, __func__)) return;
         for (GLsizei i = 0; i < count; ++i) {
-            BindBufferBase_State(target, first + i, buffers ? buffers[i] : 0);
+            const GLuint buffer = buffers ? buffers[i] : 0;
+            if (!IsExistingBufferForMultiBind(buffer, i, __func__)) continue;
+            BindBufferBase_State(target, first + i, buffer);
         }
     }
 
@@ -1749,6 +1785,7 @@ namespace MobileGL::MG_Impl::GLImpl {
                           const GLsizeiptr* sizes) {
         if (!ValidateMultiBindBufferRange(target, first, count, __func__)) return;
         for (GLsizei i = 0; i < count; ++i) {
+            if (buffers && !IsExistingBufferForMultiBind(buffers[i], i, __func__)) continue;
             if (!buffers || buffers[i] == 0) {
                 BindBufferBase_State(target, first + i, 0);
             } else {

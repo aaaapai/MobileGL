@@ -163,21 +163,31 @@ namespace MobileGL {
                 }
                 void UseProgram(Uint program);
                 const SharedPtr<ProgramObject>& GetCurrentProgram();
-                // What a draw or dispatch actually executes: the program in use, or - when
-                // there is none - the bound pipeline's stages composited into one program.
+                // What a DRAW executes: the program in use, or - when there is none - the bound
+                // pipeline's GRAPHICS stages composited into one program. A pipeline's compute
+                // stage is never part of that composite; ask GetProgramForDispatch for it.
                 const SharedPtr<ProgramObject>& GetProgramForDraw();
+                // What a DISPATCH executes: the program in use, or - when there is none - the
+                // bound pipeline's compute stage program itself. GL's compute stage is a whole
+                // program on its own (GL 4.6 core 7.4: it may not be linked with any other
+                // stage), so there is nothing to composite and no composite to cache.
+                const SharedPtr<ProgramObject>& GetProgramForDispatch();
                 // What glUniform* addresses: the program in use, or the bound pipeline's
                 // active program (GL 4.6 core 7.6.1).
                 const SharedPtr<ProgramObject>& GetProgramForUniform();
 
                 // Program pipeline (GL_ARB_separate_shader_objects, GL 4.6 core 7.4). Like queries
                 // and transform feedbacks, glGenProgramPipelines only RESERVES a name - the object
-                // appears on first bind - while glCreateProgramPipelines makes it immediately.
+                // appears on first USE (any of bind, UseProgramStages, ActiveShaderProgram,
+                // ValidateProgramPipeline) - while glCreateProgramPipelines makes it immediately.
                 void GenProgramPipelineNames(Uint number, Vector<Uint>& pipelines);
                 void CreateProgramPipelineObject(Uint index);
                 Bool ValidateProgramPipelineName(Uint index) const;
                 Bool IsProgramPipelineObject(Uint index) const;
                 void BindProgramPipelineObject(Uint index);
+                // Materializes a reserved name; returns null for 0 or a name that is not a live
+                // GenProgramPipelines name.
+                const SharedPtr<ProgramPipelineObject>& MaterializeProgramPipelineObject(Uint index);
                 void MarkProgramPipelineForDeletion(Uint index);
                 const SharedPtr<ProgramPipelineObject>& GetProgramPipelineObject(Uint index) const;
                 Uint GetBoundProgramPipelineName() const { return m_boundProgramPipeline; }
@@ -447,8 +457,10 @@ namespace MobileGL {
                 UnorderedMap<Uint, TransformFeedbackObjectState> m_transformFeedbackObjects;
                 IndexGenerator<Uint> m_transformFeedbackNames;
                 Uint m_boundTransformFeedback = 0;
-                // Map membership IS object existence here: a pipeline has no stateful default
-                // object 0, so no everBound flag is needed.
+                // Map membership is object EXISTENCE, which is not the same as the answer
+                // glIsProgramPipeline gives: any command that needs somewhere to put state
+                // materializes a reserved name, so the object can exist well before it is
+                // bound. ProgramPipelineObject::everBound carries the Is* answer.
                 UnorderedMap<Uint, SharedPtr<ProgramPipelineObject>> m_programPipelines;
                 IndexGenerator<Uint> m_programPipelineNames;
                 Uint m_boundProgramPipeline = 0;

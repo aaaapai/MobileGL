@@ -12,7 +12,10 @@
 #include "MG_Util/ShaderTranspiler/ShaderCompiler.h"
 #include "MG_Util/ShaderTranspiler/SpvcSession.h"
 #include "MG_Util/ShaderTranspiler/Types.h"
+#include <algorithm>
 #include <cstring>
+#include <map>
+#include <utility>
 #include <spirv-tools/libspirv.h>
 #include <spirv-tools/optimizer.hpp>
 #include <source/opt/build_module.h>
@@ -937,6 +940,189 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             ProgramFactory::CompileOptionFlags m_transformFlags;
         };
 
+        // gl_FragCoord back into GL's window space, for default-framebuffer draws only.
+        //
+        // Vulkan's gl_FragCoord.y is the framebuffer ROW being written - not a value the
+        // viewport rect can move independently of placement. The default framebuffer's image is
+        // stored display-side-up and the vertex stage compensates by negating gl_Position.y, so
+        // for every default-FBO draw the framebuffer row of a fragment is exactly
+        // `height - y_GL` (the viewport terms cancel: yf_VK = H - yf_GL for any viewport rect).
+        // A shader that reads gl_FragCoord therefore sees a flipped Y, and once the viewport
+        // rect started being converted to the stored orientation it also sees a Y that is
+        // OUTSIDE the range GL promises - a 32-pixel-tall viewport at GL y=0 reports 224..255 on
+        // a 256-tall surface. GL CTS shader_image_load_store writes imageStore(image,
+        // ivec2(gl_FragCoord.xy)) into an image exactly the size of that viewport, so every
+        // store fell outside the image and the test read back zeroes.
+        //
+        // The rewrite redirects every read of the builtin to a Private copy initialised once at
+        // entry, which is exact for all access forms (whole-vector loads, `.y` access chains,
+        // OpCopyMemory) and leaves the builtin itself - and its decorations - untouched.
+        class GlFragCoordYFlipPass final : public spvtools::opt::Pass {
+        public:
+            const char* name() const override { return "mobilegl-fragcoord-y-flip"; }
+            explicit GlFragCoordYFlipPass(Uint32 framebufferHeight) : m_framebufferHeight(framebufferHeight) {}
+
+            Status Process() override {
+                using namespace spvtools::opt;
+                if (m_framebufferHeight == 0) return Status::SuccessWithoutChange;
+
+                Instruction* entryPoint = nullptr;
+                for (auto& candidate : get_module()->entry_points()) {
+                    if (candidate.NumInOperands() >= 2 &&
+                        static_cast<spv::ExecutionModel>(candidate.GetSingleWordInOperand(0)) ==
+                            spv::ExecutionModel::Fragment) {
+                        entryPoint = &candidate;
+                        break;
+                    }
+                }
+                if (!entryPoint) return Status::SuccessWithoutChange;
+
+                const Uint32 builtinVarId = FindFragCoordVariable();
+                if (builtinVarId == 0) return Status::SuccessWithoutChange;
+
+                Instruction* builtinVar = context()->get_def_use_mgr()->GetDef(builtinVarId);
+                if (!builtinVar || builtinVar->opcode() != spv::Op::OpVariable) return Status::SuccessWithoutChange;
+
+                // The builtin is `Input vec4`; take the vector and component types from its own
+                // pointer type rather than assuming float32x4, so a module that spells it
+                // differently declines instead of miscompiling.
+                Instruction* inputPtrType = context()->get_def_use_mgr()->GetDef(builtinVar->type_id());
+                if (!inputPtrType || inputPtrType->opcode() != spv::Op::OpTypePointer) {
+                    return Status::SuccessWithoutChange;
+                }
+                const Uint32 vectorTypeId = inputPtrType->GetSingleWordInOperand(1);
+                Instruction* vectorType = context()->get_def_use_mgr()->GetDef(vectorTypeId);
+                if (!vectorType || vectorType->opcode() != spv::Op::OpTypeVector ||
+                    vectorType->GetSingleWordInOperand(1) != 4) {
+                    return Status::SuccessWithoutChange;
+                }
+                const Uint32 floatTypeId = vectorType->GetSingleWordInOperand(0);
+                auto* floatType = context()->get_type_mgr()->GetType(floatTypeId);
+                if (!floatType || !floatType->AsFloat() || floatType->AsFloat()->width() != 32) {
+                    return Status::SuccessWithoutChange;
+                }
+
+                const auto heightBits = std::bit_cast<Uint32>(static_cast<float>(m_framebufferHeight));
+                const auto* heightConst = context()->get_constant_mgr()->GetConstant(floatType, {heightBits});
+                auto* heightInst = context()->get_constant_mgr()->GetDefiningInstruction(heightConst);
+                if (!heightInst) return Status::SuccessWithoutChange;
+
+                auto* function = context()->GetFunction(entryPoint->GetSingleWordInOperand(1));
+                if (!function || function->begin() == function->end()) return Status::SuccessWithoutChange;
+
+                const Uint32 privatePtrTypeId =
+                    context()->get_type_mgr()->FindPointerToType(vectorTypeId, spv::StorageClass::Private);
+                if (privatePtrTypeId == 0) return Status::SuccessWithoutChange;
+
+                const Uint32 copyVarId = context()->TakeNextId();
+                if (copyVarId == 0) return Status::SuccessWithoutChange;
+                auto copyVar = std::make_unique<Instruction>(
+                    context(), spv::Op::OpVariable, privatePtrTypeId, copyVarId,
+                    std::initializer_list<Operand>{
+                        {SPV_OPERAND_TYPE_STORAGE_CLASS, {static_cast<Uint32>(spv::StorageClass::Private)}}});
+                context()->AddGlobalValue(std::move(copyVar));
+
+                // Redirect the reads BEFORE emitting the initialiser, so the initialiser's own
+                // load of the builtin is not rewritten into a load of the (still empty) copy.
+                if (!RedirectReads(builtinVarId, copyVarId)) return Status::SuccessWithoutChange;
+
+                auto& entryBlock = *function->begin();
+                auto insertPoint = entryBlock.begin();
+                while (insertPoint != entryBlock.end() && insertPoint->opcode() == spv::Op::OpVariable) {
+                    ++insertPoint;
+                }
+                if (insertPoint == entryBlock.end()) return Status::SuccessWithoutChange;
+
+                InstructionBuilder builder(context(), &*insertPoint,
+                                           IRContext::kAnalysisDefUse | IRContext::kAnalysisInstrToBlockMapping);
+                auto* raw = builder.AddLoad(vectorTypeId, builtinVarId);
+                if (!raw) return Status::SuccessWithoutChange;
+                auto* x = builder.AddCompositeExtract(floatTypeId, raw->result_id(), {0});
+                auto* y = builder.AddCompositeExtract(floatTypeId, raw->result_id(), {1});
+                auto* z = builder.AddCompositeExtract(floatTypeId, raw->result_id(), {2});
+                auto* w = builder.AddCompositeExtract(floatTypeId, raw->result_id(), {3});
+                if (!x || !y || !z || !w) return Status::SuccessWithoutChange;
+                auto* flippedY =
+                    builder.AddBinaryOp(floatTypeId, spv::Op::OpFSub, heightInst->result_id(), y->result_id());
+                if (!flippedY) return Status::SuccessWithoutChange;
+                auto* corrected = builder.AddCompositeConstruct(
+                    vectorTypeId, {x->result_id(), flippedY->result_id(), z->result_id(), w->result_id()});
+                if (!corrected) return Status::SuccessWithoutChange;
+                if (!builder.AddStore(copyVarId, corrected->result_id())) return Status::SuccessWithoutChange;
+
+                // SPIR-V 1.4 widened the entry-point interface to every global the entry point
+                // statically uses, Private included; earlier versions accept Input/Output only,
+                // so listing it there would be invalid.
+                if (get_module()->version() >= 0x00010400u) {
+                    entryPoint->AddOperand({SPV_OPERAND_TYPE_ID, {copyVarId}});
+                    context()->AnalyzeUses(entryPoint);
+                }
+
+                context()->InvalidateAnalysesExceptFor(spvtools::opt::IRContext::kAnalysisDefUse |
+                                                       spvtools::opt::IRContext::kAnalysisInstrToBlockMapping);
+                return Status::SuccessWithChange;
+            }
+
+        private:
+            Uint32 FindFragCoordVariable() const {
+                for (const auto& annotation : get_module()->annotations()) {
+                    if (annotation.opcode() != spv::Op::OpDecorate) continue;
+                    if (annotation.NumInOperands() < 3) continue;
+                    if (static_cast<spv::Decoration>(annotation.GetSingleWordInOperand(1)) !=
+                        spv::Decoration::BuiltIn) {
+                        continue;
+                    }
+                    if (static_cast<spv::BuiltIn>(annotation.GetSingleWordInOperand(2)) != spv::BuiltIn::FragCoord) {
+                        continue;
+                    }
+                    return annotation.GetSingleWordInOperand(0);
+                }
+                return 0;
+            }
+
+            // Every instruction that reads through the builtin's POINTER gets the copy instead.
+            // Decorations, names and the entry-point interface keep naming the builtin.
+            Bool RedirectReads(Uint32 builtinVarId, Uint32 copyVarId) {
+                using namespace spvtools::opt;
+                Bool ok = true;
+                Vector<Instruction*> users;
+                context()->get_def_use_mgr()->ForEachUser(builtinVarId, [&](Instruction* user) {
+                    switch (user->opcode()) {
+                    case spv::Op::OpLoad:
+                    case spv::Op::OpAccessChain:
+                    case spv::Op::OpInBoundsAccessChain:
+                    case spv::Op::OpPtrAccessChain:
+                    case spv::Op::OpInBoundsPtrAccessChain:
+                    case spv::Op::OpCopyMemory:
+                    case spv::Op::OpCopyMemorySized:
+                        users.push_back(user);
+                        break;
+                    case spv::Op::OpStore:
+                        // gl_FragCoord is read-only; a store through it means this is not the
+                        // module we think it is.
+                        ok = false;
+                        break;
+                    default:
+                        break;
+                    }
+                });
+                if (!ok) return false;
+                for (Instruction* user : users) {
+                    for (Uint32 i = 0; i < user->NumInOperands(); ++i) {
+                        auto& operand = user->GetInOperand(i);
+                        if (operand.type == SPV_OPERAND_TYPE_ID && !operand.words.empty() &&
+                            operand.words[0] == builtinVarId) {
+                            operand.words[0] = copyVarId;
+                        }
+                    }
+                    context()->AnalyzeUses(user);
+                }
+                return true;
+            }
+
+            Uint32 m_framebufferHeight = 0;
+        };
+
         // Decorates the module's captured varyings for VK_EXT_transform_feedback:
         // user outputs get XfbBuffer/XfbStride/Offset directly; a captured
         // gl_Position (a gl_PerVertex member) is mirrored into a dedicated output
@@ -948,6 +1134,15 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                 std::string name;
                 Uint32 bufferIndex = 0;
                 Uint32 offsetBytes = 0;
+                // Set when the capture names a member of an output interface block
+                // ("Block.member"): the decoration target is then the block's struct TYPE,
+                // decorated per member, not the variable. `name` keeps the GL spelling and
+                // is useless for the id lookup, so the instance name is carried separately.
+                std::string blockInstanceName;
+                std::string blockName;
+                Int blockMemberIndex = -1;
+                Int blockMemberElement = -1; // array element of that member, -1 = the whole member
+                Uint32 byteSize = 0;
             };
             const char* name() const override { return "mobilegl-xfb-capture-decorate"; }
             XfbCaptureDecoratePass(Vector<CapturedVarying> varyings, Vector<Uint32> strides)
@@ -979,6 +1174,33 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                     decorationManager->AddDecorationVal(targetId, static_cast<Uint32>(spv::Decoration::Offset),
                                                         offsetBytes);
                 };
+                // SPIR-V puts XfbBuffer/XfbStride/Offset on the struct MEMBER when the
+                // captured varying lives in an interface block (SPIR-V 1.6 §3.20 lists all
+                // three as member-decoratable); Offset in particular is illegal on the block
+                // variable once the type is decorated Block.
+                const auto decorateMemberForXfb = [&](Uint32 structTypeId, Uint32 memberIndex, Uint32 bufferIndex,
+                                                      Uint32 offsetBytes) {
+                    const Uint32 stride = bufferIndex < m_strides.size() ? m_strides[bufferIndex] : 0;
+                    decorationManager->AddMemberDecoration(structTypeId, memberIndex,
+                                                           static_cast<Uint32>(spv::Decoration::XfbBuffer),
+                                                           bufferIndex);
+                    decorationManager->AddMemberDecoration(structTypeId, memberIndex,
+                                                           static_cast<Uint32>(spv::Decoration::XfbStride), stride);
+                    decorationManager->AddMemberDecoration(structTypeId, memberIndex,
+                                                           static_cast<Uint32>(spv::Decoration::Offset), offsetBytes);
+                };
+
+                // A member array captured element by element ("Block.attrib[0]" .. "[15]")
+                // is one SPIR-V member, so its captures collapse into a single decoration
+                // placed at the first element's offset - the rest follow from the member's
+                // own layout. Collected first so the group is complete before it decorates.
+                struct MemberGroup {
+                    Uint32 bufferIndex = 0;
+                    Uint32 minOffset = 0;
+                    Uint32 elementBytes = 0;
+                    Vector<Uint32> offsets;
+                };
+                std::map<std::pair<Uint32, Uint32>, MemberGroup> memberGroups;
 
                 Bool modified = false;
                 Bool needsPositionMirror = false;
@@ -991,12 +1213,66 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                         positionOffset = varying.offsetBytes;
                         continue;
                     }
+                    if (varying.blockMemberIndex >= 0) {
+                        // glslang names the block's instance variable and its struct type
+                        // separately; an anonymous instance leaves only the type named, so
+                        // both spellings are tried before giving up.
+                        Uint32 structTypeId = 0;
+                        if (const auto it = idsByName.find(varying.blockInstanceName); it != idsByName.end()) {
+                            structTypeId = BlockStructTypeOf(it->second);
+                        }
+                        if (structTypeId == 0) {
+                            if (const auto it = idsByName.find(varying.blockName); it != idsByName.end()) {
+                                const spvtools::opt::Instruction* def = context()->get_def_use_mgr()->GetDef(it->second);
+                                if (def != nullptr && def->opcode() == spv::Op::OpTypeStruct) {
+                                    structTypeId = it->second;
+                                } else if (def != nullptr && def->opcode() == spv::Op::OpVariable) {
+                                    structTypeId = BlockStructTypeOf(it->second);
+                                }
+                            }
+                        }
+                        if (structTypeId == 0) {
+                            MGLOG_E("XfbCaptureDecoratePass: no SPIR-V interface block '%s' (instance '%s') for "
+                                    "capture '%s'",
+                                    varying.blockName.c_str(), varying.blockInstanceName.c_str(),
+                                    varying.name.c_str());
+                            continue;
+                        }
+                        auto& group =
+                            memberGroups[{structTypeId, static_cast<Uint32>(varying.blockMemberIndex)}];
+                        if (group.offsets.empty() || varying.offsetBytes < group.minOffset) {
+                            group.minOffset = varying.offsetBytes;
+                        }
+                        group.bufferIndex = varying.bufferIndex;
+                        group.elementBytes = varying.byteSize;
+                        group.offsets.push_back(varying.offsetBytes);
+                        continue;
+                    }
                     const auto idIt = idsByName.find(varying.name);
                     if (idIt == idsByName.end()) {
                         MGLOG_E("XfbCaptureDecoratePass: no SPIR-V variable named '%s'", varying.name.c_str());
                         continue;
                     }
                     decorateForXfb(idIt->second, varying.bufferIndex, varying.offsetBytes);
+                    modified = true;
+                }
+
+                for (auto& [key, group] : memberGroups) {
+                    // The single Offset can only stand for the whole group when the group's
+                    // captures are a gap-free ascending run - that is what SPIR-V lays the
+                    // member's elements out as. Anything else still gets a best-effort
+                    // decoration, but say so, because the capture layout will not match GL.
+                    std::sort(group.offsets.begin(), group.offsets.end());
+                    for (SizeT i = 1; i < group.offsets.size(); ++i) {
+                        if (group.elementBytes == 0 ||
+                            group.offsets[i] != group.offsets[i - 1] + group.elementBytes) {
+                            MGLOG_I("XfbCaptureDecoratePass: block member %u of type %%%u is captured with a "
+                                    "non-contiguous element set; the capture layout will differ from GL's",
+                                    key.second, key.first);
+                            break;
+                        }
+                    }
+                    decorateMemberForXfb(key.first, key.second, group.bufferIndex, group.minOffset);
                     modified = true;
                 }
 
@@ -1021,6 +1297,27 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             }
 
         private:
+            // The struct type an interface-block variable points at, peeling an array of
+            // block instances on the way. 0 when the id is not a block variable at all.
+            Uint32 BlockStructTypeOf(Uint32 variableId) {
+                auto* defUse = context()->get_def_use_mgr();
+                const spvtools::opt::Instruction* variable = defUse->GetDef(variableId);
+                if (variable == nullptr || variable->opcode() != spv::Op::OpVariable) return 0;
+                const spvtools::opt::Instruction* pointer = defUse->GetDef(variable->type_id());
+                if (pointer == nullptr || pointer->opcode() != spv::Op::OpTypePointer) return 0;
+                Uint32 pointeeId = pointer->GetSingleWordInOperand(1);
+                for (const spvtools::opt::Instruction* pointee = defUse->GetDef(pointeeId); pointee != nullptr;
+                     pointee = defUse->GetDef(pointeeId)) {
+                    if (pointee->opcode() == spv::Op::OpTypeStruct) return pointeeId;
+                    if (pointee->opcode() != spv::Op::OpTypeArray &&
+                        pointee->opcode() != spv::Op::OpTypeRuntimeArray) {
+                        return 0;
+                    }
+                    pointeeId = pointee->GetSingleWordInOperand(0);
+                }
+                return 0;
+            }
+
             template <typename DecorateFn>
             Bool MirrorPositionForCapture(Uint32 entryFunctionId, spvtools::opt::Instruction& entryPoint,
                                           Uint32 bufferIndex, Uint32 offsetBytes, const DecorateFn& decorateForXfb) {
@@ -1301,6 +1598,35 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             return spvtools::Optimizer::PassToken(MakeUnique<GlToVulkanPositionFixPass>(transformFlags));
         }
 
+        Bool TransformSpirvForFragCoordYFlip(const Vector<Uint>& input, Vector<Uint>& output,
+                                             Uint32 framebufferHeight) {
+            if (input.empty()) {
+                output.clear();
+                return true;
+            }
+            if (framebufferHeight == 0) {
+                output = input;
+                return true;
+            }
+
+            spvtools::Optimizer optimizer(SPV_ENV_VULKAN_1_3);
+            spvtools::OptimizerOptions options;
+            options.set_run_validator(false); // see TransformSpirvForExplicitLod0Sampling
+            optimizer.SetMessageConsumer([](spv_message_level_t, const char*, const spv_position_t&,
+                                            const char* message) {
+                MGLOG_E("Vulkan: fragcoord y-flip pass: %s", message != nullptr ? message : "");
+            });
+            optimizer.RegisterPass(
+                spvtools::Optimizer::PassToken(MakeUnique<GlFragCoordYFlipPass>(framebufferHeight)));
+
+            const Bool success = optimizer.Run(input.data(), input.size(), &output, options);
+            if (!success) {
+                MGLOG_E("Vulkan: failed to run the gl_FragCoord y-flip pass; keeping the original module");
+                output = input;
+            }
+            return success;
+        }
+
         Bool TransformSpirvForXfbCapture(const Vector<Uint>& input, Vector<Uint>& output,
                                          const MG_State::GLState::ProgramObject& program) {
             if (input.empty()) {
@@ -1310,7 +1636,9 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             Vector<XfbCaptureDecoratePass::CapturedVarying> varyings;
             varyings.reserve(program.GetTransformFeedbackVaryingCount());
             for (const auto& varying : program.GetTransformFeedbackVaryings()) {
-                varyings.push_back({varying.name, varying.bufferIndex, varying.offsetBytes});
+                varyings.push_back({varying.name, varying.bufferIndex, varying.offsetBytes,
+                                    varying.blockInstanceName, varying.blockName, varying.blockMemberIndex,
+                                    varying.blockMemberElement, varying.byteSize});
             }
             Vector<Uint32> strides;
             strides.reserve(program.GetTransformFeedbackBufferCount());
@@ -1506,11 +1834,31 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                 for (auto* binding : bindings) {
                     MOBILEGL_ASSERT(binding != nullptr, "ProgramFactory: null descriptor binding reflection record");
                     const auto kind = ReflectDescriptorTypeToBindingKind(binding->descriptor_type);
-                    // UBO instance arrays (uniform Block {...} b[N];) occupy one binding with
-                    // descriptorCount = N; other descriptor arrays stay unsupported and must
-                    // fail program creation cleanly rather than continue with corrupt state.
-                    if (binding->count != 1 && kind != ProgramFactory::DescriptorBindingKind::UniformBufferDynamic) {
-                        MGLOG_E("ProgramFactory: descriptor arrays are unsupported for this descriptor "
+                    // A descriptor ARRAY occupies one binding with descriptorCount = N, and is
+                    // supported for exactly the kinds that have a per-element resolve path in
+                    // UniformManager::BindProgramUniformBuffers: UBO instance arrays
+                    // (uniform Block {...} b[N];), storage-block instance arrays, image uniform
+                    // arrays, and combined-image-sampler arrays (uniform sampler2D s[N];).
+                    // Anything else - a uniform TEXEL buffer array is the one remaining kind -
+                    // must fail program creation cleanly rather than continue with corrupt state.
+                    //
+                    // Getting listed here is not cosmetic: a kind that is rejected leaves
+                    // GetOrCreateProgram's MOBILEGL_ASSERT(remapOk) as the only complaint, and
+                    // that assert compiles out above DEBUG - so a release build SILENTLY kept
+                    // glslang's per-stage auto-mapped binding numbers, skipping the cross-stage
+                    // unification and the set->0 normalisation this function exists to do. A
+                    // program with an image array plus any second descriptor got aliased
+                    // bindings out of that, and a DEBUG build trapped on the same program.
+                    // Which is also why the message below is MGLOG_I: MGLOG_E is compiled out
+                    // of an INFO build, so a refusal that only said MGLOG_E said nothing at all
+                    // in the builds that ship.
+                    const Bool arraySupportedForKind =
+                        kind == ProgramFactory::DescriptorBindingKind::UniformBufferDynamic ||
+                        kind == ProgramFactory::DescriptorBindingKind::StorageBuffer ||
+                        kind == ProgramFactory::DescriptorBindingKind::StorageImage ||
+                        kind == ProgramFactory::DescriptorBindingKind::CombinedImageSampler;
+                    if (binding->count != 1 && !arraySupportedForKind) {
+                        MGLOG_I("ProgramFactory: descriptor arrays are unsupported for this descriptor "
                                 "kind (name='%s' count=%u type=%d)",
                                 binding->name ? binding->name : "<null>", binding->count,
                                 static_cast<Int>(binding->descriptor_type));
@@ -1772,6 +2120,12 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             XXHASH_VERIFY(XXH64_update(m_hashState, spv.data(), spv.size() * sizeof(Uint)));
         }
         XXHASH_VERIFY(XXH64_update(m_hashState, &flags, sizeof(CompileOptionFlags)));
+        // Only FragCoordYFlip variants bake the height in, so mixing it unconditionally would
+        // re-key every program in the cache on a resize for no reason.
+        if (flags & CompileOptionBit::FragCoordYFlip) {
+            XXHASH_VERIFY(XXH64_update(m_hashState, &m_defaultFramebufferHeight,
+                                        sizeof(m_defaultFramebufferHeight)));
+        }
 
         // Include UBO block bindings in hash so different binding configurations produce different entries
         const Uint32 blockCount = static_cast<Uint32>(program.GetActiveUniformBlocksCount());
@@ -2037,6 +2391,78 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         }
     }
 
+    // How many descriptors to declare for an ARRAY of opaque uniforms (samplers, images) at one
+    // binding. A returned count is always DECLARED in the descriptor set layout; `outDeclined`
+    // says whether the binding can also be RESOLVED at draw time, or whether the program has to
+    // be refused instead.
+    //
+    // Those are deliberately two different things. The layout must keep describing what the
+    // shader declares even for a binding MobileGL cannot resolve: a descriptor the shader reads
+    // and the layout omits is not a missing draw, it is an undefined descriptor access, and
+    // lavapipe segfaults on it inside pipeline creation - in a JIT worker thread, before any
+    // draw runs, which is why removing the binding produced a flaky crash rather than a clean
+    // refusal. Declining is done by refusing the draw (VkProgramObject::declinedDescriptors),
+    // not by shrinking the layout.
+    //
+    // Two separate things have to hold, and neither is checkable from the SPIR-V alone:
+    //
+    //  * the count has to fit a VkDescriptorSetLayoutBinding this device will accept, and fit
+    //    the Uint16 it is stored in (65536 would narrow to 0) and the scratch the bind path
+    //    reserves from it;
+    //  * the frontend reflection has to have RESERVED that many consecutive uniform locations
+    //    for this uniform, because the per-element resolve paths address element k as
+    //    baseLocation + k. SPIRV-Reflect's `count` is the FLATTENED element count, while GL
+    //    locations follow the OUTER dimension only (ProgramObject::GetUniformArraySizeByTIndex
+    //    answers TType::getOuterArraySize()). For a one-dimensional array the two agree; for
+    //    `uniform sampler2D g[2][3]` SPIR-V says 6 where the reflection reserved 2, and
+    //    elements 2..5 would silently resolve onto whichever uniform got the next locations.
+    //
+    // Asking the reflection whether baseLocation and baseLocation + count - 1 are slots of the
+    // SAME uniform tests exactly that precondition, without this code having to model how
+    // glslang chooses to lay an array of arrays out.
+    //
+    // That is NOT on its own enough to start supporting the shape, though, and this check must
+    // not be relaxed alone: the binding-qualifier unit seeding in ProgramLinkTask looks an
+    // opaque uniform up by its name minus a trailing "[0]", so `goku[0][0]` misses the `goku`
+    // key and every element of an array of arrays seeds texture unit 0. Resolving those elements
+    // would then paint silently-wrong pixels with no diagnostic at all - strictly worse than
+    // declining. The decline goes away together with the seeding fix, not before it.
+    static Uint32 DescriptorCountForOpaqueUniformArray(const MG_State::GLState::ProgramObject& program,
+                                                       const String& uniformName, Uint32 binding, Int baseLocation,
+                                                       Uint32 reflectedCount, Uint32 maxBindings,
+                                                       const char* kindLabel, Bool& outDeclined) {
+        const Uint32 count = std::max<Uint32>(1u, reflectedCount);
+        if (count == 1) {
+            return 1u;
+        }
+        if (count > maxBindings) {
+            // Nothing legal to declare: the count would not fit a VkDescriptorSetLayoutBinding
+            // this device accepts, and it would narrow badly into the Uint16 that carries it
+            // (65536 becomes 0). Unlike the extent case below, this one CANNOT keep the layout
+            // consistent with the shader, so refusing the draw does not fully protect it - the
+            // driver still JITs a shader indexing past the declared count. Declaring as many as
+            // the device allows keeps vkCreateDescriptorSetLayout succeeding and the program
+            // inert; a device whose binding cap is smaller than a shader's array is not a
+            // configuration MobileGL can serve at all. Needs a >maxBindings-element array to
+            // reach (256 on desktop, ~16 on mobile).
+            MGLOG_I("ProgramFactory::ReflectLayout: %s array '%s' at binding %u has %u elements, past the %u "
+                    "this device can describe - declining the program",
+                    kindLabel, uniformName.c_str(), binding, count, maxBindings);
+            outDeclined = true;
+            return maxBindings;
+        }
+        if (baseLocation < 0 ||
+            !program.UniformLocationsAliasSameUniform(baseLocation, baseLocation + static_cast<Int>(count - 1u))) {
+            MGLOG_I("ProgramFactory::ReflectLayout: %s array '%s' at binding %u spans %u descriptors but the "
+                    "reflection reserved fewer uniform locations for it (base=%d) - a multi-dimensional array "
+                    "is the usual cause, and MobileGL declines it rather than resolve elements onto a "
+                    "neighbouring uniform",
+                    kindLabel, uniformName.c_str(), binding, count, baseLocation);
+            outDeclined = true;
+        }
+        return count;
+    }
+
     void ProgramFactory::ReflectLayout(const MG_State::GLState::ProgramObject& program,
                                        const Vector<Vector<Uint>>& spirv, VkProgramObject& entry) const {
         // Initialize layout vectors
@@ -2054,6 +2480,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         entry.dynamicBindings.clear();
         entry.bindingDescriptorCounts.assign(m_maxBindings, 1);
         entry.arrayedUniformBlockIndicesByBinding.clear();
+        entry.declinedDescriptors = false;
 
         // Use SpvcSession (Reflection mode) to reflect all SPIR-V modules in a single pass per module
         for (const auto& module : spirv) {
@@ -2244,11 +2671,58 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                     }
                     entry.storageBlockNameByBinding[binding] = uniformName;
                     entry.storageBlockIndexByBinding[binding] = static_cast<Int>(blockIndex);
+
+                    // A block INSTANCE array is ONE Vulkan binding carrying `count`
+                    // descriptors, while GL assigns its elements consecutive binding points
+                    // starting at the declared one (GL 4.6 core 7.8). Recording only element 0 -
+                    // which is all this used to do - left the layout claiming descriptorCount 1,
+                    // so every element past the first read a descriptor nobody wrote and
+                    // `b[1].data.length()` answered from an unconstrained buffer instead of its
+                    // own bound range (KHR-GL43.shader_storage_buffer_object.-
+                    // advanced-unsizedArrayLength-*).
+                    //
+                    // Bounds-checked like every other array kind. The EXTENT rule differs - a
+                    // block array's elements take consecutive GL binding points rather than
+                    // consecutive uniform locations, so DescriptorCountForOpaqueUniformArray's
+                    // location test does not apply here - but the size rule is identical: this
+                    // count goes straight into a VkDescriptorSetLayoutBinding and is narrowed to
+                    // a Uint16 on the way, where 65536 would silently become 0.
+                    const Uint32 storageArrayCount = std::max<Uint32>(1u, sampler->count);
+                    if (storageArrayCount > m_maxBindings) {
+                        MGLOG_I("ProgramFactory::ReflectLayout: storage block array '%s' at binding %u has %u "
+                                "elements, past the %u this device can describe - declining the program",
+                                uniformName.c_str(), binding, storageArrayCount, m_maxBindings);
+                        entry.declinedDescriptors = true;
+                        entry.bindingDescriptorCounts[binding] = static_cast<Uint16>(m_maxBindings);
+                        continue;
+                    }
+                    entry.bindingDescriptorCounts[binding] = static_cast<Uint16>(storageArrayCount);
                     continue;
                 }
 
                 const Int location = program.GetUniformLocation(uniformName);
                 if (location < 0) {
+                    // A uniform with no location is ordinarily one GL never made active, and
+                    // dropping it is routine. An ARRAY reaching here is not routine: it is the
+                    // multi-dimensional case. `uniform sampler2D g[2][3]` arrives from
+                    // SPIRV-Reflect as one binding of 6 descriptors named "g", while the frontend
+                    // reflection keys an array of arrays by its full "[0]"-terminated spelling
+                    // ("g[0][0]"), so no base location resolves and the per-element paths have
+                    // nothing to count from. Declining is the honest answer - but it has to SAY
+                    // so at a level that survives a release build, because dropping the binding
+                    // leaves the shader reading a descriptor the layout never declared.
+                    if (sampler->count > 1) {
+                        MGLOG_I("ProgramFactory::ReflectLayout: declining '%s' at binding %u - a %u-element "
+                                "descriptor array with no frontend uniform location (a multi-dimensional array "
+                                "of samplers or images is the known cause)",
+                                uniformName.c_str(), binding, sampler->count);
+                        entry.declinedDescriptors = true;
+                        // Declared, not resolved - see DescriptorCountForOpaqueUniformArray for
+                        // why the layout keeps describing a binding the draw path will refuse.
+                        entry.bindingDescriptorCounts[binding] =
+                            static_cast<Uint16>(std::min<Uint32>(sampler->count, m_maxBindings));
+                        continue;
+                    }
                     entry.bindingKinds[binding] = DescriptorBindingKind::None;
                     continue;
                 }
@@ -2256,6 +2730,24 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                 const GLenum uniformType = program.GetUniformType(static_cast<Uint>(location));
 
                 if (descriptorKind == DescriptorBindingKind::StorageImage) {
+                    // An ARRAY of image uniforms is ONE binding carrying `count` descriptors,
+                    // and the layout has to say so. Leaving it at the default 1 declared
+                    // `uniform image2D g_image[4]` as a single-descriptor binding while the
+                    // shader indexed descriptors 1..3 of it - an out-of-bounds descriptor
+                    // access that lavapipe SIGSEGVs inside the JIT-ed shader thread rather than
+                    // reporting (KHR-GL42.shader_image_load_store.advanced-sso-simple). Unlike
+                    // a storage BLOCK array, whose elements take consecutive GL binding points
+                    // from the declared one, each element of an image array carries its own
+                    // independently assigned image unit - see ResolveStorageImageDescriptor.
+                    // Bounds- and extent-checked like the UBO array path above; see
+                    // DescriptorCountForOpaqueUniformArray for what "declined" costs and why
+                    // the reflection's reserved extent - not SPIRV-Reflect's flattened count -
+                    // is what the per-element resolve can actually address.
+                    const Uint32 imageArrayCount =
+                        DescriptorCountForOpaqueUniformArray(program, uniformName, binding, location, sampler->count,
+                                                             m_maxBindings, "image", entry.declinedDescriptors);
+                    entry.bindingDescriptorCounts[binding] = static_cast<Uint16>(imageArrayCount);
+
                     const VkFormat reflectedFormat =
                         ConvertSpirvImageFormatToVkFormat(sampler->image.image_format);
                     VkFormat& existingFormat = entry.storageImageFormatByBinding[binding];
@@ -2286,6 +2778,20 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                                 "ProgramFactory::ReflectLayout: failed to resolve texture target for '%s'",
                                 uniformName.c_str());
                 if (descriptorKind == DescriptorBindingKind::CombinedImageSampler) {
+                    // An ARRAY of sampler uniforms is ONE binding carrying `count` descriptors,
+                    // exactly like the image array above, and for the same reason: GLSL 4.20
+                    // gives `layout(binding = 1) uniform sampler2D goku[4]` one declaration
+                    // spanning texture units 1..4, each element with its own glUniform1i-assigned
+                    // unit. Leaving descriptorCount at 1 declared a single-descriptor binding
+                    // while the shader indexed descriptors 1..3 of it, and the bind path wrote
+                    // only element 0 - so elements 1..N read a descriptor nobody had written
+                    // (KHR-GL42.shading_language_420pack.binding_sampler_array; lavapipe faults
+                    // inside the JIT-ed shader rather than reporting).
+                    const Uint32 samplerArrayCount =
+                        DescriptorCountForOpaqueUniformArray(program, uniformName, binding, location, sampler->count,
+                                                             m_maxBindings, "sampler", entry.declinedDescriptors);
+                    entry.bindingDescriptorCounts[binding] = static_cast<Uint16>(samplerArrayCount);
+
                     const SamplerNumericDomain numericDomain = UniformTypeToSamplerNumericDomain(uniformType);
                     MOBILEGL_ASSERT(numericDomain != SamplerNumericDomain::Unknown,
                                     "ProgramFactory::ReflectLayout: failed to resolve sampler numeric domain "
@@ -2380,14 +2886,36 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         }
     }
 
+    void ProgramFactory::SetDefaultFramebufferHeight(Uint32 height) {
+        if (m_defaultFramebufferHeight == height) {
+            return;
+        }
+        m_defaultFramebufferHeight = height;
+        // Both memos key on (program, flags) alone, so neither can tell the two heights apart:
+        // drop the lookup memo, and bump the structure epoch so every caller holding a
+        // VkProgramObject* re-runs GetOrCreateProgram and lands on the new hash. The cached
+        // entries themselves stay - they are keyed by a hash that now includes the old height,
+        // so they can only be reached again if that height comes back, and the frame-boundary
+        // sweep retires them otherwise.
+        m_lastLookup = {};
+        ++m_cacheStructureEpoch;
+    }
+
     const ProgramFactory::VkProgramObject& ProgramFactory::GetOrCreateProgram(
         const MG_State::GLState::ProgramObject& program, CompileOptionFlags flags) {
         // Hashing the full SPIR-V of every stage is far too expensive to repeat per draw;
         // reuse the program's memoized hash while its backend state version is unchanged.
+        // The memo keys on the flags word, which ComputeHash is no longer a pure function of:
+        // a FragCoordYFlip variant also depends on the baked default-framebuffer height, so
+        // that height rides in the free high half of the key. Flags occupy the low bits, and a
+        // height cannot exceed the 16 bits a swapchain extent fits in.
+        const Uint memoKey = (flags & CompileOptionBit::FragCoordYFlip)
+                                 ? (flags.GetRaw() | (m_defaultFramebufferHeight << 16))
+                                 : flags.GetRaw();
         HashType hash = 0;
-        if (!program.GetBackendHashMemo(flags.GetRaw(), hash)) {
+        if (!program.GetBackendHashMemo(memoKey, hash)) {
             hash = ComputeHash(program, flags);
-            program.SetBackendHashMemo(flags.GetRaw(), hash);
+            program.SetBackendHashMemo(memoKey, hash);
         }
         auto it = m_cache.find(hash);
         if (it != m_cache.end()) {
@@ -2437,6 +2965,14 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                 Vector<Uint> explicitLodSpirv;
                 if (TransformSpirvForExplicitLod0Sampling(moduleSpirvs[i], explicitLodSpirv)) {
                     moduleSpirvs[i] = Move(explicitLodSpirv);
+                }
+            }
+
+            if ((flags & ProgramFactory::CompileOptionBit::FragCoordYFlip) && shaders[i] &&
+                shaders[i]->GetShaderStage() == ShaderStage::Fragment) {
+                Vector<Uint> fragCoordSpirv;
+                if (TransformSpirvForFragCoordYFlip(moduleSpirvs[i], fragCoordSpirv, m_defaultFramebufferHeight)) {
+                    moduleSpirvs[i] = Move(fragCoordSpirv);
                 }
             }
 
@@ -2568,6 +3104,9 @@ namespace MobileGL::MG_Backend::DirectVulkan {
 
             entry.modules.push_back(module);
             entry.stages.push_back(stage);
+            entry.stageSpirvDigests.push_back(ShaderStageSpirvDigest{
+                static_cast<Uint32>(stage.stage), static_cast<Uint32>(moduleSpv.size()),
+                XXH64(moduleSpv.data(), moduleSpv.size() * sizeof(Uint), 0)});
         }
 
         // Reflect and create layout as part of the program object
@@ -2577,6 +3116,20 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         ReflectVertexInputs(shaders, moduleSpirvs, entry);
         ReflectFragmentOutputs(shaders, moduleSpirvs, entry);
         ReflectLayout(program, moduleSpirvs, entry);
+        // A failed remap means the modules kept glslang's per-stage auto-mapped binding numbers -
+        // no cross-stage unification, no set->0 normalisation - so the bindings this layout
+        // describes are not the bindings the shader reads. That has to stop the program from
+        // drawing, and until now nothing did: the MOBILEGL_ASSERT above compiles out of every
+        // build past DEBUG, and RemapDescriptorBindingsForVulkan's own refusal message said so at
+        // a level an INFO build also drops. Declining is the mechanism that already exists for
+        // "the layout and the shader disagree", so route it through that. Set AFTER ReflectLayout,
+        // which clears the flag.
+        if (!remapOk) {
+            MGLOG_I("ProgramFactory::GetOrCreateProgram: declining program %u - its descriptor bindings could not "
+                    "be remapped, so the layout does not describe what the shader reads",
+                    program.GetExternalIndex());
+            entry.declinedDescriptors = true;
+        }
 
         return entry;
     }

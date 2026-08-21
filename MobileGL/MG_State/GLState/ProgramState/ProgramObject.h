@@ -326,6 +326,113 @@ namespace MobileGL::MG_State::GLState {
                                                           : kInvalidUniformOffset;
         }
         Uint GetUniformSizesInBytes(Uint location) const { return MG_Util::GetGLTypeSize(GetUniformType(location)); }
+        // Bytes a uniform actually occupies in the global UBO, which is not its GL type size:
+        // std140 pads each column of a float matrix out to a vec4, so a mat3 spans 48 bytes
+        // even though only 36 of them carry components. Anything reading or writing a whole
+        // uniform's storage - a bounds check, a copy between two programs' shadows - wants
+        // this rather than GetUniformSizesInBytes.
+        static SizeT UniformStorageSpanInBytes(const glslang::TType* type, SizeT tightSize) {
+            if (type != nullptr && type->isMatrix() && type->getBasicType() != glslang::EbtDouble) {
+                return static_cast<SizeT>(type->getMatrixCols()) * 4 * sizeof(Float);
+            }
+            return tightSize;
+        }
+        SizeT GetUniformStorageSpanInBytes(Uint location) const {
+            return UniformStorageSpanInBytes(GetUniformTType(location), GetUniformSizesInBytes(location));
+        }
+
+        // ---- "written since link": the per-location dirty set the pipeline composite mirrors from ----
+        //
+        // A pipeline's stage programs each own their uniform storage, but the composite the draw
+        // goes through has ONE slot per name. Mirroring every active uniform of every stage
+        // therefore lets the last stage that merely DECLARES a name overwrite the value an
+        // earlier stage was actually written with - the shared-header idiom (the same
+        // `uniform mat4 u_mvp` in the VS and the FS) rendered nothing because of it. Recording
+        // which locations an application has written is what lets the mirror carry only those.
+        //
+        // WHO PAYS: only a program that could ever be a pipeline stage, decided by the latch
+        // below. glUseProgram's uniform path - thousands of calls per frame in Minecraft - pays
+        // one predictable bool branch and nothing else.
+        //
+        // GRANULARITY is per LOCATION, not per name: glUniform*v writes array elements at
+        // element locations, and a program that wrote `arr[3]` and nothing else must mirror
+        // exactly that element. The compact index list beside it is what keeps the mirror
+        // O(uniforms actually written) instead of O(active uniforms) - it is the set of GL
+        // active-uniform indices owning at least one written location, so the mirror does its
+        // two name lookups once per written uniform rather than once per uniform in the program.
+        //
+        // NOT counted as a write: the declared initializers ProgramLinkTask seeds at link
+        // (ApplyUniformInitialValues). They are a property of the SHADERS, and the composite
+        // links the very same shader objects, so it seeds itself with the identical values -
+        // there is nothing to carry. Counting them would also re-introduce the bug this set
+        // exists to fix, by letting a stage that only declares `uniform float f = 0.0;` clobber
+        // the value the application wrote for `f` in another stage.
+        Bool TracksUniformWrites() const { return m_tracksUniformWrites; }
+
+        // Generation of the write SET itself, as distinct from the values in it. The refresh
+        // gate (ProgramPipelineObject::ComputeUniformMirrorVersions) is otherwise built out of
+        // counters that only move when BYTES move - and a write can enlarge the set without
+        // moving a byte, because both write funnels drop a value-identical write before
+        // bumping anything. glProgramUniform1f(fs, f, 0.0f) on an `f` that already reads 0.0
+        // is exactly that: it makes the FRAGMENT stage the last written-to stage for `f`, so
+        // the composite must be re-mirrored to hand it the slot, and nothing else in the gate
+        // would have noticed.
+        Uint32 GetUniformWriteSetVersion() const { return m_uniformWriteSetVersion; }
+
+        // Records that `location` has been written since the last link. Cheap and idempotent;
+        // a no-op on a program that can never be a pipeline stage.
+        void MarkUniformWrittenAtLocation(Uint location) {
+            if (!m_tracksUniformWrites) return;
+            LinkArtifacts& artifacts = Artifacts();
+            if (!IsValidUniformLocation(artifacts, static_cast<Int>(location))) return;
+
+            // Sized to cover this location AND the whole location space, so a program whose
+            // highest location is written first does not reallocate on every later write, and
+            // so the subscript below needs no second guard: the vector provably contains it.
+            const SizeT locationWord = location / 64u;
+            if (locationWord >= artifacts.writtenUniformLocationBits.size()) {
+                artifacts.writtenUniformLocationBits.resize(
+                    std::max<SizeT>(locationWord + 1u, static_cast<SizeT>(artifacts.maxUniformLocation) / 64u + 1u),
+                    0u);
+            }
+            const Uint64 locationBit = Uint64{1} << (location % 64u);
+            if ((artifacts.writtenUniformLocationBits[locationWord] & locationBit) == 0) {
+                artifacts.writtenUniformLocationBits[locationWord] |= locationBit;
+                // Only on the 0 -> 1 transition: a re-write of a location already in the set
+                // changes nothing the mirror would do differently, and moving the version for
+                // it would re-walk the set on every repeated glUniform* call.
+                ++m_uniformWriteSetVersion;
+            }
+
+            // Add the owning GL active-uniform index to the compact list, once.
+            const Int tIndex = artifacts.uniformIndexInTProgram[location];
+            if (tIndex < 0 || static_cast<SizeT>(tIndex) >= artifacts.tProgramUniformIndexToGl.size()) return;
+            const Int glIndex = artifacts.tProgramUniformIndexToGl[tIndex];
+            // -1 is a uniform the relaxed parse swept out of the GL-visible index space; the
+            // mirror enumerates GL indices, so there is nothing it could look such a one up by.
+            if (glIndex < 0) return;
+            const SizeT indexWord = static_cast<SizeT>(glIndex) / 64u;
+            if (indexWord >= artifacts.writtenUniformIndexBits.size()) {
+                artifacts.writtenUniformIndexBits.resize(
+                    std::max<SizeT>(indexWord + 1u, static_cast<SizeT>(artifacts.activeUniformCount) / 64u + 1u), 0u);
+            }
+            const Uint64 indexBit = Uint64{1} << (static_cast<SizeT>(glIndex) % 64u);
+            if ((artifacts.writtenUniformIndexBits[indexWord] & indexBit) != 0) return;
+            artifacts.writtenUniformIndexBits[indexWord] |= indexBit;
+            artifacts.writtenUniformIndices.push_back(static_cast<Uint>(glIndex));
+        }
+
+        Bool IsUniformWrittenAtLocation(Uint location) const {
+            const auto& bits = Artifacts().writtenUniformLocationBits;
+            const SizeT locationWord = location / 64u;
+            return locationWord < bits.size() &&
+                   (bits[locationWord] & (Uint64{1} << (location % 64u))) != 0;
+        }
+
+        // GL active-uniform indices owning at least one written location. Empty for every
+        // program that has not been written to since its last link - and for every program
+        // that never asked to be separable, which is what makes the mirror free for them.
+        const Vector<Uint>& GetWrittenUniformIndices() const { return Artifacts().writtenUniformIndices; }
 
         Int GetAttributeLocation(const String& name) {
             const auto it = std::find(Artifacts().attribs.begin(), Artifacts().attribs.end(), name);
@@ -474,13 +581,34 @@ namespace MobileGL::MG_State::GLState {
         }
 
         void SetUniformSamplerOrImageUnitIndex(Uint location, Int unit) {
-            if (location >= Artifacts().uniformSamplerOrImageUnitIndex.size() ||
-                Artifacts().uniformSamplerOrImageUnitIndex[location] == unit) {
-                return;
-            }
+            if (location >= Artifacts().uniformSamplerOrImageUnitIndex.size()) return;
+            // BEFORE the equality bail-out, not after: "written" is about the application
+            // having addressed the uniform, not about the bytes changing. glUniform1i(s, 0) on
+            // a sampler that already reads 0 still has to beat another stage's untouched
+            // declaration of the same name in the composite - which is only possible if the
+            // write is recorded. (The mirror is the only reader, and it runs this same setter
+            // on the composite, where the latch is off.)
+            MarkUniformWrittenAtLocation(location);
+            if (Artifacts().uniformSamplerOrImageUnitIndex[location] == unit) return;
             Artifacts().uniformSamplerOrImageUnitIndex[location] = unit;
             ++m_backendStateVersion;
+            // IMAGE units get their own generation, and it is not redundant with the one
+            // above. A sampler unit is re-issued to the driver per draw as a plain
+            // glUniform1i, so a backend can honour a change without rebuilding anything; an
+            // image unit cannot be, because ES forbids glUniform1i on image uniforms - Espryt
+            // has to BAKE it into the ESSL it generates (RebindImageUniformsToFrontendUnits),
+            // which means the change is only honoured by regenerating the program. That
+            // regeneration is gated on link-shaped versions, so without a counter that moves
+            // here the new unit would never reach the driver.
+            if (const glslang::TType* type = GetUniformTType(location); type != nullptr && type->isImage()) {
+                ++m_imageUnitVersion;
+            }
         }
+
+        // Generation of the image-uniform unit assignment; see SetUniformSamplerOrImageUnitIndex.
+        // A backend that compiles the unit into its program source compares this to decide
+        // whether what it built is still describing the right binding.
+        Uint32 GetImageUnitVersion() const { return m_imageUnitVersion; }
 
         Int GetUniformSamplerOrImageUnitIndex(Uint location) const {
             return Artifacts().uniformSamplerOrImageUnitIndex[location];
@@ -497,7 +625,32 @@ namespace MobileGL::MG_State::GLState {
         // subset of the stages of a program pipeline. Only takes effect on the next link,
         // which is why it is plain state here rather than something Link() consults.
         Bool GetSeparable() const { return m_separable; }
-        void SetSeparable(Bool separable) { m_separable = separable; }
+        void SetSeparable(Bool separable) {
+            m_separable = separable;
+            // ---- arming the uniform-write tracking latch ----
+            //
+            // The predicate wanted is "this program can ever be a pipeline stage", and
+            // GetSeparable() is NOT it in either direction. GL_PROGRAM_SEPARABLE takes effect
+            // at the NEXT link, so it can read true on a program glUseProgramStages would
+            // still reject; that direction is merely wasteful. The other direction is a
+            // correctness hole: glProgramParameteri may clear the flag AFTER a separable link,
+            // and glUseProgramStages tests the state the program was LINKED with, so such a
+            // program is still a legal stage while GetSeparable() reads false. Tracking driven
+            // by the live flag would stop recording writes on a program the composite is still
+            // mirroring from, and those uniforms would silently stop reaching the draw.
+            //
+            // "Attached to a pipeline" is not usable either, and for a more basic reason:
+            // glProgramUniform* legitimately runs before glUseProgramStages, so the marks have
+            // to already exist by the time the program becomes a stage.
+            //
+            // So: a MONOTONE latch, armed the first time GL_PROGRAM_SEPARABLE is requested
+            // true and never cleared. It over-approximates - a program that was separable once
+            // keeps paying the bookkeeping - and over-approximating only ever costs a bitset,
+            // never a wrong value. glCreateShaderProgramv arms it through this same setter.
+            // A program that never asks (every monolithic glUseProgram program, which is the
+            // hot uniform path) never arms it and pays one bool branch per glUniform*.
+            if (separable) m_tracksUniformWrites = true;
+        }
         // glProgramBinary always fails here (there is no format it could accept) and the
         // spec then requires the program's LINK_STATUS to read FALSE.
         void MarkLinkFailedByProgramBinary() {
@@ -516,12 +669,27 @@ namespace MobileGL::MG_State::GLState {
             Artifacts().infoLog = "No program binary format is supported.";
         }
         Bool GetValidateStatus() const { return m_validateStatus; }
-        Int GetActiveAtomicCounterCount() const { return Artifacts().program->getNumAtomicCounters(); }
-        Int GetActiveAttributesCount() const { return Artifacts().program->getNumPipeInputs(); }
+        // Artifacts().program is null until a link produces reflection, and glGetProgramiv is
+        // perfectly legal on a program that never linked (GL 4.6 sec. 7.3: the queried state is
+        // simply its initial value, zero). Dereferencing it there took the process down with a
+        // SIGSEGV inside glslang::TProgram::getNumPipeInputs - KHR-GL30.api.coverage does exactly
+        // this after a failed glGetAttribLocation, and reached it as soon as the CopyTexImage2D
+        // throw ahead of it stopped killing the run first.
+        Int GetActiveAtomicCounterCount() const {
+            const auto& program = Artifacts().program;
+            return program ? program->getNumAtomicCounters() : 0;
+        }
+        Int GetActiveAttributesCount() const {
+            const auto& program = Artifacts().program;
+            return program ? program->getNumPipeInputs() : 0;
+        }
         // GL-visible uniform blocks only: the synthesized MGL_GLOBAL_UBO the relaxed parse
         // materializes for default-block uniforms is filtered out by DoReflection.
         Int GetActiveUniformBlocksCount() const { return static_cast<Int>(Artifacts().glBlockIndexToTProgram.size()); }
-        GLuint GetComputeLocalSize(Uint dim) const { return Artifacts().program->getLocalSize(static_cast<Int>(dim)); }
+        GLuint GetComputeLocalSize(Uint dim) const {
+            const auto& program = Artifacts().program;
+            return program ? program->getLocalSize(static_cast<Int>(dim)) : 0;
+        }
         Int GetActiveAttributesMaxLength() const { return Artifacts().attribInNameMaxLength; }
         Int GetActiveUniformBlocksMaxNameLength() const { return Artifacts().uniformBlockNameMaxLength; }
         Uint GetUniformBlockIndex(const char* name) const {
@@ -584,13 +752,23 @@ namespace MobileGL::MG_State::GLState {
             return (ubo.stages & stageMask) != 0;
         }
 
-        // Set by glUniformBlockBinding
+        // Bumped by both block-binding setters below. A program pipeline's flattened composite
+        // is a different program object from the stage programs the application rebinds blocks
+        // on, so it has to be told - and this is what tells it something is worth re-reading.
+        // Separate from m_backendStateVersion because the storage-block setter deliberately
+        // does not disturb that one (see SetShaderStorageBlockBinding).
+        Uint32 GetBlockBindingVersion() const { return m_blockBindingVersion; }
+
+        // Set by glUniformBlockBinding. The vector is seeded at link with each block's DECLARED
+        // binding (layout(binding=N), else -1), so an untouched program already reports what its
+        // shaders asked for.
         void SetUniformBlockBinding(Uint index, Uint binding) {
             if (index >= Artifacts().uniformBlockBinding.size() || Artifacts().uniformBlockBinding[index] == static_cast<Int>(binding)) {
                 return;
             }
             Artifacts().uniformBlockBinding[index] = static_cast<Int>(binding);
             ++m_backendStateVersion;
+            ++m_blockBindingVersion;
         }
 
         Uint GetUniformBlockBinding(Uint index) const { return Artifacts().uniformBlockBinding[index]; }
@@ -602,6 +780,10 @@ namespace MobileGL::MG_State::GLState {
         // means "never rebound", and the shader's declared binding still stands.
         void SetShaderStorageBlockBinding(const String& blockName, Uint binding) {
             Artifacts().shaderStorageBlockBinding[blockName] = static_cast<Int>(binding);
+            // Deliberately NOT m_backendStateVersion: Espryt's entry point never forces a
+            // program build off this, and bumping that version would start doing so. The
+            // dedicated counter carries the news to the pipeline composite instead.
+            ++m_blockBindingVersion;
         }
         // -1 when the block has never been rebound. `blockName` is the interface-query
         // spelling; an arrayed block's elements ("B[0]", "B[1]") are separate GL resources
@@ -657,6 +839,21 @@ namespace MobileGL::MG_State::GLState {
             // Offset within the gap-free record a backend that cannot express the GL
             // layout captures into; see NeedsScatteredTransformFeedbackCapture.
             Uint32 packedOffsetBytes = 0;
+
+            // GL 4.6 core 11.1.2.1 / 7.3.1.1: a member of an output interface block is
+            // captured under "<block name>.<member>". `name` keeps that GL spelling (it is
+            // what the interface queries and the ESSL backend's driver-side capture list
+            // need, since SPIRV-Cross re-emits the block under its own type name), while
+            // the three fields below carry what a SPIR-V backend needs instead: the
+            // decoration target is the block's *instance* variable and the member index
+            // inside it. blockMemberIndex < 0 means "not a block member".
+            String blockInstanceName;
+            String blockName;
+            Int blockMemberIndex = -1;
+            // Which element of an arrayed block member this capture names, -1 for "the
+            // member as a whole". SPIR-V cannot decorate a single array element, so a
+            // backend needs the element index to tell a full run from a partial one.
+            Int blockMemberElement = -1;
         };
 
         // ---- P1: everything a link PRODUCES, in one movable block ----
@@ -698,7 +895,24 @@ namespace MobileGL::MG_State::GLState {
             // layout(location = N) default-block uniform qualifiers (the relaxed parse drops
             // them from reflection; the DoReflection assigner restores them from here).
             UnorderedMap<String, Int> linkedExplicitUniformLocations;
+            // Per-link snapshot of the default-block uniform INITIALIZERS the attached shaders
+            // declared ("uniform int i = 1;"). Desktop GLSL says that value is what the uniform
+            // reads until the application overwrites it, and relinking restores it - but the
+            // relaxed parse turns those uniforms into members of MGL_GLOBAL_UBO, where SPIR-V
+            // cannot carry an initializer, so the value only survives as this side-channel.
+            // Applied into the uniform shadow at the phase-B publish (ApplyUniformInitialValues).
+            Vector<glslang::TIntermediate::TUniformInitializer> uniformInitialValues;
             UnorderedMap<String, Uint> uniformLocations;
+            // ---- "written since link" (see MarkUniformWrittenAtLocation) ----
+            // In LinkArtifacts deliberately: a link is exactly the event that retracts every
+            // write (GL resets uniforms to their initial values), so living here means the set
+            // is cleared by the same three paths that clear the rest of a link's output -
+            // Link()'s whole-struct reset, ResetLinkArtifacts, and the publish's move - and no
+            // fourth reset site can be forgotten. Empty (and never allocated) for a program
+            // that never asked to be separable.
+            Vector<Uint64> writtenUniformLocationBits;
+            Vector<Uint64> writtenUniformIndexBits;
+            Vector<Uint> writtenUniformIndices;
             // Ordered by location,
             // aka. uniformIndexInTProgram[loc] == "uniform index of TProgram at location `loc`"
             Vector<Int> uniformIndexInTProgram;
@@ -952,6 +1166,10 @@ namespace MobileGL::MG_State::GLState {
         // detour exactly - and a record that really does change bytes moves the version, which
         // is what makes a backend re-upload the UBO it cached during the window.
         void ReplayBufferedUniformWrites() const;
+        // Seeds the freshly published uniform shadow with the declared initializers. Runs at
+        // the phase-B publish, BEFORE ReplayBufferedUniformWrites, so an application write
+        // made during the A->B window still wins - which is the GL ordering.
+        void ApplyUniformInitialValues() const;
         // Past this, BufferUniformWrite declines and the write joins instead. Sized so an
         // ordinary pack load never reaches it (a pending window is one program's worth of
         // uniforms) while a pathological writer cannot grow the heap without bound.
@@ -1010,11 +1228,22 @@ namespace MobileGL::MG_State::GLState {
         Bool m_deleteStatus = false;
         Bool m_binaryRetrievableHint = false;
         Bool m_separable = false;
+        // Monotone "this program may ever be a pipeline stage" latch; see SetSeparable for why
+        // it is a latch and not just m_separable. Outside LinkArtifacts on purpose: a relink
+        // clears the write SET, but a program that was separable is still separable after it.
+        Bool m_tracksUniformWrites = false;
+        // Generation counters that must NOT be reset by a link, for the same reason the memo
+        // versions above are not: a reader compares them for INEQUALITY, so a reset could make
+        // a stale cache compare equal to a fresh program. See their getters.
+        Uint32 m_uniformWriteSetVersion = 0;
+        Uint32 m_imageUnitVersion = 0;
         Bool m_validateStatus = true;
         // Mutable, like m_artifacts and for the same reason: publishing a pending link is a
         // READ-side operation (the first gated getter is what pulls the result in), and the
         // publish has to bump these. Still GL-thread-only - a worker never touches them.
         mutable Uint32 m_backendStateVersion = 0;
+        // Interface-block binding generation; see GetBlockBindingVersion.
+        Uint32 m_blockBindingVersion = 0;
 
         // Backend-owned content-hash memo (see GetBackendHashMemo): valid only while
         // m_backendStateVersion matches. Several slots, not one: a backend may resolve the same

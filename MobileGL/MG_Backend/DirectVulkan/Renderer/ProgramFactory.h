@@ -9,6 +9,7 @@
 #pragma once
 
 #include "../VkIncludes.h"
+#include "PipelineFactory.h"
 #include "MG_State/GLState/ProgramState/ProgramObject.h"
 #include "MG_State/GLState/ProgramState/ShaderObject.h"
 #include "MG_State/GLState/TextureState/TextureEnum.h"
@@ -52,6 +53,13 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             // recorded while GL transform feedback is active, so plain draws keep the
             // undecorated variant.
             XfbCapture = 1 << 6,
+            // Rewrites the fragment stage's gl_FragCoord reads to GL's bottom-left window
+            // origin. Vulkan's gl_FragCoord.y IS the framebuffer row being written, and the
+            // default framebuffer's image is stored in display (top-left) order, so a shader
+            // that reads gl_FragCoord there sees `height - y_GL`. Set together with
+            // PositionYFlip (the two are the same fact about the same draws) except under a
+            // quarter turn, which this renderer does not convert rectangles for either.
+            FragCoordYFlip = 1 << 7,
         };
         using CompileOptionFlags = Flags<CompileOptionBit>;
         using HashType = Uint64;
@@ -62,6 +70,9 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             HashType hash = 0;
             Vector<VkPipelineShaderStageCreateInfo> stages;
             Vector<VkShaderModule> modules;
+            // Parallel to stages; identifies the exact module bytes handed to the driver when a
+            // pipeline creation fails. Sixteen bytes per stage instead of keeping the SPIR-V.
+            Vector<ShaderStageSpirvDigest> stageSpirvDigests;
 
             // Layout data (previously in separate VkProgramLayout)
             VkDescriptorSetLayout descriptorSetLayout = VK_NULL_HANDLE;
@@ -75,8 +86,9 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             Vector<Uint32> activeBindings;
             Vector<Uint32> dynamicBindings;
             Vector<Int> uniformBlockIndexByBinding;
-            // Descriptor count per binding (1 except for UBO instance arrays, which occupy one
-            // binding with descriptorCount = N).
+            // Descriptor count per binding (1 except for a descriptor ARRAY - a UBO or storage
+            // block instance array, an image uniform array or a sampler uniform array - each of
+            // which occupies one binding with descriptorCount = N).
             Vector<Uint16> bindingDescriptorCounts;
             // Per-element GL uniform block indices for arrayed UBO bindings (count > 1);
             // element 0 of a non-arrayed binding stays in uniformBlockIndexByBinding.
@@ -92,6 +104,19 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             // Set once during ReflectLayout so the per-draw path can skip the whole
             // storage-image preparation for the overwhelming majority of programs.
             Bool hasStorageImages = false;
+            // Something about this program's descriptors could not be resolved - an opaque
+            // uniform array whose elements have no addressable uniform locations (the
+            // multi-dimensional case), or a binding remap that failed outright. The binding
+            // STAYS DECLARED in the descriptor set layout; declining is done here, by refusing
+            // every draw, and BindProgramUniformBuffers returns false so the draw setup skips
+            // the draw exactly as it does for any other bind failure.
+            //
+            // Keeping the layout intact is the load-bearing half. Shrinking it instead - which
+            // is what the first cut of this did - leaves the shader reading a descriptor the
+            // layout never declared, and lavapipe segfaults on that inside PIPELINE CREATION,
+            // in a JIT worker thread, before any draw runs where a refusal could help. The
+            // reason was logged once at MGLOG_I when the descriptor was declined.
+            Bool declinedDescriptors = false;
             Int globalUboBinding = -1;
             Uint32 activeVertexInputLocationMask = 0;
             Array<GLenum, kMaxVertexInputLocations> vertexInputTypes{};
@@ -118,6 +143,14 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                 hash = other.hash;
                 stages = std::move(other.stages);
                 modules = std::move(other.modules);
+                // Must travel with `modules`: these digests name the SPIR-V those exact
+                // shader modules were built from, and the pipeline-failure diagnostics
+                // print the two together. Leaving it behind used to merely lose the
+                // digests on a rehash; now that the cache is a robin-hood table, insertion
+                // SWAPS two entries, and a field that no move touches stays behind in the
+                // slot - pairing one program's modules with another program's digests, so
+                // a pipeline failure would be reported against the wrong SPIR-V.
+                stageSpirvDigests = std::move(other.stageSpirvDigests);
                 descriptorSetLayout = other.descriptorSetLayout;
                 pipelineLayout = other.pipelineLayout;
                 bindingKinds = std::move(other.bindingKinds);
@@ -136,6 +169,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                 storageBlockNameByBinding = std::move(other.storageBlockNameByBinding);
                 storageBlockIndexByBinding = std::move(other.storageBlockIndexByBinding);
                 hasStorageImages = other.hasStorageImages;
+                declinedDescriptors = other.declinedDescriptors;
                 globalUboBinding = other.globalUboBinding;
                 activeVertexInputLocationMask = other.activeVertexInputLocationMask;
                 vertexInputTypes = other.vertexInputTypes;
@@ -150,6 +184,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                 other.descriptorSetLayout = VK_NULL_HANDLE;
                 other.pipelineLayout = VK_NULL_HANDLE;
                 other.hasStorageImages = false;
+                other.declinedDescriptors = false;
                 other.globalUboBinding = -1;
                 other.activeVertexInputLocationMask = 0;
                 other.activeFragmentOutputLocationMask = 0;
@@ -167,6 +202,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                 hash = other.hash;
                 stages = std::move(other.stages);
                 modules = std::move(other.modules);
+                stageSpirvDigests = std::move(other.stageSpirvDigests); // travels with `modules` - see the move ctor
                 descriptorSetLayout = other.descriptorSetLayout;
                 pipelineLayout = other.pipelineLayout;
                 bindingKinds = std::move(other.bindingKinds);
@@ -185,6 +221,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                 storageBlockNameByBinding = std::move(other.storageBlockNameByBinding);
                 storageBlockIndexByBinding = std::move(other.storageBlockIndexByBinding);
                 hasStorageImages = other.hasStorageImages;
+                declinedDescriptors = other.declinedDescriptors;
                 globalUboBinding = other.globalUboBinding;
                 activeVertexInputLocationMask = other.activeVertexInputLocationMask;
                 vertexInputTypes = other.vertexInputTypes;
@@ -199,6 +236,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                 other.descriptorSetLayout = VK_NULL_HANDLE;
                 other.pipelineLayout = VK_NULL_HANDLE;
                 other.hasStorageImages = false;
+                other.declinedDescriptors = false;
                 other.globalUboBinding = -1;
                 other.activeVertexInputLocationMask = 0;
                 other.activeFragmentOutputLocationMask = 0;
@@ -233,6 +271,7 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                 }
                 modules.clear();
                 stages.clear();
+                stageSpirvDigests.clear(); // the modules they describe are gone
             }
         };
 
@@ -262,6 +301,17 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         HashType ComputeHash(const MG_State::GLState::ProgramObject& program, CompileOptionFlags flags) const;
         const VkProgramObject& GetOrCreateProgram(
             const MG_State::GLState::ProgramObject& program, CompileOptionFlags flags);
+
+        // The default framebuffer's current image height, baked as a literal into every
+        // FragCoordYFlip variant (there is no push-constant or specialization channel here, and
+        // adding one for a value that changes only on swapchain recreation would cost the draw
+        // path more than a recompile costs a resize). It is therefore part of those variants'
+        // identity: ComputeHash mixes it in when the bit is set, so a height change re-keys them
+        // and leaves every other program's hash untouched. Setting a NEW height also bumps the
+        // cache-structure epoch, because a caller holding a memoised VkProgramObject* would
+        // otherwise keep using a module compiled against the old height.
+        void SetDefaultFramebufferHeight(Uint32 height);
+        Uint32 GetDefaultFramebufferHeight() const { return m_defaultFramebufferHeight; }
 
         // Bumped whenever m_cache's STRUCTURE changes (any insert or erase): the cache is
         // an open-addressing map holding entries by value, so both moves existing entries.
@@ -320,6 +370,9 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         // True only when the logical device enabled both
         // shaderStorageImageReadWithoutFormat and shaderStorageImageWriteWithoutFormat.
         Bool m_unformattedFloatStorageImagesEnabled = false;
+        // See SetDefaultFramebufferHeight. 0 means "not known yet"; the FragCoordYFlip bit is
+        // never set before the swapchain exists, so no variant can be compiled against it.
+        Uint32 m_defaultFramebufferHeight = 0;
         mutable ProgramLookupCache m_lastLookup;
         // Monotonic frame-boundary counter (bumped in OnFrameBoundary) for cache aging.
         Uint64 m_frameCounter = 0;

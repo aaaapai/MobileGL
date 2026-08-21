@@ -20,8 +20,6 @@ The bundled fixtures cover:
   ![Minecraft 1.21.4 Fabric Sodium in-world golden](fixtures/minecraft-1.21.4-fabric-sodium-in-world.0000923340.png)
 - minecraft-26.2-main-menu: captured from Minecraft 26.2's main menu.
   ![Minecraft 26.2 main menu golden](fixtures/minecraft-26.2-main-menu.0000101926.png)
-- minecraft-26.2-in-world: captured from Minecraft 26.2 after entering a normal singleplayer world.
-  ![Minecraft 26.2 in-world golden](fixtures/minecraft-26.2-in-world.0000519370.png)
 - improved-transparency-minecraft-26.3: captured from the Minecraft 26.3 improved-transparency scene.
   ![Minecraft 26.3 improved-transparency golden](fixtures/improved-transparency-minecraft-26.3.0002667619.png)
 - minecraft-1.21.4-fabric-common-mods-in-world: captured from Minecraft 1.21.4 Fabric with Sodium, Iris, REI,
@@ -163,6 +161,33 @@ build-test/tools/trace_replay/mobilegl_trace_replay \
   --ssim-threshold 0.99
 ```
 
+## Dumping framebuffer attachments mid-frame
+
+`--target-call` snapshots one framebuffer. To see *inside* a frame - which
+intermediate render target a pass actually produced - pass
+`--dump-fbo-attachments CALL:DIR[:FBO,FBO,...]`, repeatably:
+
+```sh
+build-test/tools/trace_replay/mobilegl_trace_replay \
+  --trace trace.trace --golden golden.png --output out --target-call 2667619 \
+  --dump-fbo-attachments 2666231:out/fbos-before \
+  --dump-fbo-attachments 2666232:out/fbos-after
+```
+
+At each call boundary it walks every live framebuffer object (or only the named
+ones), reads back every colour attachment and the depth attachment, and writes
+`fbo<N>-att<M>.png` / `fbo<N>-depth.png` plus a `manifest.txt` line per
+attachment recording the attached object, size, internal format, component type
+and per-channel min/max/mean and a content hash. Attachments are read as floats
+whatever their storage, so HDR accumulation buffers stay legible in the
+statistics even though the PNG has to clamp.
+
+The manifest is the useful part when comparing two drivers: dump the same call
+on both stacks and `diff`/`paste` the two manifests, and the first attachment
+whose hash differs names the pass that diverged. Read-side and pixel-pack state
+is saved and restored, so the replay continues unperturbed; without the flag
+nothing is installed and the replay is byte-for-byte what it was.
+
 Run the macOS native-window DirectVulkan retrace matrix and render the same
 HTML overview shape as CI:
 
@@ -251,3 +276,55 @@ process-local. For cases registered with `coherent_as_flush` (Flywheel-style
 unflushed persistent maps, e.g. the Create fixtures), pass
 `--ez coherent_as_flush true` so the replay runs with
 `MOBILEGL_COHERENT_AS_FLUSH=1`.
+
+## Reproducing the Android DirectGLES lane on Linux (ANGLE on lavapipe)
+
+The APK workflow's DirectGLES lane is not the same stack as the Linux one, which
+is why a case can be green here and red there:
+
+| lane | stack |
+| --- | --- |
+| Linux `Test` retrace, DirectGLES | Espryt -> Mesa GLES -> llvmpipe |
+| Android `APK` retrace, DirectGLES | Espryt -> **ANGLE** -> Mesa Vulkan (lavapipe) |
+| Android `APK` retrace, DirectVulkan | Magma -> lavapipe (no ANGLE) |
+
+Only the Android DirectGLES lane puts ANGLE in the middle, so an ANGLE
+translation difference shows up in exactly one of the six combinations. That
+stack can be reproduced on Linux without an emulator, which is far faster to
+iterate on than a CI round trip. The Android emulator SDK ships a glibc ANGLE:
+
+```sh
+ANGLE=$ANDROID_SDK_ROOT/emulator/lib64/gles_angle
+mkdir -p ~/angle-farm && cd ~/angle-farm
+# MobileGL dlopens these two names; ANGLE's own libEGL then dlopens the
+# unsuffixed libGLESv2.so from the same directory - without that symlink it
+# loads a truncated entry-point table and dies on a missing EGL function.
+ln -sf $ANGLE/libEGL.so    libEGL_angle.so
+ln -sf $ANGLE/libGLESv2.so libGLESv2_angle.so
+ln -sf $ANGLE/libEGL.so    libEGL.so
+ln -sf $ANGLE/libGLESv2.so libGLESv2.so
+ln -sf $ANGLE/libvulkan.so.1 libvulkan.so.1   # else eglInitialize fails
+
+MOBILEGL_USE_ANGLE=1 \
+LD_LIBRARY_PATH=~/angle-farm:/path/to/build/ \
+VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/lvp_icd.json \
+ANGLE_DEFAULT_PLATFORM=vulkan \
+  ./mobilegl_trace_replay --trace trace.trace --golden golden.png \
+    --target-call N --width 854 --height 480 --backend DirectGLES \
+    --output outdir --pbuffer-surface
+```
+
+`ANGLE_DEFAULT_PLATFORM=vulkan` is required: ANGLE otherwise picks its OpenGL
+backend and you get `ANGLE (Mesa, llvmpipe ..., OpenGL 4.6 (Core Profile))`
+instead of the CI-shaped `ANGLE (Mesa, Vulkan 1.x (llvmpipe ...))`. Check
+`MOBILEGL_TRACE_GL_RENDERER` in `outdir/retrace.log` before trusting a result.
+Run the binary directly rather than through `ctest`, whose `ENVIRONMENT`
+property overrides these variables. Build with clang, not gcc: gcc rejects
+`GLXImpl.cpp` under `-Wchanges-meaning`.
+
+One more caveat before attributing anything: the emulator SDK's ANGLE is not
+the ANGLE the Android lane runs. The CI lane uses a pinned build
+(`MOBILEGL_TRACE_ANGLE_VARIANT`, default `ec889e6ea831`) whose version and
+extension set differ from the SDK copy (`GL_EXT_texture_buffer` support, ES 3.2
+entry points). Compare `GL_RENDERER` and the relevant extension lists on both
+stacks before treating a local result as a statement about CI.

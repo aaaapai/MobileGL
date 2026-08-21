@@ -863,12 +863,11 @@ namespace MobileGL::MG_Impl::GLImpl {
     }
 
     // Bytes a uniform actually occupies in the global UBO. It is the tight GL type size for
-    // everything except a float matrix, whose padded columns make it wider.
+    // everything except a float matrix, whose padded columns make it wider. The rule itself
+    // lives on ProgramObject, because the pipeline composite's uniform refresh needs the same
+    // one and two copies of a layout rule is one too many.
     SizeT UniformStorageSpanInBytes(const glslang::TType* ttype, SizeT tightSize) {
-        if (ttype != nullptr && ttype->isMatrix() && ttype->getBasicType() != glslang::EbtDouble) {
-            return static_cast<SizeT>(ttype->getMatrixCols()) * 4 * sizeof(GLfloat);
-        }
-        return tightSize;
+        return MG_State::GLState::ProgramObject::UniformStorageSpanInBytes(ttype, tightSize);
     }
 
     void GetUniform_State(GLuint program, GLint location, void* params) {
@@ -1120,6 +1119,17 @@ namespace MobileGL::MG_Impl::GLImpl {
         if (!programObject.IsUniformOpaqueAtLocation(location)) {
             MGLOG_D("%s: program = %d, location = %d, maxLocation = %d", __func__, programObject.GetExternalIndex(),
                     location, programObject.GetMaxUniformLocation());
+            // Record the write for the pipeline composite's uniform mirror, which copies only
+            // the locations a stage program has actually been written to (see
+            // ProgramObject::MarkUniformWrittenAtLocation). Here rather than further down
+            // because every exit below is still a write as far as GL is concerned: the
+            // buffered-write detour returns early, the bytes-equal dedupe returns early, and
+            // even the no-backing-storage bail is a uniform the application addressed. This is
+            // the funnel EVERY glUniform* and glProgramUniform* entry point reaches, once per
+            // LOCATION - so an array element write marks that element and nothing else. On a
+            // program that can never be a pipeline stage - the monolithic glUseProgram path,
+            // which is where the thousands of calls per frame are - this is one bool branch.
+            programObject.MarkUniformWrittenAtLocation(location);
             // Everything up to and including the clamp is phase-A data (the uniform's GL type
             // decides its size), so it is answered without joining anything.
             const SizeT size = programObject.GetUniformSizesInBytes(location);
@@ -2704,6 +2714,15 @@ namespace MobileGL::MG_Impl::GLImpl {
 
     void GetProgramResourceiv(GLuint program, GLenum programInterface, GLuint index, GLsizei propCount,
                               const GLenum* props, GLsizei bufSize, GLsizei* length, GLint* params) {
+        // Every early-out below reports "nothing was written", and it has to say so before it can
+        // take one: callers legitimately leave *length uninitialised and then loop to it. The CTS
+        // does exactly that (gl4cProgramInterfaceQueryTests.cpp:2172 declares `GLsizei length;` and
+        // walks `for (i = 0; i < length; ++i)` over a 1000-entry stack array), so an untouched
+        // *length turned every error path here into a stack overrun inside the caller -
+        // KHR-GL43.program_interface_query.subroutines-vertex read 0x20202020 entries and died on
+        // both backends. The success path overwrites this with the real count.
+        if (length) *length = 0;
+
         auto& programObject = TryToGetProgramForInterfaceQuery(program, __func__);
         if (!programObject) return;
         if (!ProgramInterface::IsInterfaceEnum(programInterface)) {

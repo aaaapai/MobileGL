@@ -33,6 +33,8 @@
 #include <regex>
 
 namespace MobileGL::MG_Backend::DirectGLES {
+    Uint g_backendContextGeneration = 1;
+
     constexpr Bool PREFER_MAP_BUFFER_RANGE_FOR_BUFFER_SYNC = false;
     constexpr const char* BASE_INSTANCE_UNIFORM_NAME = "mg_BaseInstance";
     constexpr const char* DRAW_ID_UNIFORM_NAME = "mg_DrawID";
@@ -1646,7 +1648,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
             ZoneScopedC(TRACY_ZONECOLOR_BACKEND);
 #endif
             g_GLESFuncs.glGenTextures(1, &m_backendTextureId);
-            m_contextGeneration = g_textureContextGeneration;
+            m_contextGeneration = g_backendContextGeneration;
             if (m_backendTextureId == 0) {
                 MGLOG_E("Failed to generate texture object.");
                 MGLOG_E("ES glGetError(): %s", MG_Util::ConvertGLEnumToString(g_GLESFuncs.glGetError()).c_str());
@@ -1673,7 +1675,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
                     }
                 }
             }
-            if (m_contextGeneration == g_textureContextGeneration && g_GLESFuncs.glDeleteTextures) {
+            if (m_contextGeneration == g_backendContextGeneration && g_GLESFuncs.glDeleteTextures) {
                 g_GLESFuncs.glDeleteTextures(1, &m_backendTextureId);
             }
             m_backendTextureId = 0;
@@ -1712,7 +1714,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
         void BackendTextureObject::RecreateBackendTexture() {
             if (m_backendTextureId != 0) {
                 ScratchFBOImpl::NoteTextureIdDeleted(m_backendTextureId);
-                if (m_contextGeneration == g_textureContextGeneration) {
+                if (m_contextGeneration == g_backendContextGeneration) {
                     g_GLESFuncs.glDeleteTextures(1, &m_backendTextureId);
                 }
                 for (auto& unitCache : g_boundTexturesCache) {
@@ -1725,7 +1727,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
             }
 
             g_GLESFuncs.glGenTextures(1, &m_backendTextureId);
-            m_contextGeneration = g_textureContextGeneration;
+            m_contextGeneration = g_backendContextGeneration;
             if (m_backendTextureId == 0) {
                 MGLOG_E("Failed to regenerate texture object.");
                 MGLOG_E("ES glGetError(): %s", MG_Util::ConvertGLEnumToString(g_GLESFuncs.glGetError()).c_str());
@@ -2777,6 +2779,29 @@ namespace MobileGL::MG_Backend::DirectGLES {
                                                        &glType, TextureTarget::TextureBuffer);
 
                 if (needsRegeneration) {
+                    // Desktop GL has had buffer textures core since 3.1 and MobileGL advertises a
+                    // 4.x context, so glTexBuffer is a legal call the app may make on any driver -
+                    // but ES only gained them in 3.2, and g_GLESFuncs.glTexBuffer is simply null
+                    // below that without EXT/OES_texture_buffer. Calling it was an unconditional
+                    // null dereference. There is no conformant way to refuse the call (it is valid
+                    // in the context MobileGL claims), so the texture is left unbacked and the
+                    // reason is stated once per respecify at a level that survives the shipped
+                    // INFO build - MGLOG_E is compiled out there, which is exactly how this class
+                    // of defect stays invisible.
+                    if (!AreBufferTexturesSupported()) {
+                        if (m_bufferTextureUnsupportedReported) {
+                            break;
+                        }
+                        m_bufferTextureUnsupportedReported = true;
+                        MGLOG_I("Texture buffer %u cannot be backed: this ES driver has no buffer "
+                                "textures (%s). Every draw sampling it will read zero and every "
+                                "shader declaring a samplerBuffer will fail to compile. MobileGL "
+                                "still advertises GL_MAX_TEXTURE_BUFFER_SIZE = %d because an "
+                                "OpenGL 4.x context may not report 0.",
+                                stateTextureObject->GetExternalIndex(), GetBufferTextureTierName(),
+                                g_GLESCapabilities.MaxTextureBufferSize);
+                        break;
+                    }
                     MGLOG_D("Texture state changed significantly or not initialized, regenerating texture buffer with "
                             "ID: %u, buffer ID: %u, buffer size: %zu, format: %s",
                             m_backendTextureId, backendId, buffer->GetSize(),
@@ -2787,17 +2812,19 @@ namespace MobileGL::MG_Backend::DirectGLES {
                     // is absent).
                     const SizeT rangeOffset = textureBufferObject->GetBufferRangeOffset();
                     const SizeT rangeSize = textureBufferObject->GetBufferRangeSizeInBytes();
+                    // Through CallTexBuffer/CallTexBufferRange rather than g_GLESFuncs directly:
+                    // the unsuffixed entry points are the ES 3.2 core spelling, and a driver
+                    // whose buffer textures come from EXT/OES_texture_buffer exports the
+                    // suffixed ones instead. The dispatchers pick whichever this tier ships.
                     if (rangeOffset == 0 && rangeSize == buffer->GetSize()) {
-                        g_GLESFuncs.glTexBuffer(GL_TEXTURE_BUFFER, glInternalFormat, backendId);
-                    } else if (g_GLESFuncs.glTexBufferRange != nullptr) {
-                        g_GLESFuncs.glTexBufferRange(GL_TEXTURE_BUFFER, glInternalFormat, backendId,
-                                                     static_cast<GLintptr>(rangeOffset),
-                                                     static_cast<GLsizeiptr>(rangeSize));
-                    } else {
-                        MGLOG_E("Texture buffer %u names a sub-range but the driver has no "
+                        CallTexBuffer(GL_TEXTURE_BUFFER, glInternalFormat, backendId);
+                    } else if (!CallTexBufferRange(GL_TEXTURE_BUFFER, glInternalFormat, backendId,
+                                                   static_cast<GLintptr>(rangeOffset),
+                                                   static_cast<GLsizeiptr>(rangeSize))) {
+                        MGLOG_I("Texture buffer %u names a sub-range but the driver has no "
                                 "glTexBufferRange; binding the whole buffer instead",
                                 stateTextureObject->GetExternalIndex());
-                        g_GLESFuncs.glTexBuffer(GL_TEXTURE_BUFFER, glInternalFormat, backendId);
+                        CallTexBuffer(GL_TEXTURE_BUFFER, glInternalFormat, backendId);
                     }
                     DebugImpl::ErrorLopper::Loop(
                         [file = __FILE__, line = __LINE__, func = __func__, glInternalFormat, backendId](GLenum err) {
@@ -2809,7 +2836,14 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 break;
             }
             default:
-                THROW_UNIMPL_EXCEPTION;
+                // TextureStorageType is {Mipmap, Buffer}, both handled above, so this is a
+                // backstop for a state object that grew a new storage kind. Skipping the upload
+                // renders wrong; throwing unwinds through the C GL ABI and kills the process.
+                MGLOG_I("DirectGLES texture sync: no upload path for storage type %d on texture %u; "
+                        "skipping this sync",
+                        static_cast<int>(stateTextureObject->GetStorageType()),
+                        stateTextureObject->GetExternalIndex());
+                break;
             }
 
             DebugImpl::ErrorLopper::Loop([file = __FILE__, line = __LINE__, func = __func__](GLenum err) {
@@ -3074,7 +3108,6 @@ namespace MobileGL::MG_Backend::DirectGLES {
         }
 
         Uint g_activeTextureUnit = 0;
-        Uint g_textureContextGeneration = 1;
         Array<Array<BackendTextureObject*, (SizeT)TextureTarget::TextureTargetCount>,
               MG_State::GLState::TextureState::MAX_TEXTURE_IMAGE_UNITS>
             g_boundTexturesCache;
@@ -3093,12 +3126,29 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 m_backendColorSlots[i] = GL_COLOR_ATTACHMENT0 + i;
             }
             g_GLESFuncs.glGenFramebuffers(1, &m_backendFBOId);
+            m_contextGeneration = g_backendContextGeneration;
             if (m_backendFBOId == 0) {
                 MGLOG_E("Failed to generate framebuffer object.");
                 MGLOG_E("ES glGetError(): %s", MG_Util::ConvertGLEnumToString(g_GLESFuncs.glGetError()).c_str());
             } else {
                 MGLOG_D("Generated framebuffer object with ID: %u.", m_backendFBOId);
             }
+        }
+
+        BackendFramebufferObject::~BackendFramebufferObject() {
+            if (InProcessTeardown()) {
+                return; // see InProcessTeardown(): the driver may be unloaded already
+            }
+            if (m_backendFBOId == 0) {
+                return;
+            }
+            // Scrub the binding shadow whether or not the id can still be deleted: a
+            // recycled name must never satisfy the shadow's dedup.
+            NoteFramebufferIdDeleted(m_backendFBOId);
+            if (m_contextGeneration == g_backendContextGeneration && g_GLESFuncs.glDeleteFramebuffers) {
+                g_GLESFuncs.glDeleteFramebuffers(1, &m_backendFBOId);
+            }
+            m_backendFBOId = 0;
         }
 
         void BackendFramebufferObject::Bind(FramebufferTarget target) const {
@@ -3154,6 +3204,17 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 g_driverFBOBindingKnown[idx] = true;
             }
             return g_driverFBOBindings[idx];
+        }
+
+        void NoteFramebufferIdDeleted(Uint id) {
+            if (id == 0) {
+                return;
+            }
+            for (SizeT idx = 0; idx < g_driverFBOBindings.size(); ++idx) {
+                if (g_driverFBOBindingKnown[idx] && g_driverFBOBindings[idx] == id) {
+                    g_driverFBOBindings[idx] = 0; // glDeleteFramebuffers reverts a bound FBO to 0
+                }
+            }
         }
 
         void InvalidateFramebufferBindingCache() {
@@ -4146,6 +4207,31 @@ namespace MobileGL::MG_Backend::DirectGLES {
             }
         }
 
+        Uint64 ComputeShaderStorageBlockBindingSignature(
+            const MG_State::GLState::ProgramObject& stateProgramObject) {
+            const auto& overrides = stateProgramObject.GetShaderStorageBlockBindingOverrides();
+            if (overrides.empty()) return 0; // the overwhelming majority of programs
+            // Order-independent on purpose: the source is an UnorderedMap, so any signature that
+            // depended on iteration order would differ between two identical override sets and
+            // rebuild the program for nothing.
+            //
+            // Built from the VALUES, not from a change counter, so re-setting a block to the
+            // binding it already carries produces the same signature and forces no rebuild - an
+            // application that calls glShaderStorageBlockBinding every frame with unchanged
+            // arguments must not retranspile every frame.
+            Uint64 signature = 0;
+            for (const auto& [blockName, binding] : overrides) {
+                if (binding < 0) continue; // never rebound; the declared qualifier still stands
+                Uint64 entry = std::hash<String>{}(blockName);
+                // Mixed rather than merely summed with the name hash: name and binding must not
+                // be able to trade places between two entries and cancel out.
+                entry ^= (static_cast<Uint64>(static_cast<Uint32>(binding)) + 0x9e3779b97f4a7c15ull +
+                          (entry << 6) + (entry >> 2));
+                signature += entry; // commutative combine
+            }
+            return signature;
+        }
+
         void BackendProgramObjectImpl::SyncToBackend(
             const SharedPtr<MG_State::GLState::ProgramObject>& stateProgramObject) {
 #ifdef TRACY_ENABLE
@@ -4155,6 +4241,9 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 MGLOG_E("State program object is null, skipping backend sync.");
                 return;
             }
+            // Recorded before either early return below, so Use() can always name the GL
+            // program a no-op draw belongs to - including the "linked but not drawable" exit.
+            m_frontendProgramId = stateProgramObject->GetExternalIndex();
 
             // GetSpirvStatus() as well as GetLinkStatus(): a program whose phase-B job was
             // cancelled (teardown) or whose optimizer run failed is fully linked and fully
@@ -4178,6 +4267,11 @@ namespace MobileGL::MG_Backend::DirectGLES {
             m_snormFallbackClampOutputMask = g_snormFallbackClampOutputMask;
             m_unormFallbackClampOutputMask = g_unormFallbackClampOutputMask;
             m_fragColorBroadcastCount = g_fragColorBroadcastCount;
+            // The generated ESSL bakes these in (see the SetShaderStorageBlockBinding call in the
+            // transpile loop below), so the set they were generated against is part of what makes
+            // this build current - the draw path compares the signature and rebuilds on a change.
+            const auto& storageBlockBindingOverrides = stateProgramObject->GetShaderStorageBlockBindingOverrides();
+            m_shaderStorageBlockBindingSignature = ComputeShaderStorageBlockBindingSignature(*stateProgramObject);
 
             // Detach all existing shaders
             GLint attachedCount = 0;
@@ -4228,6 +4322,26 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 String source;
                 auto& spirvCode = shaderSpirvs[index];
 
+                // A samplerBuffer is core in the OpenGL 3.1+ context MobileGL advertises but needs
+                // ES 3.2 or EXT/OES_texture_buffer on the host. Without it SPIRV-Cross emits
+                // `#extension GL_EXT_texture_buffer : require` and the driver rejects both that
+                // and the isamplerBuffer keyword - the program never links and every draw using it
+                // becomes a silent no-op. Say so here, naming the stage, instead of leaving a
+                // driver info log the shipped INFO build compiles out (MGLOG_E is inactive there).
+                // Gated on the capability so the module walk never runs on a healthy driver.
+                if (!AreBufferTexturesSupported() &&
+                    MG_Util::ShaderTranspiler::ShaderCompiler::ModuleDeclaresBufferTextureSampler(spirvCode)) {
+                    MGLOG_I("Program %u stage %s samples a buffer texture, which this ES driver "
+                            "cannot provide (%s). The shader will not compile and the program will "
+                            "not link; every draw using it is a no-op.",
+                            m_backendProgramId,
+                            MG_Util::ConvertGLEnumToString(glShaderType).c_str(),
+                            GetBufferTextureTierName());
+                    m_backendProgramUsable = false;
+                    g_GLESFuncs.glDeleteShader(backendShaderId);
+                    continue;
+                }
+
                 // ESSL cannot express gl_DrawID/gl_BaseInstance/gl_BaseVertex; demote them to
                 // plain globals (mg_*) before handing the module to SPIRV-Cross.
                 Vector<unsigned int> loweredSpirv;
@@ -4277,6 +4391,22 @@ namespace MobileGL::MG_Backend::DirectGLES {
                     effectiveSpirv = &rectLoweredSpirv;
                 }
 
+                // GLSL ES demands a constant integral expression to index a fragment output
+                // array; SPIR-V does not, so a shader that writes coeff[i] from a loop
+                // reaches SPIRV-Cross intact and comes out as ESSL a strict driver rejects
+                // outright ("array indexes for fragment outputs must be constant integral
+                // expressions"), linking no program and silently no-oping every draw that
+                // uses it. Mesa accepts it, ANGLE does not - which is the whole of the
+                // improved-transparency-minecraft-26.3 failure. Fold or lower the index here,
+                // on the ESSL path only: the same module is legal for DirectVulkan.
+                Vector<unsigned int> outputIndexSpirv;
+                if (glShaderType == GL_FRAGMENT_SHADER &&
+                    MG_Util::ShaderTranspiler::ShaderCompiler::LegalizeFragmentOutputIndexingForEssl(
+                        *effectiveSpirv, outputIndexSpirv) &&
+                    !outputIndexSpirv.empty()) {
+                    effectiveSpirv = &outputIndexSpirv;
+                }
+
                 MG_Util::ShaderTranspiler::SpvcSession spvcSession(*effectiveSpirv,
                     MG_Util::ShaderTranspiler::SessionUsageBit::Transpile);
 
@@ -4289,6 +4419,15 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 spvc_compiler_options_set_bool(options, SPVC_COMPILER_OPTION_GLSL_VULKAN_SEMANTICS, SPVC_FALSE);
 
                 spvcSession.SetOptions(options);
+
+                // ES fixes a storage block's binding at link from its layout(binding=) qualifier
+                // and has no glShaderStorageBlockBinding to move it afterwards, so a rebinding
+                // can only be honoured by printing it INTO the qualifier. Rewriting the Binding
+                // decoration before SPIRV-Cross emits is what does that; RemoveLayoutBinding
+                // then deliberately preserves the qualifier for `buffer` declarations.
+                if (!storageBlockBindingOverrides.empty()) { // empty for almost every program
+                    spvcSession.SetShaderStorageBlockBinding(storageBlockBindingOverrides);
+                }
 
                 const char* result = nullptr;
                 spvcSession.Compile(&result);
@@ -4305,7 +4444,24 @@ namespace MobileGL::MG_Backend::DirectGLES {
 
                 source = result;
 
+                // Position in the chain is arbitrary: this is the only header-level rewrite, it
+                // edits #extension directives and never the body, and the replacement is the
+                // same length and stays an #extension line - so it commutes with every pass
+                // below, including ForceSupporterOutput's scan for the last directive. First,
+                // because a header concern reads better before the body ones.
+                source = RetargetTextureBufferExtension(std::move(source),
+                                                        g_GLESCapabilities.TextureBufferSupport);
+
                 source = RebindImageUniformsToFrontendUnits(std::move(source), stateProgramObject);
+                // Wedged between those two on purpose:
+                //  * AFTER RebindImageUniformsToFrontendUnits, so the binding it copies onto
+                //    both halves of a split image is already the frontend texture unit (and so
+                //    that pass never has to reason about the alias it introduces);
+                //  * BEFORE RemoveLayoutBinding, whose keepBindingRegex recognises an image
+                //    declaration and preserves its binding - an image unit cannot be set from
+                //    the API in ES, so the qualifier is the only binding mechanism there is,
+                //    and both halves of the pair have to still be carrying theirs when it runs.
+                source = SplitReadWriteImageUniforms(source);
                 source = RemoveLayoutBinding(source);
                 source = ProcessOutColorLocations(source);
                 source = ForceFlatIntegerVaryings(source, glShaderType);
@@ -4348,13 +4504,41 @@ namespace MobileGL::MG_Backend::DirectGLES {
                     Vector<GLchar> log(static_cast<SizeT>(logLength) + 1, '\0');
                     g_GLESFuncs.glGetShaderInfoLog(backendShaderId, logLength, nullptr, log.data());
                     log.back() = '\0';
-                    MGLOG_E("Shader compilation failed for backend ID %u: %s", backendShaderId, log.data());
+                    // MGLOG_I, deliberately. Every CI, retrace and release build compiles at
+                    // MOBILEGL_LOG_LEVEL_INFO, where MGLOG_E and MGLOG_W expand to nothing
+                    // (Log.h orders DEBUG < WARN < ERROR < INFO), so this diagnostic used to
+                    // exist only in debug builds: the Android retrace artifact carried 294
+                    // INFO lines and zero ERROR lines while two generated shaders were being
+                    // rejected outright, and the lane could not say why it was rendering an
+                    // empty translucent layer. A shader the driver refuses is never noise.
+                    MGLOG_I("Shader compilation failed. State program ID: %u, stage: %s, backend shader ID: "
+                            "%u, driver log: %s",
+                            stateProgramObject->GetExternalIndex(),
+                            MG_Util::ConvertGLEnumToString(glShaderType).c_str(), backendShaderId,
+                            log.data());
                     m_backendProgramUsable = false;
+                    // Nothing will ever attach this one, so nothing else can free it.
+                    g_GLESFuncs.glDeleteShader(backendShaderId);
                     continue;
                 }
 
                 MGLOG_D("Attaching shader ID: %u to program %u", backendShaderId, m_backendProgramId);
                 g_GLESFuncs.glAttachShader(m_backendProgramId, backendShaderId);
+                // Hand the shader's lifetime to the program, immediately and unconditionally.
+                //
+                // glDeleteShader only FLAGS a shader; the driver frees it when it is attached to
+                // nothing. Flagging it here is what makes the program own it, so deleting the
+                // program (or the detach loop above, on a relink) is what actually frees it.
+                // Without this call every program build leaked its shader objects for the process
+                // lifetime, and a relink leaked them twice - the detach loop above dropped the
+                // program's reference to shaders nothing had flagged, so they became unreachable
+                // AND undeletable. The GL swizzle conformance test builds 1,296 programs per case,
+                // so a handful of cases left tens of thousands of live driver shaders behind and
+                // the driver started mis-serving them (KHR-GL33/GL40.texture_swizzle.smoke_*).
+                // Same class of defect as the missing framebuffer/renderbuffer/sampler destructors
+                // fixed in Wave 1, and the last of that family: this is the one backend GL object
+                // MobileGL creates without an owning wrapper to destroy it.
+                g_GLESFuncs.glDeleteShader(backendShaderId);
 
                 MGLOG_D("Processed shader source length: %zu", source.length());
             }
@@ -4393,8 +4577,11 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 Vector<GLchar> log(static_cast<SizeT>(logLength) + 1, '\0');
                 g_GLESFuncs.glGetProgramInfoLog(m_backendProgramId, logLength, nullptr, log.data());
                 log.back() = '\0';
-                MGLOG_E("Program %u linking failed for %u: %s", stateProgramObject->GetExternalIndex(),
-                        m_backendProgramId, log.data());
+                // MGLOG_I for the same reason as the compile failure above: a program that
+                // links nothing no-ops every draw that uses it, and that has to be readable
+                // in an INFO-level artifact.
+                MGLOG_I("Program linking failed. State program ID: %u, backend program ID: %u, driver log: %s",
+                        stateProgramObject->GetExternalIndex(), m_backendProgramId, log.data());
             } else {
                 MGLOG_D("Program linked successfully. ID: %u", m_backendProgramId);
             }
@@ -4425,17 +4612,37 @@ namespace MobileGL::MG_Backend::DirectGLES {
             }
 
             CacheResourceLocations(stateProgramObject);
-            // AFTER the link, because glShaderStorageBlockBinding needs the driver's linked
-            // interface. This is the only place Espryt applies a rebinding: the frontend
-            // record is authoritative and the glShaderStorageBlockBinding entry point itself
-            // deliberately never forces a program build (see DirectGLES.cpp), so a rebinding
-            // requested while no backend program existed yet arrives here instead.
+            // NOT the mechanism that makes a rebinding work - the transpiled qualifier above is.
+            // glShaderStorageBlockBinding is a GL 4.3 entry point that no real ES driver exposes,
+            // so this replay is a no-op almost everywhere; it stays because it is still correct
+            // (and cheaper than a rebuild) on a driver that does expose it, e.g. a desktop GL
+            // driver used as the ES backend. AFTER the link either way, because it needs the
+            // driver's linked interface.
             ReseedShaderStorageBlockBindings(m_backendProgramId, *stateProgramObject);
             m_syncedLinkVersion = stateProgramObject->GetLinkVersion();
+            m_syncedImageUnitVersion = stateProgramObject->GetImageUnitVersion();
 
             m_isInitialized = true;
             MGLOG_D("Program sync completed. backend ID %u", m_backendProgramId);
         }
+
+        namespace {
+            // The GL name of the array element that lives at `location`, given the reflection
+            // name reported for it. Reflection reports one name per UNIFORM ("goku[0]") but
+            // one location per ELEMENT, so a caller walking locations sees the same name
+            // repeatedly; this turns it back into "goku[k]". Anything that is not an array
+            // (or whose base location cannot be resolved) comes back unchanged, so the only
+            // behaviour that moves is the array case.
+            String SubscriptUniformNameForElement(const MG_State::GLState::ProgramObject& program, const String& name,
+                                                  Uint location) {
+                if (name.size() < 3 || name.compare(name.size() - 3, 3, "[0]") != 0) return name;
+                const Int base = program.GetUniformLocation(name);
+                if (base < 0 || static_cast<Uint>(base) > location) return name;
+                const Uint element = location - static_cast<Uint>(base);
+                if (element == 0) return name;
+                return name.substr(0, name.size() - 3) + "[" + std::to_string(element) + "]";
+            }
+        } // namespace
 
         // Resolves every name-based resource lookup once per link so the per-draw path
         // (BindCurrentProgramWithResources) never issues glGetUniformBlockIndex /
@@ -4499,7 +4706,17 @@ namespace MobileGL::MG_Backend::DirectGLES {
                     // is an INVALID_OPERATION.
                     continue;
                 }
-                const Int backendLoc = g_GLESFuncs.glGetUniformLocation(m_backendProgramId, name.c_str());
+                // Reflection names an array uniform after its FIRST element ("goku[0]") at
+                // every location the array spans, so asking the driver for that one name
+                // once per location hands back the same backend location N times. The
+                // per-draw pass then issues N glUniform1i calls against it and only the
+                // last element's unit survives - "layout(binding = 1) uniform sampler2D
+                // goku[7]" ended up with goku[0] on unit 7 and goku[1..6] still on 0.
+                // Address each element by its own name instead; the frontend already
+                // reserves one location per element, so the element index is the distance
+                // from the array's base location.
+                const String elementName = SubscriptUniformNameForElement(*stateProgramObject, name, loc);
+                const Int backendLoc = g_GLESFuncs.glGetUniformLocation(m_backendProgramId, elementName.c_str());
                 if (backendLoc < 0) continue;
                 SamplerUniformBinding binding;
                 binding.frontendLocation = loc;
@@ -4508,8 +4725,8 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 binding.lastAssignedUnit = -1;
                 // Present only for the samplers EmulateTextureLodBias actually rewrote; the
                 // pass names it after the sampler, which SPIRV-Cross preserves verbatim.
-                binding.lodBiasLocation =
-                    g_GLESFuncs.glGetUniformLocation(m_backendProgramId, (String(LOD_BIAS_UNIFORM_PREFIX) + name).c_str());
+                binding.lodBiasLocation = g_GLESFuncs.glGetUniformLocation(
+                    m_backendProgramId, (String(LOD_BIAS_UNIFORM_PREFIX) + elementName).c_str());
                 binding.lastAssignedLodBias = 0.0f;
                 m_samplerUniformBindings.push_back(binding);
             }
@@ -4527,6 +4744,17 @@ namespace MobileGL::MG_Backend::DirectGLES {
             const Uint programToBind = m_backendProgramUsable ? m_backendProgramId : 0;
             if (g_lastUsedBackendProgramId == programToBind) {
                 return;
+            }
+            if (!m_backendProgramUsable) {
+                // MGLOG_I, not MGLOG_W: at MOBILEGL_LOG_LEVEL_INFO - the level the shipped
+                // fordebug builds compile at - only I and F survive, and this is precisely the
+                // line those builds need. Every draw made with this program renders nothing and
+                // raises no GL error, so without it the only symptom is a framebuffer that kept
+                // its clear colour. The early return above keeps it to at most one line per
+                // program state change, not one per draw.
+                MGLOG_I("Backend program for GL program %u is unusable (a shader failed to transpile, "
+                        "compile or link); binding program 0 - draws with it will render nothing",
+                        m_frontendProgramId);
             }
             MGLOG_D("Using program %u", programToBind);
             g_GLESFuncs.glUseProgram(programToBind);
@@ -4563,12 +4791,33 @@ namespace MobileGL::MG_Backend::DirectGLES {
             ZoneScopedC(TRACY_ZONECOLOR_BACKEND);
 #endif
             g_GLESFuncs.glGenSamplers(1, &m_backendSamplerId);
+            m_contextGeneration = g_backendContextGeneration;
             if (m_backendSamplerId == 0) {
                 MGLOG_E("Failed to generate sampler object.");
                 MGLOG_E("ES glGetError(): %s", MG_Util::ConvertGLEnumToString(g_GLESFuncs.glGetError()).c_str());
             } else {
                 MGLOG_D("Generated sampler object with ID: %u.", m_backendSamplerId);
             }
+        }
+
+        BackendSamplerObject::~BackendSamplerObject() {
+            if (InProcessTeardown()) {
+                return; // see InProcessTeardown(): the driver may be unloaded already
+            }
+            if (m_backendSamplerId == 0) {
+                return;
+            }
+            // Scrub the unit shadow whether or not the id can still be deleted - the next
+            // twin can land on this heap address and would otherwise false-skip its Bind.
+            for (auto& boundSampler : g_boundSamplersCache) {
+                if (boundSampler == this) {
+                    boundSampler = nullptr; // glDeleteSamplers unbinds from every unit
+                }
+            }
+            if (m_contextGeneration == g_backendContextGeneration && g_GLESFuncs.glDeleteSamplers) {
+                g_GLESFuncs.glDeleteSamplers(1, &m_backendSamplerId);
+            }
+            m_backendSamplerId = 0;
         }
 
         void BackendSamplerObject::SyncToBackend(
@@ -4686,10 +4935,26 @@ namespace MobileGL::MG_Backend::DirectGLES {
             ZoneScopedC(TRACY_ZONECOLOR_BACKEND);
 #endif
             g_GLESFuncs.glGenRenderbuffers(1, &m_backendRBOId);
+            m_contextGeneration = g_backendContextGeneration;
             if (m_backendRBOId == 0) {
                 MGLOG_E("Failed to generate renderbuffer object.");
                 MGLOG_E("ES glGetError(): %s", MG_Util::ConvertGLEnumToString(g_GLESFuncs.glGetError()).c_str());
             }
+        }
+
+        BackendRenderbufferObject::~BackendRenderbufferObject() {
+            if (InProcessTeardown()) {
+                return; // see InProcessTeardown(): the driver may be unloaded already
+            }
+            if (m_backendRBOId == 0) {
+                return;
+            }
+            // No driver-level renderbuffer-binding shadow exists (Bind() always issues the
+            // call), so there is nothing to scrub here - only the id to release.
+            if (m_contextGeneration == g_backendContextGeneration && g_GLESFuncs.glDeleteRenderbuffers) {
+                g_GLESFuncs.glDeleteRenderbuffers(1, &m_backendRBOId);
+            }
+            m_backendRBOId = 0;
         }
 
         void BackendRenderbufferObject::Bind() const {

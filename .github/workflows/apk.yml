@@ -201,8 +201,40 @@ jobs:
       - name: Checkout repo
         uses: actions/checkout@v6
 
+      - name: Derive trace fixture cache key
+        id: fixture-key
+        run: bash .github/scripts/trace-fixture-cache.sh key '${{ matrix.case }}'
+
+      - name: Restore trace fixture cache
+        id: fixture-cache
+        if: steps.fixture-key.outputs.cacheable == 'true'
+        uses: actions/cache/restore@v5
+        with:
+          path: ${{ steps.fixture-key.outputs.paths }}
+          key: ${{ steps.fixture-key.outputs.key }}
+
+      - name: Verify restored trace fixture
+        id: fixture-verify
+        if: steps.fixture-cache.outputs.cache-hit == 'true'
+        run: |
+          if bash .github/scripts/trace-fixture-cache.sh verify '${{ matrix.case }}'; then
+            echo "ok=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "ok=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::Cached fixture for ${{ matrix.case }} failed verification; falling back to the download path"
+            bash .github/scripts/trace-fixture-cache.sh reset '${{ matrix.case }}'
+          fi
+
       - name: Fetch trace fixture
+        if: steps.fixture-verify.outputs.ok != 'true'
         run: bash .github/scripts/fetch-trace-fixture-lfs.sh '${{ matrix.case }}'
+
+      - name: Save trace fixture cache
+        if: steps.fixture-key.outputs.cacheable == 'true' && steps.fixture-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v5
+        with:
+          path: ${{ steps.fixture-key.outputs.paths }}
+          key: ${{ steps.fixture-key.outputs.key }}
 
       - name: Stage trace fixture
         run: |
@@ -411,6 +443,24 @@ jobs:
           run_retrace || retrace_status=$?
           if [ "${retrace_status}" -eq 75 ]; then
             echo "::warning::Android emulator infrastructure failed; restarting it and retrying this retrace once."
+            # Surface-lost is retried rather than failed, so it would otherwise
+            # be invisible. Report it per job - a healthy run prints nothing and
+            # a rate spike shows up as a row per affected case.
+            reason_file="android-retrace-result/infrastructure-failure-reason.txt"
+            surface_lost_retries=0
+            if [ -f "${reason_file}" ]; then
+              surface_lost_retries="$(grep -c 'angle-surface-lost' "${reason_file}" || true)"
+            fi
+            if [ "${surface_lost_retries}" -gt 0 ]; then
+              echo "surface-lost retries: ${surface_lost_retries} (${{ matrix.backend.name }}, ${{ matrix.case.name }})" \
+                >> "${GITHUB_STEP_SUMMARY}"
+            fi
+            # The restart truncates EMULATOR_LOG, and the attempt that lost the
+            # emulator is the one worth reading - the retry usually only shows
+            # the wreckage. Keep the first attempt's log before it is clobbered.
+            if [ -f "${EMULATOR_LOG}" ]; then
+              cp "${EMULATOR_LOG}" "${EMULATOR_LOG}.first-attempt" || true
+            fi
             sh android-plugin/run-avd-ci.sh stop \
               --avd-name "${AVD_NAME}" \
               --emulator-log "${EMULATOR_LOG}" \
@@ -450,6 +500,13 @@ jobs:
           if [ -f "${EMULATOR_LOG}" ]; then
             cp "${EMULATOR_LOG}" android-retrace-result/diagnostics/emulator.log
           fi
+          if [ -f "${EMULATOR_LOG}.first-attempt" ]; then
+            cp "${EMULATOR_LOG}.first-attempt" android-retrace-result/diagnostics/emulator-first-attempt.log
+          fi
+          # A vanished emulator looks identical whether the host OOM killer took
+          # qemu or the renderer faulted. These two say which.
+          free -h > android-retrace-result/diagnostics/host-memory.txt 2>&1 || true
+          sudo dmesg -T 2>/dev/null | tail -300 > android-retrace-result/diagnostics/host-dmesg.txt || true
 
       - name: Stop Emulator
         if: always()
@@ -531,22 +588,41 @@ jobs:
           )
 
           if ((${#failed_cases[@]})); then
-            echo "Retaining fixtures for failed retrace case(s):"
+            echo "Retaining fixtures and results for failed retrace case(s):"
             printf '  %s\n' "${!failed_cases[@]}"
           else
-            echo "All retrace jobs succeeded; no fixtures need to be retained."
+            echo "All retrace jobs succeeded; nothing needs to be retained."
           fi
 
           deleted=0
           retained=0
           while IFS=$'\t' read -r artifact_id artifact_name; do
+            keep=0
             if [[ "${artifact_name}" == MobileGL-trace-fixture-* ]]; then
               case_name="${artifact_name#MobileGL-trace-fixture-}"
               if [[ -v "failed_cases[${case_name}]" ]]; then
-                echo "Retaining ${artifact_name} (${artifact_id}) for failed retrace."
-                ((retained += 1))
-                continue
+                keep=1
               fi
+            elif [[ "${artifact_name}" == MobileGL-android-retrace-result-* ]]; then
+              # The result artifact carries mobilegl.log, retrace.log, logcat,
+              # the emulator log and the actual/diff images - the only record of
+              # why a retrace failed. Its name ends in -<backend>-<case>, so a
+              # suffix match on the case name keeps both backends' results for a
+              # case that failed on either of them, which is what a comparison
+              # needs. The match is anchored at the end, so a case name that is a
+              # prefix of a longer one does not retain the longer one's results.
+              for case_name in "${!failed_cases[@]}"; do
+                if [[ "${artifact_name}" == *-"${case_name}" ]]; then
+                  keep=1
+                  break
+                fi
+              done
+            fi
+
+            if ((keep)); then
+              echo "Retaining ${artifact_name} (${artifact_id}) for failed retrace."
+              ((retained += 1))
+              continue
             fi
 
             echo "Deleting ${artifact_name} (${artifact_id})"

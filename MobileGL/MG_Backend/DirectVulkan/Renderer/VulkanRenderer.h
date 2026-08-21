@@ -211,10 +211,15 @@ namespace MobileGL::MG_Backend::DirectVulkan {
                                     GLsizei height, GLenum format, GLenum type, void* pixels);
         // Copy-and-repack core shared by depth-stencil ReadPixels and GetTexImage;
         // expects command recording to be active and any render pass already ended.
+        //
+        // `defaultFramebufferOrientation` is set only when the source is the swapchain's
+        // depth/stencil image, which this renderer stores display-side-up: the copy rect then
+        // has to be mapped out of GL's bottom-origin space and the copied rows re-oriented on
+        // the way back, exactly as the colour ReadPixels path does.
         void ReadDepthStencilImageToClient(VkImage image, VkFormat vkFormat, VkImageLayout* trackedLayout,
                                            VkImageAspectFlags imageAspect, Uint32 mipLevel, Uint32 baseArrayLayer,
                                            GLint x, GLint y, GLsizei width, GLsizei height, GLenum format, GLenum type,
-                                           void* pixels);
+                                           void* pixels, Bool defaultFramebufferOrientation = false);
         // Same-extent depth blit between images of different depth formats: host
         // round-trip with a per-texel re-encode (see BlitNamedFramebuffer).
         Bool BlitDepthAcrossFormats(FrameContext::FrameData& frame, VkImage srcImage, VkFormat srcFormat,
@@ -362,6 +367,31 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             Int srcTexelSizeLocation = -1;
             Uint32 samplerBinding = 0;
         };
+
+        // A single-sample staging image for multisample-resolve blits that also have to change
+        // orientation. vkCmdResolveImage cannot flip (it takes one offset per side, not the
+        // invertible pair vkCmdBlitImage takes), so a resolve into or out of the default
+        // framebuffer used to land the mirrored band. Resolving here first and then blitting from
+        // here separates the two operations, and each one then does only what it can express.
+        //
+        // Pooled rather than created per blit: the CTS runs hundreds of these back to back, and
+        // create-destroy per call would both cost allocations and, worse, need per-call deferred
+        // destruction to outlive the recording. It grows to the largest extent asked for and is
+        // reused; format changes recreate it.
+        struct MultisampleResolveScratchImage {
+            VkImage image = VK_NULL_HANDLE;
+            VmaAllocation allocation = VK_NULL_HANDLE;
+            VkFormat format = VK_FORMAT_UNDEFINED;
+            VkExtent2D extent = {0, 0};
+            VkImageLayout layout = VK_IMAGE_LAYOUT_UNDEFINED;
+        };
+        MultisampleResolveScratchImage m_msResolveScratch;
+        // Returns a scratch image at least `extent` in size with exactly `format`, transitioned to
+        // TRANSFER_DST and ready to be resolved into. Null image on failure (the caller then falls
+        // back to the direct resolve).
+        Bool AcquireMultisampleResolveScratchImage(VkCommandBuffer commandBuffer, VkFormat format,
+                                                   VkExtent2D extent);
+        void DestroyMultisampleResolveScratchImage();
 
         struct DeferredDepthMipmapCleanup {
             Vector<VkImageView> imageViews;
@@ -1118,6 +1148,18 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         Bool MaterializePendingClearForRenderbuffer(
             VkCommandBuffer commandBuffer,
             const SharedPtr<MG_State::GLState::RenderbufferObject>& renderbuffer);
+        // The default framebuffer's twin of the two above. It cannot go through
+        // MaterializePendingClearForTexture: the default FBO's colour attachment is a
+        // placeholder texture object, and syncing THAT would clear a texture image nobody
+        // presents instead of the acquired swapchain image.
+        Bool MaterializePendingClearForDefaultFramebuffer(VkCommandBuffer commandBuffer,
+                                                          MG_State::GLState::FramebufferObject& fbo,
+                                                          FramebufferAttachmentType attachmentType);
+        // Its depth/stencil half: a different image (the swapchain's depth/stencil twin), a
+        // different clear command and per-aspect masking.
+        Bool MaterializePendingDepthStencilClearForDefaultFramebuffer(
+            VkCommandBuffer commandBuffer, const MG_State::GLState::FramebufferAttachmentObject& attachment,
+            const ClearAttachmentPayload& payload);
         VkPipeline GetOrCreateBlitPipeline(const RenderPassEntry& renderPassEntry);
         Bool GenerateDepthMipmapWithShader(FrameContext::FrameData& frame,
                                            MG_State::GLState::ITextureObject& texture,

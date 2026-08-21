@@ -220,6 +220,47 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         return static_cast<Int>((static_cast<Int64>(value) * toExtent + fromExtent / 2) / fromExtent);
     }
 
+    // ---------------------------------------------------------------------------------------
+    // Default-framebuffer rectangles.
+    //
+    // GL's window origin is the BOTTOM-left. The default framebuffer's Vulkan image is stored in
+    // DISPLAY (top-left) orientation, and the difference is reconciled for VERTICES by negating
+    // gl_Position.y - but only for default-FBO draws (GetShaderTransformFlags ->
+    // CompileOptionBit::PositionYFlip, applied in ProgramFactory::InsertPositionFixup).
+    //
+    // Rectangles were never converted. The viewport, the scissor and the ReadPixels copy offset
+    // all used the GL bottom-origin Y verbatim as a Vulkan top-origin Y, which is correct only
+    // when y == H - y - h (full height, or vertically centred) - and full height is the only case
+    // any test ever exercised. In the conformance suite the errors CANCEL in placement (the draw
+    // lands in Vulkan rows [y, y+h) and the readback copies the same rows back) and compose into
+    // an exact vertical flip: 1,759 of Magma's 1,793 non-passing cases, 861 vertical flips and
+    // nothing else across all of gl33.
+    //
+    // The mapping below is derived from - and at full extent exactly reproduces - the pixel
+    // mapping RemapDefaultFboReadbackToGLOrientation has always used:
+    //     identity : image(x, H-1-y)      -> flip Y
+    //     180      : image(W-1-x, y)      -> mirror X (the rotation already flips the rows)
+    // Quarter turns swap the axes; nothing in this renderer models that (the readback declines to
+    // remap them and the viewport path only rescales), so they are left exactly as they were.
+    struct DefaultFramebufferRectMapping {
+        Bool flipY = false;
+        Bool mirrorX = false;
+    };
+
+    static DefaultFramebufferRectMapping GetDefaultFramebufferRectMapping(
+            VkSurfaceTransformFlagBitsKHR preTransform) {
+        if (preTransform == VK_SURFACE_TRANSFORM_ROTATE_180_BIT_KHR) return {false, true};
+        if (IsQuarterTurnPreTransform(preTransform)) return {false, false};
+        return {true, false};
+    }
+
+    // [origin, origin+size) counted from one end is [extent-origin-size, extent-origin) counted
+    // from the other. A full-extent rect is a fixed point, which is why this can be introduced
+    // without moving anything that works today.
+    static Int MapDefaultFramebufferRectAxis(Int origin, Int size, Int extent, Bool invert) {
+        return invert ? extent - origin - size : origin;
+    }
+
     // Redundant dynamic-state elimination for the per-draw hot path: within one
     // command-buffer recording, a vkCmdSet* whose values already match what the
     // command buffer holds is skipped. Valid because every PipelineFactory
@@ -417,6 +458,17 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             viewportHeight = ScaleFramebufferCoordinate(viewportHeight, logicalExtent.y(), framebufferExtent.y());
         }
 
+        // The GL viewport rect, expressed against the default framebuffer's stored orientation.
+        // A full-height viewport is unchanged by this, which is why every existing scenario keeps
+        // its exact behaviour.
+        if (isDefaultFramebuffer) {
+            const DefaultFramebufferRectMapping mapping = GetDefaultFramebufferRectMapping(preTransform);
+            viewportX = MapDefaultFramebufferRectAxis(viewportX, viewportWidth, framebufferExtent.x(),
+                                                      mapping.mirrorX);
+            viewportY = MapDefaultFramebufferRectAxis(viewportY, viewportHeight, framebufferExtent.y(),
+                                                      mapping.flipY);
+        }
+
         VkViewport viewport{};
         viewport.x = static_cast<float>(viewportX);
         viewport.y = static_cast<float>(viewportY);
@@ -518,11 +570,25 @@ namespace MobileGL::MG_Backend::DirectVulkan {
         return scissor;
     }
 
+    // The clamped rect, re-expressed against the default framebuffer's stored orientation. Same
+    // conversion as the viewport - and it must be the same one, or the scissor would cut a band
+    // the draw never touched.
+    static VkRect2D MapScissorRectToDefaultFramebuffer(VkRect2D scissor, const IntVec2& framebufferExtent,
+                                                       VkSurfaceTransformFlagBitsKHR preTransform) {
+        const DefaultFramebufferRectMapping mapping = GetDefaultFramebufferRectMapping(preTransform);
+        scissor.offset.x = MapDefaultFramebufferRectAxis(scissor.offset.x, static_cast<Int>(scissor.extent.width),
+                                                         framebufferExtent.x(), mapping.mirrorX);
+        scissor.offset.y = MapDefaultFramebufferRectAxis(scissor.offset.y, static_cast<Int>(scissor.extent.height),
+                                                         framebufferExtent.y(), mapping.flipY);
+        return scissor;
+    }
+
     static VkRect2D MakeDefaultFramebufferScissorRect(const IntVec4& scissorBox,
                                                       const IntVec2& framebufferExtent,
                                                       VkSurfaceTransformFlagBitsKHR preTransform) {
         if (!IsQuarterTurnPreTransform(preTransform)) {
-            return MakeClampedScissorRect(scissorBox, framebufferExtent);
+            return MapScissorRectToDefaultFramebuffer(MakeClampedScissorRect(scissorBox, framebufferExtent),
+                                                      framebufferExtent, preTransform);
         }
 
         const IntVec2 logicalExtent = ResolveDefaultFramebufferLogicalExtent(preTransform, framebufferExtent);
@@ -542,7 +608,9 @@ namespace MobileGL::MG_Backend::DirectVulkan {
             static_cast<Uint32>(std::max<Int>(0, rawX1 - rawX0)),
             static_cast<Uint32>(std::max<Int>(0, rawY1 - rawY0)),
         };
-        return scissor;
+        // A quarter turn maps to {false, false}, so this is a no-op today; it is here so the
+        // branch cannot drift away from the identity/180 one when quarter turns are modelled.
+        return MapScissorRectToDefaultFramebuffer(scissor, framebufferExtent, preTransform);
     }
 
     static void ApplyStencilState(VkCommandBuffer commandBuffer) {
@@ -1928,6 +1996,29 @@ void main() {
             }
         }
 
+        // The same conversion on the READ side, which never had one: a blit whose source is the
+        // default framebuffer used raw GL offsets against a display-oriented image, so it sampled
+        // the mirrored band and wrote it upside down. Mapping BOTH endpoints inverts the offset
+        // pair, and an inverted pair is exactly how VkImageBlit spells "flip this axis" - so the
+        // band and the row order are corrected in one step. A full-extent blit is unchanged in
+        // band and gains the row flip it always needed.
+        static void ApplyNativeBlitDefaultFramebufferSourceTransform(VkSurfaceTransformFlagBitsKHR preTransform,
+                                                                     const BlitImageBinding& srcBinding,
+                                                                     VkImageBlit& blitRegion) {
+            switch (preTransform) {
+                case VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR:
+                    blitRegion.srcOffsets[0].y = srcBinding.extent.y() - blitRegion.srcOffsets[0].y;
+                    blitRegion.srcOffsets[1].y = srcBinding.extent.y() - blitRegion.srcOffsets[1].y;
+                    break;
+                case VK_SURFACE_TRANSFORM_ROTATE_180_BIT_KHR:
+                    blitRegion.srcOffsets[0].x = srcBinding.extent.x() - blitRegion.srcOffsets[0].x;
+                    blitRegion.srcOffsets[1].x = srcBinding.extent.x() - blitRegion.srcOffsets[1].x;
+                    break;
+                default:
+                    break;
+            }
+        }
+
         static Bool DecodeReadbackPixel(const Uint8* source, VkFormat sourceFormat, Float* rgba) {
             switch (sourceFormat) {
                 case VK_FORMAT_R8G8B8A8_UNORM:
@@ -2033,42 +2124,42 @@ void main() {
             return static_cast<Uint8>(value * 255.0f + 0.5f);
         }
 
-        // Remap raw swapchain pixels (top-left origin, preTransform-rotated) into
-        // GL-oriented pixels (bottom-left origin) for the retrace snapshot path.
-        // Mirrors the removed GetPresentedDumpPixel mapping plus the Y-origin flip
-        // apitrace's flipped=true Image expects. Only identity/180 share the
-        // swapchain extent with the default framebuffer; 90/270 swap extents and
-        // are not handled here.
+        // Re-order the copied BLOCK - not the whole image - from the default framebuffer's stored
+        // orientation into GL's. The caller has already aimed the copy at the right place with
+        // MapDefaultFramebufferRectAxis, so what arrives here is exactly the requested
+        // rectWidth x rectHeight rect, and all that is left is the order of rows (identity) or of
+        // columns (180) WITHIN it.
+        //
+        // This used to iterate the full swapchain extent and index both sides with that stride,
+        // which is why its caller could only use it on an exact full-extent read - and why every
+        // partial glReadPixels of the default framebuffer came back in Vulkan row order. Only
+        // identity/180 share the swapchain extent with the default framebuffer; 90/270 swap
+        // extents and are still declined.
         static Bool RemapDefaultFboReadbackToGLOrientation(const Uint8* rawPixels,
-                                                            VkExtent2D rawExtent,
+                                                            Uint32 rectWidth,
+                                                            Uint32 rectHeight,
                                                             VkSurfaceTransformFlagBitsKHR preTransform,
                                                             SizeT texelSize,
                                                             Uint8* outPixels) {
             if (IsQuarterTurnPreTransform(preTransform)) {
                 return false;
             }
-            const Uint32 w = rawExtent.width;
-            const Uint32 h = rawExtent.height;
-            if (w == 0 || h == 0) {
+            if (rectWidth == 0 || rectHeight == 0 || texelSize == 0) {
                 return false;
             }
-            for (Uint32 outY = 0; outY < h; ++outY) {
-                const Uint32 displayY = h - 1 - outY; // GL bottom-origin -> display top-origin
-                for (Uint32 outX = 0; outX < w; ++outX) {
-                    const Uint32 displayX = outX;
-                    Uint32 rawX = displayX;
-                    Uint32 rawY = displayY;
-                    switch (preTransform) {
-                        case VK_SURFACE_TRANSFORM_ROTATE_180_BIT_KHR:
-                            rawX = w - 1 - displayX;
-                            rawY = h - 1 - displayY;
-                            break;
-                        default:
-                            break;
-                    }
-                    const Uint8* src = rawPixels + (static_cast<SizeT>(rawY) * w + rawX) * texelSize;
-                    Uint8* dst = outPixels + (static_cast<SizeT>(outY) * w + outX) * texelSize;
-                    Memcpy(dst, src, texelSize);
+            const DefaultFramebufferRectMapping mapping = GetDefaultFramebufferRectMapping(preTransform);
+            const SizeT rowBytes = static_cast<SizeT>(rectWidth) * texelSize;
+            for (Uint32 outY = 0; outY < rectHeight; ++outY) {
+                const Uint32 srcY = mapping.flipY ? (rectHeight - 1 - outY) : outY;
+                const Uint8* srcRow = rawPixels + static_cast<SizeT>(srcY) * rowBytes;
+                Uint8* dstRow = outPixels + static_cast<SizeT>(outY) * rowBytes;
+                if (!mapping.mirrorX) {
+                    Memcpy(dstRow, srcRow, rowBytes);
+                    continue;
+                }
+                for (Uint32 outX = 0; outX < rectWidth; ++outX) {
+                    Memcpy(dstRow + static_cast<SizeT>(outX) * texelSize,
+                           srcRow + static_cast<SizeT>(rectWidth - 1 - outX) * texelSize, texelSize);
                 }
             }
             return true;
@@ -2688,6 +2779,14 @@ void main() {
             MG_State::pGLContext->GetFramebufferBindingSlot(FramebufferTarget::Draw).GetBoundObject();
         if (currentDrawFBO != nullptr && currentDrawFBO->IsDefaultFramebuffer()) {
             flags |= ProgramFactory::CompileOptionBit::PositionYFlip;
+            // gl_FragCoord follows the same rule the default-framebuffer RECTANGLES follow
+            // (GetDefaultFramebufferRectMapping): flipped for identity/180, left alone under a
+            // quarter turn, which this renderer converts nothing for. Keeping the two in step
+            // is the whole point - a fragment's window Y and the viewport that placed it must
+            // agree on which end of the image they count from.
+            if (!IsQuarterTurnPreTransform(preTransform)) {
+                flags |= ProgramFactory::CompileOptionBit::FragCoordYFlip;
+            }
             switch (preTransform) {
             case VK_SURFACE_TRANSFORM_ROTATE_90_BIT_KHR:
                 flags |= ProgramFactory::CompileOptionBit::SurfaceRotate90;
@@ -2842,6 +2941,9 @@ void main() {
                                                       m_shaderDrawParametersFeatureEnabled,
                                                       m_unformattedFloatStorageImagesEnabled);
         MOBILEGL_ASSERT(m_programFactory != nullptr, "ProgramFactory creation failed.");
+        // The swapchain already exists at this point (Initialize creates it first), so seed the
+        // height the factory could not be told about from CreateSwapchain.
+        m_programFactory->SetDefaultFramebufferHeight(m_swapchainObject.GetExtent().height);
         // Aging evictions (render passes and program entries) must purge the dependent
         // pipeline / compute-pipeline / descriptor-set caches in the same step; both
         // sweeps only run from the frame-boundary seams, long after initialization.
@@ -2914,6 +3016,7 @@ void main() {
         DestroySubmitFencePool();
 
         DestroyDeferredDepthMipmapCleanup();
+        DestroyMultisampleResolveScratchImage();
         DestroyComputePipelines();
 
         // No sweep runs during teardown, but the observers point at this renderer
@@ -4049,7 +4152,8 @@ void main() {
             .depthWriteEnable = false,
             .depthCompareOp = VK_COMPARE_OP_ALWAYS,
             .stages = &programObj.stages,
-            .vertexInputState = &kEmptyVertexInputState
+            .vertexInputState = &kEmptyVertexInputState,
+            .stageSpirvDigests = &programObj.stageSpirvDigests
         };
         static constexpr VkColorComponentFlags kColorWriteMask =
             VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
@@ -4478,7 +4582,6 @@ void main() {
             MGLOG_D("GetOrCreatePipeline skipped: program has no shader stages");
             return VK_NULL_HANDLE;
         }
-
         // Fast path: skip the full pipeline resolution when the pipeline state is unchanged from the
         // previous draw (the common intra-batch case). The key provably covers every
         // PipelineCreatePayload field: draw mode (topology + polygon-fill depth-bias gate), program
@@ -4517,6 +4620,43 @@ void main() {
                 entry.pipelineStateHash == pipelineStateHash &&
                 entry.transformFlags == transformFlags) {
                 return entry.pipeline;
+            }
+        }
+
+        // Shape gate. Behind the memo probe deliberately: only a pipeline that was created
+        // successfully is ever memoized, so a program refused here can never be sitting in the
+        // memo, and the steady-state draw keeps paying nothing for the check.
+        //
+        // vkCreateGraphicsPipelines is not a validating entry point: a stage set that a
+        // conformant implementation would reject with VK_ERROR_* is, on Adreno 830, a SIGSEGV
+        // inside the driver - process death instead of a failed draw. The separable-program path
+        // is what made these shapes reachable at all (a monolithic glUseProgram program cannot
+        // hold a compute stage together with graphics ones, a pipeline object can), so the three
+        // it can produce are named and refused here. Same philosophy as the VK_NULL_HANDLE gate
+        // in SetupDraw: hostile input degrades to a broken draw, never to a dead process. GL
+        // leaves all three undefined for a draw, so nothing legal is being turned away.
+        // MGLOG_I because the INFO builds CTS runs against keep only I and F.
+        {
+            Bool hasVertexStage = false;
+            for (const auto& stage : programObj.stages) {
+                if (stage.module == VK_NULL_HANDLE) {
+                    MGLOG_I("GetOrCreatePipeline skipped: program=%u has a null shader module for stage 0x%x",
+                            program.GetExternalIndex(), static_cast<unsigned>(stage.stage));
+                    return VK_NULL_HANDLE;
+                }
+                if (stage.stage == VK_SHADER_STAGE_COMPUTE_BIT) {
+                    MGLOG_I("GetOrCreatePipeline skipped: program=%u carries a compute stage, which no graphics "
+                            "pipeline may contain",
+                            program.GetExternalIndex());
+                    return VK_NULL_HANDLE;
+                }
+                if (stage.stage == VK_SHADER_STAGE_VERTEX_BIT) {
+                    hasVertexStage = true;
+                }
+            }
+            if (!hasVertexStage) {
+                MGLOG_I("GetOrCreatePipeline skipped: program=%u has no vertex stage", program.GetExternalIndex());
+                return VK_NULL_HANDLE;
             }
         }
 
@@ -4727,7 +4867,8 @@ void main() {
             .backStencilCompareOp = MG_Util::ConvertDepthTestFuncToVkEnum(backStencil.Func),
             .fragmentReplacesDepth = programObj.fragmentReplacesDepth,
             .stages = &programObj.stages,
-            .vertexInputState = pipelineVertexInputState
+            .vertexInputState = pipelineVertexInputState,
+            .stageSpirvDigests = &programObj.stageSpirvDigests
         };
         if (!payload.stencilTestEnable) {
             payload.frontStencilFailOp = VK_STENCIL_OP_KEEP;
@@ -5911,6 +6052,17 @@ void main() {
         }
 
         auto pipeline = GetOrCreatePipeline(mode, program, programObj, transformFlags, vao, *renderPassEntry);
+        // GetOrCreatePipeline documents a VK_NULL_HANDLE return (empty stages, or a driver that
+        // rejected vkCreateGraphicsPipelines). Binding it dereferences null inside the driver -
+        // 9 of the 15 CTS process deaths were exactly this vkCmdBindPipeline. A draw that has no
+        // pipeline is a skipped draw, which is what every other failure below already does.
+        // MGLOG_I so the skip is visible in the INFO builds CTS runs against.
+        if (pipeline == VK_NULL_HANDLE) {
+            MGLOG_I("SetupDraw skipped: no graphics pipeline for program=%u (creation failed or the "
+                    "program has no shader stages)",
+                    program.GetExternalIndex());
+            return false;
+        }
         activeRenderPass = VkRenderPassManager::GetActiveRenderPass();
 
         // Begin render pass, and handle clear
@@ -6028,7 +6180,9 @@ void main() {
     void VulkanRenderer::DispatchCompute(GLuint numGroupsX, GLuint numGroupsY, GLuint numGroupsZ) {
         m_textureManager->CollectGarbage();
         auto& frame = m_frameContext.GetCurrent();
-        const auto& program = *MG_State::pGLContext->GetProgramForDraw();
+        // The DISPATCH accessor: with a pipeline bound this is its compute stage program
+        // itself, never the graphics composite (which carries no compute stage at all).
+        const auto& program = *MG_State::pGLContext->GetProgramForDispatch();
         if (!program.GetLinkStatus() || !program.GetSpirvStatus()) {
             MGLOG_E("DispatchCompute skipped: program=%u has no optimized SPIR-V",
                     program.GetExternalIndex());
@@ -6073,7 +6227,8 @@ void main() {
     void VulkanRenderer::DispatchComputeIndirect(GLintptr indirect) {
         m_textureManager->CollectGarbage();
         auto& frame = m_frameContext.GetCurrent();
-        const auto& program = *MG_State::pGLContext->GetProgramForDraw();
+        // See DispatchCompute: the dispatch accessor, not the draw one.
+        const auto& program = *MG_State::pGLContext->GetProgramForDispatch();
         if (!program.GetLinkStatus() || !program.GetSpirvStatus()) {
             MGLOG_E("DispatchComputeIndirect skipped: program=%u has no optimized SPIR-V",
                     program.GetExternalIndex());
@@ -7079,6 +7234,244 @@ void main() {
         return true;
     }
 
+    void VulkanRenderer::DestroyMultisampleResolveScratchImage() {
+        if (m_msResolveScratch.image != VK_NULL_HANDLE) {
+            vmaDestroyImage(m_allocator, m_msResolveScratch.image, m_msResolveScratch.allocation);
+        }
+        m_msResolveScratch = {};
+    }
+
+    Bool VulkanRenderer::AcquireMultisampleResolveScratchImage(VkCommandBuffer commandBuffer, VkFormat format,
+                                                               VkExtent2D extent) {
+        if (extent.width == 0 || extent.height == 0 || format == VK_FORMAT_UNDEFINED) {
+            return false;
+        }
+        // Grow-only, and never shrink: these blits repeat at one or two sizes, so the steady state
+        // is one allocation for the whole process.
+        if (m_msResolveScratch.image == VK_NULL_HANDLE || m_msResolveScratch.format != format ||
+            m_msResolveScratch.extent.width < extent.width || m_msResolveScratch.extent.height < extent.height) {
+            const VkExtent2D grown = {std::max(extent.width, m_msResolveScratch.extent.width),
+                                      std::max(extent.height, m_msResolveScratch.extent.height)};
+            DestroyMultisampleResolveScratchImage();
+
+            VkImageCreateInfo imageInfo{};
+            imageInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+            imageInfo.imageType = VK_IMAGE_TYPE_2D;
+            imageInfo.format = format;
+            imageInfo.extent = {grown.width, grown.height, 1};
+            imageInfo.mipLevels = 1;
+            imageInfo.arrayLayers = 1;
+            imageInfo.samples = VK_SAMPLE_COUNT_1_BIT;
+            imageInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
+            imageInfo.usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
+            imageInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+            imageInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+
+            VmaAllocationCreateInfo allocationInfo{};
+            allocationInfo.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
+            allocationInfo.requiredFlags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
+            if (vmaCreateImage(m_allocator, &imageInfo, &allocationInfo, &m_msResolveScratch.image,
+                               &m_msResolveScratch.allocation, nullptr) != VK_SUCCESS) {
+                // Soft failure: the caller keeps the direct resolve, which is what shipped before.
+                MGLOG_E("AcquireMultisampleResolveScratchImage: vmaCreateImage failed (format=%d %ux%u)",
+                        static_cast<Int>(format), grown.width, grown.height);
+                m_msResolveScratch = {};
+                return false;
+            }
+            m_msResolveScratch.format = format;
+            m_msResolveScratch.extent = grown;
+            m_msResolveScratch.layout = VK_IMAGE_LAYOUT_UNDEFINED;
+        }
+
+        VkPipelineStageFlags srcStageMask = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
+        VkAccessFlags srcAccessMask = 0;
+        GetImageTransitionSourceState(m_msResolveScratch.layout, srcStageMask, srcAccessMask);
+        if (!VkTextureManager::TransitionImageLayout(commandBuffer, m_msResolveScratch.image,
+                                                     m_msResolveScratch.layout,
+                                                     VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, srcStageMask,
+                                                     VK_PIPELINE_STAGE_TRANSFER_BIT, srcAccessMask,
+                                                     VK_ACCESS_TRANSFER_WRITE_BIT, VK_IMAGE_ASPECT_COLOR_BIT)) {
+            return false;
+        }
+        return true;
+    }
+
+    // The aspects a depth/stencil format actually carries. VkTextureManager keeps its own copy of
+    // this private, and the swapchain's depth/stencil image has no TextureResource to ask.
+    static VkImageAspectFlags GetDepthStencilAspectMaskForFormat(VkFormat format) {
+        switch (format) {
+        case VK_FORMAT_D16_UNORM:
+        case VK_FORMAT_X8_D24_UNORM_PACK32:
+        case VK_FORMAT_D32_SFLOAT:
+            return VK_IMAGE_ASPECT_DEPTH_BIT;
+        case VK_FORMAT_D16_UNORM_S8_UINT:
+        case VK_FORMAT_D24_UNORM_S8_UINT:
+        case VK_FORMAT_D32_SFLOAT_S8_UINT:
+            return VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT;
+        case VK_FORMAT_S8_UINT:
+            return VK_IMAGE_ASPECT_STENCIL_BIT;
+        default:
+            return VK_IMAGE_ASPECT_NONE;
+        }
+    }
+
+    // The depth/stencil half of MaterializePendingClearForDefaultFramebuffer. Separate only
+    // because the image, the aspects and the clear value are all different from the colour one;
+    // the reason it exists is the same - a readback with no intervening draw has no render pass
+    // to fold the parked clear into.
+    Bool VulkanRenderer::MaterializePendingDepthStencilClearForDefaultFramebuffer(
+        VkCommandBuffer commandBuffer, const MG_State::GLState::FramebufferAttachmentObject& attachment,
+        const ClearAttachmentPayload& payload) {
+        const VkImage depthStencilImage = m_swapchainObject.GetDepthStencilImage(m_imageIndexAcquired);
+        if (depthStencilImage == VK_NULL_HANDLE) {
+            return false;
+        }
+        const VkImageAspectFlags imageAspects =
+            GetDepthStencilAspectMaskForFormat(m_swapchainObject.GetDepthStencilFormat());
+        VkImageAspectFlags clearAspects = 0;
+        if ((payload.mask & GL_DEPTH_BUFFER_BIT) != 0) clearAspects |= (imageAspects & VK_IMAGE_ASPECT_DEPTH_BIT);
+        if ((payload.mask & GL_STENCIL_BUFFER_BIT) != 0) clearAspects |= (imageAspects & VK_IMAGE_ASPECT_STENCIL_BIT);
+        if (clearAspects == 0) {
+            // Nothing this image can express; drop the pending clear rather than leave it to a
+            // later render pass that would load it against an aspect that does not exist.
+            m_clearManager->PopPendingClear(attachment);
+            return true;
+        }
+
+        VkImageLayout currentLayout = m_swapchainObject.GetDepthStencilImageLayout(m_imageIndexAcquired);
+        VkPipelineStageFlags srcStageMask = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
+        VkAccessFlags srcAccessMask = 0;
+        GetImageTransitionSourceState(currentLayout, srcStageMask, srcAccessMask);
+        VkImageLayout clearLayout = currentLayout;
+        if (!VkTextureManager::TransitionImageLayout(commandBuffer, depthStencilImage, clearLayout,
+                                                     VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, srcStageMask,
+                                                     VK_PIPELINE_STAGE_TRANSFER_BIT, srcAccessMask,
+                                                     VK_ACCESS_TRANSFER_WRITE_BIT, imageAspects)) {
+            return false;
+        }
+
+        VkClearDepthStencilValue clearValue{};
+        clearValue.depth = payload.depth;
+        clearValue.stencil = payload.stencil;
+        VkImageSubresourceRange range{};
+        range.aspectMask = clearAspects;
+        range.baseMipLevel = 0;
+        range.levelCount = 1;
+        range.baseArrayLayer = 0;
+        range.layerCount = 1;
+        vkCmdClearDepthStencilImage(commandBuffer, depthStencilImage, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &clearValue,
+                                    1, &range);
+
+        VkImageLayout settledLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+        VkPipelineStageFlags dstStageMask = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
+        VkAccessFlags dstAccessMask = 0;
+        GetImageTransitionDestinationState(VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL, dstStageMask,
+                                           dstAccessMask);
+        if (!VkTextureManager::TransitionImageLayout(commandBuffer, depthStencilImage, settledLayout,
+                                                     VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
+                                                     VK_PIPELINE_STAGE_TRANSFER_BIT, dstStageMask,
+                                                     VK_ACCESS_TRANSFER_WRITE_BIT, dstAccessMask, imageAspects)) {
+            return false;
+        }
+        m_swapchainObject.SetDepthStencilImageLayout(m_imageIndexAcquired,
+                                                     VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
+        // The image now holds real values, so the next render pass must LOAD them rather than
+        // treat the attachment as undefined and discard the clear that just executed.
+        m_swapchainObject.SetDepthStencilContentDefined(m_imageIndexAcquired, true);
+
+        m_clearManager->PopPendingClear(attachment);
+        MGLOG_D("MaterializePendingClearForDefaultFramebuffer: swapchain depth/stencil image %u pending clear "
+                "materialized (aspects=0x%x)",
+                m_imageIndexAcquired, static_cast<Uint32>(clearAspects));
+        return true;
+    }
+
+    // A glClear on the DEFAULT framebuffer is parked as a pending clear and folded into the next
+    // render pass's loadOp. With no draw in between there is no render pass, so a readback that
+    // followed such a clear blitted the untouched swapchain image and returned the PREVIOUS
+    // frame's colour - which is exactly what the whole KHR-GL40.draw_indirect.negative-* family
+    // sees (clear, an erroring draw that never executes, glReadPixels expecting zeroes).
+    //
+    // Materializing it means clearing the acquired swapchain image itself, which is why this
+    // cannot reuse MaterializePendingClearForTexture: the default FBO's colour attachment is a
+    // placeholder ITextureObject, and syncing it would allocate and clear an unrelated image.
+    Bool VulkanRenderer::MaterializePendingClearForDefaultFramebuffer(VkCommandBuffer commandBuffer,
+                                                                      MG_State::GLState::FramebufferObject& fbo,
+                                                                      FramebufferAttachmentType attachmentType) {
+        if (!fbo.IsDefaultFramebuffer() || attachmentType == FramebufferAttachmentType::None) {
+            return true;
+        }
+        const auto& attachment = fbo.GetAttachment(attachmentType);
+        if (!attachment.IsTexture() || attachment.IsRenderbuffer()) {
+            return true;
+        }
+        ClearAttachmentPayload payload{};
+        if (!m_clearManager->GetPendingClear(attachment, payload)) {
+            return true;
+        }
+        MOBILEGL_ASSERT(VkRenderPassManager::GetActiveRenderPass() == nullptr ||
+                            commandBuffer != m_frameContext.GetCurrent().commandBuffer,
+                        "MaterializePendingClearForDefaultFramebuffer requires no active render pass");
+
+        if ((payload.mask & GL_COLOR_BUFFER_BIT) == 0) {
+            return MaterializePendingDepthStencilClearForDefaultFramebuffer(commandBuffer, attachment, payload);
+        }
+
+        const VkImage swapchainImage = m_swapchainObject.GetImage(m_imageIndexAcquired);
+        if (swapchainImage == VK_NULL_HANDLE) {
+            return false;
+        }
+        VkImageLayout currentLayout = m_swapchainObject.GetImageLayout(m_imageIndexAcquired);
+        VkPipelineStageFlags srcStageMask = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
+        VkAccessFlags srcAccessMask = 0;
+        GetImageTransitionSourceState(currentLayout, srcStageMask, srcAccessMask);
+        VkImageLayout clearLayout = currentLayout;
+        if (!VkTextureManager::TransitionImageLayout(commandBuffer, swapchainImage, clearLayout,
+                                                     VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, srcStageMask,
+                                                     VK_PIPELINE_STAGE_TRANSFER_BIT, srcAccessMask,
+                                                     VK_ACCESS_TRANSFER_WRITE_BIT, VK_IMAGE_ASPECT_COLOR_BIT)) {
+            return false;
+        }
+
+        // The clear colour goes in verbatim, alpha included. Forcing opaque alpha here is what
+        // makes a glClear(0,0,0,0) read back as (0,0,0,1) - the default framebuffer's placeholder
+        // attachment can describe an alpha-less format while the swapchain image it stands for
+        // has a real alpha channel.
+        VkClearColorValue clearColor{};
+        clearColor.float32[0] = payload.color.x();
+        clearColor.float32[1] = payload.color.y();
+        clearColor.float32[2] = payload.color.z();
+        clearColor.float32[3] = payload.color.w();
+        VkImageSubresourceRange range{};
+        range.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        range.baseMipLevel = 0;
+        range.levelCount = 1;
+        range.baseArrayLayer = 0;
+        range.layerCount = 1;
+        vkCmdClearColorImage(commandBuffer, swapchainImage, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &clearColor, 1,
+                             &range);
+
+        VkImageLayout settledLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+        VkPipelineStageFlags dstStageMask = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
+        VkAccessFlags dstAccessMask = 0;
+        GetImageTransitionDestinationState(VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, dstStageMask, dstAccessMask);
+        if (!VkTextureManager::TransitionImageLayout(commandBuffer, swapchainImage, settledLayout,
+                                                     VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+                                                     VK_PIPELINE_STAGE_TRANSFER_BIT, dstStageMask,
+                                                     VK_ACCESS_TRANSFER_WRITE_BIT, dstAccessMask,
+                                                     VK_IMAGE_ASPECT_COLOR_BIT)) {
+            return false;
+        }
+        m_swapchainObject.SetImageLayout(m_imageIndexAcquired, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+
+        // Popped, not left behind: the clear has executed, so letting the next render pass load
+        // it again as a loadOp would erase whatever is drawn between here and there.
+        m_clearManager->PopPendingClear(attachment);
+        MGLOG_D("MaterializePendingClearForDefaultFramebuffer: swapchain image %u pending clear materialized",
+                m_imageIndexAcquired);
+        return true;
+    }
+
     Bool VulkanRenderer::TryBlitToDefaultFramebufferWithShader(FrameContext::FrameData& frame,
                                                                MG_State::GLState::FramebufferObject& readFbo,
                                                                MG_State::GLState::FramebufferObject& drawFbo,
@@ -7368,12 +7761,21 @@ void main() {
                 }
             }
 
-            if (!drawIsDefaultFbo) {
+            const auto destAttachmentType =
+                ResolveFramebufferCopyAttachmentType(*drawFbo, false, dstBinding.aspectMask);
+            if (drawIsDefaultFbo) {
+                // Same ordering rule for the default framebuffer's depth/stencil - see the
+                // colour twin below.
+                const Bool dstClearReady = MaterializePendingClearForDefaultFramebuffer(
+                    frame.commandBuffer, *drawFbo, destAttachmentType);
+                MOBILEGL_ASSERT(dstClearReady,
+                                "BlitFramebuffer: failed to materialize the default framebuffer's pending "
+                                "depth/stencil clear");
+            } else {
                 // A clear queued for the destination predates this blit in API order;
                 // execute it now, or its deferred materialization would later stomp the
                 // copied contents (MC 26.3 OIT clears cloud_depth, then blits the main
                 // depth into it - the stale loadOp=CLEAR erased the copy).
-                const auto destAttachmentType = ResolveFramebufferCopyAttachmentType(*drawFbo, false, dstBinding.aspectMask);
                 const auto& destAttachment = drawFbo->GetAttachment(destAttachmentType);
                 if (auto destTexture = destAttachment.GetTexture(); destTexture != nullptr) {
                     const Bool dstClearReady = MaterializePendingClearForTexture(frame.commandBuffer, *destTexture);
@@ -7466,7 +7868,15 @@ void main() {
                 MOBILEGL_ASSERT(ok, "%s: failed to transition depth destination image", __func__);
             }
 
-            if (depthBlitScales) {
+            // The default framebuffer is stored display-side-up, so a rect aimed at it (or read
+            // from it) has to be converted out of GL's bottom-origin space - the same conversion
+            // the colour blit below applies. vkCmdCopyImage cannot express it (it has no second
+            // offset to invert), so a default-framebuffer side forces the vkCmdBlitImage form even
+            // at equal size. Without this a scissored depth blit into the default framebuffer
+            // wrote the MIRRORED band: KHR-GL*.framebuffer_blit.scissor_blit clips to the lower
+            // left quadrant, and the depth landed in the upper one.
+            const Bool depthBlitNeedsOrientation = readIsDefaultFbo || drawIsDefaultFbo;
+            if (depthBlitScales || depthBlitNeedsOrientation) {
                 // vkCmdCopyImage cannot resize; NEAREST is the only filter Vulkan allows for a
                 // depth/stencil blit anyway, and the GL front end already rejects the others.
                 VkImageBlit blitRegion{};
@@ -7482,6 +7892,14 @@ void main() {
                 blitRegion.dstSubresource.layerCount = dstBinding.layerCount;
                 blitRegion.dstOffsets[0] = {dstX0, dstY0, 0};
                 blitRegion.dstOffsets[1] = {dstX1, dstY1, 1};
+                if (readIsDefaultFbo) {
+                    ApplyNativeBlitDefaultFramebufferSourceTransform(m_swapchainObject.GetPreTransform(), srcBinding,
+                                                                     blitRegion);
+                }
+                if (drawIsDefaultFbo) {
+                    ApplyNativeBlitDefaultFramebufferTransform(m_swapchainObject.GetPreTransform(), dstBinding,
+                                                               blitRegion);
+                }
                 vkCmdBlitImage(frame.commandBuffer,
                                srcBinding.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
                                dstBinding.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
@@ -7578,7 +7996,19 @@ void main() {
             }
         }
 
-        if (!drawIsDefaultFbo) {
+        if (drawIsDefaultFbo) {
+            // The default framebuffer needs the same ordering, and needed it before anything
+            // consumed its parked clear: Minecraft clears the default framebuffer, renders the
+            // world into its own framebuffer and BLITS the result out, so nothing between the
+            // clear and the blit ever opens a render pass on the default framebuffer to fold the
+            // clear in as a loadOp. The clear therefore stayed pending across the whole frame,
+            // and the first path that did materialize it - the readback - executed it AFTER the
+            // blit and handed back a blank frame (every DirectVulkan retrace, ssim 0.000005).
+            const Bool dstClearReady = MaterializePendingClearForDefaultFramebuffer(
+                frame.commandBuffer, *drawFbo, drawFbo->GetDrawBuffers()[0]);
+            MOBILEGL_ASSERT(dstClearReady,
+                            "BlitFramebuffer: failed to materialize the default framebuffer's pending clear");
+        } else {
             // A clear queued for the destination predates this blit in API order; execute
             // it now, or its deferred materialization would later stomp the blitted color.
             const auto& destAttachment = drawFbo->GetAttachment(drawFbo->GetDrawBuffers()[0]);
@@ -7667,24 +8097,87 @@ void main() {
         blitRegion.dstSubresource.layerCount = dstBinding.layerCount;
         blitRegion.dstOffsets[0] = {dstX0, dstY0, 0};
         blitRegion.dstOffsets[1] = {dstX1, dstY1, 1};
+        if (readIsDefaultFbo) {
+            ApplyNativeBlitDefaultFramebufferSourceTransform(m_swapchainObject.GetPreTransform(), srcBinding,
+                                                             blitRegion);
+        }
         if (drawIsDefaultFbo) {
             ApplyNativeBlitDefaultFramebufferTransform(m_swapchainObject.GetPreTransform(), dstBinding, blitRegion);
         }
 
         if (srcBinding.sampleCount != VK_SAMPLE_COUNT_1_BIT && dstBinding.sampleCount == VK_SAMPLE_COUNT_1_BIT) {
             // GL multisample resolve blits are 1:1 by spec; vkCmdBlitImage cannot read a
-            // multisampled source.
+            // multisampled source, so the samples have to come down through vkCmdResolveImage.
+            const Uint32 resolveWidth = static_cast<Uint32>(std::abs(srcX1 - srcX0));
+            const Uint32 resolveHeight = static_cast<Uint32>(std::abs(srcY1 - srcY0));
+
+            // vkCmdResolveImage takes ONE offset per side, so it cannot express the axis inversion
+            // that a default-framebuffer rect needs - it would land the mirrored band. When the
+            // transforms above actually moved the region, split the operation: resolve into a
+            // single-sample scratch image at raw offsets, then blit THAT into the destination with
+            // the (already transformed) region, which vkCmdBlitImage can invert.
+            const Bool regionWasTransformed =
+                (readIsDefaultFbo || drawIsDefaultFbo) &&
+                (blitRegion.srcOffsets[0].x != srcX0 || blitRegion.srcOffsets[0].y != srcY0 ||
+                 blitRegion.srcOffsets[1].x != srcX1 || blitRegion.srcOffsets[1].y != srcY1 ||
+                 blitRegion.dstOffsets[0].x != dstX0 || blitRegion.dstOffsets[0].y != dstY0 ||
+                 blitRegion.dstOffsets[1].x != dstX1 || blitRegion.dstOffsets[1].y != dstY1);
+            const Bool useScratchResolve =
+                regionWasTransformed && resolveWidth > 0 && resolveHeight > 0 &&
+                AcquireMultisampleResolveScratchImage(frame.commandBuffer, srcBinding.format,
+                                                      {resolveWidth, resolveHeight});
+
             VkImageResolve resolveRegion{};
             resolveRegion.srcSubresource = blitRegion.srcSubresource;
-            resolveRegion.srcOffset = {std::min(srcX0, srcX1), std::min(srcY0, srcY1), 0};
             resolveRegion.dstSubresource = blitRegion.dstSubresource;
-            resolveRegion.dstOffset = {std::min(dstX0, dstX1), std::min(dstY0, dstY1), 0};
-            resolveRegion.extent = {static_cast<Uint32>(std::abs(srcX1 - srcX0)),
-                                    static_cast<Uint32>(std::abs(srcY1 - srcY0)), 1};
-            vkCmdResolveImage(frame.commandBuffer,
-                              srcBinding.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-                              dstBinding.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                              1, &resolveRegion);
+            resolveRegion.extent = {resolveWidth, resolveHeight, 1};
+            if (useScratchResolve) {
+                // The scratch copy is a plain single-layer colour image, and the resolve reads the
+                // SOURCE band the (possibly inverted) transformed region names - taking its min so
+                // an inverted pair still describes the same band.
+                resolveRegion.srcOffset = {std::min(blitRegion.srcOffsets[0].x, blitRegion.srcOffsets[1].x),
+                                           std::min(blitRegion.srcOffsets[0].y, blitRegion.srcOffsets[1].y), 0};
+                resolveRegion.dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+                resolveRegion.dstSubresource.mipLevel = 0;
+                resolveRegion.dstSubresource.baseArrayLayer = 0;
+                resolveRegion.dstSubresource.layerCount = 1;
+                resolveRegion.dstOffset = {0, 0, 0};
+                vkCmdResolveImage(frame.commandBuffer,
+                                  srcBinding.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                                  m_msResolveScratch.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                                  1, &resolveRegion);
+
+                VkImageLayout scratchLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+                const Bool scratchReady = VkTextureManager::TransitionImageLayout(
+                    frame.commandBuffer, m_msResolveScratch.image, scratchLayout,
+                    VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_PIPELINE_STAGE_TRANSFER_BIT,
+                    VK_PIPELINE_STAGE_TRANSFER_BIT, VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_TRANSFER_READ_BIT,
+                    VK_IMAGE_ASPECT_COLOR_BIT);
+                MOBILEGL_ASSERT(scratchReady, "%s: failed to transition the resolve scratch image", __func__);
+                m_msResolveScratch.layout = scratchLayout;
+
+                // Second leg: the scratch image holds the resolved band at its own origin, so the
+                // source side of the region becomes the whole scratch rect and only the
+                // destination keeps the transform.
+                VkImageBlit scratchBlit = blitRegion;
+                scratchBlit.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+                scratchBlit.srcSubresource.mipLevel = 0;
+                scratchBlit.srcSubresource.baseArrayLayer = 0;
+                scratchBlit.srcSubresource.layerCount = 1;
+                scratchBlit.srcOffsets[0] = {0, 0, 0};
+                scratchBlit.srcOffsets[1] = {static_cast<Int32>(resolveWidth), static_cast<Int32>(resolveHeight), 1};
+                vkCmdBlitImage(frame.commandBuffer,
+                               m_msResolveScratch.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                               dstBinding.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                               1, &scratchBlit, filter == GL_LINEAR ? VK_FILTER_LINEAR : VK_FILTER_NEAREST);
+            } else {
+                resolveRegion.srcOffset = {std::min(srcX0, srcX1), std::min(srcY0, srcY1), 0};
+                resolveRegion.dstOffset = {std::min(dstX0, dstX1), std::min(dstY0, dstY1), 0};
+                vkCmdResolveImage(frame.commandBuffer,
+                                  srcBinding.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                                  dstBinding.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                                  1, &resolveRegion);
+            }
         } else {
             vkCmdBlitImage(frame.commandBuffer,
                            srcBinding.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
@@ -7875,6 +8368,19 @@ void main() {
         copyRegion.srcSubresource.mipLevel = srcBinding.mipLevel;
         copyRegion.srcSubresource.baseArrayLayer = srcBinding.baseArrayLayer;
         copyRegion.srcSubresource.layerCount = srcBinding.layerCount;
+        // KNOWN GAP, deliberately not half-fixed here: when the read framebuffer is the default
+        // one this samples GL rows [y, y+h) counted from the TOP of a display-oriented image, so
+        // it takes the mirrored band AND writes it into the (GL-oriented) destination texture
+        // upside down. Correcting only the offset would swap one wrong answer for another,
+        // because vkCmdCopyImage cannot reverse rows: this path has to become a vkCmdBlitImage
+        // with an inverted source Y pair, the way BlitFramebuffer above now does it. Tracked
+        // separately; the four sites behind the 1,759-case orientation defect are the viewport,
+        // the scissor, the ReadPixels copy offset and the readback remap.
+        if (readIsDefaultFbo) {
+            MGLOG_I("DirectVulkan::CopyTexSubImage2D: copying from the DEFAULT framebuffer still uses the raw GL "
+                    "Y origin (x=%d y=%d w=%d h=%d); the result is the mirrored band, stored flipped",
+                    x, y, width, height);
+        }
         copyRegion.srcOffset = {x, y, 0};
         copyRegion.dstSubresource.aspectMask = dstBinding.aspectMask;
         copyRegion.dstSubresource.mipLevel = dstBinding.mipLevel;
@@ -8154,11 +8660,22 @@ void main() {
         // blit binding below: for a renderbuffer/texture that has never been part of any
         // render pass yet (e.g. a GL_NONE draw buffer slot whose attachment is only ever
         // touched via an explicit glReadBuffer), materializing lazily creates its backing
-        // Vulkan resource for the first time. UnorderedMap (FastSTL, open-addressing) may
+        // Vulkan resource for the first time. UnorderedMap is open-addressing and may
         // rehash on that insertion, invalidating any RenderbufferResource*/TextureResource*
         // obtained beforehand - so ResolveColorBlitBinding's cached `trackedLayout` pointer
         // must be taken AFTER this, never before it.
-        if (!readIsDefaultFbo) {
+        //
+        // The default framebuffer needs this just as much, and used to be excluded: its clear is
+        // parked the same way, and with no draw between the clear and the readback no render
+        // pass ever runs to fold it in, so the readback returned the previous frame's image
+        // (KHR-GL40.draw_indirect.negative-*). It only takes a different materializer because the
+        // image to clear is the acquired swapchain image, not the attachment's placeholder
+        // texture.
+        if (readIsDefaultFbo) {
+            const Bool clearReady = MaterializePendingClearForDefaultFramebuffer(frame.commandBuffer, *readFbo,
+                                                                                 readFbo->GetReadBuffer());
+            MOBILEGL_ASSERT(clearReady, "ReadPixels: failed to materialize the default framebuffer's pending clear");
+        } else {
             const auto& sourceAttachment = readFbo->GetAttachment(readFbo->GetReadBuffer());
             auto sourceTexture = sourceAttachment.GetTexture();
             if (sourceTexture != nullptr) {
@@ -8235,7 +8752,21 @@ void main() {
         copyRegion.imageSubresource.mipLevel = srcBinding.mipLevel;
         copyRegion.imageSubresource.baseArrayLayer = srcBinding.baseArrayLayer;
         copyRegion.imageSubresource.layerCount = 1;
-        copyRegion.imageOffset = {x, y, static_cast<Int32>(srcBinding.depthOffset)};
+        // The GL rect, aimed at the default framebuffer's stored orientation. Using the GL y
+        // verbatim copied rows [y, y+h) counted from the TOP of the image, i.e. the wrong band for
+        // every read that was not full-height.
+        Int32 copyOffsetX = x;
+        Int32 copyOffsetY = y;
+        if (readIsDefaultFbo) {
+            const VkExtent2D defaultFboExtent = m_swapchainObject.GetExtent();
+            const DefaultFramebufferRectMapping mapping =
+                GetDefaultFramebufferRectMapping(m_swapchainObject.GetPreTransform());
+            copyOffsetX = MapDefaultFramebufferRectAxis(x, width, static_cast<Int>(defaultFboExtent.width),
+                                                        mapping.mirrorX);
+            copyOffsetY = MapDefaultFramebufferRectAxis(y, height, static_cast<Int>(defaultFboExtent.height),
+                                                        mapping.flipY);
+        }
+        copyRegion.imageOffset = {copyOffsetX, copyOffsetY, static_cast<Int32>(srcBinding.depthOffset)};
         copyRegion.imageExtent = {static_cast<Uint32>(width), static_cast<Uint32>(height), 1};
         vkCmdCopyImageToBuffer(frame.commandBuffer, srcBinding.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
                                readback.GetHandle(), 1, &copyRegion);
@@ -8273,23 +8804,23 @@ void main() {
             return;
         }
         if (readIsDefaultFbo) {
-            const VkExtent2D swapchainExtent = m_swapchainObject.GetExtent();
             const VkSurfaceTransformFlagBitsKHR preTransform = m_swapchainObject.GetPreTransform();
-            if (static_cast<Uint32>(width) == swapchainExtent.width &&
-                static_cast<Uint32>(height) == swapchainExtent.height) {
-                Vector<Uint8> remapped(static_cast<SizeT>(width) * static_cast<SizeT>(height) * sourceTexelSize);
-                if (RemapDefaultFboReadbackToGLOrientation(mapped, swapchainExtent, preTransform,
-                                                           sourceTexelSize,
-                                                           remapped.data())) {
-                    PackReadbackToClientOrPbo(remapped.data(), srcFormat, width, height, 1, format, type, pixels,
-                                              /*applyPackImageParams=*/false, /*applyReadColorClamp=*/true);
-                    return;
-                }
+            // No full-extent gate any more: the remap works on the copied rect, and the copy was
+            // already aimed with the same mapping. The gate is exactly what made every partial
+            // read of the default framebuffer come back in Vulkan row order.
+            Vector<Uint8> remapped(static_cast<SizeT>(width) * static_cast<SizeT>(height) * sourceTexelSize);
+            if (RemapDefaultFboReadbackToGLOrientation(mapped, static_cast<Uint32>(width),
+                                                       static_cast<Uint32>(height), preTransform, sourceTexelSize,
+                                                       remapped.data())) {
+                PackReadbackToClientOrPbo(remapped.data(), srcFormat, width, height, 1, format, type, pixels,
+                                          /*applyPackImageParams=*/false, /*applyReadColorClamp=*/true);
+                return;
             }
-            MGLOG_W("DirectVulkan::ReadPixels: default-FBO remap skipped (w=%d h=%d swapchain=%ux%u preTransform=%d); "
-                    "falling back to raw readback",
-                    width, height, swapchainExtent.width, swapchainExtent.height,
-                    static_cast<Int>(preTransform));
+            // Only a quarter-turn pre-transform reaches this, and nothing in this renderer models
+            // one. MGLOG_I because the INFO builds are the ones that run conformance.
+            MGLOG_I("DirectVulkan::ReadPixels: default-FBO remap declined (w=%d h=%d preTransform=%d); falling back "
+                    "to raw readback",
+                    width, height, static_cast<Int>(preTransform));
         }
         PackReadbackToClientOrPbo(mapped, srcFormat, width, height, 1, format, type, pixels,
                                   /*applyPackImageParams=*/false, /*applyReadColorClamp=*/true);
@@ -8481,10 +9012,6 @@ void main() {
     void VulkanRenderer::ReadDepthStencilPixels(MG_State::GLState::FramebufferObject& readFbo, GLint x, GLint y,
                                                 GLsizei width, GLsizei height, GLenum format, GLenum type,
                                                 void* pixels) {
-        if (readFbo.IsDefaultFramebuffer()) {
-            MGLOG_E("DirectVulkan::ReadDepthStencilPixels skipped: default framebuffer readback is unsupported");
-            return;
-        }
         if (width <= 0 || height <= 0) {
             return;
         }
@@ -8495,10 +9022,13 @@ void main() {
         // framebuffers lacking either, so resolving via the depth attachment is enough.
         const auto attachmentType = wantDepth ? MobileGL::FramebufferAttachmentType::Depth
                                               : MobileGL::FramebufferAttachmentType::Stencil;
-        const auto& attachment = readFbo.GetAttachment(attachmentType);
-        if (!attachment.IsValid() || attachment.IsEmpty()) {
-            MGLOG_E("DirectVulkan::ReadDepthStencilPixels skipped: no depth/stencil attachment image");
-            return;
+        const Bool readIsDefaultFbo = readFbo.IsDefaultFramebuffer();
+        if (!readIsDefaultFbo) {
+            const auto& attachment = readFbo.GetAttachment(attachmentType);
+            if (!attachment.IsValid() || attachment.IsEmpty()) {
+                MGLOG_E("DirectVulkan::ReadDepthStencilPixels skipped: no depth/stencil attachment image");
+                return;
+            }
         }
 
         auto& frame = m_frameContext.GetCurrent();
@@ -8509,6 +9039,47 @@ void main() {
             VkRenderPassManager::EndRenderPass(frame.commandBuffer);
         }
 
+        // The default framebuffer's depth/stencil lives in the swapchain, not in an
+        // attachment object: its placeholder ITextureObject describes the format but backs no
+        // image, so the branches below would have synced (and read back) an unrelated one.
+        // Declining outright is what made every glReadPixels(GL_DEPTH_COMPONENT/
+        // GL_STENCIL_INDEX) of the default framebuffer leave the caller's buffer untouched -
+        // the whole KHR-GL*.framebuffer_blit family checks exactly that before it blits.
+        if (readIsDefaultFbo) {
+            const VkImage swapchainDepthImage = m_swapchainObject.GetDepthStencilImage(m_imageIndexAcquired);
+            if (swapchainDepthImage == VK_NULL_HANDLE) {
+                MGLOG_E("DirectVulkan::ReadDepthStencilPixels skipped: the default framebuffer has no "
+                        "depth/stencil image");
+                return;
+            }
+            // Per aspect, because the default framebuffer carries a SEPARATE placeholder
+            // attachment for depth and for stencil (MG_Impl/Init.cpp) and each parks its own
+            // pending clear; materializing only one would read the other back un-cleared.
+            if (wantDepth) {
+                const Bool clearReady = MaterializePendingClearForDefaultFramebuffer(
+                    frame.commandBuffer, readFbo, MobileGL::FramebufferAttachmentType::Depth);
+                MOBILEGL_ASSERT(clearReady,
+                                "ReadDepthStencilPixels: failed to materialize the default framebuffer's pending "
+                                "depth clear");
+            }
+            if (wantStencil) {
+                const Bool clearReady = MaterializePendingClearForDefaultFramebuffer(
+                    frame.commandBuffer, readFbo, MobileGL::FramebufferAttachmentType::Stencil);
+                MOBILEGL_ASSERT(clearReady,
+                                "ReadDepthStencilPixels: failed to materialize the default framebuffer's pending "
+                                "stencil clear");
+            }
+            const VkFormat swapchainDepthFormat = m_swapchainObject.GetDepthStencilFormat();
+            VkImageLayout trackedLayout = m_swapchainObject.GetDepthStencilImageLayout(m_imageIndexAcquired);
+            ReadDepthStencilImageToClient(swapchainDepthImage, swapchainDepthFormat, &trackedLayout,
+                                          GetDepthStencilAspectMaskForFormat(swapchainDepthFormat), 0, 0, x, y,
+                                          width, height, format, type, pixels,
+                                          /*defaultFramebufferOrientation=*/true);
+            m_swapchainObject.SetDepthStencilImageLayout(m_imageIndexAcquired, trackedLayout);
+            return;
+        }
+
+        const auto& attachment = readFbo.GetAttachment(attachmentType);
         VkImage image = VK_NULL_HANDLE;
         VkFormat vkFormat = VK_FORMAT_UNDEFINED;
         VkImageLayout* trackedLayout = nullptr;
@@ -8559,7 +9130,8 @@ void main() {
     void VulkanRenderer::ReadDepthStencilImageToClient(VkImage image, VkFormat vkFormat, VkImageLayout* trackedLayout,
                                                        VkImageAspectFlags imageAspect, Uint32 mipLevel,
                                                        Uint32 baseArrayLayer, GLint x, GLint y, GLsizei width,
-                                                       GLsizei height, GLenum format, GLenum type, void* pixels) {
+                                                       GLsizei height, GLenum format, GLenum type, void* pixels,
+                                                       Bool defaultFramebufferOrientation) {
         const Bool wantDepth = format != GL_STENCIL_INDEX;
         const Bool wantStencil = format != GL_DEPTH_COMPONENT;
         auto& frame = m_frameContext.GetCurrent();
@@ -8624,6 +9196,21 @@ void main() {
             VK_PIPELINE_STAGE_TRANSFER_BIT, srcAccessMask, VK_ACCESS_TRANSFER_READ_BIT, imageAspect, mipLevel, 1);
         MOBILEGL_ASSERT(ok, "%s: failed to transition depth-stencil source image", __func__);
 
+        // The swapchain's depth/stencil image is stored display-side-up like its colour twin, so
+        // the GL rect has to be mapped into that space before the copy and the copied rows
+        // re-oriented afterwards - the same two halves the colour ReadPixels path applies.
+        Int32 copyOffsetX = x;
+        Int32 copyOffsetY = y;
+        if (defaultFramebufferOrientation) {
+            const VkExtent2D defaultFboExtent = m_swapchainObject.GetExtent();
+            const DefaultFramebufferRectMapping mapping =
+                GetDefaultFramebufferRectMapping(m_swapchainObject.GetPreTransform());
+            copyOffsetX = MapDefaultFramebufferRectAxis(x, width, static_cast<Int>(defaultFboExtent.width),
+                                                        mapping.mirrorX);
+            copyOffsetY = MapDefaultFramebufferRectAxis(y, height, static_cast<Int>(defaultFboExtent.height),
+                                                        mapping.flipY);
+        }
+
         VkBufferImageCopy regions[2]{};
         Uint32 regionCount = 0;
         if (wantDepth) {
@@ -8633,7 +9220,7 @@ void main() {
             region.imageSubresource.mipLevel = mipLevel;
             region.imageSubresource.baseArrayLayer = baseArrayLayer;
             region.imageSubresource.layerCount = 1;
-            region.imageOffset = {x, y, 0};
+            region.imageOffset = {copyOffsetX, copyOffsetY, 0};
             region.imageExtent = {static_cast<Uint32>(width), static_cast<Uint32>(height), 1};
         }
         if (wantStencil) {
@@ -8643,7 +9230,7 @@ void main() {
             region.imageSubresource.mipLevel = mipLevel;
             region.imageSubresource.baseArrayLayer = baseArrayLayer;
             region.imageSubresource.layerCount = 1;
-            region.imageOffset = {x, y, 0};
+            region.imageOffset = {copyOffsetX, copyOffsetY, 0};
             region.imageExtent = {static_cast<Uint32>(width), static_cast<Uint32>(height), 1};
         }
         vkCmdCopyImageToBuffer(frame.commandBuffer, image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, readback.GetHandle(),
@@ -8667,6 +9254,38 @@ void main() {
         }
         const Uint8* depthSrc = mapped;
         const Uint8* stencilSrc = mapped + stencilOffset;
+
+        // Re-orient the copied band per aspect, before any repacking reads it: the depth and
+        // stencil aspects were copied into their own tightly packed sub-buffers, so each is a
+        // plain width x height image of its own texel size.
+        Vector<Uint8> remappedDepth;
+        Vector<Uint8> remappedStencil;
+        if (defaultFramebufferOrientation) {
+            const VkSurfaceTransformFlagBitsKHR preTransform = m_swapchainObject.GetPreTransform();
+            Bool remapped = true;
+            if (wantDepth && depthCopyBytes > 0) {
+                remappedDepth.resize(pixelCount * depthCopyBytes);
+                remapped = RemapDefaultFboReadbackToGLOrientation(depthSrc, static_cast<Uint32>(width),
+                                                                  static_cast<Uint32>(height), preTransform,
+                                                                  depthCopyBytes, remappedDepth.data());
+            }
+            if (remapped && wantStencil) {
+                remappedStencil.resize(pixelCount);
+                remapped = RemapDefaultFboReadbackToGLOrientation(stencilSrc, static_cast<Uint32>(width),
+                                                                  static_cast<Uint32>(height), preTransform, 1,
+                                                                  remappedStencil.data());
+            }
+            if (remapped) {
+                if (!remappedDepth.empty()) depthSrc = remappedDepth.data();
+                if (!remappedStencil.empty()) stencilSrc = remappedStencil.data();
+            } else {
+                // Only a quarter-turn pre-transform reaches this, and nothing in this renderer
+                // models one. MGLOG_I because the INFO builds are the ones that run conformance.
+                MGLOG_I("DirectVulkan::ReadDepthStencilPixels: default-FBO remap declined (w=%d h=%d "
+                        "preTransform=%d); falling back to raw readback",
+                        width, height, static_cast<Int>(preTransform));
+            }
+        }
 
         const auto depthValueAt = [&](SizeT i) -> Float {
             switch (vkFormat) {
@@ -11882,6 +12501,12 @@ void main() {
                                  static_cast<Uint32>(m_physicalDevice.queueFamilies.graphicsFamily),
                                  static_cast<Uint32>(m_physicalDevice.queueFamilies.presentFamily),
                                  m_config.MaxFramesInFlight, desiredExtent);
+        // The FragCoordYFlip variants bake this height in; it is the only input to a shader
+        // module that lives outside the GL program, so the factory has to learn it here (and on
+        // every recreation, which is the only way it can change).
+        if (m_programFactory) {
+            m_programFactory->SetDefaultFramebufferHeight(m_swapchainObject.GetExtent().height);
+        }
     }
 
     void VulkanRenderer::CreateCommandPool() {

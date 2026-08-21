@@ -369,6 +369,214 @@ namespace MobileGL::MG_State {
             return m_programState.GetCurrentProgram();
         }
 
+        // Copies every default-block uniform value `source` holds into the same-named uniform of
+        // `destination`, by name and by location.
+        //
+        // The composite a pipeline draws through is a DIFFERENT program object from the stage
+        // programs the application writes uniforms to - glUniform* addresses the pipeline's
+        // active program and glProgramUniform* addresses a named one, neither of which is the
+        // composite - so without this a pipeline draw reads the composite's zero defaults and
+        // paints them. Values are COPIED rather than aliased: the two programs' global UBOs are
+        // laid out independently (the composite merges several stages' uniforms into one block,
+        // so the same uniform sits at a different offset in each), and a copy also means the
+        // composite can outlive a stage program without ever pointing into freed storage.
+        //
+        // Location-by-location so that arrays are carried across whole, and via the padded
+        // storage span so a mat3's std140 column padding travels with it.
+        //
+        // WHICH uniforms: exactly the ones `source` has been WRITTEN to since its last link
+        // (ProgramObject's per-location dirty set), and that restriction is a correctness fix
+        // as much as it is the reason this is cheap.
+        //
+        // SSO gives each stage program its own storage for a uniform, so two stage programs
+        // may declare the same name and hold different values - but the composite is one link
+        // with one slot for it, and RefreshCompositeUniforms walks the stages in order. When
+        // every active uniform was copied unconditionally, the LAST graphics stage that merely
+        // DECLARED a name won, even while holding nothing but GL's zero default, and an
+        // earlier stage's written value was overwritten with zeros on the way to the draw. The
+        // shared-header idiom - the same `uniform mat4 u_mvp` declared in the VS and the FS,
+        // written through glActiveShaderProgram(pipe, vs) - rendered nothing because of it.
+        // Copying only written uniforms makes that case, which is the overwhelmingly common
+        // one, simply correct: an unwritten declaration has nothing to say and says nothing.
+        //
+        // WHEN BOTH STAGES WROTE THE SAME NAME there is no single right answer available -
+        // GL_ARB_separate_shader_objects gives the two values separate storage and the
+        // composite has one slot - so the rule is LAST WRITTEN-TO GRAPHICS STAGE WINS, in
+        // ShaderStage enum order (Vertex .. Fragment), decided by the stage walk in
+        // RefreshCompositeUniforms. It is deterministic, and it is strictly better than what
+        // it replaces: only a stage that actually holds an application-written value can now
+        // take the slot. True last-WRITE-wins would need a global write ordering the dirty set
+        // does not carry.
+        //
+        // An unwritten uniform is not left to chance either: the composite links the same
+        // shader objects the stages do, so its own link seeds it with the same declared
+        // initializers (ApplyUniformInitialValues), which is precisely the value GL says an
+        // unwritten uniform reads.
+        static void MirrorUniformValues(ProgramObject& source, ProgramObject& destination) {
+            if (!source.GetLinkStatus() || !destination.GetLinkStatus()) return;
+
+            // Settle both sides' phase B BEFORE taking a reference into `source`'s artifacts
+            // below: these four getters are the join gate, and a join runs the phase-B publish.
+            // Nothing that publish does marks a uniform today, but the loop holds a reference to
+            // a Vector that a mark would push_back to, and "the replay does not mark" is not a
+            // property a future reader of this line can see.
+            const char* sourceUbo = static_cast<const char*>(source.GetUBOData());
+            char* destinationUbo = static_cast<char*>(destination.MapUBO());
+            const SizeT sourceUboSize = source.GetUBOSize();
+            const SizeT destinationUboSize = destination.GetUBOSize();
+
+            // O(uniforms written), not O(uniforms declared). The two name lookups below are
+            // string hashes into both programs' location maps, and doing them for every active
+            // uniform of every stage on every gate trip was hundreds of them per draw on a
+            // large program. A stage nothing has been written to costs one empty() test.
+            //
+            // FALLBACK, and it is load-bearing rather than defensive: a program only records
+            // its writes once something asks it to be separable (ProgramObject::SetSeparable
+            // arms the latch), but glUseProgramStages here validates only LINK_STATUS - it does
+            // not reject a program that was never linked as separable, which GL 4.6 core 7.4
+            // says it should. So a plain glCreateProgram/glLinkProgram program CAN be installed
+            // as a stage, and it will have recorded nothing at all. Mirroring "only what was
+            // written" would then mirror nothing and paint the composite's defaults - a fresh
+            // regression on a shape that worked. For such a program the old full walk is exactly
+            // right: it has no dirty set to be more precise with.
+            const Bool byWriteSet = source.TracksUniformWrites();
+            const Vector<Uint>& writtenIndices = source.GetWrittenUniformIndices();
+            const Uint uniformCount = source.GetUniformCount();
+            const SizeT indexCount = byWriteSet ? writtenIndices.size() : static_cast<SizeT>(uniformCount);
+            if (indexCount == 0) return;
+
+            for (SizeT slot = 0; slot < indexCount; ++slot) {
+                const Uint index = byWriteSet ? writtenIndices[slot] : static_cast<Uint>(slot);
+                const String& name = source.GetActiveUniformName(index);
+                if (name.empty()) continue;
+                const Int sourceBase = source.GetUniformLocation(name);
+                const Int destinationBase = destination.GetUniformLocation(name);
+                // A uniform the composite's own link dropped (or renamed) is simply not
+                // mirrored; the draw cannot read what does not exist.
+                if (sourceBase < 0 || destinationBase < 0) continue;
+
+                const GLint arraySize = source.GetActiveUniformArraySize(index);
+                const Int elements = arraySize > 0 ? static_cast<Int>(arraySize) : 1;
+                for (Int element = 0; element < elements; ++element) {
+                    const Int sourceLocation = sourceBase + element;
+                    const Int destinationLocation = destinationBase + element;
+                    if (!source.IsValidUniformLocation(sourceLocation) ||
+                        !destination.IsValidUniformLocation(destinationLocation)) {
+                        break;
+                    }
+                    // Per ELEMENT, not per array: `arr[3] = x` must carry element 3 and leave
+                    // the elements another stage owns alone. `continue`, not `break` - the
+                    // written elements of an array need not be a prefix of it.
+                    if (byWriteSet && !source.IsUniformWrittenAtLocation(static_cast<Uint>(sourceLocation))) {
+                        continue;
+                    }
+                    // Stop at the end of EITHER side's array rather than walking onto the
+                    // neighbouring uniform of whichever program has the shorter one.
+                    if (!source.UniformLocationsAliasSameUniform(sourceBase, sourceLocation) ||
+                        !destination.UniformLocationsAliasSameUniform(destinationBase, destinationLocation)) {
+                        break;
+                    }
+
+                    const Bool sourceOpaque = source.IsUniformOpaqueAtLocation(sourceLocation);
+                    if (sourceOpaque != destination.IsUniformOpaqueAtLocation(destinationLocation)) break;
+                    if (sourceOpaque) {
+                        // A sampler/image unit is phase-A state, not UBO bytes. The setter
+                        // itself is a no-op when the value already matches, so this does not
+                        // churn the composite's backend state version.
+                        destination.SetUniformSamplerOrImageUnitIndex(
+                            destinationLocation, source.GetUniformSamplerOrImageUnitIndex(sourceLocation));
+                        continue;
+                    }
+
+                    const SizeT span = source.GetUniformStorageSpanInBytes(sourceLocation);
+                    if (span == 0 || span != destination.GetUniformStorageSpanInBytes(destinationLocation)) continue;
+                    const Uint sourceOffset = source.GetUniformOffset(sourceLocation);
+                    const Uint destinationOffset = destination.GetUniformOffset(destinationLocation);
+                    // Either side can legitimately lack backing storage: the optimizer deletes a
+                    // uniform nothing reads, and a program whose SPIR-V phase settled cancelled
+                    // has no shadow at all. Both report kInvalidUniformOffset / a null shadow.
+                    if (sourceUbo == nullptr || destinationUbo == nullptr ||
+                        sourceOffset == ProgramObject::kInvalidUniformOffset ||
+                        destinationOffset == ProgramObject::kInvalidUniformOffset ||
+                        sourceOffset + span > sourceUboSize || destinationOffset + span > destinationUboSize) {
+                        continue;
+                    }
+                    if (std::memcmp(destinationUbo + destinationOffset, sourceUbo + sourceOffset, span) == 0) {
+                        continue;
+                    }
+                    Memcpy(destinationUbo + destinationOffset, sourceUbo + sourceOffset, span);
+                    destination.MarkUBOContentDirty();
+                }
+            }
+        }
+
+        // The other half of "the composite is a different program object": interface BLOCK
+        // bindings. glUniformBlockBinding and glShaderStorageBlockBinding place a block on a
+        // binding point, and they do it per program - so a pipeline whose blocks were placed
+        // that way drew against the composite's own bindings, which come from the shader
+        // declarations alone. A block declared without any layout(binding) therefore sat on
+        // whatever the declaration implied while the application's buffers sat somewhere else,
+        // and nothing anywhere raised an error: the draw simply read or wrote the wrong place.
+        //
+        // Both sides seed these from the same shader declarations at link, so mirroring a block
+        // the application never rebound writes back the value the destination already holds and
+        // the setters' equality checks make it free.
+        static void MirrorBlockBindings(const ProgramObject& source, ProgramObject& destination) {
+            // Storage blocks are keyed by GL name on both sides - the one coordinate the
+            // frontend, SPIR-V and driver index spaces all agree on - so this is a direct
+            // replay. Empty for the overwhelming majority of programs.
+            for (const auto& [blockName, binding] : source.GetShaderStorageBlockBindingOverrides()) {
+                if (binding < 0) continue;
+                destination.SetShaderStorageBlockBinding(blockName, static_cast<Uint>(binding));
+            }
+
+            // Uniform blocks are keyed by index, and the two programs number them
+            // independently, so they are matched by name.
+            const Int sourceBlockCount = source.GetActiveUniformBlocksCount();
+            for (Int sourceIndex = 0; sourceIndex < sourceBlockCount; ++sourceIndex) {
+                const Int binding = static_cast<Int>(source.GetUniformBlockBinding(static_cast<Uint>(sourceIndex)));
+                // -1 is "no declared binding and never rebound" - there is nothing to carry,
+                // and forwarding it would land as binding 0xFFFFFFFF.
+                if (binding < 0) continue;
+                const String& blockName = source.GetUniformBlockName(static_cast<Uint>(sourceIndex));
+                if (blockName.empty()) continue;
+                const Uint destinationIndex = destination.GetUniformBlockIndex(blockName.c_str());
+                if (destinationIndex == 0xFFFFFFFFu) continue; // GL_INVALID_INDEX
+                destination.SetUniformBlockBinding(destinationIndex, static_cast<Uint>(binding));
+            }
+        }
+
+        // Brings the pipeline's composite up to date with the per-program state its stage
+        // programs hold and it does not: uniform values, and interface block bindings. Runs on
+        // every draw through a pipeline, so the common case is the version compare below and
+        // nothing else.
+        static void RefreshCompositeUniforms(ProgramPipelineObject& pipeline, const SharedPtr<ProgramObject>& composite) {
+            if (!composite) return;
+            const auto versions = pipeline.ComputeUniformMirrorVersions();
+            if (versions == pipeline.GetMirroredUniformVersions()) return;
+
+            // A program bound to two stages appears twice; mirroring it twice would be
+            // idempotent but is still work, and the second pass would have nothing to do.
+            Array<ProgramObject*, ProgramPipelineObject::kGraphicsStageCount> mirrored{};
+            SizeT mirroredCount = 0;
+            for (SizeT stage = 0; stage < ProgramPipelineObject::kGraphicsStageCount; ++stage) {
+                const auto& stageProgram = pipeline.GetStageProgram(static_cast<ShaderStage>(stage));
+                if (!stageProgram) continue;
+                Bool alreadyMirrored = false;
+                for (SizeT i = 0; i < mirroredCount; ++i) {
+                    if (mirrored[i] == stageProgram.get()) {
+                        alreadyMirrored = true;
+                        break;
+                    }
+                }
+                if (alreadyMirrored) continue;
+                mirrored[mirroredCount++] = stageProgram.get();
+                MirrorUniformValues(*stageProgram, *composite);
+                MirrorBlockBindings(*stageProgram, *composite);
+            }
+            pipeline.SetMirroredUniformVersions(versions);
+        }
+
         const SharedPtr<ProgramObject>& GLContext::GetProgramForDraw() {
             static const SharedPtr<ProgramObject> nullProgram = nullptr;
             const auto& currentProgram = m_programState.GetCurrentProgram();
@@ -395,20 +603,23 @@ namespace MobileGL::MG_State {
             if (!pipeline) return nullProgram;
 
             // P1 join site J1. ComputeDrawProgramSignature() keys the composite cache on each
-            // stage program's lifetimeId and backendStateVersion - NON-artifact fields, so
-            // they do not pass through ProgramObject's join gate and a pending link would
-            // stay pending right through the signature. Since the version is bumped both at
-            // enqueue and at publish, the signature computed inside a pending window is one
-            // that will never be produced again: every draw would miss the cache and rebuild
-            // (and relink) the composite. Join first, so the signature describes settled
-            // programs. In steady state this is a null check per stage.
-            for (SizeT stage = 0; stage < static_cast<SizeT>(ShaderStage::ShaderStageCount); ++stage) {
+            // stage program's lifetimeId and linkVersion - NON-artifact fields, so they do not
+            // pass through ProgramObject's join gate and a pending link would stay pending
+            // right through the signature. Since the version is bumped both at enqueue and at
+            // publish, the signature computed inside a pending window is one that will never
+            // be produced again: every draw would miss the cache and rebuild (and relink) the
+            // composite. Join first, so the signature describes settled programs. In steady
+            // state this is a null check per stage.
+            for (SizeT stage = 0; stage < ProgramPipelineObject::kGraphicsStageCount; ++stage) {
                 const auto& stageProgram = pipeline->GetStageProgram(static_cast<ShaderStage>(stage));
                 if (stageProgram) stageProgram->JoinLinkAndSpirv();
             }
 
             const auto signature = pipeline->ComputeDrawProgramSignature();
-            if (const auto& cached = pipeline->GetCachedDrawProgram(signature)) return cached;
+            if (const auto& cached = pipeline->GetCachedDrawProgram(signature)) {
+                RefreshCompositeUniforms(*pipeline, cached);
+                return cached;
+            }
 
             // Everything downstream of here - the backends, the uniform plumbing, the draw
             // validation - is written against a single linked program, so the pipeline is
@@ -420,8 +631,14 @@ namespace MobileGL::MG_State {
             // could otherwise be handed. Backend registries key on the object, not the name.
             auto composite = MakeShared<ProgramObject>(0u);
 
+            // GRAPHICS stages only. A pipeline may carry a compute stage alongside them (GL
+            // 4.6 core 7.4 forbids linking compute WITH another stage into one program, not
+            // attaching a compute program to a pipeline that also has graphics ones), and that
+            // stage belongs to glDispatchCompute, not to this draw. Compositing it in produced
+            // a graphics program carrying a compute module, which Adreno 830 does not reject
+            // from vkCreateGraphicsPipelines - it SIGSEGVs inside it.
             Bool anyStage = false;
-            for (SizeT stage = 0; stage < static_cast<SizeT>(ShaderStage::ShaderStageCount); ++stage) {
+            for (SizeT stage = 0; stage < ProgramPipelineObject::kGraphicsStageCount; ++stage) {
                 const auto& stageProgram = pipeline->GetStageProgram(static_cast<ShaderStage>(stage));
                 if (!stageProgram) continue;
                 for (const auto& shader : stageProgram->GetAttachedShaders()) {
@@ -440,7 +657,32 @@ namespace MobileGL::MG_State {
             // for the same reason: the backend is about to read its SPIR-V.
             composite->JoinLinkAndSpirv();
             pipeline->SetCachedDrawProgram(signature, Move(composite));
-            return pipeline->GetCachedDrawProgram(signature);
+            const auto& cached = pipeline->GetCachedDrawProgram(signature);
+            RefreshCompositeUniforms(*pipeline, cached);
+            return cached;
+        }
+
+        const SharedPtr<ProgramObject>& GLContext::GetProgramForDispatch() {
+            static const SharedPtr<ProgramObject> nullProgram = nullptr;
+            const auto& currentProgram = m_programState.GetCurrentProgram();
+            if (currentProgram) {
+                // Same join contract as GetProgramForDraw's glUseProgram half - see the note
+                // there. A dispatch reads the same non-artifact versions a draw does.
+                currentProgram->JoinLinkAndSpirv();
+                return currentProgram;
+            }
+            if (m_boundProgramPipeline == 0) return nullProgram;
+            const auto& pipeline = GetBoundProgramPipeline();
+            if (!pipeline) return nullProgram;
+            // No compositing and no cache: GL 4.6 core 7.4 makes a compute program exclusive of
+            // every other stage, so the pipeline's compute stage program IS the program to
+            // dispatch, uniforms and all. That also means glUniform* through the active program
+            // lands on the very object the dispatch reads - the composite's uniform refresh has
+            // no counterpart to do here.
+            const auto& computeProgram = pipeline->GetStageProgram(ShaderStage::Compute);
+            if (!computeProgram) return nullProgram;
+            computeProgram->JoinLinkAndSpirv();
+            return computeProgram;
         }
 
         const SharedPtr<ProgramObject>& GLContext::GetProgramForUniform() {
@@ -919,29 +1161,58 @@ namespace MobileGL::MG_State {
         // Program pipeline
         void GLContext::GenProgramPipelineNames(Uint number, Vector<Uint>& pipelines) {
             pipelines.resize(number);
-            // Names only: glIsProgramPipeline must answer GL_FALSE until one is bound or created.
+            // Names only. The OBJECT appears as soon as a command needs somewhere to put state
+            // (see MaterializeProgramPipelineObject), but glIsProgramPipeline still answers
+            // GL_FALSE until the name is bound or created - see IsProgramPipelineObject.
             m_programPipelineNames.Generate(number, pipelines.data());
         }
 
         void GLContext::CreateProgramPipelineObject(Uint index) {
-            m_programPipelines[index] = MakeShared<ProgramPipelineObject>(index);
+            const auto object = MakeShared<ProgramPipelineObject>(index);
+            // glCreateProgramPipelines makes the object outright, so it answers
+            // glIsProgramPipeline immediately - unlike a name that only got here through
+            // GenProgramPipelines plus a command that materialized it.
+            object->MarkEverBound();
+            m_programPipelines[index] = object;
         }
 
         Bool GLContext::ValidateProgramPipelineName(Uint index) const {
             return index == 0 || m_programPipelineNames.IsValid(index);
         }
 
+        // glIsProgramPipeline. Materialization is NOT the test: the object now appears as soon
+        // as any command takes state from a reserved name, and two of those commands are the
+        // pure queries glGetProgramPipelineiv / glGetProgramPipelineInfoLog - so keying this on
+        // map membership would let merely READING a gen'd name turn it into an object. GL 4.6
+        // core 7.4 gives the real rule: a GenProgramPipelines name acquires program pipeline
+        // state when it is first bound. Same shape as IsTransformFeedbackObject.
         Bool GLContext::IsProgramPipelineObject(Uint index) const {
             if (index == 0 || !m_programPipelineNames.IsValid(index)) return false;
-            return m_programPipelines.find(index) != m_programPipelines.end();
+            const auto it = m_programPipelines.find(index);
+            return it != m_programPipelines.end() && it->second && it->second->GetEverBound();
         }
 
         void GLContext::BindProgramPipelineObject(Uint index) {
-            if (index != 0 && m_programPipelines.find(index) == m_programPipelines.end()) {
-                // First bind is what turns a reserved name into an object.
-                m_programPipelines[index] = MakeShared<ProgramPipelineObject>(index);
+            if (index != 0) {
+                if (const auto& object = MaterializeProgramPipelineObject(index)) {
+                    object->MarkEverBound();
+                }
             }
             m_boundProgramPipeline = index;
+        }
+
+        // Binding is not the only thing that turns a reserved name into an object. GL 4.6 core
+        // 7.4 asks of UseProgramStages, ActiveShaderProgram and ValidateProgramPipeline only that
+        // the name came from GenProgramPipelines and has not been deleted - so a name that was
+        // reserved and never bound must take state from them, not be rejected. glIsProgramPipeline
+        // is the one place the distinction survives (it answers FALSE until the name is used),
+        // which is why IsProgramPipelineObject stays as it is.
+        const SharedPtr<ProgramPipelineObject>& GLContext::MaterializeProgramPipelineObject(Uint index) {
+            static const SharedPtr<ProgramPipelineObject> kNone;
+            if (index == 0 || !m_programPipelineNames.IsValid(index)) return kNone;
+            const auto it = m_programPipelines.find(index);
+            if (it != m_programPipelines.end()) return it->second;
+            return m_programPipelines[index] = MakeShared<ProgramPipelineObject>(index);
         }
 
         void GLContext::MarkProgramPipelineForDeletion(Uint index) {

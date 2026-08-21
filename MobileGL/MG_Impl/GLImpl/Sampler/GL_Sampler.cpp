@@ -336,8 +336,22 @@ namespace MobileGL::MG_Impl::GLImpl {
             return;
         }
 
+        // ARB_multi_bind adds one rule the single-bind path does not have: "samplers will not be
+        // created if they do not exist", so a name that is not an existing sampler OBJECT is
+        // INVALID_OPERATION here (KHR-GL44.multi_bind.errors_bind_samplers). Per element, not
+        // all-or-nothing - the extension defines glBindSamplers as a loop, so a bad entry costs
+        // its own texture unit and leaves the rest of the range bound.
         for (GLsizei i = 0; i < count; ++i) {
-            BindSampler_State(first + i, samplers ? samplers[i] : 0);
+            const GLuint sampler = samplers ? samplers[i] : 0;
+            if (sampler != 0 && !MG_State::pGLContext->ValidateSamplerObject(sampler)) {
+                MG_State::pGLContext->RecordError(
+                    ErrorCode::InvalidOperation,
+                    MakeUnique<GenericErrorInfo>(
+                        "MG_Impl/GLImpl", "BindSamplers",
+                        std::format("samplers[{}] ({}) is not the name of an existing sampler object.", i, sampler)));
+                continue;
+            }
+            BindSampler_State(first + i, sampler);
         }
     }
 

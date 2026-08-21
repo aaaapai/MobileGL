@@ -27,8 +27,11 @@
 #include "SpirvPasses/StripUboMemberRelaxedPrecisionPass.h"
 #include "SpirvPasses/StripNoPerspectivePass.h"
 #include "SpirvPasses/EmulateNoPerspectivePass.h"
+#include "SpirvPasses/LegalizeFragmentOutputIndexPass.h"
 #include "spirv-tools/libspirv.h"
 #include "spirv-tools/optimizer.hpp"
+#include "source/opt/build_module.h"
+#include "source/opt/ir_context.h"
 
 #include "ShaderSourceProcessor.h"
 #include <MG_Backend/BackendObjects.h>
@@ -537,6 +540,42 @@ namespace MobileGL {
                 return g_spirvValidationFailures.load(std::memory_order_relaxed);
             }
 
+            Bool ShaderCompiler::ModuleDeclaresBufferTextureSampler(const Vector<Uint32>& spirv) {
+                if (spirv.empty()) {
+                    // Early out rather than letting BuildModule reject it: an empty module is a
+                    // stage that produced no SPIR-V, which is not a capability verdict, and the
+                    // parse would push a spurious diagnostic through the message consumer first.
+                    return false;
+                }
+                // Callers gate this on the driver LACKING buffer textures, so the module build
+                // here only ever happens on a degraded driver that is about to fail the compile
+                // anyway - it is not on the healthy path.
+                std::unique_ptr<spvtools::opt::IRContext> context = spvtools::BuildModule(
+                    SPV_ENV_VULKAN_1_1, MakeSpirvMessageConsumer("ModuleDeclaresBufferTextureSampler"),
+                    spirv.data(), spirv.size());
+                if (!context) {
+                    // Unparseable here means unusable downstream too; let the ordinary transpile
+                    // path produce the error rather than inventing a capability verdict from it.
+                    return false;
+                }
+                for (const spvtools::opt::Instruction& type : context->types_values()) {
+                    if (type.opcode() != spv::Op::OpTypeImage) {
+                        continue;
+                    }
+                    // OpTypeImage in-operands: Sampled Type, Dim, Depth, Arrayed, MS, Sampled,
+                    // Format. Dim is operand 1; Dim::Buffer is what samplerBuffer/isamplerBuffer/
+                    // usamplerBuffer all lower to, whatever their sampled type - and equally what
+                    // the imageBuffer family lowers to, which is correct here because SPIRV-Cross
+                    // requires the same extension for those. The operand-count guard mirrors
+                    // NormalizeRectCoordinatesPass, which reads the same operand.
+                    if (type.NumInOperands() >= 2 &&
+                        static_cast<spv::Dim>(type.GetSingleWordInOperand(1)) == spv::Dim::Buffer) {
+                        return true;
+                    }
+                }
+                return false;
+            }
+
             bool ShaderCompiler::SanitizeAndOptimizeBinary(const Vector<Uint32>& inputBinary,
                                                            Vector<uint32_t>& outputBinary) {
                 using namespace spvtools;
@@ -629,6 +668,75 @@ namespace MobileGL {
 
                 return RunOptimizerChecked("EmulateNoPerspectiveForEssl", optimizer, inputBinary,
                                            outputBinary);
+            }
+
+            bool ShaderCompiler::LegalizeFragmentOutputIndexingForEssl(const Vector<Uint32>& inputBinary,
+                                                                       Vector<uint32_t>& outputBinary) {
+                using namespace spvtools;
+
+                // Detection gates everything: a module with no dynamically indexed fragment
+                // output - every shader but a handful - pays one BuildModule and is handed
+                // back byte for byte, so the folding chain can never perturb a shader that
+                // did not need it.
+                if (!LegalizeFragmentOutputIndexPass::BinaryHasDynamicOutputIndexing(inputBinary)) {
+                    outputBinary = inputBinary;
+                    return true;
+                }
+
+                // Stock passes do the real work. The only bespoke member is the loop-control
+                // hint the stock unroller demands (see the pass header); with it set, an index
+                // derived from a loop counter - the shape of the Minecraft 26.3 OIT
+                // coefficient shader and of most real ones - folds to a literal here, and the
+                // fallback below never runs.
+                Optimizer folder(SPV_ENV_VULKAN_1_1);
+                // First, because both the unroller and the marking pass below read the
+                // induction variable as an OpPhi, and glslang emits it as loads and stores of
+                // a Function variable.
+                folder.RegisterPass(CreateLocalMultiStoreElimPass());
+                folder.RegisterPass(LegalizeFragmentOutputIndexPass::CreateMarkLoopsForUnrollPass());
+                folder.RegisterPass(CreateLoopUnrollPass(true));
+                // Fold the unrolled induction values into the access chains, then clear out
+                // what constant conditions leave behind.
+                folder.RegisterPass(CreateCCPPass());
+                folder.RegisterPass(CreateSimplificationPass());
+                folder.RegisterPass(CreateDeadBranchElimPass());
+                folder.RegisterPass(CreateBlockMergePass());
+
+                Vector<uint32_t> folded;
+                if (!RunOptimizerChecked("LegalizeFragmentOutputIndexingForEssl.fold", folder, inputBinary,
+                                         folded) ||
+                    folded.empty()) {
+                    // Fail open onto the fallback rather than onto the illegal module.
+                    folded = inputBinary;
+                }
+
+                if (!LegalizeFragmentOutputIndexPass::BinaryHasDynamicOutputIndexing(folded)) {
+                    outputBinary = folded;
+                    return true;
+                }
+
+                // Genuinely dynamic (uniform-derived, non-constant trip count, ...): lower it.
+                Optimizer lowerer(SPV_ENV_VULKAN_1_1);
+                lowerer.RegisterPass(LegalizeFragmentOutputIndexPass::CreateLowerToConstantSwitchPass());
+                // The chains the lowering replaced are dead now; remove_outputs must stay
+                // false here for the same reason it does in SanitizeAndOptimizeBinary.
+                lowerer.RegisterPass(CreateAggressiveDCEPass(false));
+
+                if (!RunOptimizerChecked("LegalizeFragmentOutputIndexingForEssl.lower", lowerer, folded,
+                                         outputBinary) ||
+                    outputBinary.empty()) {
+                    outputBinary = folded;
+                    return true;
+                }
+
+                if (LegalizeFragmentOutputIndexPass::BinaryHasDynamicOutputIndexing(outputBinary)) {
+                    // MGLOG_I, deliberately: MGLOG_E/W are compiled out at the INFO level every
+                    // CI and retrace build uses, and this is precisely the diagnostic that has
+                    // to survive to explain a shader the driver is about to reject.
+                    MGLOG_I("[spirv] LegalizeFragmentOutputIndexingForEssl: a fragment output is still "
+                            "indexed dynamically; a strict ES driver will reject this shader");
+                }
+                return true;
             }
 
             bool ShaderCompiler::LowerRectImages(const Vector<Uint32>& inputBinary,

@@ -605,10 +605,11 @@ namespace MobileGL::MG_Backend::DirectGLES {
             // Cached address of g_xfbObjects[g_currentXfbName]: PrepareForDraw consults
             // CurrentXfb on EVERY draw (StartPendingTransformFeedback) and the map
             // lookup was pure per-draw overhead for the overwhelmingly common no-capture
-            // case. FastSTL's open addressing keeps values in the bucket array, so ANY
-            // insert can rehash and move them (and erase/clear can too): every site that
-            // mutates the map or rebinds the current name resets this to null instead of
-            // reasoning about stability, and CurrentXfb re-resolves lazily.
+            // case. Open addressing keeps values in the bucket array, so ANY insert can
+            // rehash and move them - and erase moves them too, by shifting the rest of the
+            // probe cluster into the hole, which reaches entries other than the erased one.
+            // Every site that mutates the map or rebinds the current name resets this to
+            // null instead of reasoning about stability, and CurrentXfb re-resolves lazily.
             XfbObjectState* g_currentXfbState = nullptr;
 
             XfbObjectState& CurrentXfb() {
@@ -883,7 +884,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
             if (it->second.esId != 0 && g_GLESFuncs.glDeleteTransformFeedbacks != nullptr) {
                 g_GLESFuncs.glDeleteTransformFeedbacks(1, &it->second.esId);
             }
-            g_currentXfbState = nullptr; // erase can move values (open addressing)
+            g_currentXfbState = nullptr; // erase shifts the probe cluster, moving other entries
             g_xfbObjects.erase(it);
             // The frontend reverts to the default object when the bound one is deleted.
             if (g_currentXfbName == name) {
@@ -1214,7 +1215,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
             if (g_unitTextureSyncListValid &&
                 g_unitTextureSyncListContextId == keys.contextId &&
                 g_unitTextureSyncListMaxUnit == maxTouchedUnit &&
-                g_unitTextureSyncListContextGeneration == g_textureContextGeneration &&
+                g_unitTextureSyncListContextGeneration == g_backendContextGeneration &&
                 g_unitTextureSyncListEpoch == unitBindingsEpoch &&
                 g_unitTextureSyncListSamplingGeneration == samplingGeneration &&
                 PairingsIntact(g_unitTextureSyncList)) {
@@ -1246,7 +1247,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 }
                 g_unitTextureSyncListContextId = keys.contextId;
                 g_unitTextureSyncListMaxUnit = maxTouchedUnit;
-                g_unitTextureSyncListContextGeneration = g_textureContextGeneration;
+                g_unitTextureSyncListContextGeneration = g_backendContextGeneration;
                 g_unitTextureSyncListEpoch = unitBindingsEpoch;
                 g_unitTextureSyncListSamplingGeneration = samplingGeneration;
                 g_unitTextureSyncListValid = true;
@@ -1274,7 +1275,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
                     g_fboTextureSyncListSlotVersion == fboSlotVersion &&
                     g_fboTextureSyncListObjectVersion == fboObjectVersion &&
                     g_fboTextureSyncListContextId == keys.contextId &&
-                    g_fboTextureSyncListContextGeneration == g_textureContextGeneration &&
+                    g_fboTextureSyncListContextGeneration == g_backendContextGeneration &&
                     PairingsIntact(g_fboTextureSyncList);
                 if (fboListValid) {
                     for (const auto& entry : g_fboTextureSyncList) {
@@ -1302,7 +1303,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
                     g_fboTextureSyncListSlotVersion = fboSlotVersion;
                     g_fboTextureSyncListObjectVersion = fboObjectVersion;
                     g_fboTextureSyncListContextId = keys.contextId;
-                    g_fboTextureSyncListContextGeneration = g_textureContextGeneration;
+                    g_fboTextureSyncListContextGeneration = g_backendContextGeneration;
                 }
             } else {
                 g_fboTextureSyncListFbo = nullptr;
@@ -2077,11 +2078,30 @@ namespace MobileGL::MG_Backend::DirectGLES {
             // A link-version mismatch means the program was relinked: the backend
             // shaders and every cache built by CacheResourceLocations (block
             // indices, sampler locations, UBO upload gate) are stale.
+            //
+            // The storage-block signature is the same shape of condition: ES cannot move a
+            // storage block's binding after link, so glShaderStorageBlockBinding is honoured by
+            // baking the effective binding into the generated ESSL - which makes a program built
+            // against a different override set stale. It is compared HERE rather than acted on in
+            // the entry point because that one must never trigger a build (see
+            // ShaderStorageBlockBinding below). The signature is over the values, so an
+            // application that re-sets the same bindings every frame rebuilds nothing.
+            //
+            // The image-unit generation is a third of the same shape, and it used to be
+            // carried by accident: glUniform1i on an image uniform bumped the program's backend
+            // state version, which was in the program-pipeline composite's cache key, so a
+            // pipeline draw got a whole NEW composite object and therefore a fresh twin. Keying
+            // that cache on the link version instead (ProgramPipelineObject) removed the
+            // accident - and it never covered the monolithic glUseProgram path at all - so the
+            // dependency is stated here instead.
             if (!twin->GetBackendProgramId() ||
                 twin->GetSyncedLinkVersion() != currentProgram->GetLinkVersion() ||
+                twin->GetSyncedImageUnitVersion() != currentProgram->GetImageUnitVersion() ||
                 twin->GetSnormFallbackClampOutputMask() != g_snormFallbackClampOutputMask ||
                 twin->GetUnormFallbackClampOutputMask() != g_unormFallbackClampOutputMask ||
-                twin->GetFragColorBroadcastCount() != g_fragColorBroadcastCount) {
+                twin->GetFragColorBroadcastCount() != g_fragColorBroadcastCount ||
+                twin->GetShaderStorageBlockBindingSignature() !=
+                    ComputeShaderStorageBlockBindingSignature(*currentProgram)) {
                 twin->SyncToBackend(currentProgram);
             }
             g_currentDrawFrontendProgram = currentProgram.get();
@@ -2423,7 +2443,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
             static_cast<SizeT>(maxTouchedUnit + 1) * sizeof(SamplerImpl::g_boundSamplersCache[0]);
         if (g_unitSamplerWalkValid && g_unitSamplerWalkContextId == keys.contextId &&
             g_unitSamplerWalkEpoch == keys.unitBindingsEpoch && g_unitSamplerWalkMaxUnit == maxTouchedUnit &&
-            g_unitSamplerWalkContextGeneration == TextureImpl::g_textureContextGeneration &&
+            g_unitSamplerWalkContextGeneration == g_backendContextGeneration &&
             std::memcmp(g_unitSamplerWalkRows.data(), SamplerImpl::g_boundSamplersCache.data(), rowBytes) == 0) {
             return;
         }
@@ -2444,7 +2464,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
         g_unitSamplerWalkContextId = keys.contextId;
         g_unitSamplerWalkEpoch = keys.unitBindingsEpoch;
         g_unitSamplerWalkMaxUnit = maxTouchedUnit;
-        g_unitSamplerWalkContextGeneration = TextureImpl::g_textureContextGeneration;
+        g_unitSamplerWalkContextGeneration = g_backendContextGeneration;
         std::memcpy(g_unitSamplerWalkRows.data(), SamplerImpl::g_boundSamplersCache.data(), rowBytes);
         g_unitSamplerWalkValid = true;
     }
@@ -2554,7 +2574,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
                                memo.programBackendStateVersion ==
                                    (currentProgram ? currentProgram->GetBackendStateVersion() : 0) &&
                                memo.programLinked == (currentProgram && currentProgram->GetLinkStatus()) &&
-                               memo.contextGeneration == TextureImpl::g_textureContextGeneration;
+                               memo.contextGeneration == g_backendContextGeneration;
         // Short-circuited: the shadow compare is only meaningful once the key (and with it the
         // snapshotted row count) matches.
         if (!keysMatch || std::memcmp(memo.boundTextures.data(), TextureImpl::g_boundTexturesCache.data(),
@@ -2569,7 +2589,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 memo.programLifetimeId = currentProgram ? currentProgram->GetLifetimeId() : 0;
                 memo.programBackendStateVersion = currentProgram ? currentProgram->GetBackendStateVersion() : 0;
                 memo.programLinked = currentProgram && currentProgram->GetLinkStatus();
-                memo.contextGeneration = TextureImpl::g_textureContextGeneration;
+                memo.contextGeneration = g_backendContextGeneration;
                 std::memcpy(memo.boundTextures.data(), TextureImpl::g_boundTexturesCache.data(), shadowBytes);
                 memo.valid = true;
             }
@@ -2744,7 +2764,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
                         samplerPassMemo.unitBindingsEpoch == keys.unitBindingsEpoch &&
                         samplerPassMemo.samplingGeneration == keys.samplingGeneration &&
                         samplerPassMemo.backendStateVersion == programBackendStateVersion &&
-                        samplerPassMemo.textureContextGeneration == TextureImpl::g_textureContextGeneration;
+                        samplerPassMemo.textureContextGeneration == g_backendContextGeneration;
                     if (samplerPassClean) {
                         for (Uint i = 0; i < samplerPassMemo.count; ++i) {
                             if (SamplerImpl::g_boundSamplersCache[samplerPassMemo.units[i]] !=
@@ -2843,7 +2863,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
                             samplerPassMemo.unitBindingsEpoch = keys.unitBindingsEpoch;
                             samplerPassMemo.samplingGeneration = keys.samplingGeneration;
                             samplerPassMemo.backendStateVersion = programBackendStateVersion;
-                            samplerPassMemo.textureContextGeneration = TextureImpl::g_textureContextGeneration;
+                            samplerPassMemo.textureContextGeneration = g_backendContextGeneration;
                             samplerPassMemo.valid = true;
                         }
                     }
@@ -3010,8 +3030,10 @@ namespace MobileGL::MG_Backend::DirectGLES {
         ZoneScopedC(TRACY_ZONECOLOR_BACKEND);
 #endif
         // Single per-dispatch program resolve and texture-key capture, as in
-        // PrepareForDraw (nothing below can move either).
-        const auto& currentProgram = MG_State::pGLContext->GetProgramForDraw();
+        // PrepareForDraw (nothing below can move either). The DISPATCH accessor: with a
+        // pipeline bound this is its compute stage program, which is a whole program on its
+        // own - the graphics composite a draw builds carries no compute stage.
+        const auto& currentProgram = MG_State::pGLContext->GetProgramForDispatch();
         const TextureImpl::DrawTextureSyncKeys textureKeys = TextureImpl::CaptureDrawTextureSyncKeys();
 
         BufferImpl::SyncComputeBuffers(includeDispatchIndirectBuffer);
@@ -3605,12 +3627,12 @@ namespace MobileGL::MG_Backend::DirectGLES {
             return false;
         }
 
-        if (s_resolveContextGeneration != TextureImpl::g_textureContextGeneration) {
+        if (s_resolveContextGeneration != g_backendContextGeneration) {
             // The ids belonged to a dead context; the context reclaimed them with it.
             s_resolveFramebuffer = 0;
             s_resolveRenderbuffer = 0;
             s_resolveFormat = 0;
-            s_resolveContextGeneration = TextureImpl::g_textureContextGeneration;
+            s_resolveContextGeneration = g_backendContextGeneration;
         }
         if (s_resolveFramebuffer == 0) {
             g_GLESFuncs.glGenFramebuffers(1, &s_resolveFramebuffer);
@@ -3758,7 +3780,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
         }
 
         static Bool EnsureResources() {
-            if (s_contextGeneration != TextureImpl::g_textureContextGeneration) {
+            if (s_contextGeneration != g_backendContextGeneration) {
                 // The ids belonged to a dead context; the context reclaimed them with it.
                 s_framebuffer = 0;
                 s_texture = 0;
@@ -3769,7 +3791,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
                 s_depthProgram = 0;
                 s_stencilProgram = 0;
                 s_programsFailed = false;
-                s_contextGeneration = TextureImpl::g_textureContextGeneration;
+                s_contextGeneration = g_backendContextGeneration;
             }
             if (s_programsFailed) {
                 return false;
@@ -5151,8 +5173,19 @@ namespace MobileGL::MG_Backend::DirectGLES {
                           const SharedPtr<MG_State::GLState::ITextureObject>& dstTexture,
                           GLenum dstTarget, GLint dstLevel, GLint dstX, GLint dstY, GLint dstZ,
                           GLsizei srcWidth, GLsizei srcHeight, GLsizei srcDepth) {
-        auto& srcBackendTexture = TextureImpl::SyncTextureObjectToBackend(srcTexture);
-        auto& dstBackendTexture = TextureImpl::SyncTextureObjectToBackend(dstTexture);
+        // BY VALUE, not by reference. SyncTextureObjectToBackend hands back a reference to a
+        // slot inside the backend texture registry, and the second call mutates that very map:
+        // GetOrCreate indexes it (an insert relocates entries - by rehashing, and also by
+        // robin-hood displacement well under the load factor), and Find drops any
+        // entry whose state object has expired - which, with the map open-addressed and erasing
+        // by shifting the probe cluster backwards, relocates entries other than the erased one.
+        // Either way a reference taken by the first call is stale by the time the second returns,
+        // and it is read four more times below. Copying the SharedPtr costs two refcount bumps on
+        // a path that is already doing a texture copy.
+        const SharedPtr<TextureImpl::BackendTextureObject> srcBackendTexture =
+            TextureImpl::SyncTextureObjectToBackend(srcTexture);
+        const SharedPtr<TextureImpl::BackendTextureObject> dstBackendTexture =
+            TextureImpl::SyncTextureObjectToBackend(dstTexture);
 
         const Bool srcIsDepth = MG_Util::IsDepthFormatInternalFormat(srcTexture->GetFormat());
         const Bool dstIsDepth = MG_Util::IsDepthFormatInternalFormat(dstTexture->GetFormat());
@@ -7200,6 +7233,83 @@ namespace MobileGL::MG_Backend::DirectGLES {
                g_GLESFuncs.glGetQueryObjectui64vEXT;
     }
 
+    namespace {
+        // The entry point the resolved tier's support ships, or null when there is none.
+        MG_External::GLES::glTexBuffer_PTR ResolveTexBufferEntryPoint() {
+            using Tier = MG_External::GLESCapabilities::TextureBufferTier;
+            switch (g_GLESCapabilities.TextureBufferSupport) {
+            case Tier::ExtensionEXT:
+                return g_GLESFuncs.glTexBufferEXT ? g_GLESFuncs.glTexBufferEXT : g_GLESFuncs.glTexBuffer;
+            case Tier::ExtensionOES:
+                return g_GLESFuncs.glTexBufferOES ? g_GLESFuncs.glTexBufferOES : g_GLESFuncs.glTexBuffer;
+            case Tier::CoreEs32:
+                return g_GLESFuncs.glTexBuffer;
+            case Tier::None:
+            default:
+                return nullptr;
+            }
+        }
+
+        MG_External::GLES::glTexBufferRange_PTR ResolveTexBufferRangeEntryPoint() {
+            using Tier = MG_External::GLESCapabilities::TextureBufferTier;
+            switch (g_GLESCapabilities.TextureBufferSupport) {
+            case Tier::ExtensionEXT:
+                return g_GLESFuncs.glTexBufferRangeEXT ? g_GLESFuncs.glTexBufferRangeEXT
+                                                       : g_GLESFuncs.glTexBufferRange;
+            case Tier::ExtensionOES:
+                return g_GLESFuncs.glTexBufferRangeOES ? g_GLESFuncs.glTexBufferRangeOES
+                                                       : g_GLESFuncs.glTexBufferRange;
+            case Tier::CoreEs32:
+                return g_GLESFuncs.glTexBufferRange;
+            case Tier::None:
+            default:
+                return nullptr;
+            }
+        }
+    } // namespace
+
+    Bool AreBufferTexturesSupported() {
+        // Both halves matter. The tier is what the driver ADVERTISES, and it is only meaningful
+        // once the capabilities have been filled in; the resolved pointer is what MobileGL can
+        // actually call, through the spelling that tier's support ships. Gating on the
+        // unsuffixed name alone would call an entry point an EXT/OES driver never exported.
+        return g_GLESCapabilities.TextureBufferSupport !=
+                   MG_External::GLESCapabilities::TextureBufferTier::None &&
+               ResolveTexBufferEntryPoint() != nullptr;
+    }
+
+    void CallTexBuffer(GLenum target, GLenum internalFormat, GLuint buffer) {
+        MG_External::GLES::glTexBuffer_PTR entryPoint = ResolveTexBufferEntryPoint();
+        if (entryPoint == nullptr) {
+            return;
+        }
+        entryPoint(target, internalFormat, buffer);
+    }
+
+    Bool CallTexBufferRange(GLenum target, GLenum internalFormat, GLuint buffer, GLintptr offset, GLsizeiptr size) {
+        MG_External::GLES::glTexBufferRange_PTR entryPoint = ResolveTexBufferRangeEntryPoint();
+        if (entryPoint == nullptr) {
+            return false;
+        }
+        entryPoint(target, internalFormat, buffer, offset, size);
+        return true;
+    }
+
+    const char* GetBufferTextureTierName() {
+        using Tier = MG_External::GLESCapabilities::TextureBufferTier;
+        switch (g_GLESCapabilities.TextureBufferSupport) {
+        case Tier::CoreEs32:
+            return "core (ES 3.2)";
+        case Tier::ExtensionEXT:
+            return "GL_EXT_texture_buffer";
+        case Tier::ExtensionOES:
+            return "GL_OES_texture_buffer";
+        case Tier::None:
+        default:
+            return "unsupported";
+        }
+    }
+
     BackendQueryHandle BeginTimeElapsedQuery() {
         // Query objects can only be created on the thread that owns the ES
         // context (MC's F3 profiler queries on the render thread, which
@@ -7482,7 +7592,7 @@ namespace MobileGL::MG_Backend::DirectGLES {
         PixelStoreImpl::InvalidatePackStateCache();
         // Texture ids belong to the dying context; wrappers destroyed later must
         // not glDeleteTextures a recycled name in a successor context.
-        ++TextureImpl::g_textureContextGeneration;
+        ++g_backendContextGeneration;
         g_backendContextOwnerThread.store(std::thread::id{}, std::memory_order_release);
         // Outstanding fence handles now refer to a dead context; treat them as
         // signaled from here on.

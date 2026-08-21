@@ -14,8 +14,8 @@
 #include "../Getter/GL_Getter.h"
 
 namespace MobileGL::MG_Impl::GLImpl {
-    static Bool ValidateCurrentProgramForExecution(const char* functionName) {
-        const auto& currentProgram = MG_State::pGLContext->GetProgramForDraw();
+    static Bool ValidateProgramForExecution(const SharedPtr<MG_State::GLState::ProgramObject>& currentProgram,
+                                            const char* functionName) {
         if (!currentProgram) {
             MG_State::pGLContext->RecordError(
                 ErrorCode::InvalidOperation,
@@ -34,10 +34,17 @@ namespace MobileGL::MG_Impl::GLImpl {
         return true;
     }
 
-    static Bool ValidateCurrentProgramForCompute(const char* functionName) {
-        if (!ValidateCurrentProgramForExecution(functionName)) return false;
+    static Bool ValidateCurrentProgramForExecution(const char* functionName) {
+        return ValidateProgramForExecution(MG_State::pGLContext->GetProgramForDraw(), functionName);
+    }
 
-        const auto& currentProgram = MG_State::pGLContext->GetProgramForDraw();
+    // A dispatch resolves its program through the DISPATCH accessor: with a pipeline bound
+    // that is the pipeline's compute stage program, not the graphics composite a draw would
+    // build - which no longer contains a compute stage to find at all.
+    static Bool ValidateCurrentProgramForCompute(const char* functionName) {
+        const auto& currentProgram = MG_State::pGLContext->GetProgramForDispatch();
+        if (!ValidateProgramForExecution(currentProgram, functionName)) return false;
+
         if (currentProgram->GetShaderIndexByStage(ShaderStage::Compute) < 0) {
             MG_State::pGLContext->RecordError(
                 ErrorCode::InvalidOperation,
@@ -493,15 +500,12 @@ namespace MobileGL::MG_Impl::GLImpl {
     }
 
     void DispatchComputeIndirect(GLintptr indirect) {
-        auto dispatchComputeIndirect = MG_Backend::gBackendFunctionsTable.GL.DispatchComputeIndirect;
-        if (!dispatchComputeIndirect) {
-            MG_State::pGLContext->RecordError(
-                ErrorCode::InvalidOperation,
-                MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", __func__,
-                                             "Backend does not support indirect compute dispatch."));
-            return;
-        }
-        if (!ValidateCurrentProgramForCompute(__func__)) return;
+        // Argument and binding validation runs FIRST. Both are properties of the call and of GL
+        // state, so a context whose backend cannot dispatch at all must still report the
+        // argument error the spec names rather than masking every one of them with
+        // "unsupported" - which is what put GL_INVALID_OPERATION where
+        // KHR-GL43.compute_shader.api-indirect expects GL_INVALID_VALUE.
+        //
         // GL 4.6 core 19: `indirect` is a byte offset into GL_DISPATCH_INDIRECT_BUFFER -
         // negative or misaligned is INVALID_VALUE, nothing bound is INVALID_OPERATION.
         if (indirect < 0 || (indirect % 4) != 0) {
@@ -520,6 +524,29 @@ namespace MobileGL::MG_Impl::GLImpl {
                                              "No buffer is bound to GL_DISPATCH_INDIRECT_BUFFER."));
             return;
         }
+        // ...and the same INVALID_OPERATION covers "the command would source data beyond the end
+        // of the bound buffer object" (GL 4.6 core 19): the dispatch reads three uints starting
+        // at `indirect`.
+        constexpr SizeT kDispatchIndirectCommandSize = 3 * sizeof(Uint32);
+        if (static_cast<SizeT>(indirect) + kDispatchIndirectCommandSize > indirectBuffer->GetSize()) {
+            MG_State::pGLContext->RecordError(
+                ErrorCode::InvalidOperation,
+                MakeUnique<GenericErrorInfo>(
+                    "MG_Impl/GLImpl", __func__,
+                    std::format("indirect ({}) + 12 bytes runs past the end of the {}-byte buffer bound to "
+                                "GL_DISPATCH_INDIRECT_BUFFER.",
+                                indirect, indirectBuffer->GetSize())));
+            return;
+        }
+        auto dispatchComputeIndirect = MG_Backend::gBackendFunctionsTable.GL.DispatchComputeIndirect;
+        if (!dispatchComputeIndirect) {
+            MG_State::pGLContext->RecordError(
+                ErrorCode::InvalidOperation,
+                MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", __func__,
+                                             "Backend does not support indirect compute dispatch."));
+            return;
+        }
+        if (!ValidateCurrentProgramForCompute(__func__)) return;
         dispatchComputeIndirect(indirect);
     }
 
@@ -580,8 +607,80 @@ namespace MobileGL::MG_Impl::GLImpl {
         MultiDrawArraysIndirect_Backend(mode, indirect, drawcount, stride);
     }
 
+    // ARB_indirect_parameters / GL 4.6 core 10.4: `drawcount` is a byte offset into the buffer
+    // bound to PARAMETER_BUFFER and holds one uint draw count. Three errors have to be raised
+    // before the call reaches a backend, and none of them was
+    // (KHR-GL46.indirect_parameters_tests.MultiDraw{Arrays,Elements}IndirectCount):
+    //   * drawcount not a multiple of four                                  INVALID_VALUE
+    //   * nothing bound to PARAMETER_BUFFER, or the uint at `drawcount`
+    //     lies past its end                                                 INVALID_OPERATION
+    //   * maxdrawcount commands from `indirect` run past the end of the
+    //     buffer bound to DRAW_INDIRECT_BUFFER                              INVALID_OPERATION
+    static Bool ValidateIndirectCountDraw(GLintptr indirect, GLintptr drawcount, GLsizei maxdrawcount,
+                                          GLsizei stride, SizeT commandSize, const char* funcName) {
+        if (drawcount < 0 || (drawcount % 4) != 0) {
+            MG_State::pGLContext->RecordError(
+                ErrorCode::InvalidValue,
+                MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", funcName,
+                                             "drawcount must be non-negative and a multiple of four."));
+            return false;
+        }
+        const auto& parameterBuffer =
+            MG_State::pGLContext->GetBufferBindingSlot(BufferTarget::Parameter).GetBoundObject();
+        if (!parameterBuffer ||
+            static_cast<SizeT>(drawcount) + sizeof(Uint32) > parameterBuffer->GetSize()) {
+            MG_State::pGLContext->RecordError(
+                ErrorCode::InvalidOperation,
+                MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", funcName,
+                                             "No buffer is bound to GL_PARAMETER_BUFFER, or drawcount runs past "
+                                             "the end of the one that is."));
+            return false;
+        }
+        if (maxdrawcount < 0 || stride < 0 || indirect < 0) {
+            MG_State::pGLContext->RecordError(
+                ErrorCode::InvalidValue,
+                MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", funcName,
+                                             "indirect, maxdrawcount and stride must all be non-negative."));
+            return false;
+        }
+        const SizeT effectiveStride = stride != 0 ? static_cast<SizeT>(stride) : commandSize;
+        const auto& indirectBuffer =
+            MG_State::pGLContext->GetBufferBindingSlot(BufferTarget::DrawIndirect).GetBoundObject();
+        // A zero maxdrawcount sources nothing, so it cannot run past anything.
+        const SizeT requiredBytes =
+            maxdrawcount == 0 ? 0
+                              : static_cast<SizeT>(indirect) +
+                                    static_cast<SizeT>(maxdrawcount - 1) * effectiveStride + commandSize;
+        if (!indirectBuffer || requiredBytes > indirectBuffer->GetSize()) {
+            MG_State::pGLContext->RecordError(
+                ErrorCode::InvalidOperation,
+                MakeUnique<GenericErrorInfo>("MG_Impl/GLImpl", funcName,
+                                             "maxdrawcount commands would be sourced from beyond the end of the "
+                                             "buffer bound to GL_DRAW_INDIRECT_BUFFER."));
+            return false;
+        }
+        return true;
+    }
+
     void MultiDrawElementsIndirectCount(GLenum mode, GLenum type, const void* indirect, GLintptr drawcount,
                                         GLsizei maxdrawcount, GLsizei stride) {
+        // Argument validation before the backend-availability check: see DispatchComputeIndirect.
+        // DrawElementsIndirectCommand: count, instanceCount, firstIndex, baseVertex, baseInstance.
+        if (!ValidateIndirectCountDraw(reinterpret_cast<GLintptr>(indirect), drawcount, maxdrawcount, stride,
+                                       5 * sizeof(Uint32), __func__)) {
+            return;
+        }
+        // The only two draw entry points that were missing this. Every backend draw path
+        // dereferences GetProgramForDraw() unconditionally, so "no current program" has to be
+        // stopped here or it is a null dereference rather than the INVALID_OPERATION the spec
+        // asks for - reachable through a bound pipeline that supplies no graphics stage.
+        //
+        // AFTER the argument checks, unlike the sibling draw entry points, and deliberately:
+        // the argument rules here are properties of the call rather than of GL state, and
+        // NegativeApiErrorsTest.IndirectParameterDrawsCheckBothBuffers pins the INVALID_VALUE
+        // they produce for a call made with no program bound. Same precedence decision, and
+        // the same reason, as DispatchComputeIndirect above.
+        if (!ValidateCurrentProgramForExecution(__func__)) return;
         auto multiDrawElementsIndirectCount = MG_Backend::gBackendFunctionsTable.GL.MultiDrawElementsIndirectCount;
         if (!multiDrawElementsIndirectCount) {
             MG_State::pGLContext->RecordError(
@@ -595,6 +694,14 @@ namespace MobileGL::MG_Impl::GLImpl {
 
     void MultiDrawArraysIndirectCount(GLenum mode, const void* indirect, GLintptr drawcount,
                                       GLsizei maxdrawcount, GLsizei stride) {
+        // Argument validation before the backend-availability check: see DispatchComputeIndirect.
+        // DrawArraysIndirectCommand: count, instanceCount, first, baseInstance.
+        if (!ValidateIndirectCountDraw(reinterpret_cast<GLintptr>(indirect), drawcount, maxdrawcount, stride,
+                                       4 * sizeof(Uint32), __func__)) {
+            return;
+        }
+        // See MultiDrawElementsIndirectCount, including why this one goes last.
+        if (!ValidateCurrentProgramForExecution(__func__)) return;
         auto multiDrawArraysIndirectCount = MG_Backend::gBackendFunctionsTable.GL.MultiDrawArraysIndirectCount;
         if (!multiDrawArraysIndirectCount) {
             MG_State::pGLContext->RecordError(
