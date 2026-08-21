@@ -1,0 +1,44 @@
+name: Build
+
+on:
+  workflow_dispatch:
+
+env:
+  BUILD_TYPE: Release
+  CCACHE_DIR: /tmp/ccache
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    
+    steps:
+    - uses: actions/checkout@main
+      with:
+         submodules: true
+    
+    - name: Setup ccache in PATH
+      run: |
+        echo "/usr/lib/ccache" >> $GITHUB_PATH
+        echo "CCACHE_DIR=/tmp/ccache" >> $GITHUB_ENV
+        echo "CCACHE_MAXSIZE=3G" >> $GITHUB_ENV
+
+    - name: CCache
+      uses: hendrikmuhs/ccache-action@main
+      with:
+        key: ${{ runner.os }}-ndk-${{ env.BUILD_TYPE }}
+        max-size: 3G
+
+    - name: Configure CMake and Build
+      run: bash android_ci_build.bash
+      env:
+        CC: ccache clang
+        CXX: ccache clang++
+        CMAKE_C_COMPILER_LAUNCHER: ccache
+        CMAKE_CXX_COMPILER_LAUNCHER: ccache
+    
+    - name: Upload build output
+      uses: actions/upload-artifact@main
+      with:
+        name: MobileGL
+        path: |
+              **/libMobileGL.so

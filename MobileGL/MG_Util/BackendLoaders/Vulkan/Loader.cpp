@@ -114,6 +114,7 @@ namespace MobileGL::MG_Util::BackendLoader {
 
     Bool QueryVulkanCapabilities(MobileGL::MG_External::VulkanCapabilities& caps, VkInstance instance,
                                  VkPhysicalDevice physicalDevice) {
+
         if (!physicalDevice) {
             MGLOG_E("Invalid physical device handle");
             return false;
