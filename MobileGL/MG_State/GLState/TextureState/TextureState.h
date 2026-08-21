@@ -38,7 +38,7 @@ namespace MobileGL::MG_State::GLState {
     class TextureState {
     public:
         // Capacity of the combined texture-unit state arrays (indexed by glActiveTexture unit).
-        static constexpr int MAX_TEXTURE_IMAGE_UNITS = 256;
+        static constexpr int MAX_TEXTURE_IMAGE_UNITS = 127;
         // Per-stage sampler limit advertised through GL_MAX_TEXTURE_IMAGE_UNITS /
         // GL_MAX_VERTEX_TEXTURE_IMAGE_UNITS. Held at the desktop-driver value (32) so it never exceeds
         // host-side fixed arrays sized off this query -- e.g. Minecraft's 128-entry Blaze3D
